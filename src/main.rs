@@ -13,14 +13,14 @@ fn main() {
 
     // let a = lexer::Tokenizer::new("(+ 1 2)");
 
-    // let a = parser::Parser::new("(define lkjsdflkjsdf) () (+ (+ (+ 1 2) 3) 4)");
+    let a = parser::Parser::new("(+ (+ (+ 1 2) 3) 4) (- 4 3)");
 
-    let b = evaluator::evaluator(a.next().unwrap());
+    //let b = evaluator::evaluator(a.next().unwrap().unwrap());
 
     for i in a {
-        println!("{:?}", i)
+        println!("{:?}", i);
         let e = evaluator::evaluator(i.unwrap());
-        // println!("{}", e.unwrap());
+        println!("{}", e.unwrap());
     }
 }
 

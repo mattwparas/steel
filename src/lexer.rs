@@ -1,6 +1,17 @@
 use std::iter::{Iterator, Peekable};
 use std::result;
 use std::str::Chars;
+use thiserror::Error;
+
+#[derive(Clone, Debug, PartialEq, Error)]
+pub enum TokenError {
+    #[error("Unexpected char, {0}")]
+    UnexpectedChar(char),
+    #[error("Incomplete String")]
+    IncompleteString,
+    #[error("Invalid Escape")]
+    InvalidEscape,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
@@ -18,7 +29,7 @@ pub enum Token {
     // Percent,
     // Cond,
     If,
-    Else,
+    // Else,
     Let,
     // List,
     Define,
@@ -28,16 +39,23 @@ pub enum Token {
     NumberLiteral(f64),
     StringLiteral(String),
 }
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum TokenError {
-    UnexpectedChar(char),
-    IncompleteString,
-    InvalidEscape,
+impl Token {
+    pub fn is_reserved_keyword(&self) -> bool {
+        match self {
+            Token::OpenParen
+            | Token::CloseParen
+            | Token::If
+            | Token::Let
+            | Token::Define
+            | Token::Lambda => true,
+            _ => false,
+        }
+    }
 }
 
 pub type Result<T> = result::Result<T, TokenError>;
 
+#[derive(Debug)]
 pub struct Tokenizer<'a> {
     input: Peekable<Chars<'a>>,
 }
@@ -96,7 +114,6 @@ impl<'a> Tokenizer<'a> {
 
         match word.as_ref() {
             "if" => Token::If,
-            "else" => Token::Else,
             "let" => Token::Let,
             "define" => Token::Define,
             "lambda" => Token::Lambda,
@@ -303,12 +320,11 @@ mod tests {
 
     #[test]
     fn test_words() {
-        let mut s = Tokenizer::new("foo FOO _123_ Nil else #f #t");
+        let mut s = Tokenizer::new("foo FOO _123_ Nil #f #t");
         assert_eq!(s.next(), Some(Ok(Identifier("foo".to_owned()))));
         assert_eq!(s.next(), Some(Ok(Identifier("FOO".to_owned()))));
         assert_eq!(s.next(), Some(Ok(Identifier("_123_".to_owned()))));
         assert_eq!(s.next(), Some(Ok(Identifier("Nil".to_owned()))));
-        assert_eq!(s.next(), Some(Ok(Else)));
         assert_eq!(s.next(), Some(Ok(BooleanLiteral(false))));
         assert_eq!(s.next(), Some(Ok(BooleanLiteral(true))));
         assert_eq!(s.next(), None);

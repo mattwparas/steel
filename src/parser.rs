@@ -1,6 +1,7 @@
 use std::iter::Peekable;
 use std::result;
 use std::str;
+use thiserror::Error;
 
 use crate::lexer::{Token, TokenError, Tokenizer};
 
@@ -29,14 +30,19 @@ impl Expr {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum ParseError {
-    ScanError(TokenError),
+    #[error("Error reading tokens")]
+    TokenError(#[from] TokenError),
+    #[error("Unexpected token, {0:?}")]
     Unexpected(Token),
+    #[error("Unexpected EOF")]
     UnexpectedEOF,
+    #[error("Extending Atom, {0:?}")]
     ExtendingAtom(Expr),
 }
 
+#[derive(Debug)]
 pub struct Parser<'a> {
     tokenizer: Peekable<Tokenizer<'a>>,
 }
@@ -111,8 +117,19 @@ impl<'a> Iterator for Parser<'a> {
     type Item = Result<Expr>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        return match &self.tokenizer.peek() {
-            None => return None,
+        self.tokenizer.next().map(|res| match res {
+            Err(e) => Err(ParseError::TokenError(e)),
+            Ok(tok) => match tok {
+                Token::OpenParen => self.read_from_tokens(),
+                tok if tok.is_reserved_keyword() => Err(ParseError::Unexpected(tok)),
+                tok => Ok(Expr::Atom(tok)),
+            },
+        })
+
+        // use this if doesn't work
+        /*
+        match &self.tokenizer.peek() {
+            None => None,
             Some(Err(_)) => match self.tokenizer.next() {
                 Some(Err(e2)) => return Some(Err(ParseError::ScanError(e2))),
                 _ => return None,
@@ -128,15 +145,6 @@ impl<'a> Iterator for Parser<'a> {
                 Some(Ok(t)) => Some(Err(ParseError::Unexpected(t))),
                 _ => None,
             },
-        };
+        }*/
     }
-
-    // fn next_redo(&mut self) -> Option<Self::Item> {
-    //     let x = match self.tokenizer.next() {
-    //         Some(Err(e)) => todo!(),
-    //         Some(Ok(exp)) => todo!(),
-    //         _ => todo!(),
-    //     };
-    //     None
-    // }
 }
