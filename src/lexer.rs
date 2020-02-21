@@ -6,20 +6,21 @@ use std::str::Chars;
 pub enum Token {
     OpenParen,
     CloseParen,
-    Equal,
-    Lt,
-    LtEq,
-    Gt,
-    GtEq,
-    Plus,
-    Minus,
-    Times,
-    Divide,
-    Percent,
-    Cond,
+    // Equal,
+    // Lt,
+    // LtEq,
+    // Gt,
+    // GtEq,
+    // Plus,
+    // Minus,
+    // Times,
+    // Divide,
+    // Percent,
+    // Cond,
+    If,
     Else,
     Let,
-    List,
+    // List,
     Define,
     Lambda,
     BooleanLiteral(bool),
@@ -83,24 +84,20 @@ impl<'a> Tokenizer<'a> {
     fn read_word(&mut self) -> Token {
         let mut word = String::new();
         while let Some(&c) = self.input.peek() {
-            if c.is_whitespace() {
-                break;
-            }
-
             match c {
                 '(' | '[' | '{' | ')' | ']' | '}' => break,
-                _ => {}
+                c if c.is_whitespace() => break,
+                _ => {
+                    self.input.next();
+                    word.push(c);
+                }
             };
-
-            self.input.next();
-            word.push(c);
         }
 
         match word.as_ref() {
-            "cond" => Token::Cond,
+            "if" => Token::If,
             "else" => Token::Else,
             "let" => Token::Let,
-            "list" => Token::List,
             "define" => Token::Define,
             "lambda" => Token::Lambda,
             _ => Token::Identifier(word),
@@ -194,41 +191,41 @@ impl<'a> Iterator for Tokenizer<'a> {
                 self.input.next();
                 Some(Ok(Token::CloseParen))
             }
-            Some('=') => {
-                self.input.next();
-                if let Some(&c) = self.input.peek() {
-                    if c.is_whitespace() {
-                        return Some(Ok(Token::Equal));
-                    }
-                }
+            // Some('=') => {
+            //     self.input.next();
+            //     if let Some(&c) = self.input.peek() {
+            //         if c.is_whitespace() {
+            //             return Some(Ok(Token::Equal));
+            //         }
+            //     }
 
-                Some(Err(TokenError::IncompleteString))
-            }
-            Some('<') => {
-                self.input.next();
-                if let Some(&'=') = self.input.peek() {
-                    self.input.next();
-                    Some(Ok(Token::LtEq))
-                } else {
-                    Some(Ok(Token::Lt))
-                }
-            }
-            Some('>') => {
-                self.input.next();
-                if let Some(&'=') = self.input.peek() {
-                    self.input.next();
-                    Some(Ok(Token::GtEq))
-                } else {
-                    Some(Ok(Token::Gt))
-                }
-            }
+            //     Some(Err(TokenError::IncompleteString))
+            // }
+            // Some('<') => {
+            //     self.input.next();
+            //     if let Some(&'=') = self.input.peek() {
+            //         self.input.next();
+            //         Some(Ok(Token::LtEq))
+            //     } else {
+            //         Some(Ok(Token::Lt))
+            //     }
+            // }
+            // Some('>') => {
+            //     self.input.next();
+            //     if let Some(&'=') = self.input.peek() {
+            //         self.input.next();
+            //         Some(Ok(Token::GtEq))
+            //     } else {
+            //         Some(Ok(Token::Gt))
+            //     }
+            // }
             Some('+') => {
                 self.input.next();
                 match self.input.peek() {
                     Some(&c) if c.is_numeric() => {
                         Some(Ok(Token::NumberLiteral(self.read_number())))
                     }
-                    _ => Some(Ok(Token::Plus)),
+                    _ => Some(Ok(Token::Identifier("+".to_string()))),
                 }
             }
             Some('-') => {
@@ -237,21 +234,21 @@ impl<'a> Iterator for Tokenizer<'a> {
                     Some(&c) if c.is_numeric() => {
                         Some(Ok(Token::NumberLiteral(self.read_number() * -1.0)))
                     }
-                    _ => Some(Ok(Token::Minus)),
+                    _ => Some(Ok(Token::Identifier("-".to_string()))),
                 }
             }
-            Some('*') => {
-                self.input.next();
-                Some(Ok(Token::Times))
-            }
-            Some('/') => {
-                self.input.next();
-                Some(Ok(Token::Divide))
-            }
-            Some('%') => {
-                self.input.next();
-                Some(Ok(Token::Percent))
-            }
+            // Some('*') => {
+            //     self.input.next();
+            //     Some(Ok(Token::Times))
+            // }
+            // Some('/') => {
+            //     self.input.next();
+            //     Some(Ok(Token::Divide))
+            // }
+            // Some('%') => {
+            //     self.input.next();
+            //     Some(Ok(Token::Percent))
+            // }
             Some('#') => {
                 self.input.next();
                 Some(Ok(self.read_hash_value()))
@@ -263,14 +260,10 @@ impl<'a> Iterator for Tokenizer<'a> {
                 Some(Ok(self.read_word()))
             }
             Some(c) if c.is_numeric() => Some(Ok(Token::NumberLiteral(self.read_number()))),
-            Some(_) => {
-                match self.input.next() {
-                    Some(e) => Some(Err(TokenError::UnexpectedChar(e))),
-                    _ => None,
-                }
-
-                // Some(Err(TokenError::UnexpectedChar(c)))
-            }
+            Some(_) => match self.input.next() {
+                Some(e) => Some(Err(TokenError::UnexpectedChar(e))),
+                _ => None,
+            },
         }
     }
 }
@@ -282,24 +275,24 @@ mod tests {
     use super::Token::*;
     use super::*;
 
-    #[test]
-    fn test_punctuation() {
-        let mut s = Tokenizer::new("(,) = < <= > >= +-*/%");
-        assert_eq!(s.next(), Some(Ok(OpenParen)));
-        assert_eq!(s.next(), Some(Err(TokenError::UnexpectedChar(','))));
-        assert_eq!(s.next(), Some(Ok(CloseParen)));
-        assert_eq!(s.next(), Some(Ok(Equal)));
-        assert_eq!(s.next(), Some(Ok(Lt)));
-        assert_eq!(s.next(), Some(Ok(LtEq)));
-        assert_eq!(s.next(), Some(Ok(Gt)));
-        assert_eq!(s.next(), Some(Ok(GtEq)));
-        assert_eq!(s.next(), Some(Ok(Plus)));
-        assert_eq!(s.next(), Some(Ok(Minus)));
-        assert_eq!(s.next(), Some(Ok(Times)));
-        assert_eq!(s.next(), Some(Ok(Divide)));
-        assert_eq!(s.next(), Some(Ok(Percent)));
-        assert_eq!(s.next(), None);
-    }
+    // #[test]
+    // fn test_punctuation() {
+    //     let mut s = Tokenizer::new("(,) = < <= > >= +-*/%");
+    //     assert_eq!(s.next(), Some(Ok(OpenParen)));
+    //     assert_eq!(s.next(), Some(Err(TokenError::UnexpectedChar(','))));
+    //     assert_eq!(s.next(), Some(Ok(CloseParen)));
+    //     assert_eq!(s.next(), Some(Ok(Equal)));
+    //     assert_eq!(s.next(), Some(Ok(Lt)));
+    //     assert_eq!(s.next(), Some(Ok(LtEq)));
+    //     assert_eq!(s.next(), Some(Ok(Gt)));
+    //     assert_eq!(s.next(), Some(Ok(GtEq)));
+    //     assert_eq!(s.next(), Some(Ok(Plus)));
+    //     assert_eq!(s.next(), Some(Ok(Minus)));
+    //     assert_eq!(s.next(), Some(Ok(Times)));
+    //     assert_eq!(s.next(), Some(Ok(Divide)));
+    //     assert_eq!(s.next(), Some(Ok(Percent)));
+    //     assert_eq!(s.next(), None);
+    // }
 
     #[test]
     fn test_unexpected_char() {
@@ -315,7 +308,6 @@ mod tests {
         assert_eq!(s.next(), Some(Ok(Identifier("FOO".to_owned()))));
         assert_eq!(s.next(), Some(Ok(Identifier("_123_".to_owned()))));
         assert_eq!(s.next(), Some(Ok(Identifier("Nil".to_owned()))));
-        // assert_eq!(s.next(), Some(Ok(If)));
         assert_eq!(s.next(), Some(Ok(Else)));
         assert_eq!(s.next(), Some(Ok(BooleanLiteral(false))));
         assert_eq!(s.next(), Some(Ok(BooleanLiteral(true))));
@@ -363,7 +355,7 @@ mod tests {
             Identifier("b".to_string()),
             CloseParen,
             OpenParen,
-            Plus,
+            Identifier("+".to_string()),
             Identifier("a".to_string()),
             Identifier("b".to_string()),
             CloseParen,

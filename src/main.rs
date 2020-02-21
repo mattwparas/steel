@@ -9,13 +9,18 @@ mod lexer;
 mod parser;
 
 fn main() {
-    println!("Hello, world!");
+    // println!("Hello, world!");
 
-    // let a = lexer::Tokenizer::new("(+ (* 1 2 3) 2 3)");
-    let a = parser::Parser::new("(define (test a b) (+ a b)) application (((");
+    // let a = lexer::Tokenizer::new("(+ 1 2)");
+
+    // let a = parser::Parser::new("(define lkjsdflkjsdf) () (+ (+ (+ 1 2) 3) 4)");
+
+    let b = evaluator::evaluator(a.next().unwrap());
 
     for i in a {
-        println!("{:?}", i);
+        println!("{:?}", i)
+        let e = evaluator::evaluator(i.unwrap());
+        // println!("{}", e.unwrap());
     }
 }
 

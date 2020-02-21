@@ -8,7 +8,6 @@ use crate::lexer::{Token, TokenError, Tokenizer};
 pub enum Expr {
     Atom(Token),
     ListVal(Vec<Expr>),
-    // Cond(Vec<Expr>),
 }
 
 impl Expr {
@@ -19,6 +18,13 @@ impl Expr {
                 v.push(expr);
                 Ok(())
             }
+        }
+    }
+
+    fn last_mut(&mut self) -> Result<Option<&mut Expr>> {
+        match self {
+            Expr::Atom(_) => Err(ParseError::UnexpectedEOF),
+            Expr::ListVal(v) => Ok(v.last_mut()),
         }
     }
 }
@@ -49,7 +55,10 @@ impl<'a> Parser<'a> {
             return Err(ParseError::UnexpectedEOF);
         }
 
-        let mut exprs: Vec<Expr> = Vec::new();
+        // let mut exprs: Vec<Expr> = Vec::new();
+        let mut exprs = Vec::new();
+
+        // exprs.push(Expr::ListVal(Vec::new()));
         let mut open_paren_count = 1; // implicit open paren here
         let mut close_paren_count = 0;
 
@@ -68,6 +77,7 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 t => {
+                    // println!("{:?}", exprs.clone());
                     let last_val = exprs.last_mut();
                     let atom = Expr::Atom(t);
                     match last_val {
@@ -75,7 +85,13 @@ impl<'a> Parser<'a> {
                             exprs.push(atom);
                         }
                         Some(v) => {
-                            v.push_on_end(atom)?;
+                            match v {
+                                Expr::Atom(_) => exprs.push(atom),
+                                ve => ve.push_on_end(atom)?, // Expr::ListVal(ve) => {
+                                                             //     ve.push_on_end(atom)?;
+                                                             // }
+                            }
+                            // v.push_on_end(atom)?;
                         }
                     }
                 }
@@ -114,4 +130,13 @@ impl<'a> Iterator for Parser<'a> {
             },
         };
     }
+
+    // fn next_redo(&mut self) -> Option<Self::Item> {
+    //     let x = match self.tokenizer.next() {
+    //         Some(Err(e)) => todo!(),
+    //         Some(Ok(exp)) => todo!(),
+    //         _ => todo!(),
+    //     };
+    //     None
+    // }
 }
