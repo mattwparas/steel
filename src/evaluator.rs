@@ -70,16 +70,16 @@ impl<'a> Env<'a> {
     }
 
     // TODO
-    pub fn lookup(&self, var: String) -> result::Result<RucketVal, RucketErr> {
+    pub fn lookup(&self, var: &str) -> result::Result<RucketVal, RucketErr> {
         let mut p = Some(self);
         while let Some(par) = p {
-            if let Some(b) = par.bindings.get(&var) {
+            if let Some(b) = par.bindings.get(var) {
                 return Ok(b.clone());
             } else {
                 p = par.parent;
             }
         }
-        Err(RucketErr::FreeIdentifier(var))
+        Err(RucketErr::FreeIdentifier(var.to_string()))
     }
 
     pub fn insert_binding(&mut self, var: String, val: RucketVal) {
@@ -147,7 +147,7 @@ pub fn evaluate(mut expr: Expr, env: &mut Env) -> result::Result<RucketVal, Ruck
                     return Ok(RucketVal::BoolV(b));
                 }
                 Token::Identifier(s) => {
-                    return env.lookup(s);
+                    return env.lookup(&s);
                 } // TODO
                 Token::NumberLiteral(n) => {
                     return Ok(RucketVal::NumV(n));
@@ -165,24 +165,57 @@ pub fn evaluate(mut expr: Expr, env: &mut Env) -> result::Result<RucketVal, Ruck
 
                 if let Some(f) = eval_iter.next() {
                     // let eval_f = evaluate(f, env);
-                    match evaluate(f.clone(), env)? {
-                        RucketVal::FuncV(func) => {
-                            // println!("We have found a function");
-                            let args_eval: Result<Vec<RucketVal>, RucketErr> =
-                                eval_iter.map(|x| evaluate(x.clone(), env)).collect();
 
-                            // for i in args_eval? {
-                            //     println!("{}", i);
-                            // }
-                            // returnErr(RucketErr::ApplicationNotAProcedure(e.to_string()))
-                            let res = func(&args_eval?);
-                            // println!("result: {}", res.clone().unwrap());
-                            return res;
-                            // return Err(RucketErr::ApplicationNotAProcedure(.to_string()));
+                    match f {
+                        Expr::Atom(Token::If) => {
+                            // establish that it needs to be length 3?
+                            if list_of_tokens.len() != 4 {
+                                return Err(RucketErr::ArityMismatch(
+                                    "If takes 3 arguments".to_string(),
+                                ));
+                            }
+
+                            let test_expr = list_of_tokens.get(1).unwrap();
+                            let then_expr = list_of_tokens.get(2).unwrap();
+                            let else_expr = list_of_tokens.get(3).unwrap();
+
+                            // let test_expr = list_of_tokens.remove(1);
+                            // let then_expr = list_of_tokens.remove(1);
+                            // let else_expr = list_of_tokens.remove(1);
+
+                            // list_of_tokens[0]
+
+                            match evaluate(test_expr.clone(), env)? {
+                                RucketVal::BoolV(true) => {
+                                    expr = then_expr.clone();
+                                }
+                                _ => {
+                                    expr = else_expr.clone();
+                                }
+                            }
                         }
-                        e => {
-                            return Err(RucketErr::ExpectedFunction(e.to_string()));
-                        }
+
+                        // Expr::Atom(Token::Define) => {
+                        //     todo!();
+                        // }
+
+                        // Expr::Atom(Token::Lambda) => {
+                        //     todo!();
+                        // }
+
+                        // Expr::Atom(Token::Let) => {
+                        //     todo!();
+                        // }
+                        sym => match evaluate(sym.clone(), env)? {
+                            RucketVal::FuncV(func) => {
+                                let args_eval: Result<Vec<RucketVal>, RucketErr> =
+                                    eval_iter.map(|x| evaluate(x.clone(), env)).collect();
+                                return func(&args_eval?);
+                            }
+                            e => {
+                                return Err(RucketErr::ExpectedFunction(e.to_string()));
+                            }
+                        },
                     }
                 } else {
                     return Err(RucketErr::ExpectedFunction("TODO".to_string()));

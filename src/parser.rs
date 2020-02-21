@@ -21,13 +21,6 @@ impl Expr {
             }
         }
     }
-
-    fn last_mut(&mut self) -> Result<Option<&mut Expr>> {
-        match self {
-            Expr::Atom(_) => Err(ParseError::UnexpectedEOF),
-            Expr::ListVal(v) => Ok(v.last_mut()),
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Error)]
