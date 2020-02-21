@@ -7,6 +7,7 @@ use std::fmt;
 use std::iter::{Iterator, Peekable};
 use std::result;
 use std::str::Chars;
+use thiserror::Error;
 
 use crate::lexer::{Token, TokenError, Tokenizer};
 use crate::parser::{Expr, ParseError, Parser};
@@ -26,28 +27,29 @@ impl fmt::Display for RucketVal {
             RucketVal::BoolV(b) => write!(f, "#{}", b),
             RucketVal::NumV(x) => write!(f, "{}", x),
             RucketVal::StringV(s) => write!(f, "{}", s),
+            RucketVal::ListV(lst) => {
+                let lst = lst
+                    .iter()
+                    .map(|item| item.to_string())
+                    .collect::<Vec<String>>();
+                write!(f, "{:?}", lst)
+            }
+            RucketVal::FuncV(_) => write!(f, "Function"),
             _ => write!(f, "display not implemented"), // RucketVal::ListV(x) => write!(f, "()")
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Error)]
 pub enum RucketErr {
+    #[error("Arity Mismatch")]
     ArityMismatch(String),
+    #[error("Expected Number, got {0}")]
     ExpectedNumber(String),
+    #[error("Free Identifier: {0}")]
     FreeIdentifier(String),
-    ApplicationNotAProcedure(String),
-}
-
-impl fmt::Display for RucketErr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            RucketErr::FreeIdentifier(s) => write!(f, "Free Identifier: {}", s),
-            RucketErr::ArityMismatch(s) => write!(f, "Arity Mismatch: {}", s),
-            RucketErr::ExpectedNumber(s) => write!(f, "Expected Number: {}", s),
-            RucketErr::ApplicationNotAProcedure(s) => write!(f, "ApplicationNotAProcedure: {}", s),
-        }
-    }
+    #[error("Expected Function: {0}")]
+    ExpectedFunction(String),
 }
 
 // #[derive(Clone)]
@@ -179,11 +181,11 @@ pub fn evaluate(mut expr: Expr, env: &mut Env) -> result::Result<RucketVal, Ruck
                             // return Err(RucketErr::ApplicationNotAProcedure(.to_string()));
                         }
                         e => {
-                            return Err(RucketErr::ApplicationNotAProcedure(e.to_string()));
+                            return Err(RucketErr::ExpectedFunction(e.to_string()));
                         }
                     }
                 } else {
-                    return Err(RucketErr::ApplicationNotAProcedure("TODO".to_string()));
+                    return Err(RucketErr::ExpectedFunction("TODO".to_string()));
                 }
             }
         }
