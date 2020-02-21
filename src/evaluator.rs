@@ -19,6 +19,13 @@ pub enum RucketVal {
     ListV(Vec<RucketVal>),
     StringV(String),
     FuncV(fn(&[RucketVal]) -> result::Result<RucketVal, RucketErr>),
+    LambdaV(RucketLambda),
+}
+
+#[derive(Clone)]
+pub struct RucketLambda {
+    params_exp: Vec<RucketVal>,
+    body_exp: Expr,
 }
 
 impl fmt::Display for RucketVal {
@@ -35,6 +42,7 @@ impl fmt::Display for RucketVal {
                 write!(f, "{:?}", lst)
             }
             RucketVal::FuncV(_) => write!(f, "Function"),
+            RucketVal::LambdaV(_) => write!(f, "Anonymous Function"),
             _ => write!(f, "display not implemented"), // RucketVal::ListV(x) => write!(f, "()")
         }
     }
