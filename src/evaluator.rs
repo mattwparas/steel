@@ -1,153 +1,51 @@
 #![allow(dead_code)] // TODO
 #![allow(unused_imports)] // TODO
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt;
 use std::iter::{Iterator, Peekable};
+use std::rc::Rc;
 use std::result;
 use std::str::Chars;
 use thiserror::Error;
 
+use crate::env::{default_env, Env, EnvRef};
 use crate::lexer::{Token, TokenError, Tokenizer};
 use crate::parser::{Expr, ParseError, Parser};
-
-#[derive(Clone)]
-pub enum RucketVal {
-    BoolV(bool),
-    NumV(f64),
-    ListV(Vec<RucketVal>),
-    StringV(String),
-    FuncV(fn(&[RucketVal]) -> result::Result<RucketVal, RucketErr>),
-    LambdaV(RucketLambda),
-}
-
-#[derive(Clone)]
-pub struct RucketLambda {
-    params_exp: Vec<RucketVal>,
-    body_exp: Expr,
-}
-
-impl fmt::Display for RucketVal {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            RucketVal::BoolV(b) => write!(f, "#{}", b),
-            RucketVal::NumV(x) => write!(f, "{}", x),
-            RucketVal::StringV(s) => write!(f, "{}", s),
-            RucketVal::ListV(lst) => {
-                let lst = lst
-                    .iter()
-                    .map(|item| item.to_string())
-                    .collect::<Vec<String>>();
-                write!(f, "{:?}", lst)
-            }
-            RucketVal::FuncV(_) => write!(f, "Function"),
-            RucketVal::LambdaV(_) => write!(f, "Anonymous Function"),
-            _ => write!(f, "display not implemented"), // RucketVal::ListV(x) => write!(f, "()")
-        }
-    }
-}
-
-#[derive(Clone, Debug, Error)]
-pub enum RucketErr {
-    #[error("Arity Mismatch")]
-    ArityMismatch(String),
-    #[error("Expected Number, got {0}")]
-    ExpectedNumber(String),
-    #[error("Free Identifier: {0}")]
-    FreeIdentifier(String),
-    #[error("Expected Function: {0}")]
-    ExpectedFunction(String),
-}
-
-// #[derive(Clone)]
-pub struct Env<'a> {
-    bindings: HashMap<String, RucketVal>,
-    parent: Option<&'a Env<'a>>,
-}
-
-// TODO
-// Think about functional data structures to avoid cloning here
-impl<'a> Env<'a> {
-    // TODO
-    pub fn new(parent: Option<&'a Env>) -> Env<'a> {
-        Env {
-            bindings: HashMap::new(),
-            parent,
-        }
-    }
-
-    // TODO
-    pub fn lookup(&self, var: &str) -> result::Result<RucketVal, RucketErr> {
-        let mut p = Some(self);
-        while let Some(par) = p {
-            if let Some(b) = par.bindings.get(var) {
-                return Ok(b.clone());
-            } else {
-                p = par.parent;
-            }
-        }
-        Err(RucketErr::FreeIdentifier(var.to_string()))
-    }
-
-    pub fn insert_binding(&mut self, var: String, val: RucketVal) {
-        self.bindings.insert(var, val);
-    }
-}
-
-fn default_env<'a>() -> Env<'a> {
-    let mut data: HashMap<String, RucketVal> = HashMap::new();
-    data.insert(
-        "+".to_string(),
-        RucketVal::FuncV(
-            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
-                let sum = unwrap_list_of_floats(args)?
-                    .iter()
-                    .fold(0.0, |sum, a| sum + a);
-
-                Ok(RucketVal::NumV(sum))
-            },
-        ),
-    );
-
-    data.insert(
-        "-".to_string(),
-        RucketVal::FuncV(
-            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
-                let floats = unwrap_list_of_floats(args)?;
-                let first = *floats.first().ok_or(RucketErr::ArityMismatch(
-                    "expected at least one number".to_string(),
-                ))?;
-                let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
-
-                Ok(RucketVal::NumV(first - sum_of_rest))
-            },
-        ),
-    );
-
-    Env {
-        bindings: data,
-        parent: None,
-    }
-}
-
-fn unwrap_list_of_floats(args: &[RucketVal]) -> result::Result<Vec<f64>, RucketErr> {
-    args.iter().map(|x| unwrap_single_float(x)).collect()
-}
-
-fn unwrap_single_float(exp: &RucketVal) -> result::Result<f64, RucketErr> {
-    match exp {
-        RucketVal::NumV(num) => Ok(*num),
-        _ => Err(RucketErr::ExpectedNumber("expected a number".to_string())),
-    }
-}
+use crate::rerrs::RucketErr;
+use crate::rvals::{RucketLambda, RucketVal};
 
 pub fn evaluator(expr: Expr) -> result::Result<RucketVal, RucketErr> {
-    let mut global_env = default_env();
-    evaluate(expr, &mut global_env)
+    let mut global_env = EnvRef::new(default_env());
+    evaluate(&expr, &mut global_env)
 }
 
-pub fn evaluate(mut expr: Expr, env: &mut Env) -> result::Result<RucketVal, RucketErr> {
+pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>, RucketErr> {
+    match identifiers {
+        Expr::ListVal(l) => {
+            let res: Result<Vec<String>, RucketErr> = l
+                .iter()
+                .map(|x| match x {
+                    Expr::Atom(Token::Identifier(s)) => Ok(s.clone()),
+                    _ => Err(RucketErr::ExpectedIdentifier(
+                        "Lambda must have symbols as arguments".to_string(),
+                    )),
+                })
+                .collect();
+            res
+        }
+        _ => Err(RucketErr::ExpectedArgumentsToLambda(
+            "Malformed lambda arguments".to_string(),
+        )),
+    }
+}
+
+pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketErr> {
+    let mut env = env.clone_ref();
+    let mut expr = expr.clone();
+
     loop {
         match expr {
             Expr::Atom(t) => match t {
@@ -155,8 +53,9 @@ pub fn evaluate(mut expr: Expr, env: &mut Env) -> result::Result<RucketVal, Ruck
                     return Ok(RucketVal::BoolV(b));
                 }
                 Token::Identifier(s) => {
+                    // return env.lookup(&s);
                     return env.lookup(&s);
-                } // TODO
+                }
                 Token::NumberLiteral(n) => {
                     return Ok(RucketVal::NumV(n));
                 }
@@ -183,17 +82,12 @@ pub fn evaluate(mut expr: Expr, env: &mut Env) -> result::Result<RucketVal, Ruck
                                 ));
                             }
 
+                            // TODO don't use unwrap
                             let test_expr = list_of_tokens.get(1).unwrap();
                             let then_expr = list_of_tokens.get(2).unwrap();
                             let else_expr = list_of_tokens.get(3).unwrap();
 
-                            // let test_expr = list_of_tokens.remove(1);
-                            // let then_expr = list_of_tokens.remove(1);
-                            // let else_expr = list_of_tokens.remove(1);
-
-                            // list_of_tokens[0]
-
-                            match evaluate(test_expr.clone(), env)? {
+                            match evaluate(&test_expr, &env)? {
                                 RucketVal::BoolV(true) => {
                                     expr = then_expr.clone();
                                 }
@@ -203,22 +97,101 @@ pub fn evaluate(mut expr: Expr, env: &mut Env) -> result::Result<RucketVal, Ruck
                             }
                         }
 
-                        // Expr::Atom(Token::Define) => {
-                        //     todo!();
-                        // }
+                        // globally scoped potentially
+                        Expr::Atom(Token::Define) => {
+                            unimplemented!();
+                        }
 
-                        // Expr::Atom(Token::Lambda) => {
-                        //     todo!();
-                        // }
+                        // TODO don't use unwrap
+                        Expr::Atom(Token::Lambda) => {
+                            let list_of_symbols = list_of_tokens.get(1).unwrap();
+                            let body_exp = list_of_tokens.get(2).unwrap();
 
-                        // Expr::Atom(Token::Let) => {
-                        //     todo!();
-                        // }
-                        sym => match evaluate(sym.clone(), env)? {
+                            let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
+                            let constructed_lambda =
+                                RucketLambda::new(parsed_list, body_exp.clone());
+                            return Ok(RucketVal::LambdaV(constructed_lambda));
+                        }
+
+                        // Let is actually just a lambda so update values to be that and loop
+                        // Syntax of a let -> (let ((a 10) (b 20) (c 25)) (body ...))
+                        // transformed ((lambda (a b c) (body ...)) 10 20 25)
+                        Expr::Atom(Token::Let) => {
+                            // should have form ((a 10) (b 20) (c 25))
+                            let bindings = list_of_tokens.get(1).ok_or_else(|| {
+                                return RucketErr::MalformedLet;
+                            })?;
+
+                            let body = list_of_tokens.get(2).ok_or_else(|| {
+                                return RucketErr::MalformedLet;
+                            })?;
+
+                            let mut bindings_to_check: Vec<Expr> = Vec::new();
+                            let mut args_to_check: Vec<Expr> = Vec::new();
+
+                            // TODO fix this noise
+                            match bindings {
+                                Expr::ListVal(list_of_pairs) => {
+                                    for pair in list_of_pairs {
+                                        match pair {
+                                            Expr::ListVal(p) => match p.as_slice() {
+                                                [binding, expression] => {
+                                                    bindings_to_check.push(binding.clone());
+                                                    args_to_check.push(expression.clone());
+                                                }
+                                                _ => {
+                                                    unimplemented!();
+                                                }
+                                            },
+                                            _ => {
+                                                unimplemented!();
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    unimplemented!();
+                                }
+                            }
+
+                            let new_lambda = vec![
+                                Expr::Atom(Token::Lambda),
+                                Expr::ListVal(bindings_to_check),
+                                body.clone(),
+                            ];
+
+                            let mut combined = vec![Expr::ListVal(new_lambda)];
+                            combined.append(&mut args_to_check);
+
+                            let application = Expr::ListVal(combined);
+                            expr = application;
+                        }
+
+                        sym => match evaluate(&sym, &env)? {
                             RucketVal::FuncV(func) => {
                                 let args_eval: Result<Vec<RucketVal>, RucketErr> =
-                                    eval_iter.map(|x| evaluate(x.clone(), env)).collect();
+                                    eval_iter.map(|x| evaluate(&x, &env)).collect();
                                 return func(&args_eval?);
+                            }
+
+                            RucketVal::LambdaV(lambda) => {
+                                let args_eval: Result<Vec<RucketVal>, RucketErr> =
+                                    eval_iter.map(|x| evaluate(&x, &env)).collect();
+
+                                let mut inner_env = Env::new(env.clone_ref());
+
+                                let good_args_eval = args_eval?;
+
+                                let params = lambda.params_exp();
+
+                                let param_arg_iter = params.iter().zip(good_args_eval.iter());
+
+                                for (param, arg) in param_arg_iter {
+                                    inner_env.define(param.to_string(), arg.clone())
+                                }
+
+                                env = inner_env.into_ref();
+                                expr = lambda.body_exp();
                             }
                             e => {
                                 return Err(RucketErr::ExpectedFunction(e.to_string()));
