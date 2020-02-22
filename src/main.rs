@@ -4,16 +4,19 @@
 // use lang::Tokenizer;
 
 // mod lexer;
+mod env;
 mod evaluator;
 mod lexer;
 mod parser;
+mod rerrs;
+mod rvals;
 
 fn main() {
     // println!("Hello, world!");
 
     // let a = lexer::Tokenizer::new("(+ 1 2)");
 
-    let a = parser::Parser::new("((lambda (a b) (+ a b)) 10 15)");
+    let a = parser::Parser::new("(let ([a 10] [b 5]) (+ a b))");
 
     //let b = evaluator::evaluator(a.next().unwrap().unwrap());
 
