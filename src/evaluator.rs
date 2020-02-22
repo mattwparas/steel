@@ -87,12 +87,6 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketEr
                             let then_expr = list_of_tokens.get(2).unwrap();
                             let else_expr = list_of_tokens.get(3).unwrap();
 
-                            // let test_expr = list_of_tokens.remove(1);
-                            // let then_expr = list_of_tokens.remove(1);
-                            // let else_expr = list_of_tokens.remove(1);
-
-                            // list_of_tokens[0]
-
                             match evaluate(&test_expr, &env)? {
                                 RucketVal::BoolV(true) => {
                                     expr = then_expr.clone();

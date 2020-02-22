@@ -11,18 +11,6 @@ pub enum Expr {
     ListVal(Vec<Expr>),
 }
 
-impl Expr {
-    fn push_on_end(&mut self, expr: Expr) -> Result<()> {
-        match self {
-            Expr::Atom(_) => Err(ParseError::ExtendingAtom(expr)),
-            Expr::ListVal(v) => {
-                v.push(expr);
-                Ok(())
-            }
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum ParseError {
     #[error("Error reading tokens")]
@@ -31,8 +19,6 @@ pub enum ParseError {
     Unexpected(Token),
     #[error("Unexpected EOF")]
     UnexpectedEOF,
-    #[error("Extending Atom, {0:?}")]
-    ExtendingAtom(Expr),
 }
 
 #[derive(Debug)]
@@ -50,7 +36,7 @@ impl<'a> Parser<'a> {
     }
 
     // Jason's attempt
-    fn read_from_tokens2(&mut self) -> Result<Expr> {
+    fn read_from_tokens(&mut self) -> Result<Expr> {
         let mut stack: Vec<Vec<Expr>> = Vec::new();
         let mut current_frame: Vec<Expr> = Vec::new();
 
@@ -78,62 +64,6 @@ impl<'a> Parser<'a> {
             }
         }
     }
-    // version 1
-    fn read_from_tokens(&mut self) -> Result<Expr> {
-        if let None = self.tokenizer.peek() {
-            return Err(ParseError::UnexpectedEOF);
-        }
-
-        // let mut exprs: Vec<Expr> = Vec::new();
-        let mut exprs = Vec::new();
-
-        // exprs.push(Expr::ListVal(Vec::new()));
-        let mut open_paren_count = 1; // implicit open paren here
-        let mut close_paren_count = 0;
-
-        while let Some(Ok(t)) = self.tokenizer.next() {
-            match t {
-                Token::OpenParen => {
-                    let list_val = Expr::ListVal(Vec::new());
-                    exprs.push(list_val);
-                    open_paren_count += 1;
-                }
-                Token::CloseParen => {
-                    close_paren_count += 1;
-                    if open_paren_count == close_paren_count {
-                        break;
-                    }
-                    continue;
-                }
-                t => {
-                    // println!("{:?}", exprs.clone());
-                    let last_val = exprs.last_mut();
-                    let atom = Expr::Atom(t);
-                    match last_val {
-                        None => {
-                            exprs.push(atom);
-                        }
-                        Some(v) => {
-                            match v {
-                                Expr::Atom(_) => exprs.push(atom),
-                                ve => ve.push_on_end(atom)?, // Expr::ListVal(ve) => {
-                                                             //     ve.push_on_end(atom)?;
-                                                             // }
-                            }
-                            // v.push_on_end(atom)?;
-                        }
-                    }
-                }
-            }
-        }
-
-        // TODO fix this here
-        if open_paren_count != close_paren_count {
-            return Err(ParseError::Unexpected(Token::OpenParen));
-        } else {
-            Ok(Expr::ListVal(exprs))
-        }
-    }
 }
 
 impl<'a> Iterator for Parser<'a> {
@@ -143,35 +73,12 @@ impl<'a> Iterator for Parser<'a> {
         self.tokenizer.next().map(|res| match res {
             Err(e) => Err(ParseError::TokenError(e)),
             Ok(tok) => match tok {
-                Token::OpenParen => self.read_from_tokens2(),
+                Token::OpenParen => self.read_from_tokens(),
                 tok if tok.is_reserved_keyword() => Err(ParseError::Unexpected(tok)),
                 tok => Ok(Expr::Atom(tok)),
             },
         })
     }
-
-    /*
-    fn next(&mut self) -> Option<Self::Item> {
-        // use this if above doesn't work
-        match &self.tokenizer.peek() {
-            None => None,
-            Some(Err(_)) => match self.tokenizer.next() {
-                Some(Err(e2)) => return Some(Err(ParseError::TokenError(e2))),
-                _ => return None,
-            },
-            Some(Ok(_)) => match self.tokenizer.next() {
-                Some(Ok(Token::BooleanLiteral(b))) => {
-                    Some(Ok(Expr::Atom(Token::BooleanLiteral(b))))
-                }
-                Some(Ok(Token::NumberLiteral(n))) => Some(Ok(Expr::Atom(Token::NumberLiteral(n)))),
-                Some(Ok(Token::StringLiteral(s))) => Some(Ok(Expr::Atom(Token::StringLiteral(s)))),
-                Some(Ok(Token::Identifier(s))) => Some(Ok(Expr::Atom(Token::Identifier(s)))),
-                Some(Ok(Token::OpenParen)) => Some(self.read_from_tokens()),
-                Some(Ok(t)) => Some(Err(ParseError::Unexpected(t))),
-                _ => None,
-            },
-        }
-    }*/
 }
 
 #[cfg(test)]
