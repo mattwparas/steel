@@ -124,12 +124,18 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketEr
                         // transformed ((lambda (a b c) (body ...)) 10 20 25)
                         Expr::Atom(Token::Let) => {
                             // should have form ((a 10) (b 20) (c 25))
-                            let bindings = list_of_tokens.get(1).unwrap();
-                            let body = list_of_tokens.get(2).unwrap();
+                            let bindings = list_of_tokens.get(1).ok_or_else(|| {
+                                return RucketErr::MalformedLet;
+                            })?;
+
+                            let body = list_of_tokens.get(2).ok_or_else(|| {
+                                return RucketErr::MalformedLet;
+                            })?;
 
                             let mut bindings_to_check: Vec<Expr> = Vec::new();
                             let mut args_to_check: Vec<Expr> = Vec::new();
 
+                            // TODO fix this noise
                             match bindings {
                                 Expr::ListVal(list_of_pairs) => {
                                     for pair in list_of_pairs {

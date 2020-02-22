@@ -16,4 +16,6 @@ pub enum RucketErr {
     ExpectedArgumentsToLambda(String),
     #[error("Environment Not Found")]
     EnvironmentNotFound,
+    #[error("Malformed Let statement")]
+    MalformedLet,
 }
