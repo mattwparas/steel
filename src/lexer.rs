@@ -134,12 +134,14 @@ impl<'a> Tokenizer<'a> {
     fn read_hash_value(&mut self) -> Token {
         let mut word = String::new();
         while let Some(&c) = self.input.peek() {
-            if c.is_whitespace() {
-                break;
-            }
-
-            self.input.next();
-            word.push(c);
+            match c {
+                '(' | '[' | '{' | ')' | ']' | '}' => break,
+                c if c.is_whitespace() => break,
+                _ => {
+                    self.input.next();
+                    word.push(c);
+                }
+            };
         }
 
         match word.as_ref() {

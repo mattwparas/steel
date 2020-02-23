@@ -14,6 +14,8 @@ pub enum RucketErr {
     ExpectedIdentifier(String),
     #[error("Expected arguments to lambda: {0}")]
     ExpectedArgumentsToLambda(String),
+    #[error("Expected List: {0}")]
+    ExpectedList(String),
     #[error("Environment Not Found")]
     EnvironmentNotFound,
     #[error("Malformed Let statement")]

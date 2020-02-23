@@ -271,6 +271,30 @@ pub fn default_env() -> Env {
         ),
     );
 
+    data.insert(
+        "cons".to_string(),
+        RucketVal::FuncV(
+            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
+                if args.len() == 2 {
+                    let elem = &args[0];
+                    let lst = &args[1];
+
+                    if let RucketVal::ListV(v) = lst {
+                        let mut l = v.clone();
+                        l.insert(0, elem.clone());
+                        return Ok(RucketVal::ListV(l));
+                    } else {
+                        return Err(RucketErr::ExpectedList("cons takes a list".to_string()));
+                    }
+                } else {
+                    return Err(RucketErr::ArityMismatch(
+                        "cons takes two arguments".to_string(),
+                    ));
+                }
+            },
+        ),
+    );
+
     Env {
         bindings: data,
         parent: EnvRef::null(),
