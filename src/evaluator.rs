@@ -162,7 +162,7 @@ pub fn eval_make_lambda(list_of_tokens: &[Expr], env: EnvRef) -> Result<RucketVa
 // transformed ((lambda (a b c) (body ...)) 10 20 25)
 // TODO: actually use the env
 pub fn eval_let(list_of_tokens: &[Expr], _env: &EnvRef) -> Result<Expr, RucketErr> {
-    check_length("let", &list_of_tokens, 2)?;
+    check_length("let", &list_of_tokens, 3)?;
     // should have form ((a 10) (b 20) (c 25))
     let bindings = &list_of_tokens[1];
     let body = &list_of_tokens[2];
@@ -181,17 +181,21 @@ pub fn eval_let(list_of_tokens: &[Expr], _env: &EnvRef) -> Result<Expr, RucketEr
                             args_to_check.push(expression.clone());
                         }
                         _ => {
-                            unimplemented!();
+                            return Err(RucketErr::ContractViolation(
+                                "Let requires pairs for binding".to_string(),
+                            ));
                         }
                     },
                     _ => {
-                        unimplemented!();
+                        return Err(RucketErr::BadSyntax("Let: Missing body".to_string()));
                     }
                 }
             }
         }
         _ => {
-            unimplemented!();
+            return Err(RucketErr::BadSyntax(
+                "Let: Missing name or binding pairs".to_string(),
+            ));
         }
     }
 

@@ -2,7 +2,7 @@ use thiserror::Error;
 
 #[derive(Clone, Debug, Error)]
 pub enum RucketErr {
-    #[error("Arity Mismatch")]
+    #[error("Arity Mismatch: {0}")]
     ArityMismatch(String),
     #[error("Expected Number, got {0}")]
     ExpectedNumber(String),
@@ -24,4 +24,6 @@ pub enum RucketErr {
     UnexpectedToken(String),
     #[error("Contract Violation: {0}")]
     ContractViolation(String),
+    #[error("Bad Syntax: {0}")]
+    BadSyntax(String),
 }
