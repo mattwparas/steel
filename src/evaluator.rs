@@ -28,9 +28,26 @@ impl Evaluator {
         }
     }
     pub fn eval(&mut self, expr: &Expr) -> Result<RucketVal, RucketErr> {
-        evaluate(&expr, &mut self.global_env)
+        let (r, e) = evaluate(&expr, &mut self.global_env)?;
+        self.global_env = e;
+        Ok(r)
     }
 }
+
+// impl<'a> Iterator for Evaluator<'a> {
+//     type Item = Result<RucketVal, RucketErr>;
+
+//     // fn next(&mut self) -> Option<Self::Item> {
+//     //     self.tokenizer.next().map(|res| match res {
+//     //         Err(e) => Err(ParseError::TokenError(e)),
+//     //         Ok(tok) => match tok {
+//     //             Token::OpenParen => self.read_from_tokens(),
+//     //             tok if tok.is_reserved_keyword() => Err(ParseError::Unexpected(tok)),
+//     //             tok => Ok(Expr::Atom(tok)),
+//     //         },
+//     //     })
+//     // }
+// }
 
 pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>, RucketErr> {
     match identifiers {
@@ -66,7 +83,7 @@ pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<(), 
     }
 }
 
-pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketErr> {
+pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<(RucketVal, EnvRef), RucketErr> {
     let mut env = env.clone_ref();
     let mut expr = expr.clone();
 
@@ -74,16 +91,16 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketEr
         match expr {
             Expr::Atom(t) => match t {
                 Token::BooleanLiteral(b) => {
-                    return Ok(RucketVal::BoolV(b));
+                    return Ok((RucketVal::BoolV(b), env));
                 }
                 Token::Identifier(s) => {
-                    return env.lookup(&s);
+                    return Ok((env.lookup(&s)?, env));
                 }
                 Token::NumberLiteral(n) => {
-                    return Ok(RucketVal::NumV(n));
+                    return Ok((RucketVal::NumV(n), env));
                 }
                 Token::StringLiteral(s) => {
-                    return Ok(RucketVal::StringV(s));
+                    return Ok((RucketVal::StringV(s), env));
                 }
                 what => {
                     return Err(RucketErr::UnexpectedToken(what.to_string()));
@@ -102,7 +119,7 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketEr
                         Expr::Atom(Token::Define) => match eval_define(&list_of_tokens, env) {
                             Ok(e) => {
                                 env = e;
-                                return Ok(RucketVal::Void);
+                                return Ok((RucketVal::Void, env));
                             }
                             Err(e) => {
                                 return Err(e);
@@ -111,20 +128,22 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketEr
                         Expr::Atom(Token::Quote) => {
                             // TODO make this safer?
                             check_length("Quote", &list_of_tokens, 2)?;
-                            return Ok(RucketVal::SyntaxV(list_of_tokens[1].clone()));
+                            return Ok((RucketVal::SyntaxV(list_of_tokens[1].clone()), env));
                         }
                         // (lambda (vars*) (body))
-                        Expr::Atom(Token::Lambda) => return eval_make_lambda(&list_of_tokens, env),
+                        Expr::Atom(Token::Lambda) => {
+                            return Ok((eval_make_lambda(&list_of_tokens, env.clone())?, env));
+                        }
                         // (let (var binding)* (body))
                         Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
                         // (sym args*), sym must be a procedure
-                        sym => match eval_procedure(sym, eval_iter, env) {
+                        sym => match eval_procedure(sym, eval_iter, env.clone()) {
                             Ok((RucketVal::SyntaxV(a), b)) => {
                                 expr = a;
                                 env = b;
                             }
                             Ok((a, _)) => {
-                                return Ok(a);
+                                return Ok((a, env));
                             }
                             Err(e) => return Err(e),
                         },
@@ -148,7 +167,7 @@ pub fn eval_if(list_of_tokens: &[Expr], env: &EnvRef) -> Result<Expr, RucketErr>
     let else_expr = &list_of_tokens[3];
 
     match evaluate(&test_expr, env)? {
-        RucketVal::BoolV(true) => Ok(then_expr.clone()),
+        (RucketVal::BoolV(true), _) => Ok(then_expr.clone()),
         _ => Ok(else_expr.clone()),
     }
 }
@@ -171,7 +190,7 @@ pub fn eval_define(list_of_tokens: &[Expr], mut env: EnvRef) -> Result<EnvRef, R
     let body = &list_of_tokens[2];
 
     if let Expr::Atom(Token::Identifier(s)) = symbol {
-        let eval_body = evaluate(body, &env)?;
+        let (eval_body, _) = evaluate(body, &env)?;
         env.define(s.to_string(), eval_body);
         Ok(env)
     } else {
@@ -241,20 +260,26 @@ pub fn eval_procedure<'a>(
     env: EnvRef,
 ) -> Result<(RucketVal, EnvRef), RucketErr> {
     match evaluate(sym, &env)? {
-        RucketVal::FuncV(func) => {
-            let args_eval: Result<Vec<RucketVal>, RucketErr> =
+        (RucketVal::FuncV(func), _) => {
+            let args_eval: Result<Vec<(RucketVal, EnvRef)>, RucketErr> =
                 eval_iter.map(|x| evaluate(&x, &env)).collect();
-            let expr = func(&args_eval?)?;
+            let args_without_eval: Vec<RucketVal> =
+                args_eval?.iter().map(|x| x.0.clone()).collect();
+            let expr = func(&args_without_eval)?;
             return Ok((expr, env));
         }
 
-        RucketVal::LambdaV(lambda) => {
-            let args_eval: Result<Vec<RucketVal>, RucketErr> =
+        (RucketVal::LambdaV(lambda), _) => {
+            // let args_eval: Result<Vec<RucketVal>, RucketErr> =
+            //     eval_iter.map(|x| evaluate(&x, &env)).collect();
+
+            let args_eval: Result<Vec<(RucketVal, EnvRef)>, RucketErr> =
                 eval_iter.map(|x| evaluate(&x, &env)).collect();
+            let good_args_eval: Vec<RucketVal> = args_eval?.iter().map(|x| x.0.clone()).collect();
 
             let mut inner_env = Env::new(lambda.env().clone_ref());
 
-            let good_args_eval = args_eval?;
+            // let good_args_eval = args_eval?;
 
             let params = lambda.params_exp().iter();
 
@@ -265,7 +290,7 @@ pub fn eval_procedure<'a>(
             let env = inner_env.into_ref();
             return Ok((RucketVal::SyntaxV(lambda.body_exp()), env));
         }
-        e => {
+        (e, _) => {
             return Err(RucketErr::ExpectedFunction(e.to_string()));
         }
     }
