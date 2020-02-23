@@ -8,7 +8,8 @@ pub mod rerrs;
 pub mod rvals;
 
 fn main() {
-    finish(repl::repl(io::stdin().lock(), io::stdout()));
+    // finish(repl::repl(io::stdin().lock(), io::stdout()));
+    finish(repl::repl());
 }
 
 fn finish(result: Result<(), std::io::Error>) -> ! {

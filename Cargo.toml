@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 thiserror = "1.0"
+rustyline = "5.0.6"
