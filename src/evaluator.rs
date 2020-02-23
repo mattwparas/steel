@@ -184,21 +184,64 @@ pub fn eval_make_lambda(list_of_tokens: &[Expr], env: EnvRef) -> Result<RucketVa
 }
 
 // TODO maybe have to evaluate the params but i'm not sure
-pub fn eval_define(list_of_tokens: &[Expr], mut env: EnvRef) -> Result<EnvRef, RucketErr> {
+pub fn eval_define(list_of_tokens: &[Expr], env: EnvRef) -> Result<EnvRef, RucketErr> {
     check_length("Define", &list_of_tokens, 3)?;
     let symbol = &list_of_tokens[1];
     let body = &list_of_tokens[2];
 
-    if let Expr::Atom(Token::Identifier(s)) = symbol {
-        let (eval_body, _) = evaluate(body, &env)?;
-        env.define(s.to_string(), eval_body);
-        Ok(env)
-    } else {
-        Err(RucketErr::ExpectedIdentifier(format!(
+    match symbol {
+        Expr::Atom(Token::Identifier(s)) => {
+            let (eval_body, _) = evaluate(body, &env)?;
+            env.define(s.to_string(), eval_body);
+            Ok(env)
+        }
+        // construct lambda to parse
+        Expr::ListVal(list_of_identifiers) => {
+            // check_length("Define", tokens: &[Expr], expected: usize)
+
+            if list_of_identifiers.len() == 0 {
+                return Err(RucketErr::ExpectedIdentifier(
+                    "define expected an identifier, got empty list".to_string(),
+                ));
+            }
+            if let Expr::Atom(Token::Identifier(s)) = &list_of_identifiers[0] {
+                let mut fake_lambda: Vec<Expr> = vec![Expr::Atom(Token::Lambda)];
+
+                fake_lambda.push(Expr::ListVal(list_of_identifiers[1..].to_vec()));
+                fake_lambda.push(body.clone());
+
+                let constructed_lambda = Expr::ListVal(fake_lambda);
+
+                // let constructed_lambda = eval_make_lambda(&fake_lambda, env)?;
+
+                let (eval_body, _) = evaluate(&constructed_lambda, &env)?;
+                env.define(s.to_string(), eval_body);
+                Ok(env)
+
+            // eval_make_lambda(, env: EnvRef)
+            } else {
+                Err(RucketErr::ExpectedIdentifier(format!(
+                    "Define expects identifier, got: {}",
+                    symbol
+                )))
+            }
+        }
+        _ => Err(RucketErr::ExpectedIdentifier(format!(
             "Define expects identifier, got: {}",
             symbol
-        )))
+        ))),
     }
+
+    // if let Expr::Atom(Token::Identifier(s)) = symbol {
+    //     let (eval_body, _) = evaluate(body, &env)?;
+    //     env.define(s.to_string(), eval_body);
+    //     Ok(env)
+    // } else {
+    //     Err(RucketErr::ExpectedIdentifier(format!(
+    //         "Define expects identifier, got: {}",
+    //         symbol
+    //     )))
+    // }
 }
 
 // Let is actually just a lambda so update values to be that and loop
