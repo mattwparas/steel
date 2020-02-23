@@ -108,33 +108,12 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketEr
                         // (let (var binding)* (body))
                         Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
                         // (sym args*), sym must be a procedure
-                        sym => match evaluate(sym, &env)? {
-                            RucketVal::FuncV(func) => {
-                                let args_eval: Result<Vec<RucketVal>, RucketErr> =
-                                    eval_iter.map(|x| evaluate(&x, &env)).collect();
-                                expr = func(&args_eval?)?;
+                        sym => match eval_procedure(sym, eval_iter, env) {
+                            Ok((a, b)) => {
+                                expr = a;
+                                env = b;
                             }
-
-                            RucketVal::LambdaV(lambda) => {
-                                let args_eval: Result<Vec<RucketVal>, RucketErr> =
-                                    eval_iter.map(|x| evaluate(&x, &env)).collect();
-
-                                let mut inner_env = Env::new(env.clone_ref());
-
-                                let good_args_eval = args_eval?;
-
-                                let params = lambda.params_exp().iter();
-
-                                params.zip(good_args_eval.iter()).for_each(|(param, arg)| {
-                                    inner_env.define(param.to_string(), arg.clone())
-                                });
-
-                                env = inner_env.into_ref();
-                                expr = lambda.body_exp();
-                            }
-                            e => {
-                                return Err(RucketErr::ExpectedFunction(e.to_string()));
-                            }
+                            Err(e) => return Err(e),
                         },
                     }
                 } else {
