@@ -274,3 +274,20 @@ fn unwrap_single_float(exp: &RucketVal) -> result::Result<f64, RucketErr> {
         _ => Err(RucketErr::ExpectedNumber("expected a number".to_string())),
     }
 }
+
+#[cfg(test)]
+mod env_tests {
+    use super::*;
+    #[test]
+    fn env_basic() {
+        let default_env = EnvRef::new(default_env());
+        let mut c1 = Env::new(default_env);
+        c1.define("x".to_owned(), RucketVal::NumV(1.0));
+        let mut c2 = Env::new(EnvRef::new(c1));
+        c2.define("y".to_owned(), RucketVal::NumV(2.0));
+        assert!(c2.lookup("+").is_ok());
+        assert_eq!(unwrap_single_float(&c2.lookup("y").unwrap()).unwrap(), 2.0);
+        assert_eq!(unwrap_single_float(&c2.lookup("x").unwrap()).unwrap(), 1.0);
+        assert!(c2.lookup("z").is_err());
+    }
+}
