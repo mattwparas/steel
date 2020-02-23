@@ -1,3 +1,4 @@
+use std::fmt;
 use std::iter::{Iterator, Peekable};
 use std::result;
 use std::str::Chars;
@@ -17,21 +18,8 @@ pub enum TokenError {
 pub enum Token {
     OpenParen,
     CloseParen,
-    // Equal,
-    // Lt,
-    // LtEq,
-    // Gt,
-    // GtEq,
-    // Plus,
-    // Minus,
-    // Times,
-    // Divide,
-    // Percent,
-    // Cond,
     If,
-    // Else,
     Let,
-    // List,
     Define,
     Lambda,
     BooleanLiteral(bool),
@@ -39,6 +27,24 @@ pub enum Token {
     NumberLiteral(f64),
     StringLiteral(String),
 }
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Token::OpenParen => write!(f, "("),
+            Token::CloseParen => write!(f, "("),
+            Token::If => write!(f, "if"),
+            Token::Let => write!(f, "let"),
+            Token::Define => write!(f, "define"),
+            Token::Lambda => write!(f, "lambda"),
+            Token::BooleanLiteral(x) => write!(f, "{}", x),
+            Token::Identifier(x) => write!(f, "{}", x),
+            Token::NumberLiteral(x) => write!(f, "{}", x),
+            Token::StringLiteral(x) => write!(f, "{}", x),
+        }
+    }
+}
+
 impl Token {
     pub fn is_reserved_keyword(&self) -> bool {
         match self {

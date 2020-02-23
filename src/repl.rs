@@ -1,23 +1,21 @@
 // use std::vec::Vec;
 // use this::lexer;
-
-use std::io;
+use std::io::BufRead;
 use std::io::Write;
 
 use crate::evaluator;
 use crate::parser;
 
-pub fn repl() -> std::io::Result<()> {
-    let stdin = io::stdin();
-    let mut stdout = io::stdout();
+pub fn repl(mut user_input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
+    let mut evaluator = evaluator::Evaluator::new();
 
-    writeln!(stdout, "Welcome to Rucket 1.0")?;
+    writeln!(output, "Welcome to Rucket 1.0")?;
 
     loop {
-        write!(stdout, "λ > ")?;
-        stdout.flush()?;
+        write!(output, "λ > ")?;
+        output.flush()?;
         let mut input = String::new();
-        let raw_input = stdin.read_line(&mut input)?;
+        let raw_input = user_input.read_line(&mut input)?;
 
         if raw_input == 0 {
             println!("EOF reached");
@@ -31,13 +29,16 @@ pub fn repl() -> std::io::Result<()> {
             for expr in parsed {
                 match expr {
                     Ok(e) => {
-                        let res = evaluator::evaluator(e);
+                        let res = evaluator.eval(&e);
                         match res {
-                            Ok(v) => writeln!(stdout, "{}", v),
-                            Err(e) => writeln!(stdout, "{}", e),
+                            Ok(v) => writeln!(output, "{}", v),
+                            Err(e) => {
+                                writeln!(output, "{}", e)?;
+                                break;
+                            }
                         }
                     }
-                    Err(e) => writeln!(stdout, "{:?}", e),
+                    Err(e) => writeln!(output, "{:?}", e),
                 }?
             }
         }

@@ -1,7 +1,6 @@
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
 use std::fmt;
-use std::result;
 
 #[derive(Clone)]
 pub enum RucketVal {
@@ -9,7 +8,7 @@ pub enum RucketVal {
     NumV(f64),
     ListV(Vec<RucketVal>),
     StringV(String),
-    FuncV(fn(&[RucketVal]) -> result::Result<RucketVal, RucketErr>),
+    FuncV(fn(&[RucketVal]) -> Result<Expr, RucketErr>),
     LambdaV(RucketLambda),
 }
 
@@ -27,8 +26,8 @@ impl RucketLambda {
         }
     }
 
-    pub fn params_exp(&self) -> &Vec<String> {
-        self.params_exp.as_ref()
+    pub fn params_exp(&self) -> &[String] {
+        &self.params_exp
     }
 
     pub fn body_exp(&self) -> Expr {
