@@ -101,8 +101,10 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketEr
                         Expr::Atom(Token::Define) => {
                             unimplemented!();
                         }
-                        Expr::Atom(Token::Quote) => { // TODO 
-                            return Ok(RucketVal::SyntaxV(Expr::ListVal(list_of_tokens)))
+                        Expr::Atom(Token::Quote) => {
+                            // TODO make this safer?
+                            check_length("Quote", &list_of_tokens, 2)?;
+                            return Ok(RucketVal::SyntaxV(list_of_tokens[1].clone()));
                         }
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Lambda) => return eval_make_lambda(&list_of_tokens, env),

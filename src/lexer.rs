@@ -42,7 +42,7 @@ impl fmt::Display for Token {
             Token::BooleanLiteral(x) => write!(f, "{}", x),
             Token::Identifier(x) => write!(f, "{}", x),
             Token::NumberLiteral(x) => write!(f, "{}", x),
-            Token::StringLiteral(x) => write!(f, "{}", x),
+            Token::StringLiteral(x) => write!(f, "\"{}\"", x),
         }
     }
 }

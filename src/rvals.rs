@@ -58,7 +58,7 @@ impl fmt::Display for RucketVal {
             }
             RucketVal::FuncV(_) => write!(f, "Function"),
             RucketVal::LambdaV(_) => write!(f, "Anonymous Function"),
-            RucketVal::SyntaxV(expr) => write!(f, "{:?}", expr),
+            RucketVal::SyntaxV(expr) => write!(f, "'{}", expr.to_string()),
             _ => write!(f, "display not implemented"), // RucketVal::ListV(x) => write!(f, "()")
         }
     }
