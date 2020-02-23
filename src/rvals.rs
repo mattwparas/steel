@@ -49,17 +49,27 @@ impl fmt::Display for RucketVal {
             RucketVal::BoolV(b) => write!(f, "#{}", b),
             RucketVal::NumV(x) => write!(f, "{}", x),
             RucketVal::StringV(s) => write!(f, "\"{}\"", s),
-            RucketVal::ListV(lst) => {
-                let lst = lst
-                    .iter()
-                    .map(|item| item.to_string() + " ")
-                    .collect::<String>();
-                write!(f, "'({})", lst.trim())
-            }
             RucketVal::FuncV(_) => write!(f, "Function"),
             RucketVal::LambdaV(_) => write!(f, "Anonymous Function"),
-            RucketVal::SyntaxV(expr) => write!(f, "'{}", expr.to_string()),
-            _ => write!(f, "display not implemented"), // RucketVal::ListV(x) => write!(f, "()")
+            RucketVal::SyntaxV(expr) => write!(f, "Expression: '{}", expr),
+            lst => {
+                let lst_to_str = list_display(lst);
+                write!(f, "'{}", lst_to_str)
+            }
         }
+    }
+}
+
+fn list_display(lst: &RucketVal) -> String {
+    match lst {
+        RucketVal::ListV(lst) => {
+            let s = lst
+                .iter()
+                .map(list_display)
+                .collect::<Vec<String>>()
+                .join(" ");
+            format!("({})", s)
+        }
+        atom => atom.to_string(),
     }
 }
