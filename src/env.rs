@@ -336,6 +336,34 @@ pub fn default_env() -> Env {
         ),
     );
 
+    data.insert(
+        "cdr".to_string(),
+        RucketVal::FuncV(
+            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
+                if args.len() == 1 {
+                    if let RucketVal::ListV(v) = &args[0] {
+                        if v.len() == 0 {
+                            return Err(RucketErr::ContractViolation(
+                                "cdr expects a non empty list".to_string(),
+                            ));
+                        } else {
+                            return Ok(RucketVal::ListV(v[1..].to_vec()));
+                        }
+                    } else {
+                        return Err(RucketErr::ExpectedList(format!(
+                            "cdr takes a list, given: {}",
+                            &args[0]
+                        )));
+                    }
+                } else {
+                    return Err(RucketErr::ArityMismatch(
+                        "cdr takes one argument".to_string(),
+                    ));
+                }
+            },
+        ),
+    );
+
     Env {
         bindings: data,
         parent: EnvRef::null(),
