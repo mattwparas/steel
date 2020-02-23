@@ -1,11 +1,11 @@
 use std::{io, process};
-mod env;
-mod evaluator;
-mod lexer;
-mod parser;
-mod repl;
-mod rerrs;
-mod rvals;
+pub mod env;
+pub mod evaluator;
+pub mod lexer;
+pub mod parser;
+pub mod repl;
+pub mod rerrs;
+pub mod rvals;
 
 fn main() {
     finish(repl::repl(io::stdin().lock(), io::stdout()));

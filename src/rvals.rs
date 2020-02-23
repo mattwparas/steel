@@ -1,3 +1,4 @@
+use crate::env::EnvRef;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
 use std::fmt;
@@ -16,13 +17,15 @@ pub enum RucketVal {
 pub struct RucketLambda {
     params_exp: Vec<String>,
     body_exp: Expr,
+    env: EnvRef,
 }
 
 impl RucketLambda {
-    pub fn new(params_exp: Vec<String>, body_exp: Expr) -> RucketLambda {
+    pub fn new(params_exp: Vec<String>, body_exp: Expr, env: EnvRef) -> RucketLambda {
         RucketLambda {
             params_exp,
             body_exp,
+            env,
         }
     }
 
@@ -32,6 +35,10 @@ impl RucketLambda {
 
     pub fn body_exp(&self) -> Expr {
         self.body_exp.clone()
+    }
+
+    pub fn env(&self) -> &EnvRef {
+        &self.env
     }
 }
 

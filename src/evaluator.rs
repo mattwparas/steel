@@ -102,9 +102,7 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketEr
                             unimplemented!();
                         }
                         // (lambda (vars*) (body))
-                        Expr::Atom(Token::Lambda) => {
-                            return eval_make_lambda(&list_of_tokens, &env)
-                        }
+                        Expr::Atom(Token::Lambda) => return eval_make_lambda(&list_of_tokens, env),
                         // (let (var binding)* (body))
                         Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
                         // (sym args*), sym must be a procedure
@@ -141,13 +139,13 @@ pub fn eval_if(list_of_tokens: &[Expr], env: &EnvRef) -> Result<Expr, RucketErr>
 }
 
 // TODO: actually use the env
-pub fn eval_make_lambda(list_of_tokens: &[Expr], _env: &EnvRef) -> Result<RucketVal, RucketErr> {
+pub fn eval_make_lambda(list_of_tokens: &[Expr], env: EnvRef) -> Result<RucketVal, RucketErr> {
     check_length("Lambda", &list_of_tokens, 3)?;
     let list_of_symbols = &list_of_tokens[1];
     let body_exp = &list_of_tokens[2];
 
     let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
-    let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone());
+    let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), env);
     Ok(RucketVal::LambdaV(constructed_lambda))
 }
 
@@ -217,7 +215,7 @@ pub fn eval_procedure<'a>(
             let args_eval: Result<Vec<RucketVal>, RucketErr> =
                 eval_iter.map(|x| evaluate(&x, &env)).collect();
 
-            let mut inner_env = Env::new(env.clone_ref());
+            let mut inner_env = Env::new(lambda.env().clone_ref());
 
             let good_args_eval = args_eval?;
 
