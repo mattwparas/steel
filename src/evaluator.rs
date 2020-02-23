@@ -98,9 +98,16 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<RucketVal, RucketEr
                         // (if test then else)
                         Expr::Atom(Token::If) => expr = eval_if(&list_of_tokens, &env)?,
                         // globally scoped potentially
-                        Expr::Atom(Token::Define) => {
-                            unimplemented!();
-                        }
+                        // TODO make evaluate an iterator over the results to use global environment
+                        Expr::Atom(Token::Define) => match eval_define(&list_of_tokens, env) {
+                            Ok(e) => {
+                                env = e;
+                                return Ok(RucketVal::Void);
+                            }
+                            Err(e) => {
+                                return Err(e);
+                            }
+                        },
                         Expr::Atom(Token::Quote) => {
                             // TODO make this safer?
                             check_length("Quote", &list_of_tokens, 2)?;
@@ -155,6 +162,24 @@ pub fn eval_make_lambda(list_of_tokens: &[Expr], env: EnvRef) -> Result<RucketVa
     let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
     let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), env);
     Ok(RucketVal::LambdaV(constructed_lambda))
+}
+
+// TODO maybe have to evaluate the params but i'm not sure
+pub fn eval_define(list_of_tokens: &[Expr], mut env: EnvRef) -> Result<EnvRef, RucketErr> {
+    check_length("Define", &list_of_tokens, 3)?;
+    let symbol = &list_of_tokens[1];
+    let body = &list_of_tokens[2];
+
+    if let Expr::Atom(Token::Identifier(s)) = symbol {
+        let eval_body = evaluate(body, &env)?;
+        env.define(s.to_string(), eval_body);
+        Ok(env)
+    } else {
+        Err(RucketErr::ExpectedIdentifier(format!(
+            "Define expects identifier, got: {}",
+            symbol
+        )))
+    }
 }
 
 // Let is actually just a lambda so update values to be that and loop
