@@ -1,12 +1,4 @@
-// use std::vec::Vec;
-// use this::lexer;
-
-// use std::io;
-// use std::io::Write;
-
-// use lang::Tokenizer;
-
-// mod lexer;
+use std::{io, process};
 mod env;
 mod evaluator;
 mod lexer;
@@ -16,13 +8,21 @@ mod rerrs;
 mod rvals;
 
 fn main() {
-    // repl::repl();
+    finish(repl::repl(io::stdin().lock(), io::stdout()));
+}
 
-    let a = parser::Parser::new("(let ([a 10] [b 5]) (+ a b))");
+fn finish(result: Result<(), std::io::Error>) -> ! {
+    let code = match result {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!(
+                "{}: {}",
+                std::env::args().next().unwrap_or_else(|| "rucket".into()),
+                e
+            );
+            1
+        }
+    };
 
-    for i in a {
-        // println!("{:?}", i);
-        let e = evaluator::evaluator(i.unwrap());
-        println!("{}", e.unwrap());
-    }
+    process::exit(code);
 }

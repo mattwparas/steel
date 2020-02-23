@@ -13,11 +13,11 @@ pub enum Expr {
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum ParseError {
-    #[error("Error reading tokens")]
+    #[error("Parse: Error reading tokens")]
     TokenError(#[from] TokenError),
-    #[error("Unexpected token, {0:?}")]
+    #[error("Parse: Unexpected token, {0:?}")]
     Unexpected(Token),
-    #[error("Unexpected EOF")]
+    #[error("Parse: Unexpected EOF")]
     UnexpectedEOF,
 }
 

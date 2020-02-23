@@ -18,4 +18,6 @@ pub enum RucketErr {
     EnvironmentNotFound,
     #[error("Malformed Let statement")]
     MalformedLet,
+    #[error("Unexpected Token {0}")]
+    UnexpectedToken(String),
 }
