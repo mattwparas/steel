@@ -8,6 +8,7 @@ pub enum RucketVal {
     BoolV(bool),
     NumV(f64),
     ListV(Vec<RucketVal>),
+    Void,
     StringV(String),
     FuncV(fn(&[RucketVal]) -> Result<RucketVal, RucketErr>),
     LambdaV(RucketLambda),
@@ -59,6 +60,7 @@ impl fmt::Display for RucketVal {
             RucketVal::FuncV(_) => write!(f, "Function"),
             RucketVal::LambdaV(_) => write!(f, "Anonymous Function"),
             RucketVal::SyntaxV(expr) => write!(f, "'{}", expr.to_string()),
+            RucketVal::Void => write!(f, "#<void>"),
             _ => write!(f, "display not implemented"), // RucketVal::ListV(x) => write!(f, "()")
         }
     }
