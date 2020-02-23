@@ -22,6 +22,7 @@ pub enum Token {
     Let,
     Define,
     Lambda,
+    Quote,
     BooleanLiteral(bool),
     Identifier(String),
     NumberLiteral(f64),
@@ -37,6 +38,7 @@ impl fmt::Display for Token {
             Token::Let => write!(f, "let"),
             Token::Define => write!(f, "define"),
             Token::Lambda => write!(f, "lambda"),
+            Token::Quote => write!(f, "quote"),
             Token::BooleanLiteral(x) => write!(f, "{}", x),
             Token::Identifier(x) => write!(f, "{}", x),
             Token::NumberLiteral(x) => write!(f, "{}", x),
@@ -53,7 +55,8 @@ impl Token {
             | Token::If
             | Token::Let
             | Token::Define
-            | Token::Lambda => true,
+            | Token::Lambda
+            | Token::Quote => true,
             _ => false,
         }
     }
@@ -123,6 +126,7 @@ impl<'a> Tokenizer<'a> {
             "let" => Token::Let,
             "define" => Token::Define,
             "lambda" => Token::Lambda,
+            "quote" => Token::Quote,
             _ => Token::Identifier(word),
         }
     }

@@ -9,8 +9,9 @@ pub enum RucketVal {
     NumV(f64),
     ListV(Vec<RucketVal>),
     StringV(String),
-    FuncV(fn(&[RucketVal]) -> Result<Expr, RucketErr>),
+    FuncV(fn(&[RucketVal]) -> Result<RucketVal, RucketErr>),
     LambdaV(RucketLambda),
+    SyntaxV(Expr),
 }
 
 #[derive(Clone)]
@@ -47,16 +48,17 @@ impl fmt::Display for RucketVal {
         match self {
             RucketVal::BoolV(b) => write!(f, "#{}", b),
             RucketVal::NumV(x) => write!(f, "{}", x),
-            RucketVal::StringV(s) => write!(f, "{}", s),
+            RucketVal::StringV(s) => write!(f, "\"{}\"", s),
             RucketVal::ListV(lst) => {
                 let lst = lst
                     .iter()
-                    .map(|item| item.to_string())
-                    .collect::<Vec<String>>();
-                write!(f, "{:?}", lst)
+                    .map(|item| item.to_string() + " ")
+                    .collect::<String>();
+                write!(f, "'({})", lst.trim())
             }
             RucketVal::FuncV(_) => write!(f, "Function"),
             RucketVal::LambdaV(_) => write!(f, "Anonymous Function"),
+            RucketVal::SyntaxV(expr) => write!(f, "{:?}", expr),
             _ => write!(f, "display not implemented"), // RucketVal::ListV(x) => write!(f, "()")
         }
     }

@@ -236,26 +236,39 @@ pub fn default_env() -> Env {
     let mut data: HashMap<String, RucketVal> = HashMap::new();
     data.insert(
         "+".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> result::Result<Expr, RucketErr> {
-            let sum = unwrap_list_of_floats(args)?
-                .iter()
-                .fold(0.0, |sum, a| sum + a);
+        RucketVal::FuncV(
+            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
+                let sum = unwrap_list_of_floats(args)?
+                    .iter()
+                    .fold(0.0, |sum, a| sum + a);
 
-            Ok(Expr::Atom(Token::NumberLiteral(sum)))
-        }),
+                Ok(RucketVal::NumV(sum))
+            },
+        ),
     );
 
     data.insert(
         "-".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> result::Result<Expr, RucketErr> {
-            let floats = unwrap_list_of_floats(args)?;
-            let first = *floats.first().ok_or(RucketErr::ArityMismatch(
-                "expected at least one number".to_string(),
-            ))?;
-            let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
+        RucketVal::FuncV(
+            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
+                let floats = unwrap_list_of_floats(args)?;
+                let first = *floats.first().ok_or(RucketErr::ArityMismatch(
+                    "expected at least one number".to_string(),
+                ))?;
+                let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
 
-            Ok(Expr::Atom(Token::NumberLiteral(first - sum_of_rest)))
-        }),
+                Ok(RucketVal::NumV(first - sum_of_rest))
+            },
+        ),
+    );
+
+    data.insert(
+        "list".to_string(),
+        RucketVal::FuncV(
+            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
+                Ok(RucketVal::ListV(Vec::from(args)))
+            },
+        ),
     );
 
     Env {
