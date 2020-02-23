@@ -22,4 +22,6 @@ pub enum RucketErr {
     MalformedLet,
     #[error("Unexpected Token {0}")]
     UnexpectedToken(String),
+    #[error("Contract Violation: {0}")]
+    ContractViolation(String),
 }

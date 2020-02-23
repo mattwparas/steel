@@ -295,6 +295,47 @@ pub fn default_env() -> Env {
         ),
     );
 
+    data.insert(
+        "append".to_string(),
+        RucketVal::FuncV(
+            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
+                let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
+                    .iter()
+                    .flat_map(|x| x.clone())
+                    .collect();
+                Ok(RucketVal::ListV(lsts))
+            },
+        ),
+    );
+
+    data.insert(
+        "car".to_string(),
+        RucketVal::FuncV(
+            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
+                if args.len() == 1 {
+                    if let RucketVal::ListV(v) = &args[0] {
+                        if v.len() == 0 {
+                            return Err(RucketErr::ContractViolation(
+                                "car expects a non empty list".to_string(),
+                            ));
+                        } else {
+                            return Ok(v[0].clone());
+                        }
+                    } else {
+                        return Err(RucketErr::ExpectedList(format!(
+                            "car takes a list, given: {}",
+                            &args[0]
+                        )));
+                    }
+                } else {
+                    return Err(RucketErr::ArityMismatch(
+                        "car takes one argument".to_string(),
+                    ));
+                }
+            },
+        ),
+    );
+
     Env {
         bindings: data,
         parent: EnvRef::null(),
@@ -309,6 +350,17 @@ fn unwrap_single_float(exp: &RucketVal) -> result::Result<f64, RucketErr> {
     match exp {
         RucketVal::NumV(num) => Ok(*num),
         _ => Err(RucketErr::ExpectedNumber("expected a number".to_string())),
+    }
+}
+
+fn unwrap_list_of_lists(args: &[RucketVal]) -> result::Result<Vec<Vec<RucketVal>>, RucketErr> {
+    args.iter().map(|x| unwrap_single_list(x)).collect()
+}
+
+fn unwrap_single_list(exp: &RucketVal) -> result::Result<Vec<RucketVal>, RucketErr> {
+    match exp {
+        RucketVal::ListV(lst) => Ok(lst.clone()),
+        _ => Err(RucketErr::ExpectedNumber("expected a list".to_string())),
     }
 }
 
