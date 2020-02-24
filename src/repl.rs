@@ -6,6 +6,8 @@
 use crate::evaluator;
 use crate::parser;
 
+use parser::{Expr, ParseError};
+
 // pub fn repl(mut user_input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
 //     let mut evaluator = evaluator::Evaluator::new();
 
@@ -64,20 +66,18 @@ pub fn repl() -> std::io::Result<()> {
                 if &line == ":quit" {
                     return Ok(());
                 } else {
-                    let parsed = parser::Parser::new(&line);
-                    for expr in parsed {
-                        match expr {
-                            Ok(e) => {
-                                let res = evaluator.eval(&e);
-                                match res {
-                                    Ok(v) => println!("{}", v),
-                                    Err(e) => {
-                                        println!("{}", e);
-                                        break;
-                                    }
+                    let parsed: Result<Vec<Expr>, ParseError> =
+                        parser::Parser::new(&line).collect();
+                    if let Ok(pvec) = parsed {
+                        for expr in pvec {
+                            let res = evaluator.eval(&expr);
+                            match res {
+                                Ok(v) => println!("{}", v),
+                                Err(e) => {
+                                    println!("{}", e);
+                                    break;
                                 }
                             }
-                            Err(e) => println!("{:?}", e),
                         }
                     }
                 }

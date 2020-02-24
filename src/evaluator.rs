@@ -149,7 +149,7 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> result::Result<(RucketVal, EnvRef)
                         },
                     }
                 } else {
-                    return Err(RucketErr::ExpectedFunction("TODO".to_string()));
+                    return Err(RucketErr::ExpectedFunction("Empty List".to_string()));
                 }
             }
         }

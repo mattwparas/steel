@@ -1,4 +1,4 @@
-use std::{io, process};
+use std::process;
 pub mod env;
 pub mod evaluator;
 pub mod lexer;

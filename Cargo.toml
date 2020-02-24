@@ -1,5 +1,5 @@
 [package]
-name = "lang"
+name = "rucket"
 version = "0.1.0"
 authors = ["frogbird <matthewparas2020@u.northwestern.edu>"]
 edition = "2018"
