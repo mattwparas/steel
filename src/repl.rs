@@ -68,17 +68,20 @@ pub fn repl() -> std::io::Result<()> {
                 } else {
                     let parsed: Result<Vec<Expr>, ParseError> =
                         parser::Parser::new(&line).collect();
-                    if let Ok(pvec) = parsed {
-                        for expr in pvec {
-                            let res = evaluator.eval(&expr);
-                            match res {
-                                Ok(v) => println!("{}", v),
-                                Err(e) => {
-                                    println!("{}", e);
-                                    break;
+                    match parsed {
+                        Ok(pvec) => {
+                            for expr in pvec {
+                                let res = evaluator.eval(&expr);
+                                match res {
+                                    Ok(v) => println!("{}", v),
+                                    Err(e) => {
+                                        println!("{}", e);
+                                        break;
+                                    }
                                 }
                             }
                         }
+                        Err(e) => println!("{}", e),
                     }
                 }
             }
