@@ -1,11 +1,31 @@
-use crate::lexer::Token;
-use crate::parser::Expr;
+// use crate::lexer::Token;
+// use crate::parser::Expr;
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::result;
+use std::result::Result;
+
+#[macro_use]
+macro_rules! ensure_tonicity {
+    ($check_fn:expr) => {{
+        |args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+            let floats = unwrap_list_of_floats(args)?;
+            let first = floats.first().ok_or(RucketErr::ExpectedNumber(
+                "expected at least one number".to_string(),
+            ))?;
+            let rest = &floats[1..];
+            fn f(prev: &f64, xs: &[f64]) -> bool {
+                match xs.first() {
+                    Some(x) => $check_fn(prev, x) && f(x, &xs[1..]),
+                    None => true,
+                }
+            };
+            Ok(RucketVal::BoolV(f(first, rest)))
+        }
+    }};
+}
 
 pub type RcRefCell<T> = Rc<RefCell<T>>;
 pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
@@ -28,10 +48,6 @@ impl Env {
             parent,
         }
     }
-
-    // pub fn add_env(&'a self) -> Env<'a> {
-    //     Env::new(Some(self))
-    // }
 
     pub fn insert_binding(&mut self, var: String, val: RucketVal) {
         self.bindings.insert(var, val);
@@ -132,28 +148,6 @@ impl Env {
 pub struct EnvRef(RcRefCell<Option<Env>>);
 
 impl EnvRef {
-    // pub fn new() -> EnvRef {
-    //     EnvRef {
-    //         env: Env::new(None),
-    //     }
-    // }
-
-    // pub fn update_env(&mut self) {
-    //     self.env = Env::new(Some(&self.env));
-    // }
-
-    // pub fn lookup(&self, var: &str) -> result::Result<RucketVal, RucketErr> {
-    //     self.env.lookup(var)
-    // }
-
-    // pub fn insert_binding(&mut self, var: String, val: RucketVal) {
-    //     self.env.insert_binding(var, val);
-    // }
-
-    // pub fn default_env_ref() -> EnvRef {
-    //     EnvRef { env: default_env() }
-    // }
-
     /// A null environment.
     /// Used as parent environment of global environment.
     pub fn null() -> EnvRef {
@@ -236,132 +230,139 @@ pub fn default_env() -> Env {
     let mut data: HashMap<String, RucketVal> = HashMap::new();
     data.insert(
         "+".to_string(),
-        RucketVal::FuncV(
-            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
-                let sum = unwrap_list_of_floats(args)?
-                    .iter()
-                    .fold(0.0, |sum, a| sum + a);
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+            let sum = unwrap_list_of_floats(args)?
+                .iter()
+                .fold(0.0, |sum, a| sum + a);
 
-                Ok(RucketVal::NumV(sum))
-            },
-        ),
+            Ok(RucketVal::NumV(sum))
+        }),
     );
 
     data.insert(
         "-".to_string(),
-        RucketVal::FuncV(
-            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
-                let floats = unwrap_list_of_floats(args)?;
-                let first = *floats.first().ok_or(RucketErr::ArityMismatch(
-                    "expected at least one number".to_string(),
-                ))?;
-                let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+            let floats = unwrap_list_of_floats(args)?;
+            let first = *floats.first().ok_or(RucketErr::ArityMismatch(
+                "expected at least one number".to_string(),
+            ))?;
+            let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
 
-                Ok(RucketVal::NumV(first - sum_of_rest))
-            },
-        ),
+            Ok(RucketVal::NumV(first - sum_of_rest))
+        }),
     );
 
     data.insert(
         "list".to_string(),
-        RucketVal::FuncV(
-            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
-                Ok(RucketVal::ListV(Vec::from(args)))
-            },
-        ),
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+            Ok(RucketVal::ListV(Vec::from(args)))
+        }),
     );
 
     data.insert(
         "cons".to_string(),
-        RucketVal::FuncV(
-            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
-                if args.len() == 2 {
-                    let elem = &args[0];
-                    let lst = &args[1];
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+            if args.len() == 2 {
+                let elem = &args[0];
+                let lst = &args[1];
 
-                    if let RucketVal::ListV(v) = lst {
-                        let mut l = v.clone();
-                        l.insert(0, elem.clone());
-                        return Ok(RucketVal::ListV(l));
-                    } else {
-                        return Err(RucketErr::ExpectedList("cons takes a list".to_string()));
-                    }
+                if let RucketVal::ListV(v) = lst {
+                    let mut l = v.clone();
+                    l.insert(0, elem.clone());
+                    return Ok(RucketVal::ListV(l));
                 } else {
-                    return Err(RucketErr::ArityMismatch(
-                        "cons takes two arguments".to_string(),
-                    ));
+                    return Err(RucketErr::ExpectedList("cons takes a list".to_string()));
                 }
-            },
-        ),
+            } else {
+                return Err(RucketErr::ArityMismatch(
+                    "cons takes two arguments".to_string(),
+                ));
+            }
+        }),
     );
 
     data.insert(
         "append".to_string(),
-        RucketVal::FuncV(
-            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
-                let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
-                    .iter()
-                    .flat_map(|x| x.clone())
-                    .collect();
-                Ok(RucketVal::ListV(lsts))
-            },
-        ),
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+            let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
+                .iter()
+                .flat_map(|x| x.clone())
+                .collect();
+            Ok(RucketVal::ListV(lsts))
+        }),
     );
 
     data.insert(
         "car".to_string(),
-        RucketVal::FuncV(
-            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
-                if args.len() == 1 {
-                    if let RucketVal::ListV(v) = &args[0] {
-                        if v.len() == 0 {
-                            return Err(RucketErr::ContractViolation(
-                                "car expects a non empty list".to_string(),
-                            ));
-                        } else {
-                            return Ok(v[0].clone());
-                        }
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+            if args.len() == 1 {
+                if let RucketVal::ListV(v) = &args[0] {
+                    if v.len() == 0 {
+                        return Err(RucketErr::ContractViolation(
+                            "car expects a non empty list".to_string(),
+                        ));
                     } else {
-                        return Err(RucketErr::ExpectedList(format!(
-                            "car takes a list, given: {}",
-                            &args[0]
-                        )));
+                        return Ok(v[0].clone());
                     }
                 } else {
-                    return Err(RucketErr::ArityMismatch(
-                        "car takes one argument".to_string(),
-                    ));
+                    return Err(RucketErr::ExpectedList(format!(
+                        "car takes a list, given: {}",
+                        &args[0]
+                    )));
                 }
-            },
-        ),
+            } else {
+                return Err(RucketErr::ArityMismatch(
+                    "car takes one argument".to_string(),
+                ));
+            }
+        }),
     );
 
     data.insert(
         "cdr".to_string(),
-        RucketVal::FuncV(
-            |args: &[RucketVal]| -> result::Result<RucketVal, RucketErr> {
-                if args.len() == 1 {
-                    if let RucketVal::ListV(v) = &args[0] {
-                        if v.len() == 0 {
-                            return Err(RucketErr::ContractViolation(
-                                "cdr expects a non empty list".to_string(),
-                            ));
-                        } else {
-                            return Ok(RucketVal::ListV(v[1..].to_vec()));
-                        }
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+            if args.len() == 1 {
+                if let RucketVal::ListV(v) = &args[0] {
+                    if v.len() == 0 {
+                        return Err(RucketErr::ContractViolation(
+                            "cdr expects a non empty list".to_string(),
+                        ));
                     } else {
-                        return Err(RucketErr::ExpectedList(format!(
-                            "cdr takes a list, given: {}",
-                            &args[0]
-                        )));
+                        return Ok(RucketVal::ListV(v[1..].to_vec()));
                     }
                 } else {
-                    return Err(RucketErr::ArityMismatch(
-                        "cdr takes one argument".to_string(),
-                    ));
+                    return Err(RucketErr::ExpectedList(format!(
+                        "cdr takes a list, given: {}",
+                        &args[0]
+                    )));
                 }
-            },
-        ),
+            } else {
+                return Err(RucketErr::ArityMismatch(
+                    "cdr takes one argument".to_string(),
+                ));
+            }
+        }),
+    );
+
+    data.insert(
+        "=".to_string(),
+        RucketVal::FuncV(ensure_tonicity!(|a, b| a == b)),
+    );
+    data.insert(
+        ">".to_string(),
+        RucketVal::FuncV(ensure_tonicity!(|a, b| a > b)),
+    );
+    data.insert(
+        ">=".to_string(),
+        RucketVal::FuncV(ensure_tonicity!(|a, b| a >= b)),
+    );
+    data.insert(
+        "<".to_string(),
+        RucketVal::FuncV(ensure_tonicity!(|a, b| a < b)),
+    );
+    data.insert(
+        "<=".to_string(),
+        RucketVal::FuncV(ensure_tonicity!(|a, b| a <= b)),
     );
 
     Env {
@@ -370,22 +371,22 @@ pub fn default_env() -> Env {
     }
 }
 
-fn unwrap_list_of_floats(args: &[RucketVal]) -> result::Result<Vec<f64>, RucketErr> {
+fn unwrap_list_of_floats(args: &[RucketVal]) -> Result<Vec<f64>, RucketErr> {
     args.iter().map(|x| unwrap_single_float(x)).collect()
 }
 
-fn unwrap_single_float(exp: &RucketVal) -> result::Result<f64, RucketErr> {
+fn unwrap_single_float(exp: &RucketVal) -> Result<f64, RucketErr> {
     match exp {
         RucketVal::NumV(num) => Ok(*num),
         _ => Err(RucketErr::ExpectedNumber("expected a number".to_string())),
     }
 }
 
-fn unwrap_list_of_lists(args: &[RucketVal]) -> result::Result<Vec<Vec<RucketVal>>, RucketErr> {
+fn unwrap_list_of_lists(args: &[RucketVal]) -> Result<Vec<Vec<RucketVal>>, RucketErr> {
     args.iter().map(|x| unwrap_single_list(x)).collect()
 }
 
-fn unwrap_single_list(exp: &RucketVal) -> result::Result<Vec<RucketVal>, RucketErr> {
+fn unwrap_single_list(exp: &RucketVal) -> Result<Vec<RucketVal>, RucketErr> {
     match exp {
         RucketVal::ListV(lst) => Ok(lst.clone()),
         _ => Err(RucketErr::ExpectedNumber("expected a list".to_string())),

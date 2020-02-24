@@ -220,11 +220,15 @@ impl<'a> Iterator for Tokenizer<'a> {
                 self.input.next();
                 Some(Ok(Token::CloseParen))
             }
+            // Some('\'') => {
+            //     self.input.next();
+            //     Some(Ok(Token::Quote))
+            // }
             // Some('=') => {
             //     self.input.next();
             //     if let Some(&c) = self.input.peek() {
             //         if c.is_whitespace() {
-            //             return Some(Ok(Token::Equal));
+            //             return Some(Ok(Token::Identifier("=".to_string())));
             //         }
             //     }
 
@@ -266,14 +270,14 @@ impl<'a> Iterator for Tokenizer<'a> {
                     _ => Some(Ok(Token::Identifier("-".to_string()))),
                 }
             }
-            // Some('*') => {
-            //     self.input.next();
-            //     Some(Ok(Token::Times))
-            // }
-            // Some('/') => {
-            //     self.input.next();
-            //     Some(Ok(Token::Divide))
-            // }
+            Some('*') => {
+                self.input.next();
+                Some(Ok(Token::Identifier("*".to_string())))
+            }
+            Some('/') => {
+                self.input.next();
+                Some(Ok(Token::Identifier("/".to_string())))
+            }
             // Some('%') => {
             //     self.input.next();
             //     Some(Ok(Token::Percent))
@@ -288,6 +292,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             {
                 Some(Ok(self.read_word()))
             }
+            Some('=') | Some('<') | Some('>') => Some(Ok(self.read_word())),
             Some(c) if c.is_numeric() => Some(Ok(Token::NumberLiteral(self.read_number()))),
             Some(_) => match self.input.next() {
                 Some(e) => Some(Err(TokenError::UnexpectedChar(e))),
