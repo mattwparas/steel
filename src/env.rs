@@ -1,3 +1,4 @@
+use crate::evaluator::Result;
 use crate::lexer::Token;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
@@ -5,12 +6,12 @@ use crate::rvals::RucketVal;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::result::Result;
+// use std::result::Result;
 
 #[macro_use]
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
-        |args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+        |args: &[RucketVal]| -> Result<RucketVal> {
             let floats = unwrap_list_of_floats(args)?;
             let first = floats.first().ok_or(RucketErr::ExpectedNumber(
                 "expected at least one number".to_string(),
@@ -67,7 +68,7 @@ impl Env {
     }
 
     // TODO make this not bad
-    pub fn lookup(&self, name: &str) -> Result<RucketVal, RucketErr> {
+    pub fn lookup(&self, name: &str) -> Result<RucketVal> {
         if self.bindings.contains_key(name) {
             Ok(self.bindings[name].clone())
         } else if self.parent.is_some() {
@@ -111,7 +112,7 @@ impl Env {
         self.bindings.insert(key, val);
     }
 
-    pub fn set(&mut self, key: String, val: RucketVal) -> Result<RucketVal, RucketErr> {
+    pub fn set(&mut self, key: String, val: RucketVal) -> Result<RucketVal> {
         if self.bindings.contains_key(&key) {
             self.bindings
                 .insert(key.clone(), val)
@@ -120,11 +121,10 @@ impl Env {
             self.parent.set(key, val)
         } else {
             Err(RucketErr::FreeIdentifier(key))
-            // bail!(UnboundVar => key)
         }
     }
 
-    pub fn remove(&mut self, key: &str) -> Result<RucketVal, RucketErr> {
+    pub fn remove(&mut self, key: &str) -> Result<RucketVal> {
         if self.bindings.contains_key(key) {
             self.bindings
                 .remove(key)
@@ -133,7 +133,6 @@ impl Env {
             self.parent.remove(key)
         } else {
             Err(RucketErr::FreeIdentifier(key.to_string()))
-            // bail!(UnboundVar => key)
         }
     }
 
@@ -166,7 +165,7 @@ impl EnvRef {
         EnvRef(Rc::clone(&self.0))
     }
 
-    pub fn lookup(&self, name: &str) -> Result<RucketVal, RucketErr> {
+    pub fn lookup(&self, name: &str) -> Result<RucketVal> {
         self.0
             .borrow()
             .as_ref()
@@ -209,7 +208,7 @@ impl EnvRef {
             .define(key, val);
     }
 
-    pub fn set(&self, key: String, val: RucketVal) -> Result<RucketVal, RucketErr> {
+    pub fn set(&self, key: String, val: RucketVal) -> Result<RucketVal> {
         self.0
             .borrow_mut()
             .as_mut()
@@ -217,7 +216,7 @@ impl EnvRef {
             .set(key, val)
     }
 
-    pub fn remove(&self, key: &str) -> Result<RucketVal, RucketErr> {
+    pub fn remove(&self, key: &str) -> Result<RucketVal> {
         self.0
             .borrow_mut()
             .as_mut()
@@ -230,7 +229,7 @@ pub fn default_env() -> Env {
     let mut data: HashMap<String, RucketVal> = HashMap::new();
     data.insert(
         "+".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
             let sum = unwrap_list_of_floats(args)?
                 .iter()
                 .fold(0.0, |sum, a| sum + a);
@@ -240,8 +239,32 @@ pub fn default_env() -> Env {
     );
 
     data.insert(
+        "*".to_string(),
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
+            let sum = unwrap_list_of_floats(args)?
+                .iter()
+                .fold(1.0, |sum, a| sum * a);
+
+            Ok(RucketVal::NumV(sum))
+        }),
+    );
+
+    data.insert(
+        "/".to_string(),
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
+            let floats = unwrap_list_of_floats(args)?;
+            let first = *floats.first().ok_or(RucketErr::ArityMismatch(
+                "expected at least one number".to_string(),
+            ))?;
+            let sum_of_rest = floats[1..].iter().fold(first, |sum, a| sum / a);
+
+            Ok(RucketVal::NumV(sum_of_rest))
+        }),
+    );
+
+    data.insert(
         "-".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
             let floats = unwrap_list_of_floats(args)?;
             let first = *floats.first().ok_or(RucketErr::ArityMismatch(
                 "expected at least one number".to_string(),
@@ -254,14 +277,14 @@ pub fn default_env() -> Env {
 
     data.insert(
         "list".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
             Ok(RucketVal::ListV(Vec::from(args)))
         }),
     );
 
     data.insert(
         "cons".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
             if args.len() == 2 {
                 let elem = &args[0];
                 let lst = &args[1];
@@ -283,7 +306,7 @@ pub fn default_env() -> Env {
 
     data.insert(
         "append".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
             let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
                 .iter()
                 .flat_map(|x| x.clone())
@@ -294,7 +317,7 @@ pub fn default_env() -> Env {
 
     data.insert(
         "car".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
             if args.len() == 1 {
                 match &args[0] {
                     RucketVal::ListV(v) => {
@@ -344,7 +367,7 @@ pub fn default_env() -> Env {
 
     data.insert(
         "cdr".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
+        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
             if args.len() == 1 {
                 match &args[0] {
                     RucketVal::ListV(v) => {
@@ -419,22 +442,22 @@ pub fn default_env() -> Env {
     }
 }
 
-fn unwrap_list_of_floats(args: &[RucketVal]) -> Result<Vec<f64>, RucketErr> {
+fn unwrap_list_of_floats(args: &[RucketVal]) -> Result<Vec<f64>> {
     args.iter().map(|x| unwrap_single_float(x)).collect()
 }
 
-fn unwrap_single_float(exp: &RucketVal) -> Result<f64, RucketErr> {
+fn unwrap_single_float(exp: &RucketVal) -> Result<f64> {
     match exp {
         RucketVal::NumV(num) => Ok(*num),
         _ => Err(RucketErr::ExpectedNumber("expected a number".to_string())),
     }
 }
 
-fn unwrap_list_of_lists(args: &[RucketVal]) -> Result<Vec<Vec<RucketVal>>, RucketErr> {
+fn unwrap_list_of_lists(args: &[RucketVal]) -> Result<Vec<Vec<RucketVal>>> {
     args.iter().map(|x| unwrap_single_list(x)).collect()
 }
 
-fn unwrap_single_list(exp: &RucketVal) -> Result<Vec<RucketVal>, RucketErr> {
+fn unwrap_single_list(exp: &RucketVal) -> Result<Vec<RucketVal>> {
     match exp {
         RucketVal::ListV(lst) => Ok(lst.clone()),
         _ => Err(RucketErr::ExpectedNumber("expected a list".to_string())),

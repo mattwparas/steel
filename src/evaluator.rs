@@ -17,6 +17,8 @@ use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::RucketErr;
 use crate::rvals::{RucketLambda, RucketVal};
 
+pub type Result<T> = result::Result<T, RucketErr>;
+
 pub struct Evaluator {
     global_env: EnvRef,
 }
@@ -27,9 +29,14 @@ impl Evaluator {
             global_env: EnvRef::new(default_env()),
         }
     }
-    pub fn eval(&mut self, expr: &Expr) -> Result<RucketVal, RucketErr> {
+    pub fn eval(&mut self, expr: &Expr) -> Result<RucketVal> {
         let (r, e) = evaluate(&expr, &mut self.global_env)?;
         self.global_env = e;
+        Ok(r)
+    }
+
+    pub fn eval_without_updating_env(&mut self, expr: &Expr) -> Result<RucketVal> {
+        let (r, _) = evaluate(&expr, &mut self.global_env)?;
         Ok(r)
     }
 }
@@ -49,10 +56,10 @@ impl Evaluator {
 //     // }
 // }
 
-pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>, RucketErr> {
+pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
     match identifiers {
         Expr::ListVal(l) => {
-            let res: Result<Vec<String>, RucketErr> = l
+            let res: Result<Vec<String>> = l
                 .iter()
                 .map(|x| match x {
                     Expr::Atom(Token::Identifier(s)) => Ok(s.clone()),
@@ -70,7 +77,7 @@ pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>, Rucke
 }
 
 /// returns error if tokens.len() != expected
-pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<(), RucketErr> {
+pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
     if tokens.len() == expected {
         Ok(())
     } else {
@@ -83,7 +90,7 @@ pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<(), 
     }
 }
 
-pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef), RucketErr> {
+pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef)> {
     let mut env = env.clone_ref();
     let mut expr = expr.clone();
 
@@ -157,7 +164,7 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef), Rucket
 }
 
 /// evaluates `(test then else)` into `then` or `else`
-pub fn eval_if(list_of_tokens: &[Expr], env: &EnvRef) -> Result<Expr, RucketErr> {
+pub fn eval_if(list_of_tokens: &[Expr], env: &EnvRef) -> Result<Expr> {
     check_length("If", list_of_tokens, 4)?;
 
     // if we check the length beforehand
@@ -173,7 +180,7 @@ pub fn eval_if(list_of_tokens: &[Expr], env: &EnvRef) -> Result<Expr, RucketErr>
 }
 
 // TODO: actually use the env
-pub fn eval_make_lambda(list_of_tokens: &[Expr], env: EnvRef) -> Result<RucketVal, RucketErr> {
+pub fn eval_make_lambda(list_of_tokens: &[Expr], env: EnvRef) -> Result<RucketVal> {
     check_length("Lambda", &list_of_tokens, 3)?;
     let list_of_symbols = &list_of_tokens[1];
     let body_exp = &list_of_tokens[2];
@@ -184,7 +191,7 @@ pub fn eval_make_lambda(list_of_tokens: &[Expr], env: EnvRef) -> Result<RucketVa
 }
 
 // TODO maybe have to evaluate the params but i'm not sure
-pub fn eval_define(list_of_tokens: &[Expr], env: EnvRef) -> Result<EnvRef, RucketErr> {
+pub fn eval_define(list_of_tokens: &[Expr], env: EnvRef) -> Result<EnvRef> {
     check_length("Define", &list_of_tokens, 3)?;
     let symbol = &list_of_tokens[1];
     let body = &list_of_tokens[2];
@@ -248,7 +255,7 @@ pub fn eval_define(list_of_tokens: &[Expr], env: EnvRef) -> Result<EnvRef, Rucke
 // Syntax of a let -> (let ((a 10) (b 20) (c 25)) (body ...))
 // transformed ((lambda (a b c) (body ...)) 10 20 25)
 // TODO: actually use the env
-pub fn eval_let(list_of_tokens: &[Expr], _env: &EnvRef) -> Result<Expr, RucketErr> {
+pub fn eval_let(list_of_tokens: &[Expr], _env: &EnvRef) -> Result<Expr> {
     check_length("let", &list_of_tokens, 3)?;
     // should have form ((a 10) (b 20) (c 25))
     let bindings = &list_of_tokens[1];
@@ -301,10 +308,10 @@ pub fn eval_procedure<'a>(
     sym: &Expr,
     eval_iter: impl Iterator<Item = &'a Expr>,
     env: EnvRef,
-) -> Result<(RucketVal, EnvRef), RucketErr> {
+) -> Result<(RucketVal, EnvRef)> {
     match evaluate(sym, &env)? {
         (RucketVal::FuncV(func), _) => {
-            let args_eval: Result<Vec<(RucketVal, EnvRef)>, RucketErr> =
+            let args_eval: Result<Vec<(RucketVal, EnvRef)>> =
                 eval_iter.map(|x| evaluate(&x, &env)).collect();
             let args_without_eval: Vec<RucketVal> =
                 args_eval?.iter().map(|x| x.0.clone()).collect();
@@ -316,7 +323,7 @@ pub fn eval_procedure<'a>(
             // let args_eval: Result<Vec<RucketVal>, RucketErr> =
             //     eval_iter.map(|x| evaluate(&x, &env)).collect();
 
-            let args_eval: Result<Vec<(RucketVal, EnvRef)>, RucketErr> =
+            let args_eval: Result<Vec<(RucketVal, EnvRef)>> =
                 eval_iter.map(|x| evaluate(&x, &env)).collect();
             let good_args_eval: Vec<RucketVal> = args_eval?.iter().map(|x| x.0.clone()).collect();
 
