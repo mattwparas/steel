@@ -23,6 +23,7 @@ pub enum Token {
     Define,
     Lambda,
     Quote,
+    QuoteTick,
     BooleanLiteral(bool),
     Identifier(String),
     NumberLiteral(f64),
@@ -43,6 +44,7 @@ impl fmt::Display for Token {
             Token::Identifier(x) => write!(f, "{}", x),
             Token::NumberLiteral(x) => write!(f, "{}", x),
             Token::StringLiteral(x) => write!(f, "\"{}\"", x),
+            Token::QuoteTick => write!(f, "'"),
         }
     }
 }
@@ -220,10 +222,10 @@ impl<'a> Iterator for Tokenizer<'a> {
                 self.input.next();
                 Some(Ok(Token::CloseParen))
             }
-            // Some('\'') => {
-            //     self.input.next();
-            //     Some(Ok(Token::Quote))
-            // }
+            Some('\'') => {
+                self.input.next();
+                Some(Ok(Token::QuoteTick))
+            }
             // Some('=') => {
             //     self.input.next();
             //     if let Some(&c) = self.input.peek() {
