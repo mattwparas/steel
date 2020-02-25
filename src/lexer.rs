@@ -3,6 +3,7 @@ use std::iter::{Iterator, Peekable};
 use std::result;
 use std::str::Chars;
 use thiserror::Error;
+use Token::*;
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum TokenError {
@@ -33,18 +34,18 @@ pub enum Token {
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Token::OpenParen => write!(f, "("),
-            Token::CloseParen => write!(f, "("),
-            Token::If => write!(f, "if"),
-            Token::Let => write!(f, "let"),
-            Token::Define => write!(f, "define"),
-            Token::Lambda => write!(f, "lambda"),
-            Token::Quote => write!(f, "quote"),
-            Token::BooleanLiteral(x) => write!(f, "{}", x),
-            Token::Identifier(x) => write!(f, "{}", x),
-            Token::NumberLiteral(x) => write!(f, "{}", x),
-            Token::StringLiteral(x) => write!(f, "\"{}\"", x),
-            Token::QuoteTick => write!(f, "'"),
+            OpenParen => write!(f, "("),
+            CloseParen => write!(f, "("),
+            If => write!(f, "if"),
+            Let => write!(f, "let"),
+            Define => write!(f, "define"),
+            Lambda => write!(f, "lambda"),
+            Quote => write!(f, "quote"),
+            BooleanLiteral(x) => write!(f, "#{}", x),
+            Identifier(x) => write!(f, "{}", x),
+            NumberLiteral(x) => write!(f, "{}", x),
+            StringLiteral(x) => write!(f, "\"{}\"", x),
+            QuoteTick => write!(f, "'"),
         }
     }
 }
@@ -52,13 +53,7 @@ impl fmt::Display for Token {
 impl Token {
     pub fn is_reserved_keyword(&self) -> bool {
         match self {
-            Token::OpenParen
-            | Token::CloseParen
-            | Token::If
-            | Token::Let
-            | Token::Define
-            | Token::Lambda
-            | Token::Quote => true,
+            OpenParen | CloseParen | If | Let | Define | Lambda | Quote => true,
             _ => false,
         }
     }
@@ -306,10 +301,8 @@ impl<'a> Iterator for Tokenizer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use TokenError;
-
-    use super::Token::*;
     use super::*;
+    use TokenError;
 
     // #[test]
     // fn test_punctuation() {

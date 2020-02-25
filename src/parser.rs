@@ -59,24 +59,16 @@ impl<'a> Parser<'a> {
         loop {
             match self.tokenizer.next() {
                 Some(Ok(t)) => match t {
-                    Token::QuoteTick => match self.tokenizer.next() {
-                        Some(Ok(Token::OpenParen)) => match self.read_from_tokens() {
-                            Ok(Expr::ListVal(vals)) => {
-                                let exp = construct_quote(vals);
-                                current_frame.push(exp);
-                            }
+                    Token::QuoteTick => {
+                        let quote_inner = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF))
+                            .map(construct_quote);
+                        match quote_inner {
+                            Ok(expr) => current_frame.push(expr),
                             Err(e) => return Err(e),
-                            _ => return Err(ParseError::UnexpectedEOF),
-                        },
-                        Some(Ok(tok)) => {
-                            let exp =
-                                Expr::ListVal(vec![Expr::Atom(Token::Quote), Expr::Atom(tok)]);
-
-                            current_frame.push(exp);
                         }
-                        Some(Err(e)) => return Err(ParseError::TokenError(e)),
-                        _ => return Err(ParseError::UnexpectedEOF),
-                    },
+                    }
                     Token::OpenParen => {
                         stack.push(current_frame);
                         current_frame = Vec::new();
@@ -107,21 +99,10 @@ impl<'a> Iterator for Parser<'a> {
         self.tokenizer.next().map(|res| match res {
             Err(e) => Err(ParseError::TokenError(e)),
             Ok(tok) => match tok {
-                Token::QuoteTick => match self.tokenizer.next() {
-                    Some(Ok(Token::OpenParen)) => match self.read_from_tokens() {
-                        Ok(Expr::ListVal(vals)) => Ok(construct_quote(vals)),
-                        Err(e) => return Err(e),
-                        _ => return Err(ParseError::UnexpectedEOF),
-                    },
-                    Some(Ok(tok)) => {
-                        return Ok(Expr::ListVal(vec![
-                            Expr::Atom(Token::Quote),
-                            Expr::Atom(tok),
-                        ]));
-                    }
-                    Some(Err(e)) => Err(ParseError::TokenError(e)),
-                    None => Err(ParseError::UnexpectedEOF),
-                },
+                Token::QuoteTick => self
+                    .next()
+                    .unwrap_or(Err(ParseError::UnexpectedEOF))
+                    .map(construct_quote),
                 Token::OpenParen => self.read_from_tokens(),
                 tok if tok.is_reserved_keyword() => Err(ParseError::Unexpected(tok)),
                 tok => Ok(Expr::Atom(tok)),
@@ -130,14 +111,8 @@ impl<'a> Iterator for Parser<'a> {
     }
 }
 
-fn construct_quote(mut vals: Vec<Expr>) -> Expr {
-    match vals.get(0) {
-        Some(Expr::Atom(Token::Identifier(_))) => {}
-        Some(Expr::Atom(t)) if t.is_reserved_keyword() => {}
-        _ => vals.insert(0, Expr::Atom(Token::Identifier("list".to_string()))),
-    }
-
-    Expr::ListVal(vec![Expr::Atom(Token::Quote), Expr::ListVal(vals)])
+fn construct_quote(val: Expr) -> Expr {
+    Expr::ListVal(vec![Expr::Atom(Token::Quote), val])
 }
 
 #[cfg(test)]
