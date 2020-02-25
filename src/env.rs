@@ -1,8 +1,8 @@
 use crate::evaluator::Result;
-use crate::lexer::Token;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
+use crate::tokens::Token;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;

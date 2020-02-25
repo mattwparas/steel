@@ -6,6 +6,7 @@ pub mod parser;
 pub mod repl;
 pub mod rerrs;
 pub mod rvals;
+pub mod tokens;
 
 fn main() {
     // finish(repl::repl(io::stdin().lock(), io::stdout()));

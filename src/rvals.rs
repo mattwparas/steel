@@ -86,7 +86,7 @@ fn list_display(lst: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
 
 #[test]
 fn display_test() {
-    use crate::lexer::Token;
+    use crate::tokens::Token;
     assert_eq!(RucketVal::BoolV(false).to_string(), "#false");
     assert_eq!(RucketVal::NumV(1.0).to_string(), "1");
     assert_eq!(
@@ -113,7 +113,7 @@ fn display_test() {
 
 #[test]
 fn display_list_test() {
-    use crate::lexer::Token;
+    use crate::tokens::Token;
     assert_eq!(ListV(vec![]).to_string(), "'()");
     assert_eq!(
         ListV(vec![

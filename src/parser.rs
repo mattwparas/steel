@@ -4,7 +4,8 @@ use std::result;
 use std::str;
 use thiserror::Error;
 
-use crate::lexer::{Token, TokenError, Tokenizer};
+use crate::lexer::Tokenizer;
+use crate::tokens::{Token, TokenError};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {

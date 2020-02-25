@@ -12,10 +12,11 @@ use std::str::Chars;
 use thiserror::Error;
 
 use crate::env::{default_env, Env, EnvRef};
-use crate::lexer::{Token, TokenError, Tokenizer};
+use crate::lexer::Tokenizer;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::RucketErr;
 use crate::rvals::{RucketLambda, RucketVal};
+use crate::tokens::{Token, TokenError};
 
 pub type Result<T> = result::Result<T, RucketErr>;
 

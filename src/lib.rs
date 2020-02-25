@@ -5,3 +5,4 @@ pub mod parser;
 pub mod repl;
 pub mod rerrs;
 pub mod rvals;
+pub mod tokens;
