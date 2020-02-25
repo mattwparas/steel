@@ -294,6 +294,11 @@ pub fn default_env() -> Env {
                     l.insert(0, elem.clone());
                     return Ok(RucketVal::ListV(l));
                 } else {
+                    if let RucketVal::SyntaxV(Expr::ListVal(b)) = lst {
+                        if b.len() == 0 {
+                            return Ok(RucketVal::ListV(vec![elem.clone()]));
+                        }
+                    }
                     return Ok(RucketVal::ListV(vec![elem.clone(), lst.clone()]));
                 }
             } else {
