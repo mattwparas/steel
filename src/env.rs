@@ -298,6 +298,25 @@ pub fn default_env() -> Env {
                     if let RucketVal::SyntaxV(Expr::ListVal(b)) = lst {
                         if b.len() == 0 {
                             return Ok(RucketVal::ListV(vec![elem.clone()]));
+                        } else {
+                            let mut l = b.clone();
+                            match elem {
+                                RucketVal::SyntaxV(e) => {
+                                    l.insert(0, e.clone());
+                                }
+                                RucketVal::NumV(n) => {
+                                    l.insert(0, Expr::Atom(Token::NumberLiteral(*n)));
+                                }
+                                RucketVal::StringV(s) => {
+                                    l.insert(0, Expr::Atom(Token::StringLiteral(s.to_owned())));
+                                }
+                                _ => {}
+                            }
+
+                            return Ok(RucketVal::SyntaxV(Expr::ListVal(vec![
+                                Expr::Atom(Token::Quote),
+                                Expr::ListVal(l.clone()),
+                            ])));
                         }
                     }
                     return Ok(RucketVal::ListV(vec![elem.clone(), lst.clone()]));
