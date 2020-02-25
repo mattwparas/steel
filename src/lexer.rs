@@ -51,9 +51,9 @@ impl fmt::Display for Token {
 }
 
 impl Token {
-    pub fn is_reserved_keyword(&self) -> bool {
+    pub fn is_reserved_token(&self) -> bool {
         match self {
-            OpenParen | CloseParen | If | Let | Define | Lambda | Quote => true,
+            OpenParen | CloseParen => true,
             _ => false,
         }
     }

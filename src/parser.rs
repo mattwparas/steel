@@ -104,7 +104,7 @@ impl<'a> Iterator for Parser<'a> {
                     .unwrap_or(Err(ParseError::UnexpectedEOF))
                     .map(construct_quote),
                 Token::OpenParen => self.read_from_tokens(),
-                tok if tok.is_reserved_keyword() => Err(ParseError::Unexpected(tok)),
+                Token::CloseParen => Err(ParseError::Unexpected(Token::CloseParen)),
                 tok => Ok(Expr::Atom(tok)),
             },
         })
@@ -301,6 +301,9 @@ mod parser_tests {
         assert_parse_err("((((ab 1 2) (", ParseError::UnexpectedEOF);
         assert_parse_err("())", ParseError::Unexpected(Token::CloseParen));
         assert_parse_err("() ((((", ParseError::UnexpectedEOF);
+        assert_parse_err("')", ParseError::Unexpected(Token::CloseParen));
+        assert_parse_err("(')", ParseError::Unexpected(Token::CloseParen));
+        assert_parse_err("('", ParseError::UnexpectedEOF);
     }
 
     fn assert_parse_err(s: &str, err: ParseError) {
