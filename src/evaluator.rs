@@ -314,9 +314,10 @@ pub fn eval_procedure<'a>(
         (RucketVal::FuncV(func), _) => {
             let args_eval: Result<Vec<(RucketVal, EnvRef)>> =
                 eval_iter.map(|x| evaluate(&x, &env)).collect();
-            let args_without_eval: Vec<RucketVal> =
-                args_eval?.iter().map(|x| x.0.clone()).collect();
-            let expr = func(&args_without_eval)?;
+            let args_eval = args_eval?;
+            // pure function doesn't need the env
+            let args_without_env: Vec<&RucketVal> = args_eval.iter().map(|x| &x.0).collect();
+            let expr = func(&args_without_env)?;
             return Ok((expr, env));
         }
 

@@ -11,7 +11,7 @@ use std::rc::Rc;
 #[macro_use]
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
-        |args: &[RucketVal]| -> Result<RucketVal> {
+        |args: &[&RucketVal]| -> Result<RucketVal> {
             let floats = unwrap_list_of_floats(args)?;
             let first = floats.first().ok_or(RucketErr::ExpectedNumber(
                 "expected at least one number".to_string(),
@@ -229,7 +229,7 @@ pub fn default_env() -> Env {
     let mut data: HashMap<String, RucketVal> = HashMap::new();
     data.insert(
         "+".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
+        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
             let sum = unwrap_list_of_floats(args)?
                 .iter()
                 .fold(0.0, |sum, a| sum + a);
@@ -240,7 +240,7 @@ pub fn default_env() -> Env {
 
     data.insert(
         "*".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
+        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
             let sum = unwrap_list_of_floats(args)?
                 .iter()
                 .fold(1.0, |sum, a| sum * a);
@@ -251,7 +251,7 @@ pub fn default_env() -> Env {
 
     data.insert(
         "/".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
+        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
             let floats = unwrap_list_of_floats(args)?;
             let first = *floats.first().ok_or(RucketErr::ArityMismatch(
                 "expected at least one number".to_string(),
@@ -264,7 +264,7 @@ pub fn default_env() -> Env {
 
     data.insert(
         "-".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
+        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
             let floats = unwrap_list_of_floats(args)?;
             let first = *floats.first().ok_or(RucketErr::ArityMismatch(
                 "expected at least one number".to_string(),
@@ -277,17 +277,18 @@ pub fn default_env() -> Env {
 
     data.insert(
         "list".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
-            Ok(RucketVal::ListV(Vec::from(args)))
+        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
+            let new_lst = args.iter().map(|&x| x.clone()).collect();
+            Ok(RucketVal::ListV(new_lst))
         }),
     );
 
     data.insert(
         "cons".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
+        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
             if args.len() == 2 {
-                let elem = &args[0];
-                let lst = &args[1];
+                let elem = args[0];
+                let lst = args[1];
 
                 if let RucketVal::ListV(v) = lst {
                     let mut l = v.clone();
@@ -311,7 +312,7 @@ pub fn default_env() -> Env {
 
     data.insert(
         "append".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
+        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
             let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
                 .iter()
                 .flat_map(|x| x.clone())
@@ -322,7 +323,7 @@ pub fn default_env() -> Env {
 
     data.insert(
         "car".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
+        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
             if args.len() == 1 {
                 match &args[0] {
                     RucketVal::ListV(v) => {
@@ -372,7 +373,7 @@ pub fn default_env() -> Env {
 
     data.insert(
         "cdr".to_string(),
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal> {
+        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
             if args.len() == 1 {
                 match &args[0] {
                     RucketVal::ListV(v) => {
@@ -447,7 +448,7 @@ pub fn default_env() -> Env {
     }
 }
 
-fn unwrap_list_of_floats(args: &[RucketVal]) -> Result<Vec<f64>> {
+fn unwrap_list_of_floats(args: &[&RucketVal]) -> Result<Vec<f64>> {
     args.iter().map(|x| unwrap_single_float(x)).collect()
 }
 
@@ -458,7 +459,7 @@ fn unwrap_single_float(exp: &RucketVal) -> Result<f64> {
     }
 }
 
-fn unwrap_list_of_lists(args: &[RucketVal]) -> Result<Vec<Vec<RucketVal>>> {
+fn unwrap_list_of_lists(args: &[&RucketVal]) -> Result<Vec<Vec<RucketVal>>> {
     args.iter().map(|x| unwrap_single_list(x)).collect()
 }
 

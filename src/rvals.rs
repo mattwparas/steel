@@ -12,7 +12,7 @@ pub enum RucketVal {
     ListV(Vec<RucketVal>),
     Void,
     StringV(String),
-    FuncV(fn(&[RucketVal]) -> Result<RucketVal, RucketErr>),
+    FuncV(fn(&[&RucketVal]) -> Result<RucketVal, RucketErr>),
     LambdaV(RucketLambda),
     SyntaxV(Expr),
 }
@@ -116,8 +116,8 @@ fn display_test() {
     assert_eq!(RucketVal::BoolV(false).to_string(), "#false");
     assert_eq!(RucketVal::NumV(1.0).to_string(), "1");
     assert_eq!(
-        RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
-            Ok(RucketVal::ListV(Vec::from(args)))
+        RucketVal::FuncV(|_args: &[&RucketVal]| -> Result<RucketVal, RucketErr> {
+            Ok(RucketVal::ListV(vec![]))
         })
         .to_string(),
         "Function"
