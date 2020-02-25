@@ -1,6 +1,7 @@
 use crate::env::EnvRef;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
+use std::cmp::Ordering;
 use std::fmt;
 use RucketVal::*;
 
@@ -14,6 +15,31 @@ pub enum RucketVal {
     FuncV(fn(&[RucketVal]) -> Result<RucketVal, RucketErr>),
     LambdaV(RucketLambda),
     SyntaxV(Expr),
+}
+
+// TODO add tests
+impl PartialEq for RucketVal {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (BoolV(l), BoolV(r)) => l == r,
+            (NumV(l), NumV(r)) => l == r,
+            (StringV(l), StringV(r)) => l == r,
+            (ListV(l), ListV(r)) => l == r,
+            (SyntaxV(l), SyntaxV(r)) => l.to_string() == r.to_string(),
+            (_, _) => false,
+        }
+    }
+}
+
+// TODO add tests
+impl PartialOrd for RucketVal {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (NumV(n), NumV(o)) => n.partial_cmp(o),
+            (StringV(s), StringV(o)) => s.partial_cmp(o),
+            _ => unimplemented!(),
+        }
+    }
 }
 
 #[derive(Clone)]
