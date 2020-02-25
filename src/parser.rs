@@ -104,7 +104,7 @@ impl<'a> Iterator for Parser<'a> {
                     .unwrap_or(Err(ParseError::UnexpectedEOF))
                     .map(construct_quote),
                 Token::OpenParen => self.read_from_tokens(),
-                tok if tok.is_reserved_keyword() => Err(ParseError::Unexpected(tok)),
+                tok if tok.is_reserved_token() => Err(ParseError::Unexpected(tok)),
                 tok => Ok(Expr::Atom(tok)),
             },
         })
