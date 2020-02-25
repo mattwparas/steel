@@ -1,5 +1,5 @@
-// use crate::lexer::Token;
-// use crate::parser::Expr;
+use crate::lexer::Token;
+use crate::parser::Expr;
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
 use std::cell::RefCell;
@@ -271,7 +271,7 @@ pub fn default_env() -> Env {
                     l.insert(0, elem.clone());
                     return Ok(RucketVal::ListV(l));
                 } else {
-                    return Err(RucketErr::ExpectedList("cons takes a list".to_string()));
+                    return Ok(RucketVal::ListV(vec![elem.clone(), lst.clone()]));
                 }
             } else {
                 return Err(RucketErr::ArityMismatch(
@@ -296,19 +296,43 @@ pub fn default_env() -> Env {
         "car".to_string(),
         RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
             if args.len() == 1 {
-                if let RucketVal::ListV(v) = &args[0] {
-                    if v.len() == 0 {
-                        return Err(RucketErr::ContractViolation(
-                            "car expects a non empty list".to_string(),
-                        ));
-                    } else {
-                        return Ok(v[0].clone());
+                match &args[0] {
+                    RucketVal::ListV(v) => {
+                        if v.len() == 0 {
+                            return Err(RucketErr::ContractViolation(
+                                "car expects a non empty list".to_string(),
+                            ));
+                        } else {
+                            return Ok(v[0].clone());
+                        }
                     }
-                } else {
-                    return Err(RucketErr::ExpectedList(format!(
-                        "car takes a list, given: {}",
-                        &args[0]
-                    )));
+                    RucketVal::SyntaxV(expr) => match expr {
+                        Expr::ListVal(lst_of_exprs) => {
+                            if lst_of_exprs.len() == 0 {
+                                return Err(RucketErr::ContractViolation(
+                                    "car expects a non empty list".to_string(),
+                                ));
+                            } else {
+                                let ret_val = Expr::ListVal(vec![
+                                    Expr::Atom(Token::Quote),
+                                    lst_of_exprs[0].clone(),
+                                ]);
+                                return Ok(RucketVal::SyntaxV(ret_val));
+                            }
+                        }
+                        Expr::Atom(t) => {
+                            return Err(RucketErr::ExpectedList(format!(
+                                "car takes a list, given: {}",
+                                t
+                            )));
+                        }
+                    },
+                    e => {
+                        return Err(RucketErr::ExpectedList(format!(
+                            "car takes a list, given: {}",
+                            e
+                        )));
+                    }
                 }
             } else {
                 return Err(RucketErr::ArityMismatch(
@@ -322,19 +346,43 @@ pub fn default_env() -> Env {
         "cdr".to_string(),
         RucketVal::FuncV(|args: &[RucketVal]| -> Result<RucketVal, RucketErr> {
             if args.len() == 1 {
-                if let RucketVal::ListV(v) = &args[0] {
-                    if v.len() == 0 {
-                        return Err(RucketErr::ContractViolation(
-                            "cdr expects a non empty list".to_string(),
-                        ));
-                    } else {
-                        return Ok(RucketVal::ListV(v[1..].to_vec()));
+                match &args[0] {
+                    RucketVal::ListV(v) => {
+                        if v.len() == 0 {
+                            return Err(RucketErr::ContractViolation(
+                                "car expects a non empty list".to_string(),
+                            ));
+                        } else {
+                            return Ok(RucketVal::ListV(v[1..].to_vec()));
+                        }
                     }
-                } else {
-                    return Err(RucketErr::ExpectedList(format!(
-                        "cdr takes a list, given: {}",
-                        &args[0]
-                    )));
+                    RucketVal::SyntaxV(expr) => match expr {
+                        Expr::ListVal(lst_of_exprs) => {
+                            if lst_of_exprs.len() == 0 {
+                                return Err(RucketErr::ContractViolation(
+                                    "cdr expects a non empty list".to_string(),
+                                ));
+                            } else {
+                                let ret_val = Expr::ListVal(vec![
+                                    Expr::Atom(Token::Quote),
+                                    Expr::ListVal(lst_of_exprs[1..].to_vec()),
+                                ]);
+                                return Ok(RucketVal::SyntaxV(ret_val));
+                            }
+                        }
+                        Expr::Atom(t) => {
+                            return Err(RucketErr::ExpectedList(format!(
+                                "cdr takes a list, given: {}",
+                                t
+                            )));
+                        }
+                    },
+                    e => {
+                        return Err(RucketErr::ExpectedList(format!(
+                            "cdr takes a list, given: {}",
+                            e
+                        )));
+                    }
                 }
             } else {
                 return Err(RucketErr::ArityMismatch(
