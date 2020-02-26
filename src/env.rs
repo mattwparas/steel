@@ -1,8 +1,8 @@
 use crate::evaluator::Result;
-use crate::parser::Expr;
+
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
-use crate::tokens::Token;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -295,30 +295,6 @@ pub fn default_env() -> Env {
                     l.insert(0, elem.clone());
                     return Ok(RucketVal::ListV(l));
                 } else {
-                    if let RucketVal::SyntaxV(Expr::ListVal(b)) = lst {
-                        if b.len() == 0 {
-                            return Ok(RucketVal::ListV(vec![elem.clone()]));
-                        } else {
-                            let mut l = b.clone();
-                            match elem {
-                                RucketVal::SyntaxV(e) => {
-                                    l.insert(0, e.clone());
-                                }
-                                RucketVal::NumV(n) => {
-                                    l.insert(0, Expr::Atom(Token::NumberLiteral(*n)));
-                                }
-                                RucketVal::StringV(s) => {
-                                    l.insert(0, Expr::Atom(Token::StringLiteral(s.to_owned())));
-                                }
-                                _ => {}
-                            }
-
-                            return Ok(RucketVal::SyntaxV(Expr::ListVal(vec![
-                                Expr::Atom(Token::Quote),
-                                Expr::ListVal(l.clone()),
-                            ])));
-                        }
-                    }
                     return Ok(RucketVal::ListV(vec![elem.clone(), lst.clone()]));
                 }
             } else {
@@ -354,27 +330,6 @@ pub fn default_env() -> Env {
                             return Ok(v[0].clone());
                         }
                     }
-                    RucketVal::SyntaxV(expr) => match expr {
-                        Expr::ListVal(lst_of_exprs) => {
-                            if lst_of_exprs.len() == 0 {
-                                return Err(RucketErr::ContractViolation(
-                                    "car expects a non empty list".to_string(),
-                                ));
-                            } else {
-                                let ret_val = Expr::ListVal(vec![
-                                    Expr::Atom(Token::Quote),
-                                    lst_of_exprs[0].clone(),
-                                ]);
-                                return Ok(RucketVal::SyntaxV(ret_val));
-                            }
-                        }
-                        Expr::Atom(t) => {
-                            return Err(RucketErr::ExpectedList(format!(
-                                "car takes a list, given: {}",
-                                t
-                            )));
-                        }
-                    },
                     e => {
                         return Err(RucketErr::ExpectedList(format!(
                             "car takes a list, given: {}",
@@ -404,27 +359,6 @@ pub fn default_env() -> Env {
                             return Ok(RucketVal::ListV(v[1..].to_vec()));
                         }
                     }
-                    RucketVal::SyntaxV(expr) => match expr {
-                        Expr::ListVal(lst_of_exprs) => {
-                            if lst_of_exprs.len() == 0 {
-                                return Err(RucketErr::ContractViolation(
-                                    "cdr expects a non empty list".to_string(),
-                                ));
-                            } else {
-                                let ret_val = Expr::ListVal(vec![
-                                    Expr::Atom(Token::Quote),
-                                    Expr::ListVal(lst_of_exprs[1..].to_vec()),
-                                ]);
-                                return Ok(RucketVal::SyntaxV(ret_val));
-                            }
-                        }
-                        Expr::Atom(t) => {
-                            return Err(RucketErr::ExpectedList(format!(
-                                "cdr takes a list, given: {}",
-                                t
-                            )));
-                        }
-                    },
                     e => {
                         return Err(RucketErr::ExpectedList(format!(
                             "cdr takes a list, given: {}",

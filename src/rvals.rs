@@ -1,9 +1,12 @@
 use crate::env::EnvRef;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
+use crate::tokens::Token::*;
 use std::cmp::Ordering;
 use std::fmt;
 use RucketVal::*;
+
+use std::convert::TryFrom;
 
 #[derive(Clone)]
 pub enum RucketVal {
@@ -14,7 +17,36 @@ pub enum RucketVal {
     StringV(String),
     FuncV(fn(&[&RucketVal]) -> Result<RucketVal, RucketErr>),
     LambdaV(RucketLambda),
-    SyntaxV(Expr),
+    SymbolV(String),
+}
+
+// sometimes you want to just
+// return an expression
+impl TryFrom<Expr> for RucketVal {
+    type Error = RucketErr;
+    fn try_from(e: Expr) -> Result<Self, Self::Error> {
+        match e {
+            Expr::Atom(a) => match a {
+                OpenParen => Err(RucketErr::UnexpectedToken("(".to_string())),
+                CloseParen => Err(RucketErr::UnexpectedToken(")".to_string())),
+                If => Ok(SymbolV("if".to_string())),
+                Let => Ok(SymbolV("let".to_string())),
+                Define => Ok(SymbolV("define".to_string())),
+                Lambda => Ok(SymbolV("lambda".to_string())),
+                Quote => Ok(SymbolV("quote".to_string())),
+                QuoteTick => Err(RucketErr::UnexpectedToken("'".to_string())),
+                BooleanLiteral(x) => Ok(BoolV(x)),
+                Identifier(x) => Ok(SymbolV(x)),
+                NumberLiteral(x) => Ok(NumV(x)),
+                StringLiteral(x) => Ok(StringV(x)),
+            },
+            Expr::ListVal(lst) => {
+                let items: Result<Vec<Self>, Self::Error> =
+                    lst.into_iter().map(|item| Self::try_from(item)).collect();
+                Ok(ListV(items?))
+            }
+        }
+    }
 }
 
 // TODO add tests
@@ -25,7 +57,6 @@ impl PartialEq for RucketVal {
             (NumV(l), NumV(r)) => l == r,
             (StringV(l), StringV(r)) => l == r,
             (ListV(l), ListV(r)) => l == r,
-            (SyntaxV(l), SyntaxV(r)) => l.to_string() == r.to_string(),
             (_, _) => false,
         }
     }
@@ -73,40 +104,39 @@ impl RucketLambda {
 
 impl fmt::Display for RucketVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // at the top level, print a ' if we are
+        // trying to print a symbol or list
         match self {
-            BoolV(b) => write!(f, "#{}", b),
-            NumV(x) => write!(f, "{}", x),
-            StringV(s) => write!(f, "\"{}\"", s),
-            FuncV(_) => write!(f, "Function"),
-            LambdaV(_) => write!(f, "Lambda Function"),
-            SyntaxV(expr) => write!(f, "'{}", expr),
-            Void => write!(f, "Void"),
-            lst => {
-                write!(f, "'")?;
-                list_display(lst, f)
-            }
-        }
+            SymbolV(_) | ListV(_) => write!(f, "'")?,
+            _ => (),
+        };
+        display_helper(self, f)
     }
 }
 
 /// this function recursively prints lists without prepending the `'`
 /// at the beginning
-fn list_display(lst: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
-    match lst {
-        RucketVal::ListV(lst) => {
+fn display_helper(val: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
+    match val {
+        BoolV(b) => write!(f, "#{}", b),
+        NumV(x) => write!(f, "{}", x),
+        StringV(s) => write!(f, "\"{}\"", s),
+        FuncV(_) => write!(f, "Function"),
+        LambdaV(_) => write!(f, "Lambda Function"),
+        Void => write!(f, "Void"),
+        SymbolV(s) => write!(f, "{}", s),
+        ListV(lst) => {
             let mut iter = lst.iter();
             write!(f, "(")?;
             if let Some(last) = iter.next_back() {
                 for item in iter {
-                    list_display(item, f)?;
+                    display_helper(item, f)?;
                     write!(f, " ")?;
                 }
-                list_display(last, f)?;
+                display_helper(last, f)?;
             }
             write!(f, ")")
         }
-        RucketVal::SyntaxV(expr) => write!(f, "{}", expr),
-        atom => write!(f, "{}", atom),
     }
 }
 
@@ -131,10 +161,7 @@ fn display_test() {
         .to_string(),
         "Lambda Function"
     );
-    assert_eq!(
-        RucketVal::SyntaxV(Expr::Atom(Token::BooleanLiteral(false))).to_string(),
-        "'#false"
-    );
+    assert_eq!(RucketVal::SymbolV("foo".to_string()).to_string(), "'foo");
 }
 
 #[test]
@@ -163,13 +190,5 @@ fn display_list_test() {
         ])
         .to_string(),
         "'((1 (2 3)) (4 5) 6 (7))"
-    );
-    assert_eq!(
-        ListV(vec![
-            NumV(1.0),
-            SyntaxV(Expr::Atom(Token::BooleanLiteral(false)))
-        ])
-        .to_string(),
-        "'(1 #false)"
     );
 }
