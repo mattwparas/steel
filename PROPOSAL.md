@@ -1,4 +1,4 @@
-# Name Pending
+# Bluff (repo and code will be changed later)
 
 ## Plan
 
@@ -36,11 +36,10 @@
       
 ## Example Trait Definitions
 ```rust
-trait RucketFunc {
-    // Static method signature; `Self` refers to the implementor type.
-    fn new_func(name: &'static str) -> fn(&[&RucketVal]) -> Result<RucketVal, RucketErr>;
+trait BluffFunc {
+    fn new_func(name: &'static str) -> fn(&[&BluffVal]) -> Result<BluffVal, BluffErr>;
 }
 
-impl From<T> to RucketVal {...}
-impl From<RucketVal> to T {...}
+impl From<T> to BluffVal {...}
+impl From<BluffVal> to T {...}
 ```
