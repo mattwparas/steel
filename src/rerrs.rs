@@ -26,6 +26,4 @@ pub enum RucketErr {
     ContractViolation(String),
     #[error("Bad Syntax: {0}")]
     BadSyntax(String),
-    #[error("Can't compute return value. Reason: {0}")]
-    ConversionError(String),
 }

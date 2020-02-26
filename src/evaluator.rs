@@ -138,8 +138,7 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef)> {
                         Expr::Atom(Token::Quote) => {
                             // TODO make this safer?
                             check_length("Quote", &list_of_tokens, 2)?;
-                            let converted = RucketVal::try_from(list_of_tokens[1].clone())
-                                .map_err(|e| RucketErr::ConversionError(e.to_owned()))?;
+                            let converted = RucketVal::try_from(list_of_tokens[1].clone())?;
                             return Ok((converted, env));
                         }
                         // (lambda (vars*) (body))
@@ -332,49 +331,5 @@ pub fn eval_let(list_of_tokens: &[Expr], _env: &EnvRef) -> Result<Expr> {
     let application = Expr::ListVal(combined);
     Ok(application)
 }
-
-/*
-pub fn eval_procedure<'a>(
-    sym: &Expr,
-    eval_iter: impl Iterator<Item = &'a Expr>,
-    env: EnvRef,
-) -> Result<(RucketVal, EnvRef)> {
-    match evaluate(sym, &env)? {
-        (RucketVal::FuncV(func), _) => {
-            let args_eval: Result<Vec<(RucketVal, EnvRef)>> =
-                eval_iter.map(|x| evaluate(&x, &env)).collect();
-            let args_eval = args_eval?;
-            // pure function doesn't need the env
-            let args_without_env: Vec<&RucketVal> = args_eval.iter().map(|x| &x.0).collect();
-            let rval = func(&args_without_env)?;
-            return Ok((rval, env));
-        }
-
-        (RucketVal::LambdaV(lambda), _) => {
-            // let args_eval: Result<Vec<RucketVal>, RucketErr> =
-            //     eval_iter.map(|x| evaluate(&x, &env)).collect();
-
-            let args_eval: Result<Vec<(RucketVal, EnvRef)>> =
-                eval_iter.map(|x| evaluate(&x, &env)).collect();
-            let good_args_eval: Vec<RucketVal> = args_eval?.iter().map(|x| x.0.clone()).collect();
-
-            let mut inner_env = Env::new(lambda.env().clone_ref());
-
-            // let good_args_eval = args_eval?;
-
-            let params = lambda.params_exp().iter();
-
-            params
-                .zip(good_args_eval.iter())
-                .for_each(|(param, arg)| inner_env.define(param.to_string(), arg.clone()));
-
-            let env = inner_env.into_ref();
-            return Ok((RucketVal::try_from(lambda.body_exp()).unwrap(), env));
-        }
-        (e, _) => {
-            return Err(RucketErr::ExpectedFunction(e.to_string()));
-        }
-    }
-}*/
 
 // TODO write macro to destructure vector

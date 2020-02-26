@@ -23,18 +23,18 @@ pub enum RucketVal {
 // sometimes you want to just
 // return an expression
 impl TryFrom<Expr> for RucketVal {
-    type Error = &'static str;
+    type Error = RucketErr;
     fn try_from(e: Expr) -> Result<Self, Self::Error> {
         match e {
             Expr::Atom(a) => match a {
-                OpenParen => Err("Can't convert a '(' to a valid symbol"),
-                CloseParen => Err("Can't convert a ')' to a valid symbol"),
+                OpenParen => Err(RucketErr::UnexpectedToken("(".to_string())),
+                CloseParen => Err(RucketErr::UnexpectedToken(")".to_string())),
                 If => Ok(SymbolV("if".to_string())),
                 Let => Ok(SymbolV("let".to_string())),
                 Define => Ok(SymbolV("define".to_string())),
                 Lambda => Ok(SymbolV("lambda".to_string())),
                 Quote => Ok(SymbolV("quote".to_string())),
-                QuoteTick => Err("Can't convert a \"'\" to a valid symbol"),
+                QuoteTick => Err(RucketErr::UnexpectedToken("'".to_string())),
                 BooleanLiteral(x) => Ok(BoolV(x)),
                 Identifier(x) => Ok(SymbolV(x)),
                 NumberLiteral(x) => Ok(NumV(x)),
