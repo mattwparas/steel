@@ -32,13 +32,8 @@ impl Evaluator {
         }
     }
     pub fn eval(&mut self, expr: &Expr) -> Result<RucketVal> {
-        let (r, e) = evaluate(&expr, &mut self.global_env)?;
-        self.global_env = e;
-        Ok(r)
-    }
-
-    pub fn eval_without_updating_env(&mut self, expr: &Expr) -> Result<RucketVal> {
-        let (r, _) = evaluate(&expr, &mut self.global_env)?;
+        // global environment updates automatically
+        let r = evaluate(&expr, &self.global_env)?;
         Ok(r)
     }
 }
@@ -92,7 +87,7 @@ pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> 
     }
 }
 
-pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef)> {
+pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<RucketVal> {
     let mut env = env.clone_ref();
     let mut expr = expr.clone();
     //println!("evaluating expr: {}", expr);
@@ -101,16 +96,16 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef)> {
         match expr {
             Expr::Atom(t) => match t {
                 Token::BooleanLiteral(b) => {
-                    return Ok((RucketVal::BoolV(b), env));
+                    return Ok(RucketVal::BoolV(b));
                 }
                 Token::Identifier(s) => {
-                    return Ok((env.lookup(&s)?, env));
+                    return Ok(env.lookup(&s)?);
                 }
                 Token::NumberLiteral(n) => {
-                    return Ok((RucketVal::NumV(n), env));
+                    return Ok(RucketVal::NumV(n));
                 }
                 Token::StringLiteral(s) => {
-                    return Ok((RucketVal::StringV(s), env));
+                    return Ok(RucketVal::StringV(s));
                 }
                 what => {
                     return Err(RucketErr::UnexpectedToken(what.to_string()));
@@ -127,9 +122,8 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef)> {
                         // globally scoped potentially
                         // TODO make evaluate an iterator over the results to use global environment
                         Expr::Atom(Token::Define) => match eval_define(&list_of_tokens, env) {
-                            Ok(e) => {
-                                env = e;
-                                return Ok((RucketVal::Void, env));
+                            Ok(_e) => {
+                                return Ok(RucketVal::Void);
                             }
                             Err(e) => {
                                 return Err(e);
@@ -139,32 +133,33 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef)> {
                             // TODO make this safer?
                             check_length("Quote", &list_of_tokens, 2)?;
                             let converted = RucketVal::try_from(list_of_tokens[1].clone())?;
-                            return Ok((converted, env));
+                            return Ok(converted);
                         }
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Lambda) => {
-                            return Ok((eval_make_lambda(&list_of_tokens, env.clone())?, env));
+                            // create new environment whos parent is the current environment
+                            let new_env = Env::new(env.clone_ref());
+                            return Ok(eval_make_lambda(&list_of_tokens, new_env)?);
                         }
                         // (let (var binding)* (body))
                         Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
                         // (sym args*), sym must be a procedure
                         sym => match evaluate(sym, &env)? {
-                            (RucketVal::FuncV(func), _) => {
-                                let args_eval: Result<Vec<(RucketVal, EnvRef)>> =
+                            RucketVal::FuncV(func) => {
+                                let args_eval: Result<Vec<RucketVal>> =
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
                                 let args_eval = args_eval?;
                                 // pure function doesn't need the env
-                                let args_without_env: Vec<&RucketVal> =
-                                    args_eval.iter().map(|x| &x.0).collect();
+                                let args_without_env: Vec<&RucketVal> = args_eval.iter().collect();
                                 let rval = func(&args_without_env)?;
-                                return Ok((rval, env));
+                                return Ok(rval);
                             }
-                            (RucketVal::LambdaV(lambda), _) => {
-                                let args_eval: Result<Vec<(RucketVal, EnvRef)>> =
+                            RucketVal::LambdaV(lambda) => {
+                                let args_eval: Result<Vec<RucketVal>> =
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
                                 let good_args_eval: Vec<RucketVal> =
-                                    args_eval?.iter().map(|x| x.0.clone()).collect();
-                                let mut inner_env = Env::new(lambda.env().clone_ref());
+                                    args_eval?.iter().map(|x| x.clone()).collect();
+                                let inner_env = lambda.env();
                                 lambda
                                     .params_exp()
                                     .iter()
@@ -175,10 +170,10 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef)> {
                                 // loop back and continue
                                 // using the body as continuation
                                 // environment also gets updated
-                                env = inner_env.into_ref();
+                                env = inner_env.clone_ref();
                                 expr = lambda.body_exp();
                             }
-                            (e, _) => {
+                            e => {
                                 return Err(RucketErr::ExpectedFunction(e.to_string()));
                             }
                         },
@@ -202,19 +197,19 @@ pub fn eval_if(list_of_tokens: &[Expr], env: &EnvRef) -> Result<Expr> {
     let else_expr = &list_of_tokens[3];
 
     match evaluate(&test_expr, env)? {
-        (RucketVal::BoolV(true), _) => Ok(then_expr.clone()),
+        RucketVal::BoolV(true) => Ok(then_expr.clone()),
         _ => Ok(else_expr.clone()),
     }
 }
 
-// TODO: actually use the env
-pub fn eval_make_lambda(list_of_tokens: &[Expr], env: EnvRef) -> Result<RucketVal> {
+// TODO write tests for this
+pub fn eval_make_lambda(list_of_tokens: &[Expr], new_env: Env) -> Result<RucketVal> {
     check_length("Lambda", &list_of_tokens, 3)?;
     let list_of_symbols = &list_of_tokens[1];
     let body_exp = &list_of_tokens[2];
 
     let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
-    let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), env);
+    let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), EnvRef::new(new_env));
     Ok(RucketVal::LambdaV(constructed_lambda))
 }
 
@@ -226,7 +221,7 @@ pub fn eval_define(list_of_tokens: &[Expr], env: EnvRef) -> Result<EnvRef> {
 
     match symbol {
         Expr::Atom(Token::Identifier(s)) => {
-            let (eval_body, _) = evaluate(body, &env)?;
+            let eval_body = evaluate(body, &env)?;
             env.define(s.to_string(), eval_body);
             Ok(env)
         }
@@ -249,7 +244,7 @@ pub fn eval_define(list_of_tokens: &[Expr], env: EnvRef) -> Result<EnvRef> {
 
                 // let constructed_lambda = eval_make_lambda(&fake_lambda, env)?;
 
-                let (eval_body, _) = evaluate(&constructed_lambda, &env)?;
+                let eval_body = evaluate(&constructed_lambda, &env)?;
                 env.define(s.to_string(), eval_body);
                 Ok(env)
 
