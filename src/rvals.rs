@@ -104,38 +104,39 @@ impl RucketLambda {
 
 impl fmt::Display for RucketVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // at the top level, print a ' if we are
+        // trying to print a symbol or list
         match self {
-            BoolV(b) => write!(f, "#{}", b),
-            NumV(x) => write!(f, "{}", x),
-            StringV(s) => write!(f, "\"{}\"", s),
-            FuncV(_) => write!(f, "Function"),
-            LambdaV(_) => write!(f, "Lambda Function"),
-            Void => write!(f, "Void"),
-            lst => {
-                write!(f, "'")?;
-                list_display(lst, f)
-            }
-        }
+            SymbolV(_) | ListV(_) => write!(f, "'")?,
+            _ => (),
+        };
+        display_helper(self, f)
     }
 }
 
 /// this function recursively prints lists without prepending the `'`
 /// at the beginning
-fn list_display(lst: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
-    match lst {
-        RucketVal::ListV(lst) => {
+fn display_helper(val: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
+    match val {
+        BoolV(b) => write!(f, "#{}", b),
+        NumV(x) => write!(f, "{}", x),
+        StringV(s) => write!(f, "\"{}\"", s),
+        FuncV(_) => write!(f, "Function"),
+        LambdaV(_) => write!(f, "Lambda Function"),
+        Void => write!(f, "Void"),
+        SymbolV(s) => write!(f, "{}", s),
+        ListV(lst) => {
             let mut iter = lst.iter();
             write!(f, "(")?;
             if let Some(last) = iter.next_back() {
                 for item in iter {
-                    list_display(item, f)?;
+                    display_helper(item, f)?;
                     write!(f, " ")?;
                 }
-                list_display(last, f)?;
+                display_helper(last, f)?;
             }
             write!(f, ")")
         }
-        atom => write!(f, "{}", atom),
     }
 }
 
@@ -160,6 +161,7 @@ fn display_test() {
         .to_string(),
         "Lambda Function"
     );
+    assert_eq!(RucketVal::SymbolV("foo".to_string()).to_string(), "'foo");
 }
 
 #[test]

@@ -95,6 +95,7 @@ pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> 
 pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef)> {
     let mut env = env.clone_ref();
     let mut expr = expr.clone();
+    //println!("evaluating expr: {}", expr);
 
     loop {
         match expr {
