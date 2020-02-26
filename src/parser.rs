@@ -5,12 +5,45 @@ use std::str;
 use thiserror::Error;
 
 use crate::lexer::Tokenizer;
+use crate::rvals::RucketVal::{self, *};
 use crate::tokens::{Token, TokenError};
+use Expr::*;
+
+use std::convert::TryFrom;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Atom(Token),
     ListVal(Vec<Expr>),
+}
+
+/// Sometimes you want to execute a list
+/// as if it was an expression
+impl TryFrom<RucketVal> for Expr {
+    type Error = &'static str;
+    fn try_from(r: RucketVal) -> result::Result<Self, Self::Error> {
+        match r {
+            BoolV(x) => Ok(Atom(Token::BooleanLiteral(x))),
+            NumV(x) => Ok(Atom(Token::NumberLiteral(x))),
+            ListV(lst) => {
+                let items: result::Result<Vec<Self>, Self::Error> =
+                    lst.into_iter().map(|item| Self::try_from(item)).collect();
+                Ok(ListVal(items?))
+            }
+            Void => Err("Can't convert from Void to expression!"),
+            StringV(x) => Ok(Atom(Token::StringLiteral(x))),
+            FuncV(_) => Err("Can't convert from Function to expression!"),
+            LambdaV(_) => Err("Can't convert from Lambda to expression!"),
+            SymbolV(x) => match x.as_str() {
+                "if" => Ok(Atom(Token::If)),
+                "let" => Ok(Atom(Token::Let)),
+                "define" => Ok(Atom(Token::Define)),
+                "lambda" => Ok(Atom(Token::Lambda)),
+                "quote" => Ok(Atom(Token::Quote)),
+                _ => Ok(Atom(Token::Identifier(x))),
+            },
+        }
+    }
 }
 
 impl fmt::Display for Expr {
@@ -118,7 +151,6 @@ fn construct_quote(val: Expr) -> Expr {
 
 #[cfg(test)]
 mod parser_tests {
-    use super::Expr::*;
     use super::Token::*;
     use super::*;
 

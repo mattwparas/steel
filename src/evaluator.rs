@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::convert::TryFrom;
 use std::fmt;
 use std::iter::{Iterator, Peekable};
 use std::rc::Rc;
@@ -136,7 +137,9 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef)> {
                         Expr::Atom(Token::Quote) => {
                             // TODO make this safer?
                             check_length("Quote", &list_of_tokens, 2)?;
-                            return Ok((RucketVal::SyntaxV(list_of_tokens[1].clone()), env));
+                            let converted = RucketVal::try_from(list_of_tokens[1].clone())
+                                .map_err(|e| RucketErr::ConversionError(e.to_owned()))?;
+                            return Ok((converted, env));
                         }
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Lambda) => {
@@ -145,15 +148,39 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<(RucketVal, EnvRef)> {
                         // (let (var binding)* (body))
                         Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
                         // (sym args*), sym must be a procedure
-                        sym => match eval_procedure(sym, eval_iter, env.clone()) {
-                            Ok((RucketVal::SyntaxV(a), b)) => {
-                                expr = a;
-                                env = b;
+                        sym => match evaluate(sym, &env)? {
+                            (RucketVal::FuncV(func), _) => {
+                                let args_eval: Result<Vec<(RucketVal, EnvRef)>> =
+                                    eval_iter.map(|x| evaluate(&x, &env)).collect();
+                                let args_eval = args_eval?;
+                                // pure function doesn't need the env
+                                let args_without_env: Vec<&RucketVal> =
+                                    args_eval.iter().map(|x| &x.0).collect();
+                                let rval = func(&args_without_env)?;
+                                return Ok((rval, env));
                             }
-                            Ok((a, _)) => {
-                                return Ok((a, env));
+                            (RucketVal::LambdaV(lambda), _) => {
+                                let args_eval: Result<Vec<(RucketVal, EnvRef)>> =
+                                    eval_iter.map(|x| evaluate(&x, &env)).collect();
+                                let good_args_eval: Vec<RucketVal> =
+                                    args_eval?.iter().map(|x| x.0.clone()).collect();
+                                let mut inner_env = Env::new(lambda.env().clone_ref());
+                                lambda
+                                    .params_exp()
+                                    .iter()
+                                    .zip(good_args_eval.iter())
+                                    .for_each(|(param, arg)| {
+                                        inner_env.define(param.to_string(), arg.clone())
+                                    });
+                                // loop back and continue
+                                // using the body as continuation
+                                // environment also gets updated
+                                env = inner_env.into_ref();
+                                expr = lambda.body_exp();
                             }
-                            Err(e) => return Err(e),
+                            (e, _) => {
+                                return Err(RucketErr::ExpectedFunction(e.to_string()));
+                            }
                         },
                     }
                 } else {
@@ -305,6 +332,7 @@ pub fn eval_let(list_of_tokens: &[Expr], _env: &EnvRef) -> Result<Expr> {
     Ok(application)
 }
 
+/*
 pub fn eval_procedure<'a>(
     sym: &Expr,
     eval_iter: impl Iterator<Item = &'a Expr>,
@@ -317,8 +345,8 @@ pub fn eval_procedure<'a>(
             let args_eval = args_eval?;
             // pure function doesn't need the env
             let args_without_env: Vec<&RucketVal> = args_eval.iter().map(|x| &x.0).collect();
-            let expr = func(&args_without_env)?;
-            return Ok((expr, env));
+            let rval = func(&args_without_env)?;
+            return Ok((rval, env));
         }
 
         (RucketVal::LambdaV(lambda), _) => {
@@ -340,12 +368,12 @@ pub fn eval_procedure<'a>(
                 .for_each(|(param, arg)| inner_env.define(param.to_string(), arg.clone()));
 
             let env = inner_env.into_ref();
-            return Ok((RucketVal::SyntaxV(lambda.body_exp()), env));
+            return Ok((RucketVal::try_from(lambda.body_exp()).unwrap(), env));
         }
         (e, _) => {
             return Err(RucketErr::ExpectedFunction(e.to_string()));
         }
     }
-}
+}*/
 
 // TODO write macro to destructure vector

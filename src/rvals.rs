@@ -1,9 +1,12 @@
 use crate::env::EnvRef;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
+use crate::tokens::Token::*;
 use std::cmp::Ordering;
 use std::fmt;
 use RucketVal::*;
+
+use std::convert::TryFrom;
 
 #[derive(Clone)]
 pub enum RucketVal {
@@ -14,7 +17,36 @@ pub enum RucketVal {
     StringV(String),
     FuncV(fn(&[&RucketVal]) -> Result<RucketVal, RucketErr>),
     LambdaV(RucketLambda),
-    SyntaxV(Expr),
+    SymbolV(String),
+}
+
+// sometimes you want to just
+// return an expression
+impl TryFrom<Expr> for RucketVal {
+    type Error = &'static str;
+    fn try_from(e: Expr) -> Result<Self, Self::Error> {
+        match e {
+            Expr::Atom(a) => match a {
+                OpenParen => Err("Can't convert a '(' to a valid symbol"),
+                CloseParen => Err("Can't convert a ')' to a valid symbol"),
+                If => Ok(SymbolV("if".to_string())),
+                Let => Ok(SymbolV("let".to_string())),
+                Define => Ok(SymbolV("define".to_string())),
+                Lambda => Ok(SymbolV("lambda".to_string())),
+                Quote => Ok(SymbolV("quote".to_string())),
+                QuoteTick => Err("Can't convert a \"'\" to a valid symbol"),
+                BooleanLiteral(x) => Ok(BoolV(x)),
+                Identifier(x) => Ok(SymbolV(x)),
+                NumberLiteral(x) => Ok(NumV(x)),
+                StringLiteral(x) => Ok(StringV(x)),
+            },
+            Expr::ListVal(lst) => {
+                let items: Result<Vec<Self>, Self::Error> =
+                    lst.into_iter().map(|item| Self::try_from(item)).collect();
+                Ok(ListV(items?))
+            }
+        }
+    }
 }
 
 // TODO add tests
@@ -25,7 +57,6 @@ impl PartialEq for RucketVal {
             (NumV(l), NumV(r)) => l == r,
             (StringV(l), StringV(r)) => l == r,
             (ListV(l), ListV(r)) => l == r,
-            (SyntaxV(l), SyntaxV(r)) => l.to_string() == r.to_string(),
             (_, _) => false,
         }
     }
@@ -79,7 +110,6 @@ impl fmt::Display for RucketVal {
             StringV(s) => write!(f, "\"{}\"", s),
             FuncV(_) => write!(f, "Function"),
             LambdaV(_) => write!(f, "Lambda Function"),
-            SyntaxV(expr) => write!(f, "'{}", expr),
             Void => write!(f, "Void"),
             lst => {
                 write!(f, "'")?;
@@ -105,7 +135,6 @@ fn list_display(lst: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
             }
             write!(f, ")")
         }
-        RucketVal::SyntaxV(expr) => write!(f, "{}", expr),
         atom => write!(f, "{}", atom),
     }
 }
@@ -130,10 +159,6 @@ fn display_test() {
         ))
         .to_string(),
         "Lambda Function"
-    );
-    assert_eq!(
-        RucketVal::SyntaxV(Expr::Atom(Token::BooleanLiteral(false))).to_string(),
-        "'#false"
     );
 }
 
@@ -163,13 +188,5 @@ fn display_list_test() {
         ])
         .to_string(),
         "'((1 (2 3)) (4 5) 6 (7))"
-    );
-    assert_eq!(
-        ListV(vec![
-            NumV(1.0),
-            SyntaxV(Expr::Atom(Token::BooleanLiteral(false)))
-        ])
-        .to_string(),
-        "'(1 #false)"
     );
 }
