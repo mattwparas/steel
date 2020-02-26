@@ -1,5 +1,11 @@
 # Bluff (repo and code will be changed later)
 
+Matthew Paras - `mattwparas`
+
+Jason Liu - `mhjasonliu`
+
+Kevin Mui - `kekamui`
+
 ## Plan
 
 * An embedded scheme interpreter in Rust
