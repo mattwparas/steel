@@ -1,4 +1,4 @@
-# Bluff (repo and code will be changed later)
+# Bluff (repo name and code will be changed later)
 
 Matthew Paras - `mattwparas`
 
