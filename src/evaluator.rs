@@ -39,8 +39,6 @@ impl Evaluator {
 }
 
 // impl<'a> Iterator for Evaluator<'a> {
-//     type Item = Result<RucketVal, RucketErr>;
-
 //     // fn next(&mut self) -> Option<Self::Item> {
 //     //     self.tokenizer.next().map(|res| match res {
 //     //         Err(e) => Err(ParseError::TokenError(e)),

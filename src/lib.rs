@@ -1,5 +1,6 @@
 pub mod env;
 pub mod evaluator;
+pub mod interpreter;
 pub mod lexer;
 pub mod parser;
 pub mod repl;
