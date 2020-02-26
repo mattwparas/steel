@@ -36,6 +36,15 @@ impl Evaluator {
         let r = evaluate(&expr, &self.global_env)?;
         Ok(r)
     }
+
+    // TODO check this
+    pub fn parse_and_eval(&mut self, expr_str: &str) -> Result<Vec<RucketVal>> {
+        let parsed: result::Result<Vec<Expr>, ParseError> = Parser::new(expr_str).collect();
+        match parsed {
+            Ok(pvec) => pvec.iter().map(|x| self.eval(&x)).collect(),
+            Err(e) => Err(RucketErr::BadSyntax(e.to_string())),
+        }
+    }
 }
 
 // impl<'a> Iterator for Evaluator<'a> {
