@@ -3,9 +3,10 @@ use crate::evaluator::Result;
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
 
+//use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 // use std::result::Result;
 
 #[macro_use]
@@ -33,198 +34,101 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
     Rc::new(RefCell::new(x))
 }
 
-#[derive(Clone)]
 pub struct Env {
     bindings: HashMap<String, RucketVal>,
-    parent: EnvRef,
+    parent: Weak<RefCell<Env>>,
 }
-
-// TODO
-// Think about functional data structures to avoid cloning here
 impl Env {
-    // TODO
-    pub fn new(parent: EnvRef) -> Env {
+    /// Make a new `Env` from
+    /// another parent `Env`.
+    ///
+    /// At the top level, the global env has no parent
+    pub fn new(parent: &Rc<RefCell<Self>>) -> Self {
         Env {
             bindings: HashMap::new(),
-            parent,
+            parent: Rc::downgrade(&parent),
         }
     }
 
-    pub fn insert_binding(&mut self, var: String, val: RucketVal) {
-        self.bindings.insert(var, val);
-    }
-
-    pub fn with_values(parent: EnvRef, bindings: HashMap<String, RucketVal>) -> Env {
-        Env { parent, bindings }
-    }
-
-    /// Converts `Env` into a `EnvRef`.
-    /// This function moves `Env` into a `RefCell`.
-    /// If you need another pointer to newly created EnvRef,
-    /// use `EnvRef::clone_ref()` which only copies the pointer,
-    /// not the environment itself.
-    pub fn into_ref(self) -> EnvRef {
-        EnvRef::new(self)
-    }
-
-    // TODO make this not bad
-    pub fn lookup(&self, name: &str) -> Result<RucketVal> {
-        if self.bindings.contains_key(name) {
-            Ok(self.bindings[name].clone())
-        } else if self.parent.is_some() {
-            self.parent.lookup(name)
-        } else {
-            Err(RucketErr::FreeIdentifier(name.to_string()))
+    pub fn new_from_weak(parent: &Weak<RefCell<Self>>) -> Self {
+        Env {
+            bindings: HashMap::new(),
+            parent: parent.clone(),
         }
     }
 
-    // pub fn with_ref<F, T>(&self, name: &str, mut f: F) -> Result<RucketVal, RucketErr>
-    // where
-    //     F: FnMut(&RucketVal) -> Result<RucketVal, RucketErr>,
-    // {
-    //     if self.bindings.contains_key(name) {
-    //         let sexpr = &self.bindings[name];
-    //         f(sexpr)
-    //     } else if self.parent.is_some() {
-    //         self.parent.with_ref(name, f)
-    //     } else {
-    //         Err(RucketErr::FreeIdentifier(name.to_string()))
-    //         // bail!(UnboundVar => name)
-    //     }
-    // }
-
-    // pub fn with_mut_ref<F, T>(&mut self, name: &str, mut f: F) -> Result<RucketVal, RucketErr>
-    // where
-    //     F: FnMut(&mut RucketVal) -> Result<RucketVal, RucketErr>,
-    // {
-    //     if self.bindings.contains_key(name) {
-    //         let sexpr = self.bindings.get_mut(name).unwrap();
-    //         f(sexpr)
-    //     } else if self.parent.is_some() {
-    //         self.parent.with_mut_ref(name, f)
-    //     } else {
-    //         Err(RucketErr::FreeIdentifier(name.to_string()))
-    //         // bail!(UnboundVar => name)
-    //     }
-    // }
-
+    /// Within the current environment, bind
+    /// identifier `key` to `val`
     pub fn define(&mut self, key: String, val: RucketVal) {
         self.bindings.insert(key, val);
     }
 
+    /// Search starting from the current environment
+    /// for `key`, looking through the parent chain in order.
+    ///
+    /// If found, update binding for
+    /// `key` with `val` and return old value.
+    ///
+    /// Otherwise, error with `FreeIdentifier`
     pub fn set(&mut self, key: String, val: RucketVal) -> Result<RucketVal> {
         if self.bindings.contains_key(&key) {
             self.bindings
                 .insert(key.clone(), val)
                 .ok_or_else(|| RucketErr::FreeIdentifier(key.to_string()))
-        } else if self.parent.is_some() {
-            self.parent.set(key, val)
         } else {
-            Err(RucketErr::FreeIdentifier(key))
+            let parent = self.parent.upgrade();
+            match parent {
+                Some(par) => par.borrow_mut().set(key, val),
+                None => Err(RucketErr::FreeIdentifier(key)),
+            }
         }
     }
 
+    /// Search starting from the current environment
+    /// for `key`, looking through the parent chain in order.
+    ///
+    /// If found, remove the binding and return the value
+    ///
+    /// Otherwise, error with `FreeIdentifier`
     pub fn remove(&mut self, key: &str) -> Result<RucketVal> {
         if self.bindings.contains_key(key) {
             self.bindings
                 .remove(key)
                 .ok_or_else(|| RucketErr::FreeIdentifier(key.to_string()))
-        } else if self.parent.is_some() {
-            self.parent.remove(key)
         } else {
-            Err(RucketErr::FreeIdentifier(key.to_string()))
+            let parent = self.parent.upgrade();
+            match parent {
+                Some(par) => par.borrow_mut().remove(key),
+                None => Err(RucketErr::FreeIdentifier(key.to_string())),
+            }
         }
     }
 
-    pub fn pack(&mut self, keys: &[String], vals: Vec<RucketVal>) {
-        for (i, arg) in vals.into_iter().enumerate() {
-            self.bindings.insert(keys[i].clone(), arg);
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct EnvRef(RcRefCell<Option<Env>>);
-
-impl EnvRef {
-    /// A null environment.
-    /// Used as parent environment of global environment.
-    pub fn null() -> EnvRef {
-        EnvRef(new_rc_ref_cell(None))
-    }
-
-    pub fn new(env: Env) -> EnvRef {
-        EnvRef(new_rc_ref_cell(Some(env)))
-    }
-
-    pub fn is_some(&self) -> bool {
-        self.0.borrow().as_ref().is_some()
-    }
-
-    pub fn clone_ref(&self) -> EnvRef {
-        EnvRef(Rc::clone(&self.0))
-    }
-
+    /// Search starting from the current environment
+    /// for `key`, looking through the parent chain in order.
+    ///
+    /// if found, return that value
+    ///
+    /// Otherwise, error with `FreeIdentifier`
     pub fn lookup(&self, name: &str) -> Result<RucketVal> {
-        self.0
-            .borrow()
-            .as_ref()
-            .ok_or_else(|| RucketErr::EnvironmentNotFound)?
-            .lookup(name)
-    }
-
-    /// Use this function to get a real reference to what is inside the Environment,
-    /// not a copy of it. Useful for Ports particularly.
-    /// It's impossible to return a reference to something inside a RefCell.
-    /// (Actually it's quite possible trough std::cell::Ref but not in this
-    /// particular case) So we need this extra functions.
-    // pub fn with_ref<F, T>(&self, name: &str, f: F) -> Result<RucketVal, RucketErr>
-    // where
-    //     F: FnMut(&RucketVal) -> Result<RucketVal, RucketErr>,
-    // {
-    //     self.0
-    //         .borrow()
-    //         .as_ref()
-    //         .ok_or_else(|| RucketErr::EnvironmentNotFound)?
-    //         .with_ref(name, f)
-    // }
-
-    // pub fn with_mut_ref<F, T>(&self, name: &str, f: F) -> Result<RucketVal, RucketErr>
-    // where
-    //     F: FnMut(&mut RucketVal) -> Result<RucketVal, RucketErr>,
-    // {
-    //     self.0
-    //         .borrow_mut()
-    //         .as_mut()
-    //         .ok_or_else(|| RucketErr::EnvironmentNotFound)?
-    //         .with_mut_ref(name, f)
-    // }
-
-    pub fn define(&self, key: String, val: RucketVal) {
-        self.0
-            .borrow_mut()
-            .as_mut()
-            .expect("Can't find environment")
-            .define(key, val);
-    }
-
-    pub fn set(&self, key: String, val: RucketVal) -> Result<RucketVal> {
-        self.0
-            .borrow_mut()
-            .as_mut()
-            .ok_or_else(|| RucketErr::EnvironmentNotFound)?
-            .set(key, val)
-    }
-
-    pub fn remove(&self, key: &str) -> Result<RucketVal> {
-        self.0
-            .borrow_mut()
-            .as_mut()
-            .ok_or_else(|| RucketErr::EnvironmentNotFound)?
-            .remove(key)
+        if self.bindings.contains_key(name) {
+            // value needs to be cloned because
+            // user needs to be able to own a persistent value
+            // from Cell that may be modified later
+            Ok(self.bindings[name].clone())
+        } else {
+            let parent = self.parent.upgrade();
+            match parent {
+                Some(par) => par.borrow().lookup(name),
+                None => Err(RucketErr::FreeIdentifier(name.to_string())),
+            }
+        }
     }
 }
 
+/// default environment contains bindings for
+/// implementations of constants and things like
+/// `car`, `cdr`, `+`
 pub fn default_env() -> Env {
     let mut data: HashMap<String, RucketVal> = HashMap::new();
     data.insert(
@@ -322,7 +226,7 @@ pub fn default_env() -> Env {
             if args.len() == 1 {
                 match &args[0] {
                     RucketVal::ListV(v) => {
-                        if v.len() == 0 {
+                        if v.is_empty() {
                             return Err(RucketErr::ContractViolation(
                                 "car expects a non empty list".to_string(),
                             ));
@@ -351,7 +255,7 @@ pub fn default_env() -> Env {
             if args.len() == 1 {
                 match &args[0] {
                     RucketVal::ListV(v) => {
-                        if v.len() == 0 {
+                        if v.is_empty() {
                             return Err(RucketErr::ContractViolation(
                                 "car expects a non empty list".to_string(),
                             ));
@@ -376,7 +280,7 @@ pub fn default_env() -> Env {
 
     data.insert(
         "=".to_string(),
-        RucketVal::FuncV(ensure_tonicity!(|a, b| a == b)),
+        RucketVal::FuncV(ensure_tonicity!(|a, b| (a - b) < std::f64::EPSILON)),
     );
     data.insert(
         ">".to_string(),
@@ -397,10 +301,11 @@ pub fn default_env() -> Env {
 
     Env {
         bindings: data,
-        parent: EnvRef::null(),
+        parent: Weak::new(),
     }
 }
 
+// TODO: make this a trait or something
 fn unwrap_list_of_floats(args: &[&RucketVal]) -> Result<Vec<f64>> {
     args.iter().map(|x| unwrap_single_float(x)).collect()
 }
@@ -428,14 +333,23 @@ mod env_tests {
     use super::*;
     #[test]
     fn env_basic() {
-        let default_env = EnvRef::new(default_env());
-        let mut c1 = Env::new(default_env);
-        c1.define("x".to_owned(), RucketVal::NumV(1.0));
-        let mut c2 = Env::new(EnvRef::new(c1));
-        c2.define("y".to_owned(), RucketVal::NumV(2.0));
-        assert!(c2.lookup("+").is_ok());
-        assert_eq!(unwrap_single_float(&c2.lookup("y").unwrap()).unwrap(), 2.0);
-        assert_eq!(unwrap_single_float(&c2.lookup("x").unwrap()).unwrap(), 1.0);
-        assert!(c2.lookup("z").is_err());
+        // default_env <- c1 <- c2
+        let default_env = Rc::new(RefCell::new(default_env()));
+        assert!(default_env.borrow().lookup("+").is_ok());
+        let c1 = Rc::new(RefCell::new(Env::new(&default_env)));
+        c1.borrow_mut().define("x".to_owned(), RucketVal::NumV(1.0));
+        let c2 = Rc::new(RefCell::new(Env::new(&c1)));
+        c2.borrow_mut().define("y".to_owned(), RucketVal::NumV(2.0));
+        assert!(default_env.borrow_mut().lookup("+").is_ok());
+        assert!(c2.borrow_mut().lookup("+").is_ok());
+        assert_eq!(
+            unwrap_single_float(&c2.borrow_mut().lookup("y").unwrap()).unwrap(),
+            2.0
+        );
+        assert_eq!(
+            unwrap_single_float(&c2.borrow_mut().lookup("x").unwrap()).unwrap(),
+            1.0
+        );
+        assert!(c2.borrow_mut().lookup("z").is_err());
     }
 }

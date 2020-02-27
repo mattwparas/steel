@@ -12,7 +12,7 @@ use std::result;
 use std::str::Chars;
 use thiserror::Error;
 
-use crate::env::{default_env, Env, EnvRef};
+use crate::env::{default_env, Env};
 use crate::lexer::Tokenizer;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::RucketErr;
@@ -22,13 +22,13 @@ use crate::tokens::{Token, TokenError};
 pub type Result<T> = result::Result<T, RucketErr>;
 
 pub struct Evaluator {
-    global_env: EnvRef,
+    global_env: Rc<RefCell<Env>>,
 }
 
 impl Evaluator {
     pub fn new() -> Self {
         Evaluator {
-            global_env: EnvRef::new(default_env()),
+            global_env: Rc::new(RefCell::new(default_env())),
         }
     }
     pub fn eval(&mut self, expr: &Expr) -> Result<RucketVal> {
@@ -94,8 +94,8 @@ pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> 
     }
 }
 
-pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<RucketVal> {
-    let mut env = env.clone_ref();
+pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+    let mut env = Rc::clone(env);
     let mut expr = expr.clone();
     //println!("evaluating expr: {}", expr);
 
@@ -106,7 +106,7 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<RucketVal> {
                     return Ok(RucketVal::BoolV(b));
                 }
                 Token::Identifier(s) => {
-                    return Ok(env.lookup(&s)?);
+                    return Ok(env.borrow().lookup(&s)?);
                 }
                 Token::NumberLiteral(n) => {
                     return Ok(RucketVal::NumV(n));
@@ -145,8 +145,7 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<RucketVal> {
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Lambda) => {
                             // create new environment whos parent is the current environment
-                            let new_env = Env::new(env.clone_ref());
-                            return Ok(eval_make_lambda(&list_of_tokens, new_env)?);
+                            return Ok(eval_make_lambda(&list_of_tokens, &env)?);
                         }
                         // (let (var binding)* (body))
                         Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
@@ -164,20 +163,20 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<RucketVal> {
                             RucketVal::LambdaV(lambda) => {
                                 let args_eval: Result<Vec<RucketVal>> =
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
-                                let good_args_eval: Vec<RucketVal> =
-                                    args_eval?.iter().map(|x| x.clone()).collect();
-                                let inner_env = lambda.env();
+                                let good_args_eval: Vec<RucketVal> = args_eval?;
+                                // build a new environment using the parent environment
+                                let mut inner_env = Env::new_from_weak(lambda.parent_env());
                                 lambda
                                     .params_exp()
                                     .iter()
-                                    .zip(good_args_eval.iter())
+                                    .zip(good_args_eval.into_iter())
                                     .for_each(|(param, arg)| {
-                                        inner_env.define(param.to_string(), arg.clone())
+                                        inner_env.define(param.to_string(), arg)
                                     });
                                 // loop back and continue
                                 // using the body as continuation
                                 // environment also gets updated
-                                env = inner_env.clone_ref();
+                                env = Rc::new(RefCell::new(inner_env));
                                 expr = lambda.body_exp();
                             }
                             e => {
@@ -192,9 +191,9 @@ pub fn evaluate(expr: &Expr, env: &EnvRef) -> Result<RucketVal> {
         }
     }
 }
-
+/// TODO: refactor this with iterators
 /// evaluates `(test then else)` into `then` or `else`
-pub fn eval_if(list_of_tokens: &[Expr], env: &EnvRef) -> Result<Expr> {
+pub fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
     check_length("If", list_of_tokens, 4)?;
 
     // if we check the length beforehand
@@ -210,18 +209,22 @@ pub fn eval_if(list_of_tokens: &[Expr], env: &EnvRef) -> Result<Expr> {
 }
 
 // TODO write tests for this
-pub fn eval_make_lambda(list_of_tokens: &[Expr], new_env: Env) -> Result<RucketVal> {
+pub fn eval_make_lambda(
+    list_of_tokens: &[Expr],
+    parent_env: &Rc<RefCell<Env>>,
+) -> Result<RucketVal> {
     check_length("Lambda", &list_of_tokens, 3)?;
     let list_of_symbols = &list_of_tokens[1];
     let body_exp = &list_of_tokens[2];
 
     let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
-    let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), EnvRef::new(new_env));
+    let constructed_lambda =
+        RucketLambda::new(parsed_list, body_exp.clone(), Rc::downgrade(&parent_env));
     Ok(RucketVal::LambdaV(constructed_lambda))
 }
 
 // TODO maybe have to evaluate the params but i'm not sure
-pub fn eval_define(list_of_tokens: &[Expr], env: EnvRef) -> Result<EnvRef> {
+pub fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {
     check_length("Define", &list_of_tokens, 3)?;
     let symbol = &list_of_tokens[1];
     let body = &list_of_tokens[2];
@@ -229,19 +232,22 @@ pub fn eval_define(list_of_tokens: &[Expr], env: EnvRef) -> Result<EnvRef> {
     match symbol {
         Expr::Atom(Token::Identifier(s)) => {
             let eval_body = evaluate(body, &env)?;
-            env.define(s.to_string(), eval_body);
+            env.borrow_mut().define(s.to_string(), eval_body);
             Ok(env)
         }
         // construct lambda to parse
         Expr::ListVal(list_of_identifiers) => {
             // check_length("Define", tokens: &[Expr], expected: usize)
 
-            if list_of_identifiers.len() == 0 {
+            if list_of_identifiers.is_empty() {
                 return Err(RucketErr::ExpectedIdentifier(
                     "define expected an identifier, got empty list".to_string(),
                 ));
             }
             if let Expr::Atom(Token::Identifier(s)) = &list_of_identifiers[0] {
+                // TODO: this code needs go through evaluate again
+                // we can cut the middle man and go straight to
+                // eval_make_lambda
                 let mut fake_lambda: Vec<Expr> = vec![Expr::Atom(Token::Lambda)];
 
                 fake_lambda.push(Expr::ListVal(list_of_identifiers[1..].to_vec()));
@@ -252,7 +258,7 @@ pub fn eval_define(list_of_tokens: &[Expr], env: EnvRef) -> Result<EnvRef> {
                 // let constructed_lambda = eval_make_lambda(&fake_lambda, env)?;
 
                 let eval_body = evaluate(&constructed_lambda, &env)?;
-                env.define(s.to_string(), eval_body);
+                env.borrow_mut().define(s.to_string(), eval_body);
                 Ok(env)
 
             // eval_make_lambda(, env: EnvRef)
@@ -284,8 +290,7 @@ pub fn eval_define(list_of_tokens: &[Expr], env: EnvRef) -> Result<EnvRef> {
 // Let is actually just a lambda so update values to be that and loop
 // Syntax of a let -> (let ((a 10) (b 20) (c 25)) (body ...))
 // transformed ((lambda (a b c) (body ...)) 10 20 25)
-// TODO: actually use the env
-pub fn eval_let(list_of_tokens: &[Expr], _env: &EnvRef) -> Result<Expr> {
+pub fn eval_let(list_of_tokens: &[Expr], _env: &Rc<RefCell<Env>>) -> Result<Expr> {
     check_length("let", &list_of_tokens, 3)?;
     // should have form ((a 10) (b 20) (c 25))
     let bindings = &list_of_tokens[1];
@@ -332,6 +337,12 @@ pub fn eval_let(list_of_tokens: &[Expr], _env: &EnvRef) -> Result<Expr> {
 
     let application = Expr::ListVal(combined);
     Ok(application)
+}
+
+impl Default for Evaluator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // TODO write macro to destructure vector

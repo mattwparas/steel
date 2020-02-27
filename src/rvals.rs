@@ -1,9 +1,11 @@
-use crate::env::EnvRef;
+use crate::env::Env;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
 use crate::tokens::Token::*;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt;
+use std::rc::Weak;
 use RucketVal::*;
 
 use std::convert::TryFrom;
@@ -42,7 +44,7 @@ impl TryFrom<Expr> for RucketVal {
             },
             Expr::ListVal(lst) => {
                 let items: Result<Vec<Self>, Self::Error> =
-                    lst.into_iter().map(|item| Self::try_from(item)).collect();
+                    lst.into_iter().map(Self::try_from).collect();
                 Ok(ListV(items?))
             }
         }
@@ -74,31 +76,43 @@ impl PartialOrd for RucketVal {
 }
 
 #[derive(Clone)]
+/// struct representing data required to describe a scheme function
 pub struct RucketLambda {
+    /// symbols representing the arguments to the function
     params_exp: Vec<String>,
+    /// body of the function with identifiers yet to be bound
     body_exp: Expr,
-    env: EnvRef,
+    /// parent environment that created this Lambda.
+    /// the actual environment with correct bindingsis built at runtime
+    /// once the function is called
+    parent_env: Weak<RefCell<Env>>,
 }
-
 impl RucketLambda {
-    pub fn new(params_exp: Vec<String>, body_exp: Expr, env: EnvRef) -> RucketLambda {
+    pub fn new(
+        params_exp: Vec<String>,
+        body_exp: Expr,
+        parent_env: Weak<RefCell<Env>>,
+    ) -> RucketLambda {
         RucketLambda {
             params_exp,
             body_exp,
-            env,
+            parent_env,
         }
     }
-
+    /// symbols representing the arguments to the function
     pub fn params_exp(&self) -> &[String] {
         &self.params_exp
     }
-
+    /// body of the function with identifiers yet to be bound
     pub fn body_exp(&self) -> Expr {
         self.body_exp.clone()
     }
-
-    pub fn env(&self) -> &EnvRef {
-        &self.env
+    /// parent environment that created this Lambda.
+    ///
+    /// The actual environment with correct bindings is built at runtime
+    /// once the function is called
+    pub fn parent_env(&self) -> &Weak<RefCell<Env>> {
+        &self.parent_env
     }
 }
 
@@ -156,7 +170,7 @@ fn display_test() {
         RucketVal::LambdaV(RucketLambda::new(
             vec!["arg1".to_owned()],
             Expr::Atom(Token::NumberLiteral(1.0)),
-            crate::env::EnvRef::null(),
+            Weak::new(),
         ))
         .to_string(),
         "Lambda Function"
@@ -175,7 +189,7 @@ fn display_list_test() {
             LambdaV(RucketLambda::new(
                 vec!["arg1".to_owned()],
                 Expr::Atom(Token::NumberLiteral(1.0)),
-                crate::env::EnvRef::null(),
+                Weak::new(),
             ))
         ])
         .to_string(),
