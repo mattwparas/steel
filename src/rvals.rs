@@ -44,7 +44,7 @@ impl TryFrom<Expr> for RucketVal {
             },
             Expr::ListVal(lst) => {
                 let items: Result<Vec<Self>, Self::Error> =
-                    lst.into_iter().map(|item| Self::try_from(item)).collect();
+                    lst.into_iter().map(Self::try_from).collect();
                 Ok(ListV(items?))
             }
         }

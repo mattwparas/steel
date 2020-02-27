@@ -155,8 +155,7 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                             RucketVal::LambdaV(lambda) => {
                                 let args_eval: Result<Vec<RucketVal>> =
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
-                                let good_args_eval: Vec<RucketVal> =
-                                    args_eval?.iter().map(|x| x.clone()).collect();
+                                let good_args_eval: Vec<RucketVal> = args_eval?;
                                 let inner_env = lambda.env();
                                 lambda
                                     .params_exp()
@@ -233,7 +232,7 @@ pub fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<
         Expr::ListVal(list_of_identifiers) => {
             // check_length("Define", tokens: &[Expr], expected: usize)
 
-            if list_of_identifiers.len() == 0 {
+            if list_of_identifiers.is_empty() {
                 return Err(RucketErr::ExpectedIdentifier(
                     "define expected an identifier, got empty list".to_string(),
                 ));
@@ -281,7 +280,6 @@ pub fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<
 // Let is actually just a lambda so update values to be that and loop
 // Syntax of a let -> (let ((a 10) (b 20) (c 25)) (body ...))
 // transformed ((lambda (a b c) (body ...)) 10 20 25)
-// TODO: actually use the env
 pub fn eval_let(list_of_tokens: &[Expr], _env: &Rc<RefCell<Env>>) -> Result<Expr> {
     check_length("let", &list_of_tokens, 3)?;
     // should have form ((a 10) (b 20) (c 25))
@@ -329,6 +327,12 @@ pub fn eval_let(list_of_tokens: &[Expr], _env: &Rc<RefCell<Env>>) -> Result<Expr
 
     let application = Expr::ListVal(combined);
     Ok(application)
+}
+
+impl Default for Evaluator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // TODO write macro to destructure vector

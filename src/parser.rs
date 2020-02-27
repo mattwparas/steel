@@ -27,7 +27,7 @@ impl TryFrom<RucketVal> for Expr {
             NumV(x) => Ok(Atom(Token::NumberLiteral(x))),
             ListV(lst) => {
                 let items: result::Result<Vec<Self>, Self::Error> =
-                    lst.into_iter().map(|item| Self::try_from(item)).collect();
+                    lst.into_iter().map(Self::try_from).collect();
                 Ok(ListVal(items?))
             }
             Void => Err("Can't convert from Void to expression!"),
