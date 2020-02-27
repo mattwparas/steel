@@ -9,3 +9,5 @@
 (define (fib-helper a b n) (if (= n 0) a (fib-helper b (+ a b) (- n 1))))
 (define (fib n) (fib-helper 0 1 n))
 (fib 60)
+(define my-func (lambda (arg1 arg2) (lambda (b) (+ arg1 arg2 b))))
+((my-func 1 2) 3)
