@@ -1,9 +1,11 @@
-use crate::env::EnvRef;
+use crate::env::Env;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
 use crate::tokens::Token::*;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt;
+use std::rc::Rc;
 use RucketVal::*;
 
 use std::convert::TryFrom;
@@ -77,11 +79,11 @@ impl PartialOrd for RucketVal {
 pub struct RucketLambda {
     params_exp: Vec<String>,
     body_exp: Expr,
-    env: EnvRef,
+    env: Rc<RefCell<Env>>,
 }
 
 impl RucketLambda {
-    pub fn new(params_exp: Vec<String>, body_exp: Expr, env: EnvRef) -> RucketLambda {
+    pub fn new(params_exp: Vec<String>, body_exp: Expr, env: Rc<RefCell<Env>>) -> RucketLambda {
         RucketLambda {
             params_exp,
             body_exp,
@@ -97,7 +99,7 @@ impl RucketLambda {
         self.body_exp.clone()
     }
 
-    pub fn env(&self) -> &EnvRef {
+    pub fn env(&self) -> &Rc<RefCell<Env>> {
         &self.env
     }
 }
@@ -156,7 +158,7 @@ fn display_test() {
         RucketVal::LambdaV(RucketLambda::new(
             vec!["arg1".to_owned()],
             Expr::Atom(Token::NumberLiteral(1.0)),
-            crate::env::EnvRef::null(),
+            Rc::new(RefCell::new(crate::env::default_env())),
         ))
         .to_string(),
         "Lambda Function"
@@ -175,7 +177,7 @@ fn display_list_test() {
             LambdaV(RucketLambda::new(
                 vec!["arg1".to_owned()],
                 Expr::Atom(Token::NumberLiteral(1.0)),
-                crate::env::EnvRef::null(),
+                Rc::new(RefCell::new(crate::env::default_env())),
             ))
         ])
         .to_string(),
