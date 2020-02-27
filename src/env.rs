@@ -1,7 +1,8 @@
 use crate::evaluator::Result;
-
+// #[macro_use]
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
+use crate::stop;
 
 //use std::borrow::BorrowMut;
 use std::cell::RefCell;
@@ -79,7 +80,7 @@ impl Env {
             let parent = self.parent.upgrade();
             match parent {
                 Some(par) => par.borrow_mut().set(key, val),
-                None => Err(RucketErr::FreeIdentifier(key)),
+                None => stop!(FreeIdentifier => key), // Err(RucketErr::FreeIdentifier(key)),
             }
         }
     }
@@ -202,9 +203,10 @@ pub fn default_env() -> Env {
                     return Ok(RucketVal::ListV(vec![elem.clone(), lst.clone()]));
                 }
             } else {
-                return Err(RucketErr::ArityMismatch(
-                    "cons takes two arguments".to_string(),
-                ));
+                stop!(ArityMismatch => "cons takes two arguments");
+                // return Err(RucketErr::ArityMismatch(
+                //     "cons takes two arguments".to_string(),
+                // ));
             }
         }),
     );
@@ -227,9 +229,10 @@ pub fn default_env() -> Env {
                 match &args[0] {
                     RucketVal::ListV(v) => {
                         if v.is_empty() {
-                            return Err(RucketErr::ContractViolation(
-                                "car expects a non empty list".to_string(),
-                            ));
+                            stop!(ContractViolation => "car expects a non empty list");
+                        // return Err(RucketErr::ContractViolation(
+                        //     "car expects a non empty list".to_string(),
+                        // ));
                         } else {
                             return Ok(v[0].clone());
                         }
@@ -242,9 +245,10 @@ pub fn default_env() -> Env {
                     }
                 }
             } else {
-                return Err(RucketErr::ArityMismatch(
-                    "car takes one argument".to_string(),
-                ));
+                stop!(ArityMismatch => "car takes one argument");
+                // return Err(RucketErr::ArityMismatch(
+                //     "car takes one argument".to_string(),
+                // ));
             }
         }),
     );
@@ -256,24 +260,27 @@ pub fn default_env() -> Env {
                 match &args[0] {
                     RucketVal::ListV(v) => {
                         if v.is_empty() {
-                            return Err(RucketErr::ContractViolation(
-                                "car expects a non empty list".to_string(),
-                            ));
+                            stop!(ContractViolation => "car expects a non empty list");
+                        // return Err(RucketErr::ContractViolation(
+                        //     "car expects a non empty list".to_string(),
+                        // ));
                         } else {
                             return Ok(RucketVal::ListV(v[1..].to_vec()));
                         }
                     }
                     e => {
-                        return Err(RucketErr::ExpectedList(format!(
+                        // stop!(ExpectedList => "cdr takes a list, given: {}", e);
+                        return Err(RucketErr::ExpectedList(format!( // TODO
                             "cdr takes a list, given: {}",
                             e
                         )));
                     }
                 }
             } else {
-                return Err(RucketErr::ArityMismatch(
-                    "cdr takes one argument".to_string(),
-                ));
+                stop!(ArityMismatch => "cdr takes one argument");
+                // return Err(RucketErr::ArityMismatch(
+                //     "cdr takes one argument".to_string(),
+                // ));
             }
         }),
     );
@@ -313,7 +320,7 @@ fn unwrap_list_of_floats(args: &[&RucketVal]) -> Result<Vec<f64>> {
 fn unwrap_single_float(exp: &RucketVal) -> Result<f64> {
     match exp {
         RucketVal::NumV(num) => Ok(*num),
-        _ => Err(RucketErr::ExpectedNumber("expected a number".to_string())),
+        _ => stop!(ExpectedNumber => "expected a number"), // Err(RucketErr::ExpectedNumber("expected a number".to_string,
     }
 }
 
@@ -324,7 +331,7 @@ fn unwrap_list_of_lists(args: &[&RucketVal]) -> Result<Vec<Vec<RucketVal>>> {
 fn unwrap_single_list(exp: &RucketVal) -> Result<Vec<RucketVal>> {
     match exp {
         RucketVal::ListV(lst) => Ok(lst.clone()),
-        _ => Err(RucketErr::ExpectedNumber("expected a list".to_string())),
+        _ => stop!(ExpectedList => "expected a list"), // Err(RucketErr::ExpectedNumber("expected a list".to_string())),
     }
 }
 
