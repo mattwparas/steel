@@ -45,6 +45,10 @@ impl Env {
     ///
     /// At the top level, the global env has no parent
     pub fn new(parent: &Rc<RefCell<Self>>) -> Self {
+        println!(
+            "Allocating a new env, parent ref count is: {}",
+            Rc::strong_count(parent)
+        );
         Env {
             bindings: HashMap::new(),
             parent: Some(Rc::clone(&parent)),
@@ -113,6 +117,19 @@ impl Env {
                 Some(par) => par.borrow().lookup(name),
                 None => stop!(FreeIdentifier => name), // Err(RucketErr::FreeIdentifier(name.to_string())),
             }
+        }
+    }
+}
+
+impl Drop for Env {
+    fn drop(&mut self) {
+        if let Some(p) = &self.parent {
+            println!(
+                "Dropping an Environment!, parent ref count is {}",
+                Rc::strong_count(p)
+            );
+        } else {
+            println!("Dropping the global environment!");
         }
     }
 }
