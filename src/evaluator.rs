@@ -346,3 +346,300 @@ impl Default for Evaluator {
 }
 
 // TODO write macro to destructure vector
+
+#[cfg(test)]
+mod length_test {
+    use super::*;
+    use crate::parser::Expr::Atom;
+    use crate::tokens::Token::NumberLiteral;
+
+    #[test]
+    fn length_test() {
+        let tokens = vec![Atom(NumberLiteral(1.0)), Atom(NumberLiteral(2.0))];
+        assert!(check_length("Test", &tokens, 2).is_ok());
+    }
+
+    #[test]
+    fn mismatch_test() {
+        let tokens = vec![Atom(NumberLiteral(1.0)), Atom(NumberLiteral(2.0))];
+        assert!(check_length("Test", &tokens, 1).is_err());
+    }
+}
+
+#[cfg(test)]
+mod parse_identifiers_test {
+    use super::*;
+    use crate::parser::Expr::{Atom, ListVal};
+    use crate::tokens::Token::{Identifier, NumberLiteral};
+
+    #[test]
+    fn non_symbols_test() {
+        let identifier = ListVal(vec![Atom(NumberLiteral(1.0)), Atom(NumberLiteral(2.0))]);
+
+        let res = parse_list_of_identifiers(identifier);
+
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn symbols_test() {
+        let identifier = ListVal(vec![
+            Atom(Identifier("a".to_string())),
+            Atom(Identifier("b".to_string())),
+        ]);
+
+        let res = parse_list_of_identifiers(identifier);
+
+        assert_eq!(res.unwrap(), vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn malformed_test() {
+        let identifier = Atom(Identifier("a".to_string()));
+
+        let res = parse_list_of_identifiers(identifier);
+
+        assert!(res.is_err());
+    }
+}
+
+#[cfg(test)]
+mod eval_make_lambda_test {
+    use super::*;
+    use crate::parser::Expr::{Atom, ListVal};
+    use crate::tokens::Token::Identifier;
+
+    #[test]
+    fn not_enough_args_test() {
+        let list = vec![Atom(Identifier("a".to_string()))];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_make_lambda(&list, &default_env);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn not_list_val_test() {
+        let list = vec![
+            Atom(Identifier("a".to_string())),
+            Atom(Identifier("b".to_string())),
+            Atom(Identifier("c".to_string())),
+        ];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_make_lambda(&list, &default_env);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn ok_test() {
+        let list = vec![
+            Atom(Identifier("a".to_string())),
+            ListVal(vec![Atom(Identifier("b".to_string()))]),
+            Atom(Identifier("c".to_string())),
+        ];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_make_lambda(&list, &default_env);
+        assert!(res.is_ok());
+    }
+}
+
+#[cfg(test)]
+mod eval_if_test {
+    use super::*;
+    use crate::parser::Expr::{Atom, ListVal};
+    use crate::tokens::Token::{BooleanLiteral, If, StringLiteral};
+
+    #[test]
+    fn true_test() {
+        let default_env = Rc::new(RefCell::new(default_env()));
+        //        let list = vec![Atom(If), ListVal(vec![Atom(StringLiteral(">".to_string())), Atom(StringLiteral("5".to_string())), Atom(StringLiteral("4".to_string()))]), Atom(BooleanLiteral(true)), Atom(BooleanLiteral(false))];
+        let list = vec![
+            Atom(If),
+            Atom(BooleanLiteral(true)),
+            Atom(BooleanLiteral(true)),
+            Atom(BooleanLiteral(false)),
+        ];
+        let res = eval_if(&list, &default_env);
+        assert_eq!(res.unwrap(), Atom(BooleanLiteral(true)));
+    }
+
+    #[test]
+    fn false_test() {
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let list = vec![
+            Atom(If),
+            Atom(BooleanLiteral(false)),
+            Atom(BooleanLiteral(true)),
+            Atom(BooleanLiteral(false)),
+        ];
+        let res = eval_if(&list, &default_env);
+        assert_eq!(res.unwrap(), Atom(BooleanLiteral(false)));
+    }
+
+    #[test]
+    fn wrong_length_test() {
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let list = vec![
+            Atom(If),
+            Atom(BooleanLiteral(true)),
+            Atom(BooleanLiteral(false)),
+        ];
+        let res = eval_if(&list, &default_env);
+        assert!(res.is_err());
+    }
+}
+
+#[cfg(test)]
+mod eval_define_test {
+    use super::*;
+    use crate::parser::Expr::{Atom, ListVal};
+    use crate::tokens::Token::{BooleanLiteral, Define, Identifier, StringLiteral};
+
+    #[test]
+    fn wrong_length_test() {
+        let list = vec![Atom(Identifier("a".to_string()))];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_define(&list, default_env);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn no_identifier_test() {
+        let list = vec![Atom(StringLiteral("a".to_string()))];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_define(&list, default_env);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn atom_test() {
+        let list = vec![
+            Atom(Define),
+            Atom(Identifier("a".to_string())),
+            Atom(BooleanLiteral(true)),
+        ];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_define(&list, default_env);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn list_val_test() {
+        let list = vec![
+            Atom(Define),
+            ListVal(vec![Atom(Identifier("a".to_string()))]),
+            Atom(BooleanLiteral(true)),
+        ];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_define(&list, default_env);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn list_val_no_identifier_test() {
+        let list = vec![
+            Atom(Define),
+            ListVal(vec![Atom(StringLiteral("a".to_string()))]),
+            Atom(BooleanLiteral(true)),
+        ];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_define(&list, default_env);
+        assert!(res.is_err());
+    }
+}
+
+#[cfg(test)]
+mod eval_let_test {
+    use super::*;
+    use crate::parser::Expr::{Atom, ListVal};
+    use crate::tokens::Token::{BooleanLiteral, Let, NumberLiteral, StringLiteral};
+
+    #[test]
+    fn ok_test() {
+        let list = vec![
+            Atom(Let),
+            ListVal(vec![ListVal(vec![
+                Atom(StringLiteral("a".to_string())),
+                Atom(NumberLiteral(10.0)),
+            ])]),
+            Atom(BooleanLiteral(true)),
+        ];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_let(&list, &default_env);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn missing_body_test() {
+        let list = vec![
+            Atom(Let),
+            ListVal(vec![ListVal(vec![Atom(NumberLiteral(10.0))])]),
+            Atom(BooleanLiteral(true)),
+        ];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_let(&list, &default_env);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn missing_pair_binding_test() {
+        let list = vec![Atom(Let), Atom(Let), Atom(BooleanLiteral(true))];
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let res = eval_let(&list, &default_env);
+        assert!(res.is_err());
+    }
+}
+
+#[cfg(test)]
+mod eval_test {
+    use super::*;
+    use crate::parser::Expr::{Atom, ListVal};
+    use crate::tokens::Token::{BooleanLiteral, Identifier, If, NumberLiteral, StringLiteral};
+
+    #[test]
+    fn boolean_test() {
+        let input = Atom(BooleanLiteral(true));
+        let default_env = Rc::new(RefCell::new(default_env()));
+        assert!(evaluate(&input, &default_env).is_ok());
+    }
+
+    #[test]
+    fn identifier_test() {
+        let default_env = Rc::new(RefCell::new(default_env()));
+        let input = Atom(Identifier("+".to_string()));
+        assert!(evaluate(&input, &default_env).is_ok());
+    }
+
+    #[test]
+    fn number_test() {
+        let input = Atom(NumberLiteral(10.0));
+        let default_env = Rc::new(RefCell::new(default_env()));
+        assert!(evaluate(&input, &default_env).is_ok());
+    }
+
+    #[test]
+    fn string_test() {
+        let input = Atom(StringLiteral("test".to_string()));
+        let default_env = Rc::new(RefCell::new(default_env()));
+        assert!(evaluate(&input, &default_env).is_ok());
+    }
+
+    #[test]
+    fn what_test() {
+        let input = Atom(If);
+        let default_env = Rc::new(RefCell::new(default_env()));
+        assert!(evaluate(&input, &default_env).is_err());
+    }
+
+    #[test]
+    fn list_if_test() {
+        let list = vec![
+            Atom(If),
+            Atom(BooleanLiteral(true)),
+            Atom(BooleanLiteral(true)),
+            Atom(BooleanLiteral(false)),
+        ];
+        let input = ListVal(list);
+        let default_env = Rc::new(RefCell::new(default_env()));
+        assert!(evaluate(&input, &default_env).is_ok());
+    }
+}
