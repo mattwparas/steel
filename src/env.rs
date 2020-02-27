@@ -55,6 +55,10 @@ impl Env {
         }
     }
 
+    pub fn clear_bindings(&mut self) {
+        self.bindings.clear();
+    }
+
     /// Within the current environment, bind
     /// identifier `key` to `val`
     pub fn define(&mut self, key: String, val: RucketVal) {
@@ -123,12 +127,14 @@ impl Env {
 
 impl Drop for Env {
     fn drop(&mut self) {
+        // self.bindings.clear();
         if let Some(p) = &self.parent {
             println!(
                 "Dropping an Environment!, parent ref count is {}",
                 Rc::strong_count(p)
             );
         } else {
+            self.bindings.clear();
             println!("Dropping the global environment!");
         }
     }

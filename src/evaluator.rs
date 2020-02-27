@@ -48,6 +48,13 @@ impl Evaluator {
     }
 }
 
+impl Drop for Evaluator {
+    fn drop(&mut self) {
+        println!("Dropping the evaluator");
+        self.global_env.borrow_mut().clear_bindings();
+    }
+}
+
 // impl<'a> Iterator for Evaluator<'a> {
 //     // fn next(&mut self) -> Option<Self::Item> {
 //     //     self.tokenizer.next().map(|res| match res {
