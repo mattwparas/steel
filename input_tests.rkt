@@ -11,3 +11,5 @@
 (fib 60)
 (define my-func (lambda (arg1 arg2) (lambda (b) (+ arg1 arg2 b))))
 ((my-func 1 2) 3)
+(define foo (lambda (w) (lambda (x) (lambda (y) (lambda (z) (+ w x y z))))))
+((((foo 1) 2) 3) 4)

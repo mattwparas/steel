@@ -7,7 +7,7 @@ use crate::stop;
 //use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 // use std::result::Result;
 
 #[macro_use]
@@ -37,7 +37,7 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
 
 pub struct Env {
     bindings: HashMap<String, RucketVal>,
-    parent: Weak<RefCell<Env>>,
+    parent: Option<Rc<RefCell<Env>>>,
 }
 impl Env {
     /// Make a new `Env` from
@@ -47,7 +47,7 @@ impl Env {
     pub fn new(parent: &Rc<RefCell<Self>>) -> Self {
         Env {
             bindings: HashMap::new(),
-            parent: Rc::downgrade(&parent),
+            parent: Some(Rc::clone(&parent)),
         }
     }
 
@@ -70,8 +70,7 @@ impl Env {
                 .insert(key.clone(), val)
                 .ok_or_else(|| RucketErr::FreeIdentifier(key.to_string()))
         } else {
-            let parent = self.parent.upgrade();
-            match parent {
+            match &self.parent {
                 Some(par) => par.borrow_mut().set(key, val),
                 None => stop!(FreeIdentifier => key), // Err(RucketErr::FreeIdentifier(key)),
             }
@@ -90,8 +89,7 @@ impl Env {
                 .remove(key)
                 .ok_or_else(|| RucketErr::FreeIdentifier(key.to_string()))
         } else {
-            let parent = self.parent.upgrade();
-            match parent {
+            match &self.parent {
                 Some(par) => par.borrow_mut().remove(key),
                 None => stop!(FreeIdentifier => key), // Err(RucketErr::FreeIdentifier(key.to_string())),
             }
@@ -111,8 +109,7 @@ impl Env {
             // from Cell that may be modified later
             Ok(self.bindings[name].clone())
         } else {
-            let parent = self.parent.upgrade();
-            match parent {
+            match &self.parent {
                 Some(par) => par.borrow().lookup(name),
                 None => stop!(FreeIdentifier => name), // Err(RucketErr::FreeIdentifier(name.to_string())),
             }
@@ -279,7 +276,7 @@ pub fn default_env() -> Env {
 
     Env {
         bindings: data,
-        parent: Weak::new(),
+        parent: None,
     }
 }
 

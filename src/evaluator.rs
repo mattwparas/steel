@@ -98,10 +98,10 @@ pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> 
 pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     let mut env = Rc::clone(env);
     let mut expr = expr.clone();
-    let mut history: Vec<Rc<RefCell<Env>>> = Vec::new();
-    //println!("evaluating: {}", expr);
+    println!("evaluating: {}", expr);
 
     loop {
+        println!("loop");
         match expr {
             Expr::Atom(t) => match t {
                 Token::BooleanLiteral(b) => {
@@ -167,6 +167,10 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                                 // build a new environment using the parent environment
                                 let parent_env = lambda.parent_env().clone();
                                 let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
+                                println!("bindings params: {:?}", lambda.params_exp());
+                                println!("values: {}", RucketVal::ListV(good_args_eval.clone()));
+                                assert!(parent_env.borrow().lookup("+").is_ok());
+                                println!("parent invariant fine");
                                 lambda
                                     .params_exp()
                                     .iter()
@@ -177,7 +181,8 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                                 // loop back and continue
                                 // using the body as continuation
                                 // environment also gets updated
-                                history.push(parent_env);
+                                assert!(inner_env.borrow().lookup("+").is_ok());
+                                println!("child invariant fine");
                                 env = inner_env.clone();
                                 expr = lambda.body_exp();
                             }
