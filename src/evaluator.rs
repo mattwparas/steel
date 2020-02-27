@@ -156,20 +156,19 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                                 let args_eval: Result<Vec<RucketVal>> =
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
                                 let good_args_eval: Vec<RucketVal> = args_eval?;
-                                let inner_env = lambda.env();
+                                // build a new environment using the parent environment
+                                let mut inner_env = Env::new(lambda.parent_env());
                                 lambda
                                     .params_exp()
                                     .iter()
-                                    .zip(good_args_eval.iter())
+                                    .zip(good_args_eval.into_iter())
                                     .for_each(|(param, arg)| {
-                                        inner_env
-                                            .borrow_mut()
-                                            .define(param.to_string(), arg.clone())
+                                        inner_env.define(param.to_string(), arg)
                                     });
                                 // loop back and continue
                                 // using the body as continuation
                                 // environment also gets updated
-                                env = inner_env.clone();
+                                env = Rc::new(RefCell::new(inner_env));
                                 expr = lambda.body_exp();
                             }
                             e => {

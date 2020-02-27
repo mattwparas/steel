@@ -79,15 +79,19 @@ impl PartialOrd for RucketVal {
 pub struct RucketLambda {
     params_exp: Vec<String>,
     body_exp: Expr,
-    env: Rc<RefCell<Env>>,
+    parent_env: Rc<RefCell<Env>>,
 }
 
 impl RucketLambda {
-    pub fn new(params_exp: Vec<String>, body_exp: Expr, env: Rc<RefCell<Env>>) -> RucketLambda {
+    pub fn new(
+        params_exp: Vec<String>,
+        body_exp: Expr,
+        parent_env: Rc<RefCell<Env>>,
+    ) -> RucketLambda {
         RucketLambda {
             params_exp,
             body_exp,
-            env,
+            parent_env,
         }
     }
 
@@ -99,8 +103,8 @@ impl RucketLambda {
         self.body_exp.clone()
     }
 
-    pub fn env(&self) -> &Rc<RefCell<Env>> {
-        &self.env
+    pub fn parent_env(&self) -> &Rc<RefCell<Env>> {
+        &self.parent_env
     }
 }
 
