@@ -37,7 +37,7 @@ macro_rules! stop {
         return Err(RucketErr::$type(format!($fmt, $($arg)+)));
     };
     ($type:ident => $thing:expr) => {
-        return Err(RucketErr::$type(($thing).into()));
+        return Err(RucketErr::$type(($thing).to_string()));
     }; //     ($type:ident => $($thing:expr),+) => {
        //         return Err(SErr::$type($(($thing).into()),+));
        //     };

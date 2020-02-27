@@ -17,6 +17,7 @@ use crate::lexer::Tokenizer;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::RucketErr;
 use crate::rvals::{RucketLambda, RucketVal};
+use crate::stop;
 use crate::tokens::{Token, TokenError};
 
 pub type Result<T> = result::Result<T, RucketErr>;
@@ -42,7 +43,7 @@ impl Evaluator {
         let parsed: result::Result<Vec<Expr>, ParseError> = Parser::new(expr_str).collect();
         match parsed {
             Ok(pvec) => pvec.iter().map(|x| self.eval(&x)).collect(),
-            Err(e) => Err(RucketErr::BadSyntax(e.to_string())),
+            Err(e) => Err(RucketErr::BadSyntax(e.to_string())), // I think we should combine this into one error type?
         }
     }
 }
@@ -115,7 +116,8 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                     return Ok(RucketVal::StringV(s));
                 }
                 what => {
-                    return Err(RucketErr::UnexpectedToken(what.to_string()));
+                    stop!(UnexpectedToken => what)
+                    // return Err(RucketErr::UnexpectedToken(what.to_string()));
                 }
             },
 
@@ -179,13 +181,14 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                                 env = Rc::new(RefCell::new(inner_env));
                                 expr = lambda.body_exp();
                             }
-                            e => {
-                                return Err(RucketErr::ExpectedFunction(e.to_string()));
-                            }
+                            e => stop!(ExpectedFunction => e), // {
+                                                               //     return Err(RucketErr::ExpectedFunction(e.to_string()));
+                                                               // }
                         },
                     }
                 } else {
-                    return Err(RucketErr::ExpectedFunction("Empty List".to_string()));
+                    stop!(ExpectedFunction => "Given empty list")
+                    // return Err(RucketErr::ExpectedFunction("Empty List".to_string()));
                 }
             }
         }
@@ -240,9 +243,10 @@ pub fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<
             // check_length("Define", tokens: &[Expr], expected: usize)
 
             if list_of_identifiers.is_empty() {
-                return Err(RucketErr::ExpectedIdentifier(
-                    "define expected an identifier, got empty list".to_string(),
-                ));
+                stop!(ExpectedIdentifier => "define expected an identifier, got empty list")
+                // return Err(RucketErr::ExpectedIdentifier(
+                //     "define expected an identifier, got empty list".to_string(),
+                // ));
             }
             if let Expr::Atom(Token::Identifier(s)) = &list_of_identifiers[0] {
                 // TODO: this code needs go through evaluate again
@@ -263,28 +267,20 @@ pub fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<
 
             // eval_make_lambda(, env: EnvRef)
             } else {
-                Err(RucketErr::ExpectedIdentifier(format!(
-                    "Define expects identifier, got: {}",
-                    symbol
-                )))
+                stop!(ExpectedIdentifier => "Define expected identifier, got: {}", symbol);
+
+                // Err(RucketErr::ExpectedIdentifier(format!(
+                //     "Define expects identifier, got: {}",
+                //     symbol
+                // )))
             }
         }
-        _ => Err(RucketErr::ExpectedIdentifier(format!(
-            "Define expects identifier, got: {}",
-            symbol
-        ))),
+        _ => stop!(ExpectedIdentifier => "Define expects an identifier, got: {}", symbol),
+        // Err(RucketErr::ExpectedIdentifier(format!(
+        //     "Define expects identifier, got: {}",
+        //     symbol
+        // ))),
     }
-
-    // if let Expr::Atom(Token::Identifier(s)) = symbol {
-    //     let (eval_body, _) = evaluate(body, &env)?;
-    //     env.define(s.to_string(), eval_body);
-    //     Ok(env)
-    // } else {
-    //     Err(RucketErr::ExpectedIdentifier(format!(
-    //         "Define expects identifier, got: {}",
-    //         symbol
-    //     )))
-    // }
 }
 
 // Let is actually just a lambda so update values to be that and loop
@@ -309,23 +305,21 @@ pub fn eval_let(list_of_tokens: &[Expr], _env: &Rc<RefCell<Env>>) -> Result<Expr
                             bindings_to_check.push(binding.clone());
                             args_to_check.push(expression.clone());
                         }
-                        _ => {
-                            return Err(RucketErr::ContractViolation(
-                                "Let requires pairs for binding".to_string(),
-                            ));
-                        }
+                        _ => stop!(ContractViolation => "Let requires pairs for binding"), // return Err(RucketErr::ContractViolation(
+                                                                                           //     "Let requires pairs for binding".to_string(),
+                                                                                           // ));
                     },
-                    _ => {
-                        return Err(RucketErr::BadSyntax("Let: Missing body".to_string()));
-                    }
+                    _ => stop!(BadSyntax => "Let: Missing body"), // {
+                                                                  //     return Err(RucketErr::BadSyntax("Let: Missing body".to_string()));
+                                                                  // }
                 }
             }
         }
-        _ => {
-            return Err(RucketErr::BadSyntax(
-                "Let: Missing name or binding pairs".to_string(),
-            ));
-        }
+        _ => stop!(BadSyntax => "Let: Missing name or binding pairs"), // {
+                                                                       //     return Err(RucketErr::BadSyntax(
+                                                                       //         "Let: Missing name or binding pairs".to_string(),
+                                                                       //     ));
+                                                                       // }
     }
 
     let mut combined = vec![Expr::ListVal(vec![

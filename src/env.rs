@@ -204,9 +204,6 @@ pub fn default_env() -> Env {
                 }
             } else {
                 stop!(ArityMismatch => "cons takes two arguments");
-                // return Err(RucketErr::ArityMismatch(
-                //     "cons takes two arguments".to_string(),
-                // ));
             }
         }),
     );
@@ -230,26 +227,16 @@ pub fn default_env() -> Env {
                     RucketVal::ListV(v) => {
                         if v.is_empty() {
                             stop!(ContractViolation => "car expects a non empty list");
-                        // return Err(RucketErr::ContractViolation(
-                        //     "car expects a non empty list".to_string(),
-                        // ));
                         } else {
                             return Ok(v[0].clone());
                         }
                     }
                     e => {
                         stop!(ExpectedList => "car takes a list, given: {}", e);
-                        // return Err(RucketErr::ExpectedList(format!(
-                        //     "car takes a list, given: {}",
-                        //     e
-                        // )));
                     }
                 }
             } else {
                 stop!(ArityMismatch => "car takes one argument");
-                // return Err(RucketErr::ArityMismatch(
-                //     "car takes one argument".to_string(),
-                // ));
             }
         }),
     );
@@ -262,26 +249,16 @@ pub fn default_env() -> Env {
                     RucketVal::ListV(v) => {
                         if v.is_empty() {
                             stop!(ContractViolation => "car expects a non empty list");
-                        // return Err(RucketErr::ContractViolation(
-                        //     "car expects a non empty list".to_string(),
-                        // ));
                         } else {
                             return Ok(RucketVal::ListV(v[1..].to_vec()));
                         }
                     }
                     e => {
                         stop!(ExpectedList => "cdr takes a list, given: {}", e);
-                        // return Err(RucketErr::ExpectedList(format!( // TODO
-                        //     "cdr takes a list, given: {}",
-                        //     e
-                        // )));
                     }
                 }
             } else {
                 stop!(ArityMismatch => "cdr takes one argument");
-                // return Err(RucketErr::ArityMismatch(
-                //     "cdr takes one argument".to_string(),
-                // ));
             }
         }),
     );
@@ -321,7 +298,7 @@ fn unwrap_list_of_floats(args: &[&RucketVal]) -> Result<Vec<f64>> {
 fn unwrap_single_float(exp: &RucketVal) -> Result<f64> {
     match exp {
         RucketVal::NumV(num) => Ok(*num),
-        _ => stop!(ExpectedNumber => "expected a number"), // Err(RucketErr::ExpectedNumber("expected a number".to_string,
+        _ => stop!(ExpectedNumber => "expected a number"),
     }
 }
 
@@ -332,7 +309,7 @@ fn unwrap_list_of_lists(args: &[&RucketVal]) -> Result<Vec<Vec<RucketVal>>> {
 fn unwrap_single_list(exp: &RucketVal) -> Result<Vec<RucketVal>> {
     match exp {
         RucketVal::ListV(lst) => Ok(lst.clone()),
-        _ => stop!(ExpectedList => "expected a list"), // Err(RucketErr::ExpectedNumber("expected a list".to_string())),
+        _ => stop!(ExpectedList => "expected a list"),
     }
 }
 
