@@ -100,7 +100,7 @@ impl Env {
             let parent = self.parent.upgrade();
             match parent {
                 Some(par) => par.borrow_mut().remove(key),
-                None => Err(RucketErr::FreeIdentifier(key.to_string())),
+                None => stop!(FreeIdentifier => key), // Err(RucketErr::FreeIdentifier(key.to_string())),
             }
         }
     }
@@ -121,7 +121,7 @@ impl Env {
             let parent = self.parent.upgrade();
             match parent {
                 Some(par) => par.borrow().lookup(name),
-                None => Err(RucketErr::FreeIdentifier(name.to_string())),
+                None => stop!(FreeIdentifier => name), // Err(RucketErr::FreeIdentifier(name.to_string())),
             }
         }
     }
@@ -238,10 +238,11 @@ pub fn default_env() -> Env {
                         }
                     }
                     e => {
-                        return Err(RucketErr::ExpectedList(format!(
-                            "car takes a list, given: {}",
-                            e
-                        )));
+                        stop!(ExpectedList => "car takes a list, given: {}", e);
+                        // return Err(RucketErr::ExpectedList(format!(
+                        //     "car takes a list, given: {}",
+                        //     e
+                        // )));
                     }
                 }
             } else {
@@ -269,11 +270,11 @@ pub fn default_env() -> Env {
                         }
                     }
                     e => {
-                        // stop!(ExpectedList => "cdr takes a list, given: {}", e);
-                        return Err(RucketErr::ExpectedList(format!( // TODO
-                            "cdr takes a list, given: {}",
-                            e
-                        )));
+                        stop!(ExpectedList => "cdr takes a list, given: {}", e);
+                        // return Err(RucketErr::ExpectedList(format!( // TODO
+                        //     "cdr takes a list, given: {}",
+                        //     e
+                        // )));
                     }
                 }
             } else {
