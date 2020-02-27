@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+#![allow(dead_code)]
 use crate::evaluator::Evaluator;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::RucketErr;
@@ -41,11 +43,11 @@ impl RucketInterpreter {
     //     }
     // }
 
-    pub fn require(&mut self, exprs: &str) -> Result<RucketVal, RucketErr> {
+    pub fn require(&mut self, _exprs: &str) -> Result<RucketVal, RucketErr> {
         unimplemented!();
     }
 
-    pub fn require_paths(paths: Vec<&str>) -> Result<RucketVal, RucketErr> {
+    pub fn require_paths(_paths: Vec<&str>) -> Result<RucketVal, RucketErr> {
         unimplemented!();
     }
 

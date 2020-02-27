@@ -5,7 +5,7 @@ use crate::tokens::Token::*;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt;
-use std::rc::Weak;
+use std::rc::Rc;
 use RucketVal::*;
 
 use std::convert::TryFrom;
@@ -85,13 +85,13 @@ pub struct RucketLambda {
     /// parent environment that created this Lambda.
     /// the actual environment with correct bindingsis built at runtime
     /// once the function is called
-    parent_env: Weak<RefCell<Env>>,
+    parent_env: Rc<RefCell<Env>>,
 }
 impl RucketLambda {
     pub fn new(
         params_exp: Vec<String>,
         body_exp: Expr,
-        parent_env: Weak<RefCell<Env>>,
+        parent_env: Rc<RefCell<Env>>,
     ) -> RucketLambda {
         RucketLambda {
             params_exp,
@@ -111,7 +111,7 @@ impl RucketLambda {
     ///
     /// The actual environment with correct bindings is built at runtime
     /// once the function is called
-    pub fn parent_env(&self) -> &Weak<RefCell<Env>> {
+    pub fn parent_env(&self) -> &Rc<RefCell<Env>> {
         &self.parent_env
     }
 }
@@ -170,7 +170,7 @@ fn display_test() {
         RucketVal::LambdaV(RucketLambda::new(
             vec!["arg1".to_owned()],
             Expr::Atom(Token::NumberLiteral(1.0)),
-            Weak::new(),
+            Rc::new(RefCell::new(crate::env::default_env())),
         ))
         .to_string(),
         "Lambda Function"
@@ -189,7 +189,7 @@ fn display_list_test() {
             LambdaV(RucketLambda::new(
                 vec!["arg1".to_owned()],
                 Expr::Atom(Token::NumberLiteral(1.0)),
-                Weak::new(),
+                Rc::new(RefCell::new(crate::env::default_env())),
             ))
         ])
         .to_string(),

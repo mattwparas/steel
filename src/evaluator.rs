@@ -98,6 +98,8 @@ pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> 
 pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     let mut env = Rc::clone(env);
     let mut expr = expr.clone();
+    let mut history: Vec<Rc<RefCell<Env>>> = Vec::new();
+    //println!("evaluating: {}", expr);
 
     loop {
         match expr {
@@ -163,18 +165,20 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
                                 let good_args_eval: Vec<RucketVal> = args_eval?;
                                 // build a new environment using the parent environment
-                                let mut inner_env = Env::new_from_weak(lambda.parent_env());
+                                let parent_env = lambda.parent_env().clone();
+                                let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
                                 lambda
                                     .params_exp()
                                     .iter()
                                     .zip(good_args_eval.into_iter())
                                     .for_each(|(param, arg)| {
-                                        inner_env.define(param.to_string(), arg)
+                                        inner_env.borrow_mut().define(param.to_string(), arg)
                                     });
                                 // loop back and continue
                                 // using the body as continuation
                                 // environment also gets updated
-                                env = Rc::new(RefCell::new(inner_env));
+                                history.push(parent_env);
+                                env = inner_env.clone();
                                 expr = lambda.body_exp();
                             }
                             e => stop!(ExpectedFunction => e),
@@ -215,7 +219,7 @@ pub fn eval_make_lambda(
 
     let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
     let constructed_lambda =
-        RucketLambda::new(parsed_list, body_exp.clone(), Rc::downgrade(&parent_env));
+        RucketLambda::new(parsed_list, body_exp.clone(), Rc::clone(parent_env));
     Ok(RucketVal::LambdaV(constructed_lambda))
 }
 
