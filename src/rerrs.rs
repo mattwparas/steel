@@ -38,7 +38,5 @@ macro_rules! stop {
     };
     ($type:ident => $thing:expr) => {
         return Err(RucketErr::$type(($thing).to_string()));
-    }; //     ($type:ident => $($thing:expr),+) => {
-       //         return Err(SErr::$type($(($thing).into()),+));
-       //     };
+    };
 }
