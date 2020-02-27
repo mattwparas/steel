@@ -50,6 +50,13 @@ impl Env {
         }
     }
 
+    pub fn new_from_weak(parent: &Weak<RefCell<Self>>) -> Self {
+        Env {
+            bindings: HashMap::new(),
+            parent: parent.clone(),
+        }
+    }
+
     /// Within the current environment, bind
     /// identifier `key` to `val`
     pub fn define(&mut self, key: String, val: RucketVal) {

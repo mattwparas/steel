@@ -136,8 +136,7 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Lambda) => {
                             // create new environment whos parent is the current environment
-                            let new_env = Env::new(&env);
-                            return Ok(eval_make_lambda(&list_of_tokens, new_env)?);
+                            return Ok(eval_make_lambda(&list_of_tokens, &env)?);
                         }
                         // (let (var binding)* (body))
                         Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
@@ -157,7 +156,7 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
                                 let good_args_eval: Vec<RucketVal> = args_eval?;
                                 // build a new environment using the parent environment
-                                let mut inner_env = Env::new(lambda.parent_env());
+                                let mut inner_env = Env::new_from_weak(lambda.parent_env());
                                 lambda
                                     .params_exp()
                                     .iter()
@@ -183,7 +182,7 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
         }
     }
 }
-
+/// TODO: refactor this with iterators
 /// evaluates `(test then else)` into `then` or `else`
 pub fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
     check_length("If", list_of_tokens, 4)?;
@@ -201,17 +200,17 @@ pub fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> 
 }
 
 // TODO write tests for this
-pub fn eval_make_lambda(list_of_tokens: &[Expr], new_env: Env) -> Result<RucketVal> {
+pub fn eval_make_lambda(
+    list_of_tokens: &[Expr],
+    parent_env: &Rc<RefCell<Env>>,
+) -> Result<RucketVal> {
     check_length("Lambda", &list_of_tokens, 3)?;
     let list_of_symbols = &list_of_tokens[1];
     let body_exp = &list_of_tokens[2];
 
     let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
-    let constructed_lambda = RucketLambda::new(
-        parsed_list,
-        body_exp.clone(),
-        Rc::new(RefCell::new(new_env)),
-    );
+    let constructed_lambda =
+        RucketLambda::new(parsed_list, body_exp.clone(), Rc::downgrade(&parent_env));
     Ok(RucketVal::LambdaV(constructed_lambda))
 }
 
@@ -237,6 +236,9 @@ pub fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<
                 ));
             }
             if let Expr::Atom(Token::Identifier(s)) = &list_of_identifiers[0] {
+                // TODO: this code needs go through evaluate again
+                // we can cut the middle man and go straight to
+                // eval_make_lambda
                 let mut fake_lambda: Vec<Expr> = vec![Expr::Atom(Token::Lambda)];
 
                 fake_lambda.push(Expr::ListVal(list_of_identifiers[1..].to_vec()));
