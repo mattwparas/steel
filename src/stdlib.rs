@@ -62,4 +62,5 @@ pub const PRELUDE: &'static str = "
 (define fact (lambda (n) (if (== n 0) 1 (* n (fact (- n 1))) ) ))
 (define even (lambda (x) (if (== x 0) #t (odd (- x 1)))))
 (define odd  (lambda (x) (if (== x 0) #f (even (- x 1)))))
+(define sum (lambda (x) (reduce + 0 x)))
 ";
