@@ -220,6 +220,25 @@ impl Env {
                 }),
             ),
             (
+                "null?",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    if args.len() == 1 {
+                        match &args[0] {
+                            RucketVal::ListV(v) => {
+                                if v.is_empty() {
+                                    return Ok(RucketVal::BoolV(true));
+                                } else {
+                                    return Ok(RucketVal::BoolV(false));
+                                }
+                            }
+                            _ => Ok(RucketVal::BoolV(false)),
+                        }
+                    } else {
+                        stop!(ArityMismatch => "car takes one argument");
+                    }
+                }),
+            ),
+            (
                 "append",
                 RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
                     let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
@@ -272,6 +291,7 @@ impl Env {
                 }),
             ),
             ("=", RucketVal::FuncV(ensure_tonicity!(|a, b| a == b))),
+            ("equal?", RucketVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             (">", RucketVal::FuncV(ensure_tonicity!(|a, b| a > b))),
             (">=", RucketVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
             ("<", RucketVal::FuncV(ensure_tonicity!(|a, b| a < b))),
