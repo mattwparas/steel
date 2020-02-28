@@ -10,26 +10,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 // use std::result::Result;
 
-// #[macro_use]
-// macro_rules! ensure_tonicity {
-//     ($check_fn:expr) => {{
-//         |args: &[&RucketVal]| -> Result<RucketVal> {
-//             let floats = unwrap_list_of_floats(args)?;
-//             let first = floats.first().ok_or(RucketErr::ExpectedNumber(
-//                 "expected at least one number".to_string(),
-//             ))?;
-//             let rest = &floats[1..];
-//             fn f(prev: &f64, xs: &[f64]) -> bool {
-//                 match xs.first() {
-//                     Some(x) => $check_fn(prev, x) && f(x, &xs[1..]),
-//                     None => true,
-//                 }
-//             };
-//             Ok(RucketVal::BoolV(f(first, rest)))
-//         }
-//     }};
-// }
-
 #[macro_use]
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
