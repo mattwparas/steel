@@ -8,6 +8,7 @@ pub mod repl;
 #[macro_use]
 pub mod rerrs;
 pub mod rvals;
+pub mod stdlib;
 pub mod tokens;
 
 fn main() {

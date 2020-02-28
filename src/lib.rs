@@ -8,4 +8,5 @@ pub mod repl;
 pub mod rerrs;
 pub mod converter;
 pub mod rvals;
+pub mod stdlib;
 pub mod tokens;

@@ -31,8 +31,21 @@ impl RucketInterpreter {
         }
     }
 
-    pub fn evaluate() -> Result<RucketVal, RucketErr> {
-        unimplemented!();
+    pub fn evaluate(&mut self, expr_str: &str) -> Result<Vec<RucketVal>, RucketErr> {
+        self.evaluator.parse_and_eval(expr_str)
+    }
+
+    pub fn reset(&mut self) {
+        self.evaluator.clear_bindings();
+    }
+
+    pub fn evaluate_from_reader(
+        &mut self,
+        mut input: impl Read,
+    ) -> io::Result<Result<Vec<RucketVal>, RucketErr>> {
+        let mut exprs = String::new();
+        input.read_to_string(&mut exprs)?;
+        Ok(self.evaluate(&exprs))
     }
 
     // pub fn parse_and_evaluate(&mut self, exprs: &str) -> Result<Vec<RucketVal>, RucketErr> {
