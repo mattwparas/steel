@@ -26,6 +26,8 @@ pub enum RucketErr {
     ContractViolation(String),
     #[error("Bad Syntax: {0}")]
     BadSyntax(String),
+    #[error("Conversion Error: {0}")]
+    ConversionError(String),
 }
 
 #[macro_export]
