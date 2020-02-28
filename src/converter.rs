@@ -9,15 +9,13 @@ where
     U: TryFrom<Vec<RucketVal>, Error = &'static str>,
     V: Into<RucketVal>,
 {
-    fn new_func(name: String) -> (String, fn(Vec<RucketVal>) -> Result<RucketVal, RucketErr>) {
-        let wrapped = |args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
-            let input = Self::in_convert(args)?;
-            let res = Self::call(input)?;
-            Ok(res.into())
-        };
-        (name, wrapped)
+    fn funcall(&mut self, args: Vec<RucketVal>) -> Result<RucketVal, RucketErr> {
+        let input = Self::in_convert(args)?;
+        let res = self.call(input)?;
+        Ok(res.into())
     }
-    fn call(input: U) -> Result<V, RucketErr>;
+    fn new() -> Box<Self>;
+    fn call(&mut self, input: U) -> Result<V, RucketErr>;
     fn in_convert(input: Vec<RucketVal>) -> Result<U, RucketErr> {
         U::try_from(input).map_err(|e| RucketErr::ConversionError(e.to_string()))
     }
@@ -45,21 +43,27 @@ impl From<f64> for RucketVal {
 
 pub struct Adder;
 impl RucketFunctor<VecNumbers, f64> for Adder {
-    fn call(input: VecNumbers) -> Result<f64, RucketErr> {
+    fn call(&mut self, input: VecNumbers) -> Result<f64, RucketErr> {
         Ok(input.0.iter().fold(0.0, |sum, x| sum + x))
+    }
+    fn new() -> Box<Self> {
+        Box::new(Adder {})
     }
 }
 
 pub struct Multiplier;
 impl RucketFunctor<VecNumbers, f64> for Multiplier {
-    fn call(input: VecNumbers) -> Result<f64, RucketErr> {
+    fn call(&mut self, input: VecNumbers) -> Result<f64, RucketErr> {
         Ok(input.0.iter().fold(1.0, |sum, x| sum * x))
+    }
+    fn new() -> Box<Self> {
+        Box::new(Multiplier {})
     }
 }
 
 pub struct Divider;
 impl RucketFunctor<VecNumbers, f64> for Divider {
-    fn call(input: VecNumbers) -> Result<f64, RucketErr> {
+    fn call(&mut self, input: VecNumbers) -> Result<f64, RucketErr> {
         let mut v = input.0.into_iter();
         if let Some(first) = v.next() {
             Ok(v.fold(first, |acc, x| acc / x))
@@ -68,5 +72,8 @@ impl RucketFunctor<VecNumbers, f64> for Divider {
                 "'\' expects at least one number".to_string(),
             ))
         }
+    }
+    fn new() -> Box<Self> {
+        Box::new(Divider {})
     }
 }
