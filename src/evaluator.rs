@@ -34,8 +34,7 @@ impl Evaluator {
     }
     pub fn eval(&mut self, expr: &Expr) -> Result<RucketVal> {
         // global environment updates automatically
-        let r = evaluate(&expr, &self.global_env)?;
-        Ok(r)
+        evaluate(&expr, &self.global_env)
     }
 
     // TODO check this
@@ -45,6 +44,10 @@ impl Evaluator {
             Ok(pvec) => pvec.iter().map(|x| self.eval(&x)).collect(),
             Err(e) => Err(RucketErr::BadSyntax(e.to_string())), // I think we should combine this into one error type?
         }
+    }
+
+    pub fn clear_bindings(&mut self) {
+        self.global_env.borrow_mut().clear_bindings();
     }
 }
 
@@ -151,10 +154,25 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                             // create new environment whos parent is the current environment
                             return Ok(eval_make_lambda(&list_of_tokens, env)?);
                         }
+                        // Evaluate a quoted statement
+                        Expr::Atom(Token::Eval) => return eval_eval_expr(&list_of_tokens, &env),
                         // (let (var binding)* (body))
                         Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
+                        Expr::Atom(Token::Begin) => expr = eval_begin(&list_of_tokens, &env)?,
                         // (sym args*), sym must be a procedure
                         sym => match evaluate(sym, &env)? {
+                            // TODO check this part
+                            RucketVal::SymbolV(s) => match s.as_str() {
+                                "define" => match eval_define(&list_of_tokens, env) {
+                                    Ok(_e) => {
+                                        return Ok(RucketVal::Void);
+                                    }
+                                    Err(e) => {
+                                        return Err(e);
+                                    }
+                                },
+                                _ => unimplemented!(),
+                            },
                             RucketVal::FuncV(func) => {
                                 let args_eval: Result<Vec<RucketVal>> =
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
@@ -223,6 +241,32 @@ pub fn eval_make_lambda(
     let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
     let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), parent_env);
     Ok(RucketVal::LambdaV(constructed_lambda))
+}
+
+// Evaluate all but the last, pass the last back up to the loop
+pub fn eval_begin(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
+    let mut i = 1;
+    while i < list_of_tokens.len() - 1 {
+        evaluate(&list_of_tokens[i], env)?;
+        i += 1;
+    }
+    if let Some(v) = list_of_tokens.last() {
+        return Ok(v.clone());
+    } else {
+        stop!(ArityMismatch => "begin requires one argument");
+    }
+}
+
+// TODO write tests
+// Evaluate the inner expression, check that it is a quoted expression,
+// evaluate body of quoted expression
+pub fn eval_eval_expr(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+    check_length("Eval", list_of_tokens, 2)?;
+    let res_expr = evaluate(&list_of_tokens[1], env)?;
+    match Expr::try_from(res_expr) {
+        Ok(e) => evaluate(&e, env),
+        Err(_) => stop!(ContractViolation => "Eval not given an expression"),
+    }
 }
 
 // TODO maybe have to evaluate the params but i'm not sure

@@ -40,6 +40,8 @@ impl TryFrom<RucketVal> for Expr {
                 "define" => Ok(Atom(Token::Define)),
                 "lambda" => Ok(Atom(Token::Lambda)),
                 "quote" => Ok(Atom(Token::Quote)),
+                "begin" => Ok(Atom(Token::Begin)),
+                "eval" => Ok(Atom(Token::Eval)),
                 _ => Ok(Atom(Token::Identifier(x))),
             },
         }

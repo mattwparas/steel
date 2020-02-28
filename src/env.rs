@@ -202,16 +202,16 @@ pub fn default_env() -> Env {
         }),
     );
 
-    data.insert(
-        "append".to_string(),
-        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-            let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
-                .iter()
-                .flat_map(|x| x.clone())
-                .collect();
-            Ok(RucketVal::ListV(lsts))
-        }),
-    );
+    // data.insert(
+    //     "append".to_string(),
+    //     RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
+    //         let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
+    //             .iter()
+    //             .flat_map(|x| x.clone())
+    //             .collect();
+    //         Ok(RucketVal::ListV(lsts))
+    //     }),
+    // );
 
     data.insert(
         "car".to_string(),

@@ -30,6 +30,7 @@ pub const PRELUDE: &'static str = "
 (define id (lambda (obj) obj))
 (define flip (lambda (func) (lambda (arg1 arg2) (func arg2 arg1))))
 (define curry (lambda (func arg1) (lambda (arg) (func arg1 arg))))
+(define curry2 (lambda (func arg1) (lambda (arg2 arg3) (func arg1 arg2 arg3))))
 (define compose (lambda (f g) (lambda (arg) (f (g arg)))))
 (define foldl (lambda (func accum lst)
   (if (null? lst)
@@ -48,8 +49,8 @@ pub const PRELUDE: &'static str = "
 (define max (lambda (x  num-list) (fold (lambda (y z) (if (> y z) y z)) x (cons 0 num-list))))
 (define min (lambda (x  num-list) (fold (lambda (y z) (if (< y z) y z)) x (cons 536870911 num-list))))
 (define length (lambda (lst)        (fold (lambda (x y) (+ x 1)) 0 lst)))
-(define append (lambda (lst  lsts)  (foldr (flip (curry foldr cons)) lst lsts)))
-(define reverse (lambda (list) (cdr (foldl (flip cons) '() list))))
+(define append (lambda (lst lsts)  (foldl (flip (curry2 foldr cons)) lst lsts))) ;; TODO fix
+(define reverse (lambda (list) (cdr (foldl (flip cons) '() list)))) ;; TODO fix
 (define mem-helper (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 ;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
 ;; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
@@ -63,4 +64,8 @@ pub const PRELUDE: &'static str = "
 (define even (lambda (x) (if (== x 0) #t (odd (- x 1)))))
 (define odd  (lambda (x) (if (== x 0) #f (even (- x 1)))))
 (define sum (lambda (x) (reduce + 0 x)))
+(define first car)
+(define rest cdr)
+(define head car)
+(define tail cdr)
 ";
