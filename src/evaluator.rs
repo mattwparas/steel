@@ -48,6 +48,12 @@ impl Evaluator {
     }
 }
 
+impl Drop for Evaluator {
+    fn drop(&mut self) {
+        self.global_env.borrow_mut().clear_bindings();
+    }
+}
+
 // impl<'a> Iterator for Evaluator<'a> {
 //     // fn next(&mut self) -> Option<Self::Item> {
 //     //     self.tokenizer.next().map(|res| match res {
@@ -98,10 +104,8 @@ pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> 
 pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     let mut env = Rc::clone(env);
     let mut expr = expr.clone();
-    println!("evaluating: {}", expr);
 
     loop {
-        println!("loop");
         match expr {
             Expr::Atom(t) => match t {
                 Token::BooleanLiteral(b) => {
@@ -145,7 +149,7 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Lambda) => {
                             // create new environment whos parent is the current environment
-                            return Ok(eval_make_lambda(&list_of_tokens, &env)?);
+                            return Ok(eval_make_lambda(&list_of_tokens, env)?);
                         }
                         // (let (var binding)* (body))
                         Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
@@ -165,12 +169,8 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
                                 let good_args_eval: Vec<RucketVal> = args_eval?;
                                 // build a new environment using the parent environment
-                                let parent_env = lambda.parent_env().clone();
+                                let parent_env = lambda.parent_env();
                                 let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
-                                println!("bindings params: {:?}", lambda.params_exp());
-                                println!("values: {}", RucketVal::ListV(good_args_eval.clone()));
-                                assert!(parent_env.borrow().lookup("+").is_ok());
-                                println!("parent invariant fine");
                                 lambda
                                     .params_exp()
                                     .iter()
@@ -181,9 +181,7 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                                 // loop back and continue
                                 // using the body as continuation
                                 // environment also gets updated
-                                assert!(inner_env.borrow().lookup("+").is_ok());
-                                println!("child invariant fine");
-                                env = inner_env.clone();
+                                env = inner_env;
                                 expr = lambda.body_exp();
                             }
                             e => stop!(ExpectedFunction => e),
@@ -216,15 +214,14 @@ pub fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> 
 // TODO write tests for this
 pub fn eval_make_lambda(
     list_of_tokens: &[Expr],
-    parent_env: &Rc<RefCell<Env>>,
+    parent_env: Rc<RefCell<Env>>,
 ) -> Result<RucketVal> {
     check_length("Lambda", &list_of_tokens, 3)?;
     let list_of_symbols = &list_of_tokens[1];
     let body_exp = &list_of_tokens[2];
 
     let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
-    let constructed_lambda =
-        RucketLambda::new(parsed_list, body_exp.clone(), Rc::clone(parent_env));
+    let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), parent_env);
     Ok(RucketVal::LambdaV(constructed_lambda))
 }
 
@@ -383,7 +380,7 @@ mod eval_make_lambda_test {
     fn not_enough_args_test() {
         let list = vec![Atom(Identifier("a".to_string()))];
         let default_env = Rc::new(RefCell::new(default_env()));
-        let res = eval_make_lambda(&list, &default_env);
+        let res = eval_make_lambda(&list, default_env);
         assert!(res.is_err());
     }
 
@@ -395,7 +392,7 @@ mod eval_make_lambda_test {
             Atom(Identifier("c".to_string())),
         ];
         let default_env = Rc::new(RefCell::new(default_env()));
-        let res = eval_make_lambda(&list, &default_env);
+        let res = eval_make_lambda(&list, default_env);
         assert!(res.is_err());
     }
 
@@ -407,7 +404,7 @@ mod eval_make_lambda_test {
             Atom(Identifier("c".to_string())),
         ];
         let default_env = Rc::new(RefCell::new(default_env()));
-        let res = eval_make_lambda(&list, &default_env);
+        let res = eval_make_lambda(&list, default_env);
         assert!(res.is_ok());
     }
 }

@@ -51,6 +51,10 @@ impl Env {
         }
     }
 
+    pub fn clear_bindings(&mut self) {
+        self.bindings.clear();
+    }
+
     /// Within the current environment, bind
     /// identifier `key` to `val`
     pub fn define(&mut self, key: String, val: RucketVal) {
