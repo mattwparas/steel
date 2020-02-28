@@ -206,18 +206,17 @@ impl Env {
             (
                 "cons",
                 RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
-                    if args.len() == 2 {
-                        let elem = &args[0];
-                        let lst = &args[1];
-                        if let RucketVal::ListV(v) = lst {
-                            let mut l = v.clone();
-                            l.insert(0, elem.clone());
-                            return Ok(RucketVal::ListV(l));
-                        } else {
-                            return Ok(RucketVal::ListV(vec![elem.clone(), lst.clone()]));
+                    let mut args = args.into_iter();
+                    match (args.next(), args.next()) {
+                        (Some(elem), Some(lst)) => {
+                            if let RucketVal::ListV(mut l) = lst {
+                                l.insert(0, elem);
+                                return Ok(RucketVal::ListV(l));
+                            } else {
+                                return Ok(RucketVal::ListV(vec![elem, lst]));
+                            }
                         }
-                    } else {
-                        stop!(ArityMismatch => "cons takes two arguments");
+                        _ => stop!(ArityMismatch => "cons takes two arguments"),
                     }
                 }),
             ),
@@ -232,15 +231,12 @@ impl Env {
             (
                 "car",
                 RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
-                    if args.len() == 1 {
-                        match &args[0] {
-                            RucketVal::ListV(v) => {
-                                if v.is_empty() {
-                                    stop!(ContractViolation => "car expects a non empty list");
-                                } else {
-                                    return Ok(v[0].clone());
-                                }
-                            }
+                    if let Some(first) = args.into_iter().next() {
+                        match first {
+                            RucketVal::ListV(e) => match e.into_iter().next() {
+                                Some(e) => Ok(e),
+                                None => stop!(ContractViolation => "car expects a non empty list"),
+                            },
                             e => {
                                 stop!(ExpectedList => "car takes a list, given: {}", e);
                             }
@@ -253,13 +249,13 @@ impl Env {
             (
                 "cdr",
                 RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
-                    if args.len() == 1 {
-                        match &args[0] {
-                            RucketVal::ListV(v) => {
-                                if v.is_empty() {
-                                    stop!(ContractViolation => "car expects a non empty list");
+                    if let Some(first) = args.into_iter().next() {
+                        match first {
+                            RucketVal::ListV(e) => {
+                                if !e.is_empty() {
+                                    Ok(RucketVal::ListV(e.into_iter().skip(1).collect()))
                                 } else {
-                                    return Ok(RucketVal::ListV(v[1..].to_vec()));
+                                    stop!(ContractViolation => "cdr expects a non empty list")
                                 }
                             }
                             e => {
