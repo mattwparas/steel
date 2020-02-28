@@ -45,10 +45,6 @@ impl Env {
     ///
     /// At the top level, the global env has no parent
     pub fn new(parent: &Rc<RefCell<Self>>) -> Self {
-        println!(
-            "Allocating a new env, parent ref count is: {}",
-            Rc::strong_count(parent)
-        );
         Env {
             bindings: HashMap::new(),
             parent: Some(Rc::clone(&parent)),
