@@ -7,5 +7,6 @@ pub mod repl;
 #[macro_use]
 pub mod rerrs;
 pub mod converter;
+pub mod primitives;
 pub mod rvals;
 pub mod tokens;
