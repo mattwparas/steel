@@ -17,7 +17,7 @@ pub enum RucketVal {
     ListV(Vec<RucketVal>),
     Void,
     StringV(String),
-    FuncV(fn(&[&RucketVal]) -> Result<RucketVal, RucketErr>),
+    FuncV(fn(Vec<RucketVal>) -> Result<RucketVal, RucketErr>),
     LambdaV(RucketLambda),
     SymbolV(String),
 }
@@ -162,7 +162,7 @@ fn display_test() {
     assert_eq!(RucketVal::BoolV(false).to_string(), "#false");
     assert_eq!(RucketVal::NumV(1.0).to_string(), "1");
     assert_eq!(
-        RucketVal::FuncV(|_args: &[&RucketVal]| -> Result<RucketVal, RucketErr> {
+        RucketVal::FuncV(|_args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
             Ok(RucketVal::ListV(vec![]))
         })
         .to_string(),
@@ -172,7 +172,7 @@ fn display_test() {
         RucketVal::LambdaV(RucketLambda::new(
             vec!["arg1".to_owned()],
             Expr::Atom(Token::NumberLiteral(1.0)),
-            Rc::new(RefCell::new(crate::env::default_env())),
+            Rc::new(RefCell::new(crate::env::Env::default_env())),
         ))
         .to_string(),
         "Lambda Function"
@@ -191,7 +191,7 @@ fn display_list_test() {
             LambdaV(RucketLambda::new(
                 vec!["arg1".to_owned()],
                 Expr::Atom(Token::NumberLiteral(1.0)),
-                Rc::new(RefCell::new(crate::env::default_env())),
+                Rc::new(RefCell::new(crate::env::Env::default_env())),
             ))
         ])
         .to_string(),

@@ -12,7 +12,7 @@ use std::result;
 use std::str::Chars;
 use thiserror::Error;
 
-use crate::env::{default_env, Env};
+use crate::env::Env;
 use crate::lexer::Tokenizer;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::RucketErr;
@@ -29,7 +29,7 @@ pub struct Evaluator {
 impl Evaluator {
     pub fn new() -> Self {
         Evaluator {
-            global_env: Rc::new(RefCell::new(default_env())),
+            global_env: Rc::new(RefCell::new(Env::default_env())),
         }
     }
     pub fn eval(&mut self, expr: &Expr) -> Result<RucketVal> {
@@ -166,24 +166,18 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
                                 let args_eval = args_eval?;
                                 // pure function doesn't need the env
-                                let args_without_env: Vec<&RucketVal> = args_eval.iter().collect();
-                                let rval = func(&args_without_env)?;
+                                let rval = func(args_eval)?;
                                 return Ok(rval);
                             }
                             RucketVal::LambdaV(lambda) => {
                                 let args_eval: Result<Vec<RucketVal>> =
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
-                                let good_args_eval: Vec<RucketVal> = args_eval?;
+                                let args_eval: Vec<RucketVal> = args_eval?;
                                 // build a new environment using the parent environment
                                 let parent_env = lambda.parent_env();
                                 let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
-                                lambda
-                                    .params_exp()
-                                    .iter()
-                                    .zip(good_args_eval.into_iter())
-                                    .for_each(|(param, arg)| {
-                                        inner_env.borrow_mut().define(param.to_string(), arg)
-                                    });
+                                let params_exp = lambda.params_exp();
+                                inner_env.borrow_mut().define_all(params_exp, args_eval)?;
                                 // loop back and continue
                                 // using the body as continuation
                                 // environment also gets updated
@@ -411,7 +405,7 @@ mod eval_make_lambda_test {
     #[test]
     fn not_enough_args_test() {
         let list = vec![Atom(Identifier("a".to_string()))];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_make_lambda(&list, default_env);
         assert!(res.is_err());
     }
@@ -423,7 +417,7 @@ mod eval_make_lambda_test {
             Atom(Identifier("b".to_string())),
             Atom(Identifier("c".to_string())),
         ];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_make_lambda(&list, default_env);
         assert!(res.is_err());
     }
@@ -435,7 +429,7 @@ mod eval_make_lambda_test {
             ListVal(vec![Atom(Identifier("b".to_string()))]),
             Atom(Identifier("c".to_string())),
         ];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_make_lambda(&list, default_env);
         assert!(res.is_ok());
     }
@@ -449,7 +443,7 @@ mod eval_if_test {
 
     #[test]
     fn true_test() {
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         //        let list = vec![Atom(If), ListVal(vec![Atom(StringLiteral(">".to_string())), Atom(StringLiteral("5".to_string())), Atom(StringLiteral("4".to_string()))]), Atom(BooleanLiteral(true)), Atom(BooleanLiteral(false))];
         let list = vec![
             Atom(If),
@@ -463,7 +457,7 @@ mod eval_if_test {
 
     #[test]
     fn false_test() {
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let list = vec![
             Atom(If),
             Atom(BooleanLiteral(false)),
@@ -476,7 +470,7 @@ mod eval_if_test {
 
     #[test]
     fn wrong_length_test() {
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let list = vec![
             Atom(If),
             Atom(BooleanLiteral(true)),
@@ -496,7 +490,7 @@ mod eval_define_test {
     #[test]
     fn wrong_length_test() {
         let list = vec![Atom(Identifier("a".to_string()))];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_define(&list, default_env);
         assert!(res.is_err());
     }
@@ -504,7 +498,7 @@ mod eval_define_test {
     #[test]
     fn no_identifier_test() {
         let list = vec![Atom(StringLiteral("a".to_string()))];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_define(&list, default_env);
         assert!(res.is_err());
     }
@@ -516,7 +510,7 @@ mod eval_define_test {
             Atom(Identifier("a".to_string())),
             Atom(BooleanLiteral(true)),
         ];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_define(&list, default_env);
         assert!(res.is_ok());
     }
@@ -528,7 +522,7 @@ mod eval_define_test {
             ListVal(vec![Atom(Identifier("a".to_string()))]),
             Atom(BooleanLiteral(true)),
         ];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_define(&list, default_env);
         assert!(res.is_ok());
     }
@@ -540,7 +534,7 @@ mod eval_define_test {
             ListVal(vec![Atom(StringLiteral("a".to_string()))]),
             Atom(BooleanLiteral(true)),
         ];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_define(&list, default_env);
         assert!(res.is_err());
     }
@@ -562,7 +556,7 @@ mod eval_let_test {
             ])]),
             Atom(BooleanLiteral(true)),
         ];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_let(&list, &default_env);
         assert!(res.is_ok());
     }
@@ -574,7 +568,7 @@ mod eval_let_test {
             ListVal(vec![ListVal(vec![Atom(NumberLiteral(10.0))])]),
             Atom(BooleanLiteral(true)),
         ];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_let(&list, &default_env);
         assert!(res.is_err());
     }
@@ -582,7 +576,7 @@ mod eval_let_test {
     #[test]
     fn missing_pair_binding_test() {
         let list = vec![Atom(Let), Atom(Let), Atom(BooleanLiteral(true))];
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_let(&list, &default_env);
         assert!(res.is_err());
     }
@@ -597,13 +591,13 @@ mod eval_test {
     #[test]
     fn boolean_test() {
         let input = Atom(BooleanLiteral(true));
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         assert!(evaluate(&input, &default_env).is_ok());
     }
 
     #[test]
     fn identifier_test() {
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         let input = Atom(Identifier("+".to_string()));
         assert!(evaluate(&input, &default_env).is_ok());
     }
@@ -611,21 +605,21 @@ mod eval_test {
     #[test]
     fn number_test() {
         let input = Atom(NumberLiteral(10.0));
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         assert!(evaluate(&input, &default_env).is_ok());
     }
 
     #[test]
     fn string_test() {
         let input = Atom(StringLiteral("test".to_string()));
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         assert!(evaluate(&input, &default_env).is_ok());
     }
 
     #[test]
     fn what_test() {
         let input = Atom(If);
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         assert!(evaluate(&input, &default_env).is_err());
     }
 
@@ -638,7 +632,7 @@ mod eval_test {
             Atom(BooleanLiteral(false)),
         ];
         let input = ListVal(list);
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         assert!(evaluate(&input, &default_env).is_ok());
     }
 }

@@ -13,19 +13,20 @@ use std::rc::Rc;
 #[macro_use]
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
-        |args: &[&RucketVal]| -> Result<RucketVal> {
+        |args: Vec<RucketVal>| -> Result<RucketVal> {
             // let floats = unwrap_list_of_floats(args)?;
-            let first = args.first().ok_or(RucketErr::ContractViolation(
+            let mut args_iter = args.iter();
+            let first = args_iter.next().ok_or(RucketErr::ContractViolation(
                 "expected at least one argument".to_string(),
             ))?;
             // let rest = &floats[1..];
-            fn f(prev: &RucketVal, xs: &[&RucketVal]) -> bool {
-                match xs.first() {
-                    Some(x) => $check_fn(prev, x) && f(x, &xs[1..]),
+            fn f<'a>(prev: &RucketVal, mut xs: impl Iterator<Item = &'a RucketVal>) -> bool {
+                match xs.next() {
+                    Some(x) => $check_fn(prev, x) && f(x, xs),
                     None => true,
                 }
             };
-            Ok(RucketVal::BoolV(f(first, &args[1..])))
+            Ok(RucketVal::BoolV(f(first, args_iter)))
         }
     }};
 }
@@ -42,12 +43,18 @@ pub struct Env {
 impl Env {
     /// Make a new `Env` from
     /// another parent `Env`.
-    ///
-    /// At the top level, the global env has no parent
     pub fn new(parent: &Rc<RefCell<Self>>) -> Self {
         Env {
             bindings: HashMap::new(),
             parent: Some(Rc::clone(&parent)),
+        }
+    }
+
+    /// top level global env has no parent
+    pub fn root() -> Self {
+        Env {
+            bindings: HashMap::new(),
+            parent: None,
         }
     }
 
@@ -59,6 +66,27 @@ impl Env {
     /// identifier `key` to `val`
     pub fn define(&mut self, key: String, val: RucketVal) {
         self.bindings.insert(key, val);
+    }
+    /// Within the current environment,
+    /// bind identifiers `keys` to `vals`
+    /// throws arity mismatch if they don't have the same length
+    pub fn define_all(&mut self, keys: &[String], vals: Vec<RucketVal>) -> Result<()> {
+        let expected_len = keys.len();
+        let actual_len = vals.len();
+        if expected_len != actual_len {
+            let e = format!(
+                "function expected {} params, got {}",
+                expected_len, actual_len
+            );
+            stop!(ArityMismatch => e);
+        }
+        let iter = keys.iter().map(String::as_ref).zip(vals.into_iter());
+        self.define_zipped(iter);
+        Ok(())
+    }
+
+    fn define_zipped<'a>(&mut self, zipped: impl Iterator<Item = (&'a str, RucketVal)>) {
+        zipped.for_each(|(param, arg)| self.define(param.to_string(), arg))
     }
 
     /// Search starting from the current environment
@@ -119,199 +147,141 @@ impl Env {
             }
         }
     }
-}
-
-/// default environment contains bindings for
-/// implementations of constants and things like
-/// `car`, `cdr`, `+`
-pub fn default_env() -> Env {
-    let mut data: HashMap<String, RucketVal> = HashMap::new();
-    data.insert(
-        "+".to_string(),
-        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-            let sum = unwrap_list_of_floats(args)?
-                .iter()
-                .fold(0.0, |sum, a| sum + a);
-
-            Ok(RucketVal::NumV(sum))
-        }),
-    );
-
-    data.insert(
-        "*".to_string(),
-        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-            let sum = unwrap_list_of_floats(args)?
-                .iter()
-                .fold(1.0, |sum, a| sum * a);
-
-            Ok(RucketVal::NumV(sum))
-        }),
-    );
-
-    data.insert(
-        "/".to_string(),
-        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-            let floats = unwrap_list_of_floats(args)?;
-            let first = *floats.first().ok_or(RucketErr::ArityMismatch(
-                "expected at least one number".to_string(),
-            ))?;
-            let sum_of_rest = floats[1..].iter().fold(first, |sum, a| sum / a);
-
-            Ok(RucketVal::NumV(sum_of_rest))
-        }),
-    );
-
-    data.insert(
-        "-".to_string(),
-        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-            let floats = unwrap_list_of_floats(args)?;
-            let first = *floats.first().ok_or(RucketErr::ArityMismatch(
-                "expected at least one number".to_string(),
-            ))?;
-            let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
-
-            Ok(RucketVal::NumV(first - sum_of_rest))
-        }),
-    );
-
-    data.insert(
-        "list".to_string(),
-        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-            let new_lst = args.iter().map(|&x| x.clone()).collect();
-            Ok(RucketVal::ListV(new_lst))
-        }),
-    );
-
-    data.insert(
-        "cons".to_string(),
-        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-            if args.len() == 2 {
-                let elem = args[0];
-                let lst = args[1];
-
-                if let RucketVal::ListV(v) = lst {
-                    let mut l = v.clone();
-                    l.insert(0, elem.clone());
-                    return Ok(RucketVal::ListV(l));
-                } else {
-                    return Ok(RucketVal::ListV(vec![elem.clone(), lst.clone()]));
-                }
-            } else {
-                stop!(ArityMismatch => "cons takes two arguments");
-            }
-        }),
-    );
-
-    // data.insert(
-    //     "append".to_string(),
-    //     RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-    //         let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
-    //             .iter()
-    //             .flat_map(|x| x.clone())
-    //             .collect();
-    //         Ok(RucketVal::ListV(lsts))
-    //     }),
-    // );
-
-    data.insert(
-        "car".to_string(),
-        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-            if args.len() == 1 {
-                match &args[0] {
-                    RucketVal::ListV(v) => {
-                        if v.is_empty() {
-                            stop!(ContractViolation => "car expects a non empty list");
+    /// default environment contains bindings for
+    /// implementations of constants and things like
+    /// `car`, `cdr`, `+`
+    pub fn default_env() -> Env {
+        let mut env = Env::root();
+        env.define_zipped(Env::default_bindings().into_iter());
+        env
+    }
+    pub fn default_bindings() -> Vec<(&'static str, RucketVal)> {
+        vec![
+            (
+                "+",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    let sum = unwrap_list_of_floats(args)?
+                        .iter()
+                        .fold(0.0, |sum, a| sum + a);
+                    Ok(RucketVal::NumV(sum))
+                }),
+            ),
+            (
+                "*",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    let sum = unwrap_list_of_floats(args)?
+                        .iter()
+                        .fold(1.0, |sum, a| sum * a);
+                    Ok(RucketVal::NumV(sum))
+                }),
+            ),
+            (
+                "/",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    let sum = unwrap_list_of_floats(args)?
+                        .iter()
+                        .fold(1.0, |sum, a| sum * a);
+                    Ok(RucketVal::NumV(sum))
+                }),
+            ),
+            (
+                "-",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    let floats = unwrap_list_of_floats(args)?;
+                    let first = *floats.first().ok_or(RucketErr::ArityMismatch(
+                        "expected at least one number".to_string(),
+                    ))?;
+                    let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
+                    Ok(RucketVal::NumV(first - sum_of_rest))
+                }),
+            ),
+            (
+                "list",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    Ok(RucketVal::ListV(args))
+                }),
+            ),
+            (
+                "cons",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    if args.len() == 2 {
+                        let elem = &args[0];
+                        let lst = &args[1];
+                        if let RucketVal::ListV(v) = lst {
+                            let mut l = v.clone();
+                            l.insert(0, elem.clone());
+                            return Ok(RucketVal::ListV(l));
                         } else {
-                            return Ok(v[0].clone());
+                            return Ok(RucketVal::ListV(vec![elem.clone(), lst.clone()]));
                         }
+                    } else {
+                        stop!(ArityMismatch => "cons takes two arguments");
                     }
-                    e => {
-                        stop!(ExpectedList => "car takes a list, given: {}", e);
-                    }
-                }
-            } else {
-                stop!(ArityMismatch => "car takes one argument");
-            }
-        }),
-    );
-
-    data.insert(
-        "cdr".to_string(),
-        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-            if args.len() == 1 {
-                match &args[0] {
-                    RucketVal::ListV(v) => {
-                        if v.is_empty() {
-                            stop!(ContractViolation => "car expects a non empty list");
-                        } else {
-                            return Ok(RucketVal::ListV(v[1..].to_vec()));
+                }),
+            ),
+            (
+                "append",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
+                        .iter()
+                        .flat_map(|x| x.clone())
+                        .collect();
+                    Ok(RucketVal::ListV(lsts))
+                }),
+            ),
+            (
+                "car",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    if args.len() == 1 {
+                        match &args[0] {
+                            RucketVal::ListV(v) => {
+                                if v.is_empty() {
+                                    stop!(ContractViolation => "car expects a non empty list");
+                                } else {
+                                    return Ok(v[0].clone());
+                                }
+                            }
+                            e => {
+                                stop!(ExpectedList => "car takes a list, given: {}", e);
+                            }
                         }
+                    } else {
+                        stop!(ArityMismatch => "car takes one argument");
                     }
-                    e => {
-                        stop!(ExpectedList => "cdr takes a list, given: {}", e);
-                    }
-                }
-            } else {
-                stop!(ArityMismatch => "cdr takes one argument");
-            }
-        }),
-    );
-
-    data.insert(
-        "null?".to_string(),
-        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
-            if args.len() == 1 {
-                match &args[0] {
-                    RucketVal::ListV(v) => {
-                        if v.is_empty() {
-                            return Ok(RucketVal::BoolV(true));
-                        } else {
-                            return Ok(RucketVal::BoolV(false));
+                }),
+            ),
+            (
+                "cdr",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    if args.len() == 1 {
+                        match &args[0] {
+                            RucketVal::ListV(v) => {
+                                if v.is_empty() {
+                                    stop!(ContractViolation => "car expects a non empty list");
+                                } else {
+                                    return Ok(RucketVal::ListV(v[1..].to_vec()));
+                                }
+                            }
+                            e => {
+                                stop!(ExpectedList => "cdr takes a list, given: {}", e);
+                            }
                         }
+                    } else {
+                        stop!(ArityMismatch => "cdr takes one argument");
                     }
-                    _ => Ok(RucketVal::BoolV(false)),
-                }
-            } else {
-                stop!(ArityMismatch => "car takes one argument");
-            }
-        }),
-    );
-
-    data.insert(
-        "equal?".to_string(),
-        RucketVal::FuncV(ensure_tonicity!(|a, b| &a == b)),
-    );
-
-    data.insert(
-        "==".to_string(),
-        RucketVal::FuncV(ensure_tonicity!(|a, b| &a == b)),
-    );
-
-    data.insert(
-        ">".to_string(),
-        RucketVal::FuncV(ensure_tonicity!(|a, b| a > b)),
-    );
-    data.insert(
-        ">=".to_string(),
-        RucketVal::FuncV(ensure_tonicity!(|a, b| a >= b)),
-    );
-    data.insert(
-        "<".to_string(),
-        RucketVal::FuncV(ensure_tonicity!(|a, b| a < b)),
-    );
-    data.insert(
-        "<=".to_string(),
-        RucketVal::FuncV(ensure_tonicity!(|a, b| a <= b)),
-    );
-
-    Env {
-        bindings: data,
-        parent: None,
+                }),
+            ),
+            ("=", RucketVal::FuncV(ensure_tonicity!(|a, b| a == b))),
+            (">", RucketVal::FuncV(ensure_tonicity!(|a, b| a > b))),
+            (">=", RucketVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
+            ("<", RucketVal::FuncV(ensure_tonicity!(|a, b| a < b))),
+            ("<=", RucketVal::FuncV(ensure_tonicity!(|a, b| a <= b))),
+        ]
     }
 }
 
 // TODO: make this a trait or something
-fn unwrap_list_of_floats(args: &[&RucketVal]) -> Result<Vec<f64>> {
+fn unwrap_list_of_floats(args: Vec<RucketVal>) -> Result<Vec<f64>> {
     args.iter().map(|x| unwrap_single_float(x)).collect()
 }
 
@@ -322,7 +292,7 @@ fn unwrap_single_float(exp: &RucketVal) -> Result<f64> {
     }
 }
 
-fn unwrap_list_of_lists(args: &[&RucketVal]) -> Result<Vec<Vec<RucketVal>>> {
+fn unwrap_list_of_lists(args: Vec<RucketVal>) -> Result<Vec<Vec<RucketVal>>> {
     args.iter().map(|x| unwrap_single_list(x)).collect()
 }
 
@@ -339,7 +309,7 @@ mod env_tests {
     #[test]
     fn env_basic() {
         // default_env <- c1 <- c2
-        let default_env = Rc::new(RefCell::new(default_env()));
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
         assert!(default_env.borrow().lookup("+").is_ok());
         let c1 = Rc::new(RefCell::new(Env::new(&default_env)));
         c1.borrow_mut().define("x".to_owned(), RucketVal::NumV(1.0));
