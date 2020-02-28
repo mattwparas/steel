@@ -8,7 +8,7 @@ pub enum RucketErr {
     ExpectedNumber(String),
     #[error("Free Identifier: {0}")]
     FreeIdentifier(String),
-    #[error("Expected Function: {0}")]
+    #[error("Expected Function: got {0}")]
     ExpectedFunction(String),
     #[error("Expected identifier: {0}")]
     ExpectedIdentifier(String),

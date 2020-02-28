@@ -159,6 +159,7 @@ impl Env {
     }
     pub fn default_bindings() -> Vec<(&'static str, RucketVal)> {
         vec![
+
             ("+", RucketVal::FuncV(Adder::new_func())),
             ("*", RucketVal::FuncV(Multiplier::new_func())),
             ("/", RucketVal::FuncV(Divider::new_func())),
@@ -183,6 +184,25 @@ impl Env {
                             }
                         }
                         _ => stop!(ArityMismatch => "cons takes two arguments"),
+                    }
+                }),
+            ),
+            (
+                "null?",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    if args.len() == 1 {
+                        match &args[0] {
+                            RucketVal::ListV(v) => {
+                                if v.is_empty() {
+                                    return Ok(RucketVal::BoolV(true));
+                                } else {
+                                    return Ok(RucketVal::BoolV(false));
+                                }
+                            }
+                            _ => Ok(RucketVal::BoolV(false)),
+                        }
+                    } else {
+                        stop!(ArityMismatch => "car takes one argument");
                     }
                 }),
             ),
@@ -234,6 +254,7 @@ impl Env {
                 }),
             ),
             ("=", RucketVal::FuncV(ensure_tonicity!(|a, b| a == b))),
+            ("equal?", RucketVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             (">", RucketVal::FuncV(ensure_tonicity!(|a, b| a > b))),
             (">=", RucketVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
             ("<", RucketVal::FuncV(ensure_tonicity!(|a, b| a < b))),

@@ -49,11 +49,15 @@ use parser::{Expr, ParseError};
 
 extern crate rustyline;
 
+use crate::stdlib::PRELUDE;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 pub fn repl() -> std::io::Result<()> {
     let mut evaluator = evaluator::Evaluator::new();
+    if let Err(e) = evaluator.parse_and_eval(PRELUDE) {
+        println!("Error loading prelude: {}", e)
+    };
     println!("Welcome to Rucket 1.0");
 
     // `()` can be used when no completer is required
@@ -63,25 +67,27 @@ pub fn repl() -> std::io::Result<()> {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
-                if &line == ":quit" {
-                    return Ok(());
-                } else {
-                    let parsed: Result<Vec<Expr>, ParseError> =
-                        parser::Parser::new(&line).collect();
-                    match parsed {
-                        Ok(pvec) => {
-                            for expr in pvec {
-                                let res = evaluator.eval(&expr);
-                                match res {
-                                    Ok(v) => println!("{}", v),
-                                    Err(e) => {
-                                        println!("{}", e);
-                                        break;
+                match line.as_str() {
+                    ":quit" => return Ok(()),
+                    ":reset" => evaluator.clear_bindings(),
+                    _ => {
+                        let parsed: Result<Vec<Expr>, ParseError> =
+                            parser::Parser::new(&line).collect();
+                        match parsed {
+                            Ok(pvec) => {
+                                for expr in pvec {
+                                    let res = evaluator.eval(&expr);
+                                    match res {
+                                        Ok(v) => println!("{}", v),
+                                        Err(e) => {
+                                            println!("{}", e);
+                                            break;
+                                        }
                                     }
                                 }
                             }
+                            Err(e) => println!("{}", e),
                         }
-                        Err(e) => println!("{}", e),
                     }
                 }
             }
