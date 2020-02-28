@@ -161,18 +161,6 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                         Expr::Atom(Token::Begin) => expr = eval_begin(&list_of_tokens, &env)?,
                         // (sym args*), sym must be a procedure
                         sym => match evaluate(sym, &env)? {
-                            // TODO check this part
-                            RucketVal::SymbolV(s) => match s.as_str() {
-                                "define" => match eval_define(&list_of_tokens, env) {
-                                    Ok(_e) => {
-                                        return Ok(RucketVal::Void);
-                                    }
-                                    Err(e) => {
-                                        return Err(e);
-                                    }
-                                },
-                                _ => unimplemented!(),
-                            },
                             RucketVal::FuncV(func) => {
                                 let args_eval: Result<Vec<RucketVal>> =
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
