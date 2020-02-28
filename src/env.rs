@@ -224,10 +224,8 @@ impl Env {
             (
                 "append",
                 RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
-                    let lsts: Vec<RucketVal> = unwrap_list_of_lists(args)?
-                        .iter()
-                        .flat_map(|x| x.clone())
-                        .collect();
+                    let lsts: Vec<RucketVal> =
+                        unwrap_list_of_lists(args)?.into_iter().flatten().collect();
                     Ok(RucketVal::ListV(lsts))
                 }),
             ),
