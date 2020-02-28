@@ -49,11 +49,13 @@ use parser::{Expr, ParseError};
 
 extern crate rustyline;
 
+use crate::stdlib::PRELUDE;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 pub fn repl() -> std::io::Result<()> {
     let mut evaluator = evaluator::Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE);
     println!("Welcome to Rucket 1.0");
 
     // `()` can be used when no completer is required

@@ -258,7 +258,32 @@ pub fn default_env() -> Env {
     );
 
     data.insert(
-        "=".to_string(),
+        "null?".to_string(),
+        RucketVal::FuncV(|args: &[&RucketVal]| -> Result<RucketVal> {
+            if args.len() == 1 {
+                match &args[0] {
+                    RucketVal::ListV(v) => {
+                        if v.is_empty() {
+                            return Ok(RucketVal::BoolV(true));
+                        } else {
+                            return Ok(RucketVal::BoolV(false));
+                        }
+                    }
+                    _ => Ok(RucketVal::BoolV(false)),
+                }
+            } else {
+                stop!(ArityMismatch => "car takes one argument");
+            }
+        }),
+    );
+
+    data.insert(
+        "equal?".to_string(),
+        RucketVal::FuncV(ensure_tonicity!(|a, b| &a == b)),
+    );
+
+    data.insert(
+        "==".to_string(),
         RucketVal::FuncV(ensure_tonicity!(|a, b| &a == b)),
     );
 
