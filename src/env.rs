@@ -14,18 +14,18 @@ use std::rc::Rc;
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
         |args: &[&RucketVal]| -> Result<RucketVal> {
-            let floats = unwrap_list_of_floats(args)?;
-            let first = floats.first().ok_or(RucketErr::ExpectedNumber(
-                "expected at least one number".to_string(),
+            // let floats = unwrap_list_of_floats(args)?;
+            let first = args.first().ok_or(RucketErr::ContractViolation(
+                "expected at least one argument".to_string(),
             ))?;
-            let rest = &floats[1..];
-            fn f(prev: &f64, xs: &[f64]) -> bool {
+            // let rest = &floats[1..];
+            fn f(prev: &RucketVal, xs: &[&RucketVal]) -> bool {
                 match xs.first() {
                     Some(x) => $check_fn(prev, x) && f(x, &xs[1..]),
                     None => true,
                 }
             };
-            Ok(RucketVal::BoolV(f(first, rest)))
+            Ok(RucketVal::BoolV(f(first, &args[1..])))
         }
     }};
 }
@@ -259,8 +259,9 @@ pub fn default_env() -> Env {
 
     data.insert(
         "=".to_string(),
-        RucketVal::FuncV(ensure_tonicity!(|a, b| (a - b) < std::f64::EPSILON)),
+        RucketVal::FuncV(ensure_tonicity!(|a, b| &a == b)),
     );
+
     data.insert(
         ">".to_string(),
         RucketVal::FuncV(ensure_tonicity!(|a, b| a > b)),
