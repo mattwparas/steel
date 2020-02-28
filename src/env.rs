@@ -125,21 +125,6 @@ impl Env {
     }
 }
 
-impl Drop for Env {
-    fn drop(&mut self) {
-        // self.bindings.clear();
-        if let Some(p) = &self.parent {
-            println!(
-                "Dropping an Environment!, parent ref count is {}",
-                Rc::strong_count(p)
-            );
-        } else {
-            self.bindings.clear();
-            println!("Dropping the global environment!");
-        }
-    }
-}
-
 /// default environment contains bindings for
 /// implementations of constants and things like
 /// `car`, `cdr`, `+`
