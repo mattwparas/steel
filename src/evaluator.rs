@@ -156,6 +156,8 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                         }
                         // Evaluate a quoted statement
                         Expr::Atom(Token::Eval) => return eval_eval_expr(&list_of_tokens, &env),
+                        // set! expression
+                        Expr::Atom(Token::Set) => return eval_set(&list_of_tokens, &env),
                         // (let (var binding)* (body))
                         Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
                         Expr::Atom(Token::Begin) => expr = eval_begin(&list_of_tokens, &env)?,
@@ -236,6 +238,19 @@ pub fn eval_begin(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Exp
         return Ok(v.clone());
     } else {
         stop!(ArityMismatch => "begin requires one argument");
+    }
+}
+
+pub fn eval_set(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+    check_length("Set", &list_of_tokens, 3)?;
+    let symbol = &list_of_tokens[1];
+    let rest_expr = &list_of_tokens[2];
+    let value = evaluate(rest_expr, env)?;
+
+    if let Expr::Atom(Token::Identifier(s)) = symbol {
+        env.borrow_mut().set(s.clone(), value)
+    } else {
+        stop!(ExpectedIdentifier => symbol)
     }
 }
 

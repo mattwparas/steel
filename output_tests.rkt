@@ -13,3 +13,7 @@ Void
 6
 Void
 10
+Void
+Lambda Function
+80
+60

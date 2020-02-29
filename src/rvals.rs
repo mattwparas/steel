@@ -36,6 +36,7 @@ impl TryFrom<Expr> for RucketVal {
                 Define => Ok(SymbolV("define".to_string())),
                 Lambda => Ok(SymbolV("lambda".to_string())),
                 Quote => Ok(SymbolV("quote".to_string())),
+                Set => Ok(SymbolV("set!".to_string())),
                 QuoteTick => Err(RucketErr::UnexpectedToken("'".to_string())),
                 Begin => Ok(SymbolV("begin".to_string())),
                 Eval => Ok(SymbolV("eval".to_string())),
