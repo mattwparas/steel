@@ -14,6 +14,6 @@ Void
 Void
 10
 Void
-Lambda Function
+Void
 80
 60
