@@ -132,10 +132,10 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                 if let Some(f) = eval_iter.next() {
                     match f {
                         // (if test then else)
-                        Expr::Atom(Token::If) => expr = eval_if(&list_of_tokens, &env)?,
+                        Expr::Atom(Token::If) => expr = eval_if(&list_of_tokens[1..], &env)?,
                         // globally scoped potentially
                         // TODO make evaluate an iterator over the results to use global environment
-                        Expr::Atom(Token::Define) => match eval_define(&list_of_tokens, env) {
+                        Expr::Atom(Token::Define) => match eval_define(&list_of_tokens[1..], env) {
                             Ok(_e) => {
                                 return Ok(RucketVal::Void);
                             }
@@ -152,17 +152,19 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Lambda) => {
                             // create new environment whos parent is the current environment
-                            return Ok(eval_make_lambda(&list_of_tokens, env)?);
+                            return Ok(eval_make_lambda(&list_of_tokens[1..], env)?);
                         }
                         // Evaluate a quoted statement
-                        Expr::Atom(Token::Eval) => return eval_eval_expr(&list_of_tokens, &env),
+                        Expr::Atom(Token::Eval) => {
+                            return eval_eval_expr(&list_of_tokens[1..], &env)
+                        }
                         // set! expression
-                        Expr::Atom(Token::Set) => return eval_set(&list_of_tokens, &env),
+                        Expr::Atom(Token::Set) => return eval_set(&list_of_tokens[1..], &env),
                         // (let (var binding)* (body))
-                        Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens, &env)?,
-                        Expr::Atom(Token::Begin) => expr = eval_begin(&list_of_tokens, &env)?,
+                        Expr::Atom(Token::Let) => expr = eval_let(&list_of_tokens[1..], &env)?,
+                        Expr::Atom(Token::Begin) => expr = eval_begin(&list_of_tokens[1..], &env)?,
                         // (sym args*), sym must be a procedure
-                        sym => match evaluate(sym, &env)? {
+                        sym => match evaluate(&sym, &env)? {
                             RucketVal::FuncV(func) => {
                                 let args_eval: Result<Vec<RucketVal>> =
                                     eval_iter.map(|x| evaluate(&x, &env)).collect();
@@ -199,17 +201,14 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
 /// TODO: refactor this with iterators
 /// evaluates `(test then else)` into `then` or `else`
 pub fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
-    check_length("If", list_of_tokens, 4)?;
-
-    // if we check the length beforehand
-    // it is guaranteed to exist
-    let test_expr = &list_of_tokens[1];
-    let then_expr = &list_of_tokens[2];
-    let else_expr = &list_of_tokens[3];
-
-    match evaluate(&test_expr, env)? {
-        RucketVal::BoolV(true) => Ok(then_expr.clone()),
-        _ => Ok(else_expr.clone()),
+    if let [test_expr, then_expr, else_expr] = list_of_tokens {
+        match evaluate(&test_expr, env)? {
+            RucketVal::BoolV(true) => Ok(then_expr.clone()),
+            _ => Ok(else_expr.clone()),
+        }
+    } else {
+        let e = format!("{}: expected {} args got {}", "If", 3, list_of_tokens.len());
+        stop!(ArityMismatch => e);
     }
 }
 
@@ -218,39 +217,53 @@ pub fn eval_make_lambda(
     list_of_tokens: &[Expr],
     parent_env: Rc<RefCell<Env>>,
 ) -> Result<RucketVal> {
-    check_length("Lambda", &list_of_tokens, 3)?;
-    let list_of_symbols = &list_of_tokens[1];
-    let body_exp = &list_of_tokens[2];
-
-    let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
-    let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), parent_env);
-    Ok(RucketVal::LambdaV(constructed_lambda))
+    if let [list_of_symbols, body_exp] = list_of_tokens {
+        let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
+        let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), parent_env);
+        Ok(RucketVal::LambdaV(constructed_lambda))
+    } else {
+        let e = format!(
+            "{}: expected {} args got {}",
+            "Lambda",
+            2,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e)
+    }
 }
 
 // Evaluate all but the last, pass the last back up to the loop
 pub fn eval_begin(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
-    let mut i = 1;
-    while i < list_of_tokens.len() - 1 {
-        evaluate(&list_of_tokens[i], env)?;
-        i += 1;
+    let mut tokens_iter = list_of_tokens.iter();
+    let last_token = tokens_iter.next_back();
+    // throw away intermediate evaluations
+    for token in tokens_iter {
+        evaluate(token, env)?;
     }
-    if let Some(v) = list_of_tokens.last() {
-        return Ok(v.clone());
+    if let Some(v) = last_token {
+        Ok(v.clone())
     } else {
-        stop!(ArityMismatch => "begin requires one argument");
+        stop!(ArityMismatch => "begin requires at least one argument");
     }
 }
 
 pub fn eval_set(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
-    check_length("Set", &list_of_tokens, 3)?;
-    let symbol = &list_of_tokens[1];
-    let rest_expr = &list_of_tokens[2];
-    let value = evaluate(rest_expr, env)?;
+    if let [symbol, rest_expr] = list_of_tokens {
+        let value = evaluate(rest_expr, env)?;
 
-    if let Expr::Atom(Token::Identifier(s)) = symbol {
-        env.borrow_mut().set(s.clone(), value)
+        if let Expr::Atom(Token::Identifier(s)) = symbol {
+            env.borrow_mut().set(s.clone(), value)
+        } else {
+            stop!(ExpectedIdentifier => symbol)
+        }
     } else {
-        stop!(ExpectedIdentifier => symbol)
+        let e = format!(
+            "{}: expected {} args got {}",
+            "Set",
+            2,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e)
     }
 }
 
@@ -258,50 +271,64 @@ pub fn eval_set(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Rucke
 // Evaluate the inner expression, check that it is a quoted expression,
 // evaluate body of quoted expression
 pub fn eval_eval_expr(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
-    check_length("Eval", list_of_tokens, 2)?;
-    let res_expr = evaluate(&list_of_tokens[1], env)?;
-    match Expr::try_from(res_expr) {
-        Ok(e) => evaluate(&e, env),
-        Err(_) => stop!(ContractViolation => "Eval not given an expression"),
+    if let [e] = list_of_tokens {
+        let res_expr = evaluate(e, env)?;
+        match Expr::try_from(res_expr) {
+            Ok(e) => evaluate(&e, env),
+            Err(_) => stop!(ContractViolation => "Eval not given an expression"),
+        }
+    } else {
+        let e = format!(
+            "{}: expected {} args got {}",
+            "Eval",
+            1,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e)
     }
 }
 
 // TODO maybe have to evaluate the params but i'm not sure
 pub fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {
-    check_length("Define", &list_of_tokens, 3)?;
-    let symbol = &list_of_tokens[1];
-    let body = &list_of_tokens[2];
-
-    match symbol {
-        Expr::Atom(Token::Identifier(s)) => {
-            let eval_body = evaluate(body, &env)?;
-            env.borrow_mut().define(s.to_string(), eval_body);
-            Ok(env)
-        }
-        // construct lambda to parse
-        Expr::ListVal(list_of_identifiers) => {
-            if list_of_identifiers.is_empty() {
-                stop!(ExpectedIdentifier => "define expected an identifier, got empty list")
-            }
-            if let Expr::Atom(Token::Identifier(s)) = &list_of_identifiers[0] {
-                // TODO: this code needs go through evaluate again
-                // we can cut the middle man and go straight to
-                // eval_make_lambda
-                let mut fake_lambda: Vec<Expr> = vec![Expr::Atom(Token::Lambda)];
-
-                fake_lambda.push(Expr::ListVal(list_of_identifiers[1..].to_vec()));
-                fake_lambda.push(body.clone());
-
-                let constructed_lambda = Expr::ListVal(fake_lambda);
-
-                let eval_body = evaluate(&constructed_lambda, &env)?;
+    if let [symbol, body] = list_of_tokens {
+        match symbol {
+            Expr::Atom(Token::Identifier(s)) => {
+                let eval_body = evaluate(body, &env)?;
                 env.borrow_mut().define(s.to_string(), eval_body);
                 Ok(env)
-            } else {
-                stop!(ExpectedIdentifier => "Define expected identifier, got: {}", symbol);
             }
+            // construct lambda to parse
+            Expr::ListVal(list_of_identifiers) => {
+                if list_of_identifiers.is_empty() {
+                    stop!(ExpectedIdentifier => "define expected an identifier, got empty list")
+                }
+                if let Expr::Atom(Token::Identifier(s)) = &list_of_identifiers[0] {
+                    // eval_make_lambda
+                    let fake_lambda: Vec<Expr> = vec![
+                        Expr::Atom(Token::Lambda),
+                        Expr::ListVal(list_of_identifiers[1..].to_vec()),
+                        body.clone(),
+                    ];
+
+                    let constructed_lambda = Expr::ListVal(fake_lambda);
+
+                    let eval_body = evaluate(&constructed_lambda, &env)?;
+                    env.borrow_mut().define(s.to_string(), eval_body);
+                    Ok(env)
+                } else {
+                    stop!(ExpectedIdentifier => "Define expected identifier, got: {}", symbol);
+                }
+            }
+            _ => stop!(ExpectedIdentifier => "Define expects an identifier, got: {}", symbol),
         }
-        _ => stop!(ExpectedIdentifier => "Define expects an identifier, got: {}", symbol),
+    } else {
+        let e = format!(
+            "{}: expected {} args got {}",
+            "Define",
+            2,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e)
     }
 }
 
@@ -309,42 +336,47 @@ pub fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<
 // Syntax of a let -> (let ((a 10) (b 20) (c 25)) (body ...))
 // transformed ((lambda (a b c) (body ...)) 10 20 25)
 pub fn eval_let(list_of_tokens: &[Expr], _env: &Rc<RefCell<Env>>) -> Result<Expr> {
-    check_length("let", &list_of_tokens, 3)?;
-    // should have form ((a 10) (b 20) (c 25))
-    let bindings = &list_of_tokens[1];
-    let body = &list_of_tokens[2];
+    if let [bindings, body] = list_of_tokens {
+        let mut bindings_to_check: Vec<Expr> = Vec::new();
+        let mut args_to_check: Vec<Expr> = Vec::new();
 
-    let mut bindings_to_check: Vec<Expr> = Vec::new();
-    let mut args_to_check: Vec<Expr> = Vec::new();
-
-    // TODO fix this noise
-    match bindings {
-        Expr::ListVal(list_of_pairs) => {
-            for pair in list_of_pairs {
-                match pair {
-                    Expr::ListVal(p) => match p.as_slice() {
-                        [binding, expression] => {
-                            bindings_to_check.push(binding.clone());
-                            args_to_check.push(expression.clone());
-                        }
-                        _ => stop!(ContractViolation => "Let requires pairs for binding"),
-                    },
-                    _ => stop!(BadSyntax => "Let: Missing body"),
+        // TODO fix this noise
+        match bindings {
+            Expr::ListVal(list_of_pairs) => {
+                for pair in list_of_pairs {
+                    match pair {
+                        Expr::ListVal(p) => match p.as_slice() {
+                            [binding, expression] => {
+                                bindings_to_check.push(binding.clone());
+                                args_to_check.push(expression.clone());
+                            }
+                            _ => stop!(ContractViolation => "Let requires pairs for binding"),
+                        },
+                        _ => stop!(BadSyntax => "Let: Missing body"),
+                    }
                 }
             }
+            _ => stop!(BadSyntax => "Let: Missing name or binding pairs"),
         }
-        _ => stop!(BadSyntax => "Let: Missing name or binding pairs"),
+
+        let mut combined = vec![Expr::ListVal(vec![
+            Expr::Atom(Token::Lambda),
+            Expr::ListVal(bindings_to_check),
+            body.clone(),
+        ])];
+        combined.append(&mut args_to_check);
+
+        let application = Expr::ListVal(combined);
+        Ok(application)
+    } else {
+        let e = format!(
+            "{}: expected {} args got {}",
+            "Let",
+            2,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e)
     }
-
-    let mut combined = vec![Expr::ListVal(vec![
-        Expr::Atom(Token::Lambda),
-        Expr::ListVal(bindings_to_check),
-        body.clone(),
-    ])];
-    combined.append(&mut args_to_check);
-
-    let application = Expr::ListVal(combined);
-    Ok(application)
 }
 
 impl Default for Evaluator {
@@ -433,7 +465,7 @@ mod eval_make_lambda_test {
             Atom(Identifier("c".to_string())),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_make_lambda(&list, default_env);
+        let res = eval_make_lambda(&list[1..], default_env);
         assert!(res.is_err());
     }
 
@@ -445,7 +477,7 @@ mod eval_make_lambda_test {
             Atom(Identifier("c".to_string())),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_make_lambda(&list, default_env);
+        let res = eval_make_lambda(&list[1..], default_env);
         assert!(res.is_ok());
     }
 }
@@ -466,7 +498,7 @@ mod eval_if_test {
             Atom(BooleanLiteral(true)),
             Atom(BooleanLiteral(false)),
         ];
-        let res = eval_if(&list, &default_env);
+        let res = eval_if(&list[1..], &default_env);
         assert_eq!(res.unwrap(), Atom(BooleanLiteral(true)));
     }
 
@@ -479,7 +511,7 @@ mod eval_if_test {
             Atom(BooleanLiteral(true)),
             Atom(BooleanLiteral(false)),
         ];
-        let res = eval_if(&list, &default_env);
+        let res = eval_if(&list[1..], &default_env);
         assert_eq!(res.unwrap(), Atom(BooleanLiteral(false)));
     }
 
@@ -491,7 +523,7 @@ mod eval_if_test {
             Atom(BooleanLiteral(true)),
             Atom(BooleanLiteral(false)),
         ];
-        let res = eval_if(&list, &default_env);
+        let res = eval_if(&list[1..], &default_env);
         assert!(res.is_err());
     }
 }
@@ -506,7 +538,7 @@ mod eval_define_test {
     fn wrong_length_test() {
         let list = vec![Atom(Identifier("a".to_string()))];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_define(&list, default_env);
+        let res = eval_define(&list[1..], default_env);
         assert!(res.is_err());
     }
 
@@ -514,7 +546,7 @@ mod eval_define_test {
     fn no_identifier_test() {
         let list = vec![Atom(StringLiteral("a".to_string()))];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_define(&list, default_env);
+        let res = eval_define(&list[1..], default_env);
         assert!(res.is_err());
     }
 
@@ -526,7 +558,7 @@ mod eval_define_test {
             Atom(BooleanLiteral(true)),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_define(&list, default_env);
+        let res = eval_define(&list[1..], default_env);
         assert!(res.is_ok());
     }
 
@@ -538,7 +570,7 @@ mod eval_define_test {
             Atom(BooleanLiteral(true)),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_define(&list, default_env);
+        let res = eval_define(&list[1..], default_env);
         assert!(res.is_ok());
     }
 
@@ -550,7 +582,7 @@ mod eval_define_test {
             Atom(BooleanLiteral(true)),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_define(&list, default_env);
+        let res = eval_define(&list[1..], default_env);
         assert!(res.is_err());
     }
 }
@@ -572,7 +604,7 @@ mod eval_let_test {
             Atom(BooleanLiteral(true)),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_let(&list, &default_env);
+        let res = eval_let(&list[1..], &default_env);
         assert!(res.is_ok());
     }
 
@@ -584,7 +616,7 @@ mod eval_let_test {
             Atom(BooleanLiteral(true)),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_let(&list, &default_env);
+        let res = eval_let(&list[1..], &default_env);
         assert!(res.is_err());
     }
 
@@ -592,7 +624,7 @@ mod eval_let_test {
     fn missing_pair_binding_test() {
         let list = vec![Atom(Let), Atom(Let), Atom(BooleanLiteral(true))];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_let(&list, &default_env);
+        let res = eval_let(&list[1..], &default_env);
         assert!(res.is_err());
     }
 }
