@@ -35,13 +35,13 @@ impl TryFrom<RucketVal> for Expr {
             FuncV(_) => Err("Can't convert from Function to expression!"),
             LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             SymbolV(x) => match x.as_str() {
-                "if" => Ok(Atom(Token::If)),
-                "let" => Ok(Atom(Token::Let)),
-                "define" => Ok(Atom(Token::Define)),
-                "lambda" => Ok(Atom(Token::Lambda)),
-                "quote" => Ok(Atom(Token::Quote)),
-                "begin" => Ok(Atom(Token::Begin)),
-                "eval" => Ok(Atom(Token::Eval)),
+                // "if" => Ok(Atom(Token::If)),
+                // "let" => Ok(Atom(Token::Let)),
+                // "define" => Ok(Atom(Token::Define)),
+                // "lambda" => Ok(Atom(Token::Lambda)),
+                // "quote" => Ok(Atom(Token::Quote)),
+                // "begin" => Ok(Atom(Token::Begin)),
+                // "eval" => Ok(Atom(Token::Eval)),
                 _ => Ok(Atom(Token::Identifier(x))),
             },
         }
@@ -148,7 +148,10 @@ impl<'a> Iterator for Parser<'a> {
 }
 
 fn construct_quote(val: Expr) -> Expr {
-    Expr::ListVal(vec![Expr::Atom(Token::Quote), val])
+    Expr::ListVal(vec![
+        Expr::Atom(Token::Identifier("quote".to_string())),
+        val,
+    ])
 }
 
 #[cfg(test)]
@@ -178,7 +181,7 @@ mod parser_tests {
                 Atom(Identifier("a".to_string())),
                 Atom(Identifier("b".to_string())),
                 ListVal(vec![
-                    Atom(Lambda),
+                    Atom(Identifier("lambda".to_string())),
                     Atom(NumberLiteral(1.0)),
                     ListVal(vec![
                         Atom(Identifier("+".to_string())),
@@ -276,7 +279,7 @@ mod parser_tests {
         assert_parse(
             "(define (foo a b) (+ (- a 1) b))",
             &[ListVal(vec![
-                Atom(Define),
+                Atom(Identifier("define".to_string())),
                 ListVal(vec![
                     Atom(Identifier("foo".to_string())),
                     Atom(Identifier("a".to_string())),
@@ -297,7 +300,7 @@ mod parser_tests {
         assert_parse(
             "(if   #t     1 2)",
             &[ListVal(vec![
-                Atom(If),
+                Atom(Identifier("if".to_string())),
                 Atom(BooleanLiteral(true)),
                 Atom(NumberLiteral(1.0)),
                 Atom(NumberLiteral(2.0)),
@@ -307,7 +310,7 @@ mod parser_tests {
             "(lambda (a b) (+ a b)) (- 1 2) (\"dumpsterfire\")",
             &[
                 ListVal(vec![
-                    Atom(Lambda),
+                    Atom(Identifier("lambda".to_string())),
                     ListVal(vec![
                         Atom(Identifier("a".to_string())),
                         Atom(Identifier("b".to_string())),

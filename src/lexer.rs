@@ -62,17 +62,19 @@ impl<'a> Tokenizer<'a> {
             };
         }
 
-        match word.as_ref() {
-            "if" => Token::If,
-            "let" => Token::Let,
-            "define" => Token::Define,
-            "lambda" | "λ" => Token::Lambda,
-            "begin" => Token::Begin,
-            "set!" => Token::Set,
-            "eval" => Token::Eval,
-            "quote" => Token::Quote,
-            _ => Token::Identifier(word),
-        }
+        Token::Identifier(word)
+
+        // match word.as_ref() {
+        //     // "if" => Token::If,
+        //     // "let" => Token::Let,
+        //     // "define" => Token::Define,
+        //     // "lambda" | "λ" => Token::Lambda,
+        //     // "begin" => Token::Begin,
+        //     // "set!" => Token::Set,
+        //     // "eval" => Token::Eval,
+        //     "quote" => Token::Quote,
+        //     _ => Token::Identifier(word),
+        // }
     }
 
     fn read_hash_value(&mut self) -> Token {
