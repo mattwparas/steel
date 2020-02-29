@@ -68,6 +68,7 @@ impl<'a> Tokenizer<'a> {
             "define" => Token::Define,
             "lambda" | "λ" => Token::Lambda,
             "begin" => Token::Begin,
+            "set!" => Token::Set,
             "eval" => Token::Eval,
             "quote" => Token::Quote,
             _ => Token::Identifier(word),
