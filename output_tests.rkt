@@ -13,3 +13,9 @@ Void
 6
 Void
 10
+10
+10
+'(1 2 3)
+10
+Lambda Function
+"test"
