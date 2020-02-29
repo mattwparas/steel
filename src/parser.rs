@@ -34,16 +34,7 @@ impl TryFrom<RucketVal> for Expr {
             StringV(x) => Ok(Atom(Token::StringLiteral(x))),
             FuncV(_) => Err("Can't convert from Function to expression!"),
             LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-            SymbolV(x) => match x.as_str() {
-                // "if" => Ok(Atom(Token::If)),
-                // "let" => Ok(Atom(Token::Let)),
-                // "define" => Ok(Atom(Token::Define)),
-                // "lambda" => Ok(Atom(Token::Lambda)),
-                // "quote" => Ok(Atom(Token::Quote)),
-                // "begin" => Ok(Atom(Token::Begin)),
-                // "eval" => Ok(Atom(Token::Eval)),
-                _ => Ok(Atom(Token::Identifier(x))),
-            },
+            SymbolV(x) => Ok(Atom(Token::Identifier(x))),
         }
     }
 }
