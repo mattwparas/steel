@@ -6,7 +6,6 @@ use crate::rvals::RucketVal;
 //use crate::stdlib::PRELUDE;
 use std::path::Path;
 // use parser::{Expr, ParseError};
-use std::io;
 use std::io::Read;
 
 pub struct RucketInterpreter {
@@ -35,10 +34,10 @@ impl RucketInterpreter {
     pub fn evaluate_from_reader(
         &mut self,
         mut input: impl Read,
-    ) -> io::Result<Result<Vec<RucketVal>, RucketErr>> {
+    ) -> Result<Vec<RucketVal>, RucketErr> {
         let mut exprs = String::new();
         input.read_to_string(&mut exprs)?;
-        Ok(self.evaluate(&exprs))
+        self.evaluate(&exprs)
     }
 
     /// Evaluate statements for their side effects on the environment,
