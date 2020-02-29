@@ -2,11 +2,7 @@
 // use this::lexer;
 // use std::io::BufRead;
 // use std::io::Write;
-
-use crate::evaluator;
-use crate::parser;
-
-use parser::{Expr, ParseError};
+use crate::interpreter;
 
 // pub fn repl(mut user_input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
 //     let mut evaluator = evaluator::Evaluator::new();
@@ -54,10 +50,11 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 pub fn repl() -> std::io::Result<()> {
-    let mut evaluator = evaluator::Evaluator::new();
-    if let Err(e) = evaluator.parse_and_eval(PRELUDE) {
-        println!("Error loading prelude: {}", e)
-    };
+    let mut interpreter = interpreter::RucketInterpreter::new();
+
+    if let Err(e) = interpreter.require(PRELUDE) {
+        eprintln!("Error loading prelude: {}", e)
+    }
     println!("Welcome to Rucket 1.0");
 
     // `()` can be used when no completer is required
@@ -69,26 +66,11 @@ pub fn repl() -> std::io::Result<()> {
                 rl.add_history_entry(line.as_str());
                 match line.as_str() {
                     ":quit" => return Ok(()),
-                    ":reset" => evaluator.clear_bindings(),
-                    _ => {
-                        let parsed: Result<Vec<Expr>, ParseError> =
-                            parser::Parser::new(&line).collect();
-                        match parsed {
-                            Ok(pvec) => {
-                                for expr in pvec {
-                                    let res = evaluator.eval(&expr);
-                                    match res {
-                                        Ok(v) => println!("{}", v),
-                                        Err(e) => {
-                                            println!("{}", e);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => println!("{}", e),
-                        }
-                    }
+                    ":reset" => interpreter.reset(),
+                    _ => match interpreter.evaluate(&line) {
+                        Ok(r) => r.iter().for_each(|x| println!("{}", x)),
+                        Err(e) => eprintln!("{}", e),
+                    },
                 }
             }
             Err(ReadlineError::Interrupted) => {

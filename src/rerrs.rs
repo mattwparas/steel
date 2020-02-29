@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Clone, Debug, Error)]
+#[derive(Debug, Error)]
 pub enum RucketErr {
     #[error("Arity Mismatch: {0}")]
     ArityMismatch(String),
@@ -28,6 +28,8 @@ pub enum RucketErr {
     BadSyntax(String),
     #[error("Conversion Error: {0}")]
     ConversionError(String),
+    #[error("IO error")]
+    Io(#[from] std::io::Error),
 }
 
 #[macro_export]

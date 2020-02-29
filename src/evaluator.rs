@@ -217,10 +217,7 @@ pub fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> 
 }
 
 // TODO write tests for this
-pub fn eval_make_lambda(
-    list_of_tokens: &[Expr],
-    parent_env: Rc<RefCell<Env>>,
-) -> Result<RucketVal> {
+fn eval_make_lambda(list_of_tokens: &[Expr], parent_env: Rc<RefCell<Env>>) -> Result<RucketVal> {
     if let [list_of_symbols, body_exp] = list_of_tokens {
         let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
         let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), parent_env);
@@ -237,7 +234,7 @@ pub fn eval_make_lambda(
 }
 
 // Evaluate all but the last, pass the last back up to the loop
-pub fn eval_begin(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
+fn eval_begin(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
     let mut tokens_iter = list_of_tokens.iter();
     let last_token = tokens_iter.next_back();
     // throw away intermediate evaluations
@@ -251,7 +248,7 @@ pub fn eval_begin(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Exp
     }
 }
 
-pub fn eval_set(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_set(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     if let [symbol, rest_expr] = list_of_tokens {
         let value = evaluate(rest_expr, env)?;
 
@@ -274,7 +271,7 @@ pub fn eval_set(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Rucke
 // TODO write tests
 // Evaluate the inner expression, check that it is a quoted expression,
 // evaluate body of quoted expression
-pub fn eval_eval_expr(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_eval_expr(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     if let [e] = list_of_tokens {
         let res_expr = evaluate(e, env)?;
         match Expr::try_from(res_expr) {
@@ -293,7 +290,7 @@ pub fn eval_eval_expr(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result
 }
 
 // TODO maybe have to evaluate the params but i'm not sure
-pub fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {
+fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {
     if let [symbol, body] = list_of_tokens {
         match symbol {
             Expr::Atom(Token::Identifier(s)) => {
@@ -339,7 +336,7 @@ pub fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<
 // Let is actually just a lambda so update values to be that and loop
 // Syntax of a let -> (let ((a 10) (b 20) (c 25)) (body ...))
 // transformed ((lambda (a b c) (body ...)) 10 20 25)
-pub fn eval_let(list_of_tokens: &[Expr], _env: &Rc<RefCell<Env>>) -> Result<Expr> {
+fn eval_let(list_of_tokens: &[Expr], _env: &Rc<RefCell<Env>>) -> Result<Expr> {
     if let [bindings, body] = list_of_tokens {
         let mut bindings_to_check: Vec<Expr> = Vec::new();
         let mut args_to_check: Vec<Expr> = Vec::new();

@@ -1,9 +1,10 @@
-#![allow(unused_imports)]
 #![allow(dead_code)]
 use crate::evaluator::Evaluator;
-use crate::parser::{Expr, ParseError, Parser};
+//use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
+//use crate::stdlib::PRELUDE;
+use std::path::Path;
 // use parser::{Expr, ParseError};
 use std::io;
 use std::io::Read;
@@ -15,16 +16,6 @@ pub struct RucketInterpreter {
 }
 
 impl RucketInterpreter {
-    // pub fn new(mut input: impl Read) -> io::Result<Self> {
-    //     let mut exprs = String::new();
-    //     input.read_to_string(&mut exprs)?;
-    //     // let parsed: Result<Vec<Expr>, ParseError> = Parser::new(&exprs).collect();
-    //     Ok(RucketInterpreter {
-    //         // parser: parsed,
-    //         evaluator: Evaluator::new(),
-    //     })
-    // }
-
     pub fn new() -> Self {
         RucketInterpreter {
             evaluator: Evaluator::new(),
@@ -36,7 +27,9 @@ impl RucketInterpreter {
     }
 
     pub fn reset(&mut self) {
+        // make sure evaluator gets freed beforehand
         self.evaluator.clear_bindings();
+        self.evaluator = Evaluator::new();
     }
 
     pub fn evaluate_from_reader(
@@ -48,20 +41,22 @@ impl RucketInterpreter {
         Ok(self.evaluate(&exprs))
     }
 
-    // pub fn parse_and_evaluate(&mut self, exprs: &str) -> Result<Vec<RucketVal>, RucketErr> {
-    //     let parsed: Result<Vec<Expr>, ParseError> = Parser::new(exprs).collect();
-    //     match parsed {
-    //         Ok(pvec) => pvec.iter().map(|x| self.evaluator.eval(&x)).collect(),
-    //         Err(e) => Err(RucketErr::BadSyntax(e.to_string())),
-    //     }
-    // }
-
-    pub fn require(&mut self, _exprs: &str) -> Result<RucketVal, RucketErr> {
-        unimplemented!();
+    /// Evaluate statements for their side effects on the environment,
+    /// ignoring the output
+    pub fn require(&mut self, exprs: &str) -> Result<(), RucketErr> {
+        self.evaluate(exprs).map(|_| ())
     }
 
-    pub fn require_paths(_paths: Vec<&str>) -> Result<RucketVal, RucketErr> {
-        unimplemented!();
+    /// Evaluate statements from paths,ignoring output
+    pub fn require_paths<P: AsRef<Path>>(
+        &mut self,
+        paths: impl Iterator<Item = P>,
+    ) -> Result<(), RucketErr> {
+        for path in paths {
+            let file = std::fs::File::open(path)?;
+            let _ = self.evaluate_from_reader(file)?;
+        }
+        Ok(())
     }
 
     // pub fn parse(mut input: impl Read) -> io::result<Self> {
