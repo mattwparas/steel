@@ -125,14 +125,7 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                             expr = eval_if(&list_of_tokens[1..], &env)?
                         }
                         Expr::Atom(Token::Identifier(s)) if s == "define" => {
-                            match eval_define(&list_of_tokens[1..], env) {
-                                Ok(_e) => {
-                                    return Ok(RucketVal::Void);
-                                }
-                                Err(e) => {
-                                    return Err(e);
-                                }
-                            }
+                            return eval_define(&list_of_tokens[1..], env).map(|_| RucketVal::Void)
                         }
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Identifier(s)) if s == "lambda" || s == "λ" => {
