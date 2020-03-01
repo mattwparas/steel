@@ -21,6 +21,7 @@ use crate::stop;
 use crate::tokens::{Token, TokenError};
 
 pub type Result<T> = result::Result<T, RucketErr>;
+pub type ValidFunc = fn(Vec<RucketVal>) -> Result<RucketVal>;
 
 pub struct Evaluator {
     global_env: Rc<RefCell<Env>>,
@@ -110,26 +111,10 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
 
     loop {
         match expr {
-            Expr::Atom(t) => match t {
-                Token::BooleanLiteral(b) => {
-                    return Ok(RucketVal::BoolV(b));
-                }
-                Token::Identifier(s) => {
-                    return Ok(env.borrow().lookup(&s)?);
-                }
-                Token::NumberLiteral(n) => {
-                    return Ok(RucketVal::NumV(n));
-                }
-                Token::StringLiteral(s) => {
-                    return Ok(RucketVal::StringV(s));
-                }
-                what => stop!(UnexpectedToken => what),
-            },
+            Expr::Atom(t) => return eval_atom(t, &env),
 
             Expr::ListVal(list_of_tokens) => {
-                let mut eval_iter = list_of_tokens.iter();
-
-                if let Some(f) = eval_iter.next() {
+                if let Some(f) = list_of_tokens.first() {
                     match f {
                         Expr::Atom(Token::Identifier(s)) if s == "quote" => {
                             check_length("Quote", &list_of_tokens, 2)?;
@@ -170,27 +155,13 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                         // (sym args*), sym must be a procedure
                         sym => match evaluate(&sym, &env)? {
                             RucketVal::FuncV(func) => {
-                                let args_eval: Result<Vec<RucketVal>> =
-                                    eval_iter.map(|x| evaluate(&x, &env)).collect();
-                                let args_eval = args_eval?;
-                                // pure function doesn't need the env
-                                let rval = func(args_eval)?;
-                                return Ok(rval);
+                                return eval_func(func, &list_of_tokens[1..], &env)
                             }
                             RucketVal::LambdaV(lambda) => {
-                                let args_eval: Result<Vec<RucketVal>> =
-                                    eval_iter.map(|x| evaluate(&x, &env)).collect();
-                                let args_eval: Vec<RucketVal> = args_eval?;
-                                // build a new environment using the parent environment
-                                let parent_env = lambda.parent_env();
-                                let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
-                                let params_exp = lambda.params_exp();
-                                inner_env.borrow_mut().define_all(params_exp, args_eval)?;
-                                // loop back and continue
-                                // using the body as continuation
-                                // environment also gets updated
-                                env = inner_env;
-                                expr = lambda.body_exp();
+                                let (new_expr, new_env) =
+                                    eval_lambda(lambda, &list_of_tokens[1..], &env)?;
+                                expr = new_expr;
+                                env = new_env;
                             }
                             e => stop!(ExpectedFunction => e),
                         },
@@ -202,7 +173,54 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
         }
     }
 }
-/// TODO: refactor this with iterators
+/// evaluates an atom expression in given environment
+fn eval_atom(t: Token, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+    match t {
+        Token::BooleanLiteral(b) => Ok(RucketVal::BoolV(b)),
+        Token::Identifier(s) => env.borrow().lookup(&s),
+        Token::NumberLiteral(n) => Ok(RucketVal::NumV(n)),
+        Token::StringLiteral(s) => Ok(RucketVal::StringV(s)),
+        what => stop!(UnexpectedToken => what),
+    }
+}
+/// evaluates a primitive function into single returnable value
+fn eval_func(
+    func: ValidFunc,
+    list_of_tokens: &[Expr],
+    env: &Rc<RefCell<Env>>,
+) -> Result<RucketVal> {
+    let args_eval: Result<Vec<RucketVal>> = list_of_tokens
+        .into_iter()
+        .map(|x| evaluate(&x, &env))
+        .collect();
+    let args_eval = args_eval?;
+    // pure function doesn't need the env
+    let rval = func(args_eval)?;
+    return Ok(rval);
+}
+
+/// evaluates a lambda into a body expression to execute
+/// and an inner environment
+fn eval_lambda(
+    lambda: RucketLambda,
+    list_of_tokens: &[Expr],
+    env: &Rc<RefCell<Env>>,
+) -> Result<(Expr, Rc<RefCell<Env>>)> {
+    let args_eval: Result<Vec<RucketVal>> = list_of_tokens
+        .into_iter()
+        .map(|x| evaluate(&x, &env))
+        .collect();
+    let args_eval: Vec<RucketVal> = args_eval?;
+    // build a new environment using the parent environment
+    let parent_env = lambda.parent_env();
+    let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
+    let params_exp = lambda.params_exp();
+    inner_env.borrow_mut().define_all(params_exp, args_eval)?;
+    // loop back and continue
+    // using the body as continuation
+    // environment also gets updated
+    Ok((lambda.body_exp(), inner_env))
+}
 /// evaluates `(test then else)` into `then` or `else`
 pub fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
     if let [test_expr, then_expr, else_expr] = list_of_tokens {
