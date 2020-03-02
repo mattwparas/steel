@@ -145,6 +145,12 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                         Expr::Atom(Token::Identifier(s)) if s == "begin" => {
                             expr = eval_begin(&list_of_tokens[1..], &env)?
                         }
+                        Expr::Atom(Token::Identifier(s)) if s == "and" => {
+                            return eval_and(&list_of_tokens[1..], &env)
+                        }
+                        Expr::Atom(Token::Identifier(s)) if s == "and" => {
+                            return eval_or(&list_of_tokens[1..], &env)
+                        }
                         // (sym args*), sym must be a procedure
                         sym => match evaluate(&sym, &env)? {
                             RucketVal::FuncV(func) => {
@@ -190,6 +196,27 @@ fn eval_func(
     // pure function doesn't need the env
     let rval = func(args_eval)?;
     return Ok(rval);
+}
+
+pub fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+    for expr in &list_of_tokens[1..] {
+        match evaluate(expr, env)? {
+            RucketVal::BoolV(true) => continue,
+            RucketVal::BoolV(false) => return Ok(RucketVal::BoolV(false)),
+            _ => continue,
+        }
+    }
+    Ok(RucketVal::BoolV(false))
+}
+
+pub fn eval_or(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+    for expr in &list_of_tokens[1..] {
+        match evaluate(expr, env)? {
+            RucketVal::BoolV(true) => return Ok(RucketVal::BoolV(true)),
+            _ => continue,
+        }
+    }
+    Ok(RucketVal::BoolV(false))
 }
 
 /// evaluates a lambda into a body expression to execute
