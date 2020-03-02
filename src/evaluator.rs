@@ -148,7 +148,7 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                         Expr::Atom(Token::Identifier(s)) if s == "and" => {
                             return eval_and(&list_of_tokens[1..], &env)
                         }
-                        Expr::Atom(Token::Identifier(s)) if s == "and" => {
+                        Expr::Atom(Token::Identifier(s)) if s == "or" => {
                             return eval_or(&list_of_tokens[1..], &env)
                         }
                         // (sym args*), sym must be a procedure
