@@ -35,6 +35,7 @@ impl TryFrom<RucketVal> for Expr {
             FuncV(_) => Err("Can't convert from Function to expression!"),
             LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             SymbolV(x) => Ok(Atom(Token::Identifier(x))),
+            Custom(_) => Err("Can't convert from Custom Type to expression!"),
         }
     }
 }

@@ -3,6 +3,8 @@
 // use std::io::BufRead;
 // use std::io::Write;
 use crate::interpreter;
+use std::any::Any;
+// use std::any::type_name;
 
 // pub fn repl(mut user_input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
 //     let mut evaluator = evaluator::Evaluator::new();
@@ -45,9 +47,37 @@ use crate::interpreter;
 
 extern crate rustyline;
 
+use crate::rvals::{CustomType, RucketVal};
 use crate::stdlib::PRELUDE;
+use crate::unwrap;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+
+// pub trait CustomType {
+//     fn box_clone(&self) -> Box<dyn CustomType>;
+//     fn name(&self) -> String;
+// }
+
+#[derive(Clone, Debug)]
+struct MyStruct {}
+
+impl CustomType for MyStruct {
+    fn box_clone(&self) -> Box<dyn CustomType> {
+        Box::new((*self).clone())
+    }
+
+    fn as_any(&self) -> Box<dyn Any> {
+        Box::new((*self).clone())
+    }
+
+    fn new_rucket_val(&self) -> RucketVal {
+        RucketVal::Custom(Box::new(self.clone()))
+    }
+
+    // fn unwrap_type(&self) ->
+}
+
+// impl usize
 
 pub fn repl() -> std::io::Result<()> {
     let mut interpreter = interpreter::RucketInterpreter::new();
@@ -56,6 +86,16 @@ pub fn repl() -> std::io::Result<()> {
         eprintln!("Error loading prelude: {}", e)
     }
     println!("Welcome to Rucket 1.0");
+
+    println!("Attempting to insert my own type");
+
+    let testytest = MyStruct {};
+    // let testytest: usize = 420;
+    let my_val = testytest.new_rucket_val();
+
+    interpreter.insert_binding("test".to_string(), my_val.clone());
+
+    println!("{:?}", unwrap!(my_val, MyStruct).unwrap());
 
     // `()` can be used when no completer is required
     let mut rl = Editor::<()>::new();
