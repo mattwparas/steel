@@ -5,12 +5,140 @@ use crate::primitives::{Adder, Divider, Multiplier, Subtractor};
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
 use crate::stop;
+use std::result;
 
 //use std::borrow::BorrowMut;
+// use crate::primitives::*;
+use crate::rvals::CustomType;
+use crate::unwrap;
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
+// use std::convert::TryFrom;
 use std::rc::Rc;
 // use std::result::Result;
+
+use crate::converter::ConversionError;
+// use crate::converter::RucketFunctor;
+// use crate::rerrs::RucketErr;
+// use crate::rvals::RucketVal;
+use std::convert::TryFrom;
+impl TryFrom<RucketVal> for f64 {
+    type Error = RucketErr;
+    fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
+        match value {
+            RucketVal::NumV(x) => Ok(x),
+            _ => Err(RucketErr::ConversionError("Expected number".to_string())),
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! implement {
+    ($type:ty) => {
+        as_item! {
+            impl crate::rvals::CustomType for $type {
+                fn box_clone(&self) -> Box<dyn CustomType> {
+                    Box::new((*self).clone())
+                }
+                fn as_any(&self) -> Box<dyn Any> {
+                    Box::new((*self).clone())
+                }
+                fn new_rucket_val(&self) -> RucketVal {
+                    RucketVal::Custom(Box::new(self.clone()))
+                }
+                // fn generate_bindings() -> Vec<(&'static str, RucketVal)> {
+                //     vec![]
+                // }
+            }
+        }
+    };
+
+    ($type:ty, $($e:ident, $t: ty)*) => {
+        as_item! {
+            impl crate::rvals::CustomType for $type {
+                fn box_clone(&self) -> Box<dyn CustomType> {
+                    Box::new((*self).clone())
+                }
+                fn as_any(&self) -> Box<dyn Any> {
+                    Box::new((*self).clone())
+                }
+                fn new_rucket_val(&self) -> RucketVal {
+                    RucketVal::Custom(Box::new(self.clone()))
+                }
+            }
+        }
+
+        as_item! {
+            impl $type {
+                pub fn generate_bindings() -> Vec<(&'static str, RucketVal)> {
+                    use std::convert::TryFrom;
+                    use crate::rvals::RucketVal;
+                    use crate::rerrs::RucketErr;
+                    use crate::unwrap;
+                    use crate::stop;
+                    let mut vec_binding = vec![];
+
+                    // generate predicate
+                    let name = concat!(stringify!($type), "?");
+                    println!("{}", name);
+                    let func =
+                         RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                            let mut args_iter = args.into_iter();
+                            if let Some(first) = args_iter.next() {
+                                return Ok(RucketVal::BoolV(unwrap!(first, $type).is_ok()));
+                            }
+                            stop!(ArityMismatch => "set! expected 2 arguments");
+                        });
+                    vec_binding.push((name, func));
+                    $(
+                        // generate setters
+                        let name = concat!("set-", stringify!($type), "-", stringify!($e), "!");
+                        let func =
+                             RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                                let mut args_iter = args.into_iter();
+                                if let Some(first) = args_iter.next() {
+                                    if let Some(second) = args_iter.next() {
+                                        let mut my_struct = unwrap!(first, $type)?;
+                                        my_struct.$e = match second {
+                                                RucketVal::Custom(_) => unwrap!(second, $t)?,
+                                                _ => <$t>::try_from(second)?
+                                            };
+                                        return Ok(my_struct.new_rucket_val());
+                                    }
+                                    stop!(ArityMismatch => "set! expected 2 arguments");
+                                }
+                                stop!(ArityMismatch => "set! expected 2 arguments");
+                            });
+                        vec_binding.push((name, func));
+
+                        // generate getters
+                        let name = concat!(stringify!($type), "-", stringify!($e));
+                        println!("{}", name);
+                        let func =
+                             RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                                let mut args_iter = args.into_iter();
+                                if let Some(first) = args_iter.next() {
+                                    let my_struct = unwrap!(first, $type)?;
+                                    return Ok(my_struct.$e.into());
+                                }
+                                stop!(ArityMismatch => "set! expected 2 arguments");
+                            });
+                        vec_binding.push((name, func));
+                    ) *
+                    vec_binding
+                }
+            }
+        }
+    };
+}
+
+// #[macro_use]
+macro_rules! as_item {
+    ($i:item) => {
+        $i
+    };
+}
 
 #[macro_use]
 macro_rules! ensure_tonicity {
@@ -87,7 +215,7 @@ impl Env {
         Ok(())
     }
 
-    fn define_zipped<'a>(&mut self, zipped: impl Iterator<Item = (&'a str, RucketVal)>) {
+    pub fn define_zipped<'a>(&mut self, zipped: impl Iterator<Item = (&'a str, RucketVal)>) {
         zipped.for_each(|(param, arg)| self.define(param.to_string(), arg))
     }
 
@@ -159,7 +287,6 @@ impl Env {
     }
     pub fn default_bindings() -> Vec<(&'static str, RucketVal)> {
         vec![
-
             ("+", RucketVal::FuncV(Adder::new_func())),
             ("*", RucketVal::FuncV(Multiplier::new_func())),
             ("/", RucketVal::FuncV(Divider::new_func())),

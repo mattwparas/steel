@@ -2,6 +2,7 @@
 // use this::lexer;
 // use std::io::BufRead;
 // use std::io::Write;
+// use crate::env::MyStruct;
 use crate::interpreter;
 use std::any::Any;
 // use std::any::type_name;
@@ -47,6 +48,8 @@ use std::any::Any;
 
 extern crate rustyline;
 
+use crate::implement;
+use crate::rerrs::RucketErr;
 use crate::rvals::{CustomType, RucketVal};
 use crate::stdlib::PRELUDE;
 use crate::unwrap;
@@ -58,26 +61,32 @@ use rustyline::Editor;
 //     fn name(&self) -> String;
 // }
 
-#[derive(Clone, Debug)]
-struct MyStruct {}
+/*
 
-impl CustomType for MyStruct {
-    fn box_clone(&self) -> Box<dyn CustomType> {
-        Box::new((*self).clone())
-    }
+There are two things we could do here:
 
-    fn as_any(&self) -> Box<dyn Any> {
-        Box::new((*self).clone())
-    }
+Something like:
 
-    fn new_rucket_val(&self) -> RucketVal {
-        RucketVal::Custom(Box::new(self.clone()))
-    }
+impl!($type), for all things that you just want to pass around and use
 
-    // fn unwrap_type(&self) ->
-}
+or
+
+derive(Scheme)
+
+for struct types you want to embed inside the language, generates all the necessary functions
+and produces an environment or something that we can generate using a macro or something
+
+*/
 
 // impl usize
+
+#[derive(Clone, Debug)]
+pub struct MyStruct {
+    pub field: f64,
+    pub stays_the_same: usize,
+}
+
+implement!(MyStruct, field, f64);
 
 pub fn repl() -> std::io::Result<()> {
     let mut interpreter = interpreter::RucketInterpreter::new();
@@ -89,11 +98,18 @@ pub fn repl() -> std::io::Result<()> {
 
     println!("Attempting to insert my own type");
 
-    let testytest = MyStruct {};
+    let testytest = MyStruct {
+        field: 69.0,
+        stays_the_same: 0,
+    };
     // let testytest: usize = 420;
     let my_val = testytest.new_rucket_val();
 
-    interpreter.insert_binding("test".to_string(), my_val.clone());
+    interpreter.insert_binding("test", my_val.clone());
+
+    interpreter.insert_bindings(MyStruct::generate_bindings());
+
+    // interpreter
 
     println!("{:?}", unwrap!(my_val, MyStruct).unwrap());
 
@@ -115,6 +131,10 @@ pub fn repl() -> std::io::Result<()> {
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
+                println!(
+                    "Looking up value and printing: {:?}",
+                    unwrap!(interpreter.extract_value("new-test").unwrap(), MyStruct).unwrap(),
+                );
                 break;
             }
             Err(ReadlineError::Eof) => {

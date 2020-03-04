@@ -3,15 +3,16 @@ use crate::converter::RucketFunctor;
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
 use std::convert::TryFrom;
-impl TryFrom<RucketVal> for f64 {
-    type Error = ConversionError;
-    fn try_from(value: RucketVal) -> Result<Self, Self::Error> {
-        match value {
-            RucketVal::NumV(x) => Ok(x),
-            _ => Err(ConversionError::Generic("Expected number".to_string())),
-        }
-    }
-}
+
+// impl TryFrom<RucketVal> for f64 {
+//     type Error = ConversionError;
+//     fn try_from(value: RucketVal) -> Result<Self, Self::Error> {
+//         match value {
+//             RucketVal::NumV(x) => Ok(x),
+//             _ => Err(ConversionError::Generic("Expected number".to_string())),
+//         }
+//     }
+// }
 
 pub struct VecNumbers(Vec<f64>);
 impl TryFrom<Vec<RucketVal>> for VecNumbers {

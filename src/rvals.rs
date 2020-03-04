@@ -27,17 +27,57 @@ impl Clone for Box<dyn CustomType> {
     }
 }
 
+impl From<Box<dyn CustomType>> for RucketVal {
+    fn from(val: Box<dyn CustomType>) -> RucketVal {
+        val.new_rucket_val()
+    }
+}
+
 #[macro_export]
 macro_rules! unwrap {
+    // ($x:expr) => {{
+    //     match $x {
+    //         crate::rvals::RucketVal::BoolV(b) => Ok(b),
+    //         crate::rvals::RucketVal::NumV(x) => Ok(x),
+    //         crate::rvals::RucketVal::StringV(s) => Ok(s),
+    //         crate::rvals::RucketVal::FuncV(_) => Err(crate::rerrs::RucketErr::ConversionError("Cannot unwrap function".to_string())),
+    //         crate::rvals::RucketVal::LambdaV(_) => Err(crate::rerrs:RucketErr::ConversionError("Cannot unwrap lambda".to_string())),
+    //         crate::rvals::RucketVal::Void => OK(()),
+    //         crate::rvals::RucketVal::SymbolV(s) => write!(f, "{}", s),
+    //         crate::rvals::RucketVal::ListV(lst) => {
+    //             Ok(lst) // TODO
+    //             // let Result<Vec<
+    //             // let mut iter = lst.iter();
+    //             // write!(f, "(")?;
+    //             // if let Some(last) = iter.next_back() {
+    //             //     for item in iter {
+    //             //         display_helper(item, f)?;
+    //             //         write!(f, " ")?;
+    //             //     }
+    //             //     display_helper(last, f)?;
+    //             // }
+    //             // write!(f, ")")
+    //         }
+    //         crate::rvals::RucketVal::Custom(x) => Err(crate::rerrs::RucketErr::ConversionError(
+    //             "Type not given to unwrap custom type".to_string(),
+    //         )),
+    //     }
+    // }};
     ($x:expr, $body:ty) => {{
         if let crate::rvals::RucketVal::Custom(v) = $x {
             let left_type = (*v).as_any();
+            // let type_id = left_type.type_id();
             let left = left_type.downcast_ref::<$body>();
             // left.map
-            left.map(|x| x.clone())
-                .ok_or_else(|| crate::rerrs::RucketErr::ConversionError("blah".to_string()))
+            left.map(|x| x.clone()).ok_or_else(|| {
+                crate::rerrs::RucketErr::ConversionError(
+                    "Type Mismatch: Type of RucketVal did not match the given type".to_string(),
+                )
+            })
         } else {
-            Err(crate::rerrs::RucketErr::ConversionError("blah".to_string()))
+            Err(crate::rerrs::RucketErr::ConversionError(
+                "Type Mismatch: Type of RucketVal did not match the given type".to_string(),
+            ))
         }
     }};
 }
