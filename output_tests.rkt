@@ -19,6 +19,14 @@ Void
 10
 Lambda Function
 "test"
+#true
+#false
+#true
+#false
+#true
+#false
+#true
+#false
 Void
 Void
 80

@@ -4,6 +4,7 @@ use crate::converter::RucketFunctor;
 use crate::primitives::{Adder, Divider, Multiplier, Subtractor};
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
+use crate::rvals::RucketVal::*;
 use crate::stop;
 
 //use std::borrow::BorrowMut;
@@ -159,7 +160,6 @@ impl Env {
     }
     pub fn default_bindings() -> Vec<(&'static str, RucketVal)> {
         vec![
-
             ("+", RucketVal::FuncV(Adder::new_func())),
             ("*", RucketVal::FuncV(Multiplier::new_func())),
             ("/", RucketVal::FuncV(Divider::new_func())),
@@ -250,6 +250,42 @@ impl Env {
                         }
                     } else {
                         stop!(ArityMismatch => "cdr takes one argument");
+                    }
+                }),
+            ),
+            (
+                "number?",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    match args.first() {
+                        Some(NumV(_)) => Ok(BoolV(true)),
+                        _ => Ok(BoolV(false)),
+                    }
+                }),
+            ),
+            (
+                "string?",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    match args.first() {
+                        Some(StringV(_)) => Ok(BoolV(true)),
+                        _ => Ok(BoolV(false)),
+                    }
+                }),
+            ),
+            (
+                "symbol?",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    match args.first() {
+                        Some(SymbolV(_)) => Ok(BoolV(true)),
+                        _ => Ok(BoolV(false)),
+                    }
+                }),
+            ),
+            (
+                "list?",
+                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                    match args.first() {
+                        Some(ListV(_)) => Ok(BoolV(true)),
+                        _ => Ok(BoolV(false)),
                     }
                 }),
             ),
