@@ -80,15 +80,15 @@ and produces an environment or something that we can generate using a macro or s
 
 // impl usize
 
-#[derive(Clone, Debug)]
-pub struct MyStruct {
-    pub field: usize,
-    pub stays_the_same: usize,
-    pub name: String,
-}
+// #[derive(Clone, Debug)]
+// pub struct MyStruct {
+//     pub field: usize,
+//     pub stays_the_same: usize,
+//     pub name: String,
+// }
 
 implement!(usize);
-implement!(MyStruct, field, usize, name, String);
+// implement!(MyStruct, field, usize, name, String);
 
 pub fn repl() -> std::io::Result<()> {
     let mut interpreter = interpreter::RucketInterpreter::new();
@@ -98,23 +98,23 @@ pub fn repl() -> std::io::Result<()> {
     }
     println!("Welcome to Rucket 1.0");
 
-    println!("Attempting to insert my own type");
+    // println!("Attempting to insert my own type");
 
-    let testytest = MyStruct {
-        field: 69,
-        stays_the_same: 0,
-        name: "matthew paras".to_string(),
-    };
+    // let testytest = MyStruct {
+    //     field: 69,
+    //     stays_the_same: 0,
+    //     name: "matthew paras".to_string(),
+    // };
     // let testytest: usize = 420;
-    let my_val = testytest.new_rucket_val();
+    // let my_val = testytest.new_rucket_val();
 
-    interpreter.insert_binding("test", my_val.clone());
+    // interpreter.insert_binding("test", my_val.clone());
 
-    interpreter.insert_bindings(MyStruct::generate_bindings());
+    // interpreter.insert_bindings(MyStruct::generate_bindings());
 
     // interpreter
 
-    println!("{:?}", unwrap!(my_val, MyStruct).unwrap());
+    // println!("{:?}", unwrap!(my_val, MyStruct).unwrap());
 
     // `()` can be used when no completer is required
     let mut rl = Editor::<()>::new();
@@ -134,10 +134,10 @@ pub fn repl() -> std::io::Result<()> {
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
-                println!(
-                    "Looking up value and printing: {:?}",
-                    unwrap!(interpreter.extract_value("new-test").unwrap(), MyStruct).unwrap(),
-                );
+                // println!(
+                //     "Looking up value and printing: {:?}",
+                //     unwrap!(interpreter.extract_value("new-test").unwrap(), MyStruct).unwrap(),
+                // );
                 break;
             }
             Err(ReadlineError::Eof) => {

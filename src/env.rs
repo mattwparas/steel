@@ -193,7 +193,7 @@ macro_rules! implement {
     };
 }
 
-// #[macro_use]
+#[macro_export]
 macro_rules! as_item {
     ($i:item) => {
         $i

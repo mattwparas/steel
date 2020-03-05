@@ -1,7 +1,7 @@
 use crate::converter::ConversionError;
 use crate::converter::RucketFunctor;
 use crate::rerrs::RucketErr;
-use crate::rvals::RucketVal;
+use crate::rvals::{RucketLambda, RucketVal};
 use std::convert::TryFrom;
 
 // impl TryFrom<RucketVal> for f64 {
@@ -37,6 +37,30 @@ impl From<f64> for RucketVal {
 impl From<String> for RucketVal {
     fn from(val: String) -> RucketVal {
         RucketVal::StringV(val)
+    }
+}
+
+impl From<bool> for RucketVal {
+    fn from(val: bool) -> RucketVal {
+        RucketVal::BoolV(val)
+    }
+}
+
+impl From<Vec<RucketVal>> for RucketVal {
+    fn from(val: Vec<RucketVal>) -> RucketVal {
+        RucketVal::ListV(val)
+    }
+}
+
+impl From<fn(Vec<RucketVal>) -> Result<RucketVal, RucketErr>> for RucketVal {
+    fn from(val: fn(Vec<RucketVal>) -> Result<RucketVal, RucketErr>) -> RucketVal {
+        RucketVal::FuncV(val)
+    }
+}
+
+impl From<RucketLambda> for RucketVal {
+    fn from(val: RucketLambda) -> RucketVal {
+        RucketVal::LambdaV(val)
     }
 }
 
