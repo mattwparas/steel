@@ -49,7 +49,7 @@ use std::any::Any;
 extern crate rustyline;
 
 use crate::implement;
-use crate::rerrs::RucketErr;
+// use crate::rerrs::RucketErr;
 use crate::rvals::{CustomType, RucketVal};
 use crate::stdlib::PRELUDE;
 use crate::unwrap;
@@ -82,11 +82,12 @@ and produces an environment or something that we can generate using a macro or s
 
 #[derive(Clone, Debug)]
 pub struct MyStruct {
-    pub field: f64,
+    pub field: usize,
     pub stays_the_same: usize,
 }
 
-implement!(MyStruct, field, f64);
+implement!(usize);
+implement!(MyStruct, field, usize);
 
 pub fn repl() -> std::io::Result<()> {
     let mut interpreter = interpreter::RucketInterpreter::new();
@@ -99,7 +100,7 @@ pub fn repl() -> std::io::Result<()> {
     println!("Attempting to insert my own type");
 
     let testytest = MyStruct {
-        field: 69.0,
+        field: 69,
         stays_the_same: 0,
     };
     // let testytest: usize = 420;

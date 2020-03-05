@@ -23,6 +23,7 @@ use crate::converter::ConversionError;
 // use crate::rerrs::RucketErr;
 // use crate::rvals::RucketVal;
 use std::convert::TryFrom;
+
 impl TryFrom<RucketVal> for f64 {
     type Error = RucketErr;
     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
@@ -32,6 +33,75 @@ impl TryFrom<RucketVal> for f64 {
         }
     }
 }
+
+#[macro_export]
+macro_rules! try_from_impl {
+    ($($body:ty),*) => {
+        $(
+            impl TryFrom<RucketVal> for $body {
+                type Error = RucketErr;
+                fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
+                    match value {
+                        RucketVal::NumV(x) => Ok(x as $body),
+                        _ => Err(RucketErr::ConversionError("Expected number".to_string())),
+                    }
+                }
+            }
+        )*
+    };
+}
+
+try_from_impl!(f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+
+// impl TryFrom<RucketVal> for f32 {
+//     type Error = RucketErr;
+//     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
+//         match value {
+//             RucketVal::NumV(x) => Ok(x as f32),
+//             _ => Err(RucketErr::ConversionError("Expected number".to_string())),
+//         }
+//     }
+// }
+
+// impl TryFrom<RucketVal> for i32 {
+//     type Error = RucketErr;
+//     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
+//         match value {
+//             RucketVal::NumV(x) => Ok(x as i32),
+//             _ => Err(RucketErr::ConversionError("Expected number".to_string())),
+//         }
+//     }
+// }
+
+// impl TryFrom<RucketVal> for i16 {
+//     type Error = RucketErr;
+//     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
+//         match value {
+//             RucketVal::NumV(x) => Ok(x as i16),
+//             _ => Err(RucketErr::ConversionError("Expected number".to_string())),
+//         }
+//     }
+// }
+
+// impl TryFrom<RucketVal> for i8 {
+//     type Error = RucketErr;
+//     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
+//         match value {
+//             RucketVal::NumV(x) => Ok(x as i8),
+//             _ => Err(RucketErr::ConversionError("Expected number".to_string())),
+//         }
+//     }
+// }
+
+// impl TryFrom<RucketVal> for usize {
+//     type Error = RucketErr;
+//     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
+//         match value {
+//             RucketVal::NumV(x) => Ok(x as usize),
+//             _ => Err(RucketErr::ConversionError("Expected number".to_string())),
+//         }
+//     }
+// }
 
 #[macro_export]
 macro_rules! implement {
@@ -52,9 +122,41 @@ macro_rules! implement {
                 // }
             }
         }
+
+        // as_item! {
+        //     impl TryFrom<RucketVal> for $type {
+        //         type Error = RucketErr;
+        //         fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
+        //             Ok(value.new_rucket_val())
+        //         }
+        //     }
+        // }
+
+        as_item! {
+            impl From<$type> for RucketVal {
+                fn from(val: $type) -> RucketVal {
+                    val.new_rucket_val()
+                }
+            }
+        }
+
+        // as_item! {
+        //     impl From<RucketVal> for $type {
+        //         fn from(val: RucketVal) -> $type {
+        //             println!("inside from rucketval to {}", stringify!($type));
+        //             unwrap!(val, $type).unwrap()
+        //             // println!("{}", val);
+        //             // match val {
+        //                 // RucketVal::Custom(_) => unwrap!(val, $type).unwrap(),
+        //                 // _ => <$type>::from(val),
+        //             // }
+        //         }
+        //     }
+        // }
+
     };
 
-    ($type:ty, $($e:ident, $t: ty)*) => {
+    ($type:ident, $($e:ident, $t: ty)*) => {
         as_item! {
             impl crate::rvals::CustomType for $type {
                 fn box_clone(&self) -> Box<dyn CustomType> {
@@ -65,6 +167,23 @@ macro_rules! implement {
                 }
                 fn new_rucket_val(&self) -> RucketVal {
                     RucketVal::Custom(Box::new(self.clone()))
+                }
+            }
+        }
+
+        as_item! {
+            impl From<$type> for RucketVal {
+                fn from(val: $type) -> RucketVal {
+                    val.new_rucket_val()
+                }
+            }
+        }
+
+        as_item! {
+            impl From<RucketVal> for $type {
+                fn from(val: RucketVal) -> $type {
+                    println!("inside from rucketval to {}", stringify!($type));
+                    unwrap!(val, $type).unwrap()
                 }
             }
         }
@@ -99,12 +218,24 @@ macro_rules! implement {
                                 let mut args_iter = args.into_iter();
                                 if let Some(first) = args_iter.next() {
                                     if let Some(second) = args_iter.next() {
-                                        let mut my_struct = unwrap!(first, $type)?;
-                                        my_struct.$e = match second {
-                                                RucketVal::Custom(_) => unwrap!(second, $t)?,
-                                                _ => <$t>::try_from(second)?
-                                            };
-                                        return Ok(my_struct.new_rucket_val());
+                                        println!("{}", stringify!($type));
+                                        let my_struct = unwrap!(first, $type)?;
+                                        println!("We got after the unwrap!");
+                                        println!("{:?}", my_struct);
+                                        let new_struct = $type {
+                                            $e : match second {
+                                                RucketVal::Custom(_) => {
+                                                    println!("Inside custom: {}", stringify!($t));
+                                                    unwrap!(second, $t)?
+                                                },
+                                                _ => {
+                                                    print!("Inside else: {}", second);
+                                                    <$t>::try_from(second)?
+                                                 }
+                                            },
+                                            ..my_struct
+                                        };
+                                        return Ok(new_struct.new_rucket_val());
                                     }
                                     stop!(ArityMismatch => "set! expected 2 arguments");
                                 }
@@ -139,6 +270,12 @@ macro_rules! as_item {
         $i
     };
 }
+
+// macro_rules! as_expr {
+//     ($e:expr) => {
+//         #e
+//     };
+// }
 
 #[macro_use]
 macro_rules! ensure_tonicity {
