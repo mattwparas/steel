@@ -1,12 +1,16 @@
 [package]
-name = "rucket_client"
+name = "rucket_derive"
 version = "0.1.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+proc-macro = true
+
 [dependencies]
-rustyline = "5.0.6"
-rucket = { path = "./rucket" }
-rucket_derive = { path = "./rucket_derive"}
+syn = "1.0"
+quote = "1.0"
+proc-macro2 = "1.0"
+rucket = { path = "../rucket" }
