@@ -87,7 +87,7 @@ and produces an environment or something that we can generate using a macro or s
 //     pub name: String,
 // }
 
-implement!(usize);
+// implement!(usize);
 // implement!(MyStruct, field, usize, name, String);
 
 pub fn repl() -> std::io::Result<()> {

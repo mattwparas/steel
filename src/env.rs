@@ -7,6 +7,8 @@ use crate::rvals::RucketVal;
 use crate::stop;
 use std::result;
 
+use crate::rvals::CustomType;
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -30,59 +32,38 @@ macro_rules! try_from_impl {
 }
 
 try_from_impl!(NumV => f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-try_from_impl!(StringV => String);
+// try_from_impl!(StringV => String);
+// try_from_impl!(BoolV => bool);
+// try_from_impl!()
+
+// implement!(usize);
+// implement!()
 
 #[macro_export]
 macro_rules! implement {
-    ($type:ty) => {
-        as_item! {
-            impl crate::rvals::CustomType for $type {
-                fn box_clone(&self) -> Box<dyn CustomType> {
-                    Box::new((*self).clone())
-                }
-                fn as_any(&self) -> Box<dyn Any> {
-                    Box::new((*self).clone())
-                }
-                fn new_rucket_val(&self) -> RucketVal {
-                    RucketVal::Custom(Box::new(self.clone()))
-                }
-                // fn generate_bindings() -> Vec<(&'static str, RucketVal)> {
-                //     vec![]
-                // }
-            }
-        }
-
-        // as_item! {
-        //     impl TryFrom<RucketVal> for $type {
-        //         type Error = RucketErr;
-        //         fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
-        //             Ok(value.new_rucket_val())
-        //         }
-        //     }
-        // }
-
-        as_item! {
-            impl From<$type> for RucketVal {
-                fn from(val: $type) -> RucketVal {
-                    val.new_rucket_val()
+    ($($type:ty),*) => {
+        $(
+            as_item! {
+                impl crate::rvals::CustomType for $type {
+                    fn box_clone(&self) -> Box<dyn CustomType> {
+                        Box::new((*self).clone())
+                    }
+                    fn as_any(&self) -> Box<dyn Any> {
+                        Box::new((*self).clone())
+                    }
+                    fn new_rucket_val(&self) -> RucketVal {
+                        RucketVal::Custom(Box::new(self.clone()))
+                    }
                 }
             }
-        }
-
-        // as_item! {
-        //     impl From<RucketVal> for $type {
-        //         fn from(val: RucketVal) -> $type {
-        //             println!("inside from rucketval to {}", stringify!($type));
-        //             unwrap!(val, $type).unwrap()
-        //             // println!("{}", val);
-        //             // match val {
-        //                 // RucketVal::Custom(_) => unwrap!(val, $type).unwrap(),
-        //                 // _ => <$type>::from(val),
-        //             // }
-        //         }
-        //     }
-        // }
-
+            as_item! {
+                impl From<$type> for RucketVal {
+                    fn from(val: $type) -> RucketVal {
+                        val.new_rucket_val()
+                    }
+                }
+            }
+        ) *
     };
 
     ($type:ident, $($e:ident, $t: ty),*) => {
@@ -200,11 +181,7 @@ macro_rules! as_item {
     };
 }
 
-// macro_rules! as_expr {
-//     ($e:expr) => {
-//         #e
-//     };
-// }
+implement!(f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 
 #[macro_use]
 macro_rules! ensure_tonicity {
