@@ -7,42 +7,20 @@ use crate::rvals::RucketVal;
 use crate::stop;
 use std::result;
 
-//use std::borrow::BorrowMut;
-// use crate::primitives::*;
-use crate::rvals::CustomType;
-use crate::unwrap;
-use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
-// use std::convert::TryFrom;
-use std::rc::Rc;
-// use std::result::Result;
-
-use crate::converter::ConversionError;
-// use crate::converter::RucketFunctor;
-// use crate::rerrs::RucketErr;
-// use crate::rvals::RucketVal;
 use std::convert::TryFrom;
-
-impl TryFrom<RucketVal> for f64 {
-    type Error = RucketErr;
-    fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
-        match value {
-            RucketVal::NumV(x) => Ok(x),
-            _ => Err(RucketErr::ConversionError("Expected number".to_string())),
-        }
-    }
-}
+use std::rc::Rc;
 
 #[macro_export]
 macro_rules! try_from_impl {
-    ($($body:ty),*) => {
+    ($type:ident => $($body:ty),*) => {
         $(
             impl TryFrom<RucketVal> for $body {
                 type Error = RucketErr;
                 fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
                     match value {
-                        RucketVal::NumV(x) => Ok(x as $body),
+                        RucketVal::$type(x) => Ok(x as $body),
                         _ => Err(RucketErr::ConversionError("Expected number".to_string())),
                     }
                 }
@@ -51,57 +29,8 @@ macro_rules! try_from_impl {
     };
 }
 
-try_from_impl!(f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-
-// impl TryFrom<RucketVal> for f32 {
-//     type Error = RucketErr;
-//     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
-//         match value {
-//             RucketVal::NumV(x) => Ok(x as f32),
-//             _ => Err(RucketErr::ConversionError("Expected number".to_string())),
-//         }
-//     }
-// }
-
-// impl TryFrom<RucketVal> for i32 {
-//     type Error = RucketErr;
-//     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
-//         match value {
-//             RucketVal::NumV(x) => Ok(x as i32),
-//             _ => Err(RucketErr::ConversionError("Expected number".to_string())),
-//         }
-//     }
-// }
-
-// impl TryFrom<RucketVal> for i16 {
-//     type Error = RucketErr;
-//     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
-//         match value {
-//             RucketVal::NumV(x) => Ok(x as i16),
-//             _ => Err(RucketErr::ConversionError("Expected number".to_string())),
-//         }
-//     }
-// }
-
-// impl TryFrom<RucketVal> for i8 {
-//     type Error = RucketErr;
-//     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
-//         match value {
-//             RucketVal::NumV(x) => Ok(x as i8),
-//             _ => Err(RucketErr::ConversionError("Expected number".to_string())),
-//         }
-//     }
-// }
-
-// impl TryFrom<RucketVal> for usize {
-//     type Error = RucketErr;
-//     fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
-//         match value {
-//             RucketVal::NumV(x) => Ok(x as usize),
-//             _ => Err(RucketErr::ConversionError("Expected number".to_string())),
-//         }
-//     }
-// }
+try_from_impl!(NumV => f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+try_from_impl!(StringV => String);
 
 #[macro_export]
 macro_rules! implement {
@@ -156,7 +85,7 @@ macro_rules! implement {
 
     };
 
-    ($type:ident, $($e:ident, $t: ty)*) => {
+    ($type:ident, $($e:ident, $t: ty),*) => {
         as_item! {
             impl crate::rvals::CustomType for $type {
                 fn box_clone(&self) -> Box<dyn CustomType> {

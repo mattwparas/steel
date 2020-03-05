@@ -84,10 +84,11 @@ and produces an environment or something that we can generate using a macro or s
 pub struct MyStruct {
     pub field: usize,
     pub stays_the_same: usize,
+    pub name: String,
 }
 
 implement!(usize);
-implement!(MyStruct, field, usize);
+implement!(MyStruct, field, usize, name, String);
 
 pub fn repl() -> std::io::Result<()> {
     let mut interpreter = interpreter::RucketInterpreter::new();
@@ -102,6 +103,7 @@ pub fn repl() -> std::io::Result<()> {
     let testytest = MyStruct {
         field: 69,
         stays_the_same: 0,
+        name: "matthew paras".to_string(),
     };
     // let testytest: usize = 420;
     let my_val = testytest.new_rucket_val();

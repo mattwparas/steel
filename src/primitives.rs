@@ -34,6 +34,12 @@ impl From<f64> for RucketVal {
     }
 }
 
+impl From<String> for RucketVal {
+    fn from(val: String) -> RucketVal {
+        RucketVal::StringV(val)
+    }
+}
+
 pub struct Adder;
 impl RucketFunctor<VecNumbers, f64> for Adder {
     fn call(input: VecNumbers) -> Result<f64, RucketErr> {
