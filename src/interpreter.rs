@@ -58,6 +58,18 @@ impl RucketInterpreter {
         Ok(())
     }
 
+    pub fn insert_binding(&mut self, name: &str, value: RucketVal) {
+        self.evaluator.insert_binding(name.to_string(), value);
+    }
+
+    pub fn insert_bindings(&mut self, vals: Vec<(&'static str, RucketVal)>) {
+        self.evaluator.insert_bindings(vals);
+    }
+
+    pub fn extract_value(&mut self, name: &str) -> Result<RucketVal, RucketErr> {
+        self.evaluator.lookup_binding(name)
+    }
+
     // pub fn parse(mut input: impl Read) -> io::result<Self> {
 
     // }

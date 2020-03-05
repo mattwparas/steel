@@ -1,17 +1,18 @@
 use crate::converter::ConversionError;
 use crate::converter::RucketFunctor;
 use crate::rerrs::RucketErr;
-use crate::rvals::RucketVal;
+use crate::rvals::{RucketLambda, RucketVal};
 use std::convert::TryFrom;
-impl TryFrom<RucketVal> for f64 {
-    type Error = ConversionError;
-    fn try_from(value: RucketVal) -> Result<Self, Self::Error> {
-        match value {
-            RucketVal::NumV(x) => Ok(x),
-            _ => Err(ConversionError::Generic("Expected number".to_string())),
-        }
-    }
-}
+
+// impl TryFrom<RucketVal> for f64 {
+//     type Error = ConversionError;
+//     fn try_from(value: RucketVal) -> Result<Self, Self::Error> {
+//         match value {
+//             RucketVal::NumV(x) => Ok(x),
+//             _ => Err(ConversionError::Generic("Expected number".to_string())),
+//         }
+//     }
+// }
 
 pub struct VecNumbers(Vec<f64>);
 impl TryFrom<Vec<RucketVal>> for VecNumbers {
@@ -30,6 +31,36 @@ impl TryFrom<Vec<RucketVal>> for VecNumbers {
 impl From<f64> for RucketVal {
     fn from(val: f64) -> RucketVal {
         RucketVal::NumV(val)
+    }
+}
+
+impl From<String> for RucketVal {
+    fn from(val: String) -> RucketVal {
+        RucketVal::StringV(val)
+    }
+}
+
+impl From<bool> for RucketVal {
+    fn from(val: bool) -> RucketVal {
+        RucketVal::BoolV(val)
+    }
+}
+
+impl From<Vec<RucketVal>> for RucketVal {
+    fn from(val: Vec<RucketVal>) -> RucketVal {
+        RucketVal::ListV(val)
+    }
+}
+
+impl From<fn(Vec<RucketVal>) -> Result<RucketVal, RucketErr>> for RucketVal {
+    fn from(val: fn(Vec<RucketVal>) -> Result<RucketVal, RucketErr>) -> RucketVal {
+        RucketVal::FuncV(val)
+    }
+}
+
+impl From<RucketLambda> for RucketVal {
+    fn from(val: RucketLambda) -> RucketVal {
+        RucketVal::LambdaV(val)
     }
 }
 

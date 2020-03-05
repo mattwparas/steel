@@ -2,6 +2,8 @@ use crate::env::Env;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
 use crate::tokens::Token::*;
+// use std::any::Any;
+use std::any::Any;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt;
@@ -9,6 +11,50 @@ use std::rc::Rc;
 use RucketVal::*;
 
 use std::convert::TryFrom;
+
+pub trait StructFunctions {
+    fn generate_bindings() -> Vec<(&'static str, RucketVal)>;
+}
+
+pub trait CustomType {
+    fn box_clone(&self) -> Box<dyn CustomType>;
+    fn as_any(&self) -> Box<dyn Any>;
+    fn name(&self) -> String {
+        (std::any::type_name::<Self>()).to_string()
+    }
+    fn new_rucket_val(&self) -> RucketVal;
+}
+
+impl Clone for Box<dyn CustomType> {
+    fn clone(&self) -> Box<dyn CustomType> {
+        self.box_clone()
+    }
+}
+
+impl From<Box<dyn CustomType>> for RucketVal {
+    fn from(val: Box<dyn CustomType>) -> RucketVal {
+        val.new_rucket_val()
+    }
+}
+
+#[macro_export]
+macro_rules! unwrap {
+    ($x:expr, $body:ty) => {{
+        if let crate::rvals::RucketVal::Custom(v) = $x {
+            let left_type = (*v).as_any();
+            let left = left_type.downcast_ref::<$body>();
+            left.map(|x| x.clone()).ok_or_else(|| {
+                crate::rerrs::RucketErr::ConversionError(
+                    "Type Mismatch: Type of RucketVal did not match the given type".to_string(),
+                )
+            })
+        } else {
+            Err(crate::rerrs::RucketErr::ConversionError(
+                "Type Mismatch: Type of RucketVal did not match the given type".to_string(),
+            ))
+        }
+    }};
+}
 
 #[derive(Clone)]
 pub enum RucketVal {
@@ -20,6 +66,7 @@ pub enum RucketVal {
     FuncV(fn(Vec<RucketVal>) -> Result<RucketVal, RucketErr>),
     LambdaV(RucketLambda),
     SymbolV(String),
+    Custom(Box<dyn CustomType>),
 }
 
 // sometimes you want to just
@@ -54,7 +101,15 @@ impl PartialEq for RucketVal {
             (NumV(l), NumV(r)) => l == r,
             (StringV(l), StringV(r)) => l == r,
             (ListV(l), ListV(r)) => l == r,
-            (_, _) => false,
+            //TODO
+            (_, _) => false, // (l, r) => {
+                             //     let left = unwrap!(l, usize);
+                             //     let right = unwrap!(r, usize);
+                             //     match (left, right) {
+                             //         (Ok(l), Ok(r)) => l == r,
+                             //         (_, _) => false,
+                             //     }
+                             // }
         }
     }
 }
@@ -146,6 +201,7 @@ fn display_helper(val: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
             }
             write!(f, ")")
         }
+        Custom(x) => write!(f, "Custom Type: {}", x.name()),
     }
 }
 

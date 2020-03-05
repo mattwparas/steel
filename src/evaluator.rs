@@ -50,6 +50,18 @@ impl Evaluator {
     pub fn clear_bindings(&mut self) {
         self.global_env.borrow_mut().clear_bindings();
     }
+
+    pub fn insert_binding(&mut self, name: String, value: RucketVal) {
+        self.global_env.borrow_mut().define(name, value);
+    }
+
+    pub fn insert_bindings(&mut self, vals: Vec<(&'static str, RucketVal)>) {
+        self.global_env.borrow_mut().define_zipped(vals.into_iter());
+    }
+
+    pub fn lookup_binding(&mut self, name: &str) -> Result<RucketVal> {
+        self.global_env.borrow_mut().lookup(name)
+    }
 }
 
 impl Drop for Evaluator {
