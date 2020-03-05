@@ -32,7 +32,7 @@ macro_rules! try_from_impl {
 }
 
 try_from_impl!(NumV => f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-// try_from_impl!(StringV => String);
+try_from_impl!(StringV => String);
 // try_from_impl!(BoolV => bool);
 // try_from_impl!()
 

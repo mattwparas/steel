@@ -12,6 +12,10 @@ use RucketVal::*;
 
 use std::convert::TryFrom;
 
+pub trait StructFunctions {
+    fn generate_bindings() -> Vec<(&'static str, RucketVal)>;
+}
+
 pub trait CustomType {
     fn box_clone(&self) -> Box<dyn CustomType>;
     fn as_any(&self) -> Box<dyn Any>;
@@ -38,11 +42,7 @@ macro_rules! unwrap {
     ($x:expr, $body:ty) => {{
         if let crate::rvals::RucketVal::Custom(v) = $x {
             let left_type = (*v).as_any();
-            // let type_id = left_type.type_id();
             let left = left_type.downcast_ref::<$body>();
-
-            println!("Got inside here with type: {}", stringify!($body));
-            // left.map
             left.map(|x| x.clone()).ok_or_else(|| {
                 crate::rerrs::RucketErr::ConversionError(
                     "Type Mismatch: Type of RucketVal did not match the given type".to_string(),
@@ -101,27 +101,15 @@ impl PartialEq for RucketVal {
             (NumV(l), NumV(r)) => l == r,
             (StringV(l), StringV(r)) => l == r,
             (ListV(l), ListV(r)) => l == r,
-            // (Custom(l), Custom(r)) => {
-            // let left_type = (*l).as_any();
-            // let left = left_type.downcast_ref::<usize>();
-            // let right_type = (*r).as_any();
-            // let right = right_type.downcast_ref::<usize>();
-            // let left: Option<&usize> = type_check!(l, usize);
-            // let right: Option<&usize> = type_check!(r, usize);
-            // left_type == right_type;
-            // match (left, right) {
-            // (Some(lt), Some(rt)) => lt == rt,
-            // (_, _) => false,
-            // }
-            // }
-            (l, r) => {
-                let left = unwrap!(l, usize);
-                let right = unwrap!(r, usize);
-                match (left, right) {
-                    (Ok(l), Ok(r)) => l == r,
-                    (_, _) => false,
-                }
-            }
+            //TODO
+            (_, _) => false, // (l, r) => {
+                             //     let left = unwrap!(l, usize);
+                             //     let right = unwrap!(r, usize);
+                             //     match (left, right) {
+                             //         (Ok(l), Ok(r)) => l == r,
+                             //         (_, _) => false,
+                             //     }
+                             // }
         }
     }
 }
