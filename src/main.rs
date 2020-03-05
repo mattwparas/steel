@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate rucket;
 #[macro_use]
 extern crate rucket_derive;
@@ -11,11 +10,6 @@ use rucket::unwrap;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-// #[macro_use]
-// extern crate rucket_derive;
-// use rucket::as_item;
-// use rucket::as_item;
-use rucket::implement;
 use rucket::rerrs;
 use rucket::rvals;
 use rucket::rvals::CustomType;
@@ -54,8 +48,6 @@ pub struct MyStruct {
     pub stays_the_same: usize,
     pub name: String,
 }
-
-// implement!(usize);
 
 pub fn repl() -> std::io::Result<()> {
     let mut interpreter = interpreter::RucketInterpreter::new();
