@@ -4,18 +4,10 @@ use thiserror::Error;
 pub enum RucketErr {
     #[error("Arity Mismatch: {0}")]
     ArityMismatch(String),
-    #[error("Expected Number, got {0}")]
-    ExpectedNumber(String),
     #[error("Free Identifier: {0}")]
     FreeIdentifier(String),
-    #[error("Expected Function: got {0}")]
-    ExpectedFunction(String),
-    #[error("Expected identifier: {0}")]
-    ExpectedIdentifier(String),
-    #[error("Expected arguments to lambda: {0}")]
-    ExpectedArgumentsToLambda(String),
-    #[error("Expected List: {0}")]
-    ExpectedList(String),
+    #[error("Expected {0}")]
+    TypeMismatch(String),
     #[error("Environment Not Found")]
     EnvironmentNotFound,
     #[error("Malformed Let statement")]
@@ -40,6 +32,7 @@ macro_rules! stop {
     ($type:ident => $fmt:expr, $($arg:tt)+) => {
         return Err(RucketErr::$type(format!($fmt, $($arg)+)));
     };
+
     ($type:ident => $thing:expr) => {
         return Err(RucketErr::$type(($thing).to_string()));
     };

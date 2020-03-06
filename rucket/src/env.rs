@@ -222,7 +222,7 @@ impl Env {
                                 None => stop!(ContractViolation => "car expects a non empty list"),
                             },
                             e => {
-                                stop!(ExpectedList => "car takes a list, given: {}", e);
+                                stop!(TypeMismatch => "car takes a list, given: {}", e);
                             }
                         }
                     } else {
@@ -243,7 +243,7 @@ impl Env {
                                 }
                             }
                             e => {
-                                stop!(ExpectedList => "cdr takes a list, given: {}", e);
+                                stop!(TypeMismatch => "cdr takes a list, given: {}", e);
                             }
                         }
                     } else {
@@ -304,7 +304,7 @@ fn unwrap_list_of_lists(args: Vec<RucketVal>) -> Result<Vec<Vec<RucketVal>>> {
 fn unwrap_single_list(exp: &RucketVal) -> Result<Vec<RucketVal>> {
     match exp {
         RucketVal::ListV(lst) => Ok(lst.clone()),
-        _ => stop!(ExpectedList => "expected a list"),
+        _ => stop!(TypeMismatch => "expected a list"),
     }
 }
 
@@ -314,7 +314,7 @@ mod env_tests {
     fn unwrap_single_float(exp: &RucketVal) -> Result<f64> {
         match exp {
             RucketVal::NumV(num) => Ok(*num),
-            _ => stop!(ExpectedNumber => "expected a number"),
+            _ => stop!(TypeMismatch => "expected a number"),
         }
     }
     #[test]

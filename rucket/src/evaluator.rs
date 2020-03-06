@@ -90,15 +90,15 @@ pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
                 .iter()
                 .map(|x| match x {
                     Expr::Atom(Token::Identifier(s)) => Ok(s.clone()),
-                    _ => Err(RucketErr::ExpectedIdentifier(
-                        "Lambda must have symbols as arguments".to_string(),
+                    _ => Err(RucketErr::TypeMismatch(
+                        "Lambda must have symbols as arguments".to_string()
                     )),
                 })
                 .collect();
             res
         }
-        _ => Err(RucketErr::ExpectedArgumentsToLambda(
-            "Malformed lambda arguments".to_string(),
+        _ => Err(RucketErr::TypeMismatch(
+            "Malformed lambda arguments".to_string()
         )),
     }
 }
@@ -174,11 +174,11 @@ pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                                 expr = new_expr;
                                 env = new_env;
                             }
-                            e => stop!(ExpectedFunction => e),
+                            e => stop!(TypeMismatch => e),
                         },
                     }
                 } else {
-                    stop!(ExpectedFunction => "Given empty list")
+                    stop!(TypeMismatch => "Given empty list")
                 }
             }
         }
@@ -305,7 +305,7 @@ fn eval_set(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal
         if let Expr::Atom(Token::Identifier(s)) = symbol {
             env.borrow_mut().set(s.clone(), value)
         } else {
-            stop!(ExpectedIdentifier => symbol)
+            stop!(TypeMismatch => symbol)
         }
     } else {
         let e = format!(
@@ -351,7 +351,7 @@ fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<RefC
             // construct lambda to parse
             Expr::ListVal(list_of_identifiers) => {
                 if list_of_identifiers.is_empty() {
-                    stop!(ExpectedIdentifier => "define expected an identifier, got empty list")
+                    stop!(TypeMismatch => "define expected an identifier, got empty list")
                 }
                 if let Expr::Atom(Token::Identifier(s)) = &list_of_identifiers[0] {
                     // eval_make_lambda
@@ -367,10 +367,10 @@ fn eval_define(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<RefC
                     env.borrow_mut().define(s.to_string(), eval_body);
                     Ok(env)
                 } else {
-                    stop!(ExpectedIdentifier => "Define expected identifier, got: {}", symbol);
+                    stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
                 }
             }
-            _ => stop!(ExpectedIdentifier => "Define expects an identifier, got: {}", symbol),
+            _ => stop!(TypeMismatch => "Define expects an identifier, got: {}", symbol),
         }
     } else {
         let e = format!(
