@@ -49,7 +49,7 @@ pub const PRELUDE: &'static str = "
 (define max (lambda (x  num-list) (fold (lambda (y z) (if (> y z) y z)) x (cons 0 num-list))))
 (define min (lambda (x  num-list) (fold (lambda (y z) (if (< y z) y z)) x (cons 536870911 num-list))))
 (define length (lambda (lst)        (fold (lambda (x y) (+ x 1)) 0 lst)))
-(define append (lambda (lst lsts)  (foldl (flip (curry2 foldr cons)) lst lsts))) ;; TODO fix
+;; (define append (lambda (lst lsts)  (foldl (flip (curry2 foldr cons)) lst lsts))) ;; TODO fix
 (define reverse (lambda (list) (cdr (foldl (flip cons) '() list)))) ;; TODO fix
 (define mem-helper (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 ;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
@@ -77,4 +77,29 @@ pub const PRELUDE: &'static str = "
 (define rest cdr)
 (define head car)
 (define tail cdr)
+(define (add1 n) (+ 1 n))
+(define (sub1 n) (- n 1))
+(define (zero? n) (= n 0))
+
+
+(define (take n lst)
+  (begin
+    (define (loop x l accum)
+      (if (or (zero? x) (null? l))
+          accum
+          (loop (sub1 x) (cdr l) (append accum (list (car l))))))
+        (loop n lst '())))
+
+(define (drop n lst)
+  (begin
+    (define (loop x l)
+      (if (zero? x)
+        l
+        (loop (sub1 x) (cdr l))))
+    (loop n lst)))
+
+(define (slice l offset n)
+    (take (drop l offset) n))
+
+
 ";

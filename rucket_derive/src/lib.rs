@@ -23,7 +23,9 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
         _ => panic!("expected a struct with named fields"),
     };
     let field_name = fields.iter().map(|field| &field.ident);
+    let field_name2 = field_name.clone();
     let field_type = fields.iter().map(|field| &field.ty);
+    let field_type2 = field_type.clone();
 
     let gen = quote! {
 
@@ -72,6 +74,30 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                         stop!(ArityMismatch => "set! expected 2 arguments");
                     });
                 vec_binding.push((name, func));
+
+                // generate constructor
+                let name = concat!(stringify!(#name));
+                let func =
+                        RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                            let mut args_iter = args.into_iter();
+                            let new_struct = #name {
+                                #(
+                                    #field_name2: {
+                                    if let Some(arg) = args_iter.next() {
+                                        match arg {
+                                            RucketVal::Custom(_) => unwrap!(arg, #field_type2)?,
+                                            _ => <#field_type2>::try_from(arg)?
+                                        }
+                                    } else {
+                                        stop!(ArityMismatch => "Struct not given correct arguments");
+                                    }},
+
+                                )*
+                            };
+                            Ok(new_struct.new_rucket_val())
+                        });
+                vec_binding.push((name, func));
+
                 #(
                     // generate setters
                     let name = concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!");

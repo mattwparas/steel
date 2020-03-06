@@ -10,3 +10,9 @@ edition = "2018"
 rustyline = "5.0.6"
 rucket = { path = "./rucket" }
 rucket_derive = { path = "./rucket_derive"}
+
+[workspace]
+members = [
+    "rucket",
+    "rucket_derive",
+]
