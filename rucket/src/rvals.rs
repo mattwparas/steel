@@ -245,6 +245,7 @@ impl PartialEq for RucketVal {
             (NumV(l), NumV(r)) => l == r,
             (StringV(l), StringV(r)) => l == r,
             (ListV(l), ListV(r)) => l == r,
+            (SymbolV(l), SymbolV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
@@ -264,7 +265,7 @@ impl PartialOrd for RucketVal {
         match (self, other) {
             (NumV(n), NumV(o)) => n.partial_cmp(o),
             (StringV(s), StringV(o)) => s.partial_cmp(o),
-            _ => unimplemented!(),
+            _ => None, // unimplemented for other types
         }
     }
 }
