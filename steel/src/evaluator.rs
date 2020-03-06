@@ -86,9 +86,7 @@ fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
                 .collect();
             res
         }
-        _ => Err(SteelErr::TypeMismatch(
-            "Malformed lambda arguments".to_string(),
-        )),
+        _ => Err(SteelErr::TypeMismatch("List of Identifiers".to_string())),
     }
 }
 
@@ -251,7 +249,6 @@ fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
     }
 }
 
-// TODO write tests for this
 fn eval_make_lambda(list_of_tokens: &[Expr], parent_env: Rc<RefCell<Env>>) -> Result<SteelVal> {
     if let [list_of_symbols, body_exp] = list_of_tokens {
         let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
