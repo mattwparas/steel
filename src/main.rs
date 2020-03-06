@@ -2,7 +2,7 @@ extern crate steel;
 #[macro_use]
 extern crate steel_derive;
 
-use steel::interpreter;
+use steel::SteelInterpreter;
 
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -11,10 +11,7 @@ use steel::unwrap;
 
 use std::any::Any;
 use steel::rerrs;
-use steel::rvals;
-use steel::rvals::CustomType;
-use steel::rvals::SteelVal;
-use steel::rvals::StructFunctions;
+use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
 use steel_derive::steel;
 
@@ -49,7 +46,7 @@ pub struct MyStruct {
 }
 
 pub fn repl() -> std::io::Result<()> {
-    let mut interpreter = interpreter::SteelInterpreter::new();
+    let mut interpreter = SteelInterpreter::new();
 
     if let Err(e) = interpreter.require(PRELUDE) {
         eprintln!("Error loading prelude: {}", e)

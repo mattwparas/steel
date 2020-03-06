@@ -9,3 +9,11 @@ pub mod repl;
 pub mod rerrs;
 pub mod rvals;
 pub mod stdlib;
+
+pub use self::{
+    interpreter::SteelInterpreter,
+    primitives::SteelFunctor,
+    rerrs::SteelErr,
+    rvals::{CustomType, SteelVal, StructFunctions},
+    stdlib::PRELUDE,
+};
