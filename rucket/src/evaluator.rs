@@ -1,24 +1,18 @@
-#![allow(dead_code)] // TODO
-#![allow(unused_imports)] // TODO
+// #![allow(dead_code)] // TODO
+// #![allow(unused_imports)] // TODO
 
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::convert::TryFrom;
-use std::fmt;
-use std::iter::{Iterator, Peekable};
+use std::iter::Iterator;
 use std::rc::Rc;
 use std::result;
-use std::str::Chars;
-use thiserror::Error;
 
 use crate::env::Env;
-use crate::lexer::Tokenizer;
+use crate::parser::tokens::Token;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::RucketErr;
 use crate::rvals::{RucketLambda, RucketVal};
 use crate::stop;
-use crate::tokens::{Token, TokenError};
 
 pub type Result<T> = result::Result<T, RucketErr>;
 pub type ValidFunc = fn(Vec<RucketVal>) -> Result<RucketVal>;
@@ -441,8 +435,8 @@ impl Default for Evaluator {
 #[cfg(test)]
 mod length_test {
     use super::*;
+    use crate::parser::tokens::Token::NumberLiteral;
     use crate::parser::Expr::Atom;
-    use crate::tokens::Token::NumberLiteral;
 
     #[test]
     fn length_test() {
@@ -460,8 +454,8 @@ mod length_test {
 #[cfg(test)]
 mod parse_identifiers_test {
     use super::*;
+    use crate::parser::tokens::Token::{Identifier, NumberLiteral};
     use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::{Identifier, NumberLiteral};
 
     #[test]
     fn non_symbols_test() {
@@ -497,8 +491,8 @@ mod parse_identifiers_test {
 #[cfg(test)]
 mod eval_make_lambda_test {
     use super::*;
+    use crate::parser::tokens::Token::Identifier;
     use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::Identifier;
 
     #[test]
     fn not_enough_args_test() {
@@ -536,8 +530,8 @@ mod eval_make_lambda_test {
 #[cfg(test)]
 mod eval_if_test {
     use super::*;
-    use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::{BooleanLiteral, StringLiteral};
+    use crate::parser::tokens::Token::BooleanLiteral;
+    use crate::parser::Expr::Atom;
 
     #[test]
     fn true_test() {
@@ -582,8 +576,8 @@ mod eval_if_test {
 #[cfg(test)]
 mod eval_define_test {
     use super::*;
+    use crate::parser::tokens::Token::{BooleanLiteral, Identifier, StringLiteral};
     use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::{BooleanLiteral, Identifier, StringLiteral};
 
     #[test]
     fn wrong_length_test() {
@@ -641,8 +635,8 @@ mod eval_define_test {
 #[cfg(test)]
 mod eval_let_test {
     use super::*;
+    use crate::parser::tokens::Token::{BooleanLiteral, NumberLiteral, StringLiteral};
     use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::{BooleanLiteral, NumberLiteral, StringLiteral};
 
     #[test]
     fn ok_test() {
@@ -687,8 +681,8 @@ mod eval_let_test {
 #[cfg(test)]
 mod eval_test {
     use super::*;
+    use crate::parser::tokens::Token::{BooleanLiteral, Identifier, NumberLiteral, StringLiteral};
     use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::{BooleanLiteral, Identifier, NumberLiteral, StringLiteral};
 
     #[test]
     fn boolean_test() {

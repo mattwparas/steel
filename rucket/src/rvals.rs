@@ -1,7 +1,7 @@
 use crate::env::Env;
+use crate::parser::tokens::Token::*;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
-use crate::tokens::Token::*;
 // use std::any::Any;
 use std::any::Any;
 use std::cell::RefCell;
@@ -376,7 +376,7 @@ fn display_helper(val: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
 
 #[test]
 fn display_test() {
-    use crate::tokens::Token;
+    use crate::parser::tokens::Token;
     assert_eq!(RucketVal::BoolV(false).to_string(), "#false");
     assert_eq!(RucketVal::NumV(1.0).to_string(), "1");
     assert_eq!(
@@ -400,7 +400,7 @@ fn display_test() {
 
 #[test]
 fn display_list_test() {
-    use crate::tokens::Token;
+    use crate::parser::tokens::Token;
     assert_eq!(ListV(vec![]).to_string(), "'()");
     assert_eq!(
         ListV(vec![

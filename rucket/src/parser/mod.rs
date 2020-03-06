@@ -1,11 +1,13 @@
+pub mod lexer;
+pub mod tokens;
+use lexer::Tokenizer;
+use tokens::{Token, TokenError};
+
 use std::fmt;
 use std::iter::Peekable;
 use std::result;
 use std::str;
 use thiserror::Error;
-
-use crate::lexer::Tokenizer;
-use crate::tokens::{Token, TokenError};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
