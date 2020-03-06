@@ -10,12 +10,12 @@ use std::result;
 use crate::env::Env;
 use crate::parser::tokens::Token;
 use crate::parser::{Expr, ParseError, Parser};
-use crate::rerrs::RucketErr;
-use crate::rvals::{RucketLambda, RucketVal};
+use crate::rerrs::SteelErr;
+use crate::rvals::{SteelLambda, SteelVal};
 use crate::stop;
 
-pub type Result<T> = result::Result<T, RucketErr>;
-pub type ValidFunc = fn(Vec<RucketVal>) -> Result<RucketVal>;
+pub type Result<T> = result::Result<T, SteelErr>;
+pub type ValidFunc = fn(Vec<SteelVal>) -> Result<SteelVal>;
 
 pub struct Evaluator {
     global_env: Rc<RefCell<Env>>,
@@ -27,13 +27,13 @@ impl Evaluator {
             global_env: Rc::new(RefCell::new(Env::default_env())),
         }
     }
-    pub fn eval(&mut self, expr: &Expr) -> Result<RucketVal> {
+    pub fn eval(&mut self, expr: &Expr) -> Result<SteelVal> {
         // global environment updates automatically
         evaluate(&expr, &self.global_env)
     }
 
     // TODO check this
-    pub fn parse_and_eval(&mut self, expr_str: &str) -> Result<Vec<RucketVal>> {
+    pub fn parse_and_eval(&mut self, expr_str: &str) -> Result<Vec<SteelVal>> {
         let parsed: result::Result<Vec<Expr>, ParseError> = Parser::new(expr_str).collect();
         let parsed = parsed?;
         parsed.iter().map(|x| self.eval(&x)).collect()
@@ -43,15 +43,15 @@ impl Evaluator {
         self.global_env.borrow_mut().clear_bindings();
     }
 
-    pub fn insert_binding(&mut self, name: String, value: RucketVal) {
+    pub fn insert_binding(&mut self, name: String, value: SteelVal) {
         self.global_env.borrow_mut().define(name, value);
     }
 
-    pub fn insert_bindings(&mut self, vals: Vec<(&'static str, RucketVal)>) {
+    pub fn insert_bindings(&mut self, vals: Vec<(&'static str, SteelVal)>) {
         self.global_env.borrow_mut().define_zipped(vals.into_iter());
     }
 
-    pub fn lookup_binding(&mut self, name: &str) -> Result<RucketVal> {
+    pub fn lookup_binding(&mut self, name: &str) -> Result<SteelVal> {
         self.global_env.borrow_mut().lookup(name)
     }
 }
@@ -82,14 +82,14 @@ fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
                 .iter()
                 .map(|x| match x {
                     Expr::Atom(Token::Identifier(s)) => Ok(s.clone()),
-                    _ => Err(RucketErr::TypeMismatch(
+                    _ => Err(SteelErr::TypeMismatch(
                         "Lambda must have symbols as arguments".to_string(),
                     )),
                 })
                 .collect();
             res
         }
-        _ => Err(RucketErr::TypeMismatch(
+        _ => Err(SteelErr::TypeMismatch(
             "Malformed lambda arguments".to_string(),
         )),
     }
@@ -100,7 +100,7 @@ fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
     if tokens.len() == expected {
         Ok(())
     } else {
-        Err(RucketErr::ArityMismatch(format!(
+        Err(SteelErr::ArityMismatch(format!(
             "{}: expected {} args got {}",
             what,
             expected,
@@ -109,7 +109,7 @@ fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
     }
 }
 
-fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
     let mut env = Rc::clone(env);
     let mut expr = expr.clone();
 
@@ -122,14 +122,14 @@ fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                     match f {
                         Expr::Atom(Token::Identifier(s)) if s == "quote" => {
                             check_length("Quote", &list_of_tokens, 2)?;
-                            let converted = RucketVal::try_from(list_of_tokens[1].clone())?;
+                            let converted = SteelVal::try_from(list_of_tokens[1].clone())?;
                             return Ok(converted);
                         }
                         Expr::Atom(Token::Identifier(s)) if s == "if" => {
                             expr = eval_if(&list_of_tokens[1..], &env)?
                         }
                         Expr::Atom(Token::Identifier(s)) if s == "define" => {
-                            return eval_define(&list_of_tokens[1..], env).map(|_| RucketVal::Void)
+                            return eval_define(&list_of_tokens[1..], env).map(|_| SteelVal::Void)
                         }
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Identifier(s)) if s == "lambda" || s == "λ" => {
@@ -157,10 +157,10 @@ fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
                         }
                         // (sym args*), sym must be a procedure
                         sym => match evaluate(&sym, &env)? {
-                            RucketVal::FuncV(func) => {
+                            SteelVal::FuncV(func) => {
                                 return eval_func(func, &list_of_tokens[1..], &env)
                             }
-                            RucketVal::LambdaV(lambda) => {
+                            SteelVal::LambdaV(lambda) => {
                                 let (new_expr, new_env) =
                                     eval_lambda(lambda, &list_of_tokens[1..], &env)?;
                                 expr = new_expr;
@@ -177,22 +177,18 @@ fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     }
 }
 /// evaluates an atom expression in given environment
-fn eval_atom(t: Token, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_atom(t: Token, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
     match t {
-        Token::BooleanLiteral(b) => Ok(RucketVal::BoolV(b)),
+        Token::BooleanLiteral(b) => Ok(SteelVal::BoolV(b)),
         Token::Identifier(s) => env.borrow().lookup(&s),
-        Token::NumberLiteral(n) => Ok(RucketVal::NumV(n)),
-        Token::StringLiteral(s) => Ok(RucketVal::StringV(s)),
+        Token::NumberLiteral(n) => Ok(SteelVal::NumV(n)),
+        Token::StringLiteral(s) => Ok(SteelVal::StringV(s)),
         what => stop!(UnexpectedToken => what),
     }
 }
 /// evaluates a primitive function into single returnable value
-fn eval_func(
-    func: ValidFunc,
-    list_of_tokens: &[Expr],
-    env: &Rc<RefCell<Env>>,
-) -> Result<RucketVal> {
-    let args_eval: Result<Vec<RucketVal>> = list_of_tokens
+fn eval_func(func: ValidFunc, list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
+    let args_eval: Result<Vec<SteelVal>> = list_of_tokens
         .into_iter()
         .map(|x| evaluate(&x, &env))
         .collect();
@@ -202,39 +198,39 @@ fn eval_func(
     return Ok(rval);
 }
 
-fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
     for expr in list_of_tokens {
         match evaluate(expr, env)? {
-            RucketVal::BoolV(true) => continue,
-            RucketVal::BoolV(false) => return Ok(RucketVal::BoolV(false)),
+            SteelVal::BoolV(true) => continue,
+            SteelVal::BoolV(false) => return Ok(SteelVal::BoolV(false)),
             _ => continue,
         }
     }
-    Ok(RucketVal::BoolV(true))
+    Ok(SteelVal::BoolV(true))
 }
 
-fn eval_or(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_or(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
     for expr in list_of_tokens {
         match evaluate(expr, env)? {
-            RucketVal::BoolV(true) => return Ok(RucketVal::BoolV(true)),
+            SteelVal::BoolV(true) => return Ok(SteelVal::BoolV(true)),
             _ => continue,
         }
     }
-    Ok(RucketVal::BoolV(false))
+    Ok(SteelVal::BoolV(false))
 }
 
 /// evaluates a lambda into a body expression to execute
 /// and an inner environment
 fn eval_lambda(
-    lambda: RucketLambda,
+    lambda: SteelLambda,
     list_of_tokens: &[Expr],
     env: &Rc<RefCell<Env>>,
 ) -> Result<(Expr, Rc<RefCell<Env>>)> {
-    let args_eval: Result<Vec<RucketVal>> = list_of_tokens
+    let args_eval: Result<Vec<SteelVal>> = list_of_tokens
         .into_iter()
         .map(|x| evaluate(&x, &env))
         .collect();
-    let args_eval: Vec<RucketVal> = args_eval?;
+    let args_eval: Vec<SteelVal> = args_eval?;
     // build a new environment using the parent environment
     let parent_env = lambda.parent_env();
     let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
@@ -249,7 +245,7 @@ fn eval_lambda(
 fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
     if let [test_expr, then_expr, else_expr] = list_of_tokens {
         match evaluate(&test_expr, env)? {
-            RucketVal::BoolV(true) => Ok(then_expr.clone()),
+            SteelVal::BoolV(true) => Ok(then_expr.clone()),
             _ => Ok(else_expr.clone()),
         }
     } else {
@@ -259,11 +255,11 @@ fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
 }
 
 // TODO write tests for this
-fn eval_make_lambda(list_of_tokens: &[Expr], parent_env: Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_make_lambda(list_of_tokens: &[Expr], parent_env: Rc<RefCell<Env>>) -> Result<SteelVal> {
     if let [list_of_symbols, body_exp] = list_of_tokens {
         let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
-        let constructed_lambda = RucketLambda::new(parsed_list, body_exp.clone(), parent_env);
-        Ok(RucketVal::LambdaV(constructed_lambda))
+        let constructed_lambda = SteelLambda::new(parsed_list, body_exp.clone(), parent_env);
+        Ok(SteelVal::LambdaV(constructed_lambda))
     } else {
         let e = format!(
             "{}: expected {} args got {}",
@@ -290,7 +286,7 @@ fn eval_begin(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
     }
 }
 
-fn eval_set(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_set(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
     if let [symbol, rest_expr] = list_of_tokens {
         let value = evaluate(rest_expr, env)?;
 
@@ -313,7 +309,7 @@ fn eval_set(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal
 // TODO write tests
 // Evaluate the inner expression, check that it is a quoted expression,
 // evaluate body of quoted expression
-fn eval_eval_expr(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_eval_expr(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
     if let [e] = list_of_tokens {
         let res_expr = evaluate(e, env)?;
         match Expr::try_from(res_expr) {

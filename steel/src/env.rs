@@ -1,9 +1,9 @@
 use crate::evaluator::Result;
 // #[macro_use]
-use crate::primitives::{Adder, Divider, Multiplier, RucketFunctor, Subtractor};
-use crate::rerrs::RucketErr;
-use crate::rvals::RucketVal;
-use crate::rvals::RucketVal::*;
+use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
+use crate::rerrs::SteelErr;
+use crate::rvals::SteelVal;
+use crate::rvals::SteelVal::*;
 use crate::stop;
 
 use std::cell::RefCell;
@@ -13,20 +13,20 @@ use std::rc::Rc;
 #[macro_use]
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
-        |args: Vec<RucketVal>| -> Result<RucketVal> {
+        |args: Vec<SteelVal>| -> Result<SteelVal> {
             // let floats = unwrap_list_of_floats(args)?;
             let mut args_iter = args.iter();
-            let first = args_iter.next().ok_or(RucketErr::ContractViolation(
+            let first = args_iter.next().ok_or(SteelErr::ContractViolation(
                 "expected at least one argument".to_string(),
             ))?;
             // let rest = &floats[1..];
-            fn f<'a>(prev: &RucketVal, mut xs: impl Iterator<Item = &'a RucketVal>) -> bool {
+            fn f<'a>(prev: &SteelVal, mut xs: impl Iterator<Item = &'a SteelVal>) -> bool {
                 match xs.next() {
                     Some(x) => $check_fn(prev, x) && f(x, xs),
                     None => true,
                 }
             };
-            Ok(RucketVal::BoolV(f(first, args_iter)))
+            Ok(SteelVal::BoolV(f(first, args_iter)))
         }
     }};
 }
@@ -37,7 +37,7 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
 }
 
 pub struct Env {
-    bindings: HashMap<String, RucketVal>,
+    bindings: HashMap<String, SteelVal>,
     parent: Option<Rc<RefCell<Env>>>,
 }
 impl Env {
@@ -64,13 +64,13 @@ impl Env {
 
     /// Within the current environment, bind
     /// identifier `key` to `val`
-    pub fn define(&mut self, key: String, val: RucketVal) {
+    pub fn define(&mut self, key: String, val: SteelVal) {
         self.bindings.insert(key, val);
     }
     /// Within the current environment,
     /// bind identifiers `keys` to `vals`
     /// throws arity mismatch if they don't have the same length
-    pub fn define_all(&mut self, keys: &[String], vals: Vec<RucketVal>) -> Result<()> {
+    pub fn define_all(&mut self, keys: &[String], vals: Vec<SteelVal>) -> Result<()> {
         let expected_len = keys.len();
         let actual_len = vals.len();
         if expected_len != actual_len {
@@ -85,7 +85,7 @@ impl Env {
         Ok(())
     }
 
-    pub fn define_zipped<'a>(&mut self, zipped: impl Iterator<Item = (&'a str, RucketVal)>) {
+    pub fn define_zipped<'a>(&mut self, zipped: impl Iterator<Item = (&'a str, SteelVal)>) {
         zipped.for_each(|(param, arg)| self.define(param.to_string(), arg))
     }
 
@@ -96,15 +96,15 @@ impl Env {
     /// `key` with `val` and return old value.
     ///
     /// Otherwise, error with `FreeIdentifier`
-    pub fn set(&mut self, key: String, val: RucketVal) -> Result<RucketVal> {
+    pub fn set(&mut self, key: String, val: SteelVal) -> Result<SteelVal> {
         if self.bindings.contains_key(&key) {
             self.bindings
                 .insert(key.clone(), val)
-                .ok_or_else(|| RucketErr::FreeIdentifier(key.to_string()))
+                .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string()))
         } else {
             match &self.parent {
                 Some(par) => par.borrow_mut().set(key, val),
-                None => stop!(FreeIdentifier => key), // Err(RucketErr::FreeIdentifier(key)),
+                None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key)),
             }
         }
     }
@@ -115,15 +115,15 @@ impl Env {
     /// If found, remove the binding and return the value
     ///
     /// Otherwise, error with `FreeIdentifier`
-    pub fn remove(&mut self, key: &str) -> Result<RucketVal> {
+    pub fn remove(&mut self, key: &str) -> Result<SteelVal> {
         if self.bindings.contains_key(key) {
             self.bindings
                 .remove(key)
-                .ok_or_else(|| RucketErr::FreeIdentifier(key.to_string()))
+                .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string()))
         } else {
             match &self.parent {
                 Some(par) => par.borrow_mut().remove(key),
-                None => stop!(FreeIdentifier => key), // Err(RucketErr::FreeIdentifier(key.to_string())),
+                None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key.to_string())),
             }
         }
     }
@@ -134,7 +134,7 @@ impl Env {
     /// if found, return that value
     ///
     /// Otherwise, error with `FreeIdentifier`
-    pub fn lookup(&self, name: &str) -> Result<RucketVal> {
+    pub fn lookup(&self, name: &str) -> Result<SteelVal> {
         if self.bindings.contains_key(name) {
             // value needs to be cloned because
             // user needs to be able to own a persistent value
@@ -143,7 +143,7 @@ impl Env {
         } else {
             match &self.parent {
                 Some(par) => par.borrow().lookup(name),
-                None => stop!(FreeIdentifier => name), // Err(RucketErr::FreeIdentifier(name.to_string())),
+                None => stop!(FreeIdentifier => name), // Err(SteelErr::FreeIdentifier(name.to_string())),
             }
         }
     }
@@ -155,29 +155,29 @@ impl Env {
         env.define_zipped(Env::default_bindings().into_iter());
         env
     }
-    pub fn default_bindings() -> Vec<(&'static str, RucketVal)> {
+    pub fn default_bindings() -> Vec<(&'static str, SteelVal)> {
         vec![
-            ("+", RucketVal::FuncV(Adder::new_func())),
-            ("*", RucketVal::FuncV(Multiplier::new_func())),
-            ("/", RucketVal::FuncV(Divider::new_func())),
-            ("-", RucketVal::FuncV(Subtractor::new_func())),
+            ("+", SteelVal::FuncV(Adder::new_func())),
+            ("*", SteelVal::FuncV(Multiplier::new_func())),
+            ("/", SteelVal::FuncV(Divider::new_func())),
+            ("-", SteelVal::FuncV(Subtractor::new_func())),
             (
                 "list",
-                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
-                    Ok(RucketVal::ListV(args))
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
+                    Ok(SteelVal::ListV(args))
                 }),
             ),
             (
                 "cons",
-                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     let mut args = args.into_iter();
                     match (args.next(), args.next()) {
                         (Some(elem), Some(lst)) => {
-                            if let RucketVal::ListV(mut l) = lst {
+                            if let SteelVal::ListV(mut l) = lst {
                                 l.insert(0, elem);
-                                return Ok(RucketVal::ListV(l));
+                                return Ok(SteelVal::ListV(l));
                             } else {
-                                return Ok(RucketVal::ListV(vec![elem, lst]));
+                                return Ok(SteelVal::ListV(vec![elem, lst]));
                             }
                         }
                         _ => stop!(ArityMismatch => "cons takes two arguments"),
@@ -186,17 +186,17 @@ impl Env {
             ),
             (
                 "null?",
-                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     if args.len() == 1 {
                         match &args[0] {
-                            RucketVal::ListV(v) => {
+                            SteelVal::ListV(v) => {
                                 if v.is_empty() {
-                                    return Ok(RucketVal::BoolV(true));
+                                    return Ok(SteelVal::BoolV(true));
                                 } else {
-                                    return Ok(RucketVal::BoolV(false));
+                                    return Ok(SteelVal::BoolV(false));
                                 }
                             }
-                            _ => Ok(RucketVal::BoolV(false)),
+                            _ => Ok(SteelVal::BoolV(false)),
                         }
                     } else {
                         stop!(ArityMismatch => "car takes one argument");
@@ -205,18 +205,18 @@ impl Env {
             ),
             (
                 "append",
-                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
-                    let lsts: Vec<RucketVal> =
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
+                    let lsts: Vec<SteelVal> =
                         unwrap_list_of_lists(args)?.into_iter().flatten().collect();
-                    Ok(RucketVal::ListV(lsts))
+                    Ok(SteelVal::ListV(lsts))
                 }),
             ),
             (
                 "car",
-                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     if let Some(first) = args.into_iter().next() {
                         match first {
-                            RucketVal::ListV(e) => match e.into_iter().next() {
+                            SteelVal::ListV(e) => match e.into_iter().next() {
                                 Some(e) => Ok(e),
                                 None => stop!(ContractViolation => "car expects a non empty list"),
                             },
@@ -231,12 +231,12 @@ impl Env {
             ),
             (
                 "cdr",
-                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     if let Some(first) = args.into_iter().next() {
                         match first {
-                            RucketVal::ListV(e) => {
+                            SteelVal::ListV(e) => {
                                 if !e.is_empty() {
-                                    Ok(RucketVal::ListV(e.into_iter().skip(1).collect()))
+                                    Ok(SteelVal::ListV(e.into_iter().skip(1).collect()))
                                 } else {
                                     stop!(ContractViolation => "cdr expects a non empty list")
                                 }
@@ -252,7 +252,7 @@ impl Env {
             ),
             (
                 "number?",
-                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     match args.first() {
                         Some(NumV(_)) => Ok(BoolV(true)),
                         _ => Ok(BoolV(false)),
@@ -261,7 +261,7 @@ impl Env {
             ),
             (
                 "string?",
-                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     match args.first() {
                         Some(StringV(_)) => Ok(BoolV(true)),
                         _ => Ok(BoolV(false)),
@@ -270,7 +270,7 @@ impl Env {
             ),
             (
                 "symbol?",
-                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     match args.first() {
                         Some(SymbolV(_)) => Ok(BoolV(true)),
                         _ => Ok(BoolV(false)),
@@ -279,30 +279,30 @@ impl Env {
             ),
             (
                 "list?",
-                RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal> {
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     match args.first() {
                         Some(ListV(_)) => Ok(BoolV(true)),
                         _ => Ok(BoolV(false)),
                     }
                 }),
             ),
-            ("=", RucketVal::FuncV(ensure_tonicity!(|a, b| a == b))),
-            ("equal?", RucketVal::FuncV(ensure_tonicity!(|a, b| a == b))),
-            (">", RucketVal::FuncV(ensure_tonicity!(|a, b| a > b))),
-            (">=", RucketVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
-            ("<", RucketVal::FuncV(ensure_tonicity!(|a, b| a < b))),
-            ("<=", RucketVal::FuncV(ensure_tonicity!(|a, b| a <= b))),
+            ("=", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
+            ("equal?", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
+            (">", SteelVal::FuncV(ensure_tonicity!(|a, b| a > b))),
+            (">=", SteelVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
+            ("<", SteelVal::FuncV(ensure_tonicity!(|a, b| a < b))),
+            ("<=", SteelVal::FuncV(ensure_tonicity!(|a, b| a <= b))),
         ]
     }
 }
 
-fn unwrap_list_of_lists(args: Vec<RucketVal>) -> Result<Vec<Vec<RucketVal>>> {
+fn unwrap_list_of_lists(args: Vec<SteelVal>) -> Result<Vec<Vec<SteelVal>>> {
     args.iter().map(|x| unwrap_single_list(x)).collect()
 }
 
-fn unwrap_single_list(exp: &RucketVal) -> Result<Vec<RucketVal>> {
+fn unwrap_single_list(exp: &SteelVal) -> Result<Vec<SteelVal>> {
     match exp {
-        RucketVal::ListV(lst) => Ok(lst.clone()),
+        SteelVal::ListV(lst) => Ok(lst.clone()),
         _ => stop!(TypeMismatch => "expected a list"),
     }
 }
@@ -310,9 +310,9 @@ fn unwrap_single_list(exp: &RucketVal) -> Result<Vec<RucketVal>> {
 #[cfg(test)]
 mod env_tests {
     use super::*;
-    fn unwrap_single_float(exp: &RucketVal) -> Result<f64> {
+    fn unwrap_single_float(exp: &SteelVal) -> Result<f64> {
         match exp {
-            RucketVal::NumV(num) => Ok(*num),
+            SteelVal::NumV(num) => Ok(*num),
             _ => stop!(TypeMismatch => "expected a number"),
         }
     }
@@ -322,9 +322,9 @@ mod env_tests {
         let default_env = Rc::new(RefCell::new(Env::default_env()));
         assert!(default_env.borrow().lookup("+").is_ok());
         let c1 = Rc::new(RefCell::new(Env::new(&default_env)));
-        c1.borrow_mut().define("x".to_owned(), RucketVal::NumV(1.0));
+        c1.borrow_mut().define("x".to_owned(), SteelVal::NumV(1.0));
         let c2 = Rc::new(RefCell::new(Env::new(&c1)));
-        c2.borrow_mut().define("y".to_owned(), RucketVal::NumV(2.0));
+        c2.borrow_mut().define("y".to_owned(), SteelVal::NumV(2.0));
         assert!(default_env.borrow_mut().lookup("+").is_ok());
         assert!(c2.borrow_mut().lookup("+").is_ok());
         assert_eq!(

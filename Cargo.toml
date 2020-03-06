@@ -1,5 +1,5 @@
 [package]
-name = "rucket_client"
+name = "steel_client"
 version = "0.1.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2018"
@@ -8,11 +8,11 @@ edition = "2018"
 
 [dependencies]
 rustyline = "5.0.6"
-rucket = { path = "./rucket" }
-rucket_derive = { path = "./rucket_derive"}
+steel = { path = "./steel" }
+steel_derive = { path = "./steel_derive"}
 
 [workspace]
 members = [
-    "rucket",
-    "rucket_derive",
+    "steel",
+    "steel_derive",
 ]

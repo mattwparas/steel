@@ -1,23 +1,22 @@
-extern crate rucket;
+extern crate steel;
 #[macro_use]
-extern crate rucket_derive;
+extern crate steel_derive;
 
-use rucket::interpreter;
-// use std::any::Any;
+use steel::interpreter;
 
-use rucket::stdlib::PRELUDE;
-use rucket::unwrap;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use steel::stdlib::PRELUDE;
+use steel::unwrap;
 
-use rucket::rerrs;
-use rucket::rvals;
-use rucket::rvals::CustomType;
-use rucket::rvals::RucketVal;
-use rucket::rvals::StructFunctions;
 use std::any::Any;
+use steel::rerrs;
+use steel::rvals;
+use steel::rvals::CustomType;
+use steel::rvals::SteelVal;
+use steel::rvals::StructFunctions;
 
-use rucket_derive::steel;
+use steel_derive::steel;
 
 use std::process;
 
@@ -31,7 +30,7 @@ fn finish(result: Result<(), std::io::Error>) -> ! {
         Err(e) => {
             eprintln!(
                 "{}: {}",
-                std::env::args().next().unwrap_or_else(|| "rucket".into()),
+                std::env::args().next().unwrap_or_else(|| "steel".into()),
                 e
             );
             1
@@ -50,12 +49,12 @@ pub struct MyStruct {
 }
 
 pub fn repl() -> std::io::Result<()> {
-    let mut interpreter = interpreter::RucketInterpreter::new();
+    let mut interpreter = interpreter::SteelInterpreter::new();
 
     if let Err(e) = interpreter.require(PRELUDE) {
         eprintln!("Error loading prelude: {}", e)
     }
-    println!("Welcome to Rucket 1.0");
+    println!("Welcome to Steel 1.0");
 
     println!("Attempting to insert my own type");
 
@@ -65,7 +64,7 @@ pub fn repl() -> std::io::Result<()> {
         name: "matthew paras".to_string(),
     };
     // let testytest: usize = 420;
-    let my_val = testytest.new_rucket_val();
+    let my_val = testytest.new_steel_val();
 
     interpreter.insert_binding("test", my_val.clone());
 

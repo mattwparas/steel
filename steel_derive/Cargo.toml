@@ -1,5 +1,5 @@
 [package]
-name = "rucket_derive"
+name = "steel_derive"
 version = "0.1.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2018"
@@ -13,4 +13,4 @@ proc-macro = true
 syn = "1.0"
 quote = "1.0"
 proc-macro2 = "1.0"
-rucket = { path = "../rucket" }
+steel = { path = "../steel" }

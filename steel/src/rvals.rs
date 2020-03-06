@@ -1,20 +1,20 @@
 use crate::env::Env;
 use crate::parser::tokens::Token::*;
 use crate::parser::Expr;
-use crate::rerrs::RucketErr;
+use crate::rerrs::SteelErr;
 // use std::any::Any;
 use std::any::Any;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt;
 use std::rc::Rc;
-use RucketVal::*;
+use SteelVal::*;
 
 use std::convert::TryFrom;
 use std::result;
 
 pub trait StructFunctions {
-    fn generate_bindings() -> Vec<(&'static str, RucketVal)>;
+    fn generate_bindings() -> Vec<(&'static str, SteelVal)>;
 }
 
 pub trait CustomType {
@@ -23,7 +23,7 @@ pub trait CustomType {
     fn name(&self) -> String {
         (std::any::type_name::<Self>()).to_string()
     }
-    fn new_rucket_val(&self) -> RucketVal;
+    fn new_steel_val(&self) -> SteelVal;
 }
 
 impl Clone for Box<dyn CustomType> {
@@ -32,9 +32,9 @@ impl Clone for Box<dyn CustomType> {
     }
 }
 
-impl From<Box<dyn CustomType>> for RucketVal {
-    fn from(val: Box<dyn CustomType>) -> RucketVal {
-        val.new_rucket_val()
+impl From<Box<dyn CustomType>> for SteelVal {
+    fn from(val: Box<dyn CustomType>) -> SteelVal {
+        val.new_steel_val()
     }
 }
 
@@ -50,15 +50,15 @@ macro_rules! implement {
                     fn as_any(&self) -> Box<dyn Any> {
                         Box::new((*self).clone())
                     }
-                    fn new_rucket_val(&self) -> RucketVal {
-                        RucketVal::Custom(Box::new(self.clone()))
+                    fn new_steel_val(&self) -> SteelVal {
+                        SteelVal::Custom(Box::new(self.clone()))
                     }
                 }
             }
             as_item! {
-                impl From<$type> for RucketVal {
-                    fn from(val: $type) -> RucketVal {
-                        val.new_rucket_val()
+                impl From<$type> for SteelVal {
+                    fn from(val: $type) -> SteelVal {
+                        val.new_steel_val()
                     }
                 }
             }
@@ -74,24 +74,24 @@ macro_rules! implement {
                 fn as_any(&self) -> Box<dyn Any> {
                     Box::new((*self).clone())
                 }
-                fn new_rucket_val(&self) -> RucketVal {
-                    RucketVal::Custom(Box::new(self.clone()))
+                fn new_steel_val(&self) -> SteelVal {
+                    SteelVal::Custom(Box::new(self.clone()))
                 }
             }
         }
 
         as_item! {
-            impl From<$type> for RucketVal {
-                fn from(val: $type) -> RucketVal {
-                    val.new_rucket_val()
+            impl From<$type> for SteelVal {
+                fn from(val: $type) -> SteelVal {
+                    val.new_steel_val()
                 }
             }
         }
 
         as_item! {
-            impl From<RucketVal> for $type {
-                fn from(val: RucketVal) -> $type {
-                    println!("inside from rucketval to {}", stringify!($type));
+            impl From<SteelVal> for $type {
+                fn from(val: SteelVal) -> $type {
+                    println!("inside from steelval to {}", stringify!($type));
                     unwrap!(val, $type).unwrap()
                 }
             }
@@ -99,10 +99,10 @@ macro_rules! implement {
 
         as_item! {
             impl $type {
-                pub fn generate_bindings() -> Vec<(&'static str, RucketVal)> {
+                pub fn generate_bindings() -> Vec<(&'static str, SteelVal)> {
                     use std::convert::TryFrom;
-                    use crate::rvals::RucketVal;
-                    use crate::rerrs::RucketErr;
+                    use crate::rvals::SteelVal;
+                    use crate::rerrs::SteelErr;
                     use crate::unwrap;
                     use crate::stop;
                     let mut vec_binding = vec![];
@@ -111,10 +111,10 @@ macro_rules! implement {
                     let name = concat!(stringify!($type), "?");
                     println!("{}", name);
                     let func =
-                         RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                         SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
                             let mut args_iter = args.into_iter();
                             if let Some(first) = args_iter.next() {
-                                return Ok(RucketVal::BoolV(unwrap!(first, $type).is_ok()));
+                                return Ok(SteelVal::BoolV(unwrap!(first, $type).is_ok()));
                             }
                             stop!(ArityMismatch => "set! expected 2 arguments");
                         });
@@ -123,7 +123,7 @@ macro_rules! implement {
                         // generate setters
                         let name = concat!("set-", stringify!($type), "-", stringify!($e), "!");
                         let func =
-                             RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                             SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
                                 let mut args_iter = args.into_iter();
                                 if let Some(first) = args_iter.next() {
                                     if let Some(second) = args_iter.next() {
@@ -133,7 +133,7 @@ macro_rules! implement {
                                         println!("{:?}", my_struct);
                                         let new_struct = $type {
                                             $e : match second {
-                                                RucketVal::Custom(_) => {
+                                                SteelVal::Custom(_) => {
                                                     println!("Inside custom: {}", stringify!($t));
                                                     unwrap!(second, $t)?
                                                 },
@@ -144,7 +144,7 @@ macro_rules! implement {
                                             },
                                             ..my_struct
                                         };
-                                        return Ok(new_struct.new_rucket_val());
+                                        return Ok(new_struct.new_steel_val());
                                     }
                                     stop!(ArityMismatch => "set! expected 2 arguments");
                                 }
@@ -156,7 +156,7 @@ macro_rules! implement {
                         let name = concat!(stringify!($type), "-", stringify!($e));
                         println!("{}", name);
                         let func =
-                             RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                             SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
                                 let mut args_iter = args.into_iter();
                                 if let Some(first) = args_iter.next() {
                                     let my_struct = unwrap!(first, $type)?;
@@ -185,45 +185,45 @@ macro_rules! as_item {
 #[macro_export]
 macro_rules! unwrap {
     ($x:expr, $body:ty) => {{
-        if let crate::rvals::RucketVal::Custom(v) = $x {
+        if let crate::rvals::SteelVal::Custom(v) = $x {
             let left_type = (*v).as_any();
             let left = left_type.downcast_ref::<$body>();
             left.map(|x| x.clone()).ok_or_else(|| {
-                crate::rerrs::RucketErr::ConversionError(
-                    "Type Mismatch: Type of RucketVal did not match the given type".to_string(),
+                crate::rerrs::SteelErr::ConversionError(
+                    "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
                 )
             })
         } else {
-            Err(crate::rerrs::RucketErr::ConversionError(
-                "Type Mismatch: Type of RucketVal did not match the given type".to_string(),
+            Err(crate::rerrs::SteelErr::ConversionError(
+                "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
             ))
         }
     }};
 }
 
 #[derive(Clone)]
-pub enum RucketVal {
+pub enum SteelVal {
     BoolV(bool),
     NumV(f64),
-    ListV(Vec<RucketVal>),
+    ListV(Vec<SteelVal>),
     Void,
     StringV(String),
-    FuncV(fn(Vec<RucketVal>) -> Result<RucketVal, RucketErr>),
-    LambdaV(RucketLambda),
+    FuncV(fn(Vec<SteelVal>) -> Result<SteelVal, SteelErr>),
+    LambdaV(SteelLambda),
     SymbolV(String),
     Custom(Box<dyn CustomType>),
 }
 
 // sometimes you want to just
 // return an expression
-impl TryFrom<Expr> for RucketVal {
-    type Error = RucketErr;
+impl TryFrom<Expr> for SteelVal {
+    type Error = SteelErr;
     fn try_from(e: Expr) -> Result<Self, Self::Error> {
         match e {
             Expr::Atom(a) => match a {
-                OpenParen => Err(RucketErr::UnexpectedToken("(".to_string())),
-                CloseParen => Err(RucketErr::UnexpectedToken(")".to_string())),
-                QuoteTick => Err(RucketErr::UnexpectedToken("'".to_string())),
+                OpenParen => Err(SteelErr::UnexpectedToken("(".to_string())),
+                CloseParen => Err(SteelErr::UnexpectedToken(")".to_string())),
+                QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string())),
                 BooleanLiteral(x) => Ok(BoolV(x)),
                 Identifier(x) => Ok(SymbolV(x)),
                 NumberLiteral(x) => Ok(NumV(x)),
@@ -240,9 +240,9 @@ impl TryFrom<Expr> for RucketVal {
 
 /// Sometimes you want to execute a list
 /// as if it was an expression
-impl TryFrom<RucketVal> for Expr {
+impl TryFrom<SteelVal> for Expr {
     type Error = &'static str;
-    fn try_from(r: RucketVal) -> result::Result<Self, Self::Error> {
+    fn try_from(r: SteelVal) -> result::Result<Self, Self::Error> {
         match r {
             BoolV(x) => Ok(Expr::Atom(BooleanLiteral(x))),
             NumV(x) => Ok(Expr::Atom(NumberLiteral(x))),
@@ -262,7 +262,7 @@ impl TryFrom<RucketVal> for Expr {
 }
 
 // TODO add tests
-impl PartialEq for RucketVal {
+impl PartialEq for SteelVal {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (BoolV(l), BoolV(r)) => l == r,
@@ -284,7 +284,7 @@ impl PartialEq for RucketVal {
 }
 
 // TODO add tests
-impl PartialOrd for RucketVal {
+impl PartialOrd for SteelVal {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
             (NumV(n), NumV(o)) => n.partial_cmp(o),
@@ -296,7 +296,7 @@ impl PartialOrd for RucketVal {
 
 #[derive(Clone)]
 /// struct representing data required to describe a scheme function
-pub struct RucketLambda {
+pub struct SteelLambda {
     /// symbols representing the arguments to the function
     params_exp: Vec<String>,
     /// body of the function with identifiers yet to be bound
@@ -306,13 +306,13 @@ pub struct RucketLambda {
     /// once the function is called
     parent_env: Rc<RefCell<Env>>,
 }
-impl RucketLambda {
+impl SteelLambda {
     pub fn new(
         params_exp: Vec<String>,
         body_exp: Expr,
         parent_env: Rc<RefCell<Env>>,
-    ) -> RucketLambda {
-        RucketLambda {
+    ) -> SteelLambda {
+        SteelLambda {
             params_exp,
             body_exp,
             parent_env,
@@ -335,7 +335,7 @@ impl RucketLambda {
     }
 }
 
-impl fmt::Display for RucketVal {
+impl fmt::Display for SteelVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
@@ -349,7 +349,7 @@ impl fmt::Display for RucketVal {
 
 /// this function recursively prints lists without prepending the `'`
 /// at the beginning
-fn display_helper(val: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
+fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
     match val {
         BoolV(b) => write!(f, "#{}", b),
         NumV(x) => write!(f, "{}", x),
@@ -377,17 +377,17 @@ fn display_helper(val: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
 #[test]
 fn display_test() {
     use crate::parser::tokens::Token;
-    assert_eq!(RucketVal::BoolV(false).to_string(), "#false");
-    assert_eq!(RucketVal::NumV(1.0).to_string(), "1");
+    assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
+    assert_eq!(SteelVal::NumV(1.0).to_string(), "1");
     assert_eq!(
-        RucketVal::FuncV(|_args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
-            Ok(RucketVal::ListV(vec![]))
+        SteelVal::FuncV(|_args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
+            Ok(SteelVal::ListV(vec![]))
         })
         .to_string(),
         "Function"
     );
     assert_eq!(
-        RucketVal::LambdaV(RucketLambda::new(
+        SteelVal::LambdaV(SteelLambda::new(
             vec!["arg1".to_owned()],
             Expr::Atom(Token::NumberLiteral(1.0)),
             Rc::new(RefCell::new(crate::env::Env::default_env())),
@@ -395,7 +395,7 @@ fn display_test() {
         .to_string(),
         "Lambda Function"
     );
-    assert_eq!(RucketVal::SymbolV("foo".to_string()).to_string(), "'foo");
+    assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
 }
 
 #[test]
@@ -406,7 +406,7 @@ fn display_list_test() {
         ListV(vec![
             BoolV(false),
             NumV(1.0),
-            LambdaV(RucketLambda::new(
+            LambdaV(SteelLambda::new(
                 vec!["arg1".to_owned()],
                 Expr::Atom(Token::NumberLiteral(1.0)),
                 Rc::new(RefCell::new(crate::env::Env::default_env())),

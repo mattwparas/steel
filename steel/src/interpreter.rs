@@ -1,22 +1,22 @@
 #![allow(dead_code)]
 use crate::evaluator::Evaluator;
-use crate::rerrs::RucketErr;
-use crate::rvals::RucketVal;
+use crate::rerrs::SteelErr;
+use crate::rvals::SteelVal;
 use std::io::Read;
 use std::path::Path;
 
-pub struct RucketInterpreter {
+pub struct SteelInterpreter {
     evaluator: Evaluator,
 }
 
-impl RucketInterpreter {
+impl SteelInterpreter {
     pub fn new() -> Self {
-        RucketInterpreter {
+        SteelInterpreter {
             evaluator: Evaluator::new(),
         }
     }
 
-    pub fn evaluate(&mut self, expr_str: &str) -> Result<Vec<RucketVal>, RucketErr> {
+    pub fn evaluate(&mut self, expr_str: &str) -> Result<Vec<SteelVal>, SteelErr> {
         self.evaluator.parse_and_eval(expr_str)
     }
 
@@ -29,7 +29,7 @@ impl RucketInterpreter {
     pub fn evaluate_from_reader(
         &mut self,
         mut input: impl Read,
-    ) -> Result<Vec<RucketVal>, RucketErr> {
+    ) -> Result<Vec<SteelVal>, SteelErr> {
         let mut exprs = String::new();
         input.read_to_string(&mut exprs)?;
         self.evaluate(&exprs)
@@ -37,7 +37,7 @@ impl RucketInterpreter {
 
     /// Evaluate statements for their side effects on the environment,
     /// ignoring the output
-    pub fn require(&mut self, exprs: &str) -> Result<(), RucketErr> {
+    pub fn require(&mut self, exprs: &str) -> Result<(), SteelErr> {
         self.evaluate(exprs).map(|_| ())
     }
 
@@ -45,7 +45,7 @@ impl RucketInterpreter {
     pub fn require_paths<P: AsRef<Path>>(
         &mut self,
         paths: impl Iterator<Item = P>,
-    ) -> Result<(), RucketErr> {
+    ) -> Result<(), SteelErr> {
         for path in paths {
             let file = std::fs::File::open(path)?;
             let _ = self.evaluate_from_reader(file)?;
@@ -53,15 +53,15 @@ impl RucketInterpreter {
         Ok(())
     }
 
-    pub fn insert_binding(&mut self, name: &str, value: RucketVal) {
+    pub fn insert_binding(&mut self, name: &str, value: SteelVal) {
         self.evaluator.insert_binding(name.to_string(), value);
     }
 
-    pub fn insert_bindings(&mut self, vals: Vec<(&'static str, RucketVal)>) {
+    pub fn insert_bindings(&mut self, vals: Vec<(&'static str, SteelVal)>) {
         self.evaluator.insert_bindings(vals);
     }
 
-    pub fn extract_value(&mut self, name: &str) -> Result<RucketVal, RucketErr> {
+    pub fn extract_value(&mut self, name: &str) -> Result<SteelVal, SteelErr> {
         self.evaluator.lookup_binding(name)
     }
 }

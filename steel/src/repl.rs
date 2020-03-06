@@ -4,19 +4,19 @@ use crate::interpreter;
 extern crate rustyline;
 
 // use crate::implement;
-// use crate::rerrs::RucketErr;
-// use crate::rvals::{CustomType, RucketVal};
+// use crate::rerrs::SteelErr;
+// use crate::rvals::{CustomType, SteelVal};
 use crate::stdlib::PRELUDE;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 pub fn repl() -> std::io::Result<()> {
-    let mut interpreter = interpreter::RucketInterpreter::new();
+    let mut interpreter = interpreter::SteelInterpreter::new();
 
     if let Err(e) = interpreter.require(PRELUDE) {
         eprintln!("Error loading prelude: {}", e)
     }
-    println!("Welcome to Rucket 1.0");
+    println!("Welcome to Steel 1.0");
 
     let mut rl = Editor::<()>::new();
     loop {

@@ -1,7 +1,7 @@
-extern crate rucket;
+extern crate steel;
 
-use rucket::evaluator;
-use rucket::parser::*;
+use steel::evaluator;
+use steel::parser::*;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};

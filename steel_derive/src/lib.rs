@@ -3,7 +3,7 @@ extern crate proc_macro2;
 #[macro_use]
 extern crate syn;
 extern crate quote;
-extern crate rucket;
+extern crate steel;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DataStruct, DeriveInput, Fields};
@@ -36,40 +36,40 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
             fn as_any(&self) -> Box<dyn Any> {
                 Box::new((*self).clone())
             }
-            fn new_rucket_val(&self) -> RucketVal {
-                RucketVal::Custom(Box::new(self.clone()))
+            fn new_steel_val(&self) -> SteelVal {
+                SteelVal::Custom(Box::new(self.clone()))
             }
         }
 
-        impl From<#name> for RucketVal {
-            fn from(val: #name) -> RucketVal {
-                val.new_rucket_val()
+        impl From<#name> for SteelVal {
+            fn from(val: #name) -> SteelVal {
+                val.new_steel_val()
             }
         }
 
 
-        impl From<RucketVal> for #name {
-            fn from(val: RucketVal) -> #name {
+        impl From<SteelVal> for #name {
+            fn from(val: SteelVal) -> #name {
                 unwrap!(val, #name).unwrap()
             }
         }
 
         impl crate::rvals::StructFunctions for #name {
-            fn generate_bindings() -> Vec<(&'static str, RucketVal)> {
+            fn generate_bindings() -> Vec<(&'static str, SteelVal)> {
                 use std::convert::TryFrom;
-                use rucket::rvals::RucketVal;
-                use rucket::rerrs::RucketErr;
-                use rucket::unwrap;
-                use rucket::stop;
+                use steel::rvals::SteelVal;
+                use steel::rerrs::SteelErr;
+                use steel::unwrap;
+                use steel::stop;
                 let mut vec_binding = vec![];
 
                 // generate predicate
                 let name = concat!(stringify!(#name), "?");
                 let func =
-                        RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                        SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
                         let mut args_iter = args.into_iter();
                         if let Some(first) = args_iter.next() {
-                            return Ok(RucketVal::BoolV(unwrap!(first, #name).is_ok()));
+                            return Ok(SteelVal::BoolV(unwrap!(first, #name).is_ok()));
                         }
                         stop!(ArityMismatch => "set! expected 2 arguments");
                     });
@@ -78,14 +78,14 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 // generate constructor
                 let name = concat!(stringify!(#name));
                 let func =
-                        RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                        SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
                             let mut args_iter = args.into_iter();
                             let new_struct = #name {
                                 #(
                                     #field_name2: {
                                     if let Some(arg) = args_iter.next() {
                                         match arg {
-                                            RucketVal::Custom(_) => unwrap!(arg, #field_type2)?,
+                                            SteelVal::Custom(_) => unwrap!(arg, #field_type2)?,
                                             _ => <#field_type2>::try_from(arg)?
                                         }
                                     } else {
@@ -94,7 +94,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
 
                                 )*
                             };
-                            Ok(new_struct.new_rucket_val())
+                            Ok(new_struct.new_steel_val())
                         });
                 vec_binding.push((name, func));
 
@@ -102,14 +102,14 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     // generate setters
                     let name = concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!");
                     let func =
-                            RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                            SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
                             let mut args_iter = args.into_iter();
                             if let Some(first) = args_iter.next() {
                                 if let Some(second) = args_iter.next() {
                                     let my_struct = unwrap!(first, #name)?;
                                     let new_struct = #name {
                                         #field_name : match second {
-                                            RucketVal::Custom(_) => {
+                                            SteelVal::Custom(_) => {
                                                 unwrap!(second, #field_type)?
                                             },
                                             _ => {
@@ -118,7 +118,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                         },
                                         ..my_struct
                                     };
-                                    return Ok(new_struct.new_rucket_val());
+                                    return Ok(new_struct.new_steel_val());
                                 }
                                 stop!(ArityMismatch => "set! expected 2 arguments");
                             }
@@ -129,7 +129,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     // generate getters
                     let name = concat!(stringify!(#name), "-", stringify!(#field_name));
                     let func =
-                            RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                            SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
                             let mut args_iter = args.into_iter();
                             if let Some(first) = args_iter.next() {
                                 let my_struct = unwrap!(first, #name)?;

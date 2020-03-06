@@ -21,7 +21,7 @@ fn finish(result: Result<(), std::io::Error>) -> ! {
         Err(e) => {
             eprintln!(
                 "{}: {}",
-                std::env::args().next().unwrap_or_else(|| "rucket".into()),
+                std::env::args().next().unwrap_or_else(|| "steel".into()),
                 e
             );
             1

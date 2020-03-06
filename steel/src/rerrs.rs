@@ -2,7 +2,7 @@ use crate::parser::ParseError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum RucketErr {
+pub enum SteelErr {
     #[error("Arity Mismatch: {0}")]
     ArityMismatch(String),
     #[error("Free Identifier: {0}")]
@@ -26,13 +26,13 @@ pub enum RucketErr {
 #[macro_export]
 macro_rules! stop {
     ($type:ident) => {
-        return Err(RucketErr::$type);
+        return Err(SteelErr::$type);
     };
     ($type:ident => $fmt:expr, $($arg:tt)+) => {
-        return Err(RucketErr::$type(format!($fmt, $($arg)+)));
+        return Err(SteelErr::$type(format!($fmt, $($arg)+)));
     };
 
     ($type:ident => $thing:expr) => {
-        return Err(RucketErr::$type(($thing).to_string()));
+        return Err(SteelErr::$type(($thing).to_string()));
     };
 }
