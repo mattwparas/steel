@@ -99,7 +99,7 @@ pub const PRELUDE: &'static str = "
     (loop n lst)))
 
 (define (slice l offset n)
-    (take (drop l offset) n))
+    (take n (drop offset l)))
 
 
 ";

@@ -179,7 +179,7 @@ macro_rules! as_item {
     };
 }
 
-implement!(f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+// implement!(f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 
 #[macro_export]
 macro_rules! unwrap {
