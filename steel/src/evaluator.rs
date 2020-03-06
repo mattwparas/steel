@@ -1,6 +1,3 @@
-// #![allow(dead_code)] // TODO
-// #![allow(unused_imports)] // TODO
-
 use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::iter::Iterator;
