@@ -59,8 +59,17 @@ pub const PRELUDE: &'static str = "
 ;; (define assv (lambda (obj alist)     (fold (mem-helper (curry eqv? obj) car) #f alist)))
 (define assoc (lambda (obj alist)    (fold (mem-helper (curry equal? obj) car) #f alist)))
 (define map (lambda (func lst)      (foldr (lambda (x y) (cons (func x) y)) '() lst)))
+
 (define filter (lambda (pred lst)   (foldr (lambda (x y) (if (pred x) (cons x y) y)) '() lst)))
-(define fact (lambda (n) (if (= n 0) 1 (* n (fact (- n 1))) ) ))
+
+(define (fact n)
+  (begin
+    (define factorial-tail (lambda (n acc) 
+        (if (= n 0) 
+            acc
+            (factorial-tail (- n 1)  (* acc n )))))
+    (factorial-tail n 1)))
+
 (define even (lambda (x) (if (= x 0) #t (odd (- x 1)))))
 (define odd  (lambda (x) (if (= x 0) #f (even (- x 1)))))
 (define sum (lambda (x) (reduce + 0 x)))
