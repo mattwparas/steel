@@ -4,16 +4,6 @@ use crate::rvals::{RucketLambda, RucketVal};
 use std::convert::TryFrom;
 use std::result;
 
-// impl TryFrom<RucketVal> for f64 {
-//     type Error = ConversionError;
-//     fn try_from(value: RucketVal) -> Result<Self, Self::Error> {
-//         match value {
-//             RucketVal::NumV(x) => Ok(x),
-//             _ => Err(ConversionError::Generic("Expected number".to_string())),
-//         }
-//     }
-// }
-
 // the conversion layer works like
 // Vec<RucketVal> -> your struct -> call the function -> output -> Rucketval output
 // maybe TryFrom Error type should be something else?
