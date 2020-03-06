@@ -5,6 +5,19 @@ use crate::rvals::SteelVal;
 use std::io::Read;
 use std::path::Path;
 
+#[macro_export]
+macro_rules! build_interpreter {
+    ($($type:ty),*) => {
+        {
+            let mut interpreter = SteelInterpreter::new();
+            $ (
+                interpreter.insert_bindings(<$type>::generate_bindings());
+            ) *
+            interpreter
+        }
+    };
+}
+
 pub struct SteelInterpreter {
     evaluator: Evaluator,
 }
