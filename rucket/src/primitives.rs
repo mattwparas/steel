@@ -32,6 +32,21 @@ macro_rules! try_from_impl {
     };
 }
 
+#[macro_export]
+macro_rules! from_f64 {
+    ($($body:ty),*) => {
+        $(
+            impl From<$body> for RucketVal {
+                fn from(val: $body) -> RucketVal {
+                    RucketVal::NumV(val as f64)
+                }
+            }
+        )*
+    };
+}
+
+from_f64!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+
 try_from_impl!(NumV => f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 try_from_impl!(StringV => String);
 
@@ -49,11 +64,11 @@ impl TryFrom<Vec<RucketVal>> for VecNumbers {
     }
 }
 
-impl From<f64> for RucketVal {
-    fn from(val: f64) -> RucketVal {
-        RucketVal::NumV(val)
-    }
-}
+// impl From<f64> for RucketVal {
+//     fn from(val: f64) -> RucketVal {
+//         RucketVal::NumV(val)
+//     }
+// }
 
 impl From<String> for RucketVal {
     fn from(val: String) -> RucketVal {
