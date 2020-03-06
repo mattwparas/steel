@@ -211,18 +211,18 @@ fn eval_func(
 }
 
 pub fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
-    for expr in &list_of_tokens[1..] {
+    for expr in list_of_tokens {
         match evaluate(expr, env)? {
             RucketVal::BoolV(true) => continue,
             RucketVal::BoolV(false) => return Ok(RucketVal::BoolV(false)),
             _ => continue,
         }
     }
-    Ok(RucketVal::BoolV(false))
+    Ok(RucketVal::BoolV(true))
 }
 
 pub fn eval_or(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
-    for expr in &list_of_tokens[1..] {
+    for expr in list_of_tokens {
         match evaluate(expr, env)? {
             RucketVal::BoolV(true) => return Ok(RucketVal::BoolV(true)),
             _ => continue,
