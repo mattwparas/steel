@@ -18,6 +18,7 @@ use steel_derive::steel;
 use std::process;
 
 fn main() {
+    // build_interpreter_and_modify();
     finish(my_repl());
 }
 
@@ -55,4 +56,21 @@ pub fn my_repl() -> std::io::Result<()> {
         MyStruct,
         CoolTest
     }
+}
+
+pub fn build_interpreter_and_modify() {
+    let mut interpreter = build_interpreter! {
+        MyStruct,
+        CoolTest
+    };
+
+    let script = "
+    (define cool-test (CoolTest 100))
+    (define return-val (set-CoolTest-val! cool-test 200))
+    ";
+
+    if let Ok(_) = interpreter.evaluate(script) {
+        let ret_val = unwrap!(interpreter.extract_value("return-val").unwrap(), CoolTest).unwrap();
+        println!("{:?}", ret_val);
+    };
 }
