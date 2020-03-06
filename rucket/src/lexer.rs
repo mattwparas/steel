@@ -158,34 +158,6 @@ impl<'a> Iterator for Tokenizer<'a> {
                 self.input.next();
                 Some(Ok(Token::QuoteTick))
             }
-            // Some('=') => {
-            //     self.input.next();
-            //     if let Some(&c) = self.input.peek() {
-            //         if c.is_whitespace() {
-            //             return Some(Ok(Token::Identifier("=".to_string())));
-            //         }
-            //     }
-
-            //     Some(Err(TokenError::IncompleteString))
-            // }
-            // Some('<') => {
-            //     self.input.next();
-            //     if let Some(&'=') = self.input.peek() {
-            //         self.input.next();
-            //         Some(Ok(Token::LtEq))
-            //     } else {
-            //         Some(Ok(Token::Lt))
-            //     }
-            // }
-            // Some('>') => {
-            //     self.input.next();
-            //     if let Some(&'=') = self.input.peek() {
-            //         self.input.next();
-            //         Some(Ok(Token::GtEq))
-            //     } else {
-            //         Some(Ok(Token::Gt))
-            //     }
-            // }
             Some('+') => {
                 self.input.next();
                 match self.input.peek() {
@@ -212,10 +184,6 @@ impl<'a> Iterator for Tokenizer<'a> {
                 self.input.next();
                 Some(Ok(Token::Identifier("/".to_string())))
             }
-            // Some('%') => {
-            //     self.input.next();
-            //     Some(Ok(Token::Percent))
-            // }
             Some('#') => {
                 self.input.next();
                 Some(Ok(self.read_hash_value()))
