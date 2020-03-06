@@ -1,7 +1,7 @@
 use crate::env::Env;
+use crate::parser::tokens::Token::*;
 use crate::parser::Expr;
 use crate::rerrs::RucketErr;
-use crate::tokens::Token::*;
 // use std::any::Any;
 use std::any::Any;
 use std::cell::RefCell;
@@ -11,6 +11,7 @@ use std::rc::Rc;
 use RucketVal::*;
 
 use std::convert::TryFrom;
+use std::result;
 
 pub trait StructFunctions {
     fn generate_bindings() -> Vec<(&'static str, RucketVal)>;
@@ -237,6 +238,29 @@ impl TryFrom<Expr> for RucketVal {
     }
 }
 
+/// Sometimes you want to execute a list
+/// as if it was an expression
+impl TryFrom<RucketVal> for Expr {
+    type Error = &'static str;
+    fn try_from(r: RucketVal) -> result::Result<Self, Self::Error> {
+        match r {
+            BoolV(x) => Ok(Expr::Atom(BooleanLiteral(x))),
+            NumV(x) => Ok(Expr::Atom(NumberLiteral(x))),
+            ListV(lst) => {
+                let items: result::Result<Vec<Self>, Self::Error> =
+                    lst.into_iter().map(Self::try_from).collect();
+                Ok(Expr::ListVal(items?))
+            }
+            Void => Err("Can't convert from Void to expression!"),
+            StringV(x) => Ok(Expr::Atom(StringLiteral(x))),
+            FuncV(_) => Err("Can't convert from Function to expression!"),
+            LambdaV(_) => Err("Can't convert from Lambda to expression!"),
+            SymbolV(x) => Ok(Expr::Atom(Identifier(x))),
+            Custom(_) => Err("Can't convert from Custom Type to expression!"),
+        }
+    }
+}
+
 // TODO add tests
 impl PartialEq for RucketVal {
     fn eq(&self, other: &Self) -> bool {
@@ -352,7 +376,7 @@ fn display_helper(val: &RucketVal, f: &mut fmt::Formatter) -> fmt::Result {
 
 #[test]
 fn display_test() {
-    use crate::tokens::Token;
+    use crate::parser::tokens::Token;
     assert_eq!(RucketVal::BoolV(false).to_string(), "#false");
     assert_eq!(RucketVal::NumV(1.0).to_string(), "1");
     assert_eq!(
@@ -376,7 +400,7 @@ fn display_test() {
 
 #[test]
 fn display_list_test() {
-    use crate::tokens::Token;
+    use crate::parser::tokens::Token;
     assert_eq!(ListV(vec![]).to_string(), "'()");
     assert_eq!(
         ListV(vec![

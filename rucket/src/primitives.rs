@@ -1,18 +1,30 @@
-use crate::converter::RucketFunctor;
+// use crate::converter::RucketFunctor;
 use crate::rerrs::RucketErr;
 use crate::rvals::{RucketLambda, RucketVal};
 use std::convert::TryFrom;
 use std::result;
 
-// impl TryFrom<RucketVal> for f64 {
-//     type Error = ConversionError;
-//     fn try_from(value: RucketVal) -> Result<Self, Self::Error> {
-//         match value {
-//             RucketVal::NumV(x) => Ok(x),
-//             _ => Err(ConversionError::Generic("Expected number".to_string())),
-//         }
-//     }
-// }
+// the conversion layer works like
+// Vec<RucketVal> -> your struct -> call the function -> output -> Rucketval output
+// maybe TryFrom Error type should be something else?
+
+pub trait RucketFunctor<U, V>
+where
+    U: TryFrom<Vec<RucketVal>, Error = RucketErr>,
+    V: Into<RucketVal>,
+{
+    fn new_func() -> fn(args: Vec<RucketVal>) -> Result<RucketVal, RucketErr> {
+        |args: Vec<RucketVal>| {
+            let input = Self::in_convert(args)?;
+            let res = Self::call(input)?;
+            Ok(res.into())
+        }
+    }
+    fn call(input: U) -> Result<V, RucketErr>;
+    fn in_convert(input: Vec<RucketVal>) -> Result<U, RucketErr> {
+        U::try_from(input)
+    }
+}
 
 #[macro_export]
 macro_rules! try_from_impl {

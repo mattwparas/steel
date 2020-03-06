@@ -1,7 +1,6 @@
 use crate::evaluator::Result;
 // #[macro_use]
-use crate::converter::RucketFunctor;
-use crate::primitives::{Adder, Divider, Multiplier, Subtractor};
+use crate::primitives::{Adder, Divider, Multiplier, RucketFunctor, Subtractor};
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
 use crate::rvals::RucketVal::*;

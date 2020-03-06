@@ -1,24 +1,18 @@
-#![allow(dead_code)] // TODO
-#![allow(unused_imports)] // TODO
+// #![allow(dead_code)] // TODO
+// #![allow(unused_imports)] // TODO
 
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::convert::TryFrom;
-use std::fmt;
-use std::iter::{Iterator, Peekable};
+use std::iter::Iterator;
 use std::rc::Rc;
 use std::result;
-use std::str::Chars;
-use thiserror::Error;
 
 use crate::env::Env;
-use crate::lexer::Tokenizer;
+use crate::parser::tokens::Token;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::RucketErr;
 use crate::rvals::{RucketLambda, RucketVal};
 use crate::stop;
-use crate::tokens::{Token, TokenError};
 
 pub type Result<T> = result::Result<T, RucketErr>;
 pub type ValidFunc = fn(Vec<RucketVal>) -> Result<RucketVal>;
@@ -41,10 +35,8 @@ impl Evaluator {
     // TODO check this
     pub fn parse_and_eval(&mut self, expr_str: &str) -> Result<Vec<RucketVal>> {
         let parsed: result::Result<Vec<Expr>, ParseError> = Parser::new(expr_str).collect();
-        match parsed {
-            Ok(pvec) => pvec.iter().map(|x| self.eval(&x)).collect(),
-            Err(e) => Err(RucketErr::BadSyntax(e.to_string())), // I think we should combine this into one error type?
-        }
+        let parsed = parsed?;
+        parsed.iter().map(|x| self.eval(&x)).collect()
     }
 
     pub fn clear_bindings(&mut self) {
@@ -83,7 +75,7 @@ impl Drop for Evaluator {
 //     // }
 // }
 
-pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
+fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
     match identifiers {
         Expr::ListVal(l) => {
             let res: Result<Vec<String>> = l
@@ -104,7 +96,7 @@ pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
 }
 
 /// returns error if tokens.len() != expected
-pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
+fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
     if tokens.len() == expected {
         Ok(())
     } else {
@@ -117,7 +109,7 @@ pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> 
     }
 }
 
-pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     let mut env = Rc::clone(env);
     let mut expr = expr.clone();
 
@@ -210,7 +202,7 @@ fn eval_func(
     return Ok(rval);
 }
 
-pub fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     for expr in list_of_tokens {
         match evaluate(expr, env)? {
             RucketVal::BoolV(true) => continue,
@@ -221,7 +213,7 @@ pub fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Rucke
     Ok(RucketVal::BoolV(true))
 }
 
-pub fn eval_or(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_or(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     for expr in list_of_tokens {
         match evaluate(expr, env)? {
             RucketVal::BoolV(true) => return Ok(RucketVal::BoolV(true)),
@@ -254,7 +246,7 @@ fn eval_lambda(
     Ok((lambda.body_exp(), inner_env))
 }
 /// evaluates `(test then else)` into `then` or `else`
-pub fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
+fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
     if let [test_expr, then_expr, else_expr] = list_of_tokens {
         match evaluate(&test_expr, env)? {
             RucketVal::BoolV(true) => Ok(then_expr.clone()),
@@ -441,8 +433,8 @@ impl Default for Evaluator {
 #[cfg(test)]
 mod length_test {
     use super::*;
+    use crate::parser::tokens::Token::NumberLiteral;
     use crate::parser::Expr::Atom;
-    use crate::tokens::Token::NumberLiteral;
 
     #[test]
     fn length_test() {
@@ -460,8 +452,8 @@ mod length_test {
 #[cfg(test)]
 mod parse_identifiers_test {
     use super::*;
+    use crate::parser::tokens::Token::{Identifier, NumberLiteral};
     use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::{Identifier, NumberLiteral};
 
     #[test]
     fn non_symbols_test() {
@@ -497,8 +489,8 @@ mod parse_identifiers_test {
 #[cfg(test)]
 mod eval_make_lambda_test {
     use super::*;
+    use crate::parser::tokens::Token::Identifier;
     use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::Identifier;
 
     #[test]
     fn not_enough_args_test() {
@@ -536,8 +528,8 @@ mod eval_make_lambda_test {
 #[cfg(test)]
 mod eval_if_test {
     use super::*;
-    use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::{BooleanLiteral, StringLiteral};
+    use crate::parser::tokens::Token::BooleanLiteral;
+    use crate::parser::Expr::Atom;
 
     #[test]
     fn true_test() {
@@ -582,8 +574,8 @@ mod eval_if_test {
 #[cfg(test)]
 mod eval_define_test {
     use super::*;
+    use crate::parser::tokens::Token::{BooleanLiteral, Identifier, StringLiteral};
     use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::{BooleanLiteral, Identifier, StringLiteral};
 
     #[test]
     fn wrong_length_test() {
@@ -641,8 +633,8 @@ mod eval_define_test {
 #[cfg(test)]
 mod eval_let_test {
     use super::*;
+    use crate::parser::tokens::Token::{BooleanLiteral, NumberLiteral, StringLiteral};
     use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::{BooleanLiteral, NumberLiteral, StringLiteral};
 
     #[test]
     fn ok_test() {
@@ -687,8 +679,8 @@ mod eval_let_test {
 #[cfg(test)]
 mod eval_test {
     use super::*;
+    use crate::parser::tokens::Token::{BooleanLiteral, Identifier, NumberLiteral, StringLiteral};
     use crate::parser::Expr::{Atom, ListVal};
-    use crate::tokens::Token::{BooleanLiteral, Identifier, NumberLiteral, StringLiteral};
 
     #[test]
     fn boolean_test() {

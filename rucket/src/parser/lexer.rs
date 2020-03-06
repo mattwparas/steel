@@ -1,4 +1,7 @@
-use crate::tokens::{Token, TokenError};
+// pub mod parser;
+// pub mod tokens;
+
+use crate::parser::tokens::{Token, TokenError};
 use std::iter::{Iterator, Peekable};
 use std::result;
 use std::str::Chars;
@@ -207,8 +210,8 @@ impl<'a> Iterator for Tokenizer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tokens::Token::*;
-    use crate::tokens::TokenError;
+    use crate::parser::tokens::Token::*;
+    use crate::parser::tokens::TokenError;
 
     // #[test]
     // fn test_punctuation() {
