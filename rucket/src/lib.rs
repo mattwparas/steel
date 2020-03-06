@@ -1,4 +1,3 @@
-pub mod converter;
 #[macro_use]
 pub mod env;
 pub mod evaluator;
