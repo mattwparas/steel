@@ -1,17 +1,12 @@
 #![allow(dead_code)]
 use crate::evaluator::Evaluator;
-//use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::RucketErr;
 use crate::rvals::RucketVal;
-//use crate::stdlib::PRELUDE;
-use std::path::Path;
-// use parser::{Expr, ParseError};
 use std::io::Read;
+use std::path::Path;
 
 pub struct RucketInterpreter {
-    // parser: Result<Vec<Expr>, ParseError>,
     evaluator: Evaluator,
-    // results: Vec<RucketVal>,
 }
 
 impl RucketInterpreter {
@@ -69,8 +64,4 @@ impl RucketInterpreter {
     pub fn extract_value(&mut self, name: &str) -> Result<RucketVal, RucketErr> {
         self.evaluator.lookup_binding(name)
     }
-
-    // pub fn parse(mut input: impl Read) -> io::result<Self> {
-
-    // }
 }

@@ -3,6 +3,7 @@ use crate::converter::RucketFunctor;
 use crate::rerrs::RucketErr;
 use crate::rvals::{RucketLambda, RucketVal};
 use std::convert::TryFrom;
+use std::result;
 
 // impl TryFrom<RucketVal> for f64 {
 //     type Error = ConversionError;
@@ -13,6 +14,26 @@ use std::convert::TryFrom;
 //         }
 //     }
 // }
+
+#[macro_export]
+macro_rules! try_from_impl {
+    ($type:ident => $($body:ty),*) => {
+        $(
+            impl TryFrom<RucketVal> for $body {
+                type Error = RucketErr;
+                fn try_from(value: RucketVal) -> result::Result<Self, Self::Error> {
+                    match value {
+                        RucketVal::$type(x) => Ok(x as $body),
+                        _ => Err(RucketErr::ConversionError("Expected number".to_string())),
+                    }
+                }
+            }
+        )*
+    };
+}
+
+try_from_impl!(NumV => f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+try_from_impl!(StringV => String);
 
 pub struct VecNumbers(Vec<f64>);
 impl TryFrom<Vec<RucketVal>> for VecNumbers {

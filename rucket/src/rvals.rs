@@ -38,6 +38,150 @@ impl From<Box<dyn CustomType>> for RucketVal {
 }
 
 #[macro_export]
+macro_rules! implement {
+    ($($type:ty),*) => {
+        $(
+            as_item! {
+                impl crate::rvals::CustomType for $type {
+                    fn box_clone(&self) -> Box<dyn CustomType> {
+                        Box::new((*self).clone())
+                    }
+                    fn as_any(&self) -> Box<dyn Any> {
+                        Box::new((*self).clone())
+                    }
+                    fn new_rucket_val(&self) -> RucketVal {
+                        RucketVal::Custom(Box::new(self.clone()))
+                    }
+                }
+            }
+            as_item! {
+                impl From<$type> for RucketVal {
+                    fn from(val: $type) -> RucketVal {
+                        val.new_rucket_val()
+                    }
+                }
+            }
+        ) *
+    };
+
+    ($type:ident, $($e:ident, $t: ty),*) => {
+        as_item! {
+            impl crate::rvals::CustomType for $type {
+                fn box_clone(&self) -> Box<dyn CustomType> {
+                    Box::new((*self).clone())
+                }
+                fn as_any(&self) -> Box<dyn Any> {
+                    Box::new((*self).clone())
+                }
+                fn new_rucket_val(&self) -> RucketVal {
+                    RucketVal::Custom(Box::new(self.clone()))
+                }
+            }
+        }
+
+        as_item! {
+            impl From<$type> for RucketVal {
+                fn from(val: $type) -> RucketVal {
+                    val.new_rucket_val()
+                }
+            }
+        }
+
+        as_item! {
+            impl From<RucketVal> for $type {
+                fn from(val: RucketVal) -> $type {
+                    println!("inside from rucketval to {}", stringify!($type));
+                    unwrap!(val, $type).unwrap()
+                }
+            }
+        }
+
+        as_item! {
+            impl $type {
+                pub fn generate_bindings() -> Vec<(&'static str, RucketVal)> {
+                    use std::convert::TryFrom;
+                    use crate::rvals::RucketVal;
+                    use crate::rerrs::RucketErr;
+                    use crate::unwrap;
+                    use crate::stop;
+                    let mut vec_binding = vec![];
+
+                    // generate predicate
+                    let name = concat!(stringify!($type), "?");
+                    println!("{}", name);
+                    let func =
+                         RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                            let mut args_iter = args.into_iter();
+                            if let Some(first) = args_iter.next() {
+                                return Ok(RucketVal::BoolV(unwrap!(first, $type).is_ok()));
+                            }
+                            stop!(ArityMismatch => "set! expected 2 arguments");
+                        });
+                    vec_binding.push((name, func));
+                    $(
+                        // generate setters
+                        let name = concat!("set-", stringify!($type), "-", stringify!($e), "!");
+                        let func =
+                             RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                                let mut args_iter = args.into_iter();
+                                if let Some(first) = args_iter.next() {
+                                    if let Some(second) = args_iter.next() {
+                                        println!("{}", stringify!($type));
+                                        let my_struct = unwrap!(first, $type)?;
+                                        println!("We got after the unwrap!");
+                                        println!("{:?}", my_struct);
+                                        let new_struct = $type {
+                                            $e : match second {
+                                                RucketVal::Custom(_) => {
+                                                    println!("Inside custom: {}", stringify!($t));
+                                                    unwrap!(second, $t)?
+                                                },
+                                                _ => {
+                                                    print!("Inside else: {}", second);
+                                                    <$t>::try_from(second)?
+                                                 }
+                                            },
+                                            ..my_struct
+                                        };
+                                        return Ok(new_struct.new_rucket_val());
+                                    }
+                                    stop!(ArityMismatch => "set! expected 2 arguments");
+                                }
+                                stop!(ArityMismatch => "set! expected 2 arguments");
+                            });
+                        vec_binding.push((name, func));
+
+                        // generate getters
+                        let name = concat!(stringify!($type), "-", stringify!($e));
+                        println!("{}", name);
+                        let func =
+                             RucketVal::FuncV(|args: Vec<RucketVal>| -> Result<RucketVal, RucketErr> {
+                                let mut args_iter = args.into_iter();
+                                if let Some(first) = args_iter.next() {
+                                    let my_struct = unwrap!(first, $type)?;
+                                    return Ok(my_struct.$e.into());
+                                }
+                                stop!(ArityMismatch => "set! expected 2 arguments");
+                            });
+                        vec_binding.push((name, func));
+                    ) *
+                    vec_binding
+                }
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! as_item {
+    ($i:item) => {
+        $i
+    };
+}
+
+implement!(f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+
+#[macro_export]
 macro_rules! unwrap {
     ($x:expr, $body:ty) => {{
         if let crate::rvals::RucketVal::Custom(v) = $x {
