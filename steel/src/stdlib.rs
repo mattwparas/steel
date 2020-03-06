@@ -1,4 +1,4 @@
-pub const PRELUDE: &'static str = "
+pub const PRELUDE: &str = "
 (define caar (lambda (pair) (car (car pair))))
 (define cadr (lambda (pair) (car (cdr pair))))
 (define cdar (lambda (pair) (cdr (car pair))))

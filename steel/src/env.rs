@@ -175,9 +175,9 @@ impl Env {
                         (Some(elem), Some(lst)) => {
                             if let SteelVal::ListV(mut l) = lst {
                                 l.insert(0, elem);
-                                return Ok(SteelVal::ListV(l));
+                                Ok(SteelVal::ListV(l))
                             } else {
-                                return Ok(SteelVal::ListV(vec![elem, lst]));
+                                Ok(SteelVal::ListV(vec![elem, lst]))
                             }
                         }
                         _ => stop!(ArityMismatch => "cons takes two arguments"),
@@ -191,9 +191,9 @@ impl Env {
                         match &args[0] {
                             SteelVal::ListV(v) => {
                                 if v.is_empty() {
-                                    return Ok(SteelVal::BoolV(true));
+                                    Ok(SteelVal::BoolV(true))
                                 } else {
-                                    return Ok(SteelVal::BoolV(false));
+                                    Ok(SteelVal::BoolV(false))
                                 }
                             }
                             _ => Ok(SteelVal::BoolV(false)),

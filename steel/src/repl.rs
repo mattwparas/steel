@@ -1,18 +1,25 @@
 use crate::interpreter;
-// use std::any::Any;
-
 extern crate rustyline;
-
-// use crate::implement;
-// use crate::rerrs::SteelErr;
-// use crate::rvals::{CustomType, SteelVal};
 use crate::stdlib::PRELUDE;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-pub fn repl() -> std::io::Result<()> {
-    let mut interpreter = interpreter::SteelInterpreter::new();
+#[macro_export]
+macro_rules! build_repl {
+    ($($type:ty),*) => {
+        {
+            use crate::build_interpreter;
+            let mut interpreter = build_interpreter!{
+                $(
+                    $type
+                ),*
+            };
+            repl_base(interpreter)
+        }
+    };
+}
 
+pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Result<()> {
     if let Err(e) = interpreter.require(PRELUDE) {
         eprintln!("Error loading prelude: {}", e)
     }
@@ -49,4 +56,8 @@ pub fn repl() -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+pub fn repl() -> std::io::Result<()> {
+    repl_base(interpreter::SteelInterpreter::new())
 }
