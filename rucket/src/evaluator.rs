@@ -91,14 +91,14 @@ pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
                 .map(|x| match x {
                     Expr::Atom(Token::Identifier(s)) => Ok(s.clone()),
                     _ => Err(RucketErr::TypeMismatch(
-                        "Lambda must have symbols as arguments".to_string()
+                        "Lambda must have symbols as arguments".to_string(),
                     )),
                 })
                 .collect();
             res
         }
         _ => Err(RucketErr::TypeMismatch(
-            "Malformed lambda arguments".to_string()
+            "Malformed lambda arguments".to_string(),
         )),
     }
 }

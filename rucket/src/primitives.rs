@@ -1,4 +1,3 @@
-use crate::converter::ConversionError;
 use crate::converter::RucketFunctor;
 use crate::rerrs::RucketErr;
 use crate::rvals::{RucketLambda, RucketVal};
@@ -52,11 +51,11 @@ try_from_impl!(StringV => String);
 
 pub struct VecNumbers(Vec<f64>);
 impl TryFrom<Vec<RucketVal>> for VecNumbers {
-    type Error = ConversionError;
+    type Error = RucketErr;
     fn try_from(value: Vec<RucketVal>) -> Result<Self, Self::Error> {
         let num_matcher = |val| match val {
             RucketVal::NumV(x) => Ok(x),
-            _ => Err(ConversionError::Generic("Expected number".to_string())),
+            _ => Err(RucketErr::ConversionError("Expected number".to_string())),
         };
         let val_iter = value.into_iter();
         let converted: Result<Vec<f64>, Self::Error> = val_iter.map(num_matcher).collect();

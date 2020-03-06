@@ -8,10 +8,6 @@ pub enum RucketErr {
     FreeIdentifier(String),
     #[error("Expected {0}")]
     TypeMismatch(String),
-    #[error("Environment Not Found")]
-    EnvironmentNotFound,
-    #[error("Malformed Let statement")]
-    MalformedLet,
     #[error("Unexpected Token {0}")]
     UnexpectedToken(String),
     #[error("Contract Violation: {0}")]
