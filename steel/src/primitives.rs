@@ -71,7 +71,7 @@ impl TryFrom<Vec<SteelVal>> for VecNumbers {
         };
         let val_iter = value.into_iter();
         let converted: Result<Vec<f64>, Self::Error> = val_iter.map(num_matcher).collect();
-        converted.map(|x| Self(x))
+        converted.map(Self)
     }
 }
 

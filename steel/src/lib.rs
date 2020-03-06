@@ -12,7 +12,6 @@ pub mod rerrs;
 pub mod rvals;
 pub mod stdlib;
 
-#[macro_use]
 pub use self::{
     interpreter::SteelInterpreter,
     primitives::SteelFunctor,

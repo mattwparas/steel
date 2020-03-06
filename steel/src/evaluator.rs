@@ -185,14 +185,11 @@ fn eval_atom(t: Token, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
 }
 /// evaluates a primitive function into single returnable value
 fn eval_func(func: ValidFunc, list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
-    let args_eval: Result<Vec<SteelVal>> = list_of_tokens
-        .into_iter()
-        .map(|x| evaluate(&x, &env))
-        .collect();
+    let args_eval: Result<Vec<SteelVal>> =
+        list_of_tokens.iter().map(|x| evaluate(&x, &env)).collect();
     let args_eval = args_eval?;
     // pure function doesn't need the env
-    let rval = func(args_eval)?;
-    return Ok(rval);
+    func(args_eval)
 }
 
 fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
@@ -223,10 +220,8 @@ fn eval_lambda(
     list_of_tokens: &[Expr],
     env: &Rc<RefCell<Env>>,
 ) -> Result<(Expr, Rc<RefCell<Env>>)> {
-    let args_eval: Result<Vec<SteelVal>> = list_of_tokens
-        .into_iter()
-        .map(|x| evaluate(&x, &env))
-        .collect();
+    let args_eval: Result<Vec<SteelVal>> =
+        list_of_tokens.iter().map(|x| evaluate(&x, &env)).collect();
     let args_eval: Vec<SteelVal> = args_eval?;
     // build a new environment using the parent environment
     let parent_env = lambda.parent_env();

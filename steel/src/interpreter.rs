@@ -18,6 +18,7 @@ macro_rules! build_interpreter {
     };
 }
 
+#[derive(Default)]
 pub struct SteelInterpreter {
     evaluator: Evaluator,
 }
