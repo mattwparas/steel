@@ -1,3 +1,4 @@
+use crate::parser::ParseError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -18,6 +19,8 @@ pub enum RucketErr {
     ConversionError(String),
     #[error("IO error")]
     Io(#[from] std::io::Error),
+    #[error("Parse error")]
+    Parse(#[from] ParseError),
 }
 
 #[macro_export]

@@ -35,10 +35,8 @@ impl Evaluator {
     // TODO check this
     pub fn parse_and_eval(&mut self, expr_str: &str) -> Result<Vec<RucketVal>> {
         let parsed: result::Result<Vec<Expr>, ParseError> = Parser::new(expr_str).collect();
-        match parsed {
-            Ok(pvec) => pvec.iter().map(|x| self.eval(&x)).collect(),
-            Err(e) => Err(RucketErr::BadSyntax(e.to_string())), // I think we should combine this into one error type?
-        }
+        let parsed = parsed?;
+        parsed.iter().map(|x| self.eval(&x)).collect()
     }
 
     pub fn clear_bindings(&mut self) {
@@ -77,7 +75,7 @@ impl Drop for Evaluator {
 //     // }
 // }
 
-pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
+fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
     match identifiers {
         Expr::ListVal(l) => {
             let res: Result<Vec<String>> = l
@@ -98,7 +96,7 @@ pub fn parse_list_of_identifiers(identifiers: Expr) -> Result<Vec<String>> {
 }
 
 /// returns error if tokens.len() != expected
-pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
+fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
     if tokens.len() == expected {
         Ok(())
     } else {
@@ -111,7 +109,7 @@ pub fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> 
     }
 }
 
-pub fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn evaluate(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     let mut env = Rc::clone(env);
     let mut expr = expr.clone();
 
@@ -204,7 +202,7 @@ fn eval_func(
     return Ok(rval);
 }
 
-pub fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     for expr in list_of_tokens {
         match evaluate(expr, env)? {
             RucketVal::BoolV(true) => continue,
@@ -215,7 +213,7 @@ pub fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Rucke
     Ok(RucketVal::BoolV(true))
 }
 
-pub fn eval_or(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
+fn eval_or(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<RucketVal> {
     for expr in list_of_tokens {
         match evaluate(expr, env)? {
             RucketVal::BoolV(true) => return Ok(RucketVal::BoolV(true)),
@@ -248,7 +246,7 @@ fn eval_lambda(
     Ok((lambda.body_exp(), inner_env))
 }
 /// evaluates `(test then else)` into `then` or `else`
-pub fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
+fn eval_if(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
     if let [test_expr, then_expr, else_expr] = list_of_tokens {
         match evaluate(&test_expr, env)? {
             RucketVal::BoolV(true) => Ok(then_expr.clone()),
