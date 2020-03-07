@@ -104,11 +104,11 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
             Expr::ListVal(list_of_tokens) => {
                 if let Some(f) = list_of_tokens.first() {
                     match f.deref() {
-                        // Expr::Atom(Token::Identifier(s)) if s == "quote" => {
-                        //     check_length("Quote", &list_of_tokens, 2)?;
-                        //     let converted = SteelVal::try_from(list_of_tokens[1].clone())?;
-                        //     return Ok(converted);
-                        // }
+                        Expr::Atom(Token::Identifier(s)) if s == "quote" => {
+                            check_length("Quote", &list_of_tokens, 2)?;
+                            let converted = SteelVal::try_from(list_of_tokens[1].clone())?;
+                            return Ok(converted);
+                        }
                         Expr::Atom(Token::Identifier(s)) if s == "if" => {
                             expr = eval_if(&list_of_tokens[1..], &env)?
                         }
@@ -119,9 +119,9 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
                         Expr::Atom(Token::Identifier(s)) if s == "lambda" || s == "λ" => {
                             return eval_make_lambda(&list_of_tokens[1..], env);
                         }
-                        // Expr::Atom(Token::Identifier(s)) if s == "eval" => {
-                        //     return eval_eval_expr(&list_of_tokens[1..], &env)
-                        // }
+                        Expr::Atom(Token::Identifier(s)) if s == "eval" => {
+                            return eval_eval_expr(&list_of_tokens[1..], &env)
+                        }
                         // set! expression
                         Expr::Atom(Token::Identifier(s)) if s == "set!" => {
                             return eval_set(&list_of_tokens[1..], &env)
@@ -291,23 +291,23 @@ fn eval_set(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Steel
 // TODO write tests
 // Evaluate the inner expression, check that it is a quoted expression,
 // evaluate body of quoted expression
-// fn eval_eval_expr(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
-//     if let [e] = list_of_tokens {
-//         let res_expr = evaluate(e, env)?;
-//         match Expr::try_from(res_expr) {
-//             Ok(e) => evaluate(&e, env),
-//             Err(_) => stop!(ContractViolation => "Eval not given an expression"),
-//         }
-//     } else {
-//         let e = format!(
-//             "{}: expected {} args got {}",
-//             "Eval",
-//             1,
-//             list_of_tokens.len()
-//         );
-//         stop!(ArityMismatch => e)
-//     }
-// }
+fn eval_eval_expr(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
+    if let [e] = list_of_tokens {
+        let res_expr = evaluate(e, env)?;
+        match <Rc<Expr>>::try_from(res_expr) {
+            Ok(e) => evaluate(&e, env),
+            Err(_) => stop!(ContractViolation => "Eval not given an expression"),
+        }
+    } else {
+        let e = format!(
+            "{}: expected {} args got {}",
+            "Eval",
+            1,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e)
+    }
+}
 
 // TODO maybe have to evaluate the params but i'm not sure
 fn eval_define(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {

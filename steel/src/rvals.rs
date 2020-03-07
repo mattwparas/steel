@@ -214,26 +214,24 @@ pub enum SteelVal {
     Custom(Box<dyn CustomType>),
 }
 
-/*
-
 // sometimes you want to just
 // return an expression
-impl TryFrom<Expr> for SteelVal {
+impl TryFrom<Rc<Expr>> for SteelVal {
     type Error = SteelErr;
-    fn try_from(e: Expr) -> Result<Self, Self::Error> {
-        match e {
+    fn try_from(e: Rc<Expr>) -> Result<Self, Self::Error> {
+        match &*e {
             Expr::Atom(a) => match a {
                 OpenParen => Err(SteelErr::UnexpectedToken("(".to_string())),
                 CloseParen => Err(SteelErr::UnexpectedToken(")".to_string())),
                 QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string())),
-                BooleanLiteral(x) => Ok(BoolV(x)),
-                Identifier(x) => Ok(SymbolV(x)),
-                NumberLiteral(x) => Ok(NumV(x)),
-                StringLiteral(x) => Ok(StringV(x)),
+                BooleanLiteral(x) => Ok(BoolV(x.clone())),
+                Identifier(x) => Ok(SymbolV(x.clone())),
+                NumberLiteral(x) => Ok(NumV(x.clone())),
+                StringLiteral(x) => Ok(StringV(x.clone())),
             },
             Expr::ListVal(lst) => {
                 let items: Result<Vec<Self>, Self::Error> =
-                    lst.into_iter().map(Self::try_from).collect();
+                    lst.into_iter().map(|x| Self::try_from(x.clone())).collect();
                 Ok(ListV(items?))
             }
         }
@@ -242,28 +240,26 @@ impl TryFrom<Expr> for SteelVal {
 
 /// Sometimes you want to execute a list
 /// as if it was an expression
-impl TryFrom<SteelVal> for Expr {
+impl TryFrom<SteelVal> for Rc<Expr> {
     type Error = &'static str;
     fn try_from(r: SteelVal) -> result::Result<Self, Self::Error> {
         match r {
-            BoolV(x) => Ok(Expr::Atom(BooleanLiteral(x))),
-            NumV(x) => Ok(Expr::Atom(NumberLiteral(x))),
+            BoolV(x) => Ok(Rc::new(Expr::Atom(BooleanLiteral(x)))),
+            NumV(x) => Ok(Rc::new(Expr::Atom(NumberLiteral(x)))),
             ListV(lst) => {
                 let items: result::Result<Vec<Self>, Self::Error> =
                     lst.into_iter().map(Self::try_from).collect();
-                Ok(Expr::ListVal(items?))
+                Ok(Rc::new(Expr::ListVal(items?)))
             }
             Void => Err("Can't convert from Void to expression!"),
-            StringV(x) => Ok(Expr::Atom(StringLiteral(x))),
+            StringV(x) => Ok(Rc::new(Expr::Atom(StringLiteral(x)))),
             FuncV(_) => Err("Can't convert from Function to expression!"),
             LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-            SymbolV(x) => Ok(Expr::Atom(Identifier(x))),
+            SymbolV(x) => Ok(Rc::new(Expr::Atom(Identifier(x)))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
         }
     }
 }
-
-*/
 
 // TODO add tests
 impl PartialEq for SteelVal {
