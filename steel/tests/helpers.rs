@@ -30,7 +30,7 @@ pub fn test_line(input: &str, output: &[&str], evaluator: &mut Evaluator) {
         Ok(exprs) => {
             assert_eq!(exprs.len(), output.len());
             for (expr, &expected) in exprs.iter().zip(output.iter()) {
-                let out = evaluator.eval(&expr);
+                let out = evaluator.eval(expr.clone());
                 match out {
                     Ok(x) => assert_eq!(x.to_string(), expected),
                     Err(x) => assert_eq!(x.to_string(), expected),

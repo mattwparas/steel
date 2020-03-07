@@ -3,6 +3,7 @@ extern crate rustyline;
 use crate::stdlib::PRELUDE;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use std::time::{Duration, Instant};
 
 #[macro_export]
 macro_rules! build_repl {
@@ -34,10 +35,16 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                 match line.as_str() {
                     ":quit" => return Ok(()),
                     ":reset" => interpreter.reset(),
-                    _ => match interpreter.evaluate(&line) {
-                        Ok(r) => r.iter().for_each(|x| println!("{}", x)),
-                        Err(e) => eprintln!("{}", e),
-                    },
+                    _ => {
+                        let now = Instant::now();
+                        let res = interpreter.evaluate(&line);
+                        // it prints '2'
+                        println!("{:?}", now.elapsed());
+                        match res {
+                            Ok(r) => r.iter().for_each(|x| println!("{}", x)),
+                            Err(e) => eprintln!("{}", e),
+                        }
+                    }
                 }
             }
             Err(ReadlineError::Interrupted) => {

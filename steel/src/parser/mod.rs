@@ -5,6 +5,7 @@ use tokens::{Token, TokenError};
 
 use std::fmt;
 use std::iter::Peekable;
+use std::rc::Rc;
 use std::result;
 use std::str;
 use thiserror::Error;
@@ -12,7 +13,7 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Atom(Token),
-    ListVal(Vec<Expr>),
+    ListVal(Vec<Rc<Expr>>),
 }
 
 impl fmt::Display for Expr {
@@ -56,8 +57,8 @@ impl<'a> Parser<'a> {
 
     // Jason's attempt
     fn read_from_tokens(&mut self) -> Result<Expr> {
-        let mut stack: Vec<Vec<Expr>> = Vec::new();
-        let mut current_frame: Vec<Expr> = Vec::new();
+        let mut stack: Vec<Vec<Rc<Expr>>> = Vec::new();
+        let mut current_frame: Vec<Rc<Expr>> = Vec::new();
 
         loop {
             match self.tokenizer.next() {
@@ -68,7 +69,7 @@ impl<'a> Parser<'a> {
                             .unwrap_or(Err(ParseError::UnexpectedEOF))
                             .map(construct_quote);
                         match quote_inner {
-                            Ok(expr) => current_frame.push(expr),
+                            Ok(expr) => current_frame.push(Rc::new(expr)),
                             Err(e) => return Err(e),
                         }
                     }
@@ -78,14 +79,14 @@ impl<'a> Parser<'a> {
                     }
                     Token::CloseParen => {
                         if let Some(mut prev_frame) = stack.pop() {
-                            prev_frame.push(Expr::ListVal(current_frame));
+                            prev_frame.push(Rc::new(Expr::ListVal(current_frame)));
                             current_frame = prev_frame;
                         } else {
                             return Ok(Expr::ListVal(current_frame));
                         }
                     }
                     tok => {
-                        current_frame.push(Expr::Atom(tok));
+                        current_frame.push(Rc::new(Expr::Atom(tok)));
                     }
                 },
                 Some(Err(e)) => return Err(ParseError::TokenError(e)),
@@ -116,10 +117,12 @@ impl<'a> Iterator for Parser<'a> {
 
 fn construct_quote(val: Expr) -> Expr {
     Expr::ListVal(vec![
-        Expr::Atom(Token::Identifier("quote".to_string())),
-        val,
+        Rc::new(Expr::Atom(Token::Identifier("quote".to_string()))),
+        Rc::new(val),
     ])
 }
+
+/*
 
 #[cfg(test)]
 mod parser_tests {
@@ -323,3 +326,5 @@ mod parser_tests {
         assert_eq!(a, result);
     }
 }
+
+*/

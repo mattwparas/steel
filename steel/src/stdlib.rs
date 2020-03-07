@@ -42,7 +42,7 @@ pub const PRELUDE: &str = "
       (func (car lst) (foldr func accum (cdr lst))))))
 (define unfold (lambda (func init pred)
   (if (pred init)
-      (cons init '())
+      (cons init (list))
       (cons init (unfold func (func init) pred)))))
 (define fold (lambda (f a l) (foldl f a l)))
 (define reduce (lambda (f a l) (fold f a l)))
@@ -50,7 +50,7 @@ pub const PRELUDE: &str = "
 (define min (lambda (x  num-list) (fold (lambda (y z) (if (< y z) y z)) x (cons 536870911 num-list))))
 (define length (lambda (lst)        (fold (lambda (x y) (+ x 1)) 0 lst)))
 ;; (define append (lambda (lst lsts)  (foldl (flip (curry2 foldr cons)) lst lsts))) ;; TODO fix
-(define reverse (lambda (list) (cdr (foldl (flip cons) '() list)))) ;; TODO fix
+(define reverse (lambda (list) (cdr (foldl (flip cons) (list) list)))) ;; TODO fix
 (define mem-helper (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 ;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
 ;; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
@@ -58,9 +58,9 @@ pub const PRELUDE: &str = "
 ;; (define assq (lambda (obj alist)     (fold (mem-helper (curry eq? obj) car) #f alist)))
 ;; (define assv (lambda (obj alist)     (fold (mem-helper (curry eqv? obj) car) #f alist)))
 (define assoc (lambda (obj alist)    (fold (mem-helper (curry equal? obj) car) #f alist)))
-(define map (lambda (func lst)      (foldr (lambda (x y) (cons (func x) y)) '() lst)))
+(define map (lambda (func lst)      (foldr (lambda (x y) (cons (func x) y)) (list) lst)))
 
-(define filter (lambda (pred lst)   (foldr (lambda (x y) (if (pred x) (cons x y) y)) '() lst)))
+(define filter (lambda (pred lst)   (foldr (lambda (x y) (if (pred x) (cons x y) y)) (list) lst)))
 
 (define (fact n)
   (begin
@@ -88,7 +88,7 @@ pub const PRELUDE: &str = "
       (if (or (zero? x) (null? l))
           accum
           (loop (sub1 x) (cdr l) (append accum (list (car l))))))
-        (loop n lst '())))
+        (loop n lst (list))))
 
 (define (drop n lst)
   (begin
@@ -107,7 +107,7 @@ pub const PRELUDE: &str = "
     (if (= l r)
         accum
         (loop (add1 l) r (cons l accum))))
-  (reverse (loop l r '()))))
+  (reverse (loop l r (list)))))
 
 
 (define (push lst val) (append lst (list val)))

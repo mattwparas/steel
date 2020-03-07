@@ -214,6 +214,8 @@ pub enum SteelVal {
     Custom(Box<dyn CustomType>),
 }
 
+/*
+
 // sometimes you want to just
 // return an expression
 impl TryFrom<Expr> for SteelVal {
@@ -261,6 +263,8 @@ impl TryFrom<SteelVal> for Expr {
     }
 }
 
+*/
+
 // TODO add tests
 impl PartialEq for SteelVal {
     fn eq(&self, other: &Self) -> bool {
@@ -300,7 +304,7 @@ pub struct SteelLambda {
     /// symbols representing the arguments to the function
     params_exp: Vec<String>,
     /// body of the function with identifiers yet to be bound
-    body_exp: Expr,
+    body_exp: Rc<Expr>,
     /// parent environment that created this Lambda.
     /// the actual environment with correct bindingsis built at runtime
     /// once the function is called
@@ -309,7 +313,7 @@ pub struct SteelLambda {
 impl SteelLambda {
     pub fn new(
         params_exp: Vec<String>,
-        body_exp: Expr,
+        body_exp: Rc<Expr>,
         parent_env: Rc<RefCell<Env>>,
     ) -> SteelLambda {
         SteelLambda {
@@ -323,7 +327,7 @@ impl SteelLambda {
         &self.params_exp
     }
     /// body of the function with identifiers yet to be bound
-    pub fn body_exp(&self) -> Expr {
+    pub fn body_exp(&self) -> Rc<Expr> {
         self.body_exp.clone()
     }
     /// parent environment that created this Lambda.
@@ -373,6 +377,8 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         Custom(x) => write!(f, "Custom Type: {}", x.name()),
     }
 }
+
+/*
 
 #[test]
 fn display_test() {
@@ -426,3 +432,5 @@ fn display_list_test() {
         "'((1 (2 3)) (4 5) 6 (7))"
     );
 }
+
+*/
