@@ -101,5 +101,15 @@ pub const PRELUDE: &str = "
 (define (slice l offset n)
     (take n (drop offset l)))
 
+(define (range l r)
+  (begin
+    (define (loop l r accum)
+    (if (= l r)
+        accum
+        (loop (add1 l) r (cons l accum))))
+  (reverse (loop l r '()))))
+
+
+(define (push lst val) (append lst (list val)))
 
 ";

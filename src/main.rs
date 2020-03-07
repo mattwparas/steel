@@ -39,7 +39,6 @@ fn finish(result: Result<(), std::io::Error>) -> ! {
 }
 
 #[steel]
-#[derive(PartialEq)]
 pub struct MyStruct {
     pub field: usize,
     pub stays_the_same: usize,
