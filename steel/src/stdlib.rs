@@ -106,10 +106,7 @@ pub const PRELUDE: &str = "
     (define (loop l r accum)
     (if (= l r)
         accum
-        (loop (add1 l) r (push accum l))))
+        (loop (add1 l) r (push l accum))))
   (loop l r '())))
-
-
-(define (push lst val) (append lst (list val)))
 
 ";
