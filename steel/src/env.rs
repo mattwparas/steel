@@ -297,12 +297,12 @@ impl Env {
 }
 
 fn unwrap_list_of_lists(args: Vec<SteelVal>) -> Result<Vec<Vec<SteelVal>>> {
-    args.iter().map(|x| unwrap_single_list(x)).collect()
+    args.into_iter().map(|x| unwrap_single_list(x)).collect()
 }
 
-fn unwrap_single_list(exp: &SteelVal) -> Result<Vec<SteelVal>> {
+fn unwrap_single_list(exp: SteelVal) -> Result<Vec<SteelVal>> {
     match exp {
-        SteelVal::ListV(lst) => Ok(lst.clone()),
+        SteelVal::ListV(lst) => Ok(lst),
         _ => stop!(TypeMismatch => "expected a list"),
     }
 }
