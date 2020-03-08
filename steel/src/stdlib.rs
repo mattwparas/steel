@@ -32,14 +32,28 @@ pub const PRELUDE: &str = "
 (define curry (lambda (func arg1) (lambda (arg) (func arg1 arg))))
 (define curry2 (lambda (func arg1) (lambda (arg2 arg3) (func arg1 arg2 arg3))))
 (define compose (lambda (f g) (lambda (arg) (f (g arg)))))
-(define foldl (lambda (func accum lst)
+
+
+(define (foldl func accum lst)
   (if (null? lst)
       accum
-      (foldl func (func accum (car lst)) (cdr lst)))))
+      (foldl func
+             (func (car lst) accum) ; here's the change
+             (cdr lst))))
+
+(define (map func lst)
+  (foldl (lambda (ele acc) (push (func ele) acc))
+          '()
+          lst))
+
+
 (define foldr (lambda (func accum lst)
   (if (null? lst)
       accum
       (func (car lst) (foldr func accum (cdr lst))))))
+
+
+
 (define unfold (lambda (func init pred)
   (if (pred init)
       (cons init '())
@@ -58,9 +72,9 @@ pub const PRELUDE: &str = "
 ;; (define assq (lambda (obj alist)     (fold (mem-helper (curry eq? obj) car) #f alist)))
 ;; (define assv (lambda (obj alist)     (fold (mem-helper (curry eqv? obj) car) #f alist)))
 (define assoc (lambda (obj alist)    (fold (mem-helper (curry equal? obj) car) #f alist)))
-(define map (lambda (func lst)      (foldr (lambda (x y) (cons (func x) y)) '() lst)))
 
-(define filter (lambda (pred lst)   (foldr (lambda (x y) (if (pred x) (cons x y) y)) '() lst)))
+
+(define filter (lambda (pred lst)   (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst)))
 
 (define (fact n)
   (begin

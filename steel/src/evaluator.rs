@@ -140,7 +140,7 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
                             return eval_or(&list_of_tokens[1..], &env)
                         }
                         // (sym args*), sym must be a procedure
-                        sym => match evaluate(f, &env)? {
+                        _sym => match evaluate(f, &env)? {
                             SteelVal::FuncV(func) => {
                                 return eval_func(func, &list_of_tokens[1..], &env)
                             }

@@ -164,7 +164,7 @@ impl Env {
             ("-", SteelVal::FuncV(Subtractor::new_func())),
             (
                 "list",
-                SteelVal::FuncV(|mut args: Vec<SteelVal>| -> Result<SteelVal> {
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     // args.reverse();
                     Ok(SteelVal::ListV(args.into_iter().collect()))
                 }),
