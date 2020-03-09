@@ -181,8 +181,18 @@ macro_rules! as_item {
     };
 }
 
-// implement!(f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-
+/// Unwraps the `SteelVal::Custom` with the given type. The type must implement the `CustomType` trait.
+/// If the type does not match, then
+/// the macro returns a `SteelErr::ConverstionError`. If the type does match, return the
+/// underlying value.
+///
+/// # Example
+/// ```rust
+///
+///
+///
+/// ```
+///
 #[macro_export]
 macro_rules! unwrap {
     ($x:expr, $body:ty) => {{
@@ -204,14 +214,24 @@ macro_rules! unwrap {
 
 #[derive(Clone)]
 pub enum SteelVal {
+    /// Represents a boolean value
     BoolV(bool),
+    /// Represents a number, currently only f64 numbers are supported
     NumV(f64),
+    /// Lists are represented as `im_rc::Vector`'s, which are immutable
+    /// data structures
     ListV(Vector<SteelVal>),
+    /// Void return value
     Void,
+    /// Represents strings
     StringV(String),
+    /// Represents built in rust functions
     FuncV(fn(Vec<SteelVal>) -> Result<SteelVal, SteelErr>),
+    /// Represents Steel Lambda functions or closures defined inside the environment
     LambdaV(SteelLambda),
+    /// Represents a symbol, internally represented as `String`s
     SymbolV(String),
+    /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Box<dyn CustomType>),
 }
 

@@ -3,6 +3,7 @@ pub mod tokens;
 use lexer::Tokenizer;
 use tokens::{Token, TokenError};
 
+use std::collections::HashMap;
 use std::fmt;
 use std::iter::Peekable;
 use std::rc::Rc;
@@ -44,15 +45,35 @@ pub enum ParseError {
 #[derive(Debug)]
 pub struct Parser<'a> {
     tokenizer: Peekable<Tokenizer<'a>>,
+    intern: &'a mut HashMap<String, Rc<Expr>>,
 }
 
 pub type Result<T> = result::Result<T, ParseError>;
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str) -> Self {
+    pub fn new(input: &'a str, intern: &'a mut HashMap<String, Rc<Expr>>) -> Self {
         Parser {
             tokenizer: Tokenizer::new(input).peekable(),
+            intern,
         }
+    }
+
+    fn construct_quote(&mut self, val: Expr) -> Expr {
+        let q = match self.intern.get("quote") {
+            Some(rc) => Rc::clone(rc),
+            None => {
+                let val = Rc::new(Expr::Atom(Token::Identifier("quote".to_string())));
+                self.intern.insert("quote".to_string(), Rc::clone(&val));
+                val
+            }
+        };
+
+        // Expr::ListVal(vec![
+        //     Rc::new(Expr::Atom(Token::Identifier("quote".to_string()))),
+        //     Rc::new(val),
+        // ])
+
+        Expr::ListVal(vec![q, Rc::new(val)])
     }
 
     // Jason's attempt
@@ -67,7 +88,7 @@ impl<'a> Parser<'a> {
                         let quote_inner = self
                             .next()
                             .unwrap_or(Err(ParseError::UnexpectedEOF))
-                            .map(construct_quote);
+                            .map(|x| self.construct_quote(x));
                         match quote_inner {
                             Ok(expr) => current_frame.push(Rc::new(expr)),
                             Err(e) => return Err(e),
@@ -85,9 +106,17 @@ impl<'a> Parser<'a> {
                             return Ok(Expr::ListVal(current_frame));
                         }
                     }
-                    tok => {
-                        current_frame.push(Rc::new(Expr::Atom(tok)));
-                    }
+                    tok => match &tok {
+                        Token::Identifier(s) => match self.intern.get(s) {
+                            Some(rc) => current_frame.push(Rc::clone(rc)),
+                            None => {
+                                let val = Rc::new(Expr::Atom(tok.clone()));
+                                current_frame.push(val.clone());
+                                self.intern.insert(s.to_string(), val);
+                            }
+                        },
+                        _ => current_frame.push(Rc::new(Expr::Atom(tok))),
+                    },
                 },
                 Some(Err(e)) => return Err(ParseError::TokenError(e)),
                 None => return Err(ParseError::UnexpectedEOF),
@@ -106,7 +135,7 @@ impl<'a> Iterator for Parser<'a> {
                 Token::QuoteTick => self
                     .next()
                     .unwrap_or(Err(ParseError::UnexpectedEOF))
-                    .map(construct_quote),
+                    .map(|x| self.construct_quote(x)),
                 Token::OpenParen => self.read_from_tokens(),
                 Token::CloseParen => Err(ParseError::Unexpected(Token::CloseParen)),
                 tok => Ok(Expr::Atom(tok)),
@@ -114,15 +143,6 @@ impl<'a> Iterator for Parser<'a> {
         })
     }
 }
-
-fn construct_quote(val: Expr) -> Expr {
-    Expr::ListVal(vec![
-        Rc::new(Expr::Atom(Token::Identifier("quote".to_string()))),
-        Rc::new(val),
-    ])
-}
-
-/*
 
 #[cfg(test)]
 mod parser_tests {
@@ -152,13 +172,13 @@ mod parser_tests {
                 Atom(Identifier("a".to_string())),
                 Atom(Identifier("b".to_string())),
                 ListVal(vec![
-                    Atom(Identifier("lambda".to_string())),
-                    Atom(NumberLiteral(1.0)),
-                    ListVal(vec![
-                        Atom(Identifier("+".to_string())),
-                        Atom(NumberLiteral(2.0)),
-                        Atom(NumberLiteral(3.5)),
-                    ]),
+                    Rc::new(Atom(Identifier("lambda".to_string()))),
+                    Rc::new(Atom(NumberLiteral(1.0))),
+                    Rc::new(ListVal(vec![
+                        Rc::new(Atom(Identifier("+".to_string()))),
+                        Rc::new(Atom(NumberLiteral(2.0))),
+                        Rc::new(Atom(NumberLiteral(3.5))),
+                    ])),
                 ]),
             ],
         )
@@ -169,15 +189,15 @@ mod parser_tests {
             "(+ 1 2 3) (- 4 3)",
             &[
                 ListVal(vec![
-                    Atom(Identifier("+".to_string())),
-                    Atom(NumberLiteral(1.0)),
-                    Atom(NumberLiteral(2.0)),
-                    Atom(NumberLiteral(3.0)),
+                    Rc::new(Atom(Identifier("+".to_string()))),
+                    Rc::new(Atom(NumberLiteral(1.0))),
+                    Rc::new(Atom(NumberLiteral(2.0))),
+                    Rc::new(Atom(NumberLiteral(3.0))),
                 ]),
                 ListVal(vec![
-                    Atom(Identifier("-".to_string())),
-                    Atom(NumberLiteral(4.0)),
-                    Atom(NumberLiteral(3.0)),
+                    Rc::new(Atom(Identifier("-".to_string()))),
+                    Rc::new(Atom(NumberLiteral(4.0))),
+                    Rc::new(Atom(NumberLiteral(3.0))),
                 ]),
             ],
         );
@@ -187,61 +207,61 @@ mod parser_tests {
         assert_parse(
             "(+ 1 (foo (bar 2 3)))",
             &[ListVal(vec![
-                Atom(Identifier("+".to_string())),
-                Atom(NumberLiteral(1.0)),
-                ListVal(vec![
-                    Atom(Identifier("foo".to_string())),
-                    ListVal(vec![
-                        Atom(Identifier("bar".to_owned())),
-                        Atom(NumberLiteral(2.0)),
-                        Atom(NumberLiteral(3.0)),
-                    ]),
-                ]),
+                Rc::new(Atom(Identifier("+".to_string()))),
+                Rc::new(Atom(NumberLiteral(1.0))),
+                Rc::new(ListVal(vec![
+                    Rc::new(Atom(Identifier("foo".to_string()))),
+                    Rc::new(ListVal(vec![
+                        Rc::new(Atom(Identifier("bar".to_owned()))),
+                        Rc::new(Atom(NumberLiteral(2.0))),
+                        Rc::new(Atom(NumberLiteral(3.0))),
+                    ])),
+                ])),
             ])],
         );
         assert_parse(
             "(+ 1 (+ 2 3) (foo (bar 2 3)))",
             &[ListVal(vec![
-                Atom(Identifier("+".to_string())),
-                Atom(NumberLiteral(1.0)),
-                ListVal(vec![
-                    Atom(Identifier("+".to_string())),
-                    Atom(NumberLiteral(2.0)),
-                    Atom(NumberLiteral(3.0)),
-                ]),
-                ListVal(vec![
-                    Atom(Identifier("foo".to_string())),
-                    ListVal(vec![
-                        Atom(Identifier("bar".to_owned())),
-                        Atom(NumberLiteral(2.0)),
-                        Atom(NumberLiteral(3.0)),
-                    ]),
-                ]),
+                Rc::new(Atom(Identifier("+".to_string()))),
+                Rc::new(Atom(NumberLiteral(1.0))),
+                Rc::new(ListVal(vec![
+                    Rc::new(Atom(Identifier("+".to_string()))),
+                    Rc::new(Atom(NumberLiteral(2.0))),
+                    Rc::new(Atom(NumberLiteral(3.0))),
+                ])),
+                Rc::new(ListVal(vec![
+                    Rc::new(Atom(Identifier("foo".to_string()))),
+                    Rc::new(ListVal(vec![
+                        Rc::new(Atom(Identifier("bar".to_owned()))),
+                        Rc::new(Atom(NumberLiteral(2.0))),
+                        Rc::new(Atom(NumberLiteral(3.0))),
+                    ])),
+                ])),
             ])],
         );
         assert_parse(
             "(+ 1 (+ 2 3) (foo (+ (bar 1 1) 3) 5))",
             &[ListVal(vec![
-                Atom(Identifier("+".to_string())),
-                Atom(NumberLiteral(1.0)),
-                ListVal(vec![
-                    Atom(Identifier("+".to_string())),
-                    Atom(NumberLiteral(2.0)),
-                    Atom(NumberLiteral(3.0)),
-                ]),
-                ListVal(vec![
-                    Atom(Identifier("foo".to_string())),
-                    ListVal(vec![
-                        Atom(Identifier("+".to_string())),
-                        ListVal(vec![
-                            Atom(Identifier("bar".to_string())),
-                            Atom(NumberLiteral(1.0)),
-                            Atom(NumberLiteral(1.0)),
-                        ]),
-                        Atom(NumberLiteral(3.0)),
-                    ]),
-                    Atom(NumberLiteral(5.0)),
-                ]),
+                Rc::new(Atom(Identifier("+".to_string()))),
+                Rc::new(Atom(NumberLiteral(1.0))),
+                Rc::new(ListVal(vec![
+                    Rc::new(Atom(Identifier("+".to_string()))),
+                    Rc::new(Atom(NumberLiteral(2.0))),
+                    Rc::new(Atom(NumberLiteral(3.0))),
+                ])),
+                Rc::new(ListVal(vec![
+                    Rc::new(Atom(Identifier("foo".to_string()))),
+                    Rc::new(ListVal(vec![
+                        Rc::new(Atom(Identifier("+".to_string()))),
+                        Rc::new(ListVal(vec![
+                            Rc::new(Atom(Identifier("bar".to_string()))),
+                            Rc::new(Atom(NumberLiteral(1.0))),
+                            Rc::new(Atom(NumberLiteral(1.0))),
+                        ])),
+                        Rc::new(Atom(NumberLiteral(3.0))),
+                    ])),
+                    Rc::new(Atom(NumberLiteral(5.0))),
+                ])),
             ])],
         );
     }
@@ -250,54 +270,56 @@ mod parser_tests {
         assert_parse(
             "(define (foo a b) (+ (- a 1) b))",
             &[ListVal(vec![
-                Atom(Identifier("define".to_string())),
-                ListVal(vec![
-                    Atom(Identifier("foo".to_string())),
-                    Atom(Identifier("a".to_string())),
-                    Atom(Identifier("b".to_string())),
-                ]),
-                ListVal(vec![
-                    Atom(Identifier("+".to_string())),
-                    ListVal(vec![
-                        Atom(Identifier("-".to_string())),
-                        Atom(Identifier("a".to_string())),
-                        Atom(NumberLiteral(1.0)),
-                    ]),
-                    Atom(Identifier("b".to_string())),
-                ]),
+                Rc::new(Atom(Identifier("define".to_string()))),
+                Rc::new(ListVal(vec![
+                    Rc::new(Atom(Identifier("foo".to_string()))),
+                    Rc::new(Atom(Identifier("a".to_string()))),
+                    Rc::new(Atom(Identifier("b".to_string()))),
+                ])),
+                Rc::new(ListVal(vec![
+                    Rc::new(Atom(Identifier("+".to_string()))),
+                    Rc::new(ListVal(vec![
+                        Rc::new(Atom(Identifier("-".to_string()))),
+                        Rc::new(Atom(Identifier("a".to_string()))),
+                        Rc::new(Atom(NumberLiteral(1.0))),
+                    ])),
+                    Rc::new(Atom(Identifier("b".to_string()))),
+                ])),
             ])],
         );
 
         assert_parse(
             "(if   #t     1 2)",
             &[ListVal(vec![
-                Atom(Identifier("if".to_string())),
-                Atom(BooleanLiteral(true)),
-                Atom(NumberLiteral(1.0)),
-                Atom(NumberLiteral(2.0)),
+                Rc::new(Atom(Identifier("if".to_string()))),
+                Rc::new(Atom(BooleanLiteral(true))),
+                Rc::new(Atom(NumberLiteral(1.0))),
+                Rc::new(Atom(NumberLiteral(2.0))),
             ])],
         );
         assert_parse(
             "(lambda (a b) (+ a b)) (- 1 2) (\"dumpsterfire\")",
             &[
                 ListVal(vec![
-                    Atom(Identifier("lambda".to_string())),
-                    ListVal(vec![
-                        Atom(Identifier("a".to_string())),
-                        Atom(Identifier("b".to_string())),
-                    ]),
-                    ListVal(vec![
-                        Atom(Identifier("+".to_string())),
-                        Atom(Identifier("a".to_string())),
-                        Atom(Identifier("b".to_string())),
-                    ]),
+                    Rc::new(Atom(Identifier("lambda".to_string()))),
+                    Rc::new(ListVal(vec![
+                        Rc::new(Atom(Identifier("a".to_string()))),
+                        Rc::new(Atom(Identifier("b".to_string()))),
+                    ])),
+                    Rc::new(ListVal(vec![
+                        Rc::new(Atom(Identifier("+".to_string()))),
+                        Rc::new(Atom(Identifier("a".to_string()))),
+                        Rc::new(Atom(Identifier("b".to_string()))),
+                    ])),
                 ]),
                 ListVal(vec![
-                    Atom(Identifier("-".to_string())),
-                    Atom(NumberLiteral(1.0)),
-                    Atom(NumberLiteral(2.0)),
+                    Rc::new(Atom(Identifier("-".to_string()))),
+                    Rc::new(Atom(NumberLiteral(1.0))),
+                    Rc::new(Atom(NumberLiteral(2.0))),
                 ]),
-                ListVal(vec![Atom(StringLiteral("dumpsterfire".to_string()))]),
+                ListVal(vec![Rc::new(Atom(StringLiteral(
+                    "dumpsterfire".to_string(),
+                )))]),
             ],
         );
     }
@@ -316,15 +338,15 @@ mod parser_tests {
     }
 
     fn assert_parse_err(s: &str, err: ParseError) {
-        let a: Result<Vec<Expr>> = Parser::new(s).collect();
+        let mut cache: HashMap<String, Rc<Expr>> = HashMap::new();
+        let a: Result<Vec<Expr>> = Parser::new(s, &mut cache).collect();
         assert_eq!(a, Err(err));
     }
 
     fn assert_parse(s: &str, result: &[Expr]) {
-        let a: Result<Vec<Expr>> = Parser::new(s).collect();
+        let mut cache: HashMap<String, Rc<Expr>> = HashMap::new();
+        let a: Result<Vec<Expr>> = Parser::new(s, &mut cache).collect();
         let a = a.unwrap();
         assert_eq!(a, result);
     }
 }
-
-*/

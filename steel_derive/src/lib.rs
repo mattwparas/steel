@@ -8,7 +8,9 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DataStruct, DeriveInput, Fields};
 
-// #[macro_export]
+/// Derives the `CustomType` trait for the given struct, and also implements the
+/// `StructFunctions` trait, which generates the predicate, constructor, and the getters
+/// and setters for using the struct inside the interpreter.
 #[proc_macro_derive(Scheme)]
 pub fn derive_scheme(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -147,6 +149,18 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
     gen.into()
 }
 
+/// Catch all attribute for embedding structs into the `SteelInterpreter`.
+/// Derives Scheme, Clone, and Debug on the attached struct.
+/// # Example
+/// ```ignore
+///
+/// #[steel]
+/// pub struct Foo {
+///     bar: f64,
+///     qux: String
+/// }
+///
+/// ```
 #[proc_macro_attribute]
 pub fn steel(
     _metadata: proc_macro::TokenStream,

@@ -6,6 +6,8 @@ use steel::parser::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
+use std::collections::HashMap;
+
 /// test to make sure file used as input leads to output
 pub fn test_from_files(input_path: &str, output_path: &str) {
     let inputfile = File::open(input_path).unwrap();
@@ -24,7 +26,8 @@ pub fn test_lines(input: impl BufRead, output: impl BufRead) {
 }
 
 pub fn test_line(input: &str, output: &[&str], evaluator: &mut Evaluator) {
-    let p = Parser::new(input);
+    let mut cache = HashMap::new();
+    let p = Parser::new(input, &mut cache);
     let exprs: Result<Vec<Expr>> = p.collect();
     match exprs {
         Ok(exprs) => {
