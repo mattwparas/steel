@@ -219,6 +219,26 @@ impl Env {
                 }),
             ),
             (
+                "range",
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
+                    let mut args = args.into_iter();
+                    match (args.next(), args.next()) {
+                        (Some(elem), Some(lst)) => {
+                            if let (NumV(lower), NumV(upper)) = (elem, lst) {
+                                let mut res = Vector::new();
+                                for i in lower as usize..upper as usize {
+                                    res.push_back(SteelVal::NumV(i as f64));
+                                }
+                                return Ok(SteelVal::ListV(res));
+                            } else {
+                                stop!(TypeMismatch => "range expected number")
+                            }
+                        }
+                        _ => stop!(ArityMismatch => "range takes two arguments"),
+                    }
+                }),
+            ),
+            (
                 "push",
                 SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     let mut args = args.into_iter();
