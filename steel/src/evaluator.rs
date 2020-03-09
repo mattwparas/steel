@@ -95,7 +95,7 @@ fn check_length(what: &str, tokens: &[Rc<Expr>], expected: usize) -> Result<()> 
 
 fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
     let mut env = Rc::clone(env);
-    let mut expr = expr.clone();
+    let mut expr = Rc::clone(expr);
 
     loop {
         match expr.deref() {
@@ -371,7 +371,7 @@ fn eval_let(list_of_tokens: &[Rc<Expr>], _env: &Rc<RefCell<Env>>) -> Result<Rc<E
                                 bindings_to_check.push(binding.clone());
                                 args_to_check.push(expression.clone());
                             }
-                            _ => stop!(ContractViolation => "Let requires pairs for binding"),
+                            _ => stop!(BadSyntax => "Let requires pairs for binding"),
                         },
                         _ => stop!(BadSyntax => "Let: Missing body"),
                     }
