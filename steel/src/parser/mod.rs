@@ -122,6 +122,8 @@ fn construct_quote(val: Expr) -> Expr {
     ])
 }
 
+/*
+
 #[cfg(test)]
 mod parser_tests {
     use super::Expr::*;
@@ -324,3 +326,5 @@ mod parser_tests {
         assert_eq!(a, result);
     }
 }
+
+*/

@@ -348,6 +348,18 @@ impl fmt::Display for SteelVal {
     }
 }
 
+impl fmt::Debug for SteelVal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // at the top level, print a ' if we are
+        // trying to print a symbol or list
+        match self {
+            SymbolV(_) | ListV(_) => write!(f, "'")?,
+            _ => (),
+        };
+        display_helper(self, f)
+    }
+}
+
 /// this function recursively prints lists without prepending the `'`
 /// at the beginning
 fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
