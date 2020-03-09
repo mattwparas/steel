@@ -9,4 +9,4 @@ edition = "2018"
 [dependencies]
 thiserror = "1.0"
 rustyline = "5.0.6"
-
+im-rc = "14.3.0"

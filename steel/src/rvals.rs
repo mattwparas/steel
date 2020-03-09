@@ -10,7 +10,7 @@ use std::fmt;
 use std::rc::Rc;
 use SteelVal::*;
 
-use std::collections::LinkedList;
+use im_rc::Vector;
 use std::convert::TryFrom;
 use std::result;
 
@@ -206,7 +206,7 @@ macro_rules! unwrap {
 pub enum SteelVal {
     BoolV(bool),
     NumV(f64),
-    ListV(LinkedList<SteelVal>),
+    ListV(Vector<SteelVal>),
     Void,
     StringV(String),
     FuncV(fn(Vec<SteelVal>) -> Result<SteelVal, SteelErr>),
@@ -231,7 +231,7 @@ impl TryFrom<Rc<Expr>> for SteelVal {
                 StringLiteral(x) => Ok(StringV(x.clone())),
             },
             Expr::ListVal(lst) => {
-                let items: Result<LinkedList<Self>, Self::Error> =
+                let items: Result<Vector<Self>, Self::Error> =
                     lst.into_iter().map(|x| Self::try_from(x.clone())).collect();
                 Ok(ListV(items?))
             }

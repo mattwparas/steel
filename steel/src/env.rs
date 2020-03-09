@@ -6,9 +6,10 @@ use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
 use crate::stop;
 
+use im_rc::Vector;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::collections::LinkedList;
+// use std::collections::Vector;
 use std::rc::Rc;
 
 #[macro_use]
@@ -180,7 +181,7 @@ impl Env {
                                 l.push_front(elem);
                                 Ok(SteelVal::ListV(l))
                             } else {
-                                let mut new = LinkedList::new();
+                                let mut new = Vector::new();
                                 new.push_front(lst);
                                 new.push_front(elem);
                                 Ok(SteelVal::ListV(new))
@@ -212,7 +213,7 @@ impl Env {
             (
                 "append",
                 SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
-                    let lsts: LinkedList<SteelVal> =
+                    let lsts: Vector<SteelVal> =
                         unwrap_list_of_lists(args)?.into_iter().flatten().collect();
                     Ok(SteelVal::ListV(lsts))
                 }),
@@ -228,7 +229,7 @@ impl Env {
                                 l.push_back(elem);
                                 Ok(SteelVal::ListV(l))
                             } else {
-                                let mut new = LinkedList::new();
+                                let mut new = Vector::new();
                                 new.push_front(elem);
                                 new.push_front(lst);
                                 Ok(SteelVal::ListV(new))
@@ -324,11 +325,11 @@ impl Env {
     }
 }
 
-fn unwrap_list_of_lists(args: Vec<SteelVal>) -> Result<Vec<LinkedList<SteelVal>>> {
+fn unwrap_list_of_lists(args: Vec<SteelVal>) -> Result<Vec<Vector<SteelVal>>> {
     args.into_iter().map(|x| unwrap_single_list(x)).collect()
 }
 
-fn unwrap_single_list(exp: SteelVal) -> Result<LinkedList<SteelVal>> {
+fn unwrap_single_list(exp: SteelVal) -> Result<Vector<SteelVal>> {
     match exp {
         SteelVal::ListV(lst) => Ok(lst),
         _ => stop!(TypeMismatch => "expected a list"),
