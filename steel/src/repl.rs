@@ -21,11 +21,11 @@ macro_rules! build_repl {
 }
 
 pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Result<()> {
-    let now = Instant::now();
+    // let now = Instant::now();
     if let Err(e) = interpreter.require(PRELUDE) {
         eprintln!("Error loading prelude: {}", e)
     }
-    println!("Time to load prelude: {:?}", now.elapsed());
+    // println!("Time to load prelude: {:?}", now.elapsed());
     println!("Welcome to Steel 1.0");
 
     let mut rl = Editor::<()>::new();

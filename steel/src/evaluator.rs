@@ -35,13 +35,13 @@ impl Evaluator {
     }
 
     pub fn parse_and_eval(&mut self, expr_str: &str) -> Result<Vec<SteelVal>> {
-        println!(
-            "{:?}",
-            self.intern_cache
-                .iter()
-                .map(|(x, y)| (x, Rc::strong_count(y)))
-                .collect::<Vec<(&String, usize)>>()
-        );
+        // println!(
+        //     "{:?}",
+        //     self.intern_cache
+        //         .iter()
+        //         .map(|(x, y)| (x, Rc::strong_count(y)))
+        //         .collect::<Vec<(&String, usize)>>()
+        // );
         let parsed: result::Result<Vec<Expr>, ParseError> =
             Parser::new(expr_str, &mut self.intern_cache).collect();
         let parsed = parsed?;
@@ -68,21 +68,7 @@ impl Evaluator {
 impl Drop for Evaluator {
     fn drop(&mut self) {
         self.global_env.borrow_mut().clear_bindings();
-        // println!(
-        //     "{:?}",
-        //     self.intern_cache
-        //         .iter()
-        //         .map(|(x, y)| (x, Rc::strong_count(y)))
-        //         .collect::<Vec<(&String, usize)>>()
-        // );
         self.intern_cache.clear();
-        // println!(
-        //     "{:?}",
-        //     self.intern_cache
-        //         .iter()
-        //         .map(|(x, y)| (x, Rc::strong_count(y)))
-        //         .collect::<Vec<(&String, usize)>>()
-        // );
     }
 }
 

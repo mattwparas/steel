@@ -68,11 +68,6 @@ impl<'a> Parser<'a> {
             }
         };
 
-        // Expr::ListVal(vec![
-        //     Rc::new(Expr::Atom(Token::Identifier("quote".to_string()))),
-        //     Rc::new(val),
-        // ])
-
         Expr::ListVal(vec![q, Rc::new(val)])
     }
 
