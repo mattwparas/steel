@@ -3,7 +3,7 @@ extern crate rustyline;
 use crate::stdlib::PRELUDE;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use std::time::Instant;
+// use std::time::Instant;
 
 #[macro_export]
 macro_rules! build_repl {

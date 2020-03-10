@@ -411,6 +411,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
 #[test]
 fn display_test() {
     use crate::parser::tokens::Token;
+    use im_rc::vector;
     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
     assert_eq!(SteelVal::NumV(1.0).to_string(), "1");
     assert_eq!(
@@ -435,6 +436,7 @@ fn display_test() {
 #[test]
 fn display_list_test() {
     use crate::parser::tokens::Token;
+    use im_rc::vector;
     assert_eq!(ListV(vector![]).to_string(), "'()");
     assert_eq!(
         ListV(vector![
