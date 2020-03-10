@@ -62,7 +62,8 @@ pub struct Foo {
 pub fn my_repl() -> std::io::Result<()> {
     build_repl! {
         MyStruct,
-        CoolTest
+        CoolTest,
+        Foo
     }
 }
 
