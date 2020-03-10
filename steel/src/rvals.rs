@@ -10,6 +10,7 @@ use std::fmt;
 use std::rc::Rc;
 use SteelVal::*;
 
+// use im_rc::vector;
 use im_rc::Vector;
 use std::convert::TryFrom;
 use std::result;
@@ -245,14 +246,14 @@ impl TryFrom<Rc<Expr>> for SteelVal {
                 OpenParen => Err(SteelErr::UnexpectedToken("(".to_string())),
                 CloseParen => Err(SteelErr::UnexpectedToken(")".to_string())),
                 QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string())),
-                BooleanLiteral(x) => Ok(BoolV(x.clone())),
+                BooleanLiteral(x) => Ok(BoolV(*x)),
                 Identifier(x) => Ok(SymbolV(x.clone())),
-                NumberLiteral(x) => Ok(NumV(x.clone())),
+                NumberLiteral(x) => Ok(NumV(*x)),
                 StringLiteral(x) => Ok(StringV(x.clone())),
             },
             Expr::ListVal(lst) => {
                 let items: Result<Vector<Self>, Self::Error> =
-                    lst.into_iter().map(|x| Self::try_from(x.clone())).collect();
+                    lst.iter().map(|x| Self::try_from(x.clone())).collect();
                 Ok(ListV(items?))
             }
         }
@@ -407,8 +408,6 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
     }
 }
 
-/*
-
 #[test]
 fn display_test() {
     use crate::parser::tokens::Token;
@@ -416,7 +415,7 @@ fn display_test() {
     assert_eq!(SteelVal::NumV(1.0).to_string(), "1");
     assert_eq!(
         SteelVal::FuncV(|_args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
-            Ok(SteelVal::ListV(vec![]))
+            Ok(SteelVal::ListV(vector![]))
         })
         .to_string(),
         "Function"
@@ -424,7 +423,7 @@ fn display_test() {
     assert_eq!(
         SteelVal::LambdaV(SteelLambda::new(
             vec!["arg1".to_owned()],
-            Expr::Atom(Token::NumberLiteral(1.0)),
+            Rc::new(Expr::Atom(Token::NumberLiteral(1.0))),
             Rc::new(RefCell::new(crate::env::Env::default_env())),
         ))
         .to_string(),
@@ -436,14 +435,14 @@ fn display_test() {
 #[test]
 fn display_list_test() {
     use crate::parser::tokens::Token;
-    assert_eq!(ListV(vec![]).to_string(), "'()");
+    assert_eq!(ListV(vector![]).to_string(), "'()");
     assert_eq!(
-        ListV(vec![
+        ListV(vector![
             BoolV(false),
             NumV(1.0),
             LambdaV(SteelLambda::new(
                 vec!["arg1".to_owned()],
-                Expr::Atom(Token::NumberLiteral(1.0)),
+                Rc::new(Expr::Atom(Token::NumberLiteral(1.0))),
                 Rc::new(RefCell::new(crate::env::Env::default_env())),
             ))
         ])
@@ -451,15 +450,13 @@ fn display_list_test() {
         "'(#false 1 Lambda Function)"
     );
     assert_eq!(
-        ListV(vec![
-            ListV(vec![NumV(1.0), ListV(vec!(NumV(2.0), NumV(3.0)))]),
-            ListV(vec![NumV(4.0), NumV(5.0)]),
+        ListV(vector![
+            ListV(vector![NumV(1.0), ListV(vector!(NumV(2.0), NumV(3.0)))]),
+            ListV(vector![NumV(4.0), NumV(5.0)]),
             NumV(6.0),
-            ListV(vec![NumV(7.0)])
+            ListV(vector![NumV(7.0)])
         ])
         .to_string(),
         "'((1 (2 3)) (4 5) 6 (7))"
     );
 }
-
-*/

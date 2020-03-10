@@ -13,6 +13,7 @@ use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 use steel::build_interpreter;
 use steel::build_repl;
 use steel::repl::repl_base;
+// use steel::PRELUDE;
 use steel_derive::steel;
 
 use std::process;

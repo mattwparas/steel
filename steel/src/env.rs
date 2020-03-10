@@ -229,7 +229,7 @@ impl Env {
                                 for i in lower as usize..upper as usize {
                                     res.push_back(SteelVal::NumV(i as f64));
                                 }
-                                return Ok(SteelVal::ListV(res));
+                                Ok(SteelVal::ListV(res))
                             } else {
                                 stop!(TypeMismatch => "range expected number")
                             }
@@ -346,7 +346,7 @@ impl Env {
 }
 
 fn unwrap_list_of_lists(args: Vec<SteelVal>) -> Result<Vec<Vector<SteelVal>>> {
-    args.into_iter().map(|x| unwrap_single_list(x)).collect()
+    args.into_iter().map(unwrap_single_list).collect()
 }
 
 fn unwrap_single_list(exp: SteelVal) -> Result<Vector<SteelVal>> {
