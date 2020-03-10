@@ -17,13 +17,54 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
 
     let name = &input.ident;
 
+    match &input.data {
+        Data::Struct(DataStruct {
+            fields: Fields::Unnamed(_),
+            ..
+        }) => {
+            let gen = quote! {
+
+                impl crate::rvals::CustomType for #name {
+                    fn box_clone(&self) -> Box<dyn CustomType> {
+                        Box::new((*self).clone())
+                    }
+                    fn as_any(&self) -> Box<dyn Any> {
+                        Box::new((*self).clone())
+                    }
+                    fn new_steel_val(&self) -> SteelVal {
+                        SteelVal::Custom(Box::new(self.clone()))
+                    }
+                }
+                impl From<#name> for SteelVal {
+                    fn from(val: #name) -> SteelVal {
+                        val.new_steel_val()
+                    }
+                }
+
+                impl From<SteelVal> for #name {
+                    fn from(val: SteelVal) -> #name {
+                        unwrap!(val, #name).unwrap()
+                    }
+                }
+            };
+
+            return gen.into();
+        }
+        _ => {}
+    };
+
     let fields = match &input.data {
         Data::Struct(DataStruct {
             fields: Fields::Named(fields),
             ..
         }) => &fields.named,
-        _ => panic!("expected a struct with named fields"),
+        Data::Struct(DataStruct {
+            fields: Fields::Unnamed(fields),
+            ..
+        }) => &fields.unnamed,
+        _ => panic!("expected a struct with named or unnamed fields"),
     };
+
     let field_name = fields.iter().map(|field| &field.ident);
     let field_name2 = field_name.clone();
     let field_type = fields.iter().map(|field| &field.ty);

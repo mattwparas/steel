@@ -19,7 +19,7 @@ use steel_derive::steel;
 use std::process;
 
 fn main() {
-    // build_interpreter_and_modify();
+    build_interpreter_and_modify();
     finish(my_repl());
 }
 
@@ -51,6 +51,9 @@ pub struct CoolTest {
     pub val: f64,
 }
 
+#[steel]
+pub struct UnnamedFields(pub usize);
+
 pub fn my_repl() -> std::io::Result<()> {
     build_repl! {
         MyStruct,
@@ -64,6 +67,10 @@ pub fn build_interpreter_and_modify() {
         CoolTest
     };
 
+    let test = UnnamedFields(100);
+
+    interpreter.insert_binding("unnamed", test.new_steel_val());
+
     let script = "
     (define cool-test (CoolTest 100))
     (define return-val (set-CoolTest-val! cool-test 200))
@@ -72,5 +79,8 @@ pub fn build_interpreter_and_modify() {
     if let Ok(_) = interpreter.evaluate(script) {
         let ret_val = unwrap!(interpreter.extract_value("return-val").unwrap(), CoolTest).unwrap();
         println!("{:?}", ret_val);
+        let ret_val2 =
+            unwrap!(interpreter.extract_value("unnamed").unwrap(), UnnamedFields).unwrap();
+        println!("{:?}", ret_val2);
     };
 }
