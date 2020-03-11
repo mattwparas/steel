@@ -127,12 +127,12 @@ fn let_test() {
     test_line("(let () 1)", &["1"], e);
     test_line(
         "(let ((1)) x)",
-        &["Contract Violation: Let requires pairs for binding"],
+        &["Bad Syntax: Let requires pairs for binding"],
         e,
     );
     test_line(
         "(let ((x 1) (1)) x)",
-        &["Contract Violation: Let requires pairs for binding"],
+        &["Bad Syntax: Let requires pairs for binding"],
         e,
     );
     test_line(

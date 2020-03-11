@@ -6,8 +6,10 @@ use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
 use crate::stop;
 
+use im_rc::Vector;
 use std::cell::RefCell;
 use std::collections::HashMap;
+// use std::collections::Vector;
 use std::rc::Rc;
 
 #[macro_use]
@@ -164,7 +166,8 @@ impl Env {
             (
                 "list",
                 SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
-                    Ok(SteelVal::ListV(args))
+                    // args.reverse();
+                    Ok(SteelVal::ListV(args.into_iter().collect()))
                 }),
             ),
             (
@@ -174,10 +177,14 @@ impl Env {
                     match (args.next(), args.next()) {
                         (Some(elem), Some(lst)) => {
                             if let SteelVal::ListV(mut l) = lst {
-                                l.insert(0, elem);
+                                // l.insert(0, elem);
+                                l.push_front(elem);
                                 Ok(SteelVal::ListV(l))
                             } else {
-                                Ok(SteelVal::ListV(vec![elem, lst]))
+                                let mut new = Vector::new();
+                                new.push_front(lst);
+                                new.push_front(elem);
+                                Ok(SteelVal::ListV(new))
                             }
                         }
                         _ => stop!(ArityMismatch => "cons takes two arguments"),
@@ -206,9 +213,50 @@ impl Env {
             (
                 "append",
                 SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
-                    let lsts: Vec<SteelVal> =
+                    let lsts: Vector<SteelVal> =
                         unwrap_list_of_lists(args)?.into_iter().flatten().collect();
                     Ok(SteelVal::ListV(lsts))
+                }),
+            ),
+            (
+                "range",
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
+                    let mut args = args.into_iter();
+                    match (args.next(), args.next()) {
+                        (Some(elem), Some(lst)) => {
+                            if let (NumV(lower), NumV(upper)) = (elem, lst) {
+                                let mut res = Vector::new();
+                                for i in lower as usize..upper as usize {
+                                    res.push_back(SteelVal::NumV(i as f64));
+                                }
+                                Ok(SteelVal::ListV(res))
+                            } else {
+                                stop!(TypeMismatch => "range expected number")
+                            }
+                        }
+                        _ => stop!(ArityMismatch => "range takes two arguments"),
+                    }
+                }),
+            ),
+            (
+                "push",
+                SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
+                    let mut args = args.into_iter();
+                    match (args.next(), args.next()) {
+                        (Some(elem), Some(lst)) => {
+                            if let SteelVal::ListV(mut l) = lst {
+                                // l.insert(0, elem);
+                                l.push_back(elem);
+                                Ok(SteelVal::ListV(l))
+                            } else {
+                                let mut new = Vector::new();
+                                new.push_front(elem);
+                                new.push_front(lst);
+                                Ok(SteelVal::ListV(new))
+                            }
+                        }
+                        _ => stop!(ArityMismatch => "cons takes two arguments"),
+                    }
                 }),
             ),
             (
@@ -216,7 +264,7 @@ impl Env {
                 SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     if let Some(first) = args.into_iter().next() {
                         match first {
-                            SteelVal::ListV(e) => match e.into_iter().next() {
+                            SteelVal::ListV(mut e) => match e.pop_front() {
                                 Some(e) => Ok(e),
                                 None => stop!(ContractViolation => "car expects a non empty list"),
                             },
@@ -234,9 +282,10 @@ impl Env {
                 SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal> {
                     if let Some(first) = args.into_iter().next() {
                         match first {
-                            SteelVal::ListV(e) => {
+                            SteelVal::ListV(mut e) => {
                                 if !e.is_empty() {
-                                    Ok(SteelVal::ListV(e.into_iter().skip(1).collect()))
+                                    e.pop_front();
+                                    Ok(SteelVal::ListV(e))
                                 } else {
                                     stop!(ContractViolation => "cdr expects a non empty list")
                                 }
@@ -296,13 +345,13 @@ impl Env {
     }
 }
 
-fn unwrap_list_of_lists(args: Vec<SteelVal>) -> Result<Vec<Vec<SteelVal>>> {
-    args.iter().map(|x| unwrap_single_list(x)).collect()
+fn unwrap_list_of_lists(args: Vec<SteelVal>) -> Result<Vec<Vector<SteelVal>>> {
+    args.into_iter().map(unwrap_single_list).collect()
 }
 
-fn unwrap_single_list(exp: &SteelVal) -> Result<Vec<SteelVal>> {
+fn unwrap_single_list(exp: SteelVal) -> Result<Vector<SteelVal>> {
     match exp {
-        SteelVal::ListV(lst) => Ok(lst.clone()),
+        SteelVal::ListV(lst) => Ok(lst),
         _ => stop!(TypeMismatch => "expected a list"),
     }
 }

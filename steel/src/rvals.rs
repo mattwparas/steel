@@ -10,6 +10,8 @@ use std::fmt;
 use std::rc::Rc;
 use SteelVal::*;
 
+// use im_rc::vector;
+use im_rc::Vector;
 use std::convert::TryFrom;
 use std::result;
 
@@ -180,8 +182,18 @@ macro_rules! as_item {
     };
 }
 
-// implement!(f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-
+/// Unwraps the `SteelVal::Custom` with the given type. The type must implement the `CustomType` trait.
+/// If the type does not match, then
+/// the macro returns a `SteelErr::ConverstionError`. If the type does match, return the
+/// underlying value.
+///
+/// # Example
+/// ```rust
+///
+///
+///
+/// ```
+///
 #[macro_export]
 macro_rules! unwrap {
     ($x:expr, $body:ty) => {{
@@ -203,35 +215,45 @@ macro_rules! unwrap {
 
 #[derive(Clone)]
 pub enum SteelVal {
+    /// Represents a boolean value
     BoolV(bool),
+    /// Represents a number, currently only f64 numbers are supported
     NumV(f64),
-    ListV(Vec<SteelVal>),
+    /// Lists are represented as `im_rc::Vector`'s, which are immutable
+    /// data structures
+    ListV(Vector<SteelVal>),
+    /// Void return value
     Void,
+    /// Represents strings
     StringV(String),
+    /// Represents built in rust functions
     FuncV(fn(Vec<SteelVal>) -> Result<SteelVal, SteelErr>),
+    /// Represents Steel Lambda functions or closures defined inside the environment
     LambdaV(SteelLambda),
+    /// Represents a symbol, internally represented as `String`s
     SymbolV(String),
+    /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Box<dyn CustomType>),
 }
 
 // sometimes you want to just
 // return an expression
-impl TryFrom<Expr> for SteelVal {
+impl TryFrom<Rc<Expr>> for SteelVal {
     type Error = SteelErr;
-    fn try_from(e: Expr) -> Result<Self, Self::Error> {
-        match e {
+    fn try_from(e: Rc<Expr>) -> Result<Self, Self::Error> {
+        match &*e {
             Expr::Atom(a) => match a {
                 OpenParen => Err(SteelErr::UnexpectedToken("(".to_string())),
                 CloseParen => Err(SteelErr::UnexpectedToken(")".to_string())),
                 QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string())),
-                BooleanLiteral(x) => Ok(BoolV(x)),
-                Identifier(x) => Ok(SymbolV(x)),
-                NumberLiteral(x) => Ok(NumV(x)),
-                StringLiteral(x) => Ok(StringV(x)),
+                BooleanLiteral(x) => Ok(BoolV(*x)),
+                Identifier(x) => Ok(SymbolV(x.clone())),
+                NumberLiteral(x) => Ok(NumV(*x)),
+                StringLiteral(x) => Ok(StringV(x.clone())),
             },
             Expr::ListVal(lst) => {
-                let items: Result<Vec<Self>, Self::Error> =
-                    lst.into_iter().map(Self::try_from).collect();
+                let items: Result<Vector<Self>, Self::Error> =
+                    lst.iter().map(|x| Self::try_from(x.clone())).collect();
                 Ok(ListV(items?))
             }
         }
@@ -240,22 +262,22 @@ impl TryFrom<Expr> for SteelVal {
 
 /// Sometimes you want to execute a list
 /// as if it was an expression
-impl TryFrom<SteelVal> for Expr {
+impl TryFrom<SteelVal> for Rc<Expr> {
     type Error = &'static str;
     fn try_from(r: SteelVal) -> result::Result<Self, Self::Error> {
         match r {
-            BoolV(x) => Ok(Expr::Atom(BooleanLiteral(x))),
-            NumV(x) => Ok(Expr::Atom(NumberLiteral(x))),
+            BoolV(x) => Ok(Rc::new(Expr::Atom(BooleanLiteral(x)))),
+            NumV(x) => Ok(Rc::new(Expr::Atom(NumberLiteral(x)))),
             ListV(lst) => {
                 let items: result::Result<Vec<Self>, Self::Error> =
                     lst.into_iter().map(Self::try_from).collect();
-                Ok(Expr::ListVal(items?))
+                Ok(Rc::new(Expr::ListVal(items?)))
             }
             Void => Err("Can't convert from Void to expression!"),
-            StringV(x) => Ok(Expr::Atom(StringLiteral(x))),
+            StringV(x) => Ok(Rc::new(Expr::Atom(StringLiteral(x)))),
             FuncV(_) => Err("Can't convert from Function to expression!"),
             LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-            SymbolV(x) => Ok(Expr::Atom(Identifier(x))),
+            SymbolV(x) => Ok(Rc::new(Expr::Atom(Identifier(x)))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
         }
     }
@@ -300,7 +322,7 @@ pub struct SteelLambda {
     /// symbols representing the arguments to the function
     params_exp: Vec<String>,
     /// body of the function with identifiers yet to be bound
-    body_exp: Expr,
+    body_exp: Rc<Expr>,
     /// parent environment that created this Lambda.
     /// the actual environment with correct bindingsis built at runtime
     /// once the function is called
@@ -309,7 +331,7 @@ pub struct SteelLambda {
 impl SteelLambda {
     pub fn new(
         params_exp: Vec<String>,
-        body_exp: Expr,
+        body_exp: Rc<Expr>,
         parent_env: Rc<RefCell<Env>>,
     ) -> SteelLambda {
         SteelLambda {
@@ -323,7 +345,7 @@ impl SteelLambda {
         &self.params_exp
     }
     /// body of the function with identifiers yet to be bound
-    pub fn body_exp(&self) -> Expr {
+    pub fn body_exp(&self) -> Rc<Expr> {
         self.body_exp.clone()
     }
     /// parent environment that created this Lambda.
@@ -336,6 +358,18 @@ impl SteelLambda {
 }
 
 impl fmt::Display for SteelVal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // at the top level, print a ' if we are
+        // trying to print a symbol or list
+        match self {
+            SymbolV(_) | ListV(_) => write!(f, "'")?,
+            _ => (),
+        };
+        display_helper(self, f)
+    }
+}
+
+impl fmt::Debug for SteelVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
@@ -377,11 +411,12 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
 #[test]
 fn display_test() {
     use crate::parser::tokens::Token;
+    use im_rc::vector;
     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
     assert_eq!(SteelVal::NumV(1.0).to_string(), "1");
     assert_eq!(
         SteelVal::FuncV(|_args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
-            Ok(SteelVal::ListV(vec![]))
+            Ok(SteelVal::ListV(vector![]))
         })
         .to_string(),
         "Function"
@@ -389,7 +424,7 @@ fn display_test() {
     assert_eq!(
         SteelVal::LambdaV(SteelLambda::new(
             vec!["arg1".to_owned()],
-            Expr::Atom(Token::NumberLiteral(1.0)),
+            Rc::new(Expr::Atom(Token::NumberLiteral(1.0))),
             Rc::new(RefCell::new(crate::env::Env::default_env())),
         ))
         .to_string(),
@@ -401,14 +436,15 @@ fn display_test() {
 #[test]
 fn display_list_test() {
     use crate::parser::tokens::Token;
-    assert_eq!(ListV(vec![]).to_string(), "'()");
+    use im_rc::vector;
+    assert_eq!(ListV(vector![]).to_string(), "'()");
     assert_eq!(
-        ListV(vec![
+        ListV(vector![
             BoolV(false),
             NumV(1.0),
             LambdaV(SteelLambda::new(
                 vec!["arg1".to_owned()],
-                Expr::Atom(Token::NumberLiteral(1.0)),
+                Rc::new(Expr::Atom(Token::NumberLiteral(1.0))),
                 Rc::new(RefCell::new(crate::env::Env::default_env())),
             ))
         ])
@@ -416,11 +452,11 @@ fn display_list_test() {
         "'(#false 1 Lambda Function)"
     );
     assert_eq!(
-        ListV(vec![
-            ListV(vec![NumV(1.0), ListV(vec!(NumV(2.0), NumV(3.0)))]),
-            ListV(vec![NumV(4.0), NumV(5.0)]),
+        ListV(vector![
+            ListV(vector![NumV(1.0), ListV(vector!(NumV(2.0), NumV(3.0)))]),
+            ListV(vector![NumV(4.0), NumV(5.0)]),
             NumV(6.0),
-            ListV(vec![NumV(7.0)])
+            ListV(vector![NumV(7.0)])
         ])
         .to_string(),
         "'((1 (2 3)) (4 5) 6 (7))"
