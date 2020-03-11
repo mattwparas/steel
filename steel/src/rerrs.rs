@@ -1,5 +1,4 @@
 use crate::parser::ParseError;
-use std::convert::Infallible;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -22,8 +21,6 @@ pub enum SteelErr {
     Io(#[from] std::io::Error),
     #[error("Parse error")]
     Parse(#[from] ParseError),
-    #[error("Infallible")]
-    Infallible(#[from] Infallible),
 }
 
 #[macro_export]

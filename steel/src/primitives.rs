@@ -1,8 +1,6 @@
 // use crate::converter::SteelFunctor;
 use crate::rerrs::SteelErr;
 use crate::rvals::{SteelLambda, SteelVal};
-use im_rc::Vector;
-// use std::collections::Vector;
 use std::convert::TryFrom;
 use std::result;
 
@@ -95,8 +93,8 @@ impl From<bool> for SteelVal {
     }
 }
 
-impl From<Vector<SteelVal>> for SteelVal {
-    fn from(val: Vector<SteelVal>) -> SteelVal {
+impl From<Vec<SteelVal>> for SteelVal {
+    fn from(val: Vec<SteelVal>) -> SteelVal {
         SteelVal::ListV(val)
     }
 }
