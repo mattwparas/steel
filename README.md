@@ -1,6 +1,6 @@
 # steel
 
-[![Actions Status](https://github.com/mattwparas/steel/workflows/Rust/badge.svg)]
+![Actions Status](https://github.com/mattwparas/steel/workflows/Rust/badge.svg)
 (https://github.com/mattwparas/steel/actions)
 
 
