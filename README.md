@@ -1,5 +1,7 @@
 # steel
 
+[![Actions Status](https://github.com/mattwparas/steel/workflows/rust/badge.svg)](https://github.com/mattwparas/steel/actions)
+
 ## License
 
 Licensed under either of
