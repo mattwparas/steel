@@ -74,7 +74,7 @@ pub const PRELUDE: &str = "
 (define assoc (lambda (obj alist)    (fold (mem-helper (curry equal? obj) car) #f alist)))
 
 
-(define filter (lambda (pred lst)   (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst)))
+(define filter (lambda (pred lst)   (foldl (lambda (x y) (if (pred x) (push x y) y)) '() lst)))
 
 (define (fact n)
   (begin
@@ -84,8 +84,8 @@ pub const PRELUDE: &str = "
             (factorial-tail (- n 1)  (* acc n )))))
     (factorial-tail n 1)))
 
-(define even (lambda (x) (if (= x 0) #t (odd (- x 1)))))
-(define odd  (lambda (x) (if (= x 0) #f (even (- x 1)))))
+(define even? (lambda (x) (if (= x 0) #t (odd? (- x 1)))))
+(define odd?  (lambda (x) (if (= x 0) #f (even? (- x 1)))))
 (define sum (lambda (x) (reduce + 0 x)))
 (define first car)
 (define rest cdr)
