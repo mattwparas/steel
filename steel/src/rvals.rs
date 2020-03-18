@@ -16,7 +16,7 @@ use std::convert::TryFrom;
 use std::result;
 
 pub trait StructFunctions {
-    fn generate_bindings() -> Vec<(&'static str, SteelVal)>;
+    fn generate_bindings() -> Vec<(String, SteelVal)>;
 }
 
 pub trait CustomType {

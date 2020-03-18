@@ -123,7 +123,7 @@ impl SteelInterpreter {
     }
 
     /// Adds global bindings for each `(&str, SteelVal)` in the vector
-    pub fn insert_bindings(&mut self, vals: Vec<(&'static str, SteelVal)>) {
+    pub fn insert_bindings(&mut self, vals: Vec<(String, SteelVal)>) {
         self.evaluator.insert_bindings(vals);
     }
 

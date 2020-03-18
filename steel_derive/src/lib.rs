@@ -98,7 +98,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
         }
 
         impl crate::rvals::StructFunctions for #name {
-            fn generate_bindings() -> Vec<(&'static str, SteelVal)> {
+            fn generate_bindings() -> Vec<(String, SteelVal)> {
                 use std::convert::TryFrom;
                 use steel::rvals::SteelVal;
                 use steel::rerrs::SteelErr;
@@ -108,7 +108,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 let mut vec_binding = vec![];
 
                 // generate predicate
-                let name = concat!(stringify!(#name), "?");
+                let name = concat!(stringify!(#name), "?").to_string();
                 let func =
                         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
                         let mut args_iter = args.into_iter();
@@ -120,7 +120,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 vec_binding.push((name, func));
 
                 // generate constructor
-                let name = concat!(stringify!(#name));
+                let name = concat!(stringify!(#name)).to_string();
                 let func =
                         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
                             let mut args_iter = args.into_iter();
@@ -144,7 +144,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
 
                 #(
                     // generate setters
-                    let name = concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!");
+                    let name = concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!").to_string();
                     let func =
                             SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
                             let mut args_iter = args.into_iter();
@@ -171,7 +171,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     vec_binding.push((name, func));
 
                     // generate getters
-                    let name = concat!(stringify!(#name), "-", stringify!(#field_name));
+                    let name = concat!(stringify!(#name), "-", stringify!(#field_name)).to_string();
                     let func =
                             SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
                             let mut args_iter = args.into_iter();

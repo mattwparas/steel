@@ -99,13 +99,14 @@ impl Env {
             );
             stop!(ArityMismatch => e);
         }
-        let iter = keys.iter().map(String::as_ref).zip(vals.into_iter());
+        // let iter = keys.iter().map(String::as_ref).zip(vals.into_iter());
+        let iter = keys.iter().map(|x| x.clone()).zip(vals.into_iter());
         self.define_zipped(iter);
         Ok(())
     }
 
-    pub fn define_zipped<'a>(&mut self, zipped: impl Iterator<Item = (&'a str, Rc<SteelVal>)>) {
-        zipped.for_each(|(param, arg)| self.define(param.to_string(), arg))
+    pub fn define_zipped<'a>(&mut self, zipped: impl Iterator<Item = (String, Rc<SteelVal>)>) {
+        zipped.for_each(|(param, arg)| self.define(param, arg))
     }
 
     /// Search starting from the current environment
@@ -174,7 +175,7 @@ impl Env {
         env.define_zipped(
             Env::default_bindings()
                 .into_iter()
-                .map(|x| (x.0, Rc::new(x.1))),
+                .map(|x| (x.0.to_string(), Rc::new(x.1))),
         );
         env
     }

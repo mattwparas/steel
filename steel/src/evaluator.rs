@@ -56,7 +56,7 @@ impl Evaluator {
         self.global_env.borrow_mut().define(name, Rc::new(value));
     }
 
-    pub fn insert_bindings(&mut self, vals: Vec<(&'static str, SteelVal)>) {
+    pub fn insert_bindings(&mut self, vals: Vec<(String, SteelVal)>) {
         self.global_env
             .borrow_mut()
             .define_zipped(vals.into_iter().map(|x| (x.0, Rc::new(x.1))));
