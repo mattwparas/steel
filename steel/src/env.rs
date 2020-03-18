@@ -408,6 +408,54 @@ impl Env {
                     }
                 }),
             ),
+            (
+                "number?",
+                SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+                    if let Some(first) = args.first() {
+                        match first.as_ref() {
+                            NumV(_) => return Ok(Rc::new(BoolV(true))),
+                            _ => {}
+                        }
+                    }
+                    Ok(Rc::new(BoolV(false)))
+                }),
+            ),
+            (
+                "string?",
+                SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+                    if let Some(first) = args.first() {
+                        match first.as_ref() {
+                            StringV(_) => return Ok(Rc::new(BoolV(true))),
+                            _ => {}
+                        }
+                    }
+                    Ok(Rc::new(BoolV(false)))
+                }),
+            ),
+            (
+                "symbol?",
+                SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+                    if let Some(first) = args.first() {
+                        match first.as_ref() {
+                            SymbolV(_) => return Ok(Rc::new(BoolV(true))),
+                            _ => {}
+                        }
+                    }
+                    Ok(Rc::new(BoolV(false)))
+                }),
+            ),
+            (
+                "list?",
+                SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+                    if let Some(first) = args.first() {
+                        match first.as_ref() {
+                            ListV(_) => return Ok(Rc::new(BoolV(true))),
+                            _ => {}
+                        }
+                    }
+                    Ok(Rc::new(BoolV(false)))
+                }),
+            ),
             ("=", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             ("equal?", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             (">", SteelVal::FuncV(ensure_tonicity!(|a, b| a > b))),

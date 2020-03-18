@@ -104,15 +104,16 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 use steel::rerrs::SteelErr;
                 use steel::unwrap;
                 use steel::stop;
+                use std::rc::Rc;
                 let mut vec_binding = vec![];
 
                 // generate predicate
                 let name = concat!(stringify!(#name), "?");
                 let func =
-                        SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
+                        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
                         let mut args_iter = args.into_iter();
                         if let Some(first) = args_iter.next() {
-                            return Ok(SteelVal::BoolV(unwrap!(first, #name).is_ok()));
+                            return Ok(Rc::new(SteelVal::BoolV(unwrap!((*first).clone(), #name).is_ok())));
                         }
                         stop!(ArityMismatch => "set! expected 2 arguments");
                     });
@@ -121,15 +122,15 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 // generate constructor
                 let name = concat!(stringify!(#name));
                 let func =
-                        SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
+                        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
                             let mut args_iter = args.into_iter();
                             let new_struct = #name {
                                 #(
                                     #field_name2: {
                                     if let Some(arg) = args_iter.next() {
-                                        match arg {
-                                            SteelVal::Custom(_) => unwrap!(arg, #field_type2)?,
-                                            _ => <#field_type2>::try_from(arg)?
+                                        match arg.as_ref() {
+                                            SteelVal::Custom(_) => unwrap!((*arg).clone(), #field_type2)?,
+                                            _ => <#field_type2>::try_from((*arg).clone())?
                                         }
                                     } else {
                                         stop!(ArityMismatch => "Struct not given correct arguments");
@@ -137,7 +138,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
 
                                 )*
                             };
-                            Ok(new_struct.new_steel_val())
+                            Ok(Rc::new(new_struct.new_steel_val()))
                         });
                 vec_binding.push((name, func));
 
@@ -145,23 +146,23 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     // generate setters
                     let name = concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!");
                     let func =
-                            SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
+                            SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
                             let mut args_iter = args.into_iter();
                             if let Some(first) = args_iter.next() {
                                 if let Some(second) = args_iter.next() {
-                                    let my_struct = unwrap!(first, #name)?;
+                                    let my_struct = unwrap!((*first).clone(), #name)?;
                                     let new_struct = #name {
-                                        #field_name : match second {
+                                        #field_name : match second.as_ref() {
                                             SteelVal::Custom(_) => {
-                                                unwrap!(second, #field_type)?
+                                                unwrap!((*second).clone(), #field_type)?
                                             },
                                             _ => {
-                                                <#field_type>::try_from(second)?
+                                                <#field_type>::try_from((*second).clone())?
                                                 }
                                         },
                                         ..my_struct
                                     };
-                                    return Ok(new_struct.new_steel_val());
+                                    return Ok(Rc::new(new_struct.new_steel_val()));
                                 }
                                 stop!(ArityMismatch => "set! expected 2 arguments");
                             }
@@ -172,11 +173,12 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     // generate getters
                     let name = concat!(stringify!(#name), "-", stringify!(#field_name));
                     let func =
-                            SteelVal::FuncV(|args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
+                            SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
                             let mut args_iter = args.into_iter();
                             if let Some(first) = args_iter.next() {
-                                let my_struct = unwrap!(first, #name)?;
-                                return Ok(my_struct.#field_name.into());
+                                let my_struct = unwrap!((*first).clone(), #name)?;
+                                let return_val: SteelVal = my_struct.#field_name.into();
+                                return Ok(Rc::new(return_val));
                             }
                             stop!(ArityMismatch => "set! expected 2 arguments");
                         });
