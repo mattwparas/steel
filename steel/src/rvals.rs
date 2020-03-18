@@ -219,6 +219,9 @@ pub enum SteelVal {
     BoolV(bool),
     /// Represents a number, currently only f64 numbers are supported
     NumV(f64),
+    /// Represents a cons cell
+    /// cons, cdr, optional parent pointer
+    Pair(Rc<SteelVal>, Option<Rc<SteelVal>>),
     /// Lists are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
     ListV(Vector<SteelVal>),
@@ -227,7 +230,7 @@ pub enum SteelVal {
     /// Represents strings
     StringV(String),
     /// Represents built in rust functions
-    FuncV(fn(Vec<SteelVal>) -> Result<SteelVal, SteelErr>),
+    FuncV(fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>),
     /// Represents Steel Lambda functions or closures defined inside the environment
     LambdaV(SteelLambda),
     /// Represents a symbol, internally represented as `String`s
@@ -279,6 +282,7 @@ impl TryFrom<SteelVal> for Rc<Expr> {
             LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             SymbolV(x) => Ok(Rc::new(Expr::Atom(Identifier(x)))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
+            Pair(_, _) => Err("Can't convert from pair"), // TODO
         }
     }
 }
@@ -374,7 +378,7 @@ impl fmt::Debug for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | ListV(_) => write!(f, "'")?,
+            SymbolV(_) | ListV(_) | Pair(_, _) => write!(f, "'")?,
             _ => (),
         };
         display_helper(self, f)
@@ -404,9 +408,42 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             }
             write!(f, ")")
         }
+        // Pair(_, _) => {
+        //     collect_pair_into_vector(mut p: &SteelVal)
+        // }
         Custom(x) => write!(f, "Custom Type: {}", x.name()),
+        Pair(_, _) => {
+            let v = collect_pair_into_vector(val);
+            // println!("collected v");
+            // write!(f, "'")?;
+            display_helper(&v, f)
+        }
     }
 }
+
+fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
+    let mut lst = Vector::new();
+
+    loop {
+        if let Pair(cons, cdr) = p {
+            lst.push_back((**cons).clone());
+            match cdr.as_ref() {
+                Some(rest) => match rest.as_ref() {
+                    Pair(_, _) => p = rest,
+                    _ => {
+                        lst.push_back((**rest).clone());
+                        return ListV(lst);
+                    }
+                },
+                None => {
+                    return ListV(lst);
+                }
+            }
+        }
+    }
+}
+
+/*
 
 #[test]
 fn display_test() {
@@ -462,3 +499,5 @@ fn display_list_test() {
         "'((1 (2 3)) (4 5) 6 (7))"
     );
 }
+
+*/

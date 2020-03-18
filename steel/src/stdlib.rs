@@ -63,7 +63,18 @@ pub const PRELUDE: &str = "
 (define max (lambda (x  num-list) (fold (lambda (y z) (if (> y z) y z)) x (cons 0 num-list))))
 (define min (lambda (x  num-list) (fold (lambda (y z) (if (< y z) y z)) x (cons 536870911 num-list))))
 (define length (lambda (lst)        (fold (lambda (x y) (+ x 1)) 0 lst)))
-;; (define append (lambda (lst lsts)  (foldl (flip (curry2 foldr cons)) lst lsts))) ;; TODO fix
+
+;; (define append (lambda (lst lsts)  (foldl (flip (curry2 foldr cons-pair)) lst lsts))) ;; TODO fix
+
+(define (append xs ys)
+  (foldr cons-pair ys xs))
+
+;(define (append lhs rhs)
+;  (if (null? lhs)
+;      rhs
+;      (cons (first lhs) (append (rest lhs) rhs))))
+
+
 (define reverse (lambda (lst) (cdr (foldl (flip cons) '() lst)))) ;; TODO fix
 (define mem-helper (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 ;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
@@ -115,12 +126,12 @@ pub const PRELUDE: &str = "
 (define (slice l offset n)
     (take n (drop offset l)))
 
-;(define (range l r)
-;  (begin
-;    (define (loop l r accum)
-;    (if (= l r)
-;        accum
-;        (loop (add1 l) r (push l accum))))
-;  (loop l r '())))
+(define (range l r)
+  (begin
+    (define (loop l r accum)
+    (if (= l r)
+        accum
+        (loop (add1 l) r (cons-pair l accum))))
+  (loop l r '())))
 
 ";

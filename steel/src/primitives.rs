@@ -6,6 +6,8 @@ use im_rc::Vector;
 use std::convert::TryFrom;
 use std::result;
 
+use std::rc::Rc;
+
 // the conversion layer works like
 // Vec<SteelVal> -> your struct -> call the function -> output -> Steelval output
 // maybe TryFrom Error type should be something else?
@@ -15,11 +17,12 @@ where
     U: TryFrom<Vec<SteelVal>, Error = SteelErr>,
     V: Into<SteelVal>,
 {
-    fn new_func() -> fn(args: Vec<SteelVal>) -> Result<SteelVal, SteelErr> {
-        |args: Vec<SteelVal>| {
+    fn new_func() -> fn(args: Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr> {
+        |args: Vec<Rc<SteelVal>>| {
+            let args = args.into_iter().map(|x| (*x).clone()).collect();
             let input = Self::in_convert(args)?;
             let res = Self::call(input)?;
-            Ok(res.into())
+            Ok(Rc::new(res.into()))
         }
     }
     fn call(input: U) -> Result<V, SteelErr>;
@@ -101,8 +104,8 @@ impl From<Vector<SteelVal>> for SteelVal {
     }
 }
 
-impl From<fn(Vec<SteelVal>) -> Result<SteelVal, SteelErr>> for SteelVal {
-    fn from(val: fn(Vec<SteelVal>) -> Result<SteelVal, SteelErr>) -> SteelVal {
+impl From<fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>> for SteelVal {
+    fn from(val: fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>) -> SteelVal {
         SteelVal::FuncV(val)
     }
 }

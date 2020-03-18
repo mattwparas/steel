@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 
 pub type Result<T> = result::Result<T, SteelErr>;
-pub type ValidFunc = fn(Vec<SteelVal>) -> Result<SteelVal>;
+pub type ValidFunc = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>;
 
 pub struct Evaluator {
     global_env: Rc<RefCell<Env>>,
@@ -31,7 +31,7 @@ impl Evaluator {
     pub fn eval(&mut self, expr: Expr) -> Result<SteelVal> {
         // global environment updates automatically
         let expr = Rc::new(expr);
-        evaluate(&expr, &self.global_env)
+        evaluate(&expr, &self.global_env).map(|x| (*x).clone())
     }
 
     pub fn parse_and_eval(&mut self, expr_str: &str) -> Result<Vec<SteelVal>> {
@@ -53,15 +53,20 @@ impl Evaluator {
     }
 
     pub fn insert_binding(&mut self, name: String, value: SteelVal) {
-        self.global_env.borrow_mut().define(name, value);
+        self.global_env.borrow_mut().define(name, Rc::new(value));
     }
 
     pub fn insert_bindings(&mut self, vals: Vec<(&'static str, SteelVal)>) {
-        self.global_env.borrow_mut().define_zipped(vals.into_iter());
+        self.global_env
+            .borrow_mut()
+            .define_zipped(vals.into_iter().map(|x| (x.0, Rc::new(x.1))));
     }
 
     pub fn lookup_binding(&mut self, name: &str) -> Result<SteelVal> {
-        self.global_env.borrow_mut().lookup(name)
+        self.global_env
+            .borrow_mut()
+            .lookup(name)
+            .map(|x| (*x).clone())
     }
 }
 
@@ -104,7 +109,7 @@ fn check_length(what: &str, tokens: &[Rc<Expr>], expected: usize) -> Result<()> 
     }
 }
 
-fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
+fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     let mut env = Rc::clone(env);
     let mut expr = Rc::clone(expr);
 
@@ -118,13 +123,14 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
                         Expr::Atom(Token::Identifier(s)) if s == "quote" => {
                             check_length("Quote", &list_of_tokens, 2)?;
                             let converted = SteelVal::try_from(list_of_tokens[1].clone())?;
-                            return Ok(converted);
+                            return Ok(Rc::new(converted));
                         }
                         Expr::Atom(Token::Identifier(s)) if s == "if" => {
                             expr = eval_if(&list_of_tokens[1..], &env)?
                         }
                         Expr::Atom(Token::Identifier(s)) if s == "define" => {
-                            return eval_define(&list_of_tokens[1..], env).map(|_| SteelVal::Void)
+                            return eval_define(&list_of_tokens[1..], env)
+                                .map(|_| Rc::new(SteelVal::Void)); // TODO
                         }
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Identifier(s)) if s == "lambda" || s == "λ" => {
@@ -151,13 +157,13 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
                             return eval_or(&list_of_tokens[1..], &env)
                         }
                         // (sym args*), sym must be a procedure
-                        _sym => match evaluate(f, &env)? {
+                        _sym => match evaluate(f, &env)?.as_ref() {
                             SteelVal::FuncV(func) => {
-                                return eval_func(func, &list_of_tokens[1..], &env)
+                                return eval_func(func.clone(), &list_of_tokens[1..], &env)
                             }
                             SteelVal::LambdaV(lambda) => {
                                 let (new_expr, new_env) =
-                                    eval_lambda(lambda, &list_of_tokens[1..], &env)?;
+                                    eval_lambda(lambda.clone(), &list_of_tokens[1..], &env)?;
                                 expr = new_expr;
                                 env = new_env;
                             }
@@ -172,12 +178,12 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
     }
 }
 /// evaluates an atom expression in given environment
-fn eval_atom(t: &Token, env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
+fn eval_atom(t: &Token, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     match t {
-        Token::BooleanLiteral(b) => Ok(SteelVal::BoolV(*b)),
+        Token::BooleanLiteral(b) => Ok(Rc::new(SteelVal::BoolV(*b))),
         Token::Identifier(s) => env.borrow().lookup(&s),
-        Token::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
-        Token::StringLiteral(s) => Ok(SteelVal::StringV(s.clone())),
+        Token::NumberLiteral(n) => Ok(Rc::new(SteelVal::NumV(*n))),
+        Token::StringLiteral(s) => Ok(Rc::new(SteelVal::StringV(s.clone()))),
         what => stop!(UnexpectedToken => what),
     }
 }
@@ -186,33 +192,33 @@ fn eval_func(
     func: ValidFunc,
     list_of_tokens: &[Rc<Expr>],
     env: &Rc<RefCell<Env>>,
-) -> Result<SteelVal> {
-    let args_eval: Result<Vec<SteelVal>> =
+) -> Result<Rc<SteelVal>> {
+    let args_eval: Result<Vec<Rc<SteelVal>>> =
         list_of_tokens.iter().map(|x| evaluate(&x, &env)).collect();
     let args_eval = args_eval?;
     // pure function doesn't need the env
     func(args_eval)
 }
 
-fn eval_and(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
+fn eval_and(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     for expr in list_of_tokens {
-        match evaluate(expr, env)? {
+        match evaluate(expr, env)?.as_ref() {
             SteelVal::BoolV(true) => continue,
-            SteelVal::BoolV(false) => return Ok(SteelVal::BoolV(false)),
+            SteelVal::BoolV(false) => return Ok(Rc::new(SteelVal::BoolV(false))),
             _ => continue,
         }
     }
-    Ok(SteelVal::BoolV(true))
+    Ok(Rc::new(SteelVal::BoolV(true)))
 }
 
-fn eval_or(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
+fn eval_or(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     for expr in list_of_tokens {
-        match evaluate(expr, env)? {
-            SteelVal::BoolV(true) => return Ok(SteelVal::BoolV(true)),
+        match evaluate(expr, env)?.as_ref() {
+            SteelVal::BoolV(true) => return Ok(Rc::new(SteelVal::BoolV(true))),
             _ => continue,
         }
     }
-    Ok(SteelVal::BoolV(false))
+    Ok(Rc::new(SteelVal::BoolV(false)))
 }
 
 /// evaluates a lambda into a body expression to execute
@@ -222,9 +228,9 @@ fn eval_lambda(
     list_of_tokens: &[Rc<Expr>],
     env: &Rc<RefCell<Env>>,
 ) -> Result<(Rc<Expr>, Rc<RefCell<Env>>)> {
-    let args_eval: Result<Vec<SteelVal>> =
+    let args_eval: Result<Vec<Rc<SteelVal>>> =
         list_of_tokens.iter().map(|x| evaluate(&x, &env)).collect();
-    let args_eval: Vec<SteelVal> = args_eval?;
+    let args_eval: Vec<Rc<SteelVal>> = args_eval?;
     // build a new environment using the parent environment
     let parent_env = lambda.parent_env();
     let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
@@ -238,7 +244,7 @@ fn eval_lambda(
 /// evaluates `(test then else)` into `then` or `else`
 fn eval_if(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<Expr>> {
     if let [test_expr, then_expr, else_expr] = list_of_tokens {
-        match evaluate(&test_expr, env)? {
+        match evaluate(&test_expr, env)?.as_ref() {
             SteelVal::BoolV(true) => Ok(then_expr.clone()),
             _ => Ok(else_expr.clone()),
         }
@@ -248,11 +254,14 @@ fn eval_if(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<Exp
     }
 }
 
-fn eval_make_lambda(list_of_tokens: &[Rc<Expr>], parent_env: Rc<RefCell<Env>>) -> Result<SteelVal> {
+fn eval_make_lambda(
+    list_of_tokens: &[Rc<Expr>],
+    parent_env: Rc<RefCell<Env>>,
+) -> Result<Rc<SteelVal>> {
     if let [list_of_symbols, body_exp] = list_of_tokens {
         let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
         let constructed_lambda = SteelLambda::new(parsed_list, body_exp.clone(), parent_env);
-        Ok(SteelVal::LambdaV(constructed_lambda))
+        Ok(Rc::new(SteelVal::LambdaV(constructed_lambda)))
     } else {
         let e = format!(
             "{}: expected {} args got {}",
@@ -279,7 +288,7 @@ fn eval_begin(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<
     }
 }
 
-fn eval_set(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
+fn eval_set(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     if let [symbol, rest_expr] = list_of_tokens {
         let value = evaluate(rest_expr, env)?;
 
@@ -302,10 +311,28 @@ fn eval_set(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Steel
 // TODO write tests
 // Evaluate the inner expression, check that it is a quoted expression,
 // evaluate body of quoted expression
-fn eval_eval_expr(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<SteelVal> {
+// fn eval_eval_expr(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
+//     if let [e] = list_of_tokens {
+//         let res_expr = evaluate(e, env)?;
+//         match <Rc<Expr>>::try_from(res_expr) {
+//             Ok(e) => evaluate(&e, env),
+//             Err(_) => stop!(ContractViolation => "Eval not given an expression"),
+//         }
+//     } else {
+//         let e = format!(
+//             "{}: expected {} args got {}",
+//             "Eval",
+//             1,
+//             list_of_tokens.len()
+//         );
+//         stop!(ArityMismatch => e)
+//     }
+// }
+
+fn eval_eval_expr(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     if let [e] = list_of_tokens {
         let res_expr = evaluate(e, env)?;
-        match <Rc<Expr>>::try_from(res_expr) {
+        match <Rc<Expr>>::try_from((*res_expr).clone()) {
             Ok(e) => evaluate(&e, env),
             Err(_) => stop!(ContractViolation => "Eval not given an expression"),
         }
