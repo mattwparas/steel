@@ -75,7 +75,7 @@ pub const PRELUDE: &str = "
 ;      (cons (first lhs) (append (rest lhs) rhs))))
 
 
-(define reverse (lambda (lst) (cdr (foldl (flip cons) '() lst)))) ;; TODO fix
+(define reverse (lambda (lst) (cdr (foldl (flip cons-pair) '() lst)))) ;; TODO fix
 (define mem-helper (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 ;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
 ;; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
