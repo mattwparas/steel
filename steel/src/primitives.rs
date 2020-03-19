@@ -100,7 +100,7 @@ impl From<bool> for SteelVal {
 
 impl From<Vector<SteelVal>> for SteelVal {
     fn from(val: Vector<SteelVal>) -> SteelVal {
-        SteelVal::ListV(val)
+        SteelVal::VectorV(val)
     }
 }
 

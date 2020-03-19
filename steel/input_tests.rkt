@@ -25,7 +25,7 @@
 (string? (- 1 2))
 (symbol? 'a)
 (symbol? "nop")
-(list? '(1 2 3))
+(vector? '(1 2 3))
 (list? 'a)
 (define make-account (lambda (balance) (lambda (amt) (begin (set! balance (+ balance amt)) balance))))
 (define account1 (make-account 100.00))

@@ -222,9 +222,9 @@ pub enum SteelVal {
     /// Represents a cons cell
     /// cons, cdr, optional parent pointer
     Pair(Rc<SteelVal>, Option<Rc<SteelVal>>),
-    /// Lists are represented as `im_rc::Vector`'s, which are immutable
+    /// Vectors are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
-    ListV(Vector<SteelVal>),
+    VectorV(Vector<SteelVal>),
     /// Void return value
     Void,
     /// Represents strings
@@ -254,10 +254,10 @@ impl TryFrom<Rc<Expr>> for SteelVal {
                 NumberLiteral(x) => Ok(NumV(*x)),
                 StringLiteral(x) => Ok(StringV(x.clone())),
             },
-            Expr::ListVal(lst) => {
+            Expr::VectorVal(lst) => {
                 let items: Result<Vector<Self>, Self::Error> =
                     lst.iter().map(|x| Self::try_from(x.clone())).collect();
-                Ok(ListV(items?))
+                Ok(VectorV(items?))
             }
         }
     }
@@ -271,10 +271,10 @@ impl TryFrom<SteelVal> for Rc<Expr> {
         match r {
             BoolV(x) => Ok(Rc::new(Expr::Atom(BooleanLiteral(x)))),
             NumV(x) => Ok(Rc::new(Expr::Atom(NumberLiteral(x)))),
-            ListV(lst) => {
+            VectorV(lst) => {
                 let items: result::Result<Vec<Self>, Self::Error> =
                     lst.into_iter().map(Self::try_from).collect();
-                Ok(Rc::new(Expr::ListVal(items?)))
+                Ok(Rc::new(Expr::VectorVal(items?)))
             }
             Void => Err("Can't convert from Void to expression!"),
             StringV(x) => Ok(Rc::new(Expr::Atom(StringLiteral(x)))),
@@ -294,7 +294,7 @@ impl PartialEq for SteelVal {
             (BoolV(l), BoolV(r)) => l == r,
             (NumV(l), NumV(r)) => l == r,
             (StringV(l), StringV(r)) => l == r,
-            (ListV(l), ListV(r)) => l == r,
+            (VectorV(l), VectorV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
@@ -366,7 +366,8 @@ impl fmt::Display for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | ListV(_) => write!(f, "'")?,
+            SymbolV(_) | Pair(_, _) => write!(f, "'")?,
+            VectorV(_) => write!(f, "'#")?,
             _ => (),
         };
         display_helper(self, f)
@@ -378,7 +379,8 @@ impl fmt::Debug for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | ListV(_) | Pair(_, _) => write!(f, "'")?,
+            SymbolV(_) | Pair(_, _) => write!(f, "'")?,
+            VectorV(_) => write!(f, "'#")?,
             _ => (),
         };
         display_helper(self, f)
@@ -396,7 +398,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         LambdaV(_) => write!(f, "Lambda Function"),
         Void => write!(f, "Void"),
         SymbolV(s) => write!(f, "{}", s),
-        ListV(lst) => {
+        VectorV(lst) => {
             let mut iter = lst.iter();
             write!(f, "(")?;
             if let Some(last) = iter.next_back() {
@@ -432,11 +434,11 @@ fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
                     Pair(_, _) => p = rest,
                     _ => {
                         lst.push_back((**rest).clone());
-                        return ListV(lst);
+                        return VectorV(lst);
                     }
                 },
                 None => {
-                    return ListV(lst);
+                    return VectorV(lst);
                 }
             }
         }
@@ -453,7 +455,7 @@ fn display_test() {
     assert_eq!(SteelVal::NumV(1.0).to_string(), "1");
     assert_eq!(
         SteelVal::FuncV(|_args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
-            Ok(SteelVal::ListV(vector![]))
+            Ok(SteelVal::VectorV(vector![]))
         })
         .to_string(),
         "Function"
@@ -474,9 +476,9 @@ fn display_test() {
 fn display_list_test() {
     use crate::parser::tokens::Token;
     use im_rc::vector;
-    assert_eq!(ListV(vector![]).to_string(), "'()");
+    assert_eq!(VectorV(vector![]).to_string(), "'()");
     assert_eq!(
-        ListV(vector![
+        VectorV(vector![
             BoolV(false),
             NumV(1.0),
             LambdaV(SteelLambda::new(
@@ -489,11 +491,11 @@ fn display_list_test() {
         "'(#false 1 Lambda Function)"
     );
     assert_eq!(
-        ListV(vector![
-            ListV(vector![NumV(1.0), ListV(vector!(NumV(2.0), NumV(3.0)))]),
-            ListV(vector![NumV(4.0), NumV(5.0)]),
+        VectorV(vector![
+            VectorV(vector![NumV(1.0), VectorV(vector!(NumV(2.0), NumV(3.0)))]),
+            VectorV(vector![NumV(4.0), NumV(5.0)]),
             NumV(6.0),
-            ListV(vector![NumV(7.0)])
+            VectorV(vector![NumV(7.0)])
         ])
         .to_string(),
         "'((1 (2 3)) (4 5) 6 (7))"

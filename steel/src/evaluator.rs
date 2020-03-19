@@ -79,7 +79,7 @@ impl Drop for Evaluator {
 
 fn parse_list_of_identifiers(identifiers: Rc<Expr>) -> Result<Vec<String>> {
     match identifiers.deref() {
-        Expr::ListVal(l) => {
+        Expr::VectorVal(l) => {
             let res: Result<Vec<String>> = l
                 .iter()
                 .map(|x| match &**x {
@@ -117,7 +117,7 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
         match expr.deref() {
             Expr::Atom(t) => return eval_atom(t, &env),
 
-            Expr::ListVal(list_of_tokens) => {
+            Expr::VectorVal(list_of_tokens) => {
                 if let Some(f) = list_of_tokens.first() {
                     match f.deref() {
                         Expr::Atom(Token::Identifier(s)) if s == "quote" => {
@@ -357,7 +357,7 @@ fn eval_define(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<
                 Ok(env)
             }
             // construct lambda to parse
-            Expr::ListVal(list_of_identifiers) => {
+            Expr::VectorVal(list_of_identifiers) => {
                 if list_of_identifiers.is_empty() {
                     stop!(TypeMismatch => "define expected an identifier, got empty list")
                 }
@@ -365,11 +365,11 @@ fn eval_define(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<
                     // eval_make_lambda
                     let fake_lambda: Vec<Rc<Expr>> = vec![
                         Rc::new(Expr::Atom(Token::Identifier("lambda".to_string()))),
-                        Rc::new(Expr::ListVal(list_of_identifiers[1..].to_vec())),
+                        Rc::new(Expr::VectorVal(list_of_identifiers[1..].to_vec())),
                         body.clone(),
                     ];
 
-                    let constructed_lambda = Rc::new(Expr::ListVal(fake_lambda));
+                    let constructed_lambda = Rc::new(Expr::VectorVal(fake_lambda));
 
                     let eval_body = evaluate(&constructed_lambda, &env)?;
                     env.borrow_mut().define(s.to_string(), eval_body);
@@ -401,10 +401,10 @@ fn eval_let(list_of_tokens: &[Rc<Expr>], _env: &Rc<RefCell<Env>>) -> Result<Rc<E
 
         // TODO fix this noise
         match bindings.deref() {
-            Expr::ListVal(list_of_pairs) => {
+            Expr::VectorVal(list_of_pairs) => {
                 for pair in list_of_pairs {
                     match pair.deref() {
-                        Expr::ListVal(p) => match p.as_slice() {
+                        Expr::VectorVal(p) => match p.as_slice() {
                             [binding, expression] => {
                                 bindings_to_check.push(binding.clone());
                                 args_to_check.push(expression.clone());
@@ -418,14 +418,14 @@ fn eval_let(list_of_tokens: &[Rc<Expr>], _env: &Rc<RefCell<Env>>) -> Result<Rc<E
             _ => stop!(BadSyntax => "Let: Missing name or binding pairs"),
         }
 
-        let mut combined = vec![Rc::new(Expr::ListVal(vec![
+        let mut combined = vec![Rc::new(Expr::VectorVal(vec![
             Rc::new(Expr::Atom(Token::Identifier("lambda".to_string()))),
-            Rc::new(Expr::ListVal(bindings_to_check)),
+            Rc::new(Expr::VectorVal(bindings_to_check)),
             body.clone(),
         ]))];
         combined.append(&mut args_to_check);
 
-        let application = Expr::ListVal(combined);
+        let application = Expr::VectorVal(combined);
         Ok(Rc::new(application))
     } else {
         let e = format!(
@@ -473,11 +473,11 @@ mod length_test {
 mod parse_identifiers_test {
     use super::*;
     use crate::parser::tokens::Token::{Identifier, NumberLiteral};
-    use crate::parser::Expr::{Atom, ListVal};
+    use crate::parser::Expr::{Atom, VectorVal};
 
     #[test]
     fn non_symbols_test() {
-        let identifier = Rc::new(ListVal(vec![
+        let identifier = Rc::new(VectorVal(vec![
             Rc::new(Atom(NumberLiteral(1.0))),
             Rc::new(Atom(NumberLiteral(2.0))),
         ]));
@@ -489,7 +489,7 @@ mod parse_identifiers_test {
 
     #[test]
     fn symbols_test() {
-        let identifier = Rc::new(ListVal(vec![
+        let identifier = Rc::new(VectorVal(vec![
             Rc::new(Atom(Identifier("a".to_string()))),
             Rc::new(Atom(Identifier("b".to_string()))),
         ]));
@@ -513,7 +513,7 @@ mod parse_identifiers_test {
 mod eval_make_lambda_test {
     use super::*;
     use crate::parser::tokens::Token::Identifier;
-    use crate::parser::Expr::{Atom, ListVal};
+    use crate::parser::Expr::{Atom, VectorVal};
 
     #[test]
     fn not_enough_args_test() {
@@ -539,7 +539,7 @@ mod eval_make_lambda_test {
     fn ok_test() {
         let list = vec![
             Rc::new(Atom(Identifier("a".to_string()))),
-            Rc::new(ListVal(vec![Rc::new(Atom(Identifier("b".to_string())))])),
+            Rc::new(VectorVal(vec![Rc::new(Atom(Identifier("b".to_string())))])),
             Rc::new(Atom(Identifier("c".to_string()))),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
@@ -557,7 +557,7 @@ mod eval_if_test {
     #[test]
     fn true_test() {
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        //        let list = vec![Atom(If), ListVal(vec![Atom(StringLiteral(">".to_string())), Atom(StringLiteral("5".to_string())), Atom(StringLiteral("4".to_string()))]), Atom(BooleanLiteral(true)), Atom(BooleanLiteral(false))];
+        //        let list = vec![Atom(If), VectorVal(vec![Atom(StringLiteral(">".to_string())), Atom(StringLiteral("5".to_string())), Atom(StringLiteral("4".to_string()))]), Atom(BooleanLiteral(true)), Atom(BooleanLiteral(false))];
         let list = vec![
             Rc::new(Atom(Token::Identifier("if".to_string()))),
             Rc::new(Atom(BooleanLiteral(true))),
@@ -598,7 +598,7 @@ mod eval_if_test {
 mod eval_define_test {
     use super::*;
     use crate::parser::tokens::Token::{BooleanLiteral, Identifier, StringLiteral};
-    use crate::parser::Expr::{Atom, ListVal};
+    use crate::parser::Expr::{Atom, VectorVal};
 
     #[test]
     fn wrong_length_test() {
@@ -632,7 +632,7 @@ mod eval_define_test {
     fn list_val_test() {
         let list = vec![
             Rc::new(Atom(Identifier("define".to_string()))),
-            Rc::new(ListVal(vec![Rc::new(Atom(Identifier("a".to_string())))])),
+            Rc::new(VectorVal(vec![Rc::new(Atom(Identifier("a".to_string())))])),
             Rc::new(Atom(BooleanLiteral(true))),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
@@ -644,7 +644,9 @@ mod eval_define_test {
     fn list_val_no_identifier_test() {
         let list = vec![
             Rc::new(Atom(Identifier("define".to_string()))),
-            Rc::new(ListVal(vec![Rc::new(Atom(StringLiteral("a".to_string())))])),
+            Rc::new(VectorVal(vec![Rc::new(Atom(StringLiteral(
+                "a".to_string(),
+            )))])),
             Rc::new(Atom(BooleanLiteral(true))),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
@@ -657,13 +659,13 @@ mod eval_define_test {
 mod eval_let_test {
     use super::*;
     use crate::parser::tokens::Token::{BooleanLiteral, NumberLiteral, StringLiteral};
-    use crate::parser::Expr::{Atom, ListVal};
+    use crate::parser::Expr::{Atom, VectorVal};
 
     #[test]
     fn ok_test() {
         let list = vec![
             Rc::new(Atom(Token::Identifier("let".to_string()))),
-            Rc::new(ListVal(vec![Rc::new(ListVal(vec![
+            Rc::new(VectorVal(vec![Rc::new(VectorVal(vec![
                 Rc::new(Atom(StringLiteral("a".to_string()))),
                 Rc::new(Atom(NumberLiteral(10.0))),
             ]))])),
@@ -678,7 +680,7 @@ mod eval_let_test {
     fn missing_body_test() {
         let list = vec![
             Rc::new(Atom(Token::Identifier("let".to_string()))),
-            Rc::new(ListVal(vec![Rc::new(ListVal(vec![Rc::new(Atom(
+            Rc::new(VectorVal(vec![Rc::new(VectorVal(vec![Rc::new(Atom(
                 NumberLiteral(10.0),
             ))]))])),
             Rc::new(Atom(BooleanLiteral(true))),
@@ -705,7 +707,7 @@ mod eval_let_test {
 mod eval_test {
     use super::*;
     use crate::parser::tokens::Token::{BooleanLiteral, Identifier, NumberLiteral, StringLiteral};
-    use crate::parser::Expr::{Atom, ListVal};
+    use crate::parser::Expr::{Atom, VectorVal};
 
     #[test]
     fn boolean_test() {
@@ -750,7 +752,7 @@ mod eval_test {
             Rc::new(Atom(BooleanLiteral(true))),
             Rc::new(Atom(BooleanLiteral(false))),
         ];
-        let input = Rc::new(ListVal(list));
+        let input = Rc::new(VectorVal(list));
         let default_env = Rc::new(RefCell::new(Env::default_env()));
         assert!(evaluate(&input, &default_env).is_ok());
     }

@@ -185,10 +185,12 @@ impl Env {
             ("*", SteelVal::FuncV(Multiplier::new_func())),
             ("/", SteelVal::FuncV(Divider::new_func())),
             ("-", SteelVal::FuncV(Subtractor::new_func())),
-            ("list", VectorOperations::vec_construct()),
-            ("list-pair", ListOperations::list()),
+            ("vector", VectorOperations::vec_construct()),
+            ("list", ListOperations::list()),
             ("cons", VectorOperations::vec_cons()),
-            ("cons-pair", ListOperations::cons()),
+            ("push-front", ListOperations::cons()),
+            ("pop-front", VectorOperations::vec_car()),
+            ("vec-rest", VectorOperations::vec_cdr()),
             ("null?", VectorOperations::list_vec_null()),
             ("push", VectorOperations::vec_push()),
             ("car", ListOperations::car()),
@@ -196,7 +198,8 @@ impl Env {
             ("number?", gen_pred!(NumV)),
             ("string?", gen_pred!(StringV)),
             ("symbol?", gen_pred!(SymbolV)),
-            ("list?", gen_pred!(ListV)),
+            ("vector?", gen_pred!(VectorV)),
+            ("list?", gen_pred!(Pair)),
             ("=", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             ("equal?", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             (">", SteelVal::FuncV(ensure_tonicity!(|a, b| a > b))),
@@ -214,7 +217,7 @@ impl ListOperations {
             let mut args = args.into_iter();
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => match lst.as_ref() {
-                    SteelVal::ListV(l) => {
+                    SteelVal::VectorV(l) => {
                         if l.is_empty() {
                             Ok(Rc::new(SteelVal::Pair(elem, None)))
                         } else {
@@ -252,7 +255,7 @@ impl ListOperations {
                             Pair(_, _) => Ok(Rc::clone(rest)),
                             _ => Ok(Rc::new(SteelVal::Pair(Rc::clone(rest), None))), // Ok(Rc::clone(rest))
                         },
-                        None => Ok(Rc::new(SteelVal::ListV(Vector::new()))), // TODO
+                        None => Ok(Rc::new(SteelVal::VectorV(Vector::new()))), // TODO
                     },
                     e => {
                         stop!(TypeMismatch => "cdr takes a list, given: {}", e);
@@ -276,7 +279,7 @@ impl ListOperations {
                     pairs.push(Rc::new(SteelVal::Pair(cdr, None)));
                 }
                 (_, _) => {
-                    return Ok(Rc::new(SteelVal::ListV(Vector::new())));
+                    return Ok(Rc::new(SteelVal::VectorV(Vector::new())));
                 }
             }
 
@@ -296,7 +299,7 @@ pub struct VectorOperations {}
 impl VectorOperations {
     pub fn vec_construct() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
-            Ok(Rc::new(SteelVal::ListV(
+            Ok(Rc::new(SteelVal::VectorV(
                 args.into_iter().map(|x| (*x).clone()).collect(),
             )))
         })
@@ -309,7 +312,7 @@ impl VectorOperations {
                     .into_iter()
                     .flatten()
                     .collect();
-            Ok(Rc::new(SteelVal::ListV(lsts)))
+            Ok(Rc::new(SteelVal::VectorV(lsts)))
         })
     }
 
@@ -323,7 +326,7 @@ impl VectorOperations {
                         for i in lower as usize..upper as usize {
                             res.push_back(SteelVal::NumV(i as f64));
                         }
-                        Ok(Rc::new(SteelVal::ListV(res)))
+                        Ok(Rc::new(SteelVal::VectorV(res)))
                     } else {
                         stop!(TypeMismatch => "range expected number")
                     }
@@ -338,14 +341,14 @@ impl VectorOperations {
             let mut args = args.into_iter().map(|x| (*x).clone());
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
-                    if let SteelVal::ListV(mut l) = lst {
+                    if let SteelVal::VectorV(mut l) = lst {
                         l.push_back(elem);
-                        Ok(Rc::new(SteelVal::ListV(l)))
+                        Ok(Rc::new(SteelVal::VectorV(l)))
                     } else {
                         let mut new = Vector::new();
                         new.push_front(elem);
                         new.push_front(lst);
-                        Ok(Rc::new(SteelVal::ListV(new)))
+                        Ok(Rc::new(SteelVal::VectorV(new)))
                     }
                 }
                 _ => stop!(ArityMismatch => "push takes two arguments"),
@@ -358,14 +361,14 @@ impl VectorOperations {
             let mut args = args.into_iter().map(|x| (*x).clone());
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
-                    if let SteelVal::ListV(mut l) = lst {
+                    if let SteelVal::VectorV(mut l) = lst {
                         l.push_front(elem);
-                        Ok(Rc::new(SteelVal::ListV(l)))
+                        Ok(Rc::new(SteelVal::VectorV(l)))
                     } else {
                         let mut new = Vector::new();
                         new.push_front(lst);
                         new.push_front(elem);
-                        Ok(Rc::new(SteelVal::ListV(new)))
+                        Ok(Rc::new(SteelVal::VectorV(new)))
                     }
                 }
                 _ => stop!(ArityMismatch => "cons takes two arguments"),
@@ -377,7 +380,7 @@ impl VectorOperations {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if let Some(first) = args.into_iter().map(|x| (*x).clone()).next() {
                 match first {
-                    SteelVal::ListV(mut e) => match e.pop_front() {
+                    SteelVal::VectorV(mut e) => match e.pop_front() {
                         Some(e) => Ok(Rc::new(e)),
                         None => stop!(ContractViolation => "car expects a non empty list"),
                     },
@@ -395,10 +398,10 @@ impl VectorOperations {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if let Some(first) = args.into_iter().map(|x| (*x).clone()).next() {
                 match first {
-                    SteelVal::ListV(mut e) => {
+                    SteelVal::VectorV(mut e) => {
                         if !e.is_empty() {
                             e.pop_front();
-                            Ok(Rc::new(SteelVal::ListV(e)))
+                            Ok(Rc::new(SteelVal::VectorV(e)))
                         } else {
                             stop!(ContractViolation => "cdr expects a non empty list")
                         }
@@ -417,7 +420,7 @@ impl VectorOperations {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 match &args[0].as_ref() {
-                    SteelVal::ListV(v) => Ok(Rc::new(SteelVal::BoolV(v.is_empty()))),
+                    SteelVal::VectorV(v) => Ok(Rc::new(SteelVal::BoolV(v.is_empty()))),
                     _ => Ok(Rc::new(SteelVal::BoolV(false))),
                 }
             } else {
@@ -433,7 +436,7 @@ fn unwrap_list_of_lists(args: Vec<SteelVal>) -> Result<Vec<Vector<SteelVal>>> {
 
 fn unwrap_single_list(exp: SteelVal) -> Result<Vector<SteelVal>> {
     match exp {
-        SteelVal::ListV(lst) => Ok(lst),
+        SteelVal::VectorV(lst) => Ok(lst),
         _ => stop!(TypeMismatch => "expected a list"),
     }
 }
