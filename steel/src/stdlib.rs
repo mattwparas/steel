@@ -42,9 +42,9 @@ pub const PRELUDE: &str = "
              (cdr lst))))
 
 (define (map func lst)
-  (foldl (lambda (ele acc) (push (func ele) acc))
+  (reverse (foldl (lambda (ele acc) (cons (func ele) acc))
           '()
-          lst))
+          lst)))
 
 
 (define foldr (lambda (func accum lst)
@@ -76,13 +76,13 @@ pub const PRELUDE: &str = "
 
 
 
-(define (reverse lst)
-  (begin 
-    (define (go lst tail)
-    (if (null? lst)
-        tail
-        (go (cdr lst) (cons (car lst) tail))))
-  (go lst '() )))
+;(define (reverse lst)
+;  (begin 
+;    (define (go lst tail)
+;    (if (null? lst)
+;        tail
+;        (go (cdr lst) (cons (car lst) tail))))
+;  (go lst '() )))
 
 
 (define mem-helper (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
@@ -94,7 +94,7 @@ pub const PRELUDE: &str = "
 (define assoc (lambda (obj alist)    (fold (mem-helper (curry equal? obj) car) #f alist)))
 
 
-(define filter (lambda (pred lst)   (foldl (lambda (x y) (if (pred x) (push x y) y)) '() lst)))
+(define filter (lambda (pred lst)   (reverse (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst))))
 
 (define (fact n)
   (begin
@@ -140,7 +140,7 @@ pub const PRELUDE: &str = "
     (define (loop l r accum)
     (if (= l r)
         accum
-        (loop (add1 l) r (cons l accum))))
-  (reverse (loop l r '() ))))
+        (loop l (sub1 r) (cons r accum))))
+  (loop l r '() )))
 
 ";

@@ -13,6 +13,8 @@ use crate::stop;
 use std::collections::HashMap;
 use std::ops::Deref;
 
+use std::time::Instant;
+
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type ValidFunc = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>;
 
@@ -223,6 +225,7 @@ fn eval_or(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<Ste
 
 /// evaluates a lambda into a body expression to execute
 /// and an inner environment
+/// TODO - come back to eliminate the cloning that occurs in the symbol -> String process
 fn eval_lambda(
     lambda: &SteelLambda,
     list_of_tokens: &[Rc<Expr>],
@@ -245,8 +248,8 @@ fn eval_lambda(
 fn eval_if(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<Expr>> {
     if let [test_expr, then_expr, else_expr] = list_of_tokens {
         match evaluate(&test_expr, env)?.as_ref() {
-            SteelVal::BoolV(true) => Ok(then_expr.clone()),
-            _ => Ok(else_expr.clone()),
+            SteelVal::BoolV(true) => Ok(Rc::clone(then_expr)),
+            _ => Ok(Rc::clone(else_expr)),
         }
     } else {
         let e = format!("{}: expected {} args got {}", "If", 3, list_of_tokens.len());
@@ -259,8 +262,9 @@ fn eval_make_lambda(
     parent_env: Rc<RefCell<Env>>,
 ) -> Result<Rc<SteelVal>> {
     if let [list_of_symbols, body_exp] = list_of_tokens {
-        let parsed_list = parse_list_of_identifiers(list_of_symbols.clone())?;
-        let constructed_lambda = SteelLambda::new(parsed_list, body_exp.clone(), parent_env);
+        // println!("eval make lambda");
+        let parsed_list = parse_list_of_identifiers(Rc::clone(list_of_symbols))?;
+        let constructed_lambda = SteelLambda::new(parsed_list, Rc::clone(body_exp), parent_env);
         Ok(Rc::new(SteelVal::LambdaV(constructed_lambda)))
     } else {
         let e = format!(
@@ -282,7 +286,7 @@ fn eval_begin(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<
         evaluate(token, env)?;
     }
     if let Some(v) = last_token {
-        Ok(v.clone())
+        Ok(Rc::clone(v))
     } else {
         stop!(ArityMismatch => "begin requires at least one argument");
     }
@@ -348,7 +352,7 @@ fn eval_define(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<
                     let fake_lambda: Vec<Rc<Expr>> = vec![
                         Rc::new(Expr::Atom(Token::Identifier("lambda".to_string()))),
                         Rc::new(Expr::VectorVal(list_of_identifiers[1..].to_vec())),
-                        body.clone(),
+                        Rc::clone(body),
                     ];
 
                     let constructed_lambda = Rc::new(Expr::VectorVal(fake_lambda));
@@ -403,7 +407,7 @@ fn eval_let(list_of_tokens: &[Rc<Expr>], _env: &Rc<RefCell<Env>>) -> Result<Rc<E
         let mut combined = vec![Rc::new(Expr::VectorVal(vec![
             Rc::new(Expr::Atom(Token::Identifier("lambda".to_string()))),
             Rc::new(Expr::VectorVal(bindings_to_check)),
-            body.clone(),
+            Rc::clone(body),
         ]))];
         combined.append(&mut args_to_check);
 

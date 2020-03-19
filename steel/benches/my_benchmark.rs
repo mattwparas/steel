@@ -12,6 +12,8 @@ fn range(c: &mut Criterion) {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 
+    let script = "(range 0 1000)";
+
     c.bench_function("(range 0 1000)", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
@@ -26,6 +28,8 @@ fn map(c: &mut Criterion) {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 
+    let script = "(map (lambda (a) 0) (range 0 1000))";
+
     c.bench_function("(map (lambda (a) 0) (range 0 1000))", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
@@ -39,6 +43,8 @@ fn filter(c: &mut Criterion) {
     c.bench_function("(filter number? (range 0 100))", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
+
+    let script = "(filter number? (range 0 1000))";
 
     c.bench_function("(filter number? (range 0 100))", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))

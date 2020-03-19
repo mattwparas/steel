@@ -189,6 +189,7 @@ impl Env {
             ("car", ListOperations::car()),
             ("cdr", ListOperations::cdr()),
             ("cons", ListOperations::cons()),
+            ("reverse", ListOperations::reverse()),
             ("vector", VectorOperations::vec_construct()),
             ("push-front", VectorOperations::vec_cons()),
             ("pop-front", VectorOperations::vec_car()),
@@ -292,6 +293,48 @@ impl ListOperations {
             pairs
                 .pop()
                 .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string()))
+        })
+    }
+
+    pub fn reverse() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() == 1 {
+                match &args[0].as_ref() {
+                    SteelVal::Pair(_, _) => {
+                        let mut lst = Vec::new();
+                        let mut p = &args[0];
+
+                        loop {
+                            match p.as_ref() {
+                                SteelVal::Pair(cons, cdr) => {
+                                    lst.push(Rc::clone(cons));
+                                    match cdr.as_ref() {
+                                        Some(rest) => match rest.as_ref() {
+                                            Pair(_, _) => p = rest,
+                                            _ => {
+                                                lst.push(Rc::clone(rest));
+                                                break;
+                                            }
+                                        },
+                                        None => break,
+                                    }
+                                }
+                                _ => stop!(TypeMismatch => "reverse expected a list"),
+                            }
+                        }
+
+                        if let SteelVal::FuncV(func) = Self::list() {
+                            return func(lst);
+                        }
+
+                        unreachable!();
+                    }
+                    SteelVal::VectorV(v) => Ok(Rc::new(SteelVal::BoolV(v.is_empty()))),
+                    _ => Ok(Rc::new(SteelVal::BoolV(false))),
+                }
+            } else {
+                stop!(ArityMismatch => "reverse takes one argument");
+            }
         })
     }
 }
