@@ -159,11 +159,11 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                         // (sym args*), sym must be a procedure
                         _sym => match evaluate(f, &env)?.as_ref() {
                             SteelVal::FuncV(func) => {
-                                return eval_func(func.clone(), &list_of_tokens[1..], &env)
+                                return eval_func(func, &list_of_tokens[1..], &env)
                             }
                             SteelVal::LambdaV(lambda) => {
                                 let (new_expr, new_env) =
-                                    eval_lambda(lambda.clone(), &list_of_tokens[1..], &env)?;
+                                    eval_lambda(lambda, &list_of_tokens[1..], &env)?;
                                 expr = new_expr;
                                 env = new_env;
                             }
@@ -189,7 +189,7 @@ fn eval_atom(t: &Token, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
 }
 /// evaluates a primitive function into single returnable value
 fn eval_func(
-    func: ValidFunc,
+    func: &ValidFunc,
     list_of_tokens: &[Rc<Expr>],
     env: &Rc<RefCell<Env>>,
 ) -> Result<Rc<SteelVal>> {
@@ -224,7 +224,7 @@ fn eval_or(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<Ste
 /// evaluates a lambda into a body expression to execute
 /// and an inner environment
 fn eval_lambda(
-    lambda: SteelLambda,
+    lambda: &SteelLambda,
     list_of_tokens: &[Rc<Expr>],
     env: &Rc<RefCell<Env>>,
 ) -> Result<(Rc<Expr>, Rc<RefCell<Env>>)> {
@@ -311,24 +311,6 @@ fn eval_set(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<St
 // TODO write tests
 // Evaluate the inner expression, check that it is a quoted expression,
 // evaluate body of quoted expression
-// fn eval_eval_expr(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
-//     if let [e] = list_of_tokens {
-//         let res_expr = evaluate(e, env)?;
-//         match <Rc<Expr>>::try_from(res_expr) {
-//             Ok(e) => evaluate(&e, env),
-//             Err(_) => stop!(ContractViolation => "Eval not given an expression"),
-//         }
-//     } else {
-//         let e = format!(
-//             "{}: expected {} args got {}",
-//             "Eval",
-//             1,
-//             list_of_tokens.len()
-//         );
-//         stop!(ArityMismatch => e)
-//     }
-// }
-
 fn eval_eval_expr(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     if let [e] = list_of_tokens {
         let res_expr = evaluate(e, env)?;
