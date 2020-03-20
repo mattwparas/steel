@@ -190,6 +190,7 @@ impl Env {
             ("cdr", ListOperations::cdr()),
             ("cons", ListOperations::cons()),
             ("reverse", ListOperations::reverse()),
+            ("range", ListOperations::range()),
             ("vector", VectorOperations::vec_construct()),
             ("push-front", VectorOperations::vec_cons()),
             ("pop-front", VectorOperations::vec_car()),
@@ -270,7 +271,108 @@ impl ListOperations {
     }
 
     pub fn list() -> SteelVal {
+        SteelVal::FuncV(Self::built_in_list_func())
+    }
+
+    pub fn range() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            let mut args = args.into_iter().map(|x| (*x).clone());
+            match (args.next(), args.next()) {
+                (Some(elem), Some(lst)) => {
+                    if let (NumV(lower), NumV(upper)) = (elem, lst) {
+                        let mut res = Vec::new();
+                        for i in lower as usize..upper as usize {
+                            res.push(Rc::new(SteelVal::NumV(i as f64)));
+                        }
+                        Self::built_in_list_func()(res)
+                    } else {
+                        stop!(TypeMismatch => "range expected number")
+                    }
+                }
+                _ => stop!(ArityMismatch => "range takes two arguments"),
+            }
+        })
+    }
+
+    // pub fn map() -> SteelVal {
+    //     SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+    //         // unimplemented!();
+
+    //         let mut args = args.into_iter();
+    //         match (args.next(), args.next()) {
+    //             (Some(func), Some(lst)) => match lst.as_ref() {
+    //                 SteelVal::Pair(_, _) => {
+    //                     let vec = Self::collect_into_vec(&lst);
+
+    //                     match
+
+    //                     unimplemented!()
+    //                 }
+
+    //                 // SteelVal::VectorV(l) => {
+    //                 //     if l.is_empty() {
+    //                 //         Ok(Rc::new(SteelVal::Pair(elem, None)))
+    //                 //     } else {
+    //                 //         Ok(Rc::new(SteelVal::Pair(elem, Some(lst))))
+    //                 //     }
+    //                 // }
+    //                 _ => Ok(Rc::new(SteelVal::Pair(func, Some(lst)))),
+    //             },
+    //             _ => stop!(ArityMismatch => "cons-pair takes two arguments"),
+    //         }
+
+    //         unimplemented!();
+    //     })
+    // }
+
+    pub fn reverse() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() == 1 {
+                match &args[0].as_ref() {
+                    SteelVal::Pair(_, _) => {
+                        let lst = Self::collect_into_vec(&args[0])?;
+
+                        Self::built_in_list_func()(lst)
+
+                        // unreachable!();
+                    }
+                    SteelVal::VectorV(v) => Ok(Rc::new(SteelVal::BoolV(v.is_empty()))),
+                    _ => Ok(Rc::new(SteelVal::BoolV(false))),
+                }
+            } else {
+                stop!(ArityMismatch => "reverse takes one argument");
+            }
+        })
+    }
+
+    fn collect_into_vec(mut p: &Rc<SteelVal>) -> Result<Vec<Rc<SteelVal>>> {
+        let mut lst = Vec::new();
+        // let mut p = &args[0];
+
+        loop {
+            match p.as_ref() {
+                SteelVal::Pair(cons, cdr) => {
+                    lst.push(Rc::clone(cons));
+                    match cdr.as_ref() {
+                        Some(rest) => match rest.as_ref() {
+                            Pair(_, _) => p = rest,
+                            _ => {
+                                lst.push(Rc::clone(rest));
+                                break;
+                            }
+                        },
+                        None => break,
+                    }
+                }
+                _ => stop!(TypeMismatch => "reverse expected a list"),
+            }
+        }
+
+        Ok(lst)
+    }
+
+    fn built_in_list_func() -> fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>> {
+        |args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             let mut args = args.into_iter().rev();
             let mut pairs = Vec::new();
             match (args.next(), args.next()) {
@@ -293,49 +395,7 @@ impl ListOperations {
             pairs
                 .pop()
                 .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string()))
-        })
-    }
-
-    pub fn reverse() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
-            if args.len() == 1 {
-                match &args[0].as_ref() {
-                    SteelVal::Pair(_, _) => {
-                        let mut lst = Vec::new();
-                        let mut p = &args[0];
-
-                        loop {
-                            match p.as_ref() {
-                                SteelVal::Pair(cons, cdr) => {
-                                    lst.push(Rc::clone(cons));
-                                    match cdr.as_ref() {
-                                        Some(rest) => match rest.as_ref() {
-                                            Pair(_, _) => p = rest,
-                                            _ => {
-                                                lst.push(Rc::clone(rest));
-                                                break;
-                                            }
-                                        },
-                                        None => break,
-                                    }
-                                }
-                                _ => stop!(TypeMismatch => "reverse expected a list"),
-                            }
-                        }
-
-                        if let SteelVal::FuncV(func) = Self::list() {
-                            return func(lst);
-                        }
-
-                        unreachable!();
-                    }
-                    SteelVal::VectorV(v) => Ok(Rc::new(SteelVal::BoolV(v.is_empty()))),
-                    _ => Ok(Rc::new(SteelVal::BoolV(false))),
-                }
-            } else {
-                stop!(ArityMismatch => "reverse takes one argument");
-            }
-        })
+        }
     }
 }
 

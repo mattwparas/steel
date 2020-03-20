@@ -13,7 +13,7 @@ use crate::stop;
 use std::collections::HashMap;
 use std::ops::Deref;
 
-use std::time::Instant;
+// use std::time::Instant;
 
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type ValidFunc = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>;
