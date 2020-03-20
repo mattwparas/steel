@@ -330,11 +330,9 @@ impl ListOperations {
             if args.len() == 1 {
                 match &args[0].as_ref() {
                     SteelVal::Pair(_, _) => {
-                        let lst = Self::collect_into_vec(&args[0])?;
-
+                        let mut lst = Self::collect_into_vec(&args[0])?;
+                        lst.reverse();
                         Self::built_in_list_func()(lst)
-
-                        // unreachable!();
                     }
                     SteelVal::VectorV(v) => Ok(Rc::new(SteelVal::BoolV(v.is_empty()))),
                     _ => Ok(Rc::new(SteelVal::BoolV(false))),

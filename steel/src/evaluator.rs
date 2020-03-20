@@ -15,6 +15,7 @@ use std::ops::Deref;
 
 // use std::time::Instant;
 
+// pub type RcRefCellSteelVal = Rc<SteelVal>;
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type ValidFunc = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>;
 
