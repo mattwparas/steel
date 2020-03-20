@@ -543,8 +543,6 @@ fn unwrap_single_list(exp: SteelVal) -> Result<Vector<SteelVal>> {
     }
 }
 
-/*
-
 #[cfg(test)]
 mod env_tests {
     use super::*;
@@ -560,9 +558,11 @@ mod env_tests {
         let default_env = Rc::new(RefCell::new(Env::default_env()));
         assert!(default_env.borrow().lookup("+").is_ok());
         let c1 = Rc::new(RefCell::new(Env::new(&default_env)));
-        c1.borrow_mut().define("x".to_owned(), SteelVal::NumV(1.0));
+        c1.borrow_mut()
+            .define("x".to_owned(), Rc::new(SteelVal::NumV(1.0)));
         let c2 = Rc::new(RefCell::new(Env::new(&c1)));
-        c2.borrow_mut().define("y".to_owned(), SteelVal::NumV(2.0));
+        c2.borrow_mut()
+            .define("y".to_owned(), Rc::new(SteelVal::NumV(2.0)));
         assert!(default_env.borrow_mut().lookup("+").is_ok());
         assert!(c2.borrow_mut().lookup("+").is_ok());
         assert_eq!(
@@ -576,5 +576,3 @@ mod env_tests {
         assert!(c2.borrow_mut().lookup("z").is_err());
     }
 }
-
-*/
