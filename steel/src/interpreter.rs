@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+
 use crate::evaluator::Evaluator;
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
@@ -123,7 +124,7 @@ impl SteelInterpreter {
     }
 
     /// Adds global bindings for each `(&str, SteelVal)` in the vector
-    pub fn insert_bindings(&mut self, vals: Vec<(&'static str, SteelVal)>) {
+    pub fn insert_bindings(&mut self, vals: Vec<(String, SteelVal)>) {
         self.evaluator.insert_bindings(vals);
     }
 

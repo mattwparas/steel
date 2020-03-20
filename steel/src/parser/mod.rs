@@ -14,14 +14,14 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Atom(Token),
-    ListVal(Vec<Rc<Expr>>),
+    VectorVal(Vec<Rc<Expr>>),
 }
 
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Expr::Atom(t) => write!(f, "{}", t.to_string()),
-            Expr::ListVal(t) => {
+            Expr::VectorVal(t) => {
                 let lst = t
                     .iter()
                     .map(|item| item.to_string() + " ")
@@ -68,7 +68,7 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Expr::ListVal(vec![q, Rc::new(val)])
+        Expr::VectorVal(vec![q, Rc::new(val)])
     }
 
     // Jason's attempt
@@ -95,10 +95,10 @@ impl<'a> Parser<'a> {
                     }
                     Token::CloseParen => {
                         if let Some(mut prev_frame) = stack.pop() {
-                            prev_frame.push(Rc::new(Expr::ListVal(current_frame)));
+                            prev_frame.push(Rc::new(Expr::VectorVal(current_frame)));
                             current_frame = prev_frame;
                         } else {
-                            return Ok(Expr::ListVal(current_frame));
+                            return Ok(Expr::VectorVal(current_frame));
                         }
                     }
                     tok => match &tok {
@@ -148,7 +148,7 @@ mod parser_tests {
     #[test]
     fn test_empty() {
         assert_parse("", &[]);
-        assert_parse("()", &[ListVal(vec![])]);
+        assert_parse("()", &[VectorVal(vec![])]);
     }
 
     #[test]
@@ -166,10 +166,10 @@ mod parser_tests {
             &[
                 Atom(Identifier("a".to_string())),
                 Atom(Identifier("b".to_string())),
-                ListVal(vec![
+                VectorVal(vec![
                     Rc::new(Atom(Identifier("lambda".to_string()))),
                     Rc::new(Atom(NumberLiteral(1.0))),
-                    Rc::new(ListVal(vec![
+                    Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("+".to_string()))),
                         Rc::new(Atom(NumberLiteral(2.0))),
                         Rc::new(Atom(NumberLiteral(3.5))),
@@ -183,13 +183,13 @@ mod parser_tests {
         assert_parse(
             "(+ 1 2 3) (- 4 3)",
             &[
-                ListVal(vec![
+                VectorVal(vec![
                     Rc::new(Atom(Identifier("+".to_string()))),
                     Rc::new(Atom(NumberLiteral(1.0))),
                     Rc::new(Atom(NumberLiteral(2.0))),
                     Rc::new(Atom(NumberLiteral(3.0))),
                 ]),
-                ListVal(vec![
+                VectorVal(vec![
                     Rc::new(Atom(Identifier("-".to_string()))),
                     Rc::new(Atom(NumberLiteral(4.0))),
                     Rc::new(Atom(NumberLiteral(3.0))),
@@ -201,12 +201,12 @@ mod parser_tests {
     fn test_parse_nested() {
         assert_parse(
             "(+ 1 (foo (bar 2 3)))",
-            &[ListVal(vec![
+            &[VectorVal(vec![
                 Rc::new(Atom(Identifier("+".to_string()))),
                 Rc::new(Atom(NumberLiteral(1.0))),
-                Rc::new(ListVal(vec![
+                Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("foo".to_string()))),
-                    Rc::new(ListVal(vec![
+                    Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("bar".to_owned()))),
                         Rc::new(Atom(NumberLiteral(2.0))),
                         Rc::new(Atom(NumberLiteral(3.0))),
@@ -216,17 +216,17 @@ mod parser_tests {
         );
         assert_parse(
             "(+ 1 (+ 2 3) (foo (bar 2 3)))",
-            &[ListVal(vec![
+            &[VectorVal(vec![
                 Rc::new(Atom(Identifier("+".to_string()))),
                 Rc::new(Atom(NumberLiteral(1.0))),
-                Rc::new(ListVal(vec![
+                Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("+".to_string()))),
                     Rc::new(Atom(NumberLiteral(2.0))),
                     Rc::new(Atom(NumberLiteral(3.0))),
                 ])),
-                Rc::new(ListVal(vec![
+                Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("foo".to_string()))),
-                    Rc::new(ListVal(vec![
+                    Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("bar".to_owned()))),
                         Rc::new(Atom(NumberLiteral(2.0))),
                         Rc::new(Atom(NumberLiteral(3.0))),
@@ -236,19 +236,19 @@ mod parser_tests {
         );
         assert_parse(
             "(+ 1 (+ 2 3) (foo (+ (bar 1 1) 3) 5))",
-            &[ListVal(vec![
+            &[VectorVal(vec![
                 Rc::new(Atom(Identifier("+".to_string()))),
                 Rc::new(Atom(NumberLiteral(1.0))),
-                Rc::new(ListVal(vec![
+                Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("+".to_string()))),
                     Rc::new(Atom(NumberLiteral(2.0))),
                     Rc::new(Atom(NumberLiteral(3.0))),
                 ])),
-                Rc::new(ListVal(vec![
+                Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("foo".to_string()))),
-                    Rc::new(ListVal(vec![
+                    Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("+".to_string()))),
-                        Rc::new(ListVal(vec![
+                        Rc::new(VectorVal(vec![
                             Rc::new(Atom(Identifier("bar".to_string()))),
                             Rc::new(Atom(NumberLiteral(1.0))),
                             Rc::new(Atom(NumberLiteral(1.0))),
@@ -264,16 +264,16 @@ mod parser_tests {
     fn test_parse_specials() {
         assert_parse(
             "(define (foo a b) (+ (- a 1) b))",
-            &[ListVal(vec![
+            &[VectorVal(vec![
                 Rc::new(Atom(Identifier("define".to_string()))),
-                Rc::new(ListVal(vec![
+                Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("foo".to_string()))),
                     Rc::new(Atom(Identifier("a".to_string()))),
                     Rc::new(Atom(Identifier("b".to_string()))),
                 ])),
-                Rc::new(ListVal(vec![
+                Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("+".to_string()))),
-                    Rc::new(ListVal(vec![
+                    Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("-".to_string()))),
                         Rc::new(Atom(Identifier("a".to_string()))),
                         Rc::new(Atom(NumberLiteral(1.0))),
@@ -285,7 +285,7 @@ mod parser_tests {
 
         assert_parse(
             "(if   #t     1 2)",
-            &[ListVal(vec![
+            &[VectorVal(vec![
                 Rc::new(Atom(Identifier("if".to_string()))),
                 Rc::new(Atom(BooleanLiteral(true))),
                 Rc::new(Atom(NumberLiteral(1.0))),
@@ -295,24 +295,24 @@ mod parser_tests {
         assert_parse(
             "(lambda (a b) (+ a b)) (- 1 2) (\"dumpsterfire\")",
             &[
-                ListVal(vec![
+                VectorVal(vec![
                     Rc::new(Atom(Identifier("lambda".to_string()))),
-                    Rc::new(ListVal(vec![
+                    Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("a".to_string()))),
                         Rc::new(Atom(Identifier("b".to_string()))),
                     ])),
-                    Rc::new(ListVal(vec![
+                    Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("+".to_string()))),
                         Rc::new(Atom(Identifier("a".to_string()))),
                         Rc::new(Atom(Identifier("b".to_string()))),
                     ])),
                 ]),
-                ListVal(vec![
+                VectorVal(vec![
                     Rc::new(Atom(Identifier("-".to_string()))),
                     Rc::new(Atom(NumberLiteral(1.0))),
                     Rc::new(Atom(NumberLiteral(2.0))),
                 ]),
-                ListVal(vec![Rc::new(Atom(StringLiteral(
+                VectorVal(vec![Rc::new(Atom(StringLiteral(
                     "dumpsterfire".to_string(),
                 )))]),
             ],

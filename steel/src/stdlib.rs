@@ -42,9 +42,9 @@ pub const PRELUDE: &str = "
              (cdr lst))))
 
 (define (map func lst)
-  (foldl (lambda (ele acc) (push (func ele) acc))
+  (reverse (foldl (lambda (ele acc) (cons (func ele) acc))
           '()
-          lst))
+          lst)))
 
 
 (define foldr (lambda (func accum lst)
@@ -63,8 +63,28 @@ pub const PRELUDE: &str = "
 (define max (lambda (x  num-list) (fold (lambda (y z) (if (> y z) y z)) x (cons 0 num-list))))
 (define min (lambda (x  num-list) (fold (lambda (y z) (if (< y z) y z)) x (cons 536870911 num-list))))
 (define length (lambda (lst)        (fold (lambda (x y) (+ x 1)) 0 lst)))
+
 ;; (define append (lambda (lst lsts)  (foldl (flip (curry2 foldr cons)) lst lsts))) ;; TODO fix
-(define reverse (lambda (lst) (cdr (foldl (flip cons) '() lst)))) ;; TODO fix
+
+(define (append xs ys)
+  (foldr cons-pair ys xs))
+
+;(define (append lhs rhs)
+;  (if (null? lhs)
+;      rhs
+;      (cons (first lhs) (append (rest lhs) rhs))))
+
+
+
+;(define (reverse lst)
+;  (begin 
+;    (define (go lst tail)
+;    (if (null? lst)
+;        tail
+;        (go (cdr lst) (cons (car lst) tail))))
+;  (go lst '() )))
+
+
 (define mem-helper (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 ;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
 ;; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
@@ -74,7 +94,7 @@ pub const PRELUDE: &str = "
 (define assoc (lambda (obj alist)    (fold (mem-helper (curry equal? obj) car) #f alist)))
 
 
-(define filter (lambda (pred lst)   (foldl (lambda (x y) (if (pred x) (push x y) y)) '() lst)))
+(define filter (lambda (pred lst)   (reverse (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst))))
 
 (define (fact n)
   (begin
@@ -120,7 +140,7 @@ pub const PRELUDE: &str = "
 ;    (define (loop l r accum)
 ;    (if (= l r)
 ;        accum
-;        (loop (add1 l) r (push l accum))))
-;  (loop l r '())))
+;        (loop l (sub1 r) (cons r accum))))
+;  (loop l r '() )))
 
 ";
