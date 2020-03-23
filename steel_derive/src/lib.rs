@@ -41,9 +41,9 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     }
                 }
 
-                impl From<SteelVal> for #name {
-                    fn from(val: SteelVal) -> #name {
-                        unwrap!(val, #name).unwrap()
+                impl From<&SteelVal> for #name {
+                    fn from(val: &SteelVal) -> #name {
+                        unwrap!(val.clone(), #name).unwrap()
                     }
                 }
             };
@@ -91,9 +91,9 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
         }
 
 
-        impl From<SteelVal> for #name {
-            fn from(val: SteelVal) -> #name {
-                unwrap!(val, #name).unwrap()
+        impl From<&SteelVal> for #name {
+            fn from(val: &SteelVal) -> #name {
+                unwrap!(val.clone(), #name).unwrap()
             }
         }
 
@@ -130,7 +130,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                     if let Some(arg) = args_iter.next() {
                                         match arg.as_ref() {
                                             SteelVal::Custom(_) => unwrap!((*arg).clone(), #field_type2)?,
-                                            _ => <#field_type2>::try_from((*arg).clone())?
+                                            _ => <#field_type2>::try_from(&(*arg).clone())?
                                         }
                                     } else {
                                         stop!(ArityMismatch => "Struct not given correct arguments");
@@ -157,7 +157,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                                 unwrap!((*second).clone(), #field_type)?
                                             },
                                             _ => {
-                                                <#field_type>::try_from((*second).clone())?
+                                                <#field_type>::try_from(&(*second).clone())?
                                                 }
                                         },
                                         ..my_struct

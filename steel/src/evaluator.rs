@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::result;
 
 use crate::env::Env;
+use crate::env::ListOperations;
 use crate::parser::tokens::Token;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::SteelErr;
@@ -13,9 +14,11 @@ use crate::stop;
 use std::collections::HashMap;
 use std::ops::Deref;
 
-// use std::time::Instant;
+pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
+pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
+    Rc::new(RefCell::new(x))
+}
 
-// pub type RcRefCellSteelVal = Rc<SteelVal>;
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type ValidFunc = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>;
 
@@ -159,6 +162,12 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                         Expr::Atom(Token::Identifier(s)) if s == "or" => {
                             return eval_or(&list_of_tokens[1..], &env)
                         }
+                        Expr::Atom(Token::Identifier(s)) if s == "map'" => {
+                            return eval_map(&list_of_tokens[1..], &env)
+                        }
+                        Expr::Atom(Token::Identifier(s)) if s == "filter'" => {
+                            return eval_filter(&list_of_tokens[1..], &env)
+                        }
                         // (sym args*), sym must be a procedure
                         _sym => match evaluate(f, &env)?.as_ref() {
                             SteelVal::FuncV(func) => {
@@ -180,6 +189,111 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
         }
     }
 }
+
+// evaluates a special form 'filter' for speed up
+fn eval_filter(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
+    if let [func_expr, list_expr] = list_of_tokens {
+        let func_res = evaluate(&func_expr, env)?;
+        let list_res = evaluate(&list_expr, env)?;
+
+        match list_res.as_ref() {
+            SteelVal::Pair(_, _) => {}
+            _ => stop!(TypeMismatch => "map expected a list"),
+        }
+
+        let vec_of_vals = ListOperations::collect_into_vec(&list_res)?;
+        let mut collected_results = Vec::new();
+
+        for val in vec_of_vals {
+            match func_res.as_ref() {
+                SteelVal::FuncV(func) => {
+                    let result = func(vec![val])?;
+                    match result.as_ref() {
+                        SteelVal::BoolV(true) => collected_results.push(result),
+                        _ => {}
+                    }
+                }
+                SteelVal::LambdaV(lambda) => {
+                    // build a new environment using the parent environment
+                    let parent_env = lambda.parent_env();
+                    let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
+                    let params_exp = lambda.params_exp();
+                    inner_env.borrow_mut().define_all(params_exp, vec![val])?;
+
+                    let result = evaluate(&lambda.body_exp(), &inner_env)?;
+
+                    match result.as_ref() {
+                        SteelVal::BoolV(true) => collected_results.push(result),
+                        _ => {}
+                    }
+
+                    // collected_results.push(result);
+                }
+                e => stop!(TypeMismatch => e),
+            }
+        }
+
+        ListOperations::built_in_list_func()(collected_results)
+
+    // unimplemented!();
+    } else {
+        let e = format!(
+            "{}: expected {} args got {}",
+            "map",
+            2,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e);
+    }
+}
+
+/// evaluates a special form 'map' for speed up
+fn eval_map(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
+    if let [func_expr, list_expr] = list_of_tokens {
+        let func_res = evaluate(&func_expr, env)?;
+        let list_res = evaluate(&list_expr, env)?;
+
+        match list_res.as_ref() {
+            SteelVal::Pair(_, _) => {}
+            _ => stop!(TypeMismatch => "map expected a list"),
+        }
+
+        let vec_of_vals = ListOperations::collect_into_vec(&list_res)?;
+        let mut collected_results = Vec::new();
+
+        for val in vec_of_vals {
+            match func_res.as_ref() {
+                SteelVal::FuncV(func) => {
+                    collected_results.push(func(vec![val])?);
+                }
+                SteelVal::LambdaV(lambda) => {
+                    // build a new environment using the parent environment
+                    let parent_env = lambda.parent_env();
+                    let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
+                    let params_exp = lambda.params_exp();
+                    inner_env.borrow_mut().define_all(params_exp, vec![val])?;
+
+                    let result = evaluate(&lambda.body_exp(), &inner_env)?;
+                    collected_results.push(result);
+                }
+                e => stop!(TypeMismatch => e),
+            }
+        }
+
+        ListOperations::built_in_list_func()(collected_results)
+
+    // unimplemented!();
+    } else {
+        let e = format!(
+            "{}: expected {} args got {}",
+            "map",
+            2,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e);
+    }
+}
+
 /// evaluates an atom expression in given environment
 fn eval_atom(t: &Token, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     match t {
@@ -319,7 +433,7 @@ fn eval_set(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<St
 fn eval_eval_expr(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     if let [e] = list_of_tokens {
         let res_expr = evaluate(e, env)?;
-        match <Rc<Expr>>::try_from((*res_expr).clone()) {
+        match <Rc<Expr>>::try_from(&(*res_expr).clone()) {
             Ok(e) => evaluate(&e, env),
             Err(_) => stop!(ContractViolation => "Eval not given an expression"),
         }

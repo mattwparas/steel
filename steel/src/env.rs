@@ -294,37 +294,6 @@ impl ListOperations {
         })
     }
 
-    // pub fn map() -> SteelVal {
-    //     SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
-    //         // unimplemented!();
-
-    //         let mut args = args.into_iter();
-    //         match (args.next(), args.next()) {
-    //             (Some(func), Some(lst)) => match lst.as_ref() {
-    //                 SteelVal::Pair(_, _) => {
-    //                     let vec = Self::collect_into_vec(&lst);
-
-    //                     match
-
-    //                     unimplemented!()
-    //                 }
-
-    //                 // SteelVal::VectorV(l) => {
-    //                 //     if l.is_empty() {
-    //                 //         Ok(Rc::new(SteelVal::Pair(elem, None)))
-    //                 //     } else {
-    //                 //         Ok(Rc::new(SteelVal::Pair(elem, Some(lst))))
-    //                 //     }
-    //                 // }
-    //                 _ => Ok(Rc::new(SteelVal::Pair(func, Some(lst)))),
-    //             },
-    //             _ => stop!(ArityMismatch => "cons-pair takes two arguments"),
-    //         }
-
-    //         unimplemented!();
-    //     })
-    // }
-
     pub fn reverse() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
@@ -343,7 +312,7 @@ impl ListOperations {
         })
     }
 
-    fn collect_into_vec(mut p: &Rc<SteelVal>) -> Result<Vec<Rc<SteelVal>>> {
+    pub fn collect_into_vec(mut p: &Rc<SteelVal>) -> Result<Vec<Rc<SteelVal>>> {
         let mut lst = Vec::new();
         // let mut p = &args[0];
 
@@ -369,7 +338,7 @@ impl ListOperations {
         Ok(lst)
     }
 
-    fn built_in_list_func() -> fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>> {
+    pub fn built_in_list_func() -> fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>> {
         |args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             let mut args = args.into_iter().rev();
             let mut pairs = Vec::new();
@@ -443,7 +412,8 @@ impl VectorOperations {
             let mut args = args.into_iter().map(|x| (*x).clone());
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
-                    if let SteelVal::VectorV(mut l) = lst {
+                    if let SteelVal::VectorV(ref l) = lst {
+                        let mut l = l.clone();
                         l.push_back(elem);
                         Ok(Rc::new(SteelVal::VectorV(l)))
                     } else {
@@ -463,7 +433,8 @@ impl VectorOperations {
             let mut args = args.into_iter().map(|x| (*x).clone());
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
-                    if let SteelVal::VectorV(mut l) = lst {
+                    if let SteelVal::VectorV(ref l) = lst {
+                        let mut l = l.clone();
                         l.push_front(elem);
                         Ok(Rc::new(SteelVal::VectorV(l)))
                     } else {
@@ -482,10 +453,13 @@ impl VectorOperations {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if let Some(first) = args.into_iter().map(|x| (*x).clone()).next() {
                 match first {
-                    SteelVal::VectorV(mut e) => match e.pop_front() {
-                        Some(e) => Ok(Rc::new(e)),
-                        None => stop!(ContractViolation => "car expects a non empty list"),
-                    },
+                    SteelVal::VectorV(ref e) => {
+                        let mut e = e.clone();
+                        match e.pop_front() {
+                            Some(e) => Ok(Rc::new(e)),
+                            None => stop!(ContractViolation => "car expects a non empty list"),
+                        }
+                    }
                     e => {
                         stop!(TypeMismatch => "car takes a list, given: {}", e);
                     }
@@ -500,7 +474,8 @@ impl VectorOperations {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if let Some(first) = args.into_iter().map(|x| (*x).clone()).next() {
                 match first {
-                    SteelVal::VectorV(mut e) => {
+                    SteelVal::VectorV(ref e) => {
+                        let mut e = e.clone();
                         if !e.is_empty() {
                             e.pop_front();
                             Ok(Rc::new(SteelVal::VectorV(e)))
@@ -533,12 +508,12 @@ impl VectorOperations {
 }
 
 fn unwrap_list_of_lists(args: Vec<SteelVal>) -> Result<Vec<Vector<SteelVal>>> {
-    args.into_iter().map(unwrap_single_list).collect()
+    args.iter().map(unwrap_single_list).collect()
 }
 
-fn unwrap_single_list(exp: SteelVal) -> Result<Vector<SteelVal>> {
+fn unwrap_single_list(exp: &SteelVal) -> Result<Vector<SteelVal>> {
     match exp {
-        SteelVal::VectorV(lst) => Ok(lst),
+        SteelVal::VectorV(lst) => Ok(lst.clone()),
         _ => stop!(TypeMismatch => "expected a list"),
     }
 }
