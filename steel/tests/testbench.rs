@@ -42,12 +42,12 @@ fn define_test() {
         &["Arity Mismatch: Define: expected 2 args got 1"],
         e,
     );
-    test_line("(define a (lambda (x) (+ x 1)))", &["Void"], e);
-    test_line("a", &["Lambda Function"], e);
+    test_line("(define a (lambda (x) (+ x 1)))", &["#<void>"], e);
+    test_line("a", &["#<lambda-function>"], e);
     test_line("(a 2)", &["3"], e);
-    test_line("(define (b a1 a2 a3) (+ a1 a2 a3))", &["Void"], e);
+    test_line("(define (b a1 a2 a3) (+ a1 a2 a3))", &["#<void>"], e);
     test_line("(b 10 20 30)", &["60"], e);
-    test_line("(define b 10)", &["Void"], e);
+    test_line("(define b 10)", &["#<void>"], e);
     test_line("b", &["10"], e);
     test_line("a1", &["Free Identifier: a1"], e);
 }
@@ -62,15 +62,15 @@ fn lambda_test() {
         e,
     );
     test_line("(lambda x 1)", &["Expected List of Identifiers"], e);
-    test_line("(lambda () 1)", &["Lambda Function"], e);
+    test_line("(lambda () 1)", &["#<lambda-function>"], e);
     test_line(
         "(lambda () (lambda () (lambda () (lambda () 1))))",
-        &["Lambda Function"],
+        &["#<lambda-function>"],
         e,
     );
     test_line(
         "(define x (lambda (w) (lambda (x y) (lambda (z) (lambda (a) (+ w x y z a))))))",
-        &["Void"],
+        &["#<void>"],
         e,
     );
     test_line("((((x 1) 2 3) 4) 5)", &["15"], e);
@@ -93,27 +93,27 @@ fn set_test() {
     );
     test_line(
         "(define x 100) (set! x (+ x 1)) x",
-        &["Void", "100", "101"],
+        &["#<void>", "100", "101"],
         e,
     );
     test_line(
         "(define x (lambda () (begin (define a 10) (set! a 20) a))) (x)",
-        &["Void", "20"],
+        &["#<void>", "20"],
         e,
     );
     test_line(
         "(define x (lambda () (begin (set! a 20) (define a 10) a))) (x)",
-        &["Void", "Free Identifier: a"],
+        &["#<void>", "Free Identifier: a"],
         e,
     );
     test_line(
         "(define a 1000) (define x (lambda () (begin (set! a 20) (define a 10) a))) (x)",
-        &["Void", "Void", "10"],
+        &["#<void>", "#<void>", "10"],
         e,
     );
     test_line(
         "(define a 1000) (define x (lambda () (begin (set! a 20)  a))) (x)",
-        &["Void", "Void", "20"],
+        &["#<void>", "#<void>", "20"],
         e,
     );
 }

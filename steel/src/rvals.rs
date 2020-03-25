@@ -417,9 +417,9 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         BoolV(b) => write!(f, "#{}", b),
         NumV(x) => write!(f, "{}", x),
         StringV(s) => write!(f, "\"{}\"", s),
-        FuncV(_) => write!(f, "Function"),
-        LambdaV(_) => write!(f, "Lambda Function"),
-        Void => write!(f, "Void"),
+        FuncV(_) => write!(f, "#<function>"),
+        LambdaV(_) => write!(f, "#<lambda-function>"),
+        Void => write!(f, "#<void>"),
         SymbolV(s) => write!(f, "{}", s),
         VectorV(lst) => {
             let mut iter = lst.iter();
@@ -436,7 +436,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         // Pair(_, _) => {
         //     collect_pair_into_vector(mut p: &SteelVal)
         // }
-        Custom(x) => write!(f, "Custom Type: {}", x.name()),
+        Custom(x) => write!(f, "#<Custom-Type: {}>", x.name()),
         Pair(_, _) => {
             let v = collect_pair_into_vector(val);
             // println!("collected v");

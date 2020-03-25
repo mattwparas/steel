@@ -2,22 +2,22 @@
 2
 #false
 Parse: Unexpected token, CloseParen
-Void
+#<void>
 120
-Void
+#<void>
 55
-Void
-Void
+#<void>
+#<void>
 1548008755920
-Void
+#<void>
 6
-Void
+#<void>
 10
 10
 10
 '(1 2 3)
 10
-Lambda Function
+#<lambda-function>
 "test"
 #true
 #false
@@ -27,7 +27,7 @@ Lambda Function
 #false
 #true
 #false
-Void
-Void
+#<void>
+#<void>
 80
 60
