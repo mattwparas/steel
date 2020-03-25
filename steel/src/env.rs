@@ -104,7 +104,7 @@ impl Env {
         Ok(())
     }
 
-    pub fn define_zipped<'a>(&mut self, zipped: impl Iterator<Item = (String, Rc<SteelVal>)>) {
+    pub fn define_zipped(&mut self, zipped: impl Iterator<Item = (String, Rc<SteelVal>)>) {
         zipped.for_each(|(param, arg)| self.define(param, arg))
     }
 

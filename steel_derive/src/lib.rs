@@ -18,40 +18,38 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
 
     let name = &input.ident;
 
-    match &input.data {
-        Data::Struct(DataStruct {
-            fields: Fields::Unnamed(_),
-            ..
-        }) => {
-            let gen = quote! {
+    if let Data::Struct(DataStruct {
+        fields: Fields::Unnamed(_),
+        ..
+    }) = &input.data
+    {
+        let gen = quote! {
 
-                impl crate::rvals::CustomType for #name {
-                    fn box_clone(&self) -> Box<dyn CustomType> {
-                        Box::new((*self).clone())
-                    }
-                    fn as_any(&self) -> Box<dyn Any> {
-                        Box::new((*self).clone())
-                    }
-                    fn new_steel_val(&self) -> SteelVal {
-                        SteelVal::Custom(Box::new(self.clone()))
-                    }
+            impl crate::rvals::CustomType for #name {
+                fn box_clone(&self) -> Box<dyn CustomType> {
+                    Box::new((*self).clone())
                 }
-                impl From<#name> for SteelVal {
-                    fn from(val: #name) -> SteelVal {
-                        val.new_steel_val()
-                    }
+                fn as_any(&self) -> Box<dyn Any> {
+                    Box::new((*self).clone())
                 }
+                fn new_steel_val(&self) -> SteelVal {
+                    SteelVal::Custom(Box::new(self.clone()))
+                }
+            }
+            impl From<#name> for SteelVal {
+                fn from(val: #name) -> SteelVal {
+                    val.new_steel_val()
+                }
+            }
 
-                impl From<&SteelVal> for #name {
-                    fn from(val: &SteelVal) -> #name {
-                        unwrap!(val.clone(), #name).unwrap()
-                    }
+            impl From<&SteelVal> for #name {
+                fn from(val: &SteelVal) -> #name {
+                    unwrap!(val.clone(), #name).unwrap()
                 }
-            };
+            }
+        };
 
-            return gen.into();
-        }
-        _ => {}
+        return gen.into();
     };
 
     let fields = match &input.data {
@@ -151,19 +149,16 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                             let mut args_iter = args.into_iter();
                             if let Some(first) = args_iter.next() {
                                 if let Some(second) = args_iter.next() {
-                                    let my_struct = unwrap!((*first).clone(), #name)?;
-                                    let new_struct = #name {
-                                        #field_name : match second.as_ref() {
-                                            SteelVal::Custom(_) => {
-                                                unwrap!((*second).clone(), #field_type)?
-                                            },
-                                            _ => {
-                                                <#field_type>::try_from(&(*second).clone())?
-                                                }
+                                    let mut my_struct = unwrap!((*first).clone(), #name)?;
+                                    my_struct.#field_name = match second.as_ref() {
+                                        SteelVal::Custom(_) => {
+                                            unwrap!((*second).clone(), #field_type)?
                                         },
-                                        ..my_struct
+                                        _ => {
+                                            <#field_type>::try_from(&(*second).clone())?
+                                            }
                                     };
-                                    return Ok(Rc::new(new_struct.new_steel_val()));
+                                    return Ok(Rc::new(my_struct.new_steel_val()));
                                 }
                                 stop!(ArityMismatch => "set! expected 2 arguments");
                             }

@@ -1,6 +1,6 @@
 // use crate::converter::SteelFunctor;
 use crate::rerrs::SteelErr;
-use crate::rvals::{SteelLambda, SteelVal};
+use crate::rvals::{FunctionSignature, SteelLambda, SteelVal};
 use im_rc::Vector;
 // use std::collections::Vector;
 use std::convert::TryFrom;
@@ -17,7 +17,7 @@ where
     U: TryFrom<Vec<SteelVal>, Error = SteelErr>,
     V: Into<SteelVal>,
 {
-    fn new_func() -> fn(args: Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr> {
+    fn new_func() -> FunctionSignature {
         |args: Vec<Rc<SteelVal>>| {
             let args = args.into_iter().map(|x| (*x).clone()).collect();
             let input = Self::in_convert(args)?;
@@ -104,8 +104,8 @@ impl From<Vector<SteelVal>> for SteelVal {
     }
 }
 
-impl From<fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>> for SteelVal {
-    fn from(val: fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>) -> SteelVal {
+impl From<FunctionSignature> for SteelVal {
+    fn from(val: FunctionSignature) -> SteelVal {
         SteelVal::FuncV(val)
     }
 }
