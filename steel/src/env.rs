@@ -39,9 +39,8 @@ macro_rules! gen_pred {
     ($variant:ident) => {{
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if let Some(first) = args.first() {
-                match first.as_ref() {
-                    SteelVal::$variant(..) => return Ok(Rc::new(BoolV(true))),
-                    _ => {}
+                if let SteelVal::$variant(..) = first.as_ref() {
+                    return Ok(Rc::new(BoolV(true)));
                 }
             }
             Ok(Rc::new(BoolV(false)))
@@ -100,7 +99,7 @@ impl Env {
             stop!(ArityMismatch => e);
         }
         // let iter = keys.iter().map(String::as_ref).zip(vals.into_iter());
-        let iter = keys.iter().map(|x| x.clone()).zip(vals.into_iter());
+        let iter = keys.iter().cloned().zip(vals.into_iter());
         self.define_zipped(iter);
         Ok(())
     }
@@ -354,10 +353,8 @@ impl ListOperations {
                 }
             }
 
-            let mut i = 0;
-            for val in args {
+            for (i, val) in args.enumerate() {
                 pairs.push(Rc::new(SteelVal::Pair(val, Some(Rc::clone(&pairs[i])))));
-                i += 1;
             }
             pairs
                 .pop()

@@ -171,7 +171,7 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                         // (sym args*), sym must be a procedure
                         _sym => match evaluate(f, &env)?.as_ref() {
                             SteelVal::FuncV(func) => {
-                                return eval_func(func, &list_of_tokens[1..], &env)
+                                return eval_func(*func, &list_of_tokens[1..], &env)
                             }
                             SteelVal::LambdaV(lambda) => {
                                 let (new_expr, new_env) =
@@ -208,9 +208,8 @@ fn eval_filter(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc
             match func_res.as_ref() {
                 SteelVal::FuncV(func) => {
                     let result = func(vec![val])?;
-                    match result.as_ref() {
-                        SteelVal::BoolV(true) => collected_results.push(result),
-                        _ => {}
+                    if let SteelVal::BoolV(true) = result.as_ref() {
+                        collected_results.push(result);
                     }
                 }
                 SteelVal::LambdaV(lambda) => {
@@ -222,12 +221,9 @@ fn eval_filter(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc
 
                     let result = evaluate(&lambda.body_exp(), &inner_env)?;
 
-                    match result.as_ref() {
-                        SteelVal::BoolV(true) => collected_results.push(result),
-                        _ => {}
+                    if let SteelVal::BoolV(true) = result.as_ref() {
+                        collected_results.push(result);
                     }
-
-                    // collected_results.push(result);
                 }
                 e => stop!(TypeMismatch => e),
             }
@@ -306,7 +302,7 @@ fn eval_atom(t: &Token, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
 }
 /// evaluates a primitive function into single returnable value
 fn eval_func(
-    func: &ValidFunc,
+    func: ValidFunc,
     list_of_tokens: &[Rc<Expr>],
     env: &Rc<RefCell<Env>>,
 ) -> Result<Rc<SteelVal>> {
@@ -462,7 +458,7 @@ fn eval_define(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<
                 if list_of_identifiers.is_empty() {
                     stop!(TypeMismatch => "define expected an identifier, got empty list")
                 }
-                if let Expr::Atom(Token::Identifier(s)) = &**&list_of_identifiers[0] {
+                if let Expr::Atom(Token::Identifier(s)) = &*list_of_identifiers[0] {
                     // eval_make_lambda
                     let fake_lambda: Vec<Rc<Expr>> = vec![
                         Rc::new(Expr::Atom(Token::Identifier("lambda".to_string()))),

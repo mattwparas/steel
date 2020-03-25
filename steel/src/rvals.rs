@@ -15,6 +15,8 @@ use im_rc::Vector;
 use std::convert::TryFrom;
 use std::result;
 
+pub type FunctionSignature = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>;
+
 pub trait StructFunctions {
     fn generate_bindings() -> Vec<(String, SteelVal)>;
 }
@@ -230,7 +232,7 @@ pub enum SteelVal {
     /// Represents strings
     StringV(String),
     /// Represents built in rust functions
-    FuncV(fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>),
+    FuncV(FunctionSignature),
     /// Represents Steel Lambda functions or closures defined inside the environment
     LambdaV(SteelLambda),
     /// Represents a symbol, internally represented as `String`s
@@ -246,15 +248,15 @@ impl Drop for SteelVal {
     fn drop(&mut self) {
         let mut curr = match *self {
             Pair(_, ref mut next) => next.take(),
-            _ => return (),
+            _ => return,
         };
         loop {
             match curr {
                 Some(r) => match Rc::try_unwrap(r) {
                     Ok(Pair(_, ref mut next)) => curr = next.take(),
-                    _ => return (),
+                    _ => return,
                 },
-                _ => return (),
+                _ => return,
             }
         }
     }

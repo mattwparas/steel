@@ -121,7 +121,7 @@ pub fn build_interpreter_and_modify() {
     ";
 
     // get the values back out
-    if let Ok(_) = interpreter.evaluate(script) {
+    if interpreter.evaluate(script).is_ok() {
         let ret_val = unwrap!(interpreter.extract_value("return-val").unwrap(), CoolTest).unwrap();
         println!("{:?}", ret_val); // Should be "CoolTest { val: 200.0 }"
         let ret_val2 =
