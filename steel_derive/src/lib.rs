@@ -6,7 +6,7 @@ extern crate quote;
 extern crate steel;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DataStruct, DeriveInput, Fields};
+use syn::{Data, DataStruct, DeriveInput, Fields, ItemFn};
 
 /// Derives the `CustomType` trait for the given struct, and also implements the
 /// `StructFunctions` trait, which generates the predicate, constructor, and the getters
@@ -216,3 +216,18 @@ pub fn steel(
     };
     output.into()
 }
+
+// See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
+// attribute to transform function into a Steel Embeddable FuncV
+// #[proc_macro_attribute]
+// pub fn function(
+//     _metadata: proc_macro::TokenStream,
+//     input: proc_macro::TokenStream,
+// ) -> proc_macro::TokenStream {
+//     // let input: proc_macro2::TokenStream = input.into();
+//     let input = parse_macro_input!(input as ItemFn);
+//     // let function_name = parse_macro_input!(input as DeriveInput);
+
+//     let output = quote! {};
+//     output.into()
+// }
