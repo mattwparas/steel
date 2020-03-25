@@ -6,7 +6,8 @@ extern crate quote;
 extern crate steel;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DataStruct, DeriveInput, Fields, ItemFn};
+use syn::{Data, DataStruct, DeriveInput, Fields};
+// use syn::ItemFn;
 
 /// Derives the `CustomType` trait for the given struct, and also implements the
 /// `StructFunctions` trait, which generates the predicate, constructor, and the getters
