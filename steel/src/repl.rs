@@ -1,5 +1,6 @@
 use crate::interpreter;
 extern crate rustyline;
+use crate::rvals::SteelVal;
 use crate::stdlib::PRELUDE;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -43,7 +44,10 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         // it prints '2'
                         println!("{:?}", now.elapsed());
                         match res {
-                            Ok(r) => r.iter().for_each(|x| println!("{}", x)),
+                            Ok(r) => r.iter().for_each(|x| match x {
+                                SteelVal::Void => {}
+                                _ => println!("{}", x),
+                            }),
                             Err(e) => eprintln!("{}", e),
                         }
                     }

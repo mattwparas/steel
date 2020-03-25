@@ -197,7 +197,7 @@ macro_rules! as_item {
 #[macro_export]
 macro_rules! unwrap {
     ($x:expr, $body:ty) => {{
-        if let crate::rvals::SteelVal::Custom(v) = $x {
+        if let crate::rvals::SteelVal::Custom(ref v) = $x {
             let left_type = (*v).as_any();
             let left = left_type.downcast_ref::<$body>();
             left.map(|x| x.clone()).ok_or_else(|| {
@@ -239,6 +239,27 @@ pub enum SteelVal {
     Custom(Box<dyn CustomType>),
 }
 
+impl Drop for SteelVal {
+    // don't want to blow the stack with destructors,
+    // but also don't want to walk the whole list.
+    // So walk the list until we find a non-uniquely owned item
+    fn drop(&mut self) {
+        let mut curr = match *self {
+            Pair(_, ref mut next) => next.take(),
+            _ => return (),
+        };
+        loop {
+            match curr {
+                Some(r) => match Rc::try_unwrap(r) {
+                    Ok(Pair(_, ref mut next)) => curr = next.take(),
+                    _ => return (),
+                },
+                _ => return (),
+            }
+        }
+    }
+}
+
 // sometimes you want to just
 // return an expression
 impl TryFrom<Rc<Expr>> for SteelVal {
@@ -265,22 +286,22 @@ impl TryFrom<Rc<Expr>> for SteelVal {
 
 /// Sometimes you want to execute a list
 /// as if it was an expression
-impl TryFrom<SteelVal> for Rc<Expr> {
+impl TryFrom<&SteelVal> for Rc<Expr> {
     type Error = &'static str;
-    fn try_from(r: SteelVal) -> result::Result<Self, Self::Error> {
+    fn try_from(r: &SteelVal) -> result::Result<Self, Self::Error> {
         match r {
-            BoolV(x) => Ok(Rc::new(Expr::Atom(BooleanLiteral(x)))),
-            NumV(x) => Ok(Rc::new(Expr::Atom(NumberLiteral(x)))),
+            BoolV(x) => Ok(Rc::new(Expr::Atom(BooleanLiteral(*x)))),
+            NumV(x) => Ok(Rc::new(Expr::Atom(NumberLiteral(*x)))),
             VectorV(lst) => {
                 let items: result::Result<Vec<Self>, Self::Error> =
                     lst.into_iter().map(Self::try_from).collect();
                 Ok(Rc::new(Expr::VectorVal(items?)))
             }
             Void => Err("Can't convert from Void to expression!"),
-            StringV(x) => Ok(Rc::new(Expr::Atom(StringLiteral(x)))),
+            StringV(x) => Ok(Rc::new(Expr::Atom(StringLiteral(x.clone())))),
             FuncV(_) => Err("Can't convert from Function to expression!"),
             LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-            SymbolV(x) => Ok(Rc::new(Expr::Atom(Identifier(x)))),
+            SymbolV(x) => Ok(Rc::new(Expr::Atom(Identifier(x.clone())))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
             Pair(_, _) => Err("Can't convert from pair"), // TODO
         }

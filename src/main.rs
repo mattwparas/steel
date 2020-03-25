@@ -18,6 +18,10 @@ use steel_derive::steel;
 
 use std::process;
 
+use std::rc::Rc;
+
+use steel::SteelErr;
+
 fn main() {
     build_interpreter_and_modify();
     finish(my_repl());
@@ -51,12 +55,36 @@ pub struct CoolTest {
     pub val: f64,
 }
 
+impl CoolTest {
+    pub fn thing(&self) {
+        println!("Inside a method of CoolTest!");
+    }
+}
+
 #[steel]
 pub struct UnnamedFields(pub usize);
 
 #[steel]
 pub struct Foo {
     pub f: UnnamedFields,
+}
+
+pub fn add_cool_tests(args: Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr> {
+    // println!("inside add_cool_tests");
+    // println!("{:?}", (*(args[0])).clone());
+    // println!("{:?}", (*(args[1])).clone());
+    let arg1 = unwrap!((*(args[0])).clone(), CoolTest)?;
+    let arg2 = unwrap!((*(args[1])).clone(), CoolTest)?;
+
+    let res = CoolTest {
+        val: arg1.val + arg2.val,
+    };
+
+    res.thing();
+
+    Ok(Rc::new(res.new_steel_val()))
+
+    // unimplemented!();
 }
 
 pub fn my_repl() -> std::io::Result<()> {
@@ -81,11 +109,15 @@ pub fn build_interpreter_and_modify() {
     // embed the value
     interpreter.insert_binding("unnamed", test.new_steel_val());
 
+    interpreter.insert_binding("add_cool_tests", SteelVal::FuncV(add_cool_tests));
+
     // write a quick script
     let script = "
     (define cool-test (CoolTest 100))
+    (define cool-test2 (CoolTest 200))
     (define return-val (set-CoolTest-val! cool-test 200))
     (define foo-test (Foo unnamed))
+    (define sum-test (add_cool_tests cool-test cool-test2))
     ";
 
     // get the values back out
@@ -97,5 +129,7 @@ pub fn build_interpreter_and_modify() {
         println!("{:?}", ret_val2); // Should be "UnnamedFields(100)"
         let ret_val3 = unwrap!(interpreter.extract_value("foo-test").unwrap(), Foo).unwrap();
         println!("{:?}", ret_val3); // Should be Foo { f: UnnamedFields(100) }
+        let ret_val4 = unwrap!(interpreter.extract_value("sum-test").unwrap(), CoolTest).unwrap();
+        println!("{:?}", ret_val4);
     };
 }

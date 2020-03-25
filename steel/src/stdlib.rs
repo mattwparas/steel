@@ -41,10 +41,12 @@ pub const PRELUDE: &str = "
              (func (car lst) accum) ; here's the change
              (cdr lst))))
 
-(define (map func lst)
-  (reverse (foldl (lambda (ele acc) (cons (func ele) acc))
-          '()
-          lst)))
+;(define (map func lst)
+ ; (reverse (foldl (lambda (ele acc) (cons (func ele) acc))
+ ;         '()
+ ;         lst)))
+
+(define (map func lst) (map' func lst))
 
 
 (define foldr (lambda (func accum lst)
@@ -94,7 +96,9 @@ pub const PRELUDE: &str = "
 (define assoc (lambda (obj alist)    (fold (mem-helper (curry equal? obj) car) #f alist)))
 
 
-(define filter (lambda (pred lst)   (reverse (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst))))
+;; (define filter (lambda (pred lst)   (reverse (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst))))
+
+(define (filter pred lst) (filter' pred lst))
 
 (define (fact n)
   (begin

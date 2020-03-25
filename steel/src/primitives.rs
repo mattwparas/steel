@@ -35,11 +35,11 @@ where
 macro_rules! try_from_impl {
     ($type:ident => $($body:ty),*) => {
         $(
-            impl TryFrom<SteelVal> for $body {
+            impl TryFrom<&SteelVal> for $body {
                 type Error = SteelErr;
-                fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
+                fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
                     match value {
-                        SteelVal::$type(x) => Ok(x as $body),
+                        SteelVal::$type(x) => Ok(x.clone() as $body),
                         _ => Err(SteelErr::ConversionError("Expected number".to_string())),
                     }
                 }

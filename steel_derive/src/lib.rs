@@ -7,6 +7,7 @@ extern crate steel;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DataStruct, DeriveInput, Fields};
+// use syn::ItemFn;
 
 /// Derives the `CustomType` trait for the given struct, and also implements the
 /// `StructFunctions` trait, which generates the predicate, constructor, and the getters
@@ -41,9 +42,9 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     }
                 }
 
-                impl From<SteelVal> for #name {
-                    fn from(val: SteelVal) -> #name {
-                        unwrap!(val, #name).unwrap()
+                impl From<&SteelVal> for #name {
+                    fn from(val: &SteelVal) -> #name {
+                        unwrap!(val.clone(), #name).unwrap()
                     }
                 }
             };
@@ -91,9 +92,9 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
         }
 
 
-        impl From<SteelVal> for #name {
-            fn from(val: SteelVal) -> #name {
-                unwrap!(val, #name).unwrap()
+        impl From<&SteelVal> for #name {
+            fn from(val: &SteelVal) -> #name {
+                unwrap!(val.clone(), #name).unwrap()
             }
         }
 
@@ -130,7 +131,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                     if let Some(arg) = args_iter.next() {
                                         match arg.as_ref() {
                                             SteelVal::Custom(_) => unwrap!((*arg).clone(), #field_type2)?,
-                                            _ => <#field_type2>::try_from((*arg).clone())?
+                                            _ => <#field_type2>::try_from(&(*arg).clone())?
                                         }
                                     } else {
                                         stop!(ArityMismatch => "Struct not given correct arguments");
@@ -157,7 +158,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                                 unwrap!((*second).clone(), #field_type)?
                                             },
                                             _ => {
-                                                <#field_type>::try_from((*second).clone())?
+                                                <#field_type>::try_from(&(*second).clone())?
                                                 }
                                         },
                                         ..my_struct
@@ -216,3 +217,18 @@ pub fn steel(
     };
     output.into()
 }
+
+// See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
+// attribute to transform function into a Steel Embeddable FuncV
+// #[proc_macro_attribute]
+// pub fn function(
+//     _metadata: proc_macro::TokenStream,
+//     input: proc_macro::TokenStream,
+// ) -> proc_macro::TokenStream {
+//     // let input: proc_macro2::TokenStream = input.into();
+//     let input = parse_macro_input!(input as ItemFn);
+//     // let function_name = parse_macro_input!(input as DeriveInput);
+
+//     let output = quote! {};
+//     output.into()
+// }

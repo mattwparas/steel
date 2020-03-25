@@ -6,15 +6,10 @@ use steel::PRELUDE;
 fn range(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
     interpreter.require(PRELUDE).unwrap();
-    let script = "(range 0 100)";
 
-    c.bench_function("(range 0 100)", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
-    });
+    let script = "(range 0 100000)";
 
-    let script = "(range 0 1000)";
-
-    c.bench_function("(range 0 1000)", |b| {
+    c.bench_function("(range 0 100000)", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 }
@@ -22,15 +17,13 @@ fn range(c: &mut Criterion) {
 fn map(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
     interpreter.require(PRELUDE).unwrap();
-    let script = "(map (lambda (a) 0) (range 0 100))";
 
-    c.bench_function("(map (lambda (a) 0) (range 0 100))", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
-    });
+    let warmup = "(define lst (range 0 100000))";
+    interpreter.evaluate(black_box(&warmup)).unwrap();
 
-    let script = "(map (lambda (a) 0) (range 0 1000))";
+    let script = "(map (lambda (a) 0) lst)";
 
-    c.bench_function("(map (lambda (a) 0) (range 0 1000))", |b| {
+    c.bench_function("(map (lambda (a) 0) (range 0 100000))", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 }
@@ -38,15 +31,13 @@ fn map(c: &mut Criterion) {
 fn filter(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
     interpreter.require(PRELUDE).unwrap();
-    let script = "(filter number? (range 0 100))";
 
-    c.bench_function("(filter number? (range 0 100))", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
-    });
+    let warmup = "(define lst (range 0 100000))";
+    interpreter.evaluate(black_box(&warmup)).unwrap();
 
-    let script = "(filter number? (range 0 1000))";
+    let script = "(filter number? lst)";
 
-    c.bench_function("(filter number? (range 0 100))", |b| {
+    c.bench_function("(filter number? (range 0 100000))", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 }
