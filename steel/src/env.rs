@@ -208,6 +208,8 @@ impl Env {
             (">=", SteelVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
             ("<", SteelVal::FuncV(ensure_tonicity!(|a, b| a < b))),
             ("<=", SteelVal::FuncV(ensure_tonicity!(|a, b| a <= b))),
+            ("display", IoFunctions::display()),
+            ("newline", IoFunctions::newline()),
         ]
     }
 }
@@ -499,6 +501,32 @@ impl VectorOperations {
                 }
             } else {
                 stop!(ArityMismatch => "null? takes one argument");
+            }
+        })
+    }
+}
+
+pub struct IoFunctions {}
+impl IoFunctions {
+    pub fn display() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() == 1 {
+                let print_val = (*args[0]).clone();
+                print!("{:?}", print_val);
+                Ok(Rc::new(SteelVal::Void))
+            } else {
+                stop!(ArityMismatch => "display takes one argument");
+            }
+        })
+    }
+
+    pub fn newline() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() == 0 {
+                println!("");
+                Ok(Rc::new(SteelVal::Void))
+            } else {
+                stop!(ArityMismatch => "newline takes no arguments");
             }
         })
     }

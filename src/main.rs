@@ -22,9 +22,30 @@ use std::rc::Rc;
 
 use steel::SteelErr;
 
+use std::env::args;
+use std::fs;
+use steel::PRELUDE;
+
 fn main() {
-    build_interpreter_and_modify();
-    finish(my_repl());
+    let args = args().collect::<Vec<_>>();
+
+    if args.len() == 1 {
+        build_interpreter_and_modify();
+        finish(my_repl());
+    } else if args.len() == 2 {
+        let path = &args[1];
+        let mut interpreter = build_interpreter! {};
+        if let Err(e) = interpreter.require(PRELUDE) {
+            eprintln!("Error loading prelude: {}", e)
+        }
+
+        let contents = fs::read_to_string(path).expect("Something went wrong reading the file");
+        let res = interpreter.evaluate(&contents);
+
+        if let Err(e) = res {
+            eprintln!("{}", e);
+        }
+    }
 }
 
 fn finish(result: Result<(), std::io::Error>) -> ! {

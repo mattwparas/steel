@@ -69,7 +69,7 @@ pub const PRELUDE: &str = "
 ;; (define append (lambda (lst lsts)  (foldl (flip (curry2 foldr cons)) lst lsts))) ;; TODO fix
 
 (define (append xs ys)
-  (foldr cons-pair ys xs))
+  (foldr cons ys xs))
 
 ;(define (append lhs rhs)
 ;  (if (null? lhs)
@@ -138,6 +138,11 @@ pub const PRELUDE: &str = "
 
 (define (slice l offset n)
     (take n (drop offset l)))
+
+(define (displayln object) 
+  (begin 
+    (display object) 
+    (newline)))
 
 ;(define (range l r)
 ;  (begin
