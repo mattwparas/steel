@@ -4,8 +4,8 @@ use std::iter::Iterator;
 use std::rc::Rc;
 use std::result;
 
-use crate::env::Env;
 use crate::env::ListOperations;
+use crate::env::{Env, FALSE, TRUE, VOID};
 use crate::parser::tokens::Token;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::rerrs::SteelErr;
@@ -136,7 +136,7 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                         }
                         Expr::Atom(Token::Identifier(s)) if s == "define" => {
                             return eval_define(&list_of_tokens[1..], env)
-                                .map(|_| Rc::new(SteelVal::Void)); // TODO
+                                .map(|_| VOID.with(|f| Rc::clone(f))); // TODO
                         }
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Identifier(s)) if s == "lambda" || s == "λ" => {
@@ -317,21 +317,21 @@ fn eval_and(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<St
     for expr in list_of_tokens {
         match evaluate(expr, env)?.as_ref() {
             SteelVal::BoolV(true) => continue,
-            SteelVal::BoolV(false) => return Ok(Rc::new(SteelVal::BoolV(false))),
+            SteelVal::BoolV(false) => return Ok(FALSE.with(|f| Rc::clone(f))),
             _ => continue,
         }
     }
-    Ok(Rc::new(SteelVal::BoolV(true)))
+    Ok(TRUE.with(|f| Rc::clone(f)))
 }
 
 fn eval_or(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     for expr in list_of_tokens {
         match evaluate(expr, env)?.as_ref() {
-            SteelVal::BoolV(true) => return Ok(Rc::new(SteelVal::BoolV(true))),
+            SteelVal::BoolV(true) => return Ok(TRUE.with(|f| Rc::clone(f))), // Rc::new(SteelVal::BoolV(true))),
             _ => continue,
         }
     }
-    Ok(Rc::new(SteelVal::BoolV(false)))
+    Ok(FALSE.with(|f| Rc::clone(f)))
 }
 
 /// evaluates a lambda into a body expression to execute

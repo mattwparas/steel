@@ -11,6 +11,18 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 // use std::collections::Vector;
 use std::rc::Rc;
+// use std::sync::Mutex;
+// use std::thread;
+
+// lazy_static! {
+//     static ref VOID: Mutex<Rc<SteelVal>> = Mutex::new(Rc::new(SteelVal::Void));
+// }
+
+thread_local! {
+    pub static VOID: Rc<SteelVal> = Rc::new(SteelVal::Void);
+    pub static TRUE: Rc<SteelVal> = Rc::new(SteelVal::BoolV(true));
+    pub static FALSE: Rc<SteelVal> = Rc::new(SteelVal::BoolV(false));
+}
 
 #[macro_use]
 macro_rules! ensure_tonicity {
@@ -29,7 +41,12 @@ macro_rules! ensure_tonicity {
                     None => true,
                 }
             };
-            Ok(Rc::new(SteelVal::BoolV(f(&first, args_iter))))
+            let res = f(&first, args_iter);
+            if res {
+                Ok(TRUE.with(|f| Rc::clone(f)))
+            } else {
+                Ok(FALSE.with(|f| Rc::clone(f)))
+            }
         }
     }};
 }
@@ -40,10 +57,10 @@ macro_rules! gen_pred {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if let Some(first) = args.first() {
                 if let SteelVal::$variant(..) = first.as_ref() {
-                    return Ok(Rc::new(BoolV(true)));
+                    return Ok(TRUE.with(|f| Rc::clone(f)));
                 }
             }
-            Ok(Rc::new(BoolV(false)))
+            Ok(FALSE.with(|f| Rc::clone(f)))
         })
     }};
 }
@@ -295,6 +312,7 @@ impl ListOperations {
         })
     }
 
+    // TODO fix the VectorV case
     pub fn reverse() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
@@ -496,8 +514,14 @@ impl VectorOperations {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 match &args[0].as_ref() {
-                    SteelVal::VectorV(v) => Ok(Rc::new(SteelVal::BoolV(v.is_empty()))),
-                    _ => Ok(Rc::new(SteelVal::BoolV(false))),
+                    SteelVal::VectorV(v) => {
+                        if v.is_empty() {
+                            Ok(TRUE.with(|f| Rc::clone(f)))
+                        } else {
+                            Ok(FALSE.with(|f| Rc::clone(f)))
+                        }
+                    }
+                    _ => Ok(FALSE.with(|f| Rc::clone(f))),
                 }
             } else {
                 stop!(ArityMismatch => "null? takes one argument");
@@ -513,18 +537,25 @@ impl IoFunctions {
             if args.len() == 1 {
                 let print_val = (*args[0]).clone();
                 print!("{:?}", print_val);
-                Ok(Rc::new(SteelVal::Void))
+                // Ok(Rc::new(SteelVal::Void))
+                Ok(VOID.with(|f| Rc::clone(f)))
             } else {
                 stop!(ArityMismatch => "display takes one argument");
             }
         })
     }
 
+    //     // we retain our original value of 2 despite the child thread
+    // FOO.with(|f| {
+    //     assert_eq!(*f.borrow(), 2);
+    // });
+
     pub fn newline() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if args.len() == 0 {
                 println!("");
-                Ok(Rc::new(SteelVal::Void))
+                // Ok(Rc::new(SteelVal::Void))
+                Ok(VOID.with(|f| Rc::clone(f)))
             } else {
                 stop!(ArityMismatch => "newline takes no arguments");
             }

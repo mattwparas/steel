@@ -1,5 +1,8 @@
 extern crate im_rc;
 
+// #[macro_use]
+// extern crate lazy_static;
+
 #[macro_use]
 pub mod env;
 pub mod evaluator;
