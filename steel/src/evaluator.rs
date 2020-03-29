@@ -4,10 +4,10 @@ use std::iter::Iterator;
 use std::rc::Rc;
 use std::result;
 
-use crate::env::ListOperations;
 use crate::env::{Env, FALSE, TRUE, VOID};
 use crate::parser::tokens::Token;
 use crate::parser::{Expr, ParseError, Parser};
+use crate::primitives::lists::ListOperations;
 use crate::rerrs::SteelErr;
 use crate::rvals::{SteelLambda, SteelVal};
 use crate::stop;
@@ -293,7 +293,13 @@ fn eval_map(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<St
 /// evaluates an atom expression in given environment
 fn eval_atom(t: &Token, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     match t {
-        Token::BooleanLiteral(b) => Ok(Rc::new(SteelVal::BoolV(*b))),
+        Token::BooleanLiteral(b) => {
+            if *b {
+                Ok(TRUE.with(|f| Rc::clone(f)))
+            } else {
+                Ok(FALSE.with(|f| Rc::clone(f)))
+            }
+        }
         Token::Identifier(s) => env.borrow().lookup(&s),
         Token::NumberLiteral(n) => Ok(Rc::new(SteelVal::NumV(*n))),
         Token::StringLiteral(s) => Ok(Rc::new(SteelVal::StringV(s.clone()))),

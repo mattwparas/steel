@@ -10,7 +10,6 @@ use std::fmt;
 use std::rc::Rc;
 use SteelVal::*;
 
-// use im_rc::vector;
 use im_rc::Vector;
 use std::convert::TryFrom;
 use std::result;

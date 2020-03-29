@@ -7,9 +7,9 @@ fn range(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
     interpreter.require(PRELUDE).unwrap();
 
-    let script = "(range 0 100000)";
+    let script = "(range 0 50000)";
 
-    c.bench_function("(range 0 100000)", |b| {
+    c.bench_function("(range 0 50000)", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 }
@@ -18,12 +18,12 @@ fn map(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
     interpreter.require(PRELUDE).unwrap();
 
-    let warmup = "(define lst (range 0 100000))";
+    let warmup = "(define lst (range 0 50000))";
     interpreter.evaluate(black_box(&warmup)).unwrap();
 
     let script = "(map (lambda (a) 0) lst)";
 
-    c.bench_function("(map (lambda (a) 0) (range 0 100000))", |b| {
+    c.bench_function("(map (lambda (a) 0) (range 0 50000))", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 }
@@ -32,12 +32,12 @@ fn filter(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
     interpreter.require(PRELUDE).unwrap();
 
-    let warmup = "(define lst (range 0 100000))";
+    let warmup = "(define lst (range 0 50000))";
     interpreter.evaluate(black_box(&warmup)).unwrap();
 
     let script = "(filter number? lst)";
 
-    c.bench_function("(filter number? (range 0 100000))", |b| {
+    c.bench_function("(filter number? (range 0 50000))", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 }

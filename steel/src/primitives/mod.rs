@@ -1,3 +1,7 @@
+pub mod io;
+pub mod lists;
+pub mod vectors;
+
 // use crate::converter::SteelFunctor;
 use crate::rerrs::SteelErr;
 use crate::rvals::{FunctionSignature, SteelLambda, SteelVal};
