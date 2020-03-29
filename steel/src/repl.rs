@@ -2,6 +2,7 @@ use crate::interpreter;
 extern crate rustyline;
 use crate::rvals::SteelVal;
 use crate::stdlib::PRELUDE;
+use colored::*;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::time::Instant;
@@ -48,7 +49,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                                 SteelVal::Void => {}
                                 _ => println!("{}", x),
                             }),
-                            Err(e) => eprintln!("{}", e),
+                            Err(e) => eprintln!("{}", e.to_string().bright_red()),
                         }
                     }
                 }

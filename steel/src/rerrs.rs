@@ -1,29 +1,28 @@
 use crate::parser::ParseError;
-use colored::*;
 use std::convert::Infallible;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum SteelErr {
-    #[error("{}: Arity Mismatch: {0}", "Error".bright_red())]
+    #[error("Error: Arity Mismatch: {0}")]
     ArityMismatch(String),
-    #[error("{}: Free Identifier: {}", "Error".bright_red().bold(), .0.bright_red())]
+    #[error("Error: Free Identifier: {0}")]
     FreeIdentifier(String),
-    #[error("{}: Expected {0}", "Error".bright_red())]
+    #[error("Error: Expected {0}")]
     TypeMismatch(String),
-    #[error("{}: Unexpected Token {0}", "Error".bright_red())]
+    #[error("Error: Unexpected Token {0}")]
     UnexpectedToken(String),
-    #[error("{}: Contract Violation: {0}", "Error".bright_red())]
+    #[error("Error: Contract Violation: {0}")]
     ContractViolation(String),
-    #[error("{}: Bad Syntax: {0}", "Error".bright_red())]
+    #[error("Error: Bad Syntax: {0}")]
     BadSyntax(String),
-    #[error("{}: Conversion Error: {0}", "Error".bright_red())]
+    #[error("Error: Conversion Error: {0}")]
     ConversionError(String),
-    #[error("{}: IO error", "Error".bright_red())]
+    #[error("Error: IO error")]
     Io(#[from] std::io::Error),
-    #[error("{}: Parse error", "Error".bright_red())]
+    #[error("Error: Parse error")]
     Parse(#[from] ParseError),
-    #[error("{}: Infallible", "Error".bright_red())]
+    #[error("Error: Infallible")]
     Infallible(#[from] Infallible),
 }
 
