@@ -7,7 +7,7 @@ use std::result;
 use crate::env::{Env, FALSE, TRUE, VOID};
 use crate::parser::tokens::Token;
 use crate::parser::{Expr, ParseError, Parser};
-use crate::primitives::lists::ListOperations;
+use crate::primitives::ListOperations;
 use crate::rerrs::SteelErr;
 use crate::rvals::{SteelLambda, SteelVal};
 use crate::stop;
@@ -303,6 +303,7 @@ fn eval_atom(t: &Token, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
         Token::Identifier(s) => env.borrow().lookup(&s),
         Token::NumberLiteral(n) => Ok(Rc::new(SteelVal::NumV(*n))),
         Token::StringLiteral(s) => Ok(Rc::new(SteelVal::StringV(s.clone()))),
+        Token::CharacterLiteral(c) => Ok(Rc::new(SteelVal::CharV(c.clone()))),
         what => stop!(UnexpectedToken => what),
     }
 }

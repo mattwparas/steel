@@ -220,6 +220,8 @@ pub enum SteelVal {
     BoolV(bool),
     /// Represents a number, currently only f64 numbers are supported
     NumV(f64),
+    /// Represents a character type
+    CharV(char),
     /// Represents a cons cell
     /// cons, cdr, optional parent pointer
     Pair(Rc<SteelVal>, Option<Rc<SteelVal>>),
@@ -275,6 +277,7 @@ impl TryFrom<Rc<Expr>> for SteelVal {
                 Identifier(x) => Ok(SymbolV(x.clone())),
                 NumberLiteral(x) => Ok(NumV(*x)),
                 StringLiteral(x) => Ok(StringV(x.clone())),
+                CharacterLiteral(x) => Ok(CharV(x.clone())),
             },
             Expr::VectorVal(lst) => {
                 let items: Result<Vector<Self>, Self::Error> =
@@ -305,6 +308,7 @@ impl TryFrom<&SteelVal> for Rc<Expr> {
             SymbolV(x) => Ok(Rc::new(Expr::Atom(Identifier(x.clone())))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
             Pair(_, _) => Err("Can't convert from pair"), // TODO
+            CharV(x) => Ok(Rc::new(Expr::Atom(CharacterLiteral(x.clone())))),
         }
     }
 }
@@ -318,6 +322,7 @@ impl PartialEq for SteelVal {
             (StringV(l), StringV(r)) => l == r,
             (VectorV(l), VectorV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
+            (CharV(l), CharV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
@@ -416,6 +421,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         BoolV(b) => write!(f, "#{}", b),
         NumV(x) => write!(f, "{}", x),
         StringV(s) => write!(f, "\"{}\"", s),
+        CharV(c) => write!(f, "#\\{}", c),
         FuncV(_) => write!(f, "#<function>"),
         LambdaV(_) => write!(f, "#<lambda-function>"),
         Void => write!(f, "#<void>"),

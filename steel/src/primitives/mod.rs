@@ -1,6 +1,10 @@
-pub mod io;
-pub mod lists;
-pub mod vectors;
+mod io;
+mod lists;
+mod vectors;
+
+pub use io::IoFunctions;
+pub use lists::ListOperations;
+pub use vectors::VectorOperations;
 
 // use crate::converter::SteelFunctor;
 use crate::rerrs::SteelErr;

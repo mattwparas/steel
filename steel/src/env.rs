@@ -1,8 +1,8 @@
 use crate::evaluator::Result;
 // #[macro_use]
-use crate::primitives::io::IoFunctions;
-use crate::primitives::lists::ListOperations;
-use crate::primitives::vectors::VectorOperations;
+use crate::primitives::IoFunctions;
+use crate::primitives::ListOperations;
+use crate::primitives::VectorOperations;
 use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
@@ -285,6 +285,7 @@ impl Env {
             ("<=", SteelVal::FuncV(ensure_tonicity!(|a, b| a <= b))),
             ("display", IoFunctions::display()),
             ("newline", IoFunctions::newline()),
+            ("read-to-string", IoFunctions::read_to_string()),
         ]
     }
 }

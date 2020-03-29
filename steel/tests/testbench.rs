@@ -14,15 +14,19 @@ fn if_test() {
     test_line("(if #t 'a 2)", &["'a"], &mut evaluator);
     test_line("(if 'a 'b 1)", &["1"], &mut evaluator);
     test_line("(if (= 1 2) a 2)", &["2"], &mut evaluator);
-    test_line("(if (= 1 1) a 2)", &["Free Identifier: a"], &mut evaluator);
+    test_line(
+        "(if (= 1 1) a 2)",
+        &["Error: Free Identifier: a"],
+        &mut evaluator,
+    );
     test_line(
         "(if (= 1 1))",
-        &["Arity Mismatch: If: expected 3 args got 1"],
+        &["Error: Arity Mismatch: If: expected 3 args got 1"],
         &mut evaluator,
     );
     test_line(
         "(if 1 2 3 4)",
-        &["Arity Mismatch: If: expected 3 args got 4"],
+        &["Error: Arity Mismatch: If: expected 3 args got 4"],
         &mut evaluator,
     );
 }
@@ -31,15 +35,15 @@ fn if_test() {
 fn define_test() {
     let mut evaluator = Evaluator::new();
     let e = &mut evaluator;
-    test_line("a", &["Free Identifier: a"], e);
+    test_line("a", &["Error: Free Identifier: a"], e);
     test_line(
         "(define a (lambda (x) (+ x 1)) wat)",
-        &["Arity Mismatch: Define: expected 2 args got 3"],
+        &["Error: Arity Mismatch: Define: expected 2 args got 3"],
         e,
     );
     test_line(
         "(define a)",
-        &["Arity Mismatch: Define: expected 2 args got 1"],
+        &["Error: Arity Mismatch: Define: expected 2 args got 1"],
         e,
     );
     test_line("(define a (lambda (x) (+ x 1)))", &["#<void>"], e);
@@ -49,7 +53,7 @@ fn define_test() {
     test_line("(b 10 20 30)", &["60"], e);
     test_line("(define b 10)", &["#<void>"], e);
     test_line("b", &["10"], e);
-    test_line("a1", &["Free Identifier: a1"], e);
+    test_line("a1", &["Error: Free Identifier: a1"], e);
 }
 
 #[test]
@@ -58,10 +62,10 @@ fn lambda_test() {
     let e = &mut evaluator;
     test_line(
         "(lambda (x) 1 2)",
-        &["Arity Mismatch: Lambda: expected 2 args got 3"],
+        &["Error: Arity Mismatch: Lambda: expected 2 args got 3"],
         e,
     );
-    test_line("(lambda x 1)", &["Expected List of Identifiers"], e);
+    test_line("(lambda x 1)", &["Error: Expected List of Identifiers"], e);
     test_line("(lambda () 1)", &["#<lambda-function>"], e);
     test_line(
         "(lambda () (lambda () (lambda () (lambda () 1))))",
@@ -80,15 +84,15 @@ fn lambda_test() {
 fn set_test() {
     let mut evaluator = Evaluator::new();
     let e = &mut evaluator;
-    test_line("(set! x 10)", &["Free Identifier: x"], e);
+    test_line("(set! x 10)", &["Error: Free Identifier: x"], e);
     test_line(
         "(set! x)",
-        &["Arity Mismatch: Set: expected 2 args got 1"],
+        &["Error: Arity Mismatch: Set: expected 2 args got 1"],
         e,
     );
     test_line(
         "(set! x 1 2)",
-        &["Arity Mismatch: Set: expected 2 args got 3"],
+        &["Error: Arity Mismatch: Set: expected 2 args got 3"],
         e,
     );
     test_line(
@@ -103,7 +107,7 @@ fn set_test() {
     );
     test_line(
         "(define x (lambda () (begin (set! a 20) (define a 10) a))) (x)",
-        &["#<void>", "Free Identifier: a"],
+        &["#<void>", "Error: Free Identifier: a"],
         e,
     );
     test_line(
@@ -127,22 +131,22 @@ fn let_test() {
     test_line("(let () 1)", &["1"], e);
     test_line(
         "(let ((1)) x)",
-        &["Bad Syntax: Let requires pairs for binding"],
+        &["Error: Bad Syntax: Let requires pairs for binding"],
         e,
     );
     test_line(
         "(let ((x 1) (1)) x)",
-        &["Bad Syntax: Let requires pairs for binding"],
+        &["Error: Bad Syntax: Let requires pairs for binding"],
         e,
     );
     test_line(
         "(let ((x 1)))",
-        &["Arity Mismatch: Let: expected 2 args got 1"],
+        &["Error: Arity Mismatch: Let: expected 2 args got 1"],
         e,
     );
     test_line(
         "(let ((x 1)) 1 2 3 4)",
-        &["Arity Mismatch: Let: expected 2 args got 5"],
+        &["Error: Arity Mismatch: Let: expected 2 args got 5"],
         e,
     );
 }
@@ -153,7 +157,7 @@ fn and_test() {
     let e = &mut evaluator;
     test_line("(and #t #f)", &["#false"], e);
     test_line("(and #t #t)", &["#true"], e);
-    test_line("(and a #t)", &["Free Identifier: a"], e);
+    test_line("(and a #t)", &["Error: Free Identifier: a"], e);
     test_line("(and #f a)", &["#false"], e);
     test_line("(and (= 1 1) (= 1 2) who are you)", &["#false"], e);
     test_line("(and (= 1 1) (= (+ 1 1) 2) (< 3 4))", &["#true"], e);
@@ -166,7 +170,7 @@ fn or_test() {
     test_line("(or #t #f)", &["#true"], e);
     test_line("(or #t #t)", &["#true"], e);
     test_line("(or #f #t)", &["#true"], e);
-    test_line("(or #f a)", &["Free Identifier: a"], e);
+    test_line("(or #f a)", &["Error: Free Identifier: a"], e);
     test_line("(or #t a)", &["#true"], e);
     test_line("(or #t whatever you want idk)", &["#true"], e);
     test_line("(or (> 3 4) (> 4 5) (> 5 6) (= 1 1))", &["#true"], e);

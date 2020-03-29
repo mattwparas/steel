@@ -10,6 +10,7 @@ edition = "2018"
 thiserror = "1.0"
 rustyline = "5.0.6"
 im-rc = "14.3.0"
+colored = "1.9"
 
 [dev-dependencies]
 criterion = "0.3"
@@ -17,3 +18,8 @@ criterion = "0.3"
 [[bench]]
 name = "my_benchmark"
 harness = false
+
+[features]
+# this effectively enable the feature `no-color` of colored when testing with
+# `cargo test --features colors_off`
+colors_off = ["colored/no-color"]

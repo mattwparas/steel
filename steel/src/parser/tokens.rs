@@ -10,6 +10,8 @@ pub enum TokenError {
     IncompleteString,
     #[error("Invalid Escape")]
     InvalidEscape,
+    #[error("Invalid Character")]
+    InvalidCharacter,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -17,6 +19,7 @@ pub enum Token {
     OpenParen,
     CloseParen,
     QuoteTick,
+    CharacterLiteral(char),
     BooleanLiteral(bool),
     Identifier(String),
     NumberLiteral(f64),
@@ -28,6 +31,7 @@ impl fmt::Display for Token {
         match self {
             OpenParen => write!(f, "("),
             CloseParen => write!(f, "("),
+            CharacterLiteral(x) => write!(f, "#\\{}", x),
             BooleanLiteral(x) => write!(f, "#{}", x),
             Identifier(x) => write!(f, "{}", x),
             NumberLiteral(x) => write!(f, "{}", x),

@@ -6,6 +6,8 @@ use crate::stop;
 use im_rc::Vector;
 use std::rc::Rc;
 
+// mod primitives;
+
 pub struct ListOperations {}
 impl ListOperations {
     pub fn cons() -> SteelVal {
@@ -133,7 +135,7 @@ impl ListOperations {
                         .map(|x| (*x).clone())
                         .collect();
                     let im_vec: Vector<SteelVal> = collected.into();
-                    return Ok(Rc::new(SteelVal::VectorV(im_vec)));
+                    Ok(Rc::new(SteelVal::VectorV(im_vec)))
                 } else {
                     stop!(TypeMismatch => "list->vector expected list")
                 }

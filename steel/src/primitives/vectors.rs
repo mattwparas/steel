@@ -7,6 +7,8 @@ use crate::stop;
 use im_rc::Vector;
 use std::rc::Rc;
 
+// mod primitives;
+
 pub struct VectorOperations {}
 impl VectorOperations {
     pub fn vec_construct() -> SteelVal {

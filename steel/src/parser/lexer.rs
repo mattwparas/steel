@@ -68,7 +68,7 @@ impl<'a> Tokenizer<'a> {
         Token::Identifier(word)
     }
 
-    fn read_hash_value(&mut self) -> Token {
+    fn read_hash_value(&mut self) -> Result<Token> {
         let mut word = String::new();
         while let Some(&c) = self.input.peek() {
             match c {
@@ -82,9 +82,19 @@ impl<'a> Tokenizer<'a> {
         }
 
         match word.as_ref() {
-            "t" | "true" => Token::BooleanLiteral(true),
-            "f" | "false" => Token::BooleanLiteral(false),
-            _ => Token::Identifier(word), // TODO
+            "t" | "true" => Ok(Token::BooleanLiteral(true)),
+            "f" | "false" => Ok(Token::BooleanLiteral(false)),
+            character if character.starts_with("\\") => {
+                println!("{}", word.len());
+                match word.len() {
+                    2 | 4 => {
+                        let c = word.chars().last().ok_or(TokenError::InvalidCharacter)?;
+                        Ok(Token::CharacterLiteral(c))
+                    }
+                    _ => Err(TokenError::InvalidCharacter),
+                }
+            }
+            _ => Ok(Token::Identifier(word)), // TODO
         }
     }
 
@@ -189,7 +199,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             }
             Some('#') => {
                 self.input.next();
-                Some(Ok(self.read_hash_value()))
+                Some(self.read_hash_value())
             }
             Some('"') => Some(self.read_string()),
             Some(c)
