@@ -5,6 +5,22 @@
 
 An embedded scheme interpreter in Rust.
 
+## Getting Started
+
+This github repository is a client that uses the `steel` and `steel_derive` crates. To get started using a repl with the crates, make sure you first have rust installed.
+
+Then, clone the repo and run the following command:
+
+```bash
+cargo run
+```
+
+This will launch a REPL instance that looks something like this: 
+
+<p align="center">
+  <img src="images/repl.png" width="70%">
+</p>
+
 ## Examples
 
 ```rust
