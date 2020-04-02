@@ -1,7 +1,6 @@
 use crate::env::VOID;
-use crate::evaluator::Result;
 use crate::rerrs::SteelErr;
-use crate::rvals::SteelVal;
+use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use std::io;
 use std::rc::Rc;
@@ -42,4 +41,10 @@ impl IoFunctions {
             )))
         })
     }
+
+    // pub fn read_file_to_string() -> SteelVal {
+    //     SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+    //         let mut
+    //     })
+    // }
 }

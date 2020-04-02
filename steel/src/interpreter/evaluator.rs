@@ -9,18 +9,10 @@ use crate::parser::tokens::Token;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::primitives::ListOperations;
 use crate::rerrs::SteelErr;
-use crate::rvals::{SteelLambda, SteelVal};
+use crate::rvals::{FunctionSignature, Result, SteelLambda, SteelVal};
 use crate::stop;
 use std::collections::HashMap;
 use std::ops::Deref;
-
-pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
-pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
-    Rc::new(RefCell::new(x))
-}
-
-pub type Result<T> = result::Result<T, SteelErr>;
-pub type ValidFunc = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>;
 
 pub struct Evaluator {
     global_env: Rc<RefCell<Env>>,
@@ -179,7 +171,10 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                                 expr = new_expr;
                                 env = new_env;
                             }
-                            e => stop!(TypeMismatch => e),
+                            e => {
+                                println!("Getting here");
+                                stop!(TypeMismatch => e)
+                            }
                         },
                     }
                 } else {
@@ -191,6 +186,7 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
 }
 
 // evaluates a special form 'filter' for speed up
+// TODO fix this noise
 fn eval_filter(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     if let [func_expr, list_expr] = list_of_tokens {
         let func_res = evaluate(&func_expr, env)?;
@@ -207,9 +203,9 @@ fn eval_filter(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc
         for val in vec_of_vals {
             match func_res.as_ref() {
                 SteelVal::FuncV(func) => {
-                    let result = func(vec![val])?;
+                    let result = func(vec![val.clone()])?;
                     if let SteelVal::BoolV(true) = result.as_ref() {
-                        collected_results.push(result);
+                        collected_results.push(val);
                     }
                 }
                 SteelVal::LambdaV(lambda) => {
@@ -217,12 +213,14 @@ fn eval_filter(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc
                     let parent_env = lambda.parent_env();
                     let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
                     let params_exp = lambda.params_exp();
-                    inner_env.borrow_mut().define_all(params_exp, vec![val])?;
+                    inner_env
+                        .borrow_mut()
+                        .define_all(params_exp, vec![val.clone()])?;
 
                     let result = evaluate(&lambda.body_exp(), &inner_env)?;
 
                     if let SteelVal::BoolV(true) = result.as_ref() {
-                        collected_results.push(result);
+                        collected_results.push(val);
                     }
                 }
                 e => stop!(TypeMismatch => e),
@@ -309,7 +307,7 @@ fn eval_atom(t: &Token, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
 }
 /// evaluates a primitive function into single returnable value
 fn eval_func(
-    func: ValidFunc,
+    func: FunctionSignature,
     list_of_tokens: &[Rc<Expr>],
     env: &Rc<RefCell<Env>>,
 ) -> Result<Rc<SteelVal>> {
@@ -379,16 +377,25 @@ fn eval_make_lambda(
     list_of_tokens: &[Rc<Expr>],
     parent_env: Rc<RefCell<Env>>,
 ) -> Result<Rc<SteelVal>> {
-    if let [list_of_symbols, body_exp] = list_of_tokens {
-        // println!("eval make lambda");
+    if list_of_tokens.len() > 1 {
+        let list_of_symbols = &list_of_tokens[0];
+        let mut body_exps = list_of_tokens[1..].to_vec();
+        let mut begin_body: Vec<Rc<Expr>> =
+            vec![Rc::new(Expr::Atom(Token::Identifier("begin".to_string())))];
+        begin_body.append(&mut body_exps);
+
         let parsed_list = parse_list_of_identifiers(Rc::clone(list_of_symbols))?;
-        let constructed_lambda = SteelLambda::new(parsed_list, Rc::clone(body_exp), parent_env);
+        let constructed_lambda = SteelLambda::new(
+            parsed_list,
+            Rc::new(Expr::VectorVal(begin_body)),
+            parent_env,
+        );
         Ok(Rc::new(SteelVal::LambdaV(constructed_lambda)))
     } else {
         let e = format!(
-            "{}: expected {} args got {}",
+            "{}: expected at least {} args got {}",
             "Lambda",
-            2,
+            1,
             list_of_tokens.len()
         );
         stop!(ArityMismatch => e)
@@ -453,40 +460,70 @@ fn eval_eval_expr(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result
 
 // TODO maybe have to evaluate the params but i'm not sure
 fn eval_define(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {
-    if let [symbol, body] = list_of_tokens {
-        match symbol.deref() {
-            Expr::Atom(Token::Identifier(s)) => {
-                let eval_body = evaluate(body, &env)?;
-                env.borrow_mut().define(s.to_string(), eval_body);
-                Ok(env)
-            }
-            // construct lambda to parse
-            Expr::VectorVal(list_of_identifiers) => {
-                if list_of_identifiers.is_empty() {
-                    stop!(TypeMismatch => "define expected an identifier, got empty list")
-                }
-                if let Expr::Atom(Token::Identifier(s)) = &*list_of_identifiers[0] {
-                    // eval_make_lambda
-                    let fake_lambda: Vec<Rc<Expr>> = vec![
-                        Rc::new(Expr::Atom(Token::Identifier("lambda".to_string()))),
-                        Rc::new(Expr::VectorVal(list_of_identifiers[1..].to_vec())),
-                        Rc::clone(body),
-                    ];
+    if list_of_tokens.len() > 1 {
+        match (
+            list_of_tokens.get(0).as_ref(),
+            list_of_tokens.get(1).as_ref(),
+        ) {
+            (Some(symbol), Some(body)) => {
+                match symbol.deref().deref() {
+                    Expr::Atom(Token::Identifier(s)) => {
+                        if list_of_tokens.len() != 2 {
+                            let e = format!(
+                                "{}: multiple expressions after the identifier, expected {} args got {}",
+                                "Define",
+                                2,
+                                list_of_tokens.len()
+                            );
+                            stop!(ArityMismatch => e)
+                        }
+                        let eval_body = evaluate(body, &env)?;
+                        env.borrow_mut().define(s.to_string(), eval_body);
+                        Ok(env)
+                    }
+                    // construct lambda to parse
+                    Expr::VectorVal(list_of_identifiers) => {
+                        if list_of_identifiers.is_empty() {
+                            stop!(TypeMismatch => "define expected an identifier, got empty list")
+                        }
+                        if let Expr::Atom(Token::Identifier(s)) = &*list_of_identifiers[0] {
+                            let mut lst = list_of_tokens[1..].to_vec();
+                            let mut begin_body: Vec<Rc<Expr>> =
+                                vec![Rc::new(Expr::Atom(Token::Identifier("begin".to_string())))];
+                            begin_body.append(&mut lst);
 
-                    let constructed_lambda = Rc::new(Expr::VectorVal(fake_lambda));
+                            // eval_make_lambda(&list_of_tokens[1..], env);
 
-                    let eval_body = evaluate(&constructed_lambda, &env)?;
-                    env.borrow_mut().define(s.to_string(), eval_body);
-                    Ok(env)
-                } else {
-                    stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
+                            // eval_make_lambda
+                            let fake_lambda: Vec<Rc<Expr>> = vec![
+                                Rc::new(Expr::Atom(Token::Identifier("lambda".to_string()))),
+                                Rc::new(Expr::VectorVal(list_of_identifiers[1..].to_vec())),
+                                Rc::new(Expr::VectorVal(begin_body)),
+                            ];
+                            let constructed_lambda = Rc::new(Expr::VectorVal(fake_lambda));
+                            let eval_body = evaluate(&constructed_lambda, &env)?;
+                            env.borrow_mut().define(s.to_string(), eval_body);
+                            Ok(env)
+                        } else {
+                            stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
+                        }
+                    }
+                    _ => stop!(TypeMismatch => "Define expects an identifier, got: {}", symbol),
                 }
             }
-            _ => stop!(TypeMismatch => "Define expects an identifier, got: {}", symbol),
+            _ => {
+                let e = format!(
+                    "{}: expected at least {} args got {}",
+                    "Define",
+                    2,
+                    list_of_tokens.len()
+                );
+                stop!(ArityMismatch => e)
+            }
         }
     } else {
         let e = format!(
-            "{}: expected {} args got {}",
+            "{}: expected at least {} args got {}",
             "Define",
             2,
             list_of_tokens.len()

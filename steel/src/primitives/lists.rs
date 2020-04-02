@@ -1,7 +1,6 @@
-use crate::evaluator::Result;
 use crate::rerrs::SteelErr;
-use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
+use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use im_rc::Vector;
 use std::rc::Rc;
@@ -12,6 +11,9 @@ pub struct ListOperations {}
 impl ListOperations {
     pub fn cons() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "cons takes only two arguments")
+            }
             let mut args = args.into_iter();
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => match lst.as_ref() {
@@ -24,7 +26,7 @@ impl ListOperations {
                     }
                     _ => Ok(Rc::new(SteelVal::Pair(elem, Some(lst)))),
                 },
-                _ => stop!(ArityMismatch => "cons-pair takes two arguments"),
+                _ => stop!(ArityMismatch => "cons takes two arguments"),
             }
         })
     }

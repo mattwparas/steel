@@ -101,12 +101,11 @@ pub const PRELUDE: &str = "
 (define (filter pred lst) (filter' pred lst))
 
 (define (fact n)
-  (begin
-    (define factorial-tail (lambda (n acc) 
-        (if (= n 0) 
-            acc
-            (factorial-tail (- n 1)  (* acc n )))))
-    (factorial-tail n 1)))
+  (define factorial-tail (lambda (n acc) 
+      (if (= n 0) 
+          acc
+          (factorial-tail (- n 1)  (* acc n )))))
+  (factorial-tail n 1))
 
 (define even? (lambda (x) (if (= x 0) #t (odd? (- x 1)))))
 (define odd?  (lambda (x) (if (= x 0) #f (even? (- x 1)))))
@@ -121,28 +120,25 @@ pub const PRELUDE: &str = "
 
 
 (define (take n lst)
-  (begin
-    (define (loop x l accum)
-      (if (or (zero? x) (null? l))
-          accum
-          (loop (sub1 x) (cdr l) (append accum (list (car l))))))
-        (loop n lst '())))
+  (define (loop x l accum)
+    (if (or (zero? x) (null? l))
+        accum
+        (loop (sub1 x) (cdr l) (append accum (list (car l))))))
+    (loop n lst '()))
 
 (define (drop n lst)
-  (begin
-    (define (loop x l)
-      (if (zero? x)
-        l
-        (loop (sub1 x) (cdr l))))
-    (loop n lst)))
+  (define (loop x l)
+    (if (zero? x)
+      l
+      (loop (sub1 x) (cdr l))))
+  (loop n lst))
 
 (define (slice l offset n)
     (take n (drop offset l)))
 
 (define (displayln object) 
-  (begin 
     (display object) 
-    (newline)))
+    (newline))
 
 ;(define (range l r)
 ;  (begin

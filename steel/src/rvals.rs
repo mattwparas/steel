@@ -14,7 +14,13 @@ use im_rc::Vector;
 use std::convert::TryFrom;
 use std::result;
 
-pub type FunctionSignature = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>;
+pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
+pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
+    Rc::new(RefCell::new(x))
+}
+
+pub type Result<T> = result::Result<T, SteelErr>;
+pub type FunctionSignature = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>;
 
 pub trait StructFunctions {
     fn generate_bindings() -> Vec<(String, SteelVal)>;
@@ -267,7 +273,7 @@ impl Drop for SteelVal {
 // return an expression
 impl TryFrom<Rc<Expr>> for SteelVal {
     type Error = SteelErr;
-    fn try_from(e: Rc<Expr>) -> Result<Self, Self::Error> {
+    fn try_from(e: Rc<Expr>) -> std::result::Result<Self, Self::Error> {
         match &*e {
             Expr::Atom(a) => match a {
                 OpenParen => Err(SteelErr::UnexpectedToken("(".to_string())),
@@ -280,7 +286,7 @@ impl TryFrom<Rc<Expr>> for SteelVal {
                 CharacterLiteral(x) => Ok(CharV(x.clone())),
             },
             Expr::VectorVal(lst) => {
-                let items: Result<Vector<Self>, Self::Error> =
+                let items: std::result::Result<Vector<Self>, Self::Error> =
                     lst.iter().map(|x| Self::try_from(x.clone())).collect();
                 Ok(VectorV(items?))
             }

@@ -1,21 +1,16 @@
-use crate::evaluator::Result;
+// use crate::rvals::Result;
 // #[macro_use]
 use crate::primitives::IoFunctions;
 use crate::primitives::ListOperations;
 use crate::primitives::VectorOperations;
 use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
 use crate::rerrs::SteelErr;
-use crate::rvals::SteelVal;
-// use crate::rvals::SteelVal::*;
+use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
-// use im_rc::Vector;
 use std::cell::RefCell;
 use std::collections::HashMap;
-// use std::collections::Vector;
 use std::rc::Rc;
-// use std::sync::Mutex;
-// use std::thread;
 
 thread_local! {
     pub static VOID: Rc<SteelVal> = Rc::new(SteelVal::Void);
@@ -23,75 +18,15 @@ thread_local! {
     pub static FALSE: Rc<SteelVal> = Rc::new(SteelVal::BoolV(false));
 }
 
-// #[macro_export]
-// macro_rules! build_interpreter {
-//     ($($type:ty),*) => {
-//         {
-//             let mut interpreter = SteelInterpreter::new();
-//             $ (
-//                 interpreter.insert_bindings(<$type>::generate_bindings());
-//             ) *
-//             interpreter
-//         }
-//     };
-// }
-
-// #[macro_export]
-// macro_rules! func {
-//     ($args:ident => $number_args:expr, $($arg_name: ident => $variant:ident),*, $body:block) => {
-//         SteelVal::FuncV(
-//             |$args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
-//                 if $args.len() == $number_args {
-//                     match &$args[0].as_ref() {
-//                         SteelVal::$variant(..)
-//                     }
-//                 }
-//             },
-//         )
-//     };
-// }
-
-/*
-
-Name the function, then be able to state the number of arguments and their type variants like such:
-
-func!{
-    reverse
-    args => 1
-    arg1 => SteelVal::Pair
-    {
-        $body
-    }
-}
-
-would expand to :
-
-pub fn reverse() -> SteelVal {
-    SteelVal::FuncV(|$args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
-        if $args.len() == $1 {
-            match &args[0].as_ref() {
-                SteelVal$variant(..) => {
-                    $body
-                }
-                _ => stop!(ExpectedType => )
-            }
-        }
-    })
-}
-
-*/
-
 #[macro_use]
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
         |args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
-            // let floats = unwrap_list_of_floats(args)?;
             let args_iter: Vec<SteelVal> = args.into_iter().map(|x| (*x).clone()).collect();
             let mut args_iter = args_iter.iter();
             let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
                 "expected at least one argument".to_string(),
             ))?;
-            // let rest = &floats[1..];
             fn f<'a>(prev: &SteelVal, mut xs: impl Iterator<Item = &'a SteelVal>) -> bool {
                 match xs.next() {
                     Some(x) => $check_fn(prev, x) && f(x, xs),

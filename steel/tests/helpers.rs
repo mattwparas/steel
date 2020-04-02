@@ -1,6 +1,6 @@
 extern crate steel;
 
-use steel::evaluator::Evaluator;
+use steel::interpreter::evaluator::Evaluator;
 use steel::parser::*;
 
 use std::fs::File;

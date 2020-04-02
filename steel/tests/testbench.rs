@@ -1,6 +1,6 @@
 mod helpers;
 extern crate steel;
-use crate::steel::evaluator::Evaluator;
+use crate::steel::interpreter::evaluator::Evaluator;
 use helpers::*;
 
 #[test]
@@ -38,12 +38,12 @@ fn define_test() {
     test_line("a", &["Error: Free Identifier: a"], e);
     test_line(
         "(define a (lambda (x) (+ x 1)) wat)",
-        &["Error: Arity Mismatch: Define: expected 2 args got 3"],
+        &["Error: Arity Mismatch: Define: multiple expressions after the identifier, expected 2 args got 3"],
         e,
     );
     test_line(
         "(define a)",
-        &["Error: Arity Mismatch: Define: expected 2 args got 1"],
+        &["Error: Arity Mismatch: Define: expected at least 2 args got 1"],
         e,
     );
     test_line("(define a (lambda (x) (+ x 1)))", &["#<void>"], e);
@@ -60,11 +60,7 @@ fn define_test() {
 fn lambda_test() {
     let mut evaluator = Evaluator::new();
     let e = &mut evaluator;
-    test_line(
-        "(lambda (x) 1 2)",
-        &["Error: Arity Mismatch: Lambda: expected 2 args got 3"],
-        e,
-    );
+    test_line("(lambda (x) 1 2)", &["#<lambda-function>"], e);
     test_line("(lambda x 1)", &["Error: Expected List of Identifiers"], e);
     test_line("(lambda () 1)", &["#<lambda-function>"], e);
     test_line(

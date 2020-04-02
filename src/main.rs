@@ -26,11 +26,29 @@ use std::env::args;
 use std::fs;
 use steel::PRELUDE;
 
+#[macro_export]
+macro_rules! and {
+    () => {};
+    ($name:tt) => {
+            format!("(if {} #t #f)", stringify!($name))
+    };
+    ($name:tt $($tail:tt)*) => {
+            format!("(if {} {} #f)", stringify!($name), and!($($tail)*))
+    };
+}
+
+/*
+(and a b) => (if a (if b #t #f) #f)
+*/
+
 fn main() {
+    // let expansion = and!("#t" "#t");
+    // println!("{}", expansion);
+
     let args = args().collect::<Vec<_>>();
 
     if args.len() == 1 {
-        build_interpreter_and_modify();
+        // build_interpreter_and_modify();
         finish(my_repl());
     } else if args.len() == 2 {
         let path = &args[1];

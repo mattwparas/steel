@@ -5,7 +5,7 @@ extern crate im_rc;
 
 #[macro_use]
 pub mod env;
-pub mod evaluator;
+// pub mod evaluator;
 #[macro_use]
 pub mod interpreter;
 pub mod parser;
@@ -16,6 +16,8 @@ pub mod repl;
 pub mod rerrs;
 pub mod rvals;
 pub mod stdlib;
+#[macro_use]
+pub mod expander;
 
 pub use self::{
     interpreter::SteelInterpreter,

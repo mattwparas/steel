@@ -1,6 +1,10 @@
 #![allow(dead_code)]
 
-use crate::evaluator::Evaluator;
+pub mod evaluator;
+
+// pub use evaluator::Evaluator;
+
+use crate::interpreter::evaluator::Evaluator;
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use std::io::Read;
