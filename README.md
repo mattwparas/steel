@@ -1,7 +1,6 @@
 # steel
 
 ![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg)
-(https://github.com/mattwparas/steel/actions)
 
 An embedded scheme interpreter in Rust.
 
@@ -15,7 +14,7 @@ Then, clone the repo and run the following command:
 cargo run
 ```
 
-This will launch a REPL instance that looks something like this: 
+This will launch a REPL instance that looks something like this:
 
 <p align="center">
   <img src="images/repl.gif" width="70%">
