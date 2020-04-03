@@ -18,7 +18,7 @@ cargo run
 This will launch a REPL instance that looks something like this: 
 
 <p align="center">
-  <img src="images/repl.png" width="70%">
+  <img src="images/repl.gif" width="70%">
 </p>
 
 ## Examples
