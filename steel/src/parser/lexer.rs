@@ -84,7 +84,7 @@ impl<'a> Tokenizer<'a> {
         match word.as_ref() {
             "t" | "true" => Ok(Token::BooleanLiteral(true)),
             "f" | "false" => Ok(Token::BooleanLiteral(false)),
-            character if character.starts_with("\\") => {
+            character if character.starts_with('\\') => {
                 println!("{}", word.len());
                 match word.len() {
                     2 | 4 => {

@@ -301,7 +301,7 @@ fn eval_atom(t: &Token, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
         Token::Identifier(s) => env.borrow().lookup(&s),
         Token::NumberLiteral(n) => Ok(Rc::new(SteelVal::NumV(*n))),
         Token::StringLiteral(s) => Ok(Rc::new(SteelVal::StringV(s.clone()))),
-        Token::CharacterLiteral(c) => Ok(Rc::new(SteelVal::CharV(c.clone()))),
+        Token::CharacterLiteral(c) => Ok(Rc::new(SteelVal::CharV(*c))),
         what => stop!(UnexpectedToken => what),
     }
 }

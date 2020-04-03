@@ -283,7 +283,7 @@ impl TryFrom<Rc<Expr>> for SteelVal {
                 Identifier(x) => Ok(SymbolV(x.clone())),
                 NumberLiteral(x) => Ok(NumV(*x)),
                 StringLiteral(x) => Ok(StringV(x.clone())),
-                CharacterLiteral(x) => Ok(CharV(x.clone())),
+                CharacterLiteral(x) => Ok(CharV(*x)),
             },
             Expr::VectorVal(lst) => {
                 let items: std::result::Result<Vector<Self>, Self::Error> =
@@ -314,7 +314,7 @@ impl TryFrom<&SteelVal> for Rc<Expr> {
             SymbolV(x) => Ok(Rc::new(Expr::Atom(Identifier(x.clone())))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
             Pair(_, _) => Err("Can't convert from pair"), // TODO
-            CharV(x) => Ok(Rc::new(Expr::Atom(CharacterLiteral(x.clone())))),
+            CharV(x) => Ok(Rc::new(Expr::Atom(CharacterLiteral(*x)))),
         }
     }
 }
