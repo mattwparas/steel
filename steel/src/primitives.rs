@@ -1,9 +1,11 @@
 mod io;
 mod lists;
+mod strings;
 mod vectors;
 
 pub use io::IoFunctions;
 pub use lists::ListOperations;
+pub use strings::StringOperations;
 pub use vectors::VectorOperations;
 
 // use crate::converter::SteelFunctor;

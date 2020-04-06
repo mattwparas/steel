@@ -2,6 +2,7 @@
 // #[macro_use]
 use crate::primitives::IoFunctions;
 use crate::primitives::ListOperations;
+use crate::primitives::StringOperations;
 use crate::primitives::VectorOperations;
 use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
 use crate::rerrs::SteelErr;
@@ -221,6 +222,7 @@ impl Env {
             ("display", IoFunctions::display()),
             ("newline", IoFunctions::newline()),
             ("read-to-string", IoFunctions::read_to_string()),
+            ("string-append", StringOperations::string_append()),
         ]
     }
 }

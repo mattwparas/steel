@@ -39,3 +39,18 @@ steps:
 //         format!()
 //     };
 // }
+
+#[macro_export]
+macro_rules! and {
+    () => {};
+    ($name:tt) => {
+            format!("(if {} #t #f)", stringify!($name))
+    };
+    ($name:tt $($tail:tt)*) => {
+            format!("(if {} {} #f)", stringify!($name), and!($($tail)*))
+    };
+}
+
+/*
+(and a b) => (if a (if b #t #f) #f)
+*/
