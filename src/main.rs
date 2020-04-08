@@ -14,6 +14,7 @@ use steel::build_interpreter;
 use steel::build_repl;
 use steel::repl::repl_base;
 // use steel::PRELUDE;
+use steel_derive::function;
 use steel_derive::steel;
 
 use std::process;
@@ -26,29 +27,13 @@ use std::env::args;
 use std::fs;
 use steel::PRELUDE;
 
-#[macro_export]
-macro_rules! and {
-    () => {};
-    ($name:tt) => {
-            format!("(if {} #t #f)", stringify!($name))
-    };
-    ($name:tt $($tail:tt)*) => {
-            format!("(if {} {} #f)", stringify!($name), and!($($tail)*))
-    };
-}
-
-/*
-(and a b) => (if a (if b #t #f) #f)
-*/
+use std::convert::TryFrom;
 
 fn main() {
-    // let expansion = and!("#t" "#t");
-    // println!("{}", expansion);
-
     let args = args().collect::<Vec<_>>();
 
     if args.len() == 1 {
-        // build_interpreter_and_modify();
+        build_interpreter_and_modify();
         finish(my_repl());
     } else if args.len() == 2 {
         let path = &args[1];
@@ -108,22 +93,18 @@ pub struct Foo {
     pub f: UnnamedFields,
 }
 
-pub fn add_cool_tests(args: Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr> {
-    // println!("inside add_cool_tests");
-    // println!("{:?}", (*(args[0])).clone());
-    // println!("{:?}", (*(args[1])).clone());
-    let arg1 = unwrap!((*(args[0])).clone(), CoolTest)?;
-    let arg2 = unwrap!((*(args[1])).clone(), CoolTest)?;
-
+#[function]
+pub fn add_cool_tests(arg1: CoolTest, arg2: CoolTest) -> CoolTest {
     let res = CoolTest {
         val: arg1.val + arg2.val,
     };
 
-    res.thing();
+    res
+}
 
-    Ok(Rc::new(res.new_steel_val()))
-
-    // unimplemented!();
+#[function]
+pub fn multiple_types(val: usize) -> usize {
+    val + 25
 }
 
 pub fn my_repl() -> std::io::Result<()> {
@@ -143,6 +124,10 @@ pub fn build_interpreter_and_modify() {
         Foo
     };
 
+    if let Err(e) = interpreter.require(PRELUDE) {
+        eprintln!("Error loading prelude: {}", e)
+    }
+
     // define value outside of interpreter to embed
     let test = UnnamedFields(100);
     // embed the value
@@ -150,25 +135,35 @@ pub fn build_interpreter_and_modify() {
 
     interpreter.insert_binding("add_cool_tests", SteelVal::FuncV(add_cool_tests));
 
+    interpreter.insert_binding("multiple_types", SteelVal::FuncV(multiple_types));
+
     // write a quick script
     let script = "
-    (define cool-test (CoolTest 100))
-    (define cool-test2 (CoolTest 200))
-    (define return-val (set-CoolTest-val! cool-test 200))
-    (define foo-test (Foo unnamed))
-    (define sum-test (add_cool_tests cool-test cool-test2))
+        (define cool-test (CoolTest 100))
+        (define cool-test2 (CoolTest 200))
+        (define return-val (set-CoolTest-val! cool-test 200))
+        (define foo-test (Foo unnamed))
+        (define sum-test (add_cool_tests cool-test cool-test2))
+        (displayln (multiple_types 25))
     ";
 
     // get the values back out
-    if interpreter.evaluate(script).is_ok() {
-        let ret_val = unwrap!(interpreter.extract_value("return-val").unwrap(), CoolTest).unwrap();
-        println!("{:?}", ret_val); // Should be "CoolTest { val: 200.0 }"
-        let ret_val2 =
-            unwrap!(interpreter.extract_value("unnamed").unwrap(), UnnamedFields).unwrap();
-        println!("{:?}", ret_val2); // Should be "UnnamedFields(100)"
-        let ret_val3 = unwrap!(interpreter.extract_value("foo-test").unwrap(), Foo).unwrap();
-        println!("{:?}", ret_val3); // Should be Foo { f: UnnamedFields(100) }
-        let ret_val4 = unwrap!(interpreter.extract_value("sum-test").unwrap(), CoolTest).unwrap();
-        println!("{:?}", ret_val4);
-    };
+    match interpreter.evaluate(&script) {
+        Ok(_) => {
+            let ret_val =
+                unwrap!(interpreter.extract_value("return-val").unwrap(), CoolTest).unwrap();
+            println!("{:?}", ret_val); // Should be "CoolTest { val: 200.0 }"
+            let ret_val2 =
+                unwrap!(interpreter.extract_value("unnamed").unwrap(), UnnamedFields).unwrap();
+            println!("{:?}", ret_val2); // Should be "UnnamedFields(100)"
+            let ret_val3 = unwrap!(interpreter.extract_value("foo-test").unwrap(), Foo).unwrap();
+            println!("{:?}", ret_val3); // Should be Foo { f: UnnamedFields(100) }
+            let ret_val4 =
+                unwrap!(interpreter.extract_value("sum-test").unwrap(), CoolTest).unwrap();
+            println!("{:?}", ret_val4);
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+        }
+    }
 }

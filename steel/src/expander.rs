@@ -51,6 +51,17 @@ macro_rules! and {
     };
 }
 
+#[macro_export]
+macro_rules! or {
+    () => {};
+    ($name:tt) => {
+            format!("(if {} #t #f)", stringify!($name))
+    };
+    ($name:tt $($tail:tt)*) => {
+            format!("(if {} #t {})", stringify!($name), and!($($tail)*))
+    };
+}
+
 /*
 (and a b) => (if a (if b #t #f) #f)
 */

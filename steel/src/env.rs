@@ -188,7 +188,7 @@ impl Env {
         );
         env
     }
-    pub fn default_bindings() -> Vec<(&'static str, SteelVal)> {
+    fn default_bindings() -> Vec<(&'static str, SteelVal)> {
         vec![
             ("+", SteelVal::FuncV(Adder::new_func())),
             ("*", SteelVal::FuncV(Multiplier::new_func())),

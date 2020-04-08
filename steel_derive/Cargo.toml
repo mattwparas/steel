@@ -10,7 +10,7 @@ edition = "2018"
 proc-macro = true
 
 [dependencies]
-syn = "1.0"
+syn = {version = "1.0.17", features = ["full"] }
 quote = "1.0"
 proc-macro2 = "1.0"
 steel = { path = "../steel" }

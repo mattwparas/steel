@@ -6,8 +6,12 @@ extern crate quote;
 extern crate steel;
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::FnArg;
+use syn::ItemFn;
+use syn::ReturnType;
+use syn::Signature;
+use syn::Type;
 use syn::{Data, DataStruct, DeriveInput, Fields};
-// use syn::ItemFn;
 
 /// Derives the `CustomType` trait for the given struct, and also implements the
 /// `StructFunctions` trait, which generates the predicate, constructor, and the getters
@@ -45,6 +49,13 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
             impl From<&SteelVal> for #name {
                 fn from(val: &SteelVal) -> #name {
                     unwrap!(val.clone(), #name).unwrap()
+                }
+            }
+
+            impl TryFrom<SteelVal> for #name {
+                type Error = SteelErr;
+                fn try_from(value: SteelVal) -> std::result::Result<#name, Self::Error> {
+                    unwrap!(value.clone(), #name)
                 }
             }
         };
@@ -96,6 +107,14 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
             }
         }
 
+        impl TryFrom<SteelVal> for #name {
+            type Error = SteelErr;
+            fn try_from(value: SteelVal) -> std::result::Result<#name, Self::Error> {
+                unwrap!(value.clone(), #name)
+            }
+        }
+
+
         impl crate::rvals::StructFunctions for #name {
             fn generate_bindings() -> Vec<(String, SteelVal)> {
                 use std::convert::TryFrom;
@@ -114,7 +133,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                         if let Some(first) = args_iter.next() {
                             return Ok(Rc::new(SteelVal::BoolV(unwrap!((*first).clone(), #name).is_ok())));
                         }
-                        stop!(ArityMismatch => "set! expected 2 arguments");
+                        stop!(ArityMismatch => "set! expected 2 arguments"); // TODO
                     });
                 vec_binding.push((name, func));
 
@@ -147,22 +166,20 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     let func =
                             SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
                             let mut args_iter = args.into_iter();
-                            if let Some(first) = args_iter.next() {
-                                if let Some(second) = args_iter.next() {
-                                    let mut my_struct = unwrap!((*first).clone(), #name)?;
-                                    my_struct.#field_name = match second.as_ref() {
-                                        SteelVal::Custom(_) => {
-                                            unwrap!((*second).clone(), #field_type)?
-                                        },
-                                        _ => {
-                                            <#field_type>::try_from(&(*second).clone())?
-                                            }
-                                    };
-                                    return Ok(Rc::new(my_struct.new_steel_val()));
-                                }
+                            if let (Some(first), Some(second)) = (args_iter.next(), args_iter.next()) {
+                                let mut my_struct = unwrap!((*first).clone(), #name)?;
+                                my_struct.#field_name = match second.as_ref() {
+                                    SteelVal::Custom(_) => {
+                                        unwrap!((*second).clone(), #field_type)?
+                                    },
+                                    _ => {
+                                        <#field_type>::try_from(&(*second).clone())?
+                                        }
+                                };
+                                return Ok(Rc::new(my_struct.new_steel_val()));
+                            } else {
                                 stop!(ArityMismatch => "set! expected 2 arguments");
                             }
-                            stop!(ArityMismatch => "set! expected 2 arguments");
                         });
                     vec_binding.push((name, func));
 
@@ -215,15 +232,59 @@ pub fn steel(
 
 // See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
 // attribute to transform function into a Steel Embeddable FuncV
-// #[proc_macro_attribute]
-// pub fn function(
-//     _metadata: proc_macro::TokenStream,
-//     input: proc_macro::TokenStream,
-// ) -> proc_macro::TokenStream {
-//     // let input: proc_macro2::TokenStream = input.into();
-//     let input = parse_macro_input!(input as ItemFn);
-//     // let function_name = parse_macro_input!(input as DeriveInput);
+#[proc_macro_attribute]
+pub fn function(
+    _metadata: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as ItemFn);
 
-//     let output = quote! {};
-//     output.into()
-// }
+    let mut modified_input = input.clone();
+    modified_input.attrs = Vec::new();
+
+    // This snags the `Signature` from the function definition
+    let sign: Signature = input.clone().sig;
+
+    // This is the `ReturnType`
+    let return_type: ReturnType = sign.output;
+
+    let ret_val = match return_type {
+        ReturnType::Default => quote! {
+            Ok(Rc::new(SteelVal::Void))
+        },
+        ReturnType::Type(_, _) => quote! {
+            Ok(Rc::new(SteelVal::try_from(res)?))
+        },
+    };
+
+    let mut type_vec: Vec<Box<Type>> = Vec::new();
+
+    for arg in sign.inputs {
+        if let FnArg::Typed(pat_ty) = arg.clone() {
+            type_vec.push(pat_ty.ty);
+        }
+    }
+
+    let arg_enumerate = type_vec.into_iter().enumerate();
+    let arg_type = arg_enumerate.clone().map(|(_, x)| x);
+    let arg_index = arg_enumerate.clone().map(|(i, _)| i);
+    let function_name = sign.ident;
+
+    let output = quote! {
+        pub fn #function_name(args: Vec<Rc<SteelVal>>) -> std::result::Result<Rc<SteelVal>, SteelErr> {
+            #modified_input
+
+            let res = #function_name(
+                #(
+                    unwrap!((*(args[#arg_index])).clone(), #arg_type)?,
+                )*
+            );
+
+            #ret_val
+        }
+    };
+
+    // eprintln!("{}", output.to_string());
+
+    output.into()
+}

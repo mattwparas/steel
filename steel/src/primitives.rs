@@ -71,6 +71,36 @@ macro_rules! from_f64 {
     };
 }
 
+impl From<SteelVal> for f64 {
+    fn from(val: SteelVal) -> f64 {
+        if let SteelVal::NumV(n) = val {
+            n
+        } else {
+            panic!("issue here")
+        }
+    }
+}
+
+impl From<SteelVal> for usize {
+    fn from(val: SteelVal) -> usize {
+        if let SteelVal::NumV(n) = val {
+            n as usize
+        } else {
+            panic!("issue here")
+        }
+    }
+}
+
+impl From<SteelVal> for String {
+    fn from(val: SteelVal) -> String {
+        if let SteelVal::StringV(ref s) = val {
+            s.clone()
+        } else {
+            panic!("issue here")
+        }
+    }
+}
+
 from_f64!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 
 try_from_impl!(NumV => f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
@@ -101,6 +131,16 @@ impl From<String> for SteelVal {
         SteelVal::StringV(val)
     }
 }
+
+// impl From<SteelVal> for String {
+//     fn from(val: SteelVal) -> String {
+//         if let StringV(s) = val {
+//             s
+//         } else {
+
+//         }
+//     }
+// }
 
 impl From<bool> for SteelVal {
     fn from(val: bool) -> SteelVal {
