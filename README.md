@@ -99,7 +99,7 @@ Would result in bindings for the following scheme functions:
 Foo
 Foo?
 set-Foo-bar!
-get-Foo-bar!
+Foo-bar
 ```
 
 Example usage:
@@ -108,7 +108,7 @@ Example usage:
 (define my-foo (Foo 10)) ;; #<void>
 (Foo? my-foo) ;; #t
 (set-Foo-bar! my-foo 25) ;; 10
-(get-Foo-bar! my-foo) ;; 25
+(Foo-bar my-foo) ;; 25
 ```
 
 The `#[function]` attribute macro operates on functions. It _transforms_ the function from a normal rust function into a function that matches the form used inside the `Steel` interpreter. Functions inside the `Steel` interpreter have the following signature:
