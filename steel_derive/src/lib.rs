@@ -58,6 +58,13 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     unwrap!(value.clone(), #name)
                 }
             }
+
+            impl crate::rvals::StructFunctions for #name {
+                fn generate_bindings() -> Vec<(String, SteelVal)> {
+                    Vec::new()
+                }
+            }
+
         };
 
         return gen.into();
@@ -265,6 +272,8 @@ pub fn function(
         }
     }
 
+    let arity_number = type_vec.len();
+
     let arg_enumerate = type_vec.into_iter().enumerate();
     let arg_type = arg_enumerate.clone().map(|(_, x)| x);
     let arg_index = arg_enumerate.clone().map(|(i, _)| i);
@@ -273,6 +282,10 @@ pub fn function(
     let output = quote! {
         pub fn #function_name(args: Vec<Rc<SteelVal>>) -> std::result::Result<Rc<SteelVal>, SteelErr> {
             #modified_input
+
+            if args.len() != #arity_number {
+                steel::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", stringify!(#function_name), #arity_number.to_string(), args.len()))
+            }
 
             let res = #function_name(
                 #(

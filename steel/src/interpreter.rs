@@ -12,12 +12,28 @@ use std::path::Path;
 
 #[macro_export]
 macro_rules! build_interpreter {
+
     ($($type:ty),*) => {
         {
             let mut interpreter = SteelInterpreter::new();
             $ (
                 interpreter.insert_bindings(<$type>::generate_bindings());
             ) *
+            interpreter
+        }
+    };
+
+    (Structs => {$($type:ty),*} Functions => {$($binding:expr => $func:ident),*}) => {
+        {
+            let mut interpreter = SteelInterpreter::new();
+            $ (
+                interpreter.insert_bindings(<$type>::generate_bindings());
+            ) *
+
+            $ (
+                interpreter.insert_binding($binding, SteelVal::FuncV($func));
+            ) *
+
             interpreter
         }
     };

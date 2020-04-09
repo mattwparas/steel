@@ -34,8 +34,10 @@ fn main() {
     let args = args().collect::<Vec<_>>();
 
     if args.len() == 1 {
-        build_interpreter_and_modify();
-        finish(my_repl());
+        finish(test_repl());
+
+    // build_interpreter_and_modify();
+    // finish(my_repl());
     } else if args.len() == 2 {
         let path = &args[1];
         let mut interpreter = build_interpreter! {};
@@ -114,6 +116,22 @@ pub fn add_cool_tests(arg1: CoolTest, arg2: CoolTest) -> CoolTest {
 #[function]
 pub fn multiple_types(val: u64) -> u64 {
     val + 25
+}
+
+pub fn test_repl() -> std::io::Result<()> {
+    repl_base(build_interpreter! {
+        Structs => {
+            MyStruct,
+            CoolTest,
+            Foo,
+            MutexWrapper
+        }
+        Functions => {
+            "add-cool-tests" => add_cool_tests,
+            "multiple-types" => multiple_types,
+            "new-mutex-wrapper" => new_mutex_wrapper
+        }
+    })
 }
 
 pub fn my_repl() -> std::io::Result<()> {

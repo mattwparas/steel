@@ -22,6 +22,7 @@ macro_rules! build_repl {
     };
 }
 
+// Found on Hoth...
 pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Result<()> {
     // let now = Instant::now();
     if let Err(e) = interpreter.require(PRELUDE) {

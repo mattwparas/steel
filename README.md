@@ -131,16 +131,60 @@ pub fn multiple_types(val: u64) -> u64 {
 Expands to:
 
 ```rust
-pub fn multiple_types (args: Vec<Rc<SteelVal>>) ->
-Result<Rc<SteelVal>, SteelErr>
+pub fn multiple_types(args: Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>
 {
     pub fn multiple_types(val: u64) -> u64 { val + 25 }
+    if args.len () != 1usize {
+        steel::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", stringify!(multiple_types), 1usize . to_string (), args.len()))
+    }
     let res = multiple_types(unwrap!((*(args [0usize])).clone(), u64)?);
     Ok(Rc::new(SteelVal::try_from(res)?))
 }
 ```
 
 The macro operates by defining a wrapper function arounds the original definition. The original definition shadows the wrapper, which allows us to call the original function with some boilerplate for going in and out of `SteelVals`.
+
+## Interpreter Macro
+
+So now that we've defined some structs and functions, how do we get them into the interpreter? There is a helpful interpreter macro that is given to build and embed the functions into the interpreter (to then pass into the repl). Here is an example of the macro usage:
+
+```rust
+build_interpreter! {
+    Structs => {
+        MyStruct,
+        CoolTest,
+        Foo,
+        MutexWrapper
+    }
+    Functions => {
+        "add-cool-tests" => add_cool_tests,
+        "multiple-types" => multiple_types,
+        "new-mutex-wrapper" => new_mutex_wrapper
+    }
+}
+```
+
+This builds a mutable interpreter with all of the relevant bindings for the structs (getters, setters, constructors and predicates), and all of the functions that are given with the relevant bindings.
+
+You can launch a repl by passing the result of `build_interpreter!` into `repl_base`, as follows:
+
+```rust
+repl_base(build_interpreter!{...})
+```
+
+From here, these would be valid calls:
+
+```scheme
+> (define cool-test-1 (CoolTest 1))
+> (define cool-test-2 (CoolTest 2))
+> (define cool-test-3 (add-cool-tests cool-test-1 cool-test-2))
+> (CoolTest-val cool-test-3)
+3
+> (multiple-types 25)
+50
+```
+
+
 
 ## License
 
