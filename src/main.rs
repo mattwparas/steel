@@ -13,7 +13,6 @@ use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 use steel::build_interpreter;
 use steel::build_repl;
 use steel::repl::repl_base;
-// use steel::PRELUDE;
 use steel_derive::function;
 use steel_derive::steel;
 
@@ -28,6 +27,8 @@ use std::fs;
 use steel::PRELUDE;
 
 use std::convert::TryFrom;
+
+use std::sync::{Arc, Mutex};
 
 fn main() {
     let args = args().collect::<Vec<_>>();
@@ -93,6 +94,14 @@ pub struct Foo {
     pub f: UnnamedFields,
 }
 
+#[steel]
+pub struct MutexWrapper(pub Arc<Mutex<usize>>);
+
+#[function]
+pub fn new_mutex_wrapper(val: usize) -> MutexWrapper {
+    MutexWrapper(Arc::new(Mutex::new(val)))
+}
+
 #[function]
 pub fn add_cool_tests(arg1: CoolTest, arg2: CoolTest) -> CoolTest {
     let res = CoolTest {
@@ -103,7 +112,7 @@ pub fn add_cool_tests(arg1: CoolTest, arg2: CoolTest) -> CoolTest {
 }
 
 #[function]
-pub fn multiple_types(val: usize) -> usize {
+pub fn multiple_types(val: u64) -> u64 {
     val + 25
 }
 

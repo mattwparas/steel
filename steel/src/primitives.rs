@@ -71,25 +71,44 @@ macro_rules! from_f64 {
     };
 }
 
-impl From<SteelVal> for f64 {
-    fn from(val: SteelVal) -> f64 {
-        if let SteelVal::NumV(n) = val {
-            n
-        } else {
-            panic!("issue here")
-        }
-    }
+#[macro_export]
+macro_rules! from_SteelVal_nums_could_panic {
+    ($($body:ty),*) => {
+        $(
+            impl From<SteelVal> for $body {
+                fn from(val: SteelVal) -> $body {
+                    if let SteelVal::NumV(n) = val {
+                        n as $body
+                    } else {
+                        panic!("issue here")
+                    }
+                }
+            }
+        )*
+    };
 }
 
-impl From<SteelVal> for usize {
-    fn from(val: SteelVal) -> usize {
-        if let SteelVal::NumV(n) = val {
-            n as usize
-        } else {
-            panic!("issue here")
-        }
-    }
-}
+from_SteelVal_nums_could_panic!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+
+// impl From<SteelVal> for f64 {
+//     fn from(val: SteelVal) -> f64 {
+//         if let SteelVal::NumV(n) = val {
+//             n
+//         } else {
+//             panic!("issue here")
+//         }
+//     }
+// }
+
+// impl From<SteelVal> for usize {
+//     fn from(val: SteelVal) -> usize {
+//         if let SteelVal::NumV(n) = val {
+//             n as usize
+//         } else {
+//             panic!("issue here")
+//         }
+//     }
+// }
 
 impl From<SteelVal> for String {
     fn from(val: SteelVal) -> String {
