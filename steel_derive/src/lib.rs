@@ -39,6 +39,11 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 fn new_steel_val(&self) -> SteelVal {
                     SteelVal::Custom(Box::new(self.clone()))
                 }
+                fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+                    let mut buf = String::new();
+                    write!(buf, "{:?}", &self)?;
+                    Ok(buf)
+                }
             }
             impl From<#name> for SteelVal {
                 fn from(val: #name) -> SteelVal {
@@ -98,6 +103,11 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
             }
             fn new_steel_val(&self) -> SteelVal {
                 SteelVal::Custom(Box::new(self.clone()))
+            }
+            fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+                let mut buf = String::new();
+                write!(buf, "{:?}", &self)?;
+                Ok(buf)
             }
         }
 
@@ -239,6 +249,33 @@ pub fn steel(
 
 // See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
 // attribute to transform function into a Steel Embeddable FuncV
+/// Attribute that wraps a given function to transform it into a SteelVal embeddable function
+/// The `#[function]` attribute macro operates on functions. It _transforms_ the function from a normal rust function into a function that matches the form used inside the `Steel` interpreter. Functions inside the `Steel` interpreter have the following signature:
+/// ```ignore
+/// fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>
+/// ```
+/// This macro attempts to remove a great deal of the boilerplate with respect to transferring values in and out of the semantics of the interpreter. However, this means that a function tagged with the `#[function]` attribute **_cannot_** be used as a standard Rust function with the original signature. For a rough idea of what this function does, let's look at a function and its resultant expansion:
+/// Example function:
+/// ```ignore
+/// #[function]
+/// pub fn multiple_types(val: u64) -> u64 {
+///     val + 25
+/// }
+/// ```
+/// Expands to:
+/// ```ignore
+/// pub fn multiple_types(args: Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>
+/// {
+///     pub fn multiple_types(val: u64) -> u64 { val + 25 }
+///     if args.len () != 1usize {
+///         steel::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", stringify!(multiple_types), 1usize.to_string (), args.len()))
+///     }
+///     let res = multiple_types(unwrap!((*(args [0usize])).clone(), u64)?);
+///     Ok(Rc::new(SteelVal::try_from(res)?))
+/// }
+/// ```
+/// The macro operates by defining a wrapper function arounds the original definition. The original definition shadows the wrapper, which allows us to call the original function with some boilerplate for going in and out of `SteelVals`.
+///
 #[proc_macro_attribute]
 pub fn function(
     _metadata: proc_macro::TokenStream,

@@ -28,6 +28,7 @@ use steel::PRELUDE;
 
 use std::convert::TryFrom;
 
+use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
 fn main() {

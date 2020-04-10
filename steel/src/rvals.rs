@@ -33,6 +33,7 @@ pub trait CustomType {
         (std::any::type_name::<Self>()).to_string()
     }
     fn new_steel_val(&self) -> SteelVal;
+    fn display(&self) -> std::result::Result<String, std::fmt::Error>;
 }
 
 impl Clone for Box<dyn CustomType> {
@@ -303,7 +304,8 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         // Pair(_, _) => {
         //     collect_pair_into_vector(mut p: &SteelVal)
         // }
-        Custom(x) => write!(f, "#<Custom-Type: {}>", x.name()),
+        Custom(x) => write!(f, "{}", x.display()?),
+        // write!(f, "#<Custom-Type: {}>", x.name()),
         Pair(_, _) => {
             let v = collect_pair_into_vector(val);
             // println!("collected v");
