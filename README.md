@@ -135,7 +135,7 @@ pub fn multiple_types(args: Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>
 {
     pub fn multiple_types(val: u64) -> u64 { val + 25 }
     if args.len () != 1usize {
-        steel::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", stringify!(multiple_types), 1usize . to_string (), args.len()))
+        steel::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", stringify!(multiple_types), 1usize.to_string (), args.len()))
     }
     let res = multiple_types(unwrap!((*(args [0usize])).clone(), u64)?);
     Ok(Rc::new(SteelVal::try_from(res)?))

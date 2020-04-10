@@ -41,7 +41,6 @@ where
     }
 }
 
-#[macro_export]
 macro_rules! try_from_impl {
     ($type:ident => $($body:ty),*) => {
         $(
@@ -58,7 +57,6 @@ macro_rules! try_from_impl {
     };
 }
 
-#[macro_export]
 macro_rules! from_f64 {
     ($($body:ty),*) => {
         $(
@@ -71,7 +69,6 @@ macro_rules! from_f64 {
     };
 }
 
-#[macro_export]
 macro_rules! from_SteelVal_nums_could_panic {
     ($($body:ty),*) => {
         $(
@@ -89,26 +86,6 @@ macro_rules! from_SteelVal_nums_could_panic {
 }
 
 from_SteelVal_nums_could_panic!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-
-// impl From<SteelVal> for f64 {
-//     fn from(val: SteelVal) -> f64 {
-//         if let SteelVal::NumV(n) = val {
-//             n
-//         } else {
-//             panic!("issue here")
-//         }
-//     }
-// }
-
-// impl From<SteelVal> for usize {
-//     fn from(val: SteelVal) -> usize {
-//         if let SteelVal::NumV(n) = val {
-//             n as usize
-//         } else {
-//             panic!("issue here")
-//         }
-//     }
-// }
 
 impl From<SteelVal> for String {
     fn from(val: SteelVal) -> String {

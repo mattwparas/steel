@@ -83,6 +83,7 @@ pub struct CoolTest {
 }
 
 impl CoolTest {
+    // #[method]
     pub fn thing(&self) {
         println!("Inside a method of CoolTest!");
     }
@@ -114,6 +115,11 @@ pub fn add_cool_tests(arg1: CoolTest, arg2: CoolTest) -> CoolTest {
 }
 
 #[function]
+pub fn pretty_print_cool_test(arg: CoolTest) {
+    println!("{:?}", arg);
+}
+
+#[function]
 pub fn multiple_types(val: u64) -> u64 {
     val + 25
 }
@@ -129,7 +135,8 @@ pub fn test_repl() -> std::io::Result<()> {
         Functions => {
             "add-cool-tests" => add_cool_tests,
             "multiple-types" => multiple_types,
-            "new-mutex-wrapper" => new_mutex_wrapper
+            "new-mutex-wrapper" => new_mutex_wrapper,
+            "display-cool-test" => pretty_print_cool_test
         }
     })
 }

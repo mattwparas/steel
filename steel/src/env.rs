@@ -45,6 +45,31 @@ macro_rules! ensure_tonicity {
 }
 
 #[macro_use]
+macro_rules! ensure_tonicity_pointer_equality {
+    ($check_fn:expr) => {{
+        |args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            // let args_iter: Vec<Rc<SteelVal>> = args.into_iter();
+            let mut args_iter = args.iter();
+            let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
+                "expected at least one argument".to_string(),
+            ))?;
+            fn f<'a>(prev: &Rc<SteelVal>, mut xs: impl Iterator<Item = &'a Rc<SteelVal>>) -> bool {
+                match xs.next() {
+                    Some(x) => $check_fn(prev, x) && f(x, xs),
+                    None => true,
+                }
+            };
+            let res = f(&first, args_iter);
+            if res {
+                Ok(TRUE.with(|f| Rc::clone(f)))
+            } else {
+                Ok(FALSE.with(|f| Rc::clone(f)))
+            }
+        }
+    }};
+}
+
+#[macro_use]
 macro_rules! gen_pred {
     ($variant:ident) => {{
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
@@ -215,6 +240,10 @@ impl Env {
             ("list?", gen_pred!(Pair)),
             ("=", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             ("equal?", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
+            (
+                "eq?",
+                SteelVal::FuncV(ensure_tonicity_pointer_equality!(|a, b| Rc::ptr_eq(a, b))),
+            ),
             (">", SteelVal::FuncV(ensure_tonicity!(|a, b| a > b))),
             (">=", SteelVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
             ("<", SteelVal::FuncV(ensure_tonicity!(|a, b| a < b))),

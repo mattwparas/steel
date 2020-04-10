@@ -185,6 +185,20 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     }
 }
 
+/// evaluates `(cond [test1 then1] [test2 then2] ... else)` into `then` or `else`
+// TODO come back to this
+fn eval_cond(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<Expr>> {
+    if let [test_expr, then_expr, else_expr] = list_of_tokens {
+        match evaluate(&test_expr, env)?.as_ref() {
+            SteelVal::BoolV(true) => Ok(Rc::clone(then_expr)),
+            _ => Ok(Rc::clone(else_expr)),
+        }
+    } else {
+        let e = format!("{}: expected {} args got {}", "If", 3, list_of_tokens.len());
+        stop!(ArityMismatch => e);
+    }
+}
+
 // evaluates a special form 'filter' for speed up
 // TODO fix this noise
 fn eval_filter(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
