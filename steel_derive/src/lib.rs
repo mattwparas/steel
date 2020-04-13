@@ -50,26 +50,22 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     val.new_steel_val()
                 }
             }
-
             impl From<&SteelVal> for #name {
                 fn from(val: &SteelVal) -> #name {
                     unwrap!(val.clone(), #name).unwrap()
                 }
             }
-
             impl TryFrom<SteelVal> for #name {
                 type Error = SteelErr;
                 fn try_from(value: SteelVal) -> std::result::Result<#name, Self::Error> {
                     unwrap!(value.clone(), #name)
                 }
             }
-
             impl crate::rvals::StructFunctions for #name {
                 fn generate_bindings() -> Vec<(String, SteelVal)> {
                     Vec::new()
                 }
             }
-
         };
 
         return gen.into();
@@ -91,6 +87,8 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
     let field_name2 = field_name.clone();
     let field_type = fields.iter().map(|field| &field.ty);
     let field_type2 = field_type.clone();
+
+    let number_of_fields = fields.iter().collect::<Vec<&syn::Field>>().len();
 
     let gen = quote! {
 
@@ -146,11 +144,14 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 let name = concat!(stringify!(#name), "?").to_string();
                 let func =
                         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
-                        let mut args_iter = args.into_iter();
-                        if let Some(first) = args_iter.next() {
-                            return Ok(Rc::new(SteelVal::BoolV(unwrap!((*first).clone(), #name).is_ok())));
-                        }
-                        stop!(ArityMismatch => "set! expected 2 arguments"); // TODO
+                            if args.len() == 1 {
+                                let mut args_iter = args.into_iter();
+                                if let Some(first) = args_iter.next() {
+                                    return Ok(Rc::new(SteelVal::BoolV(unwrap!((*first).clone(), #name).is_ok())));
+                                }
+                                stop!(ArityMismatch => concat!(stringify!(#name), "? expected one argument"));
+                            }
+                            stop!(ArityMismatch => concat!(stringify!(#name), "? expected one argument"));
                     });
                 vec_binding.push((name, func));
 
@@ -158,7 +159,13 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 let name = concat!(stringify!(#name)).to_string();
                 let func =
                         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
+
+                            if args.len() != #number_of_fields {
+                                steel::stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", stringify!(#name), #number_of_fields.to_string(), args.len()))
+                            }
+
                             let mut args_iter = args.into_iter();
+
                             let new_struct = #name {
                                 #(
                                     #field_name2: {
@@ -168,7 +175,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                             _ => <#field_type2>::try_from(&(*arg).clone())?
                                         }
                                     } else {
-                                        stop!(ArityMismatch => "Struct not given correct arguments");
+                                        stop!(ArityMismatch => concat!(stringify!(#name), "expected", stringify!(#number_of_fields),  "arguments"));
                                     }},
 
                                 )*
@@ -182,6 +189,12 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     let name = concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!").to_string();
                     let func =
                             SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
+                            let arity = args.len();
+
+                            if arity != 2 {
+                                stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!"), 2, arity));
+                            }
+
                             let mut args_iter = args.into_iter();
                             if let (Some(first), Some(second)) = (args_iter.next(), args_iter.next()) {
                                 let mut my_struct = unwrap!((*first).clone(), #name)?;
@@ -195,7 +208,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                 };
                                 return Ok(Rc::new(my_struct.new_steel_val()));
                             } else {
-                                stop!(ArityMismatch => "set! expected 2 arguments");
+                                stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!"), 2, arity));
                             }
                         });
                     vec_binding.push((name, func));
@@ -204,13 +217,17 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     let name = concat!(stringify!(#name), "-", stringify!(#field_name)).to_string();
                     let func =
                             SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
-                            let mut args_iter = args.into_iter();
-                            if let Some(first) = args_iter.next() {
-                                let my_struct = unwrap!((*first).clone(), #name)?;
-                                let return_val: SteelVal = my_struct.#field_name.into();
-                                return Ok(Rc::new(return_val));
-                            }
-                            stop!(ArityMismatch => "set! expected 2 arguments");
+                                let arity = args.len();
+                                if arity != 1 {
+                                    stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!(stringify!(#name), "-", stringify!(#field_name)), 1, arity));
+                                }
+                                let mut args_iter = args.into_iter();
+                                if let Some(first) = args_iter.next() {
+                                    let my_struct = unwrap!((*first).clone(), #name)?;
+                                    let return_val: SteelVal = my_struct.#field_name.into();
+                                    return Ok(Rc::new(return_val));
+                                }
+                                stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!(stringify!(#name), "-", stringify!(#field_name)), 2, arity));
                         });
                     vec_binding.push((name, func));
                 ) *
@@ -292,6 +309,9 @@ pub fn function(
     // This is the `ReturnType`
     let return_type: ReturnType = sign.output;
 
+    // TODO handle `Result<T>` and `Option<T>` here
+    // match on the Result / Option and map into the result (i.e. return Err(...) or Ok(...))
+    // add clause for ReturnType::Type(Result<T>, _) or something like that
     let ret_val = match return_type {
         ReturnType::Default => quote! {
             Ok(Rc::new(SteelVal::Void))

@@ -304,7 +304,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         // Pair(_, _) => {
         //     collect_pair_into_vector(mut p: &SteelVal)
         // }
-        Custom(x) => write!(f, "{}", x.display()?),
+        Custom(x) => write!(f, "#<{}>", x.display()?),
         // write!(f, "#<Custom-Type: {}>", x.name()),
         Pair(_, _) => {
             let v = collect_pair_into_vector(val);

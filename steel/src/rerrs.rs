@@ -34,7 +34,6 @@ macro_rules! stop {
     ($type:ident => $fmt:expr, $($arg:tt)+) => {
         return Err(SteelErr::$type(format!($fmt, $($arg)+)));
     };
-
     ($type:ident => $thing:expr) => {
         return Err(SteelErr::$type(($thing).to_string()));
     };
