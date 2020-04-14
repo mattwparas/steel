@@ -24,6 +24,8 @@ pub enum SteelErr {
     Parse(#[from] ParseError),
     #[error("Error: Infallible")]
     Infallible(#[from] Infallible),
+    #[error("Error: Generic Error: {0}")]
+    Generic(String),
 }
 
 #[macro_export]

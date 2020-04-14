@@ -130,6 +130,12 @@ pub fn multiple_types(val: u64) -> u64 {
     val + 25
 }
 
+#[function]
+pub fn test_result(_input: usize) -> std::result::Result<usize, u64> {
+    // Ok(10)
+    Err(10)
+}
+
 pub fn test_repl() -> std::io::Result<()> {
     repl_base(build_interpreter! {
         Structs => {
@@ -143,7 +149,8 @@ pub fn test_repl() -> std::io::Result<()> {
             "add-cool-tests" => add_cool_tests,
             "multiple-types" => multiple_types,
             "new-mutex-wrapper" => new_mutex_wrapper,
-            "display-cool-test" => pretty_print_cool_test
+            "display-cool-test" => pretty_print_cool_test,
+            "test-result" => test_result
         }
     })
 }
@@ -191,16 +198,16 @@ pub fn build_interpreter_and_modify() {
     // get the values back out
     match interpreter.evaluate(&script) {
         Ok(_) => {
-            let ret_val =
-                unwrap!(interpreter.extract_value("return-val").unwrap(), CoolTest).unwrap();
+            let ret_val: CoolTest =
+                CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
             println!("{:?}", ret_val); // Should be "CoolTest { val: 200.0 }"
             let ret_val2 =
-                unwrap!(interpreter.extract_value("unnamed").unwrap(), UnnamedFields).unwrap();
+                UnnamedFields::try_from(interpreter.extract_value("unnamed").unwrap()).unwrap();
             println!("{:?}", ret_val2); // Should be "UnnamedFields(100)"
-            let ret_val3 = unwrap!(interpreter.extract_value("foo-test").unwrap(), Foo).unwrap();
+            let ret_val3 = Foo::try_from(interpreter.extract_value("foo-test").unwrap()).unwrap();
             println!("{:?}", ret_val3); // Should be Foo { f: UnnamedFields(100) }
             let ret_val4 =
-                unwrap!(interpreter.extract_value("sum-test").unwrap(), CoolTest).unwrap();
+                CoolTest::try_from(interpreter.extract_value("sum-test").unwrap()).unwrap();
             println!("{:?}", ret_val4);
         }
         Err(e) => {

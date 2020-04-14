@@ -6,6 +6,7 @@ extern crate quote;
 extern crate steel;
 use proc_macro::TokenStream;
 use quote::quote;
+use quote::ToTokens;
 use syn::FnArg;
 use syn::ItemFn;
 use syn::ReturnType;
@@ -215,7 +216,6 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                             SteelVal::Custom(_) => unwrap!((*arg).clone(), #field_type2)?,
                                             _ => <#field_type2>::try_from(&(*arg).clone())?
                                         }
-                                        // unwrap!((*arg).clone(), #field_type2)?
                                     } else {
                                         stop!(ArityMismatch => concat!(stringify!(#name), "expected", stringify!(#number_of_fields),  "arguments"));
                                     }},
@@ -248,7 +248,6 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                         <#field_type>::try_from(&(*second).clone())?
                                         }
                                 };
-                                // my_struct.#field_name = unwrap!((*second).clone(), #field_type)?;
                                 return Ok(Rc::new(my_struct.new_steel_val()));
                             } else {
                                 stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!"), 2, arity));
@@ -307,8 +306,6 @@ pub fn steel(
     output.into()
 }
 
-// See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
-// attribute to transform function into a Steel Embeddable FuncV
 /// Attribute that wraps a given function to transform it into a SteelVal embeddable function
 /// The `#[function]` attribute macro operates on functions. It _transforms_ the function from a normal rust function into a function that matches the form used inside the `Steel` interpreter. Functions inside the `Steel` interpreter have the following signature:
 /// ```ignore
@@ -330,7 +327,7 @@ pub fn steel(
 ///     if args.len () != 1usize {
 ///         steel::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", stringify!(multiple_types), 1usize.to_string (), args.len()))
 ///     }
-///     let res = multiple_types(unwrap!((*(args [0usize])).clone(), u64)?);
+///     let res = multiple_types(u64::try_from((*(args [0usize])).clone())?);
 ///     Ok(Rc::new(SteelVal::try_from(res)?))
 /// }
 /// ```
@@ -355,13 +352,51 @@ pub fn function(
     // TODO handle `Result<T>` and `Option<T>` here
     // match on the Result / Option and map into the result (i.e. return Err(...) or Ok(...))
     // add clause for ReturnType::Type(Result<T>, _) or something like that
+    // let ret_val = match return_type {
+    //     ReturnType::Default => quote! {
+    //         Ok(Rc::new(SteelVal::Void))
+    //     },
+    //     ReturnType::Type(_, _) => quote! {
+    //         Ok(Rc::new(SteelVal::try_from(res)?))
+    //     },
+    // };
     let ret_val = match return_type {
         ReturnType::Default => quote! {
             Ok(Rc::new(SteelVal::Void))
         },
-        ReturnType::Type(_, _) => quote! {
-            Ok(Rc::new(SteelVal::try_from(res)?))
-        },
+        ReturnType::Type(_, r) => {
+            if let Type::Path(val) = *r {
+                let last = val.path.segments.into_iter().last();
+                if let Some(last) = last {
+                    match last.ident.into_token_stream().to_string().as_str() {
+                        "Result" => quote! {
+                            match res {
+                                Ok(x) => {
+                                    Ok(Rc::new(SteelVal::try_from(x)?))
+                                }
+                                Err(e) => {
+                                    Err(SteelErr::Generic(e.to_string()))
+                                }
+                            }
+                        },
+                        "Option" => quote! { // TODO
+                            Ok(Rc::new(SteelVal::try_from(res)?))
+                        },
+                        _ => quote! {
+                            Ok(Rc::new(SteelVal::try_from(res)?))
+                        },
+                    }
+                } else {
+                    quote! {
+                        Ok(Rc::new(SteelVal::Void))
+                    }
+                }
+            } else {
+                quote! {
+                    Ok(Rc::new(SteelVal::try_from(res)?))
+                }
+            }
+        }
     };
 
     let mut type_vec: Vec<Box<Type>> = Vec::new();
