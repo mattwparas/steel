@@ -14,9 +14,12 @@ use crate::rvals::{FunctionSignature, SteelLambda, SteelVal};
 use im_rc::Vector;
 // use std::collections::Vector;
 use std::convert::TryFrom;
+use std::convert::TryInto;
 use std::result;
 
 use std::rc::Rc;
+
+// pub struct List(pub Vec<T>);
 
 // the conversion layer works like
 // Vec<SteelVal> -> your struct -> call the function -> output -> Steelval output
@@ -32,7 +35,7 @@ where
             let args = args.into_iter().map(|x| (*x).clone()).collect();
             let input = Self::in_convert(args)?;
             let res = Self::call(input)?;
-            Ok(Rc::new(res.into()))
+            Ok(Rc::new(res.into())) // TODO
         }
     }
     fn call(input: U) -> Result<V, SteelErr>;
@@ -44,6 +47,16 @@ where
 macro_rules! try_from_impl {
     ($type:ident => $($body:ty),*) => {
         $(
+            impl TryFrom<SteelVal> for $body {
+                type Error = SteelErr;
+                fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
+                    match value {
+                        SteelVal::$type(x) => Ok(x.clone() as $body),
+                        _ => Err(SteelErr::ConversionError("Expected number".to_string())),
+                    }
+                }
+            }
+
             impl TryFrom<&SteelVal> for $body {
                 type Error = SteelErr;
                 fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
@@ -69,38 +82,131 @@ macro_rules! from_f64 {
     };
 }
 
-macro_rules! from_SteelVal_nums_could_panic {
-    ($($body:ty),*) => {
-        $(
-            impl From<SteelVal> for $body {
-                fn from(val: SteelVal) -> $body {
-                    if let SteelVal::NumV(n) = val {
-                        n as $body
-                    } else {
-                        panic!("issue here")
-                    }
-                }
-            }
-        )*
-    };
-}
+impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
+    type Error = SteelErr;
+    fn try_from(val: Vec<T>) -> result::Result<Self, Self::Error> {
+        let vec_vals: Result<Vec<Self>, <T as std::convert::TryInto<SteelVal>>::Error> =
+            val.into_iter().map(|x| x.try_into()).collect();
 
-from_SteelVal_nums_could_panic!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-
-impl From<SteelVal> for String {
-    fn from(val: SteelVal) -> String {
-        if let SteelVal::StringV(ref s) = val {
-            s.clone()
-        } else {
-            panic!("issue here")
+        match vec_vals {
+            Ok(l) => Ok(vec_to_list(l)),
+            _ => Err(SteelErr::ConversionError(
+                "Could not convert vector of values to SteelVal list".to_string(),
+            )),
         }
     }
 }
 
-from_f64!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
+    type Error = SteelErr;
+    fn try_from(val: SteelVal) -> result::Result<Self, Self::Error> {
+        if let SteelVal::Pair(_, _) = val {
+            let vec_vals = collect_pair_into_vector(&val);
+            let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
+                vec_vals.into_iter().map(|x| T::try_from(x)).collect();
+            match result_vec_vals {
+                Ok(x) => Ok(x),
+                _ => Err(SteelErr::ConversionError(
+                    "Could not convert SteelVal list to Vector of values".to_string(),
+                )),
+            }
+        } else {
+            Err(SteelErr::ConversionError(
+                "Could not convert SteelVal list to Vector of values".to_string(),
+            ))
+        }
+    }
+}
 
+impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
+    type Error = SteelErr;
+    fn try_from(val: &SteelVal) -> result::Result<Self, Self::Error> {
+        if let SteelVal::Pair(_, _) = val {
+            let vec_vals = collect_pair_into_vector(&val);
+            let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
+                vec_vals.into_iter().map(|x| T::try_from(x)).collect();
+            match result_vec_vals {
+                Ok(x) => Ok(x),
+                _ => Err(SteelErr::ConversionError(
+                    "Could not convert SteelVal list to Vector of values".to_string(),
+                )),
+            }
+        } else {
+            Err(SteelErr::ConversionError(
+                "Could not convert SteelVal list to Vector of values".to_string(),
+            ))
+        }
+    }
+}
+
+fn collect_pair_into_vector(mut p: &SteelVal) -> Vec<SteelVal> {
+    let mut lst = Vec::new();
+    loop {
+        if let SteelVal::Pair(cons, cdr) = p {
+            lst.push((**cons).clone());
+            match cdr.as_ref() {
+                Some(rest) => match rest.as_ref() {
+                    SteelVal::Pair(_, _) => p = rest,
+                    _ => {
+                        lst.push((**rest).clone());
+                        return lst;
+                    }
+                },
+                None => return lst,
+            }
+        }
+    }
+}
+
+fn vec_to_list(args: Vec<SteelVal>) -> SteelVal {
+    let mut args = args.into_iter().rev();
+    let mut pairs = Vec::new();
+    match (args.next(), args.next()) {
+        (cdr, Some(car)) => {
+            pairs.push(Rc::new(SteelVal::Pair(
+                Rc::new(car),
+                cdr.map(|x| Rc::new(x)),
+            )));
+        }
+        (Some(cdr), None) => {
+            pairs.push(Rc::new(SteelVal::Pair(Rc::new(cdr), None)));
+        }
+        (_, _) => {
+            return SteelVal::VectorV(Vector::new());
+        }
+    }
+
+    for (i, val) in args.enumerate() {
+        pairs.push(Rc::new(SteelVal::Pair(
+            Rc::new(val),
+            Some(Rc::clone(&pairs[i])),
+        )));
+    }
+    (*pairs.pop().unwrap()).clone()
+}
+
+from_f64!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 try_from_impl!(NumV => f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-try_from_impl!(StringV => String);
+
+impl TryFrom<SteelVal> for String {
+    type Error = SteelErr;
+    fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
+        match value {
+            SteelVal::StringV(ref x) => Ok(x.clone()),
+            _ => Err(SteelErr::ConversionError("Expected number".to_string())),
+        }
+    }
+}
+
+impl TryFrom<&SteelVal> for String {
+    type Error = SteelErr;
+    fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
+        match value {
+            SteelVal::StringV(x) => Ok(x.clone()),
+            _ => Err(SteelErr::ConversionError("Expected number".to_string())),
+        }
+    }
+}
 
 pub struct VecNumbers(Vec<f64>);
 impl TryFrom<Vec<SteelVal>> for VecNumbers {
@@ -116,27 +222,11 @@ impl TryFrom<Vec<SteelVal>> for VecNumbers {
     }
 }
 
-// impl From<f64> for SteelVal {
-//     fn from(val: f64) -> SteelVal {
-//         SteelVal::NumV(val)
-//     }
-// }
-
 impl From<String> for SteelVal {
     fn from(val: String) -> SteelVal {
         SteelVal::StringV(val)
     }
 }
-
-// impl From<SteelVal> for String {
-//     fn from(val: SteelVal) -> String {
-//         if let StringV(s) = val {
-//             s
-//         } else {
-
-//         }
-//     }
-// }
 
 impl From<bool> for SteelVal {
     fn from(val: bool) -> SteelVal {
@@ -203,24 +293,3 @@ impl SteelFunctor<VecNumbers, f64> for Divider {
         }
     }
 }
-
-// impl Default for Adder {
-//     fn default() -> Self {
-//         Adder {}
-//     }
-// }
-// impl Default for Subtractor {
-//     fn default() -> Self {
-//         Subtractor {}
-//     }
-// }
-// impl Default for Multiplier {
-//     fn default() -> Self {
-//         Multiplier {}
-//     }
-// }
-// impl Default for Divider {
-//     fn default() -> Self {
-//         Divider {}
-//     }
-// }

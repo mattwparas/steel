@@ -50,22 +50,42 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     val.new_steel_val()
                 }
             }
-            impl From<&SteelVal> for #name {
-                fn from(val: &SteelVal) -> #name {
-                    unwrap!(val.clone(), #name).unwrap()
-                }
-            }
+            // impl From<&SteelVal> for #name {
+            //     fn from(val: &SteelVal) -> #name {
+            //         unwrap!(val.clone(), #name).unwrap()
+            //     }
+            // }
+
             impl TryFrom<SteelVal> for #name {
                 type Error = SteelErr;
                 fn try_from(value: SteelVal) -> std::result::Result<#name, Self::Error> {
                     unwrap!(value.clone(), #name)
                 }
             }
+            impl TryFrom<&SteelVal> for #name {
+                type Error = SteelErr;
+                fn try_from(value: &SteelVal) -> std::result::Result<#name, Self::Error> {
+                    unwrap!(value.clone(), #name)
+                }
+            }
+
             impl crate::rvals::StructFunctions for #name {
                 fn generate_bindings() -> Vec<(String, SteelVal)> {
                     Vec::new()
                 }
             }
+
+            // impl<I: Iterator<Item = #name>> From<I> for SteelVal {
+            //     fn from(val: I) -> SteelVal {
+            //         vec_to_list(val.into_iter().map(|x| unwrap!(x, #name).unwrap()).collect())
+            //     }
+            // }
+
+            // impl From<Vec<#name>> for SteelVal {
+            //     fn from(val: Vec<#name>) -> SteelVal {
+            //         vec_to_list(val.into_iter().map(|x| unwrap!(x, #name).unwrap()).collect())
+            //     }
+            // }
         };
 
         return gen.into();
@@ -116,11 +136,11 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
         }
 
 
-        impl From<&SteelVal> for #name {
-            fn from(val: &SteelVal) -> #name {
-                unwrap!(val.clone(), #name).unwrap()
-            }
-        }
+        // impl From<&SteelVal> for #name {
+        //     fn from(val: &SteelVal) -> #name {
+        //         unwrap!(val.clone(), #name).unwrap()
+        //     }
+        // }
 
         impl TryFrom<SteelVal> for #name {
             type Error = SteelErr;
@@ -129,10 +149,31 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
             }
         }
 
+        impl TryFrom<&SteelVal> for #name {
+            type Error = SteelErr;
+            fn try_from(value: &SteelVal) -> std::result::Result<#name, Self::Error> {
+                unwrap!(value.clone(), #name)
+            }
+        }
+
+
+        // impl<I: Iterator<Item = #name>> From<I> for SteelVal {
+        //     fn from(val: I) -> SteelVal {
+        //         vec_to_list(val.into_iter().map(|x| unwrap!(x, #name).unwrap()).collect())
+        //     }
+        // }
+
+        // impl From<Vec<#name>> for SteelVal {
+        //     fn from(val: Vec<#name>) -> SteelVal {
+        //         vec_to_list(val.into_iter().map(|x| unwrap!(x, #name).unwrap()).collect())
+        //     }
+        // }
+
 
         impl crate::rvals::StructFunctions for #name {
             fn generate_bindings() -> Vec<(String, SteelVal)> {
                 use std::convert::TryFrom;
+                use std::convert::TryInto;
                 use steel::rvals::SteelVal;
                 use steel::rerrs::SteelErr;
                 use steel::unwrap;
@@ -224,7 +265,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                 let mut args_iter = args.into_iter();
                                 if let Some(first) = args_iter.next() {
                                     let my_struct = unwrap!((*first).clone(), #name)?;
-                                    let return_val: SteelVal = my_struct.#field_name.into();
+                                    let return_val: SteelVal = my_struct.#field_name.try_into()?; // TODO
                                     return Ok(Rc::new(return_val));
                                 }
                                 stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!(stringify!(#name), "-", stringify!(#field_name)), 2, arity));

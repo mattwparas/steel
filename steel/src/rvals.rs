@@ -72,7 +72,12 @@ macro_rules! unwrap {
                 )
             })
         } else {
-            Ok(<$body>::try_from($x).unwrap()) // any kind of number
+            match <$body>::try_from($x) {
+                Ok(x) => Ok(x),
+                Err(_) => Err(crate::rerrs::SteelErr::ConversionError(
+                    "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
+                )),
+            }
         }
     }};
 }

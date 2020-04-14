@@ -79,6 +79,11 @@ pub struct MyStruct {
 }
 
 #[steel]
+pub struct VecStruct {
+    pub field: Vec<CoolTest>,
+}
+
+#[steel]
 pub struct CoolTest {
     pub val: f64,
 }
@@ -131,7 +136,8 @@ pub fn test_repl() -> std::io::Result<()> {
             MyStruct,
             CoolTest,
             Foo,
-            MutexWrapper
+            MutexWrapper,
+            VecStruct
         }
         Functions => {
             "add-cool-tests" => add_cool_tests,
