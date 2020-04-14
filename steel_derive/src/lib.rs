@@ -215,6 +215,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                             SteelVal::Custom(_) => unwrap!((*arg).clone(), #field_type2)?,
                                             _ => <#field_type2>::try_from(&(*arg).clone())?
                                         }
+                                        // unwrap!((*arg).clone(), #field_type2)?
                                     } else {
                                         stop!(ArityMismatch => concat!(stringify!(#name), "expected", stringify!(#number_of_fields),  "arguments"));
                                     }},
@@ -247,6 +248,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                         <#field_type>::try_from(&(*second).clone())?
                                         }
                                 };
+                                // my_struct.#field_name = unwrap!((*second).clone(), #field_type)?;
                                 return Ok(Rc::new(my_struct.new_steel_val()));
                             } else {
                                 stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!"), 2, arity));
@@ -387,7 +389,7 @@ pub fn function(
 
             let res = #function_name(
                 #(
-                    unwrap!((*(args[#arg_index])).clone(), #arg_type)?,
+                    #arg_type::try_from((*(args[#arg_index])).clone())?,
                 )*
             );
 

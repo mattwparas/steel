@@ -100,20 +100,31 @@ impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
 impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
     type Error = SteelErr;
     fn try_from(val: SteelVal) -> result::Result<Self, Self::Error> {
-        if let SteelVal::Pair(_, _) = val {
-            let vec_vals = collect_pair_into_vector(&val);
-            let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                vec_vals.into_iter().map(|x| T::try_from(x)).collect();
-            match result_vec_vals {
-                Ok(x) => Ok(x),
-                _ => Err(SteelErr::ConversionError(
-                    "Could not convert SteelVal list to Vector of values".to_string(),
-                )),
+        match val {
+            SteelVal::Pair(_, _) => {
+                let vec_vals = collect_pair_into_vector(&val);
+                let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
+                    vec_vals.into_iter().map(|x| T::try_from(x)).collect();
+                match result_vec_vals {
+                    Ok(x) => Ok(x),
+                    _ => Err(SteelErr::ConversionError(
+                        "Could not convert SteelVal list to Vector of values".to_string(),
+                    )),
+                }
             }
-        } else {
-            Err(SteelErr::ConversionError(
+            SteelVal::VectorV(ref v) => {
+                let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
+                    v.iter().map(|x| T::try_from(x.clone())).collect();
+                match result_vec_vals {
+                    Ok(x) => Ok(x),
+                    _ => Err(SteelErr::ConversionError(
+                        "Could not convert SteelVal list to Vector of values".to_string(),
+                    )),
+                }
+            } // TODO
+            _ => Err(SteelErr::ConversionError(
                 "Could not convert SteelVal list to Vector of values".to_string(),
-            ))
+            )),
         }
     }
 }
@@ -121,20 +132,31 @@ impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
 impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
     type Error = SteelErr;
     fn try_from(val: &SteelVal) -> result::Result<Self, Self::Error> {
-        if let SteelVal::Pair(_, _) = val {
-            let vec_vals = collect_pair_into_vector(&val);
-            let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                vec_vals.into_iter().map(|x| T::try_from(x)).collect();
-            match result_vec_vals {
-                Ok(x) => Ok(x),
-                _ => Err(SteelErr::ConversionError(
-                    "Could not convert SteelVal list to Vector of values".to_string(),
-                )),
+        match val {
+            SteelVal::Pair(_, _) => {
+                let vec_vals = collect_pair_into_vector(&val);
+                let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
+                    vec_vals.into_iter().map(|x| T::try_from(x)).collect();
+                match result_vec_vals {
+                    Ok(x) => Ok(x),
+                    _ => Err(SteelErr::ConversionError(
+                        "Could not convert SteelVal list to Vector of values".to_string(),
+                    )),
+                }
             }
-        } else {
-            Err(SteelErr::ConversionError(
+            SteelVal::VectorV(v) => {
+                let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
+                    v.into_iter().map(|x| T::try_from(x.clone())).collect();
+                match result_vec_vals {
+                    Ok(x) => Ok(x),
+                    _ => Err(SteelErr::ConversionError(
+                        "Could not convert SteelVal list to Vector of values".to_string(),
+                    )),
+                }
+            } // TODO
+            _ => Err(SteelErr::ConversionError(
                 "Could not convert SteelVal list to Vector of values".to_string(),
-            ))
+            )),
         }
     }
 }

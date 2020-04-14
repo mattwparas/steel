@@ -72,12 +72,9 @@ macro_rules! unwrap {
                 )
             })
         } else {
-            match <$body>::try_from($x) {
-                Ok(x) => Ok(x),
-                Err(_) => Err(crate::rerrs::SteelErr::ConversionError(
-                    "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
-                )),
-            }
+            Err(crate::rerrs::SteelErr::ConversionError(
+                "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
+            ))
         }
     }};
 }
