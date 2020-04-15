@@ -14,6 +14,20 @@ use syn::Signature;
 use syn::Type;
 use syn::{Data, DataStruct, DeriveInput, Fields};
 
+/*
+
+Derive CustomType for enums:
+
+#[steel]
+pub enum SteelVal {
+    BoolV(bool),
+    NumV(f64),
+    CharV(char),
+}
+
+
+*/
+
 /// Derives the `CustomType` trait for the given struct, and also implements the
 /// `StructFunctions` trait, which generates the predicate, constructor, and the getters
 /// and setters for using the struct inside the interpreter.
@@ -51,11 +65,6 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     val.new_steel_val()
                 }
             }
-            // impl From<&SteelVal> for #name {
-            //     fn from(val: &SteelVal) -> #name {
-            //         unwrap!(val.clone(), #name).unwrap()
-            //     }
-            // }
 
             impl TryFrom<SteelVal> for #name {
                 type Error = SteelErr;
@@ -75,18 +84,6 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     Vec::new()
                 }
             }
-
-            // impl<I: Iterator<Item = #name>> From<I> for SteelVal {
-            //     fn from(val: I) -> SteelVal {
-            //         vec_to_list(val.into_iter().map(|x| unwrap!(x, #name).unwrap()).collect())
-            //     }
-            // }
-
-            // impl From<Vec<#name>> for SteelVal {
-            //     fn from(val: Vec<#name>) -> SteelVal {
-            //         vec_to_list(val.into_iter().map(|x| unwrap!(x, #name).unwrap()).collect())
-            //     }
-            // }
         };
 
         return gen.into();
@@ -136,13 +133,6 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
             }
         }
 
-
-        // impl From<&SteelVal> for #name {
-        //     fn from(val: &SteelVal) -> #name {
-        //         unwrap!(val.clone(), #name).unwrap()
-        //     }
-        // }
-
         impl TryFrom<SteelVal> for #name {
             type Error = SteelErr;
             fn try_from(value: SteelVal) -> std::result::Result<#name, Self::Error> {
@@ -156,20 +146,6 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 unwrap!(value.clone(), #name)
             }
         }
-
-
-        // impl<I: Iterator<Item = #name>> From<I> for SteelVal {
-        //     fn from(val: I) -> SteelVal {
-        //         vec_to_list(val.into_iter().map(|x| unwrap!(x, #name).unwrap()).collect())
-        //     }
-        // }
-
-        // impl From<Vec<#name>> for SteelVal {
-        //     fn from(val: Vec<#name>) -> SteelVal {
-        //         vec_to_list(val.into_iter().map(|x| unwrap!(x, #name).unwrap()).collect())
-        //     }
-        // }
-
 
         impl crate::rvals::StructFunctions for #name {
             fn generate_bindings() -> Vec<(String, SteelVal)> {
@@ -379,8 +355,15 @@ pub fn function(
                                 }
                             }
                         },
-                        "Option" => quote! { // TODO
-                            Ok(Rc::new(SteelVal::try_from(res)?))
+                        "Option" => quote! { // TODO document
+                            match res {
+                                Some(x) => {
+                                    Ok(Rc::new(SteelVal::try_from(x)?))
+                                }
+                                None => {
+                                    Ok(Rc::new(SteelVal::BoolV(false)))
+                                }
+                            }
                         },
                         _ => quote! {
                             Ok(Rc::new(SteelVal::try_from(res)?))

@@ -131,9 +131,21 @@ pub fn multiple_types(val: u64) -> u64 {
 }
 
 #[function]
-pub fn test_result(_input: usize) -> std::result::Result<usize, u64> {
-    // Ok(10)
-    Err(10)
+pub fn test_option(input: usize) -> Option<usize> {
+    if input == 1 {
+        Some(1)
+    } else {
+        None
+    }
+}
+
+#[function]
+pub fn test_result(input: usize) -> std::result::Result<usize, String> {
+    if input == 1 {
+        Ok(1)
+    } else {
+        Err("We got an error".to_string())
+    }
 }
 
 pub fn test_repl() -> std::io::Result<()> {
@@ -150,7 +162,8 @@ pub fn test_repl() -> std::io::Result<()> {
             "multiple-types" => multiple_types,
             "new-mutex-wrapper" => new_mutex_wrapper,
             "display-cool-test" => pretty_print_cool_test,
-            "test-result" => test_result
+            "test-result" => test_result,
+            "test-option" => test_option
         }
     })
 }
