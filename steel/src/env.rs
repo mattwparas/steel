@@ -118,6 +118,8 @@ impl Env {
     /// Within the current environment, bind
     /// identifier `key` to `val`
     pub fn define(&mut self, key: String, val: Rc<SteelVal>) {
+        // println!("Defining: {} with val: {}", key, (*val).clone());
+        // println!("{:?}", self.bindings.keys());
         self.bindings.insert(key, val);
     }
     /// Within the current environment,
@@ -189,6 +191,10 @@ impl Env {
     ///
     /// Otherwise, error with `FreeIdentifier`
     pub fn lookup(&self, name: &str) -> Result<Rc<SteelVal>> {
+        // println!("Looking up: {}", name);
+
+        // println!("{:?}", self.bindings.keys());
+
         if self.bindings.contains_key(name) {
             // value needs to be cloned because
             // user needs to be able to own a persistent value
@@ -252,6 +258,14 @@ impl Env {
             ("newline", IoFunctions::newline()),
             ("read-to-string", IoFunctions::read_to_string()),
             ("string-append", StringOperations::string_append()),
+            ("string->list", StringOperations::string_to_list()),
+            ("string-upcase", StringOperations::string_to_upper()),
+            ("string-lowercase", StringOperations::string_to_lower()),
+            ("trim", StringOperations::trim()),
+            ("trim-start", StringOperations::trim_start()),
+            ("trim-end", StringOperations::trim_end()),
+            ("split-whitespace", StringOperations::split_whitespace()),
+            ("void", SteelVal::Void),
         ]
     }
 }

@@ -74,6 +74,7 @@ impl<'a> Tokenizer<'a> {
             match c {
                 '(' | '[' | '{' | ')' | ']' | '}' => break,
                 c if c.is_whitespace() => break,
+                c if c == '#' => return Err(TokenError::UnexpectedChar('#')),
                 _ => {
                     self.input.next();
                     word.push(c);
@@ -95,6 +96,7 @@ impl<'a> Tokenizer<'a> {
                 }
             }
             _ => Ok(Token::Identifier(word)), // TODO
+                                              // _ => Err(TokenError::UnexpectedChar(#))
         }
     }
 
@@ -203,7 +205,9 @@ impl<'a> Iterator for Tokenizer<'a> {
             }
             Some('"') => Some(self.read_string()),
             Some(c)
-                if !c.is_whitespace() && (c.is_alphabetic() && !c.is_numeric()) || *c == '_' =>
+                if !c.is_whitespace() && (c.is_alphabetic() && !c.is_numeric())
+                    || *c == '_'
+                    || *c == '.' =>
             {
                 Some(Ok(self.read_word()))
             }

@@ -1,17 +1,25 @@
 /*
-
-
-
 be able to parse macros
-
 steps:
-
 1. Identify macro instance
     (defmacro any-number-of-args)
+2. Construct and store macro struct inside the evaluation environment
+3. Provide function to expand syntax according to the rules contained within macro struct
 
 
+(define-syntax while
+    (syntax-rules (do)
+        [(while cond do body ...)
+            (let loop ()
+                (when cond
+                    body ...
+                    (loop)))]))
+(while (> x 0) do
+    (displayln x)
+    (set! x (- x 1)))
 
 */
+
 // #[macro_export]
 // macro_rules! mixed_rules {
 //     () => {};

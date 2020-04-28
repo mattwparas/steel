@@ -82,6 +82,12 @@ macro_rules! from_f64 {
     };
 }
 
+impl From<char> for SteelVal {
+    fn from(val: char) -> SteelVal {
+        SteelVal::CharV(val)
+    }
+}
+
 impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
     type Error = SteelErr;
     fn try_from(val: Vec<T>) -> result::Result<Self, Self::Error> {

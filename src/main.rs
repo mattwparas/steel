@@ -31,7 +31,38 @@ use std::convert::TryFrom;
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
+use steel_derive::EnumTest;
+
+extern crate reqwest;
+
+use std::io::Read;
+
+//"http://httpbin.org/get"
+#[function]
+fn get_request(url: String) -> reqwest::Result<String> {
+    let mut res = reqwest::blocking::get(&url)?;
+    let mut body = String::new();
+    if let Err(_) = res.read_to_string(&mut body) {};
+
+    println!("Status: {}", res.status());
+    println!("Headers:\n{:#?}", res.headers());
+    println!("Body:\n{}", body);
+
+    Ok("Success!".to_string())
+}
+
+// #[derive(Debug)]
+// enum Foot {
+//     Bar(usize),
+//     Baz,
+//     Bat,
+// }
+
 fn main() {
+    // println!("{:?}", Foot::Bar as isize);
+    // println!("{:?}", Foot::Baz as isize);
+    // println!("{:?}", Foot::Bat as isize);
+
     let args = args().collect::<Vec<_>>();
 
     if args.len() == 1 {
@@ -88,6 +119,32 @@ pub struct CoolTest {
     pub val: f64,
 }
 
+/*
+Example of using the derive macro with attributes for the fields
+#[steel]
+pub enum Foo {
+    #[]
+    Bar,
+    #[name]
+    Baz(String),
+    #[number]
+    Bat(usize),
+}
+*/
+
+// This should translate to definitions exactly
+// Enum constants basically...
+// Discriminant::Bar ;; 1
+// Discriminant::Baz ;; 2
+// Discriminant::Bat ;; 3
+// (Discriminant->list) ;; '(Discriminant::Bar, Discriminant::Baz, Discriminant::Bat)
+#[derive(EnumTest)]
+pub enum Discriminant {
+    Bar = 1,
+    Baz = 2,
+    Bat = 3,
+}
+
 impl CoolTest {
     // #[method]
     pub fn thing(&self) {
@@ -103,6 +160,8 @@ pub struct Foo {
     pub f: UnnamedFields,
 }
 
+// By design, tuple structs with unnamed fields are not given constructors or accessors
+// constructors or accessors must be defined outside the macro
 #[steel]
 pub struct MutexWrapper(pub Arc<Mutex<usize>>);
 
@@ -163,7 +222,8 @@ pub fn test_repl() -> std::io::Result<()> {
             "new-mutex-wrapper" => new_mutex_wrapper,
             "display-cool-test" => pretty_print_cool_test,
             "test-result" => test_result,
-            "test-option" => test_option
+            "test-option" => test_option,
+            "slurp!" => get_request
         }
     })
 }

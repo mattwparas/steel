@@ -14,6 +14,9 @@ use crate::stop;
 use std::collections::HashMap;
 use std::ops::Deref;
 
+// use crate::rvals::MacroPattern;
+use crate::rvals::SteelMacro;
+
 pub struct Evaluator {
     global_env: Rc<RefCell<Env>>,
     intern_cache: HashMap<String, Rc<Expr>>,
@@ -43,6 +46,20 @@ impl Evaluator {
         let parsed: result::Result<Vec<Expr>, ParseError> =
             Parser::new(expr_str, &mut self.intern_cache).collect();
         let parsed = parsed?;
+
+        // let test = parsed.clone();
+
+        // let arg_vec = vec![
+        //     MacroPattern::Single("a".to_string()),
+        //     MacroPattern::Single("b".to_string()),
+        // ];
+
+        // let res: Vec<Rc<Expr>> = test
+        //     .into_iter()
+        //     .map(|x| MacroCase::rename_identifiers(Rc::new(x), &self.global_env, &arg_vec))
+        //     .collect();
+        // println!("{:?}", res);
+
         parsed.into_iter().map(|x| self.eval(x)).collect()
     }
 
@@ -130,6 +147,10 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                             return eval_define(&list_of_tokens[1..], env)
                                 .map(|_| VOID.with(|f| Rc::clone(f))); // TODO
                         }
+                        Expr::Atom(Token::Identifier(s)) if s == "define-syntax" => {
+                            return eval_macro_def(&list_of_tokens[1..], env)
+                                .map(|_| VOID.with(|f| Rc::clone(f)));
+                        }
                         // (lambda (vars*) (body))
                         Expr::Atom(Token::Identifier(s)) if s == "lambda" || s == "λ" => {
                             return eval_make_lambda(&list_of_tokens[1..], env);
@@ -148,12 +169,12 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                         Expr::Atom(Token::Identifier(s)) if s == "begin" => {
                             expr = eval_begin(&list_of_tokens[1..], &env)?
                         }
-                        Expr::Atom(Token::Identifier(s)) if s == "and" => {
-                            return eval_and(&list_of_tokens[1..], &env)
-                        }
-                        Expr::Atom(Token::Identifier(s)) if s == "or" => {
-                            return eval_or(&list_of_tokens[1..], &env)
-                        }
+                        // Expr::Atom(Token::Identifier(s)) if s == "and" => {
+                        //     return eval_and(&list_of_tokens[1..], &env)
+                        // }
+                        // Expr::Atom(Token::Identifier(s)) if s == "or" => {
+                        //     return eval_or(&list_of_tokens[1..], &env)
+                        // }
                         Expr::Atom(Token::Identifier(s)) if s == "map'" => {
                             return eval_map(&list_of_tokens[1..], &env)
                         }
@@ -171,6 +192,12 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                                 expr = new_expr;
                                 env = new_env;
                             }
+                            SteelVal::MacroV(steel_macro) => {
+                                // println!("Found macro definition!");
+                                expr = steel_macro.expand(&list_of_tokens)?;
+                                // println!("{:?}", expr.clone());
+                                // println!()
+                            }
                             e => {
                                 println!("Getting here");
                                 stop!(TypeMismatch => e)
@@ -183,6 +210,15 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
             }
         }
     }
+}
+
+fn eval_macro_def(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {
+    let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, &env)?;
+    env.borrow_mut().define(
+        parsed_macro.name().to_string(),
+        Rc::new(SteelVal::MacroV(parsed_macro)),
+    );
+    Ok(env)
 }
 
 /// evaluates `(cond [test1 then1] [test2 then2] ... else)` into `then` or `else`

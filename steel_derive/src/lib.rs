@@ -25,8 +25,271 @@ pub enum SteelVal {
     CharV(char),
 }
 
+SteelVal::BoolV(bool)
+
 
 */
+
+#[proc_macro_derive(EnumTest)]
+pub fn derive_enum_test(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let _name = &input.ident;
+
+    // try to identify enum here
+    match &input.data {
+        Data::Enum(data_enum) => {
+            let variants = &data_enum.variants;
+
+            /*
+            attrs: Vec<Attribute>
+            [−]
+            Attributes tagged on the variant.
+
+            ident: Ident
+            [−]
+            Name of the variant.
+
+            fields: Fields
+            [−]
+            Content stored in the variant.
+
+            discriminant: Option<(Eq, Expr)>
+            [−]
+            Explicit discriminant: Variant = 1
+            */
+
+            for variant in variants {
+                let _attributes = &variant.attrs;
+                let _ident = &variant.ident;
+                let _fields = &variant.fields;
+                let discriminant = &variant.discriminant;
+
+                if let Some(v) = discriminant {
+                    eprintln!("{}", v.1.clone().into_token_stream().to_string())
+                }
+            }
+        }
+        _ => panic!("not supported"),
+    }
+
+    let output = quote! {
+        // #input
+    };
+
+    output.into()
+}
+
+#[proc_macro_derive(Schenum)]
+pub fn derive_schenum(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let name = &input.ident;
+
+    // try to identify enum here
+    match &input.data {
+        Data::Enum(data_enum) => {
+            let variants = &data_enum.variants;
+
+            /*
+            attrs: Vec<Attribute>
+            [−]
+            Attributes tagged on the variant.
+
+            ident: Ident
+            [−]
+            Name of the variant.
+
+            fields: Fields
+            [−]
+            Content stored in the variant.
+
+            discriminant: Option<(Eq, Expr)>
+            [−]
+            Explicit discriminant: Variant = 1
+            */
+
+            for variant in variants {
+                let _attributes = &variant.attrs;
+                let _ident = &variant.ident;
+                let _fields = &variant.fields;
+                let _discriminant = &variant.discriminant;
+            }
+        }
+        _ => panic!("not supported"),
+    }
+
+    // if let Data::Enum(DataEnum {
+    //     variants:
+    // })
+
+    let fields = match &input.data {
+        Data::Struct(DataStruct {
+            fields: Fields::Named(fields),
+            ..
+        }) => &fields.named,
+        Data::Struct(DataStruct {
+            fields: Fields::Unnamed(fields),
+            ..
+        }) => &fields.unnamed,
+        _ => panic!("expected a struct with named or unnamed fields"),
+    };
+
+    let field_name = fields.iter().map(|field| &field.ident);
+    let field_name2 = field_name.clone();
+    let field_type = fields.iter().map(|field| &field.ty);
+    let field_type2 = field_type.clone();
+
+    let number_of_fields = fields.iter().collect::<Vec<&syn::Field>>().len();
+
+    let gen = quote! {
+
+        impl crate::rvals::CustomType for #name {
+            fn box_clone(&self) -> Box<dyn CustomType> {
+                Box::new((*self).clone())
+            }
+            fn as_any(&self) -> Box<dyn Any> {
+                Box::new((*self).clone())
+            }
+            fn new_steel_val(&self) -> SteelVal {
+                SteelVal::Custom(Box::new(self.clone()))
+            }
+            fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+                let mut buf = String::new();
+                write!(buf, "{:?}", &self)?;
+                Ok(buf)
+            }
+        }
+
+        impl From<#name> for SteelVal {
+            fn from(val: #name) -> SteelVal {
+                val.new_steel_val()
+            }
+        }
+
+        impl TryFrom<SteelVal> for #name {
+            type Error = SteelErr;
+            fn try_from(value: SteelVal) -> std::result::Result<#name, Self::Error> {
+                unwrap!(value.clone(), #name)
+            }
+        }
+
+        impl TryFrom<&SteelVal> for #name {
+            type Error = SteelErr;
+            fn try_from(value: &SteelVal) -> std::result::Result<#name, Self::Error> {
+                unwrap!(value.clone(), #name)
+            }
+        }
+
+        impl crate::rvals::StructFunctions for #name {
+            fn generate_bindings() -> Vec<(String, SteelVal)> {
+                use std::convert::TryFrom;
+                use std::convert::TryInto;
+                use steel::rvals::SteelVal;
+                use steel::rerrs::SteelErr;
+                use steel::unwrap;
+                use steel::stop;
+                use std::rc::Rc;
+                let mut vec_binding = vec![];
+
+                // generate predicate
+                let name = concat!(stringify!(#name), "?").to_string();
+                let func =
+                        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
+                            if args.len() == 1 {
+                                let mut args_iter = args.into_iter();
+                                if let Some(first) = args_iter.next() {
+                                    return Ok(Rc::new(SteelVal::BoolV(unwrap!((*first).clone(), #name).is_ok())));
+                                }
+                                stop!(ArityMismatch => concat!(stringify!(#name), "? expected one argument"));
+                            }
+                            stop!(ArityMismatch => concat!(stringify!(#name), "? expected one argument"));
+                    });
+                vec_binding.push((name, func));
+
+                // generate constructor
+                let name = concat!(stringify!(#name)).to_string();
+                let func =
+                        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
+
+                            if args.len() != #number_of_fields {
+                                steel::stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", stringify!(#name), #number_of_fields.to_string(), args.len()))
+                            }
+
+                            let mut args_iter = args.into_iter();
+
+                            let new_struct = #name {
+                                #(
+                                    #field_name2: {
+                                    if let Some(arg) = args_iter.next() {
+                                        match arg.as_ref() {
+                                            SteelVal::Custom(_) => unwrap!((*arg).clone(), #field_type2)?,
+                                            _ => <#field_type2>::try_from(&(*arg).clone())?
+                                        }
+                                    } else {
+                                        stop!(ArityMismatch => concat!(stringify!(#name), "expected", stringify!(#number_of_fields),  "arguments"));
+                                    }},
+
+                                )*
+                            };
+                            Ok(Rc::new(new_struct.new_steel_val()))
+                        });
+                vec_binding.push((name, func));
+
+                #(
+                    // generate setters
+                    let name = concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!").to_string();
+                    let func =
+                            SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
+                            let arity = args.len();
+
+                            if arity != 2 {
+                                stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!"), 2, arity));
+                            }
+
+                            let mut args_iter = args.into_iter();
+                            if let (Some(first), Some(second)) = (args_iter.next(), args_iter.next()) {
+                                let mut my_struct = unwrap!((*first).clone(), #name)?;
+                                my_struct.#field_name = match second.as_ref() {
+                                    SteelVal::Custom(_) => {
+                                        unwrap!((*second).clone(), #field_type)?
+                                    },
+                                    _ => {
+                                        <#field_type>::try_from(&(*second).clone())?
+                                        }
+                                };
+                                return Ok(Rc::new(my_struct.new_steel_val()));
+                            } else {
+                                stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!"), 2, arity));
+                            }
+                        });
+                    vec_binding.push((name, func));
+
+                    // generate getters
+                    let name = concat!(stringify!(#name), "-", stringify!(#field_name)).to_string();
+                    let func =
+                            SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
+                                let arity = args.len();
+                                if arity != 1 {
+                                    stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!(stringify!(#name), "-", stringify!(#field_name)), 1, arity));
+                                }
+                                let mut args_iter = args.into_iter();
+                                if let Some(first) = args_iter.next() {
+                                    let my_struct = unwrap!((*first).clone(), #name)?;
+                                    let return_val: SteelVal = my_struct.#field_name.try_into()?; // TODO
+                                    return Ok(Rc::new(return_val));
+                                }
+                                stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!(stringify!(#name), "-", stringify!(#field_name)), 2, arity));
+                        });
+                    vec_binding.push((name, func));
+                ) *
+                vec_binding
+            }
+        }
+    };
+
+    gen.into()
+}
 
 /// Derives the `CustomType` trait for the given struct, and also implements the
 /// `StructFunctions` trait, which generates the predicate, constructor, and the getters
