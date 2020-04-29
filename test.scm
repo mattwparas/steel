@@ -23,7 +23,14 @@
 ; 	 (begin e2 ...)
 ; 	 (cond c1 ...)))))
 
-
+(define-syntax for
+  (syntax-rules (in as)
+    [(for element in lst body ...)
+     (map (lambda (element)
+            (begin
+                body
+                ...))
+          lst)]))
 
 (define-syntax or
     (syntax-rules ()
@@ -75,6 +82,17 @@
 (unless #t (displayln "unless shouldn't print"))
 (unless #f (displayln "hello world unless!"))
 
+; (define-syntax while
+;     (syntax-rules (do)
+;         [(while cond do body ...)
+;             (begin
+;                 (define (loop) 
+;                     (when cond 
+;                         (begin
+;                             body ...
+;                             (loop))))
+;                 (loop)))])
+
 (define-syntax while
     (syntax-rules (do)
         [(while cond do body ...)
@@ -98,6 +116,5 @@
 (displayln (and #t #t #t #t #f))
 
 
-; VectorVal([Atom(Identifier("let")), 
-;     VectorVal([VectorVal([Atom(Identifier("##loop")), 
-;     VectorVal([Atom(Identifier("lambda")), VectorVal([]), VectorVal([Atom(Identifier("when")), VectorVal([Atom(Identifier(">")), Atom(Identifier("x")), Atom(NumberLiteral(0.0))]), VectorVal([Atom(Identifier("begin")), VectorVal([Atom(Identifier("displayln")), Atom(Identifier("x"))]), VectorVal([Atom(Identifier("set!")), Atom(Identifier("x")), VectorVal([Atom(Identifier("-")), Atom(Identifier("x")), Atom(NumberLiteral(1.0))])]), VectorVal([Atom(Identifier("##loop"))])])])])])]), VectorVal([Atom(Identifier("##loop"))])])
+(for i in (range 0 10) (displayln i))
+

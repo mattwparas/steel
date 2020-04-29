@@ -235,7 +235,7 @@ impl MacroPattern {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MacroCase {
     args: Vec<MacroPattern>,
     body: Rc<Expr>,
@@ -286,6 +286,54 @@ impl MacroCase {
                     .collect(),
             )),
         }
+    }
+
+    fn recursive_match(&self, list_of_tokens: &[Rc<Expr>]) -> bool {
+        Self::match_vec_pattern_to_list_of_tokens(&self.args, list_of_tokens)
+    }
+
+    fn match_vec_pattern_to_list_of_tokens(
+        args: &[MacroPattern],
+        list_of_tokens: &[Rc<Expr>],
+    ) -> bool {
+        let mut token_iter = list_of_tokens.iter();
+        for pat in args {
+            if let Some(val) = token_iter.next() {
+                match pat {
+                    MacroPattern::Single(_) => {
+                        continue;
+                    }
+                    MacroPattern::Syntax(v) => {
+                        if let Expr::Atom(Identifier(s)) = val.as_ref() {
+                            if s == v {
+                                continue;
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                    MacroPattern::Many => {
+                        return true;
+                    }
+                    MacroPattern::Nested(vec) => {
+                        if let Expr::VectorVal(l) = val.as_ref() {
+                            if Self::match_vec_pattern_to_list_of_tokens(&vec, l) {
+                                continue;
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                }
+            } else {
+                true;
+            }
+        }
+        true
     }
 
     // be able to recognize deep patterns like let
@@ -388,6 +436,9 @@ impl MacroCase {
                 }
                 // bind the ellipses to the rest of the statement
                 MacroPattern::Many => {
+                    // if let None = token_iter.next() {
+                    //     break;
+                    // }
                     let rest: Vec<Rc<Expr>> = token_iter.collect();
                     bindings.insert("...".to_string(), Rc::new(Expr::VectorVal(rest)));
                     break;
@@ -632,15 +683,24 @@ impl SteelMacro {
     // Get rid of the nasty clone here
     // this really might not work but...
     // its worth a shot
+
+    // fn match_vec_patter_to_list_of_tokens
+
     fn match_case(&self, list_of_tokens: &[Rc<Expr>]) -> Result<&MacroCase> {
         // println!("{}", list_of_tokens.len());
         for case in &self.cases {
-            // println!("{}", case.arity());
-            if case.has_ellipses() && list_of_tokens.len() >= case.arity() {
-                return Ok(case);
-            } else if case.arity() == list_of_tokens.len() {
+            // println!("{:?}", case);
+            // println!("{:?}", list_of_tokens);
+
+            if case.recursive_match(list_of_tokens) {
                 return Ok(case);
             }
+
+            // if case.has_ellipses() && list_of_tokens.len() >= case.arity() {
+            //     return Ok(case);
+            // } else if case.arity() == list_of_tokens.len() {
+            //     return Ok(case);
+            // }
         }
         stop!(ArityMismatch => "macro expansion could not match case")
     }
