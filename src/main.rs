@@ -138,12 +138,12 @@ pub enum Foo {
 // Discriminant::Baz ;; 2
 // Discriminant::Bat ;; 3
 // (Discriminant->list) ;; '(Discriminant::Bar, Discriminant::Baz, Discriminant::Bat)
-#[derive(EnumTest)]
-pub enum Discriminant {
-    Bar = 1,
-    Baz = 2,
-    Bat = 3,
-}
+// #[derive(EnumTest)]
+// pub enum Discriminant {
+//     Bar = 1,
+//     Baz = 2,
+//     Bat = 3,
+// }
 
 impl CoolTest {
     // #[method]

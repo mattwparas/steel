@@ -12,25 +12,57 @@
 ;     ((let ((var val) ...) body ...)
 ;       ((lambda (var ...) body ...) val ...))))
 
+; (cond
+;     ([test-expr then-expr] ...)
+;     [else else-expr])
+
+; (pattern ...) => Many(pattern) ?
+
+
+; [(my-cond [test-expr then-expr] ...]
+
+; Handle multiple ellipses
+; (define-syntax test-cond
+;     (syntax-rules (else)
+;         [(test-cond [else e1 ...])
+;             (begin e1 ...)]
+;         [(test-cond [e1 e2 ...])
+;             (when e1 e2 ...)]
+;         [(my-cond [e1 e2 ...] c1 ...)
+;             (if e1
+;                 (begin e2 ...)
+;                 (cond c1 ...))]))
+
+;; maybe treat the `variable ...` as one thing?
+
 ; (define-syntax my-cond
 ;   (syntax-rules (else)
-;     ((_ (else e1 ...))
-;      (begin e1 ...))
-;     ((_ (e1 e2 ...))
-;      (when e1 e2 ...))
-;     ((_ (e1 e2 ...) c1 ...)
+;     [(my-cond [else e1 ...])
+;      (begin e1 ...)]
+;     [(my-cond (e1 e2 ...))
+;      (when e1 e2 ...)]
+;     [(my-cond (e1 e2 ...) c1 ...)
 ;      (if e1 
-; 	 (begin e2 ...)
-; 	 (cond c1 ...)))))
+; 	    (begin e2 ...)
+; 	    (cond c1 ...))]))
+
+(define-syntax map-test
+    (syntax-rules ()
+        [(map-test (x ...) lst)
+            (map (lambda (v) (x ... v)) lst)]))
+
+(displayln (map-test (* 2) (list 1 2 3 4)))
 
 (define-syntax for
   (syntax-rules (in as)
     [(for element in lst body ...)
-     (map (lambda (element)
+     (begin
+          (map (lambda (element)
             (begin
                 body
                 ...))
-          lst)]))
+          lst)
+          void)]))
 
 (define-syntax or
     (syntax-rules ()
@@ -49,13 +81,13 @@
 
 (define-syntax when
     (syntax-rules ()
-        [(when a b)
-            (if a b void)]))
+        [(when a b ...)
+            (if a (begin b ...) void)]))
 
 (define-syntax unless
     (syntax-rules ()
-        [(unless a b)
-            (if a void b)]))
+        [(unless a b ...)
+            (if a void (begin b ...))]))
 
 (define-syntax swap
     (syntax-rules ()

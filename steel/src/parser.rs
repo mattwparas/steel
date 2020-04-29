@@ -17,6 +17,15 @@ pub enum Expr {
     VectorVal(Vec<Rc<Expr>>),
 }
 
+impl Expr {
+    // pub fn vector_val_or_else<E, F: FnOnce() -> E>(self, err: F) -> Result<T, E> {
+    //     match self {
+    //         Some(v) => Ok(v),
+    //         None => Err(err()),
+    //     }
+    // }
+}
+
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

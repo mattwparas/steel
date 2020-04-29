@@ -3,6 +3,8 @@ extern crate steel;
 use crate::steel::interpreter::evaluator::Evaluator;
 use helpers::*;
 
+use steel::stdlib::PRELUDE;
+
 #[test]
 fn basic_test() {
     test_from_files("input_tests.rkt", "output_tests.rkt");
@@ -150,6 +152,7 @@ fn let_test() {
 #[test]
 fn and_test() {
     let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(and #t #f)", &["#false"], e);
     test_line("(and #t #t)", &["#true"], e);
@@ -162,6 +165,7 @@ fn and_test() {
 #[test]
 fn or_test() {
     let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(or #t #f)", &["#true"], e);
     test_line("(or #t #t)", &["#true"], e);

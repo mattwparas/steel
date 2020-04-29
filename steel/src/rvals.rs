@@ -221,16 +221,24 @@ impl PartialOrd for SteelVal {
 pub enum MacroPattern {
     Single(String),
     Syntax(String),
-    Many,
+    Many(String),
     Nested(Vec<MacroPattern>),
 }
 
 impl MacroPattern {
-    pub fn deconstruct(&self) -> Option<String> {
-        if let Self::Single(s) = self {
-            Some(s.clone())
-        } else {
-            None
+    // TODO make this not so trash
+    pub fn deconstruct(&self) -> Option<Vec<String>> {
+        match self {
+            Self::Syntax(s) => Some(vec![s.clone()]),
+            Self::Single(s) => Some(vec![s.clone()]),
+            Self::Many(s) => Some(vec![s.clone()]),
+            Self::Nested(v) => Some(
+                v.into_iter()
+                    .filter_map(|x| x.deconstruct())
+                    .flatten()
+                    .collect(),
+            ),
+            // _ => None,
         }
     }
 }
@@ -264,7 +272,11 @@ impl MacroCase {
     ) -> Rc<Expr> {
         // unimplemented!()
         let env = Rc::clone(env);
-        let args_str: Vec<String> = args.iter().filter_map(|x| x.deconstruct()).collect();
+        let args_str: Vec<String> = args
+            .iter()
+            .filter_map(|x| x.deconstruct())
+            .flatten()
+            .collect();
         match expr.as_ref() {
             Expr::Atom(t) => {
                 if let Identifier(s) = t {
@@ -298,6 +310,7 @@ impl MacroCase {
     ) -> bool {
         let mut token_iter = list_of_tokens.iter();
         for pat in args {
+            // println!("Matching pattern: {:?}", pat);
             if let Some(val) = token_iter.next() {
                 match pat {
                     MacroPattern::Single(_) => {
@@ -305,7 +318,7 @@ impl MacroCase {
                     }
                     MacroPattern::Syntax(v) => {
                         if let Expr::Atom(Identifier(s)) = val.as_ref() {
-                            if s == v {
+                            if s == v || v == "_" {
                                 continue;
                             } else {
                                 return false;
@@ -314,11 +327,16 @@ impl MacroCase {
                             return false;
                         }
                     }
-                    MacroPattern::Many => {
-                        return true;
+                    // TODO come back here
+                    MacroPattern::Many(_) => {
+                        // return true;
+                        continue;
                     }
                     MacroPattern::Nested(vec) => {
+                        // println!("matching a nested: {:?}", pat);
+                        // println!("trying to match with {:?}", val);
                         if let Expr::VectorVal(l) = val.as_ref() {
+                            // println!("found a vector val!");
                             if Self::match_vec_pattern_to_list_of_tokens(&vec, l) {
                                 continue;
                             } else {
@@ -343,15 +361,27 @@ impl MacroCase {
         list_of_tokens: &[Rc<Expr>],
     ) -> Result<Vec<MacroPattern>> {
         let mut pattern_vec: Vec<MacroPattern> = Vec::new();
-        for token in list_of_tokens {
+        let mut peek_token_iter = list_of_tokens.iter().peekable();
+
+        while let Some(token) = peek_token_iter.next() {
             match token.as_ref() {
                 Expr::Atom(Identifier(t)) => {
                     if t == macro_name || special_forms.contains(t) {
                         pattern_vec.push(MacroPattern::Syntax(t.clone()))
-                    } else if t == "..." {
-                        pattern_vec.push(MacroPattern::Many)
                     } else {
-                        pattern_vec.push(MacroPattern::Single(t.clone()))
+                        if let Some(nxt) = peek_token_iter.peek() {
+                            if let Expr::Atom(Identifier(n)) = nxt.as_ref() {
+                                if n == "..." {
+                                    peek_token_iter.next();
+                                    pattern_vec.push(MacroPattern::Many(t.clone()))
+                                } else {
+                                    pattern_vec.push(MacroPattern::Single(t.clone()))
+                                }
+                            }
+                        } else {
+                            pattern_vec.push(MacroPattern::Single(t.clone()));
+                        }
+                        // pattern_vec.push(MacroPattern::Single(t.clone()))
                     }
                 }
                 Expr::VectorVal(l) => {
@@ -365,19 +395,31 @@ impl MacroCase {
                 }
                 _ => stop!(BadSyntax => "syntax-rules requires identifiers in the pattern"),
             }
-
-            // if let Expr::Atom(Identifier(t)) = token.as_ref() {
-            //     if t == macro_name || special_forms.contains(t) {
-            //         pattern_vec.push(MacroPattern::Syntax(t.clone()))
-            //     } else if t == "..." {
-            //         pattern_vec.push(MacroPattern::Many)
-            //     } else {
-            //         pattern_vec.push(MacroPattern::Single(t.clone()))
-            //     }
-            // } else {
-            //     stop!(BadSyntax => "syntax-rules requires identifiers in the pattern")
-            // }
         }
+
+        // for token in list_of_tokens {
+        //     match token.as_ref() {
+        //         Expr::Atom(Identifier(t)) => {
+        //             if t == macro_name || special_forms.contains(t) {
+        //                 pattern_vec.push(MacroPattern::Syntax(t.clone()))
+        //             } else if t == "..." {
+        //                 pattern_vec.push(MacroPattern::Many)
+        //             } else {
+        //                 pattern_vec.push(MacroPattern::Single(t.clone()))
+        //             }
+        //         }
+        //         Expr::VectorVal(l) => {
+        //             //
+        //             // unimplemented!()
+        //             pattern_vec.push(MacroPattern::Nested(Self::parse_pattern_into_vec(
+        //                 macro_name,
+        //                 special_forms,
+        //                 l,
+        //             )?))
+        //         }
+        //         _ => stop!(BadSyntax => "syntax-rules requires identifiers in the pattern"),
+        //     }
+        // }
         Ok(pattern_vec)
     }
 
@@ -391,6 +433,7 @@ impl MacroCase {
             if let Expr::VectorVal(pattern_expr_vec) = pattern_expr.as_ref() {
                 let args =
                     Self::parse_pattern_into_vec(macro_name, special_forms, pattern_expr_vec)?;
+                // println!("{:?}", args);
                 let renamed_body = Self::rename_identifiers(Rc::clone(body_expr), env, &args);
                 Ok(MacroCase::new(args, renamed_body))
             } else {
@@ -401,17 +444,16 @@ impl MacroCase {
         }
     }
 
-    // let recursive macros handle themselves - only expand the case that it can and then move on
-    fn replace_exprs_in_body(&self, list_of_tokens: &[Rc<Expr>]) -> Result<Rc<Expr>> {
-        // bind list_of_tokens to variable
-        // unimplemented!();
-        let mut bindings: HashMap<String, Rc<Expr>> = HashMap::new();
+    // count up the "..." and increment them?
+    // TODO
+    fn collect_bindings(
+        args: &[MacroPattern],
+        list_of_tokens: &[Rc<Expr>],
+        bindings: &mut HashMap<String, Rc<Expr>>,
+    ) -> Result<()> {
         let mut token_iter = list_of_tokens.into_iter().map(|x| Rc::clone(x));
 
-        // println!("{:?}", self.args.clone());
-        // println!("{:?}", list_of_tokens.clone());
-
-        for arg in &self.args {
+        for arg in args {
             match arg {
                 // bind the expression to the variable
                 MacroPattern::Single(s) => {
@@ -434,26 +476,58 @@ impl MacroCase {
                         stop!(BadSyntax => "macro expansion expected keyword")
                     }
                 }
+                // TODO
                 // bind the ellipses to the rest of the statement
-                MacroPattern::Many => {
+                MacroPattern::Many(ident) => {
                     // if let None = token_iter.next() {
                     //     break;
                     // }
                     let rest: Vec<Rc<Expr>> = token_iter.collect();
-                    bindings.insert("...".to_string(), Rc::new(Expr::VectorVal(rest)));
+                    // let x = 0;
+                    bindings.insert(ident.to_string(), Rc::new(Expr::VectorVal(rest)));
                     break;
                 }
-                MacroPattern::Nested(_children) => {
+                MacroPattern::Nested(children) => {
                     // TODO
-                    unimplemented!()
+                    // println!("nested pattern");
+                    // unimplemented!();
+
+                    if let Some(child) = token_iter.next() {
+                        if let Expr::VectorVal(child_vec) = child.as_ref() {
+                            Self::collect_bindings(&children, &child_vec, bindings)?;
+                        } else {
+                            panic!("1111111");
+                            // unimplemented!();
+                        }
+                    } else {
+                        panic!("2222222");
+                        // unimplemented!();
+                    }
                 }
             }
         }
+
+        Ok(())
+    }
+
+    // let recursive macros handle themselves - only expand the case that it can and then move on
+    fn replace_exprs_in_body(&self, list_of_tokens: &[Rc<Expr>]) -> Result<Rc<Expr>> {
+        // bind list_of_tokens to variable
+        // unimplemented!();
+        let mut bindings: HashMap<String, Rc<Expr>> = HashMap::new();
+        // let mut token_iter = list_of_tokens.into_iter().map(|x| Rc::clone(x));
+
+        Self::collect_bindings(&self.args, list_of_tokens, &mut bindings)?;
+
         Ok(Self::recursive_replace(Rc::clone(&self.body), &bindings))
     }
 
     pub fn arity(&self) -> usize {
-        self.args.len()
+        self.args
+            .iter()
+            .map(|x| if let MacroPattern::Many(_) = x { 2 } else { 1 })
+            .sum()
+        // self.args.len()
     }
 
     // TODO also fix this
@@ -461,7 +535,7 @@ impl MacroCase {
         self.args
             .iter()
             .find(|x| {
-                if let MacroPattern::Many = x {
+                if let MacroPattern::Many(_) = x {
                     true
                 } else {
                     false
@@ -501,65 +575,57 @@ impl MacroCase {
                 // unimplemented!();
                 let mut vec_exprs = vec_exprs.clone();
 
+                // TODO find this issue
+                // Go to the position before the ellipses, look up that variable, insert all the expressions
+                // you can there
                 // find where the "..." is and insert all of the expressions there first
                 if let Some(ellipses_pos) = vec_exprs.iter().position(Self::check_ellipses) {
                     // println!("Found ellipses at position : {}", ellipses_pos);
-                    if let Some(rest) = bindings.get("...") {
-                        if let Expr::VectorVal(list_of_exprs) = rest.as_ref() {
-                            let mut first_chunk = vec_exprs[0..ellipses_pos].to_vec();
-                            first_chunk.extend_from_slice(list_of_exprs.as_slice());
-                            first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
-                            vec_exprs = first_chunk;
-                        // println!("{:?}", vec_exprs.clone());
 
-                        // [Atom(Identifier("begin")),
-                        //     Atom(Identifier("body")),
-                        //     VectorVal([Atom(Identifier("set!")),
-                        //         Atom(Identifier("x")),
-                        //             VectorVal([Atom(Identifier("-")),
-                        //                 Atom(Identifier("x")), Atom(NumberLiteral(1.0))])]),
-                        //         Atom(Identifier("...")),
-                        //         VectorVal([Atom(Identifier("##loop"))])]
+                    let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).unwrap(); // TODO
+
+                    if let Expr::Atom(Identifier(m)) = variable_to_lookup.as_ref() {
+                        if let Some(rest) = bindings.get(m) {
+                            if let Expr::VectorVal(list_of_exprs) = rest.as_ref() {
+                                let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
+                                first_chunk.extend_from_slice(list_of_exprs.as_slice());
+                                first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
+                                vec_exprs = first_chunk;
+                            } else {
+                                println!("weird case?");
+                                unimplemented!()
+                            }
                         } else {
-                            unimplemented!()
+                            println!("attempting to lookup: {}", m);
+                            println!("{:?}", bindings);
+                            panic!("3333333");
+                            // unimplemented!();
                         }
+                    } else {
+                        panic!("44444444");
+                        // unimplemented!();
+                    }
 
-                    // // TODO
-                    // if ellipses_pos == (vec_exprs.len() - 1) {
-                    //     if let Expr::VectorVal(list_of_exprs) = rest.as_ref() {
-                    //         let mut temp_exprs = vec_exprs.clone();
-                    //         temp_exprs.extend_from_slice(list_of_exprs.as_slice());
-                    //         vec_exprs = temp_exprs;
-                    //     } else {
-                    //         unimplemented!();
-                    //     }
-                    // // let vec_exprs = vec_exprs
-                    // } else {
-                    //     // case where the ellipses are not at the end of the expression
+                    // OLD one
+                    // if let Some(rest) = bindings.get("...") {
                     //     if let Expr::VectorVal(list_of_exprs) = rest.as_ref() {
                     //         let mut first_chunk = vec_exprs[0..ellipses_pos].to_vec();
                     //         first_chunk.extend_from_slice(list_of_exprs.as_slice());
                     //         first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
                     //         vec_exprs = first_chunk;
-                    //         println!("{:?}", vec_exprs.clone());
-
-                    //     // [Atom(Identifier("begin")),
-                    //     //     Atom(Identifier("body")),
-                    //     //     VectorVal([Atom(Identifier("set!")),
-                    //     //         Atom(Identifier("x")),
-                    //     //             VectorVal([Atom(Identifier("-")),
-                    //     //                 Atom(Identifier("x")), Atom(NumberLiteral(1.0))])]),
-                    //     //         Atom(Identifier("...")),
-                    //     //         VectorVal([Atom(Identifier("##loop"))])]
                     //     } else {
+                    //         println!("weird case?");
                     //         unimplemented!()
                     //     }
+                    // } else {
+                    //     // figure out TODO
+                    //     unimplemented!()
                     // }
-                    } else {
-                        // figure out TODO
-                        unimplemented!()
-                    }
                 }
+                // else {
+                //     panic!("55555555");
+                //     // unimplemented!();
+                // }
 
                 Rc::new(Expr::VectorVal(
                     vec_exprs
@@ -573,7 +639,7 @@ impl MacroCase {
 }
 
 // rename identifiers used inside the macro as ##identifier
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SteelMacro {
     name: String,
     special_forms: Vec<String>,
@@ -608,51 +674,101 @@ impl SteelMacro {
         let mut special_forms_vec: Vec<String> = Vec::new();
         let mut cases_vec: Vec<MacroCase> = Vec::new();
 
-        if let Some(iden) = token_iter.next() {
-            if let Expr::Atom(Identifier(name)) = iden.as_ref() {
-                // make sure that we have found "syntax-rules" at the start of this
-                if name != "syntax-rules" {
-                    stop!(BadSyntax => "macro-expansion failed: expected syntax-rules")
-                }
+        let iden = token_iter.next().ok_or_else(|| {
+            SteelErr::ArityMismatch(
+                "syntax-rules expected an identifier in the first argument".to_string(),
+            )
+        })?;
 
-                if let Some(special_syntax) = token_iter.next() {
-                    if let Expr::VectorVal(list_of_idents) = special_syntax.as_ref() {
-                        // parse each special form inside the syntax-rules
-                        for special_form in list_of_idents {
-                            if let Expr::Atom(Identifier(name)) = special_form.as_ref() {
-                                special_forms_vec.push(name.clone())
-                            } else {
-                                stop!(TypeMismatch => "syntax-rules expected a list of identifiers")
-                            }
-                        }
+        if let Expr::Atom(Identifier(name)) = iden.as_ref() {
+            // make sure that we have found "syntax-rules" at the start of this
+            if name != "syntax-rules" {
+                stop!(BadSyntax => "macro-expansion failed: expected syntax-rules")
+            }
 
-                        // walk through cases and parse each individually
-                        while let Some(next_case) = token_iter.next() {
-                            if let Expr::VectorVal(list_of_tokens_cases) = next_case.as_ref() {
-                                cases_vec.push(MacroCase::parse_from_tokens(
-                                    &macro_name,
-                                    &special_forms_vec,
-                                    list_of_tokens_cases,
-                                    env,
-                                )?)
-                            } else {
-                                unimplemented!()
-                            }
-                        }
+            let special_syntax = token_iter.next().ok_or_else(|| {
+                SteelErr::ArityMismatch("syntax-rules expected a list of identifiers".to_string())
+            })?;
 
-                        Ok(SteelMacro::new(macro_name, special_forms_vec, cases_vec))
+            if let Expr::VectorVal(list_of_idents) = special_syntax.as_ref() {
+                // parse each special form inside the syntax-rules
+                for special_form in list_of_idents {
+                    if let Expr::Atom(Identifier(name)) = special_form.as_ref() {
+                        special_forms_vec.push(name.clone())
                     } else {
                         stop!(TypeMismatch => "syntax-rules expected a list of identifiers")
                     }
-                } else {
-                    stop!(ArityMismatch => "syntax-rules expected a list of identifiers")
                 }
+
+                // walk through cases and parse each individually
+                while let Some(next_case) = token_iter.next() {
+                    if let Expr::VectorVal(list_of_tokens_cases) = next_case.as_ref() {
+                        cases_vec.push(MacroCase::parse_from_tokens(
+                            &macro_name,
+                            &special_forms_vec,
+                            list_of_tokens_cases,
+                            env,
+                        )?)
+                    } else {
+                        println!("got here?");
+                        unimplemented!()
+                    }
+                }
+
+                Ok(SteelMacro::new(macro_name, special_forms_vec, cases_vec))
             } else {
-                stop!(TypeMismatch => "syntax-rules expected an identifier in the first argument")
+                stop!(TypeMismatch => "syntax-rules expected a list of identifiers")
             }
         } else {
-            stop!(ArityMismatch => "syntax-rules expected an identifier in the first argument")
+            stop!(TypeMismatch => "syntax-rules expected an identifier in the first argument")
         }
+
+        // if let Some(iden) = token_iter.next() {
+        //     if let Expr::Atom(Identifier(name)) = iden.as_ref() {
+        //         // make sure that we have found "syntax-rules" at the start of this
+        //         if name != "syntax-rules" {
+        //             stop!(BadSyntax => "macro-expansion failed: expected syntax-rules")
+        //         }
+
+        //         if let Some(special_syntax) = token_iter.next() {
+        //             if let Expr::VectorVal(list_of_idents) = special_syntax.as_ref() {
+        //                 // parse each special form inside the syntax-rules
+        //                 for special_form in list_of_idents {
+        //                     if let Expr::Atom(Identifier(name)) = special_form.as_ref() {
+        //                         special_forms_vec.push(name.clone())
+        //                     } else {
+        //                         stop!(TypeMismatch => "syntax-rules expected a list of identifiers")
+        //                     }
+        //                 }
+
+        //                 // walk through cases and parse each individually
+        //                 while let Some(next_case) = token_iter.next() {
+        //                     if let Expr::VectorVal(list_of_tokens_cases) = next_case.as_ref() {
+        //                         cases_vec.push(MacroCase::parse_from_tokens(
+        //                             &macro_name,
+        //                             &special_forms_vec,
+        //                             list_of_tokens_cases,
+        //                             env,
+        //                         )?)
+        //                     } else {
+        //                         println!("got here?");
+        //                         unimplemented!()
+        //                     }
+        //                 }
+
+        //                 Ok(SteelMacro::new(macro_name, special_forms_vec, cases_vec))
+        //             } else {
+        //                 stop!(TypeMismatch => "syntax-rules expected a list of identifiers")
+        //             }
+        //         } else {
+        //             stop!(ArityMismatch => "syntax-rules expected a list of identifiers")
+        //         }
+        //     } else {
+        //         stop!(TypeMismatch => "syntax-rules expected an identifier in the first argument")
+        //     }
+        // } else {
+        //     stop!(ArityMismatch => "syntax-rules expected an identifier in the first argument")
+        // }
     }
 
     // TODO
@@ -680,27 +796,19 @@ impl SteelMacro {
     }
 
     // TODO
-    // Get rid of the nasty clone here
-    // this really might not work but...
     // its worth a shot
-
-    // fn match_vec_patter_to_list_of_tokens
-
     fn match_case(&self, list_of_tokens: &[Rc<Expr>]) -> Result<&MacroCase> {
-        // println!("{}", list_of_tokens.len());
         for case in &self.cases {
-            // println!("{:?}", case);
-            // println!("{:?}", list_of_tokens);
-
-            if case.recursive_match(list_of_tokens) {
-                return Ok(case);
+            // println!("{}, {}", list_of_tokens.len(), case.arity());
+            // TODO this should actually be `case.arity() - num_ellipses_in_top_level`
+            if (case.has_ellipses() && list_of_tokens.len() >= (case.arity() - 1))
+                || case.arity() == list_of_tokens.len()
+            {
+                // println!("got inside the if");
+                if case.recursive_match(list_of_tokens) {
+                    return Ok(case);
+                }
             }
-
-            // if case.has_ellipses() && list_of_tokens.len() >= case.arity() {
-            //     return Ok(case);
-            // } else if case.arity() == list_of_tokens.len() {
-            //     return Ok(case);
-            // }
         }
         stop!(ArityMismatch => "macro expansion could not match case")
     }
