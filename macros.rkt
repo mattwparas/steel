@@ -21,9 +21,7 @@
     [(for element in lst body ...)
      (begin
           (map (lambda (element)
-            (begin
-                body
-                ...))
+              body ...)
           lst)
           void)]))
 
@@ -110,19 +108,32 @@
 (unless #t (displayln "unless shouldn't print"))
 (unless #f (displayln "hello world unless!"))
 
+; (define-syntax while
+;   (syntax-rules (do)
+;     [(while cond do body ...)
+;      (begin
+;        (define (loop) 
+;          (when cond 
+;              body ...
+;              (loop)))
+;        (loop))]
+;     [(while cond body ...)
+;      (begin (define (loop)
+;               (when cond body ... (loop)))
+;             (loop))]))
+
 (define-syntax while
   (syntax-rules (do)
     [(while cond do body ...)
      (begin
        (define (loop) 
          (when cond 
-           (begin
              body ...
-             (loop))))
+             (loop)))
        (loop))]
     [(while cond body ...)
      (begin (define (loop)
-              (when cond (begin body ... (loop))))
+              (when cond body ... (loop)))
             (loop))]))
 
 (define x 10)
