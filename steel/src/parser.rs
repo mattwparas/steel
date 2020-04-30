@@ -18,12 +18,27 @@ pub enum Expr {
 }
 
 impl Expr {
-    // pub fn vector_val_or_else<E, F: FnOnce() -> E>(self, err: F) -> Result<T, E> {
-    //     match self {
-    //         Some(v) => Ok(v),
-    //         None => Err(err()),
-    //     }
-    // }
+    pub fn vector_val_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&[Rc<Expr>], E> {
+        match self {
+            Self::VectorVal(v) => Ok(v),
+            Self::Atom(_) => Err(err()),
+        }
+    }
+
+    pub fn atom_identifier_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&str, E> {
+        match self {
+            Self::Atom(Token::Identifier(s)) => Ok(s),
+            _ => Err(err()),
+        }
+    }
+
+    // pub fn
 }
 
 impl fmt::Display for Expr {

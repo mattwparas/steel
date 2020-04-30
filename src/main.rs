@@ -31,7 +31,7 @@ use std::convert::TryFrom;
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
-use steel_derive::EnumTest;
+// use steel_derive::EnumTest;
 
 extern crate reqwest;
 
