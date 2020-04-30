@@ -17,5 +17,4 @@ jobs:
       - name: Run tests
         run: cd steel; cargo test --verbose --features colors_off
       - name: rust-tarpaulin
-        run: cd steel;
         uses: actions-rs/tarpaulin@v0.1.0
