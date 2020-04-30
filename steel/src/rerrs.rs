@@ -40,3 +40,16 @@ macro_rules! stop {
         return Err(SteelErr::$type(($thing).to_string()));
     };
 }
+
+#[macro_export]
+macro_rules! throw {
+    ($type:ident) => {
+        || SteelErr::$type
+    };
+    ($type:ident => $fmt:expr, $($arg:tt)+) => {
+        || SteelErr::$type(format!($fmt, $($arg)+))
+    };
+    ($type:ident => $thing:expr) => {
+        || SteelErr::$type(($thing).to_string())
+    };
+}

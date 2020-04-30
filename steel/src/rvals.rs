@@ -111,6 +111,101 @@ pub enum SteelVal {
     Custom(Box<dyn CustomType>),
 }
 
+impl SteelVal {
+    pub fn bool_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<bool, E> {
+        match self {
+            Self::BoolV(v) => Ok(*v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn num_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<f64, E> {
+        match self {
+            Self::NumV(v) => Ok(*v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn char_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<char, E> {
+        match self {
+            Self::CharV(v) => Ok(*v),
+            _ => Err(err()),
+        }
+    }
+
+    /// Vector does copy on the value to return
+    pub fn vector_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<Vector<SteelVal>, E> {
+        match self {
+            Self::VectorV(v) => Ok(v.clone()),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn void_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<(), E> {
+        match self {
+            Self::Void => Ok(()),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn string_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
+        match self {
+            Self::StringV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn func_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&FunctionSignature, E> {
+        match self {
+            Self::FuncV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn lambda_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&SteelLambda, E> {
+        match self {
+            Self::LambdaV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn macro_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&SteelMacro, E> {
+        match self {
+            Self::MacroV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
+        match self {
+            Self::SymbolV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn custom_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&Box<dyn CustomType>, E> {
+        match self {
+            Self::Custom(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+}
+
 impl Drop for SteelVal {
     // don't want to blow the stack with destructors,
     // but also don't want to walk the whole list.
@@ -387,11 +482,9 @@ impl MacroCase {
         env: &Rc<RefCell<Env>>,
     ) -> Result<MacroCase> {
         if let [pattern_expr, body_expr] = list_of_tokens {
-            let pattern_expr_vec = pattern_expr.as_ref().vector_val_or_else(|| {
-                SteelErr::TypeMismatch(
-                    "syntax-rules expected a pattern in the case argument".to_string(),
-                )
-            })?;
+            let pattern_expr_vec = pattern_expr.as_ref().vector_val_or_else(
+                throw!(TypeMismatch => "syntax-rules expected a pattern in the case argument"),
+            )?;
 
             let args = Self::parse_pattern_into_vec(macro_name, special_forms, pattern_expr_vec)?;
             let renamed_body = Self::rename_identifiers(Rc::clone(body_expr), env, &args);
@@ -422,12 +515,12 @@ impl MacroCase {
                 }
                 // actually check if the syntax matches
                 MacroPattern::Syntax(s) => {
-                    let e = token_iter.next().ok_or_else(|| {
-                        SteelErr::BadSyntax("macro expansion expected keyword".to_string())
-                    })?;
-                    let syn = e.as_ref().atom_identifier_or_else(|| {
-                        SteelErr::BadSyntax("macro expansion expected keyword".to_string())
-                    })?;
+                    let e = token_iter
+                        .next()
+                        .ok_or_else(throw!(BadSyntax => "macro expansion expected keyword"))?;
+                    let syn = e.as_ref().atom_identifier_or_else(
+                        throw!(BadSyntax => "macro expansion expected keyword"),
+                    )?;
                     if s != syn {
                         stop!(BadSyntax => "macro expansion expected keyword")
                     }
@@ -440,13 +533,13 @@ impl MacroCase {
                     break;
                 }
                 MacroPattern::Nested(children) => {
-                    let child = token_iter.next().ok_or_else(|| {
-                        SteelErr::ArityMismatch("Macro expected a pattern".to_string())
-                    })?;
+                    let child = token_iter
+                        .next()
+                        .ok_or_else(throw!(ArityMismatch => "Macro expected a pattern"))?;
 
-                    let child_vec = child.as_ref().vector_val_or_else(|| {
-                        SteelErr::BadSyntax("macro expected a vector of values".to_string())
-                    })?;
+                    let child_vec = child.as_ref().vector_val_or_else(
+                        throw!(BadSyntax => "macro expected a vector of values"),
+                    )?;
 
                     Self::collect_bindings(&children, child_vec, bindings)?;
                 }
@@ -520,23 +613,19 @@ impl MacroCase {
                 // you can there
                 // find where the "..." is and insert all of the expressions there first
                 if let Some(ellipses_pos) = vec_exprs.iter().position(Self::check_ellipses) {
-                    let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(|| {
-                        SteelErr::BadSyntax(
-                            "macro expansion failed, could not find variable".to_string(),
-                        )
-                    })?; // TODO
+                    let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(
+                        throw!(BadSyntax => "macro expansion failed, could not find variable"),
+                    )?; // TODO
 
                     let rest = bindings
-                        .get(variable_to_lookup.as_ref().atom_identifier_or_else(|| {
-                            SteelErr::BadSyntax("macro expansion failed".to_string())
-                        })?)
-                        .ok_or_else(|| SteelErr::BadSyntax("macro expansion failed".to_string()))?;
+                        .get(variable_to_lookup.as_ref().atom_identifier_or_else(
+                            throw!(BadSyntax => "macro expansion failed"),
+                        )?)
+                        .ok_or_else(throw!(BadSyntax => "macro expansion failed"))?;
 
-                    let list_of_exprs = rest.as_ref().vector_val_or_else(|| {
-                        SteelErr::BadSyntax(
-                            "macro expansion failed, expected list of expressions".to_string(),
-                        )
-                    })?;
+                    let list_of_exprs = rest.as_ref().vector_val_or_else(
+                        throw!(BadSyntax => "macro expansion failed, expected list of expressions"),
+                    )?;
 
                     let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
                     first_chunk.extend_from_slice(list_of_exprs);
@@ -591,58 +680,46 @@ impl SteelMacro {
         let mut special_forms_vec: Vec<String> = Vec::new();
         let mut cases_vec: Vec<MacroCase> = Vec::new();
 
-        let iden = token_iter.next().ok_or_else(|| {
-            SteelErr::ArityMismatch(
-                "syntax-rules expected an identifier in the first argument".to_string(),
-            )
-        })?;
+        let name = token_iter.next().ok_or_else(
+            throw!(ArityMismatch => "syntax-rules expected an identifier in the first argument"),
+        )?.as_ref().atom_identifier_or_else(
+            throw!(TypeMismatch => "syntax-rules expected an identifier in the first argument"),
+        )?;
 
-        if let Expr::Atom(Identifier(name)) = iden.as_ref() {
-            // make sure that we have found "syntax-rules" at the start of this
-            if name != "syntax-rules" {
-                stop!(BadSyntax => "macro-expansion failed: expected syntax-rules")
-            }
-
-            let list_of_idents = token_iter
-                .next()
-                .ok_or_else(|| {
-                    SteelErr::ArityMismatch(
-                        "syntax-rules expected a list of identifiers".to_string(),
-                    )
-                })?
-                .as_ref()
-                .vector_val_or_else(|| {
-                    SteelErr::TypeMismatch(
-                        "syntax-rules expected a list of identifiers".to_string(),
-                    )
-                })?;
-
-            // parse each special form inside the syntax-rules
-            for special_form in list_of_idents {
-                let name = special_form.as_ref().atom_identifier_or_else(|| {
-                    SteelErr::TypeMismatch(
-                        "syntax-rules expected a list of identifiers".to_string(),
-                    )
-                })?;
-                special_forms_vec.push(name.to_string())
-            }
-
-            // walk through cases and parse each individually
-            while let Some(next_case) = token_iter.next() {
-                cases_vec.push(MacroCase::parse_from_tokens(
-                    &macro_name,
-                    &special_forms_vec,
-                    next_case.as_ref().vector_val_or_else(|| {
-                        SteelErr::BadSyntax("syntax-rules expected a pattern".to_string())
-                    })?,
-                    env,
-                )?);
-            }
-
-            Ok(SteelMacro::new(macro_name, special_forms_vec, cases_vec))
-        } else {
-            stop!(TypeMismatch => "syntax-rules expected an identifier in the first argument")
+        // make sure that we have found "syntax-rules" at the start of this
+        if name != "syntax-rules" {
+            stop!(BadSyntax => "macro-expansion failed: expected syntax-rules")
         }
+
+        let list_of_idents = token_iter
+            .next()
+            .ok_or_else(throw!(ArityMismatch => "syntax-rules expected a list of identifiers"))?
+            .as_ref()
+            .vector_val_or_else(
+                throw!(TypeMismatch => "syntax-rules expected a list of identifiers"),
+            )?;
+
+        // parse each special form inside the syntax-rules
+        for special_form in list_of_idents {
+            let name = special_form.as_ref().atom_identifier_or_else(
+                throw!(TypeMismatch => "syntax-rules expected a list of identifiers"),
+            )?;
+            special_forms_vec.push(name.to_string())
+        }
+
+        // walk through cases and parse each individually
+        while let Some(next_case) = token_iter.next() {
+            cases_vec.push(MacroCase::parse_from_tokens(
+                &macro_name,
+                &special_forms_vec,
+                next_case
+                    .as_ref()
+                    .vector_val_or_else(throw!(BadSyntax => "syntax-rules expected a pattern"))?,
+                env,
+            )?);
+        }
+
+        Ok(SteelMacro::new(macro_name, special_forms_vec, cases_vec))
     }
 
     // TODO
@@ -655,17 +732,13 @@ impl SteelMacro {
         }
 
         if let [name_expr, syntax_rules_expr] = list_of_tokens {
-            let name = name_expr.as_ref().atom_identifier_or_else(|| {
-                SteelErr::TypeMismatch(
-                    "define-syntax expected a syntax-rules in the second position".to_string(),
-                )
-            })?;
+            let name = name_expr.as_ref().atom_identifier_or_else(
+                throw!(TypeMismatch => "define-syntax expected a syntax-rules in the second position"),
+            )?;
 
-            let syntax_rules_tokens = syntax_rules_expr.as_ref().vector_val_or_else(|| {
-                SteelErr::TypeMismatch(
-                    "define-syntax expected a syntax-rules in the second position".to_string(),
-                )
-            })?;
+            let syntax_rules_tokens = syntax_rules_expr.as_ref().vector_val_or_else(
+                throw!(TypeMismatch => "define-syntax expected a syntax-rules in the second position"),
+            )?;
 
             Self::parse_syntax_rules(name.to_string(), syntax_rules_tokens, env)
         } else {
