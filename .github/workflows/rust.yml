@@ -21,3 +21,8 @@ jobs:
         with:
           command: test
           args: --all
+      - name: rust-grcov
+        uses: actions-rs/grcov@v0.1.5
+        with:
+          command: test
+          args: --all
