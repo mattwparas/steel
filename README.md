@@ -2,7 +2,7 @@
 
 ![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg)
 
-[![codecov](https://codecov.io/gh/TechnionYP5777/project-name/branch/master/graph/badge.svg)](https://codecov.io/gh/mattwparas/steel)
+[![codecov](https://codecov.io/gh/mattwparas/steel/branch/rust_macros_scheme_macros/graph/badge.svg)](https://codecov.io/gh/mattwparas/steel)
 
 An embedded scheme interpreter in Rust.
 
