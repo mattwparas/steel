@@ -13,7 +13,7 @@ use std::path::Path;
 #[macro_export]
 macro_rules! build_interpreter {
 
-    ($($type:ty),*) => {
+    ($($type:ty),* $(,)?) => {
         {
             let mut interpreter = SteelInterpreter::new();
             $ (
@@ -23,7 +23,7 @@ macro_rules! build_interpreter {
         }
     };
 
-    (Structs => {$($type:ty),*} Functions => {$($binding:expr => $func:ident),*}) => {
+    (Structs => {$($type:ty),* $(,)?} Functions => {$($binding:expr => $func:ident),* $(,)?}) => {
         {
             let mut interpreter = SteelInterpreter::new();
             $ (

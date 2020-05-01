@@ -3,7 +3,6 @@ use crate::rerrs::SteelErr;
 // use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-// use im_rc::Vector;
 use std::rc::Rc;
 
 use crate::primitives::lists::ListOperations;
@@ -141,6 +140,80 @@ impl StringOperations {
 mod string_operation_tests {
     use super::*;
     use crate::throw;
+    use im_rc::Vector;
+
+    // TODO combine these 3 macros into one
+    macro_rules! apply_tests_arity_too_many {
+        ($(($name:expr, $symbol:ident, $func:expr)),* $(,)?) => {
+            $(
+                #[test]
+                pub fn $symbol() {
+                    let args = vec![
+                        SteelVal::StringV("FOO".to_string()),
+                        SteelVal::StringV("BAR".to_string()),
+                    ];
+                    let res = apply_function($func.clone(), args);
+                    let expected = SteelErr::ArityMismatch(format!("{} takes one argument", $name));
+                    assert_eq!(res.unwrap_err(), expected);
+                }
+            )*
+        };
+    }
+
+    macro_rules! apply_tests_arity_too_few {
+        ($(($name:expr, $symbol:ident, $func:expr)),* $(,)?) => {
+            $(
+                #[test]
+                pub fn $symbol() {
+                    let args = vec![];
+                    let res = apply_function($func.clone(), args);
+                    let expected = SteelErr::ArityMismatch(format!("{} takes one argument", $name));
+                    assert_eq!(res.unwrap_err(), expected);
+                }
+            )*
+        };
+    }
+
+    macro_rules! apply_tests_bad_arg {
+        ($(($name:expr, $symbol:ident, $func:expr)),* $(,)?) => {
+            $(
+                #[test]
+                pub fn $symbol() {
+                    let args = vec![SteelVal::NumV(10.0)];
+                    let res = apply_function($func.clone(), args);
+                    let expected = SteelErr::TypeMismatch(format!("{} expected a string", $name));
+                    assert_eq!(res.unwrap_err(), expected);
+                }
+            )*
+        };
+    }
+
+    apply_tests_arity_too_many! {
+        ("string-upcase", string_upper_arity_too_many, StringOperations::string_to_upper()),
+        ("string-lowercase", string_lower_arity_too_many, StringOperations::string_to_lower()),
+        ("trim", trim_arity_too_many, StringOperations::trim()),
+        ("trim-start", trim_start_arity_too_many, StringOperations::trim_start()),
+        ("trim-end", trim_end_arity_too_many, StringOperations::trim_end()),
+        ("string->list", string_to_list_arity_too_many, StringOperations::string_to_list()),
+    }
+
+    apply_tests_arity_too_few! {
+        ("string-upcase", string_upper_arity_too_few, StringOperations::string_to_upper()),
+        ("string-lowercase", string_lower_arity_too_few, StringOperations::string_to_lower()),
+        ("trim", trim_arity_too_few, StringOperations::trim()),
+        ("trim-start", trim_start_arity_too_few, StringOperations::trim_start()),
+        ("trim-end", trim_end_arity_too_few, StringOperations::trim_end()),
+        ("string->list", string_to_list_arity_too_few, StringOperations::string_to_list()),
+    }
+
+    apply_tests_bad_arg! {
+        ("string-upcase", string_upper_arity_takes_string, StringOperations::string_to_upper()),
+        ("string-lowercase", string_lower_arity_takes_string, StringOperations::string_to_lower()),
+        ("trim", trim_arity_takes_string, StringOperations::trim()),
+        ("trim-start", trim_start_arity_takes_string, StringOperations::trim_start()),
+        ("trim-end", trim_end_arity_takes_string, StringOperations::trim_end()),
+        ("string->list", string_to_list_takes_string, StringOperations::string_to_list()),
+    }
 
     fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Rc<SteelVal>> {
         let args = args.into_iter().map(|x| Rc::new(x)).collect();
@@ -204,33 +277,6 @@ mod string_operation_tests {
     }
 
     #[test]
-    fn string_to_upper_arity_too_few() {
-        let args = vec![];
-        let res = apply_function(StringOperations::string_to_upper(), args);
-        let expected = SteelErr::ArityMismatch("string-upcase takes one argument".to_string());
-        assert_eq!(res.unwrap_err(), expected);
-    }
-
-    #[test]
-    fn string_to_upper_arity_too_many() {
-        let args = vec![
-            SteelVal::StringV("foo".to_string()),
-            SteelVal::StringV("bar".to_string()),
-        ];
-        let res = apply_function(StringOperations::string_to_upper(), args);
-        let expected = SteelErr::ArityMismatch("string-upcase takes one argument".to_string());
-        assert_eq!(res.unwrap_err(), expected);
-    }
-
-    #[test]
-    fn string_to_upper_string_arg() {
-        let args = vec![SteelVal::NumV(10.0)];
-        let res = apply_function(StringOperations::string_to_upper(), args);
-        let expected = SteelErr::TypeMismatch("string-upcase expected a string".to_string());
-        assert_eq!(res.unwrap_err(), expected);
-    }
-
-    #[test]
     fn string_to_lower_normal() {
         let args = vec![SteelVal::StringV("FOOBARBAZ".to_string())];
         let res = apply_function(StringOperations::string_to_lower(), args);
@@ -246,30 +292,100 @@ mod string_operation_tests {
         assert_eq!(res.unwrap(), expected);
     }
 
+    // TODO investigate this, assert_eq! fails without converting to string
     #[test]
-    fn string_to_lower_arity_too_few() {
-        let args = vec![];
-        let res = apply_function(StringOperations::string_to_lower(), args);
-        let expected = SteelErr::ArityMismatch("string-lowercase takes one argument".to_string());
-        assert_eq!(res.unwrap_err(), expected);
+    fn string_to_list_normal() {
+        let args = vec![SteelVal::StringV("foo".to_string())];
+        let res = apply_function(StringOperations::string_to_list(), args);
+        let expected = Rc::new(SteelVal::Pair(
+            Rc::new(SteelVal::CharV('f')),
+            Some(Rc::new(SteelVal::Pair(
+                Rc::new(SteelVal::CharV('o')),
+                Some(Rc::new(SteelVal::CharV('o'))),
+            ))),
+        ));
+        assert_eq!(res.unwrap().to_string(), expected.to_string());
     }
 
     #[test]
-    fn string_to_lower_arity_too_many() {
-        let args = vec![
-            SteelVal::StringV("FOO".to_string()),
-            SteelVal::StringV("BAR".to_string()),
-        ];
-        let res = apply_function(StringOperations::string_to_lower(), args);
-        let expected = SteelErr::ArityMismatch("string-lowercase takes one argument".to_string());
-        assert_eq!(res.unwrap_err(), expected);
+    fn string_to_list_empty() {
+        let args = vec![SteelVal::StringV("".to_string())];
+        let res = apply_function(StringOperations::string_to_list(), args);
+        let expected = Rc::new(SteelVal::VectorV(Vector::new()));
+        assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
-    fn string_to_lower_string_arg() {
-        let args = vec![SteelVal::NumV(10.0)];
-        let res = apply_function(StringOperations::string_to_upper(), args);
-        let expected = SteelErr::TypeMismatch("string-upcase expected a string".to_string());
-        assert_eq!(res.unwrap_err(), expected);
+    fn trim_normal_no_changes() {
+        let args = vec![SteelVal::StringV("foo".to_string())];
+        let res = apply_function(StringOperations::trim(), args);
+        let expected = Rc::new(SteelVal::StringV("foo".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn trim_normal_trims_both_sides() {
+        let args = vec![SteelVal::StringV("      foo  ".to_string())];
+        let res = apply_function(StringOperations::trim(), args);
+        let expected = Rc::new(SteelVal::StringV("foo".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn trim_start_no_changes() {
+        let args = vec![SteelVal::StringV("foo".to_string())];
+        let res = apply_function(StringOperations::trim_start(), args);
+        let expected = Rc::new(SteelVal::StringV("foo".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn trim_end_no_changes() {
+        let args = vec![SteelVal::StringV("foo".to_string())];
+        let res = apply_function(StringOperations::trim_end(), args);
+        let expected = Rc::new(SteelVal::StringV("foo".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn trim_start_normal_trims_left_side() {
+        let args = vec![SteelVal::StringV("      foo  ".to_string())];
+        let res = apply_function(StringOperations::trim_start(), args);
+        let expected = Rc::new(SteelVal::StringV("foo  ".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn trim_end_normal_trims_right_side() {
+        let args = vec![SteelVal::StringV("      foo  ".to_string())];
+        let res = apply_function(StringOperations::trim_end(), args);
+        let expected = Rc::new(SteelVal::StringV("      foo".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    // TODO investigate this one
+    #[test]
+    fn split_whitespace_no_whitespace() {
+        let args = vec![SteelVal::StringV("foo".to_string())];
+        let res = apply_function(StringOperations::split_whitespace(), args);
+        let expected = Rc::new(SteelVal::Pair(
+            Rc::new(SteelVal::StringV("foo".to_string())),
+            None,
+        ));
+        assert_eq!(res.unwrap().to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn split_whitespace_some_whitespace() {
+        let args = vec![SteelVal::StringV("foo bar baz".to_string())];
+        let res = apply_function(StringOperations::split_whitespace(), args);
+        let expected = Rc::new(SteelVal::Pair(
+            Rc::new(SteelVal::StringV("foo".to_string())),
+            Some(Rc::new(SteelVal::Pair(
+                Rc::new(SteelVal::StringV("bar".to_string())),
+                Some(Rc::new(SteelVal::StringV("baz".to_string()))),
+            ))),
+        ));
+        assert_eq!(res.unwrap().to_string(), expected.to_string());
     }
 }
