@@ -28,6 +28,46 @@ pub enum SteelErr {
     Generic(String),
 }
 
+impl PartialEq for SteelErr {
+    fn eq(&self, other: &Self) -> bool {
+        use SteelErr::*;
+        match (self, other) {
+            (ArityMismatch(l), ArityMismatch(r)) => l == r,
+            (FreeIdentifier(l), FreeIdentifier(r)) => l == r,
+            (TypeMismatch(l), TypeMismatch(r)) => l == r,
+            (UnexpectedToken(l), UnexpectedToken(r)) => l == r,
+            (ContractViolation(l), ContractViolation(r)) => l == r,
+            (BadSyntax(l), BadSyntax(r)) => l == r,
+            (ConversionError(l), ConversionError(r)) => l == r,
+            (Generic(l), Generic(r)) => l == r,
+            _ => false,
+        }
+    }
+}
+
+// // TODO add tests
+// impl PartialEq for SteelVal {
+//     fn eq(&self, other: &Self) -> bool {
+//         match (self, other) {
+//             (BoolV(l), BoolV(r)) => l == r,
+//             (NumV(l), NumV(r)) => l == r,
+//             (StringV(l), StringV(r)) => l == r,
+//             (VectorV(l), VectorV(r)) => l == r,
+//             (SymbolV(l), SymbolV(r)) => l == r,
+//             (CharV(l), CharV(r)) => l == r,
+//             //TODO
+//             (_, _) => false, // (l, r) => {
+//                              //     let left = unwrap!(l, usize);
+//                              //     let right = unwrap!(r, usize);
+//                              //     match (left, right) {
+//                              //         (Ok(l), Ok(r)) => l == r,
+//                              //         (_, _) => false,
+//                              //     }
+//                              // }
+//         }
+//     }
+// }
+
 #[macro_export]
 macro_rules! stop {
     ($type:ident) => {

@@ -136,3 +136,140 @@ impl StringOperations {
         })
     }
 }
+
+#[cfg(test)]
+mod string_operation_tests {
+    use super::*;
+    use crate::throw;
+
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Rc<SteelVal>> {
+        let args = args.into_iter().map(|x| Rc::new(x)).collect();
+        func.func_or_else(throw!(BadSyntax => "string tests"))
+            .unwrap()(args)
+    }
+
+    #[test]
+    fn string_append_test_normal() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+        ];
+        let res = apply_function(StringOperations::string_append(), args);
+        let expected = Rc::new(SteelVal::StringV("foobar".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn string_append_test_arity_mismatch_too_few() {
+        let args = vec![SteelVal::StringV("foo".to_string())];
+        let res = apply_function(StringOperations::string_append(), args);
+        let expected = SteelErr::ArityMismatch("string-append takes two arguments".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn string_append_test_arity_mismatch_too_many() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("baz".to_string()),
+        ];
+        let res = apply_function(StringOperations::string_append(), args);
+        let expected = SteelErr::ArityMismatch("string-append takes two arguments".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn string_append_test_takes_string() {
+        let args = vec![SteelVal::CharV('a'), SteelVal::CharV('b')];
+        let res = apply_function(StringOperations::string_append(), args);
+        let expected = SteelErr::TypeMismatch("string-append expected two strings".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn string_to_upper_normal() {
+        let args = vec![SteelVal::StringV("foobarbaz".to_string())];
+        let res = apply_function(StringOperations::string_to_upper(), args);
+        let expected = Rc::new(SteelVal::StringV("FOOBARBAZ".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn string_to_upper_spaces() {
+        let args = vec![SteelVal::StringV("foo bar baz qux".to_string())];
+        let res = apply_function(StringOperations::string_to_upper(), args);
+        let expected = Rc::new(SteelVal::StringV("FOO BAR BAZ QUX".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn string_to_upper_arity_too_few() {
+        let args = vec![];
+        let res = apply_function(StringOperations::string_to_upper(), args);
+        let expected = SteelErr::ArityMismatch("string-upcase takes one argument".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn string_to_upper_arity_too_many() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+        ];
+        let res = apply_function(StringOperations::string_to_upper(), args);
+        let expected = SteelErr::ArityMismatch("string-upcase takes one argument".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn string_to_upper_string_arg() {
+        let args = vec![SteelVal::NumV(10.0)];
+        let res = apply_function(StringOperations::string_to_upper(), args);
+        let expected = SteelErr::TypeMismatch("string-upcase expected a string".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn string_to_lower_normal() {
+        let args = vec![SteelVal::StringV("FOOBARBAZ".to_string())];
+        let res = apply_function(StringOperations::string_to_lower(), args);
+        let expected = Rc::new(SteelVal::StringV("foobarbaz".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn string_to_lower_spaces() {
+        let args = vec![SteelVal::StringV("FOO BAR BAZ QUX".to_string())];
+        let res = apply_function(StringOperations::string_to_lower(), args);
+        let expected = Rc::new(SteelVal::StringV("foo bar baz qux".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn string_to_lower_arity_too_few() {
+        let args = vec![];
+        let res = apply_function(StringOperations::string_to_lower(), args);
+        let expected = SteelErr::ArityMismatch("string-lowercase takes one argument".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn string_to_lower_arity_too_many() {
+        let args = vec![
+            SteelVal::StringV("FOO".to_string()),
+            SteelVal::StringV("BAR".to_string()),
+        ];
+        let res = apply_function(StringOperations::string_to_lower(), args);
+        let expected = SteelErr::ArityMismatch("string-lowercase takes one argument".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn string_to_lower_string_arg() {
+        let args = vec![SteelVal::NumV(10.0)];
+        let res = apply_function(StringOperations::string_to_upper(), args);
+        let expected = SteelErr::TypeMismatch("string-upcase expected a string".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+}
