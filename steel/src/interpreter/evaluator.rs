@@ -231,7 +231,7 @@ fn eval_filter(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc
 
         match list_res.as_ref() {
             SteelVal::Pair(_, _) => {}
-            _ => stop!(TypeMismatch => "map expected a list"),
+            _ => stop!(TypeMismatch => "filter expected a list"),
         }
 
         let vec_of_vals = ListOperations::collect_into_vec(&list_res)?;
