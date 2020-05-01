@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 
 // use crate::rvals::MacroPattern;
-use crate::rvals::SteelMacro;
+use crate::expander::SteelMacro;
 
 pub struct Evaluator {
     global_env: Rc<RefCell<Env>>,
@@ -214,7 +214,6 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
 
 fn eval_macro_def(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {
     let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, &env)?;
-
     // println!("{:?}", parsed_macro);
     env.borrow_mut().define(
         parsed_macro.name().to_string(),
