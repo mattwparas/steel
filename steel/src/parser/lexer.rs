@@ -227,25 +227,6 @@ mod tests {
     use crate::parser::tokens::Token::*;
     use crate::parser::tokens::TokenError;
 
-    // #[test]
-    // fn test_punctuation() {
-    //     let mut s = Tokenizer::new("(,) = < <= > >= +-*/%");
-    //     assert_eq!(s.next(), Some(Ok(OpenParen)));
-    //     assert_eq!(s.next(), Some(Err(TokenError::UnexpectedChar(','))));
-    //     assert_eq!(s.next(), Some(Ok(CloseParen)));
-    //     assert_eq!(s.next(), Some(Ok(Equal)));
-    //     assert_eq!(s.next(), Some(Ok(Lt)));
-    //     assert_eq!(s.next(), Some(Ok(LtEq)));
-    //     assert_eq!(s.next(), Some(Ok(Gt)));
-    //     assert_eq!(s.next(), Some(Ok(GtEq)));
-    //     assert_eq!(s.next(), Some(Ok(Plus)));
-    //     assert_eq!(s.next(), Some(Ok(Minus)));
-    //     assert_eq!(s.next(), Some(Ok(Times)));
-    //     assert_eq!(s.next(), Some(Ok(Divide)));
-    //     assert_eq!(s.next(), Some(Ok(Percent)));
-    //     assert_eq!(s.next(), None);
-    // }
-
     #[test]
     fn test_unexpected_char() {
         let mut s = Tokenizer::new("($)");
