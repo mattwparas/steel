@@ -288,6 +288,9 @@ impl PartialEq for SteelVal {
             (VectorV(l), VectorV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
             (CharV(l), CharV(r)) => l == r,
+            (Pair(_, _), Pair(_, _)) => {
+                collect_pair_into_vector(self) == collect_pair_into_vector(other)
+            }
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
@@ -907,8 +910,6 @@ fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
     }
 }
 
-/*
-
 #[test]
 fn display_test() {
     use crate::parser::tokens::Token;
@@ -916,11 +917,11 @@ fn display_test() {
     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
     assert_eq!(SteelVal::NumV(1.0).to_string(), "1");
     assert_eq!(
-        SteelVal::FuncV(|_args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
-            Ok(SteelVal::VectorV(vector![]))
+        SteelVal::FuncV(|_args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            Ok(Rc::new(SteelVal::VectorV(vector![])))
         })
         .to_string(),
-        "Function"
+        "#<function>"
     );
     assert_eq!(
         SteelVal::LambdaV(SteelLambda::new(
@@ -929,7 +930,7 @@ fn display_test() {
             Rc::new(RefCell::new(crate::env::Env::default_env())),
         ))
         .to_string(),
-        "Lambda Function"
+        "#<lambda-function>"
     );
     assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
 }
@@ -938,7 +939,7 @@ fn display_test() {
 fn display_list_test() {
     use crate::parser::tokens::Token;
     use im_rc::vector;
-    assert_eq!(VectorV(vector![]).to_string(), "'()");
+    assert_eq!(VectorV(vector![]).to_string(), "'#()");
     assert_eq!(
         VectorV(vector![
             BoolV(false),
@@ -950,7 +951,7 @@ fn display_list_test() {
             ))
         ])
         .to_string(),
-        "'(#false 1 Lambda Function)"
+        "'#(#false 1 #<lambda-function>)"
     );
     assert_eq!(
         VectorV(vector![
@@ -960,8 +961,6 @@ fn display_list_test() {
             VectorV(vector![NumV(7.0)])
         ])
         .to_string(),
-        "'((1 (2 3)) (4 5) 6 (7))"
+        "'#((1 (2 3)) (4 5) 6 (7))"
     );
 }
-
-*/

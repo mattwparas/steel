@@ -195,6 +195,7 @@ mod string_operation_tests {
         ("trim-start", trim_start_arity_too_many, StringOperations::trim_start()),
         ("trim-end", trim_end_arity_too_many, StringOperations::trim_end()),
         ("string->list", string_to_list_arity_too_many, StringOperations::string_to_list()),
+        ("split-whitespace", split_whitespace_arity_too_many, StringOperations::split_whitespace()),
     }
 
     apply_tests_arity_too_few! {
@@ -204,6 +205,7 @@ mod string_operation_tests {
         ("trim-start", trim_start_arity_too_few, StringOperations::trim_start()),
         ("trim-end", trim_end_arity_too_few, StringOperations::trim_end()),
         ("string->list", string_to_list_arity_too_few, StringOperations::string_to_list()),
+        ("split-whitespace", split_whitespace_arity_too_few, StringOperations::split_whitespace())
     }
 
     apply_tests_bad_arg! {
@@ -213,6 +215,7 @@ mod string_operation_tests {
         ("trim-start", trim_start_arity_takes_string, StringOperations::trim_start()),
         ("trim-end", trim_end_arity_takes_string, StringOperations::trim_end()),
         ("string->list", string_to_list_takes_string, StringOperations::string_to_list()),
+        ("split-whitespace", split_whitespace_arity_takes_string, StringOperations::split_whitespace())
     }
 
     fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Rc<SteelVal>> {
@@ -304,7 +307,7 @@ mod string_operation_tests {
                 Some(Rc::new(SteelVal::CharV('o'))),
             ))),
         ));
-        assert_eq!(res.unwrap().to_string(), expected.to_string());
+        assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
@@ -372,7 +375,7 @@ mod string_operation_tests {
             Rc::new(SteelVal::StringV("foo".to_string())),
             None,
         ));
-        assert_eq!(res.unwrap().to_string(), expected.to_string());
+        assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
@@ -386,6 +389,6 @@ mod string_operation_tests {
                 Some(Rc::new(SteelVal::StringV("baz".to_string()))),
             ))),
         ));
-        assert_eq!(res.unwrap().to_string(), expected.to_string());
+        assert_eq!(res.unwrap(), expected);
     }
 }
