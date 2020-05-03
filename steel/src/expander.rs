@@ -133,6 +133,7 @@ impl MacroCase {
     }
 
     // be able to recognize deep patterns like let
+    // TODO parse patterns like this: ((args* ...) ...)
     fn parse_pattern_into_vec(
         macro_name: &str,
         special_forms: &[String],
@@ -155,6 +156,8 @@ impl MacroCase {
                                 } else {
                                     pattern_vec.push(MacroPattern::Single(t.clone()))
                                 }
+                            } else {
+                                pattern_vec.push(MacroPattern::Single(t.clone()));
                             }
                         } else {
                             pattern_vec.push(MacroPattern::Single(t.clone()));
@@ -205,7 +208,7 @@ impl MacroCase {
                     if let Some(e) = token_iter.next() {
                         bindings.insert(s.to_string(), e);
                     } else {
-                        stop!(ArityMismatch => "macro expansion failed")
+                        stop!(ArityMismatch => "macro expansion failed in single pattern")
                     }
                 }
                 // actually check if the syntax matches
@@ -312,11 +315,27 @@ impl MacroCase {
                         throw!(BadSyntax => "macro expansion failed, could not find variable"),
                     )?; // TODO
 
+                    // println!("{:?}", bindings);
+                    // println!("{:?}", variable_to_lookup);
+
                     let rest = bindings
                         .get(variable_to_lookup.as_ref().atom_identifier_or_else(
-                            throw!(BadSyntax => "macro expansion failed"),
+                            throw!(BadSyntax => "macro expansion failed at lookup!"),
                         )?)
-                        .ok_or_else(throw!(BadSyntax => "macro expansion failed"))?;
+                        .ok_or_else(throw!(BadSyntax => "macro expansion failed at lookup here"))?;
+
+                    // match variable_to_lookup.as_ref() {
+                    //     Expr::Atom(Identifier(s)) => {
+
+                    //     }
+                    //     Expr::VectorVal()
+                    // }
+
+                    // let rest = bindings
+                    //     .get(variable_to_lookup.as_ref().atom_identifier_or_else(
+                    //         throw!(BadSyntax => "macro expansion failed at lookup!"),
+                    //     )?)
+                    //     .ok_or_else(throw!(BadSyntax => "macro expansion failed at lookup here"))?;
 
                     let list_of_exprs = rest.as_ref().vector_val_or_else(
                         throw!(BadSyntax => "macro expansion failed, expected list of expressions"),
@@ -444,7 +463,20 @@ impl SteelMacro {
     // its worth a shot
     fn match_case(&self, list_of_tokens: &[Rc<Expr>]) -> Result<&MacroCase> {
         for case in &self.cases {
-            // println!("{}, {}", list_of_tokens.len(), case.arity());
+            // println!(
+            //     "{:?}",
+            //     list_of_tokens
+            //         .iter()
+            //         .map(|x| x.to_string())
+            //         .collect::<Vec<String>>()
+            // );
+            // println!(
+            //     "{}, {}, {}",
+            //     case.has_ellipses(),
+            //     list_of_tokens.len(),
+            //     case.arity()
+            // );
+            // println!("{:?}", case);
             // TODO this should actually be `case.arity() - num_ellipses_in_top_level`
             if (case.has_ellipses() && list_of_tokens.len() >= (case.arity() - 1))
                 || case.arity() == list_of_tokens.len()
@@ -479,6 +511,8 @@ mod parse_macro_tests {
     use super::MacroPattern::*;
     use super::*;
     use crate::parser::Expr::*;
+    use crate::parser::ParseError;
+    use crate::parser::Parser;
 
     #[test]
     fn parse_single_syntax_rules() {
@@ -537,5 +571,152 @@ mod parse_macro_tests {
         };
 
         assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn parse_multiple_syntax_rules() {
+        generate_macro_and_assert(
+            "(define-syntax or
+                (syntax-rules ()
+                  [(or) #f]
+                  [(or x) x]
+                  [(or x y) (let ([z x])
+                              (if z z y))]
+                  [(or x y ...) (or x (or y ...))]))",
+            SteelMacro {
+                name: "or".to_string(),
+                special_forms: vec![],
+                cases: vec![
+                    MacroCase {
+                        args: vec![Syntax("or".to_string())],
+                        body: Rc::new(Atom(BooleanLiteral(false))),
+                    },
+                    MacroCase {
+                        args: vec![Syntax("or".to_string()), Single("x".to_string())],
+                        body: Rc::new(Atom(Identifier("x".to_string()))),
+                    },
+                    MacroCase {
+                        args: vec![
+                            Syntax("or".to_string()),
+                            Single("x".to_string()),
+                            Single("y".to_string()),
+                        ],
+                        body: Rc::new(VectorVal(vec![
+                            Rc::new(Atom(Identifier("let".to_string()))),
+                            Rc::new(VectorVal(vec![Rc::new(VectorVal(vec![
+                                Rc::new(Atom(Identifier("##z".to_string()))),
+                                Rc::new(Atom(Identifier("x".to_string()))),
+                            ]))])),
+                            Rc::new(VectorVal(vec![
+                                Rc::new(Atom(Identifier("if".to_string()))),
+                                Rc::new(Atom(Identifier("##z".to_string()))),
+                                Rc::new(Atom(Identifier("##z".to_string()))),
+                                Rc::new(Atom(Identifier("y".to_string()))),
+                            ])),
+                        ])),
+                    },
+                    MacroCase {
+                        args: vec![
+                            Syntax("or".to_string()),
+                            Single("x".to_string()),
+                            Many("y".to_string()),
+                        ],
+                        body: Rc::new(VectorVal(vec![
+                            Rc::new(Atom(Identifier("or".to_string()))),
+                            Rc::new(Atom(Identifier("x".to_string()))),
+                            Rc::new(VectorVal(vec![
+                                Rc::new(Atom(Identifier("or".to_string()))),
+                                Rc::new(Atom(Identifier("y".to_string()))),
+                                Rc::new(Atom(Identifier("...".to_string()))),
+                            ])),
+                        ])),
+                    },
+                ],
+            },
+        );
+    }
+
+    #[test]
+    fn parse_nested() {
+        generate_macro_and_assert(
+            "(define-syntax cond
+                (syntax-rules (else)
+                  [(cond [else e1 ...])
+                   (begin e1 ...)]
+                  [(cond [e1 e2 ...])
+                   (when e1 e2 ...)]
+                  [(cond [e1 e2 ...] c1 ...)
+                   (if e1
+                       (begin e2 ...)
+                       (cond c1 ...))]))",
+            SteelMacro {
+                name: "cond".to_string(),
+                special_forms: vec!["else".to_string()],
+                cases: vec![
+                    MacroCase {
+                        args: vec![
+                            Syntax("cond".to_string()),
+                            Nested(vec![Syntax("else".to_string()), Many("e1".to_string())]),
+                        ],
+                        body: Rc::new(VectorVal(vec![
+                            Rc::new(Atom(Identifier("begin".to_string()))),
+                            Rc::new(Atom(Identifier("e1".to_string()))),
+                            Rc::new(Atom(Identifier("...".to_string()))),
+                        ])),
+                    },
+                    MacroCase {
+                        args: vec![
+                            Syntax("cond".to_string()),
+                            Nested(vec![Single("e1".to_string()), Many("e2".to_string())]),
+                        ],
+                        body: Rc::new(VectorVal(vec![
+                            Rc::new(Atom(Identifier("##when".to_string()))),
+                            Rc::new(Atom(Identifier("e1".to_string()))),
+                            Rc::new(Atom(Identifier("e2".to_string()))),
+                            Rc::new(Atom(Identifier("...".to_string()))),
+                        ])),
+                    },
+                    MacroCase {
+                        args: vec![
+                            Syntax("cond".to_string()),
+                            Nested(vec![Single("e1".to_string()), Many("e2".to_string())]),
+                            Many("c1".to_string()),
+                        ],
+                        body: Rc::new(VectorVal(vec![
+                            Rc::new(Atom(Identifier("if".to_string()))),
+                            Rc::new(Atom(Identifier("e1".to_string()))),
+                            Rc::new(VectorVal(vec![
+                                Rc::new(Atom(Identifier("begin".to_string()))),
+                                Rc::new(Atom(Identifier("e2".to_string()))),
+                                Rc::new(Atom(Identifier("...".to_string()))),
+                            ])),
+                            Rc::new(VectorVal(vec![
+                                Rc::new(Atom(Identifier("cond".to_string()))),
+                                Rc::new(Atom(Identifier("c1".to_string()))),
+                                Rc::new(Atom(Identifier("...".to_string()))),
+                            ])),
+                        ])),
+                    },
+                ],
+            },
+        )
+    }
+
+    fn generate_macro_and_assert(s: &str, expected: SteelMacro) {
+        let input = parse_statement(s);
+        let default_env = Rc::new(RefCell::new(Env::default_env()));
+        let res = SteelMacro::parse_from_tokens(&input[1..], &default_env);
+
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    fn parse_statement(s: &str) -> Vec<Rc<Expr>> {
+        let mut cache: HashMap<String, Rc<Expr>> = HashMap::new();
+        let a: std::result::Result<Vec<Expr>, ParseError> = Parser::new(s, &mut cache).collect();
+        let a = a.unwrap()[0].clone();
+
+        a.vector_val_or_else(throw!(BadSyntax => "Malformed statement in the test"))
+            .unwrap()
+            .to_vec()
     }
 }

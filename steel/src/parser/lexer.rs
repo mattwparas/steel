@@ -188,7 +188,8 @@ impl<'a> Iterator for Tokenizer<'a> {
                     Some(&c) if c.is_numeric() => {
                         Some(Ok(Token::NumberLiteral(self.read_number() * -1.0)))
                     }
-                    _ => Some(Ok(Token::Identifier("-".to_string()))),
+                    Some(&c) if c == ' ' => Some(Ok(Token::Identifier("-".to_string()))),
+                    _ => Some(Ok(self.read_word())),
                 }
             }
             Some('*') => {

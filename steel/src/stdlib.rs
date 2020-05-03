@@ -119,14 +119,14 @@ pub const PRELUDE: &str = "
 (define (zero? n) (= n 0))
 
 
-(define (take n lst)
+(define (take lst n)
   (define (loop x l accum)
     (if (or (zero? x) (null? l))
         accum
         (loop (sub1 x) (cdr l) (append accum (list (car l))))))
     (loop n lst '()))
 
-(define (drop n lst)
+(define (drop lst n)
   (define (loop x l)
     (if (zero? x)
       l
@@ -134,7 +134,7 @@ pub const PRELUDE: &str = "
   (loop n lst))
 
 (define (slice l offset n)
-    (take n (drop offset l)))
+    (take (drop l offset) n))
 
 (define (displayln object) 
     (display object) 

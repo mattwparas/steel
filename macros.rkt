@@ -151,3 +151,63 @@
 (displayln (and #t #t #t #t #t #t))
 (displayln (and #t #t #t #t #f))
 
+
+(define-syntax f>
+  (syntax-rules ()
+    [(f> fun args* ...)
+      (lambda (x) (fun x args* ...))]))
+
+(define-syntax l>
+  (syntax-rules ()
+    [(l> fun args* ...)
+      (lambda (x) (fun args* ... x))]))
+
+(define test (f> append (list 3 4)))
+(displayln (test (list 1 2)))
+
+(define test (l> append (list 3 4)))
+(displayln (test (list 1 2)))
+
+;; (define-syntax thread
+;;   (syntax-rules ()
+;;     [(thread arg (fun args* ...))
+;;      ((l> fun args* ...) arg)]
+;;     [(thread arg (fun args* ...) rest ...)
+;;      (thread (thread arg (l> fun args* ...)) rest ...)]))
+
+(define-syntax ->>
+  (syntax-rules ()
+    [(->> a) a]
+    [(->> a (b c ...)) ((l> b c ...) a)]
+    [(->> a b c ...) (->> (->> a b) c ...)]))
+
+(define-syntax ->
+  (syntax-rules ()
+    [(-> a) a]
+    [(-> a (b c ...)) ((f> b c ...) a)]
+    [(-> a b c ...) (-> (-> a b) c ...)]))
+
+(define test (l> map (lambda (x) (* 2 x))))
+(displayln (test (list 1 2 3 4)))
+
+
+(define res
+  (->> (list 1 2 3 4)
+       (map (lambda (x) (* 2 x)))
+       (append (list 5 6))
+       (map (lambda (x) (* 5 x)))
+       (append (list 1 2 3 4))))
+
+(displayln res)
+
+(define res
+  (-> (list 1 2 3 4)
+      (take 2)
+      (append (list 5 6))))
+
+(displayln res)
+
+
+;; (thread (list 1 2 3 4)
+;;         (map (lambda (x) (* 2 x)))
+;;         (append (list 5 6)))

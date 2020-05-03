@@ -195,7 +195,7 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                             SteelVal::MacroV(steel_macro) => {
                                 // println!("Found macro definition!");
                                 expr = steel_macro.expand(&list_of_tokens)?;
-                                // println!("{:?}", expr.clone());
+                                // println!("{:?}", expr.clone().to_string());
                                 // println!()
                             }
                             e => {
