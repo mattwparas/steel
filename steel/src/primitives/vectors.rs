@@ -304,4 +304,217 @@ mod vector_prim_tests {
         ]));
         assert_eq!(res.unwrap(), expected);
     }
+
+    #[test]
+    fn vec_push_arity_too_few() {
+        let args = vec![SteelVal::StringV("foo".to_string())];
+        let res = apply_function(VectorOperations::vec_push(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_push_arity_too_many() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("foo".to_string()),
+        ];
+        let res = apply_function(VectorOperations::vec_push(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_push_test_good_input_pair() {
+        let args = vec![
+            SteelVal::StringV("baz".to_string()),
+            SteelVal::StringV("bar".to_string()),
+        ];
+        let res = apply_function(VectorOperations::vec_push(), args);
+        let expected = Rc::new(SteelVal::VectorV(vector![
+            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("baz".to_string()),
+        ]));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn vec_push_test_good_input() {
+        let args = vec![
+            SteelVal::StringV("baz".to_string()),
+            SteelVal::VectorV(vector![
+                SteelVal::StringV("foo".to_string()),
+                SteelVal::StringV("bar".to_string())
+            ]),
+        ];
+        let res = apply_function(VectorOperations::vec_push(), args);
+        let expected = Rc::new(SteelVal::VectorV(vector![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("baz".to_string())
+        ]));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn vec_cons_test_arity_too_few() {
+        let args = vec![];
+        let res = apply_function(VectorOperations::vec_cons(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_cons_test_arity_too_many() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("foo".to_string()),
+        ];
+        let res = apply_function(VectorOperations::vec_cons(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_cons_pair() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+        ];
+        let res = apply_function(VectorOperations::vec_cons(), args);
+        let expected = Rc::new(SteelVal::VectorV(vector![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string())
+        ]));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn vec_cons_elem_vector() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::VectorV(vector![
+                SteelVal::StringV("bar".to_string()),
+                SteelVal::StringV("baz".to_string())
+            ]),
+        ];
+        let res = apply_function(VectorOperations::vec_cons(), args);
+        let expected = Rc::new(SteelVal::VectorV(vector![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("baz".to_string())
+        ]));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn vec_car_arity_too_few() {
+        let args = vec![];
+        let res = apply_function(VectorOperations::vec_car(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_car_arity_too_many() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+        ];
+        let res = apply_function(VectorOperations::vec_car(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_car_bad_input() {
+        let args = vec![SteelVal::StringV("foo".to_string())];
+        let res = apply_function(VectorOperations::vec_car(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_car_normal_input() {
+        let args = vec![SteelVal::VectorV(vector![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string())
+        ])];
+        let res = apply_function(VectorOperations::vec_car(), args);
+        let expected = Rc::new(SteelVal::StringV("foo".to_string()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn vec_cdr_arity_too_few() {
+        let args = vec![];
+        let res = apply_function(VectorOperations::vec_cdr(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_cdr_arity_too_many() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+        ];
+        let res = apply_function(VectorOperations::vec_cdr(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_cdr_bad_input() {
+        let args = vec![SteelVal::NumV(1.0)];
+        let res = apply_function(VectorOperations::vec_cdr(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_cdr_normal_input() {
+        let args = vec![SteelVal::VectorV(vector![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string())
+        ])];
+        let res = apply_function(VectorOperations::vec_cdr(), args);
+        let expected = Rc::new(SteelVal::VectorV(vector![SteelVal::StringV(
+            "bar".to_string()
+        )]));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn vec_cdr_empty_list() {
+        let args = vec![SteelVal::VectorV(Vector::new())];
+        let res = apply_function(VectorOperations::vec_cdr(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn list_vec_arity() {
+        let args = vec![];
+        let res = apply_function(VectorOperations::list_vec_null(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn list_vec_anything_but_null() {
+        let args = vec![SteelVal::StringV("foo".to_string())];
+        let res = apply_function(VectorOperations::list_vec_null(), args);
+        let expected = Rc::new(SteelVal::BoolV(false));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn list_vec_non_empty_vec() {
+        let args = vec![SteelVal::VectorV(vector![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string())
+        ])];
+        let res = apply_function(VectorOperations::list_vec_null(), args);
+        let expected = Rc::new(SteelVal::BoolV(false));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn list_vec_empty_vec() {
+        let args = vec![SteelVal::VectorV(Vector::new())];
+        let res = apply_function(VectorOperations::list_vec_null(), args);
+        let expected = Rc::new(SteelVal::BoolV(true));
+        assert_eq!(res.unwrap(), expected);
+    }
 }

@@ -102,6 +102,7 @@ pub struct VecStruct {
 }
 
 #[steel]
+#[derive(PartialEq)]
 pub struct CoolTest {
     pub val: f64,
 }
@@ -114,9 +115,11 @@ impl CoolTest {
 }
 
 #[steel]
+#[derive(PartialEq)]
 pub struct UnnamedFields(pub usize);
 
 #[steel]
+#[derive(PartialEq)]
 pub struct Foo {
     pub f: UnnamedFields,
 }
@@ -197,7 +200,44 @@ pub fn my_repl() -> std::io::Result<()> {
     }
 }
 
-pub fn build_interpreter_and_modify() {
+// TODO come back and flesh this out
+#[test]
+fn embed_functions_and_verify_results() {
+    let mut interp = build_interpreter! {
+        Structs => {
+            MyStruct,
+            CoolTest,
+            Foo,
+            MutexWrapper,
+            VecStruct
+        }
+        Functions => {
+            "add-cool-tests" => add_cool_tests,
+            "multiple-types" => multiple_types,
+            "new-mutex-wrapper" => new_mutex_wrapper,
+            "test-result" => test_result,
+            "test-option" => test_option,
+        }
+    };
+
+    let script = "
+    (define result-res-good (test-result 1))
+    (define result-res-false (test-result 2))
+    ";
+
+    assert!(interp.evaluate(&script).is_err());
+
+    let script = "
+    (define option-res-good (test-option 1))
+    (define option-res-bad (test-option 2))
+    ";
+    assert!(interp.evaluate(&script).is_ok());
+
+    // let bad_val: bool = bool::try_from(interp.extract_value("option-res-bad").unwrap()).unwrap();
+}
+
+#[test]
+fn build_interpreter_and_modify() {
     // Construct interpreter with 3 custom structs
     // each has now getters, setters, a predicate and constructor
     let mut interpreter = build_interpreter! {
@@ -206,17 +246,13 @@ pub fn build_interpreter_and_modify() {
         Foo
     };
 
-    if let Err(e) = interpreter.require(PRELUDE) {
-        eprintln!("Error loading prelude: {}", e)
-    }
+    interpreter.require(PRELUDE).unwrap();
 
     // define value outside of interpreter to embed
     let test = UnnamedFields(100);
     // embed the value
     interpreter.insert_binding("unnamed", test.new_steel_val());
-
     interpreter.insert_binding("add_cool_tests", SteelVal::FuncV(add_cool_tests));
-
     interpreter.insert_binding("multiple_types", SteelVal::FuncV(multiple_types));
 
     // write a quick script
@@ -234,18 +270,23 @@ pub fn build_interpreter_and_modify() {
         Ok(_) => {
             let ret_val: CoolTest =
                 CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
-            println!("{:?}", ret_val); // Should be "CoolTest { val: 200.0 }"
+            assert_eq!(ret_val, CoolTest { val: 200.0 });
             let ret_val2 =
                 UnnamedFields::try_from(interpreter.extract_value("unnamed").unwrap()).unwrap();
-            println!("{:?}", ret_val2); // Should be "UnnamedFields(100)"
+            assert_eq!(ret_val2, UnnamedFields(100));
             let ret_val3 = Foo::try_from(interpreter.extract_value("foo-test").unwrap()).unwrap();
-            println!("{:?}", ret_val3); // Should be Foo { f: UnnamedFields(100) }
+            assert_eq!(
+                ret_val3,
+                Foo {
+                    f: UnnamedFields(100)
+                }
+            );
             let ret_val4 =
                 CoolTest::try_from(interpreter.extract_value("sum-test").unwrap()).unwrap();
-            println!("{:?}", ret_val4);
+            assert_eq!(ret_val4, CoolTest { val: 300.0 })
         }
-        Err(e) => {
-            eprintln!("{}", e);
+        Err(_e) => {
+            panic!("steel macro test failed");
         }
     }
 }
