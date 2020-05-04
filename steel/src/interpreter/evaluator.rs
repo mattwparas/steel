@@ -182,27 +182,29 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                             return eval_filter(&list_of_tokens[1..], &env)
                         }
                         // (sym args*), sym must be a procedure
-                        _sym => match evaluate(f, &env)?.as_ref() {
-                            SteelVal::FuncV(func) => {
-                                return eval_func(*func, &list_of_tokens[1..], &env)
+                        _sym => {
+                            match evaluate(f, &env)?.as_ref() {
+                                SteelVal::FuncV(func) => {
+                                    return eval_func(*func, &list_of_tokens[1..], &env)
+                                }
+                                SteelVal::LambdaV(lambda) => {
+                                    let (new_expr, new_env) =
+                                        eval_lambda(lambda, &list_of_tokens[1..], &env)?;
+                                    expr = new_expr;
+                                    env = new_env;
+                                }
+                                SteelVal::MacroV(steel_macro) => {
+                                    // println!("Found macro definition!");
+                                    expr = steel_macro.expand(&list_of_tokens)?;
+                                    // println!("{:?}", expr.clone().to_string());
+                                    // println!()
+                                }
+                                e => {
+                                    let error_message = format!("Application not a procedure - expected a function, found: {}", e);
+                                    stop!(TypeMismatch => error_message);
+                                }
                             }
-                            SteelVal::LambdaV(lambda) => {
-                                let (new_expr, new_env) =
-                                    eval_lambda(lambda, &list_of_tokens[1..], &env)?;
-                                expr = new_expr;
-                                env = new_env;
-                            }
-                            SteelVal::MacroV(steel_macro) => {
-                                // println!("Found macro definition!");
-                                expr = steel_macro.expand(&list_of_tokens)?;
-                                // println!("{:?}", expr.clone().to_string());
-                                // println!()
-                            }
-                            e => {
-                                println!("Getting here");
-                                stop!(TypeMismatch => e)
-                            }
-                        },
+                        }
                     }
                 } else {
                     stop!(TypeMismatch => "Given empty list")

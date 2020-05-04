@@ -101,16 +101,13 @@ impl<'a> Tokenizer<'a> {
         match word.as_ref() {
             "t" | "true" => Ok(Token::BooleanLiteral(true)),
             "f" | "false" => Ok(Token::BooleanLiteral(false)),
-            character if character.starts_with('\\') => {
-                println!("{}", word.len());
-                match word.len() {
-                    2 | 4 => {
-                        let c = word.chars().last().ok_or(TokenError::InvalidCharacter)?;
-                        Ok(Token::CharacterLiteral(c))
-                    }
-                    _ => Err(TokenError::InvalidCharacter),
+            character if character.starts_with('\\') => match word.len() {
+                2 | 3 | 4 => {
+                    let c = word.chars().last().ok_or(TokenError::InvalidCharacter)?;
+                    Ok(Token::CharacterLiteral(c))
                 }
-            }
+                _ => Err(TokenError::InvalidCharacter),
+            },
             _ => Ok(Token::Identifier(word)), // TODO
                                               // _ => Err(TokenError::UnexpectedChar(#))
         }
@@ -243,6 +240,14 @@ mod tests {
     use super::*;
     use crate::parser::tokens::Token::*;
     use crate::parser::tokens::TokenError;
+
+    #[test]
+    fn test_chars() {
+        let mut s = Tokenizer::new("#\\a #\\b #\\λ");
+        assert_eq!(s.next(), Some(Ok(CharacterLiteral('a'))));
+        assert_eq!(s.next(), Some(Ok(CharacterLiteral('b'))));
+        assert_eq!(s.next(), Some(Ok(CharacterLiteral('λ'))));
+    }
 
     #[test]
     fn test_unexpected_char() {

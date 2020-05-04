@@ -31,6 +31,9 @@ impl VectorOperations {
 
     pub fn vec_range() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "range takes two arguments");
+            }
             let mut args = args.into_iter().map(|x| (*x).clone());
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
@@ -51,6 +54,9 @@ impl VectorOperations {
 
     pub fn vec_push() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "push takes two arguments");
+            }
             let mut args = args.into_iter().map(|x| (*x).clone());
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
@@ -72,6 +78,9 @@ impl VectorOperations {
 
     pub fn vec_cons() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "cons takes two arguments")
+            }
             let mut args = args.into_iter().map(|x| (*x).clone());
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
@@ -93,6 +102,9 @@ impl VectorOperations {
 
     pub fn vec_car() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "car takes one argument");
+            }
             if let Some(first) = args.into_iter().map(|x| (*x).clone()).next() {
                 match first {
                     SteelVal::VectorV(ref e) => {
@@ -114,6 +126,9 @@ impl VectorOperations {
 
     pub fn vec_cdr() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "cdr takes one argument");
+            }
             if let Some(first) = args.into_iter().map(|x| (*x).clone()).next() {
                 match first {
                     SteelVal::VectorV(ref e) => {
@@ -163,5 +178,130 @@ fn unwrap_single_list(exp: &SteelVal) -> Result<Vector<SteelVal>> {
     match exp {
         SteelVal::VectorV(lst) => Ok(lst.clone()),
         _ => stop!(TypeMismatch => "expected a list"),
+    }
+}
+
+#[cfg(test)]
+mod vector_prim_tests {
+    use super::*;
+    use crate::throw;
+    use im_rc::vector;
+
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Rc<SteelVal>> {
+        let args = args.into_iter().map(|x| Rc::new(x)).collect();
+        func.func_or_else(throw!(BadSyntax => "string tests"))
+            .unwrap()(args)
+    }
+
+    #[test]
+    fn vec_construct_test() {
+        let args = vec![
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(2.0),
+            SteelVal::NumV(3.0),
+        ];
+        let res = apply_function(VectorOperations::vec_construct(), args);
+        let expected = Rc::new(SteelVal::VectorV(vector![
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(2.0),
+            SteelVal::NumV(3.0)
+        ]));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn vec_append_test_good_inputs() {
+        let args = vec![
+            SteelVal::VectorV(vector![
+                SteelVal::NumV(1.0),
+                SteelVal::NumV(2.0),
+                SteelVal::NumV(3.0)
+            ]),
+            SteelVal::VectorV(vector![
+                SteelVal::NumV(1.0),
+                SteelVal::NumV(2.0),
+                SteelVal::NumV(3.0)
+            ]),
+            SteelVal::VectorV(vector![
+                SteelVal::NumV(1.0),
+                SteelVal::NumV(2.0),
+                SteelVal::NumV(3.0)
+            ]),
+        ];
+
+        let res = apply_function(VectorOperations::vec_append(), args);
+        let expected = Rc::new(SteelVal::VectorV(vector![
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(2.0),
+            SteelVal::NumV(3.0),
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(2.0),
+            SteelVal::NumV(3.0),
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(2.0),
+            SteelVal::NumV(3.0)
+        ]));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn vec_append_test_bad_inputs() {
+        let args = vec![
+            SteelVal::VectorV(vector![
+                SteelVal::NumV(1.0),
+                SteelVal::NumV(2.0),
+                SteelVal::NumV(3.0)
+            ]),
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::VectorV(vector![
+                SteelVal::NumV(1.0),
+                SteelVal::NumV(2.0),
+                SteelVal::NumV(3.0)
+            ]),
+        ];
+        let res = apply_function(VectorOperations::vec_append(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_range_test_arity_too_few() {
+        let args = vec![SteelVal::NumV(1.0)];
+
+        let res = apply_function(VectorOperations::vec_range(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_range_test_arity_too_many() {
+        let args = vec![
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(1.0),
+        ];
+
+        let res = apply_function(VectorOperations::vec_range(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_range_test_bad_input() {
+        let args = vec![SteelVal::StringV("1".to_string()), SteelVal::NumV(1.0)];
+
+        let res = apply_function(VectorOperations::vec_range(), args);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn vec_range_test_normal() {
+        let args = vec![SteelVal::NumV(0.0), SteelVal::NumV(4.0)];
+
+        let res = apply_function(VectorOperations::vec_range(), args);
+        let expected = Rc::new(SteelVal::VectorV(vector![
+            SteelVal::NumV(0.0),
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(2.0),
+            SteelVal::NumV(3.0)
+        ]));
+        assert_eq!(res.unwrap(), expected);
     }
 }
