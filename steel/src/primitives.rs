@@ -351,6 +351,20 @@ mod try_from_tests {
     }
 
     #[test]
+    fn try_from_steelval_list_to_vec_bad() {
+        let input = SteelVal::StringV("foo".to_string());
+        let res = <Vec<usize>>::try_from(input);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn try_from_steelval_list_ref_to_vec_bad() {
+        let input = SteelVal::StringV("foo".to_string());
+        let res = <Vec<usize>>::try_from(&input);
+        assert!(res.is_err());
+    }
+
+    #[test]
     fn try_from_steelval_vec_to_vec_usize() {
         let input = SteelVal::VectorV(vector![SteelVal::NumV(0.0), SteelVal::NumV(1.0)]);
         let res = <Vec<usize>>::try_from(input);
@@ -374,6 +388,34 @@ mod try_from_tests {
         let input = SteelVal::VectorV(vector![SteelVal::NumV(0.0), SteelVal::NumV(1.0)]);
         let res = <Vec<usize>>::try_from(&input);
         let expected: Vec<usize> = vec![0, 1];
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn from_char() {
+        assert_eq!(SteelVal::from('c'), SteelVal::CharV('c'));
+    }
+
+    #[test]
+    fn from_bool() {
+        assert_eq!(SteelVal::from(true), SteelVal::BoolV(true));
+    }
+
+    #[test]
+    fn try_from_steelval_string() {
+        let expected = "foo".to_string();
+        let input = SteelVal::StringV("foo".to_string());
+
+        let res = String::try_from(input);
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn try_from_steelval_ref_string() {
+        let expected = "foo".to_string();
+        let input = SteelVal::StringV("foo".to_string());
+
+        let res = String::try_from(&input);
         assert_eq!(res.unwrap(), expected);
     }
 }
