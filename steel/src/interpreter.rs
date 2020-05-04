@@ -210,4 +210,14 @@ mod interpreter_tests {
             SteelVal::BoolV(true)
         );
     }
+
+    #[test]
+    fn evaluate_from_reader_test() {
+        let mut interpreter = SteelInterpreter::new();
+        let b = "(+ 1 2 3)".as_bytes();
+        assert_eq!(
+            interpreter.evaluate_from_reader(b).unwrap(),
+            vec![SteelVal::NumV(6.0)]
+        );
+    }
 }

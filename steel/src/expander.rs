@@ -23,12 +23,7 @@ impl MacroPattern {
             Self::Syntax(s) => Some(vec![s.clone()]),
             Self::Single(s) => Some(vec![s.clone()]),
             Self::Many(s) => Some(vec![s.clone()]),
-            Self::Nested(v) => Some(
-                v.into_iter()
-                    .filter_map(|x| x.deconstruct())
-                    .flatten()
-                    .collect(),
-            ),
+            Self::Nested(v) => Some(v.iter().filter_map(|x| x.deconstruct()).flatten().collect()),
         }
     }
 }
@@ -79,7 +74,7 @@ impl MacroCase {
             }
             Expr::VectorVal(vec_exprs) => Rc::new(Expr::VectorVal(
                 vec_exprs
-                    .into_iter()
+                    .iter()
                     .map(|x| Self::rename_identifiers(Rc::clone(x), &env, args))
                     .collect(),
             )),
@@ -125,8 +120,6 @@ impl MacroCase {
                         }
                     }
                 }
-            } else {
-                true;
             }
         }
         true
@@ -199,7 +192,7 @@ impl MacroCase {
         list_of_tokens: &[Rc<Expr>],
         bindings: &mut HashMap<String, Rc<Expr>>,
     ) -> Result<()> {
-        let mut token_iter = list_of_tokens.into_iter().map(|x| Rc::clone(x));
+        let mut token_iter = list_of_tokens.iter().map(|x| Rc::clone(x));
 
         for arg in args {
             match arg {
@@ -264,16 +257,13 @@ impl MacroCase {
 
     // TODO also fix this
     pub fn has_ellipses(&self) -> bool {
-        self.args
-            .iter()
-            .find(|x| {
-                if let MacroPattern::Many(_) = x {
-                    true
-                } else {
-                    false
-                }
-            })
-            .is_some()
+        self.args.iter().any(|x| {
+            if let MacroPattern::Many(_) = x {
+                true
+            } else {
+                false
+            }
+        })
     }
 
     fn check_ellipses(expr: &Rc<Expr>) -> bool {
@@ -409,7 +399,7 @@ impl SteelMacro {
         }
 
         // walk through cases and parse each individually
-        while let Some(next_case) = token_iter.next() {
+        for next_case in token_iter {
             cases_vec.push(MacroCase::parse_from_tokens(
                 &macro_name,
                 &special_forms_vec,

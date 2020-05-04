@@ -110,7 +110,7 @@ impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
             SteelVal::Pair(_, _) => {
                 let vec_vals = collect_pair_into_vector(&val);
                 let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    vec_vals.into_iter().map(|x| T::try_from(x)).collect();
+                    vec_vals.into_iter().map(T::try_from).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::ConversionError(
@@ -142,7 +142,7 @@ impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
             SteelVal::Pair(_, _) => {
                 let vec_vals = collect_pair_into_vector(&val);
                 let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    vec_vals.into_iter().map(|x| T::try_from(x)).collect();
+                    vec_vals.into_iter().map(T::try_from).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::ConversionError(
@@ -191,10 +191,7 @@ fn vec_to_list(args: Vec<SteelVal>) -> SteelVal {
     let mut pairs = Vec::new();
     match (args.next(), args.next()) {
         (cdr, Some(car)) => {
-            pairs.push(Rc::new(SteelVal::Pair(
-                Rc::new(car),
-                cdr.map(|x| Rc::new(x)),
-            )));
+            pairs.push(Rc::new(SteelVal::Pair(Rc::new(car), cdr.map(Rc::new))));
         }
         (Some(cdr), None) => {
             pairs.push(Rc::new(SteelVal::Pair(Rc::new(cdr), None)));
