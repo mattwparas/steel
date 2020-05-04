@@ -28,7 +28,35 @@ pub enum SteelVal {
 SteelVal::BoolV(bool)
 
 
+/*
+Example of using the derive macro with attributes for the fields
+#[steel]
+pub enum Foo {
+    #[]
+    Bar,
+    #[name]
+    Baz(String),
+    #[number]
+    Bat(usize),
+}
 */
+
+// This should translate to definitions exactly
+// Enum constants basically...
+// Discriminant::Bar ;; 1
+// Discriminant::Baz ;; 2
+// Discriminant::Bat ;; 3
+// (Discriminant->list) ;; '(Discriminant::Bar, Discriminant::Baz, Discriminant::Bat)
+// #[derive(EnumTest)]
+// pub enum Discriminant {
+//     Bar = 1,
+//     Baz = 2,
+//     Bat = 3,
+// }
+
+*/
+
+/*
 
 #[proc_macro_derive(EnumTest)]
 pub fn derive_enum_test(input: TokenStream) -> TokenStream {
@@ -290,6 +318,8 @@ pub fn derive_schenum(input: TokenStream) -> TokenStream {
 
     gen.into()
 }
+
+*/
 
 /// Derives the `CustomType` trait for the given struct, and also implements the
 /// `StructFunctions` trait, which generates the predicate, constructor, and the getters

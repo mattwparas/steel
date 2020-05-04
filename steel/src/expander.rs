@@ -451,20 +451,6 @@ impl SteelMacro {
     // its worth a shot
     fn match_case(&self, list_of_tokens: &[Rc<Expr>]) -> Result<&MacroCase> {
         for case in &self.cases {
-            // println!(
-            //     "{:?}",
-            //     list_of_tokens
-            //         .iter()
-            //         .map(|x| x.to_string())
-            //         .collect::<Vec<String>>()
-            // );
-            // println!(
-            //     "{}, {}, {}",
-            //     case.has_ellipses(),
-            //     list_of_tokens.len(),
-            //     case.arity()
-            // );
-            // println!("{:?}", case);
             // TODO this should actually be `case.arity() - num_ellipses_in_top_level`
             if (case.has_ellipses() && list_of_tokens.len() >= (case.arity() - 1))
                 || case.arity() == list_of_tokens.len()

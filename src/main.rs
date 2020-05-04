@@ -31,8 +31,6 @@ use std::convert::TryFrom;
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
-// use steel_derive::EnumTest;
-
 extern crate reqwest;
 
 use std::io::Read;
@@ -51,18 +49,7 @@ fn get_request(url: String) -> reqwest::Result<String> {
     Ok("Success!".to_string())
 }
 
-// #[derive(Debug)]
-// enum Foot {
-//     Bar(usize),
-//     Baz,
-//     Bat,
-// }
-
 fn main() {
-    // println!("{:?}", Foot::Bar as isize);
-    // println!("{:?}", Foot::Baz as isize);
-    // println!("{:?}", Foot::Bat as isize);
-
     let args = args().collect::<Vec<_>>();
 
     if args.len() == 1 {
@@ -118,32 +105,6 @@ pub struct VecStruct {
 pub struct CoolTest {
     pub val: f64,
 }
-
-/*
-Example of using the derive macro with attributes for the fields
-#[steel]
-pub enum Foo {
-    #[]
-    Bar,
-    #[name]
-    Baz(String),
-    #[number]
-    Bat(usize),
-}
-*/
-
-// This should translate to definitions exactly
-// Enum constants basically...
-// Discriminant::Bar ;; 1
-// Discriminant::Baz ;; 2
-// Discriminant::Bat ;; 3
-// (Discriminant->list) ;; '(Discriminant::Bar, Discriminant::Baz, Discriminant::Bat)
-// #[derive(EnumTest)]
-// pub enum Discriminant {
-//     Bar = 1,
-//     Baz = 2,
-//     Bat = 3,
-// }
 
 impl CoolTest {
     // #[method]
