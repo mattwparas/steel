@@ -357,26 +357,26 @@ fn eval_func(
     func(args_eval)
 }
 
-fn eval_and(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
-    for expr in list_of_tokens {
-        match evaluate(expr, env)?.as_ref() {
-            SteelVal::BoolV(true) => continue,
-            SteelVal::BoolV(false) => return Ok(FALSE.with(|f| Rc::clone(f))),
-            _ => continue,
-        }
-    }
-    Ok(TRUE.with(|f| Rc::clone(f)))
-}
+// fn eval_and(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
+//     for expr in list_of_tokens {
+//         match evaluate(expr, env)?.as_ref() {
+//             SteelVal::BoolV(true) => continue,
+//             SteelVal::BoolV(false) => return Ok(FALSE.with(|f| Rc::clone(f))),
+//             _ => continue,
+//         }
+//     }
+//     Ok(TRUE.with(|f| Rc::clone(f)))
+// }
 
-fn eval_or(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
-    for expr in list_of_tokens {
-        match evaluate(expr, env)?.as_ref() {
-            SteelVal::BoolV(true) => return Ok(TRUE.with(|f| Rc::clone(f))), // Rc::new(SteelVal::BoolV(true))),
-            _ => continue,
-        }
-    }
-    Ok(FALSE.with(|f| Rc::clone(f)))
-}
+// fn eval_or(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
+//     for expr in list_of_tokens {
+//         match evaluate(expr, env)?.as_ref() {
+//             SteelVal::BoolV(true) => return Ok(TRUE.with(|f| Rc::clone(f))), // Rc::new(SteelVal::BoolV(true))),
+//             _ => continue,
+//         }
+//     }
+//     Ok(FALSE.with(|f| Rc::clone(f)))
+// }
 
 /// evaluates a lambda into a body expression to execute
 /// and an inner environment

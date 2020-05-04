@@ -267,3 +267,23 @@ fn while_test() {
     test_line("(define x 0)", &["#<void>"], e);
     test_line("(while (< x 5) (set! x (+ x 1))) x", &["#<void>", "5"], e);
 }
+
+#[test]
+fn map_test() {
+    let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line(
+        "(map (lambda (x) (* 2 x)) (list 1 2 3 4))",
+        &["'(2 4 6 8)"],
+        e,
+    );
+}
+
+#[test]
+fn filter_test() {
+    let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line("(filter even? (list 1 2 3 4 5))", &["'(2 4)"], e);
+}
