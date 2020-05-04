@@ -68,6 +68,22 @@ impl<'a> Tokenizer<'a> {
         Token::Identifier(word)
     }
 
+    fn read_word_with_starting_hyphen(&mut self) -> Token {
+        let mut word = "-".to_string();
+        while let Some(&c) = self.input.peek() {
+            match c {
+                '(' | '[' | '{' | ')' | ']' | '}' => break,
+                c if c.is_whitespace() => break,
+                _ => {
+                    self.input.next();
+                    word.push(c);
+                }
+            };
+        }
+
+        Token::Identifier(word)
+    }
+
     fn read_hash_value(&mut self) -> Result<Token> {
         let mut word = String::new();
         while let Some(&c) = self.input.peek() {
@@ -189,7 +205,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                         Some(Ok(Token::NumberLiteral(self.read_number() * -1.0)))
                     }
                     Some(&c) if c == ' ' => Some(Ok(Token::Identifier("-".to_string()))),
-                    _ => Some(Ok(self.read_word())),
+                    _ => Some(Ok(self.read_word_with_starting_hyphen())),
                 }
             }
             Some('*') => {

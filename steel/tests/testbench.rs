@@ -194,3 +194,76 @@ fn cond_test() {
         e,
     );
 }
+
+#[test]
+fn when_test() {
+    let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line("(when #t 10)", &["10"], e);
+    test_line("(when #f 10)", &["#<void>"], e);
+}
+
+#[test]
+fn unless_test() {
+    let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line("(unless #t 10)", &["#<void>"], e);
+    test_line("(unless #f 10)", &["10"], e);
+}
+
+#[test]
+fn thread_first_test() {
+    let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line(
+        "(->> (list 1 2 3 4)
+            (map (lambda (x) (* 2 x)))
+            (append (list 5 6))
+            (map (lambda (x) (* 5 x)))
+            (append (list 1 2 3 4)))",
+        &["'(1 2 3 4 25 30 10 20 30 40)"],
+        e,
+    );
+}
+
+#[test]
+fn thread_last_test() {
+    let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line(
+        "(-> (list 1 2 3 4)
+            (take 2)
+            (append (list 5 6)))",
+        &["'(1 2 5 6)"],
+        e,
+    );
+}
+
+#[test]
+fn first_apply_test() {
+    let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line("((f> append (list 3 4)) (list 1 2))", &["'(1 2 3 4)"], e);
+}
+
+#[test]
+fn last_apply_test() {
+    let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line("((l> append (list 3 4)) (list 1 2))", &["'(3 4 1 2)"], e);
+}
+
+#[test]
+fn while_test() {
+    let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line("(define x 0)", &["#<void>"], e);
+    test_line("(while (< x 5) (set! x (+ x 1))) x", &["#<void>", "5"], e);
+}

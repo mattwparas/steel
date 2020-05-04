@@ -175,7 +175,7 @@ pub const PRELUDE: &str = "
   (syntax-rules ()
     [(unless a b ...)
       (if a void (begin b ...))]))
-
+    
 (define-syntax cond
   (syntax-rules (else)
     [(cond [else e1 ...])
@@ -186,5 +186,42 @@ pub const PRELUDE: &str = "
       (if e1
           (begin e2 ...)
           (cond c1 ...))]))
+
+(define-syntax while
+  (syntax-rules (do)
+    [(while cond do body ...)
+      (begin
+        (define (loop)
+          (when cond
+              body ...
+              (loop)))
+        (loop))]
+    [(while cond body ...)
+      (begin (define (loop)
+              (when cond body ... (loop)))
+            (loop))]))
+   
+(define-syntax f>
+  (syntax-rules ()
+    [(f> fun args* ...)
+      (lambda (x) (fun x args* ...))]))
+
+(define-syntax ->
+  (syntax-rules ()
+    [(-> a) a]
+    [(-> a (b c ...)) ((f> b c ...) a)]
+    [(-> a b c ...) (-> (-> a b) c ...)]))
+
+(define-syntax l>
+  (syntax-rules ()
+    [(l> fun args* ...)
+      (lambda (x) (fun args* ... x))]))
+
+(define-syntax ->>
+  (syntax-rules ()
+    [(->> a) a]
+    [(->> a (b c ...)) ((l> b c ...) a)]
+    [(->> a b c ...) (->> (->> a b) c ...)]))
+
 
 ";
