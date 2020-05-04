@@ -313,29 +313,13 @@ impl MacroCase {
                 if let Some(ellipses_pos) = vec_exprs.iter().position(Self::check_ellipses) {
                     let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(
                         throw!(BadSyntax => "macro expansion failed, could not find variable"),
-                    )?; // TODO
-
-                    // println!("{:?}", bindings);
-                    // println!("{:?}", variable_to_lookup);
+                    )?;
 
                     let rest = bindings
                         .get(variable_to_lookup.as_ref().atom_identifier_or_else(
                             throw!(BadSyntax => "macro expansion failed at lookup!"),
                         )?)
                         .ok_or_else(throw!(BadSyntax => "macro expansion failed at lookup here"))?;
-
-                    // match variable_to_lookup.as_ref() {
-                    //     Expr::Atom(Identifier(s)) => {
-
-                    //     }
-                    //     Expr::VectorVal()
-                    // }
-
-                    // let rest = bindings
-                    //     .get(variable_to_lookup.as_ref().atom_identifier_or_else(
-                    //         throw!(BadSyntax => "macro expansion failed at lookup!"),
-                    //     )?)
-                    //     .ok_or_else(throw!(BadSyntax => "macro expansion failed at lookup here"))?;
 
                     let list_of_exprs = rest.as_ref().vector_val_or_else(
                         throw!(BadSyntax => "macro expansion failed, expected list of expressions"),
@@ -377,6 +361,10 @@ impl SteelMacro {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub fn get_cases(&self) -> &[MacroCase] {
+        &self.cases
     }
 
     fn parse_syntax_rules(
@@ -525,7 +513,7 @@ mod parse_macro_tests {
             Rc::new(Atom(Identifier("when".to_string()))),
             Rc::new(VectorVal(vec![
                 Rc::new(Atom(Identifier("syntax-rules".to_string()))),
-                Rc::new(VectorVal(vec![])), // Rc::new(Atom(Identifier("b".to_string()))),
+                Rc::new(VectorVal(vec![])),
                 Rc::new(VectorVal(vec![
                     Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("when".to_string()))),
@@ -658,11 +646,7 @@ mod parse_macro_tests {
                             Syntax("cond".to_string()),
                             Nested(vec![Syntax("else".to_string()), Many("e1".to_string())]),
                         ],
-                        body: Rc::new(VectorVal(vec![
-                            Rc::new(Atom(Identifier("begin".to_string()))),
-                            Rc::new(Atom(Identifier("e1".to_string()))),
-                            Rc::new(Atom(Identifier("...".to_string()))),
-                        ])),
+                        body: parse_with_empty_cache("(begin e1 ...)"),
                     },
                     MacroCase {
                         args: vec![
@@ -682,24 +666,71 @@ mod parse_macro_tests {
                             Nested(vec![Single("e1".to_string()), Many("e2".to_string())]),
                             Many("c1".to_string()),
                         ],
-                        body: Rc::new(VectorVal(vec![
-                            Rc::new(Atom(Identifier("if".to_string()))),
-                            Rc::new(Atom(Identifier("e1".to_string()))),
-                            Rc::new(VectorVal(vec![
-                                Rc::new(Atom(Identifier("begin".to_string()))),
-                                Rc::new(Atom(Identifier("e2".to_string()))),
-                                Rc::new(Atom(Identifier("...".to_string()))),
-                            ])),
-                            Rc::new(VectorVal(vec![
-                                Rc::new(Atom(Identifier("cond".to_string()))),
-                                Rc::new(Atom(Identifier("c1".to_string()))),
-                                Rc::new(Atom(Identifier("...".to_string()))),
-                            ])),
-                        ])),
+                        body: parse_with_empty_cache(
+                            "(if e1
+                                (begin e2 ...)
+                                (cond c1 ...))",
+                        ),
                     },
                 ],
             },
         )
+    }
+
+    #[test]
+    fn match_case_test() {
+        let my_macro = SteelMacro {
+            name: "cond".to_string(),
+            special_forms: vec!["else".to_string()],
+            cases: vec![
+                MacroCase {
+                    args: vec![
+                        Syntax("cond".to_string()),
+                        Nested(vec![Syntax("else".to_string()), Many("e1".to_string())]),
+                    ],
+                    body: parse_with_empty_cache("(begin e1 ...)"),
+                },
+                MacroCase {
+                    args: vec![
+                        Syntax("cond".to_string()),
+                        Nested(vec![Single("e1".to_string()), Many("e2".to_string())]),
+                    ],
+                    body: Rc::new(VectorVal(vec![
+                        Rc::new(Atom(Identifier("##when".to_string()))),
+                        Rc::new(Atom(Identifier("e1".to_string()))),
+                        Rc::new(Atom(Identifier("e2".to_string()))),
+                        Rc::new(Atom(Identifier("...".to_string()))),
+                    ])),
+                },
+                MacroCase {
+                    args: vec![
+                        Syntax("cond".to_string()),
+                        Nested(vec![Single("e1".to_string()), Many("e2".to_string())]),
+                        Many("c1".to_string()),
+                    ],
+                    body: parse_with_empty_cache(
+                        "(if e1
+                            (begin e2 ...)
+                            (cond c1 ...))",
+                    ),
+                },
+            ],
+        };
+
+        let input = parse_statement("(cond [else 10])");
+        let expected = my_macro.get_cases()[0].clone();
+        let res = my_macro.match_case(&input);
+        assert_eq!(res.unwrap().clone(), expected);
+
+        let input = parse_statement("(cond [#t 10])");
+        let expected = my_macro.get_cases()[1].clone();
+        let res = my_macro.match_case(&input);
+        assert_eq!(res.unwrap().clone(), expected);
+
+        let input = parse_statement("(cond [#f 10] [else 20])");
+        let expected = my_macro.get_cases()[2].clone();
+        let res = my_macro.match_case(&input);
+        assert_eq!(res.unwrap().clone(), expected);
     }
 
     fn generate_macro_and_assert(s: &str, expected: SteelMacro) {
@@ -710,11 +741,15 @@ mod parse_macro_tests {
         assert_eq!(res.unwrap(), expected);
     }
 
-    fn parse_statement(s: &str) -> Vec<Rc<Expr>> {
+    fn parse_with_empty_cache(s: &str) -> Rc<Expr> {
         let mut cache: HashMap<String, Rc<Expr>> = HashMap::new();
         let a: std::result::Result<Vec<Expr>, ParseError> = Parser::new(s, &mut cache).collect();
         let a = a.unwrap()[0].clone();
+        Rc::new(a)
+    }
 
+    fn parse_statement(s: &str) -> Vec<Rc<Expr>> {
+        let a = parse_with_empty_cache(s);
         a.vector_val_or_else(throw!(BadSyntax => "Malformed statement in the test"))
             .unwrap()
             .to_vec()
