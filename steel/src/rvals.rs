@@ -490,3 +490,103 @@ fn display_list_test() {
         "'#((1 (2 3)) (4 5) 6 (7))"
     );
 }
+
+#[cfg(test)]
+mod or_else_tests {
+
+    use super::*;
+    use im_rc::vector;
+
+    #[test]
+    fn bool_or_else_test_good() {
+        let input = SteelVal::BoolV(true);
+        assert_eq!(input.bool_or_else(throw!(Generic => "test")).unwrap(), true);
+    }
+
+    #[test]
+    fn bool_or_else_test_bad() {
+        let input = SteelVal::CharV('f');
+        assert!(input.bool_or_else(throw!(Generic => "test")).is_err());
+    }
+
+    #[test]
+    fn num_or_else_test_good() {
+        let input = SteelVal::NumV(10.0);
+        assert_eq!(input.num_or_else(throw!(Generic => "test")).unwrap(), 10.0);
+    }
+
+    #[test]
+    fn num_or_else_test_bad() {
+        let input = SteelVal::CharV('f');
+        assert!(input.num_or_else(throw!(Generic => "test")).is_err());
+    }
+
+    #[test]
+    fn char_or_else_test_good() {
+        let input = SteelVal::CharV('f');
+        assert_eq!(input.char_or_else(throw!(Generic => "test")).unwrap(), 'f');
+    }
+
+    #[test]
+    fn char_or_else_test_bad() {
+        let input = SteelVal::NumV(10.0);
+        assert!(input.char_or_else(throw!(Generic => "test")).is_err());
+    }
+
+    #[test]
+    fn vector_or_else_test_good() {
+        let input = SteelVal::VectorV(vector![SteelVal::NumV(1.0)]);
+        assert_eq!(
+            input.vector_or_else(throw!(Generic => "test")).unwrap(),
+            vector![SteelVal::NumV(1.0)]
+        );
+    }
+
+    #[test]
+    fn vector_or_else_bad() {
+        let input = SteelVal::CharV('f');
+        assert!(input.vector_or_else(throw!(Generic => "test")).is_err());
+    }
+
+    #[test]
+    fn void_or_else_test_good() {
+        let input = SteelVal::Void;
+        assert_eq!(input.void_or_else(throw!(Generic => "test")).unwrap(), ())
+    }
+
+    #[test]
+    fn void_or_else_test_bad() {
+        let input = SteelVal::StringV("foo".to_string());
+        assert!(input.void_or_else(throw!(Generic => "test")).is_err());
+    }
+
+    #[test]
+    fn string_or_else_test_good() {
+        let input = SteelVal::StringV("foo".to_string());
+        assert_eq!(
+            input.string_or_else(throw!(Generic => "test")).unwrap(),
+            "foo".to_string()
+        );
+    }
+
+    #[test]
+    fn string_or_else_test_bad() {
+        let input = SteelVal::Void;
+        assert!(input.string_or_else(throw!(Generic => "test")).is_err())
+    }
+
+    #[test]
+    fn symbol_or_else_test_good() {
+        let input = SteelVal::SymbolV("foo".to_string());
+        assert_eq!(
+            input.symbol_or_else(throw!(Generic => "test")).unwrap(),
+            "foo".to_string()
+        );
+    }
+
+    #[test]
+    fn symbol_or_else_test_bad() {
+        let input = SteelVal::Void;
+        assert!(input.symbol_or_else(throw!(Generic => "test")).is_err())
+    }
+}
