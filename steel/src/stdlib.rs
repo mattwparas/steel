@@ -119,14 +119,14 @@ pub const PRELUDE: &str = "
 (define (zero? n) (= n 0))
 
 
-(define (take n lst)
+(define (take lst n)
   (define (loop x l accum)
     (if (or (zero? x) (null? l))
         accum
         (loop (sub1 x) (cdr l) (append accum (list (car l))))))
     (loop n lst '()))
 
-(define (drop n lst)
+(define (drop lst n)
   (define (loop x l)
     (if (zero? x)
       l
@@ -134,7 +134,7 @@ pub const PRELUDE: &str = "
   (loop n lst))
 
 (define (slice l offset n)
-    (take n (drop offset l)))
+    (take (drop l offset) n))
 
 (define (displayln object) 
     (display object) 
@@ -147,5 +147,23 @@ pub const PRELUDE: &str = "
 ;        accum
 ;        (loop l (sub1 r) (cons r accum))))
 ;  (loop l r '() )))
+
+
+;;; Macros go here:
+
+(define-syntax or
+  (syntax-rules ()
+    [(or) #f]
+    [(or x) x]
+    [(or x y) (let ([z x])
+                (if z z y))]
+    [(or x y ...) (or x (or y ...))]))
+
+(define-syntax and
+  (syntax-rules ()
+    [(and) #t]
+    [(and x) x]
+    [(and x y) (if x y #f)]
+    [(and x y ...) (and x (and y ...))]))
 
 ";

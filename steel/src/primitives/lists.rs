@@ -4,7 +4,6 @@ use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use im_rc::Vector;
 use std::rc::Rc;
-
 // mod primitives;
 
 pub struct ListOperations {}
@@ -33,6 +32,9 @@ impl ListOperations {
 
     pub fn car() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "car takes one argument");
+            }
             if let Some(first) = args.into_iter().next() {
                 match first.as_ref() {
                     Pair(car, _) => Ok(Rc::clone(car)),
@@ -48,6 +50,9 @@ impl ListOperations {
 
     pub fn cdr() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "cdr takes one argument");
+            }
             if let Some(first) = args.into_iter().next() {
                 match first.as_ref() {
                     Pair(_, cdr) => match cdr {
@@ -73,6 +78,9 @@ impl ListOperations {
 
     pub fn range() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "range takes two arguments")
+            }
             let mut args = args.into_iter().map(|x| (*x).clone());
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
@@ -194,5 +202,217 @@ impl ListOperations {
                 .pop()
                 .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string()))
         }
+    }
+}
+
+#[cfg(test)]
+mod list_operation_tests {
+
+    use super::*;
+    use crate::throw;
+    use im_rc::vector;
+
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Rc<SteelVal>> {
+        let args = args.into_iter().map(|x| Rc::new(x)).collect();
+        func.func_or_else(throw!(BadSyntax => "list tests"))
+            .unwrap()(args)
+    }
+
+    #[test]
+    fn cons_test_normal_input() {
+        let args = vec![SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
+        let res = apply_function(ListOperations::cons(), args);
+        let expected = Rc::new(SteelVal::Pair(
+            Rc::new(SteelVal::NumV(1.0)),
+            Some(Rc::new(SteelVal::NumV(2.0))),
+        ));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn cons_single_input() {
+        let args = vec![SteelVal::NumV(1.0)];
+        let res = apply_function(ListOperations::cons(), args);
+        let expected = SteelErr::ArityMismatch("cons takes only two arguments".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn cons_no_input() {
+        let args = vec![];
+        let res = apply_function(ListOperations::cons(), args);
+        let expected = SteelErr::ArityMismatch("cons takes only two arguments".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn cons_with_empty_list() {
+        let args = vec![SteelVal::NumV(1.0), SteelVal::VectorV(Vector::new())];
+        let res = apply_function(ListOperations::cons(), args);
+        let expected = Rc::new(SteelVal::Pair(Rc::new(SteelVal::NumV(1.0)), None));
+        assert_eq!(res.unwrap(), expected);
+    }
+    #[test]
+    fn cons_with_non_empty_vector() {
+        let args = vec![
+            SteelVal::NumV(1.0),
+            SteelVal::VectorV(vector![SteelVal::NumV(2.0)]),
+        ];
+        let res = apply_function(ListOperations::cons(), args);
+        let expected = Rc::new(SteelVal::Pair(
+            Rc::new(SteelVal::NumV(1.0)),
+            Some(Rc::new(SteelVal::VectorV(vector![SteelVal::NumV(2.0)]))),
+        ));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn car_normal_input() {
+        let args = vec![SteelVal::Pair(
+            Rc::new(SteelVal::NumV(1.0)),
+            Some(Rc::new(SteelVal::NumV(2.0))),
+        )];
+        let res = apply_function(ListOperations::car(), args);
+        let expected = Rc::new(SteelVal::NumV(1.0));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn car_bad_input() {
+        let args = vec![SteelVal::NumV(1.0)];
+        let res = apply_function(ListOperations::car(), args);
+        let expected = SteelErr::TypeMismatch("car takes a list, given: 1".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn car_too_many_args() {
+        let args = vec![SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
+        let res = apply_function(ListOperations::car(), args);
+        let expected = SteelErr::ArityMismatch("car takes one argument".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn cdr_normal_input_2_elements() {
+        let args = vec![SteelVal::Pair(
+            Rc::new(SteelVal::NumV(1.0)),
+            Some(Rc::new(SteelVal::NumV(2.0))),
+        )];
+        let res = apply_function(ListOperations::cdr(), args);
+        let expected = Rc::new(Pair(Rc::new(SteelVal::NumV(2.0)), None));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn cdr_normal_input_3_elements() {
+        let args = vec![SteelVal::Pair(
+            Rc::new(SteelVal::NumV(1.0)),
+            Some(Rc::new(SteelVal::Pair(
+                Rc::new(SteelVal::NumV(2.0)),
+                Some(Rc::new(SteelVal::NumV(3.0))),
+            ))),
+        )];
+        let res = apply_function(ListOperations::cdr(), args);
+        let expected = Rc::new(Pair(
+            Rc::new(SteelVal::NumV(2.0)),
+            Some(Rc::new(SteelVal::NumV(3.0))),
+        ));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn cdr_bad_input() {
+        let args = vec![SteelVal::NumV(1.0)];
+        let res = apply_function(ListOperations::cdr(), args);
+        let expected = SteelErr::TypeMismatch("cdr takes a list, given: 1".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+    #[test]
+    fn cdr_too_many_args() {
+        let args = vec![SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
+        let res = apply_function(ListOperations::cdr(), args);
+        let expected = SteelErr::ArityMismatch("cdr takes one argument".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn cdr_single_element_list() {
+        let args = vec![SteelVal::Pair(Rc::new(SteelVal::NumV(1.0)), None)];
+        let res = apply_function(ListOperations::cdr(), args);
+        let expected = Rc::new(SteelVal::VectorV(Vector::new()));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn range_tests_arity_too_few() {
+        let args = vec![SteelVal::NumV(1.0)];
+        let res = apply_function(ListOperations::range(), args);
+        let expected = SteelErr::ArityMismatch("range takes two arguments".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn range_test_arity_too_many() {
+        let args = vec![
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(2.0),
+            SteelVal::NumV(3.0),
+        ];
+        let res = apply_function(ListOperations::range(), args);
+        let expected = SteelErr::ArityMismatch("range takes two arguments".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn range_test_normal_input() {
+        let args = vec![SteelVal::NumV(0.0), SteelVal::NumV(3.0)];
+        let res = apply_function(ListOperations::range(), args);
+        let expected = Rc::new(SteelVal::Pair(
+            Rc::new(SteelVal::NumV(0.0)),
+            Some(Rc::new(SteelVal::Pair(
+                Rc::new(SteelVal::NumV(1.0)),
+                Some(Rc::new(SteelVal::NumV(2.0))),
+            ))),
+        ));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn list_to_vec_arity_too_few() {
+        let args = vec![];
+        let res = apply_function(ListOperations::list_to_vec(), args);
+        let expected = SteelErr::ArityMismatch("list->vector takes one argument".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn list_to_vec_arity_too_many() {
+        let args = vec![SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
+        let res = apply_function(ListOperations::list_to_vec(), args);
+        let expected = SteelErr::ArityMismatch("list->vector takes one argument".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn list_to_vec_bad_arg() {
+        let args = vec![SteelVal::NumV(1.0)];
+        let res = apply_function(ListOperations::list_to_vec(), args);
+        let expected = SteelErr::TypeMismatch("list->vector expected list".to_string());
+        assert_eq!(res.unwrap_err(), expected);
+    }
+
+    #[test]
+    fn list_to_vec_normal() {
+        let args = vec![SteelVal::Pair(
+            Rc::new(SteelVal::NumV(1.0)),
+            Some(Rc::new(SteelVal::NumV(2.0))),
+        )];
+        let res = apply_function(ListOperations::list_to_vec(), args);
+        let expected = Rc::new(SteelVal::VectorV(vector![
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(2.0)
+        ]));
+        assert_eq!(res.unwrap(), expected);
     }
 }

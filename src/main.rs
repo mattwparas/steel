@@ -31,6 +31,24 @@ use std::convert::TryFrom;
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
+extern crate reqwest;
+
+use std::io::Read;
+
+//"http://httpbin.org/get"
+#[function]
+fn get_request(url: String) -> reqwest::Result<String> {
+    let mut res = reqwest::blocking::get(&url)?;
+    let mut body = String::new();
+    if let Err(_) = res.read_to_string(&mut body) {};
+
+    println!("Status: {}", res.status());
+    println!("Headers:\n{:#?}", res.headers());
+    println!("Body:\n{}", body);
+
+    Ok("Success!".to_string())
+}
+
 fn main() {
     let args = args().collect::<Vec<_>>();
 
@@ -103,6 +121,8 @@ pub struct Foo {
     pub f: UnnamedFields,
 }
 
+// By design, tuple structs with unnamed fields are not given constructors or accessors
+// constructors or accessors must be defined outside the macro
 #[steel]
 pub struct MutexWrapper(pub Arc<Mutex<usize>>);
 
@@ -163,7 +183,8 @@ pub fn test_repl() -> std::io::Result<()> {
             "new-mutex-wrapper" => new_mutex_wrapper,
             "display-cool-test" => pretty_print_cool_test,
             "test-result" => test_result,
-            "test-option" => test_option
+            "test-option" => test_option,
+            "slurp!" => get_request
         }
     })
 }

@@ -13,7 +13,7 @@ use std::path::Path;
 #[macro_export]
 macro_rules! build_interpreter {
 
-    ($($type:ty),*) => {
+    ($($type:ty),* $(,)?) => {
         {
             let mut interpreter = SteelInterpreter::new();
             $ (
@@ -23,7 +23,7 @@ macro_rules! build_interpreter {
         }
     };
 
-    (Structs => {$($type:ty),*} Functions => {$($binding:expr => $func:ident),*}) => {
+    (Structs => {$($type:ty),* $(,)?} Functions => {$($binding:expr => $func:ident),* $(,)?}) => {
         {
             let mut interpreter = SteelInterpreter::new();
             $ (
@@ -160,5 +160,54 @@ impl SteelInterpreter {
     /// ```
     pub fn extract_value(&mut self, name: &str) -> Result<SteelVal, SteelErr> {
         self.evaluator.lookup_binding(name)
+    }
+}
+
+#[cfg(test)]
+mod interpreter_tests {
+    use super::*;
+    use crate::rvals::SteelVal;
+
+    #[test]
+    fn evaluate_test() {
+        let mut interpreter = SteelInterpreter::new();
+        let stmt = "(+ 1 2 3) (+ 4 5 6)";
+        let results = interpreter.evaluate(stmt);
+        let expected = vec![SteelVal::NumV(6.0), SteelVal::NumV(15.0)];
+        assert_eq!(results.unwrap(), expected);
+    }
+
+    #[test]
+    fn reset_test() {
+        let mut interpreter = SteelInterpreter::new();
+        interpreter.insert_binding("test", SteelVal::BoolV(true));
+        let stmt = "test";
+        let results = interpreter.evaluate(stmt);
+        let expected = vec![SteelVal::BoolV(true)];
+        assert_eq!(results.unwrap(), expected);
+        interpreter.reset();
+        let stmt = "test";
+        let results = interpreter.evaluate(stmt);
+        assert!(results.is_err());
+    }
+
+    #[test]
+    fn insert_binding_test() {
+        let mut interpreter = SteelInterpreter::new();
+        interpreter.insert_binding("test", SteelVal::BoolV(true));
+        let stmt = "test";
+        let results = interpreter.evaluate(stmt);
+        let expected = vec![SteelVal::BoolV(true)];
+        assert_eq!(results.unwrap(), expected);
+    }
+
+    #[test]
+    fn extract_value_test() {
+        let mut interpreter = SteelInterpreter::new();
+        interpreter.insert_binding("test", SteelVal::BoolV(true));
+        assert_eq!(
+            interpreter.extract_value("test").unwrap(),
+            SteelVal::BoolV(true)
+        );
     }
 }

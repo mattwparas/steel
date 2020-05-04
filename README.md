@@ -1,6 +1,6 @@
 # steel
 
-![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg)
+![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) [![codecov](https://codecov.io/gh/mattwparas/steel/branch/master/graph/badge.svg)](https://codecov.io/gh/mattwparas/steel)
 
 An embedded scheme interpreter in Rust.
 

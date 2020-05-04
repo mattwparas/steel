@@ -1,4 +1,5 @@
 use crate::env::Env;
+use crate::expander::SteelMacro;
 use crate::parser::tokens::Token::*;
 use crate::parser::Expr;
 use crate::rerrs::SteelErr;
@@ -101,10 +102,107 @@ pub enum SteelVal {
     FuncV(FunctionSignature),
     /// Represents Steel Lambda functions or closures defined inside the environment
     LambdaV(SteelLambda),
+    /// Represents built in macros,
+    MacroV(SteelMacro),
     /// Represents a symbol, internally represented as `String`s
     SymbolV(String),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Box<dyn CustomType>),
+}
+
+impl SteelVal {
+    pub fn bool_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<bool, E> {
+        match self {
+            Self::BoolV(v) => Ok(*v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn num_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<f64, E> {
+        match self {
+            Self::NumV(v) => Ok(*v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn char_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<char, E> {
+        match self {
+            Self::CharV(v) => Ok(*v),
+            _ => Err(err()),
+        }
+    }
+
+    /// Vector does copy on the value to return
+    pub fn vector_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<Vector<SteelVal>, E> {
+        match self {
+            Self::VectorV(v) => Ok(v.clone()),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn void_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<(), E> {
+        match self {
+            Self::Void => Ok(()),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn string_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
+        match self {
+            Self::StringV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn func_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&FunctionSignature, E> {
+        match self {
+            Self::FuncV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn lambda_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&SteelLambda, E> {
+        match self {
+            Self::LambdaV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn macro_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&SteelMacro, E> {
+        match self {
+            Self::MacroV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
+        match self {
+            Self::SymbolV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn custom_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&Box<dyn CustomType>, E> {
+        match self {
+            Self::Custom(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
 }
 
 impl Drop for SteelVal {
@@ -170,6 +268,7 @@ impl TryFrom<&SteelVal> for Rc<Expr> {
             StringV(x) => Ok(Rc::new(Expr::Atom(StringLiteral(x.clone())))),
             FuncV(_) => Err("Can't convert from Function to expression!"),
             LambdaV(_) => Err("Can't convert from Lambda to expression!"),
+            MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => Ok(Rc::new(Expr::Atom(Identifier(x.clone())))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
             Pair(_, _) => Err("Can't convert from pair"), // TODO
@@ -188,6 +287,9 @@ impl PartialEq for SteelVal {
             (VectorV(l), VectorV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
             (CharV(l), CharV(r)) => l == r,
+            (Pair(_, _), Pair(_, _)) => {
+                collect_pair_into_vector(self) == collect_pair_into_vector(other)
+            }
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
@@ -289,6 +391,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         CharV(c) => write!(f, "#\\{}", c),
         FuncV(_) => write!(f, "#<function>"),
         LambdaV(_) => write!(f, "#<lambda-function>"),
+        MacroV(_) => write!(f, "#<macro>"),
         Void => write!(f, "#<void>"),
         SymbolV(s) => write!(f, "{}", s),
         VectorV(lst) => {
@@ -303,15 +406,9 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             }
             write!(f, ")")
         }
-        // Pair(_, _) => {
-        //     collect_pair_into_vector(mut p: &SteelVal)
-        // }
         Custom(x) => write!(f, "#<{}>", x.display()?),
-        // write!(f, "#<Custom-Type: {}>", x.name()),
         Pair(_, _) => {
             let v = collect_pair_into_vector(val);
-            // println!("collected v");
-            // write!(f, "'")?;
             display_helper(&v, f)
         }
     }
@@ -339,8 +436,6 @@ fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
     }
 }
 
-/*
-
 #[test]
 fn display_test() {
     use crate::parser::tokens::Token;
@@ -348,11 +443,11 @@ fn display_test() {
     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
     assert_eq!(SteelVal::NumV(1.0).to_string(), "1");
     assert_eq!(
-        SteelVal::FuncV(|_args: Vec<SteelVal>| -> Result<SteelVal, SteelErr> {
-            Ok(SteelVal::VectorV(vector![]))
+        SteelVal::FuncV(|_args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            Ok(Rc::new(SteelVal::VectorV(vector![])))
         })
         .to_string(),
-        "Function"
+        "#<function>"
     );
     assert_eq!(
         SteelVal::LambdaV(SteelLambda::new(
@@ -361,7 +456,7 @@ fn display_test() {
             Rc::new(RefCell::new(crate::env::Env::default_env())),
         ))
         .to_string(),
-        "Lambda Function"
+        "#<lambda-function>"
     );
     assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
 }
@@ -370,7 +465,7 @@ fn display_test() {
 fn display_list_test() {
     use crate::parser::tokens::Token;
     use im_rc::vector;
-    assert_eq!(VectorV(vector![]).to_string(), "'()");
+    assert_eq!(VectorV(vector![]).to_string(), "'#()");
     assert_eq!(
         VectorV(vector![
             BoolV(false),
@@ -382,7 +477,7 @@ fn display_list_test() {
             ))
         ])
         .to_string(),
-        "'(#false 1 Lambda Function)"
+        "'#(#false 1 #<lambda-function>)"
     );
     assert_eq!(
         VectorV(vector![
@@ -392,8 +487,6 @@ fn display_list_test() {
             VectorV(vector![NumV(7.0)])
         ])
         .to_string(),
-        "'((1 (2 3)) (4 5) 6 (7))"
+        "'#((1 (2 3)) (4 5) 6 (7))"
     );
 }
-
-*/

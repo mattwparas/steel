@@ -1,10 +1,9 @@
 extern crate steel;
 
-use steel::interpreter::evaluator::Evaluator;
-use steel::parser::*;
-
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use steel::interpreter::evaluator::Evaluator;
+use steel::parser::*;
 
 use std::collections::HashMap;
 

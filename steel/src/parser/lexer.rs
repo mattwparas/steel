@@ -74,6 +74,7 @@ impl<'a> Tokenizer<'a> {
             match c {
                 '(' | '[' | '{' | ')' | ']' | '}' => break,
                 c if c.is_whitespace() => break,
+                c if c == '#' => return Err(TokenError::UnexpectedChar('#')),
                 _ => {
                     self.input.next();
                     word.push(c);
@@ -95,6 +96,7 @@ impl<'a> Tokenizer<'a> {
                 }
             }
             _ => Ok(Token::Identifier(word)), // TODO
+                                              // _ => Err(TokenError::UnexpectedChar(#))
         }
     }
 
@@ -186,7 +188,8 @@ impl<'a> Iterator for Tokenizer<'a> {
                     Some(&c) if c.is_numeric() => {
                         Some(Ok(Token::NumberLiteral(self.read_number() * -1.0)))
                     }
-                    _ => Some(Ok(Token::Identifier("-".to_string()))),
+                    Some(&c) if c == ' ' => Some(Ok(Token::Identifier("-".to_string()))),
+                    _ => Some(Ok(self.read_word())),
                 }
             }
             Some('*') => {
@@ -203,7 +206,9 @@ impl<'a> Iterator for Tokenizer<'a> {
             }
             Some('"') => Some(self.read_string()),
             Some(c)
-                if !c.is_whitespace() && (c.is_alphabetic() && !c.is_numeric()) || *c == '_' =>
+                if !c.is_whitespace() && (c.is_alphabetic() && !c.is_numeric())
+                    || *c == '_'
+                    || *c == '.' =>
             {
                 Some(Ok(self.read_word()))
             }
@@ -222,25 +227,6 @@ mod tests {
     use super::*;
     use crate::parser::tokens::Token::*;
     use crate::parser::tokens::TokenError;
-
-    // #[test]
-    // fn test_punctuation() {
-    //     let mut s = Tokenizer::new("(,) = < <= > >= +-*/%");
-    //     assert_eq!(s.next(), Some(Ok(OpenParen)));
-    //     assert_eq!(s.next(), Some(Err(TokenError::UnexpectedChar(','))));
-    //     assert_eq!(s.next(), Some(Ok(CloseParen)));
-    //     assert_eq!(s.next(), Some(Ok(Equal)));
-    //     assert_eq!(s.next(), Some(Ok(Lt)));
-    //     assert_eq!(s.next(), Some(Ok(LtEq)));
-    //     assert_eq!(s.next(), Some(Ok(Gt)));
-    //     assert_eq!(s.next(), Some(Ok(GtEq)));
-    //     assert_eq!(s.next(), Some(Ok(Plus)));
-    //     assert_eq!(s.next(), Some(Ok(Minus)));
-    //     assert_eq!(s.next(), Some(Ok(Times)));
-    //     assert_eq!(s.next(), Some(Ok(Divide)));
-    //     assert_eq!(s.next(), Some(Ok(Percent)));
-    //     assert_eq!(s.next(), None);
-    // }
 
     #[test]
     fn test_unexpected_char() {
