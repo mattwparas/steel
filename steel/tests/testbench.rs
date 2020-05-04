@@ -175,3 +175,22 @@ fn or_test() {
     test_line("(or #t whatever you want idk)", &["#true"], e);
     test_line("(or (> 3 4) (> 4 5) (> 5 6) (= 1 1))", &["#true"], e);
 }
+
+#[test]
+fn cond_test() {
+    let mut evaluator = Evaluator::new();
+    evaluator.parse_and_eval(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line("(cond [else 10])", &["10"], e);
+    test_line("(cond [#f 10] [else 20])", &["20"], e);
+    test_line(
+        "(cond
+            [#f 1]
+            [#f 2]
+            [#t 25
+                50]
+            [else 100])",
+        &["50"],
+        e,
+    );
+}

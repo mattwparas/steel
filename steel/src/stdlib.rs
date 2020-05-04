@@ -166,4 +166,25 @@ pub const PRELUDE: &str = "
     [(and x y) (if x y #f)]
     [(and x y ...) (and x (and y ...))]))
 
+(define-syntax when
+  (syntax-rules ()
+    [(when a b ...)
+      (if a (begin b ...) void)]))
+
+(define-syntax unless
+  (syntax-rules ()
+    [(unless a b ...)
+      (if a void (begin b ...))]))
+
+(define-syntax cond
+  (syntax-rules (else)
+    [(cond [else e1 ...])
+      (begin e1 ...)]
+    [(cond [e1 e2 ...])
+      (when e1 e2 ...)]
+    [(cond [e1 e2 ...] c1 ...)
+      (if e1
+          (begin e2 ...)
+          (cond c1 ...))]))
+
 ";
