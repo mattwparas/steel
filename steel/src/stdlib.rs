@@ -223,5 +223,34 @@ pub const PRELUDE: &str = "
     [(->> a (b c ...)) ((l> b c ...) a)]
     [(->> a b c ...) (->> (->> a b) c ...)]))
 
+(define-syntax swap
+  (syntax-rules ()
+    [(swap a b)
+      (let ([tmp b])
+        (begin
+          (set! b a)
+          (set! a tmp)))]))
+
+(define-syntax let*
+  (syntax-rules ()
+    ((let* () body ...) ; base case
+      ((lambda () body ...)))
+    ((let* ((var val) rest ...) body ...) ; binding case
+      ((lambda (var) (let* (rest ...) body ...)) val))))
+
+(define-syntax letrec*-helper
+  (syntax-rules ()
+    ((letrec*-helper () body ...)
+      (begin body ...))
+    ((letrec*-helper ((var val) rest ...) body ...)
+      (begin
+        (define var val)
+        (letrec*-helper (rest ...) body ...)))))
+
+(define-syntax letrec*
+  (syntax-rules ()
+    ((letrec* bindings body ...)
+      ((lambda ()
+        (letrec*-helper bindings body ...))))))
 
 ";
