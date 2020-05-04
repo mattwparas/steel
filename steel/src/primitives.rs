@@ -321,3 +321,59 @@ impl SteelFunctor<VecNumbers, f64> for Divider {
         }
     }
 }
+
+#[cfg(test)]
+mod try_from_tests {
+
+    use super::*;
+    use im_rc::vector;
+
+    #[test]
+    fn try_from_vec_usize() {
+        let input: Vec<usize> = vec![0, 1];
+        let res = SteelVal::try_from(input);
+        let expected = SteelVal::Pair(
+            Rc::new(SteelVal::NumV(0.0)),
+            Some(Rc::new(SteelVal::NumV(1.0))),
+        );
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn try_from_steelval_list_to_vec_usize() {
+        let input = SteelVal::Pair(
+            Rc::new(SteelVal::NumV(0.0)),
+            Some(Rc::new(SteelVal::NumV(1.0))),
+        );
+        let res = <Vec<usize>>::try_from(input);
+        let expected: Vec<usize> = vec![0, 1];
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn try_from_steelval_vec_to_vec_usize() {
+        let input = SteelVal::VectorV(vector![SteelVal::NumV(0.0), SteelVal::NumV(1.0)]);
+        let res = <Vec<usize>>::try_from(input);
+        let expected: Vec<usize> = vec![0, 1];
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn try_from_ref_steelval_list_to_vec_usize() {
+        let input = SteelVal::Pair(
+            Rc::new(SteelVal::NumV(0.0)),
+            Some(Rc::new(SteelVal::NumV(1.0))),
+        );
+        let res = <Vec<usize>>::try_from(&input);
+        let expected: Vec<usize> = vec![0, 1];
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn try_from_steelval_ref_vec_to_vec_usize() {
+        let input = SteelVal::VectorV(vector![SteelVal::NumV(0.0), SteelVal::NumV(1.0)]);
+        let res = <Vec<usize>>::try_from(&input);
+        let expected: Vec<usize> = vec![0, 1];
+        assert_eq!(res.unwrap(), expected);
+    }
+}
