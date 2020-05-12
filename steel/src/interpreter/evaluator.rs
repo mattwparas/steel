@@ -9,8 +9,10 @@ use crate::parser::tokens::Token;
 use crate::parser::{Expr, ParseError, Parser};
 use crate::primitives::ListOperations;
 use crate::rerrs::SteelErr;
-use crate::rvals::{FunctionSignature, Result, SteelLambda, SteelVal};
+use crate::rvals::{FunctionSignature, Result, SteelLambda, SteelVal, StructClosureSignature};
 use crate::stop;
+use crate::structs::SteelStruct;
+use crate::throw;
 use std::collections::HashMap;
 use std::ops::Deref;
 
@@ -33,6 +35,10 @@ impl Evaluator {
         // global environment updates automatically
         let expr = Rc::new(expr);
         evaluate(&expr, &self.global_env).map(|x| (*x).clone())
+    }
+
+    pub fn print_bindings(&self) {
+        self.global_env.borrow_mut().print_bindings();
     }
 
     pub fn parse_and_eval(&mut self, expr_str: &str) -> Result<Vec<SteelVal>> {
@@ -169,6 +175,9 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                         Expr::Atom(Token::Identifier(s)) if s == "begin" => {
                             expr = eval_begin(&list_of_tokens[1..], &env)?
                         }
+                        Expr::Atom(Token::Identifier(s)) if s == "apply" => {
+                            return eval_apply(&list_of_tokens[1..], env)
+                        }
                         // Expr::Atom(Token::Identifier(s)) if s == "and" => {
                         //     return eval_and(&list_of_tokens[1..], &env)
                         // }
@@ -180,6 +189,12 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                         }
                         Expr::Atom(Token::Identifier(s)) if s == "filter'" => {
                             return eval_filter(&list_of_tokens[1..], &env)
+                        }
+                        Expr::Atom(Token::Identifier(s)) if s == "struct" => {
+                            let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
+                            env.borrow_mut()
+                                .define_zipped(defs.into_iter().map(|x| (x.0, Rc::new(x.1))));
+                            return Ok(VOID.with(|f| Rc::clone(f)));
                         }
                         // (sym args*), sym must be a procedure
                         _sym => {
@@ -199,6 +214,14 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                                     // println!("{:?}", expr.clone().to_string());
                                     // println!()
                                 }
+                                SteelVal::StructClosureV(factory, function) => {
+                                    return eval_struct_constructor(
+                                        &list_of_tokens[1..],
+                                        &factory,
+                                        *function,
+                                        env,
+                                    )
+                                }
                                 e => {
                                     let error_message = format!("Application not a procedure - expected a function, found: {}", e);
                                     stop!(TypeMismatch => error_message);
@@ -210,6 +233,75 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                     stop!(TypeMismatch => "Given empty list")
                 }
             }
+        }
+    }
+}
+
+fn eval_struct_constructor(
+    list_of_tokens: &[Rc<Expr>],
+    factory: &SteelStruct,
+    func: StructClosureSignature,
+    env: Rc<RefCell<Env>>,
+) -> Result<Rc<SteelVal>> {
+    let args_eval: Result<Vec<Rc<SteelVal>>> =
+        list_of_tokens.iter().map(|x| evaluate(&x, &env)).collect();
+    let args_eval = args_eval?;
+    // not a "pure" function per se, takes the factory from the struct
+    func(args_eval, factory)
+}
+
+// fn concat_idents(list_of_tokens: &[Rc<Expr>]) -> Rc<Expr> {
+//     list_of_tokens.map(|x|)
+// }
+
+// TODO
+// this is super super super super not good but it is what it is for now
+fn eval_apply(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
+    let (func, rest) = list_of_tokens
+        .split_first()
+        .ok_or_else(throw!(TypeMismatch => "apply expects at least 2 arguments"))?;
+
+    let (last, optional_args) = rest
+        .split_last()
+        .ok_or_else(throw!(TypeMismatch => "apply expected at least 2 arguments"))?;
+
+    let list_res = evaluate(last, &env)?;
+
+    match list_res.as_ref() {
+        SteelVal::Pair(_, _) => {}
+        _ => stop!(TypeMismatch => "apply expected a list in the last position"),
+    }
+
+    let vec_of_vals = ListOperations::collect_into_vec(&list_res)?;
+    let optional_args: Result<Vec<Rc<SteelVal>>> =
+        optional_args.iter().map(|x| evaluate(&x, &env)).collect();
+
+    let mut optional_args = optional_args?;
+
+    optional_args.extend(vec_of_vals);
+
+    match evaluate(func, &env)?.as_ref() {
+        SteelVal::FuncV(func) => {
+            return func(optional_args);
+            // return eval_func(*func, &list_of_tokens[1..], &env)
+        }
+        SteelVal::LambdaV(lambda) => {
+            // build a new environment using the parent environment
+            let parent_env = lambda.parent_env();
+            let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
+            let params_exp = lambda.params_exp();
+            inner_env
+                .borrow_mut()
+                .define_all(params_exp, optional_args)?;
+
+            evaluate(&lambda.body_exp(), &inner_env)
+        }
+        e => {
+            let error_message = format!(
+                "Application not a procedure - expected a function, found: {}",
+                e
+            );
+            stop!(TypeMismatch => error_message);
         }
     }
 }

@@ -18,6 +18,8 @@ pub mod rvals;
 pub mod stdlib;
 #[macro_use]
 pub mod expander;
+// #[macro_use]
+pub mod structs;
 
 pub use self::{
     interpreter::SteelInterpreter,

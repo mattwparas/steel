@@ -5,6 +5,7 @@ use crate::stdlib::PRELUDE;
 use colored::*;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use std::path::Path;
 // use std::time::Instant;
 
 #[macro_export]
@@ -41,6 +42,14 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                 match line.as_str() {
                     ":quit" => return Ok(()),
                     ":reset" => interpreter.reset(),
+                    ":env" => interpreter.print_bindings(),
+                    line if line.contains(":require") => {
+                        let line = line.trim_start_matches(":require").trim();
+                        let path = Path::new(line);
+                        if let Err(e) = interpreter.require_path(path) {
+                            eprintln!("Error loading {:?}: {}", path, e)
+                        }
+                    }
                     _ => {
                         // let now = Instant::now();
                         let res = interpreter.evaluate(&line);

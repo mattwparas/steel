@@ -218,7 +218,7 @@ impl TryFrom<SteelVal> for String {
     fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
         match value {
             SteelVal::StringV(ref x) => Ok(x.clone()),
-            _ => Err(SteelErr::ConversionError("Expected number".to_string())),
+            _ => Err(SteelErr::ConversionError("Expected string".to_string())),
         }
     }
 }
@@ -228,7 +228,7 @@ impl TryFrom<&SteelVal> for String {
     fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
         match value {
             SteelVal::StringV(x) => Ok(x.clone()),
-            _ => Err(SteelErr::ConversionError("Expected number".to_string())),
+            _ => Err(SteelErr::ConversionError("Expected string".to_string())),
         }
     }
 }
@@ -239,7 +239,9 @@ impl TryFrom<Vec<SteelVal>> for VecNumbers {
     fn try_from(value: Vec<SteelVal>) -> Result<Self, Self::Error> {
         let num_matcher = |val| match val {
             SteelVal::NumV(x) => Ok(x),
-            _ => Err(SteelErr::ConversionError("Expected number".to_string())),
+            _ => Err(SteelErr::ConversionError(
+                "Expected number in vec".to_string(),
+            )),
         };
         let val_iter = value.into_iter();
         let converted: Result<Vec<f64>, Self::Error> = val_iter.map(num_matcher).collect();

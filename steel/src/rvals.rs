@@ -15,6 +15,15 @@ use im_rc::Vector;
 use std::convert::TryFrom;
 use std::result;
 
+use crate::structs::SteelStruct;
+
+// use std::collections::HashMap;
+
+// use std::io::Read;
+// use std::io::Write;
+
+use crate::primitives::ListOperations;
+
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
     Rc::new(RefCell::new(x))
@@ -22,6 +31,9 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>;
+pub type StructClosureSignature = fn(Vec<Rc<SteelVal>>, &SteelStruct) -> Result<Rc<SteelVal>>;
+
+// Box<Fn(i32) -> i32>
 
 pub trait StructFunctions {
     fn generate_bindings() -> Vec<(String, SteelVal)>;
@@ -108,6 +120,12 @@ pub enum SteelVal {
     SymbolV(String),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Box<dyn CustomType>),
+    // Embedded HashMap
+    // HashMapV(HashMap<SteelVal, SteelVal>),
+    // Represents a scheme-only struct
+    StructV(SteelStruct),
+    // Represents a special rust closure
+    StructClosureV(SteelStruct, StructClosureSignature),
 }
 
 impl SteelVal {
@@ -203,6 +221,16 @@ impl SteelVal {
             _ => Err(err()),
         }
     }
+
+    pub fn struct_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&SteelStruct, E> {
+        match self {
+            Self::StructV(v) => Ok(v),
+            _ => Err(err()),
+        }
+    }
 }
 
 impl Drop for SteelVal {
@@ -243,9 +271,17 @@ impl TryFrom<Rc<Expr>> for SteelVal {
                 CharacterLiteral(x) => Ok(CharV(*x)),
             },
             Expr::VectorVal(lst) => {
-                let items: std::result::Result<Vector<Self>, Self::Error> =
-                    lst.iter().map(|x| Self::try_from(x.clone())).collect();
-                Ok(VectorV(items?))
+                let items: std::result::Result<Vec<Rc<Self>>, Self::Error> = lst
+                    .iter()
+                    .map(|x| Self::try_from(x.clone()).map(Rc::new))
+                    .collect();
+
+                ListOperations::built_in_list_func()(items?).map(|x| (*x).clone())
+                // Ok(VectorV(items?))
+
+                // let items: std::result::Result<Vector<Self>, Self::Error> =
+                //     lst.iter().map(|x| Self::try_from(x.clone())).collect();
+                // Ok(VectorV(items?))
             }
         }
     }
@@ -271,8 +307,19 @@ impl TryFrom<&SteelVal> for Rc<Expr> {
             MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => Ok(Rc::new(Expr::Atom(Identifier(x.clone())))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
-            Pair(_, _) => Err("Can't convert from pair"), // TODO
+            // Pair(_, _) => Err("Can't convert from pair"), // TODO
+            Pair(_, _) => {
+                if let VectorV(ref lst) = collect_pair_into_vector(r) {
+                    let items: result::Result<Vec<Self>, Self::Error> =
+                        lst.into_iter().map(Self::try_from).collect();
+                    Ok(Rc::new(Expr::VectorVal(items?)))
+                } else {
+                    Err("Couldn't convert from list to expression")
+                }
+            }
             CharV(x) => Ok(Rc::new(Expr::Atom(CharacterLiteral(*x)))),
+            StructV(_) => Err("Can't convert from Struct to expression!"),
+            StructClosureV(_, _) => Err("Can't convert from struct-function to expression!"),
         }
     }
 }
@@ -309,6 +356,7 @@ impl PartialOrd for SteelVal {
         match (self, other) {
             (NumV(n), NumV(o)) => n.partial_cmp(o),
             (StringV(s), StringV(o)) => s.partial_cmp(o),
+            (CharV(l), CharV(r)) => l.partial_cmp(r),
             _ => None, // unimplemented for other types
         }
     }
@@ -346,6 +394,16 @@ impl SteelLambda {
     pub fn body_exp(&self) -> Rc<Expr> {
         self.body_exp.clone()
     }
+
+    pub fn pretty_print_closure(&self) -> String {
+        let params = self.params_exp().join(" ");
+        format!(
+            "(lambda ({}) {})",
+            params.to_string(),
+            self.body_exp().to_string()
+        )
+    }
+
     /// parent environment that created this Lambda.
     ///
     /// The actual environment with correct bindings is built at runtime
@@ -390,7 +448,8 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         StringV(s) => write!(f, "\"{}\"", s),
         CharV(c) => write!(f, "#\\{}", c),
         FuncV(_) => write!(f, "#<function>"),
-        LambdaV(_) => write!(f, "#<lambda-function>"),
+        // LambdaV(_) => write!(f, "#<lambda-function>"),
+        LambdaV(l) => write!(f, "#<{}>", l.pretty_print_closure()),
         MacroV(_) => write!(f, "#<macro>"),
         Void => write!(f, "#<void>"),
         SymbolV(s) => write!(f, "{}", s),
@@ -411,6 +470,8 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             let v = collect_pair_into_vector(val);
             display_helper(&v, f)
         }
+        StructV(_s) => write!(f, "#<struct>"), // TODO
+        StructClosureV(_, _) => write!(f, "#<struct-constructor>"),
     }
 }
 

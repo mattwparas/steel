@@ -35,6 +35,11 @@ extern crate reqwest;
 
 use std::io::Read;
 
+// use std::time::Instant;
+// use std::thread::sleep;
+
+// use steel::build_interpreter_2;
+
 //"http://httpbin.org/get"
 #[function]
 fn get_request(url: String) -> reqwest::Result<String> {
@@ -65,7 +70,10 @@ fn main() {
         }
 
         let contents = fs::read_to_string(path).expect("Something went wrong reading the file");
+        // let now = Instant::now();
         let res = interpreter.evaluate(&contents);
+
+        // println!("{:?}", now.elapsed());
 
         if let Err(e) = res {
             eprintln!("{}", e);
@@ -199,6 +207,23 @@ pub fn my_repl() -> std::io::Result<()> {
         Foo
     }
 }
+
+pub fn test_result2(input: usize) -> std::result::Result<usize, String> {
+    if input == 1 {
+        Ok(1)
+    } else {
+        Err("We got an error".to_string())
+    }
+}
+
+// pub fn test_test() {
+//     build_interpreter_2! {
+//         Structs => {}
+//         Functions =>  {
+//             "test-result" => test_result2
+//         }
+//     };
+// }
 
 // TODO come back and flesh this out
 #[test]
