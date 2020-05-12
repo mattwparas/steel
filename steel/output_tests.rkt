@@ -17,7 +17,7 @@ Parse: Unexpected token, CloseParen
 10
 '(1 2 3)
 10
-#<lambda-function>
+#<(lambda () (begin "test"))>
 "test"
 #true
 #false
@@ -25,7 +25,7 @@ Parse: Unexpected token, CloseParen
 #false
 #true
 #false
-#true
+#false
 #false
 #<void>
 #<void>

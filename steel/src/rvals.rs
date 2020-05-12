@@ -517,7 +517,7 @@ fn display_test() {
             Rc::new(RefCell::new(crate::env::Env::default_env())),
         ))
         .to_string(),
-        "#<lambda-function>"
+        "#<(lambda (arg1) 1)>"
     );
     assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
 }
@@ -538,7 +538,7 @@ fn display_list_test() {
             ))
         ])
         .to_string(),
-        "'#(#false 1 #<lambda-function>)"
+        "\'#(#false 1 #<(lambda (arg1) 1)>)"
     );
     assert_eq!(
         VectorV(vector![
