@@ -17,8 +17,22 @@ cargo run
 This will launch a REPL instance that looks something like this:
 
 <p align="center">
-  <img src="images/repl.gif" width="70%">
+  <img src="images/repl.gif" width="100%">
 </p>
+
+## Features
+
+* Scheme! If you like scheme (and Rust) you'll like this
+* Limited `syntax-rules` style macros are supported
+* Easy integration with Rust functions and structs
+* Easily call a script from rust or via a separate file
+* Few dependencies
+* Printable closures
+* Higher order Macros - macros exist both as syntax transformers values that can be passed as arguments
+* Efficient - common functions and data structures are optimized for performance (`map`, `filter`, etc)
+* Built in data structures include:
+  * lists (linked list)
+  * vectors (immutable data structures)
 
 ## Examples
 

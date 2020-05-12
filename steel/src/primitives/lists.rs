@@ -2,6 +2,7 @@ use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
+use crate::throw;
 use im_rc::Vector;
 use std::rc::Rc;
 // mod primitives;
@@ -114,6 +115,36 @@ impl ListOperations {
                 }
             } else {
                 stop!(ArityMismatch => "reverse takes one argument");
+            }
+        })
+    }
+
+    pub fn list_to_string() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "list->string takes one argument");
+            }
+            if let Some(first) = args.into_iter().next() {
+                match first.as_ref() {
+                    Pair(_, _) => {
+                        let lst = Self::collect_into_vec(&first)?;
+                        let collected_string = lst
+                            .into_iter()
+                            .map(|x| {
+                                x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
+                            })
+                            .collect::<Result<String>>()?;
+
+                        Ok(Rc::new(SteelVal::StringV(collected_string)))
+
+                        // Ok(Rc::clone(car))
+                    }
+                    e => {
+                        stop!(TypeMismatch => "list->string takes a list, given: {}", e);
+                    }
+                }
+            } else {
+                stop!(ArityMismatch => "list->string takes one argument");
             }
         })
     }

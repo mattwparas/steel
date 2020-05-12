@@ -93,6 +93,12 @@ pub struct Env {
     parent: Option<Rc<RefCell<Env>>>,
 }
 
+impl Drop for Env {
+    fn drop(&mut self) {
+        self.clear_bindings();
+    }
+}
+
 impl Env {
     /// Make a new `Env` from
     /// another parent `Env`.
@@ -113,6 +119,10 @@ impl Env {
 
     pub fn clear_bindings(&mut self) {
         self.bindings.clear();
+    }
+
+    pub fn print_bindings(&self) {
+        println!("{:#?}", self.bindings);
     }
 
     /// Within the current environment, bind
@@ -266,6 +276,7 @@ impl Env {
             ("trim-end", StringOperations::trim_end()),
             ("split-whitespace", StringOperations::split_whitespace()),
             ("void", SteelVal::Void),
+            ("list->string", ListOperations::list_to_string()),
         ]
     }
 }

@@ -98,6 +98,10 @@ impl SteelInterpreter {
         self.evaluator = Evaluator::new();
     }
 
+    pub fn print_bindings(&self) {
+        self.evaluator.print_bindings();
+    }
+
     /// Evaluates from a reader
     pub fn evaluate_from_reader(
         &mut self,
@@ -112,6 +116,13 @@ impl SteelInterpreter {
     /// ignoring the output
     pub fn require(&mut self, exprs: &str) -> Result<(), SteelErr> {
         self.evaluate(exprs).map(|_| ())
+    }
+
+    /// Evaluate bodies from path
+    pub fn require_path<P: AsRef<Path>>(&mut self, path: P) -> Result<(), SteelErr> {
+        let file = std::fs::File::open(path)?;
+        let _ = self.evaluate_from_reader(file)?;
+        Ok(())
     }
 
     /// Evaluate statements from paths, ignoring output
