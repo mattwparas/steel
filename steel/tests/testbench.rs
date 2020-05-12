@@ -49,7 +49,7 @@ fn define_test() {
         e,
     );
     test_line("(define a (lambda (x) (+ x 1)))", &["#<void>"], e);
-    test_line("a", &["#<lambda-function>"], e);
+    test_line("a", &["#<(lambda (x) (begin (+ x 1)))>"], e);
     test_line("(a 2)", &["3"], e);
     test_line("(define (b a1 a2 a3) (+ a1 a2 a3))", &["#<void>"], e);
     test_line("(b 10 20 30)", &["60"], e);
@@ -62,12 +62,12 @@ fn define_test() {
 fn lambda_test() {
     let mut evaluator = Evaluator::new();
     let e = &mut evaluator;
-    test_line("(lambda (x) 1 2)", &["#<lambda-function>"], e);
+    test_line("(lambda (x) 1 2)", &["#<(lambda (x) (begin 1 2))>"], e);
     test_line("(lambda x 1)", &["Error: Expected List of Identifiers"], e);
-    test_line("(lambda () 1)", &["#<lambda-function>"], e);
+    test_line("(lambda () 1)", &["#<(lambda () (begin 1))>"], e);
     test_line(
         "(lambda () (lambda () (lambda () (lambda () 1))))",
-        &["#<lambda-function>"],
+        &["#<(lambda () (begin (lambda () (lambda () (lambda () 1)))))>"],
         e,
     );
     test_line(
