@@ -194,8 +194,7 @@ pub fn test_repl() -> std::io::Result<()> {
             "new-mutex-wrapper" => new_mutex_wrapper,
             "display-cool-test" => pretty_print_cool_test,
             "test-result" => test_result,
-            "test-option" => test_option,
-            "slurp!" => get_request
+            "test-option" => test_option
         }
     })
 }
