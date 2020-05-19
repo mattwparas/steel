@@ -328,7 +328,8 @@ fn eval_filter(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc
             _ => stop!(TypeMismatch => "filter expected a list"),
         }
 
-        let vec_of_vals = ListOperations::collect_into_vec(&list_res)?;
+        // let vec_of_vals = ListOperations::collect_into_vec(&list_res)?;
+        let vec_of_vals = SteelVal::iter(list_res);
         let mut collected_results = Vec::new();
 
         for val in vec_of_vals {
@@ -383,7 +384,9 @@ fn eval_map(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<St
             _ => stop!(TypeMismatch => "map expected a list"),
         }
 
-        let vec_of_vals = ListOperations::collect_into_vec(&list_res)?;
+        let vec_of_vals = SteelVal::iter(list_res);
+
+        // let vec_of_vals = ListOperations::collect_into_vec(&list_res)?;
         let mut collected_results = Vec::new();
 
         for val in vec_of_vals {

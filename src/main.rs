@@ -31,7 +31,7 @@ use std::convert::TryFrom;
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
-extern crate reqwest;
+// extern crate reqwest;
 
 use std::io::Read;
 
@@ -41,18 +41,18 @@ use std::io::Read;
 // use steel::build_interpreter_2;
 
 //"http://httpbin.org/get"
-#[function]
-fn get_request(url: String) -> reqwest::Result<String> {
-    let mut res = reqwest::blocking::get(&url)?;
-    let mut body = String::new();
-    if let Err(_) = res.read_to_string(&mut body) {};
+// #[function]
+// fn get_request(url: String) -> reqwest::Result<String> {
+//     let mut res = reqwest::blocking::get(&url)?;
+//     let mut body = String::new();
+//     if let Err(_) = res.read_to_string(&mut body) {};
 
-    println!("Status: {}", res.status());
-    println!("Headers:\n{:#?}", res.headers());
-    println!("Body:\n{}", body);
+//     println!("Status: {}", res.status());
+//     println!("Headers:\n{:#?}", res.headers());
+//     println!("Body:\n{}", body);
 
-    Ok("Success!".to_string())
-}
+//     Ok("Success!".to_string())
+// }
 
 fn main() {
     let args = args().collect::<Vec<_>>();
