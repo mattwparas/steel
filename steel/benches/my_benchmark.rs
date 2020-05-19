@@ -9,7 +9,7 @@ fn range(c: &mut Criterion) {
 
     let script = "(range 0 50000)";
 
-    c.bench_function("(range 0 50000)", |b| {
+    c.bench_function("range-big", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 }
@@ -23,7 +23,7 @@ fn map(c: &mut Criterion) {
 
     let script = "(map (lambda (a) 0) lst)";
 
-    c.bench_function("(map (lambda (a) 0) (range 0 50000))", |b| {
+    c.bench_function("map-big", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 }
@@ -37,7 +37,7 @@ fn filter(c: &mut Criterion) {
 
     let script = "(filter number? lst)";
 
-    c.bench_function("(filter number? (range 0 50000))", |b| {
+    c.bench_function("filter-big", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });
 }
@@ -72,5 +72,65 @@ fn trie_sort(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, range, map, filter, trie_sort);
+fn struct_construct(c: &mut Criterion) {
+    let mut interpreter = SteelInterpreter::new();
+    interpreter.require(PRELUDE).unwrap();
+    let warmup = "(struct node (left right))";
+    interpreter.evaluate(black_box(&warmup)).unwrap();
+    let script = "(node (list 1 2 3 4) (list 1 2 3 4))";
+    c.bench_function("struct-construct", |b| {
+        b.iter(|| interpreter.evaluate(black_box(&script)))
+    });
+}
+
+fn struct_construct_bigger(c: &mut Criterion) {
+    let mut interpreter = SteelInterpreter::new();
+    interpreter.require(PRELUDE).unwrap();
+    let warmup = "(struct node (left right middle back))";
+    interpreter.evaluate(black_box(&warmup)).unwrap();
+    let script = "(node (list 1 2 3 4) (list 1 2 3 4) (list 1 2 3 4) (list 1 2 3 4))";
+    c.bench_function("struct-construct-big", |b| {
+        b.iter(|| interpreter.evaluate(black_box(&script)))
+    });
+}
+
+fn struct_get(c: &mut Criterion) {
+    let mut interpreter = SteelInterpreter::new();
+    interpreter.require(PRELUDE).unwrap();
+    let warmup = "(struct node (left right)) (define test (node (list 1 2 3) (list 1 2 3)))";
+    interpreter.evaluate(black_box(&warmup)).unwrap();
+    let script = "(node-left test)";
+    c.bench_function("struct-get", |b| {
+        b.iter(|| interpreter.evaluate(black_box(&script)))
+    });
+}
+
+fn struct_set(c: &mut Criterion) {
+    let mut interpreter = SteelInterpreter::new();
+    interpreter.require(PRELUDE).unwrap();
+    let warmup = "(struct node (left right)) (define test (node (list 1 2 3) (list 1 2 3)))";
+    interpreter.evaluate(black_box(&warmup)).unwrap();
+    let script = "(node-left-set! test (list 1 2 3))";
+    c.bench_function("struct-set", |b| {
+        b.iter(|| interpreter.evaluate(black_box(&script)))
+    });
+}
+
+// fn function_applications(c: &mut Criterion) {
+//     let mut interpreter = SteelInterpreter::new();
+//     interpreter.require(PRELUDE).unwrap();
+// }
+
+criterion_group!(
+    benches,
+    range,
+    map,
+    filter,
+    trie_sort,
+    struct_construct,
+    struct_construct_bigger,
+    struct_get,
+    struct_set
+);
+
 criterion_main!(benches);

@@ -9,19 +9,19 @@
 // impl SteelStruct {}
 
 use crate::rvals::SteelVal;
-use im_rc::HashMap;
-// use std::collections::HashMap;
+// use im_rc::HashMap;
 use crate::parser::Expr;
 use crate::rerrs::SteelErr;
+use std::collections::HashMap;
 // use crate::rvals::FunctionSignature;
 use crate::rvals::Result;
 use crate::stop;
 use crate::throw;
 use std::rc::Rc;
 
-use crate::env::{FALSE, TRUE};
+use crate::env::{FALSE, TRUE, VOID};
 
-use std::time::Instant;
+// use std::time::Instant;
 
 #[derive(Clone, Debug)]
 pub enum StructFunctionType {
@@ -39,6 +39,7 @@ pub struct SteelStruct {
     function_purpose: StructFunctionType,
 }
 
+// Housekeeping
 impl Drop for SteelStruct {
     fn drop(&mut self) {
         self.fields.clear();
@@ -58,6 +59,18 @@ impl SteelStruct {
             fields,
             function_purpose,
         }
+    }
+
+    // This will blow up the stack with a sufficiently large recursive struct
+    pub fn pretty_print(&self) -> String {
+        format!("{}: {:#?}", self.name, self.fields)
+
+        // let params = self.params_exp().join(" ");
+        // format!(
+        //     "(lambda ({}) {})",
+        //     params.to_string(),
+        //     self.body_exp().to_string()
+        // )
     }
 }
 
@@ -90,22 +103,29 @@ impl SteelStruct {
         // generate getters and setters
         for field in field_names_as_strs {
             funcs.push((format!("{}-{}", name, field), getter(&name, &field)));
-            // funcs.push((format!("set-{}-{}!", name, field), setter(&name, &field)));
+            funcs.push((format!("set-{}-{}!", name, field), setter(&name, &field)));
         }
         funcs.push((name.to_string(), cons));
         Ok(funcs)
     }
 }
 
-// actually just return an expression to evaluate
-// because thats basically what I want anyway
+// initialize hashmap to be field_names -> void
+// just do arity check before inserting to make sure things check out
+// that way field names as a vec are no longer necessary
 fn constructor(name: String, field_names: Vec<String>) -> SteelVal {
+    let mut hm = HashMap::new();
+    for field in &field_names {
+        hm.insert(field.to_string(), VOID.with(|f| Rc::clone(f)));
+    }
+
     let factory: SteelStruct = SteelStruct::new(
         Rc::new(name),
         Rc::new(field_names),
-        HashMap::new(),
+        hm,
         StructFunctionType::Constructor,
     );
+
     SteelVal::StructClosureV(
         factory,
         |args: Vec<Rc<SteelVal>>, factory: &SteelStruct| -> Result<Rc<SteelVal>> {
@@ -113,34 +133,32 @@ fn constructor(name: String, field_names: Vec<String>) -> SteelVal {
             // let now = Instant::now();
 
             // let factory = factory.clone();
-            if args.len() != factory.field_names.len() {
+            if args.len() != factory.fields.len() {
                 let error_message = format!(
                     "{} expected {} arguments, found {}",
                     factory.name.clone(),
                     args.len(),
-                    factory.field_names.len()
+                    factory.fields.len()
                 );
                 stop!(ArityMismatch => error_message);
             }
 
-            let args_field_iter = factory.field_names.iter().zip(args.into_iter());
-            let mut fields = HashMap::new();
-            for (field_name, arg) in args_field_iter {
-                fields.insert(field_name.clone(), arg);
+            // let args_field_iter = ;
+
+            let mut new_struct = factory.clone();
+
+            for (field_name, arg) in factory.field_names.iter().zip(args.into_iter()) {
+                // new_struct.fields.insert(field_name.clone(), arg);
+                let key = new_struct
+                    .fields
+                    .get_mut(field_name)
+                    .ok_or_else(throw!(TypeMismatch => "Couldn't find that field in the struct"))?;
+                *key = arg;
             }
 
-            // println!("Cloning: {:?}", factory.field_names);
+            Ok(Rc::new(SteelVal::StructV(new_struct)))
 
-            let ret_val = Ok(Rc::new(SteelVal::StructV(SteelStruct::new(
-                Rc::clone(&factory.name),
-                Rc::clone(&factory.field_names), // TODO
-                fields,
-                StructFunctionType::Constructor,
-            ))));
-
-            // println!("Constructing a struct!: {:?}", now.elapsed());
-
-            ret_val
+            // ret_val
         },
     )
 }
@@ -219,36 +237,47 @@ fn getter(name: &str, field: &str) -> SteelVal {
     )
 }
 
-// fn setter(name: &str, field: &str) -> SteelVal {
-//     let factory = SteelStruct::new(
-//         name.to_string(),
-//         Vec::new(),
-//         HashMap::new(),
-//         StructFunctionType::Setter(field.to_string()),
-//     );
-//     SteelVal::StructClosureV(
-//         factory,
-//         |args: Vec<Rc<SteelVal>>, factory: SteelStruct| -> Result<Rc<SteelVal>> {
-//             if args.len() != 1 {
-//                 let error_message = format!(
-//                     "{} getter expected one argument, found {}",
-//                     factory.name,
-//                     args.len()
-//                 );
-//                 stop!(ArityMismatch => error_message);
-//             }
+fn setter(name: &str, field: &str) -> SteelVal {
+    let factory = SteelStruct::new(
+        Rc::new(name.to_string()),
+        Rc::new(Vec::new()),
+        HashMap::new(),
+        StructFunctionType::Setter(field.to_string()),
+    );
+    SteelVal::StructClosureV(
+        factory,
+        |args: Vec<Rc<SteelVal>>, factory: &SteelStruct| -> Result<Rc<SteelVal>> {
+            if args.len() != 2 {
+                let error_message = format!(
+                    "{} getter expected two arguments, found {}",
+                    factory.name,
+                    args.len()
+                );
+                stop!(ArityMismatch => error_message);
+            }
 
-//             let my_struct = args[0].struct_or_else(throw!(TypeMismatch => "expected struct"))?;
+            let my_struct = args[0].struct_or_else(throw!(TypeMismatch => "expected struct"))?;
+            let value = Rc::clone(&args[1]);
 
-//             if let StructFunctionType::Getter(field_name) = factory.function_purpose {
-//                 if let Some(ret_val) = my_struct.fields.get(&field_name) {
-//                     Ok(Rc::clone(ret_val))
-//                 } else {
-//                     stop!(TypeMismatch => "Couldn't find that field in the struct")
-//                 }
-//             } else {
-//                 stop!(TypeMismatch => "something went wrong with struct predicate")
-//             }
-//         },
-//     )
-// }
+            if let StructFunctionType::Setter(ref field_name) = &factory.function_purpose {
+                let mut new_struct = my_struct.clone();
+                let key = new_struct
+                    .fields
+                    .get_mut(field_name)
+                    .ok_or_else(throw!(TypeMismatch => "Couldn't find that field in the struct"))?;
+                *key = value;
+                Ok(Rc::new(SteelVal::StructV(new_struct)))
+
+            // if let Some(ret_val) = my_struct.fields.get(field_name) {
+            //     let new_struct = my_struct.clone();
+            //     new_struct.fields.entry(field_name).unwrap().insert(value);
+            //     Ok(Rc::clone(new_struct))
+            // } else {
+            //     stop!(TypeMismatch => "Couldn't find that field in the struct")
+            // }
+            } else {
+                stop!(TypeMismatch => "something went wrong with struct predicate")
+            }
+        },
+    )
+}

@@ -209,7 +209,7 @@ impl Env {
             // value needs to be cloned because
             // user needs to be able to own a persistent value
             // from Cell that may be modified later
-            Ok(self.bindings[name].clone())
+            Ok(Rc::clone(&self.bindings[name]))
         } else {
             match &self.parent {
                 Some(par) => par.borrow().lookup(name),
@@ -238,7 +238,12 @@ impl Env {
             ("list", ListOperations::list()),
             ("car", ListOperations::car()),
             ("cdr", ListOperations::cdr()),
+            ("first", ListOperations::car()),
+            ("rest", ListOperations::cdr()),
+            ("head", ListOperations::car()),
+            ("tail", ListOperations::cdr()),
             ("cons", ListOperations::cons()),
+            ("append", ListOperations::append()),
             ("reverse", ListOperations::reverse()),
             ("range", ListOperations::range()),
             ("list->vector", ListOperations::list_to_vec()),
@@ -277,6 +282,7 @@ impl Env {
             ("split-whitespace", StringOperations::split_whitespace()),
             ("void", SteelVal::Void),
             ("list->string", ListOperations::list_to_string()),
+            // ("flatten", ListOperations::flatten()),
         ]
     }
 }

@@ -1,3 +1,4 @@
+; #lang racket
 ;; ------------------------- TRIE ---------------------------- ;;
 
 
@@ -101,7 +102,7 @@
     (flatten (map pre-order (trie-children trie-node)))))
 
 ;; a little print test
-(define test-list (list "apple" "app" "ape" "nest"))
+; (define test-list (list "apple" "app" "ape" "nest"))
 
 (define test-list
   (list
@@ -119,8 +120,12 @@
    "van"
    "thirsty"
    "notify"
-   "star"))
+   "star"
+   ))
 
 
+; (define start (current-inexact-milliseconds))
 (define trie1 (build-trie-from-list-of-words empty-trie test-list))
 (displayln (trie-sort test-list))
+
+; (displayln (- (current-inexact-milliseconds) start))

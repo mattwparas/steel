@@ -127,13 +127,18 @@ impl ListOperations {
             if let Some(first) = args.into_iter().next() {
                 match first.as_ref() {
                     Pair(_, _) => {
-                        let lst = Self::collect_into_vec(&first)?;
-                        let collected_string = lst
-                            .into_iter()
-                            .map(|x| {
-                                x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
-                            })
-                            .collect::<Result<String>>()?;
+                        let collected_string = SteelVal::iter(first).map(|x| {
+                            x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
+                        })
+                        .collect::<Result<String>>()?;
+
+                        // let lst = Self::collect_into_vec(&first)?;
+                        // let collected_string = lst
+                        //     .into_iter()
+                        // .map(|x| {
+                        //     x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
+                        // })
+                        // .collect::<Result<String>>()?;
 
                         Ok(Rc::new(SteelVal::StringV(collected_string)))
 
@@ -146,6 +151,47 @@ impl ListOperations {
             } else {
                 stop!(ArityMismatch => "list->string takes one argument");
             }
+        })
+    }
+
+    pub fn append() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            let mut lst = Vec::new();
+            for arg in args {
+                match arg.as_ref() {
+                    SteelVal::Pair(_, _) => {
+                        for value in SteelVal::iter(arg) {
+                            // println!("{:?}", value);
+                            lst.push(value);
+                        }
+                    }
+                    SteelVal::VectorV(v) => {
+                        // unimplemented!();
+                        // println!("{:?}", v);
+                        if v.is_empty() {
+                            continue;
+                        }
+                    }
+                    _ => {
+                        let error_msg =
+                            format!("append expected a list, found: {}", arg.to_string());
+                        stop!(TypeMismatch => error_msg);
+                    }
+                }
+            }
+
+            // let lst = args
+            //     .map(|x| {
+            //         if let SteelVal::Pair(_, _) = x.as_ref() {
+            //             Ok(SteelVal::iter(x))
+            //         } else {
+            //             stop!(TypeMismatch => "append expected a list");
+            //         }
+            //     })
+            //     .flatten()
+            //     .collect::<Result<Vec<Rc<SteelVal>>>>();
+
+            Self::built_in_list_func()(lst)
         })
     }
 
@@ -164,6 +210,22 @@ impl ListOperations {
     //         } else {
     //             stop!(ArityMismatch => "reverse takes one argument");
     //         }
+    //     })
+    // }
+
+    // pub fn flatten() -> SteelVal {
+    //     SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+    //         let flattened_vec = args
+    //             .into_iter()
+    //             .map(|x| Self::collect_into_vec(&x))
+    //             .collect::<Result<Vec<Vec<Rc<SteelVal>>>>>()?
+    //             .into_iter()
+    //             .flatten()
+    //             .collect::<Vec<Rc<SteelVal>>>();
+
+    //         Self::built_in_list_func()(flattened_vec)
+
+    //         // unimplemented!()
     //     })
     // }
 
@@ -203,7 +265,7 @@ impl ListOperations {
                         None => break,
                     }
                 }
-                _ => stop!(TypeMismatch => "reverse expected a list"),
+                _ => stop!(TypeMismatch => "collect into vec expected a list"),
             }
         }
 

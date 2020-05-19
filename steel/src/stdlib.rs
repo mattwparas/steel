@@ -81,8 +81,8 @@ pub const PRELUDE: &str = "
 
 ;; (define append (lambda (lst lsts)  (foldl (flip (curry2 foldr cons)) lst lsts))) ;; TODO fix
 
-(define (append xs ys)
-   (foldr cons ys xs))
+;; (define (append xs ys)
+;;   (foldr cons ys xs))
 
 ;(define (append lhs rhs)
 ;  (if (null? lhs)
@@ -123,8 +123,6 @@ pub const PRELUDE: &str = "
 (define even? (lambda (x) (if (= x 0) #t (odd? (- x 1)))))
 (define odd?  (lambda (x) (if (= x 0) #f (even? (- x 1)))))
 (define sum (lambda (x) (reduce + 0 x)))
-(define first car)
-(define rest cdr)
 (define head car)
 (define tail cdr)
 (define (add1 n) (+ 1 n))

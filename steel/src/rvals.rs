@@ -128,6 +128,58 @@ pub enum SteelVal {
     StructClosureV(SteelStruct, StructClosureSignature),
 }
 
+pub struct Iter(Option<Rc<SteelVal>>);
+
+impl SteelVal {
+    // pub fn iter(self) -> Iter {
+    //     Iter(Rc::new(self))
+    // }
+
+    pub fn iter(_self: Rc<SteelVal>) -> Iter {
+        Iter(Some(_self))
+    }
+}
+
+impl Iterator for Iter {
+    type Item = Rc<SteelVal>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(_self) = &self.0 {
+            match _self.as_ref() {
+                SteelVal::Pair(car, cdr) => {
+                    match (car, cdr) {
+                        (first, Some(rest)) => {
+                            let ret_val = Some(Rc::clone(&first));
+                            self.0 = Some(Rc::clone(&rest));
+                            ret_val
+                        }
+                        (first, None) => {
+                            let ret_val = Some(Rc::clone(&first));
+                            self.0 = None;
+                            ret_val
+                        } // _ => None,
+                    }
+                }
+                SteelVal::VectorV(v) => {
+                    if v.is_empty() {
+                        None
+                    } else {
+                        let ret_val = Some(Rc::clone(&_self));
+                        self.0 = None;
+                        ret_val
+                    }
+                }
+                _ => {
+                    let ret_val = Some(Rc::clone(&_self));
+                    self.0 = None;
+                    ret_val
+                }
+            }
+        } else {
+            None
+        }
+    }
+}
+
 impl SteelVal {
     pub fn bool_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<bool, E> {
         match self {
@@ -470,7 +522,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             let v = collect_pair_into_vector(val);
             display_helper(&v, f)
         }
-        StructV(_s) => write!(f, "#<struct>"), // TODO
+        StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
         StructClosureV(_, _) => write!(f, "#<struct-constructor>"),
     }
 }
