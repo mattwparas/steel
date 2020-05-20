@@ -244,6 +244,7 @@ impl Env {
             ("tail", ListOperations::cdr()),
             ("cons", ListOperations::cons()),
             ("append", ListOperations::append()),
+            ("push-back", ListOperations::push_back()),
             ("reverse", ListOperations::reverse()),
             ("range", ListOperations::range()),
             ("list->vector", ListOperations::list_to_vec()),

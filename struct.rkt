@@ -7,14 +7,11 @@
 ;; Rename functions for the sake of compatibility
 (define empty (list))
 (define empty-trie (trie void empty #f empty))
-(define char<? <)
-(define char=? =)
-(define pair? list?)
 
 ;; Throw in a mediocre flatten definition
 (define (flatten lst)
   (cond ((null? lst) empty)
-        ((pair? lst)
+        ((list? lst)
          (append (flatten (car lst)) (flatten (cdr lst))))
         (else (list lst))))
 
@@ -28,12 +25,13 @@
 ;; contract: (listof char?) (listof trie?) integer? -> (listof trie?)
 (define (handle-last-letter char-list lst prefix-chars)
   (define char (first char-list))
-  (define next-prefix (append prefix-chars (list char)))
+  ; (define next-prefix (append prefix-chars (list char)))
+  (define next-prefix (push-back prefix-chars char))
   (cond [(empty? lst) ;; children are empty, return list of empty children
          (list (trie char empty #t next-prefix))]
-        [(char<? char (trie-char (first lst))) ;; less than, put it to the left
+        [(< char (trie-char (first lst))) ;; less than, put it to the left
          (cons (trie char empty #t next-prefix) lst)]
-        [(char=? char (trie-char (first lst))) ;; equal, step down a level
+        [(= char (trie-char (first lst))) ;; equal, step down a level
          (cons (trie char (trie-children (first lst)) #t next-prefix) (rest lst))]
         [else ;; move to the right
          (cons (first lst)
@@ -42,14 +40,15 @@
 ;; contract: (listof char?) (listof trie?) integer? -> (listof trie?)
 (define (handle-intern-letter char-list lst prefix-chars)
   (define char (first char-list))
-  (define next-prefix (append prefix-chars (list char)))
+  ; (define next-prefix (append prefix-chars (list char)))
+  (define next-prefix (push-back prefix-chars char))
   (cond [(empty? lst) ;; no children, pop off front and step down
          (list (trie char (create-children
                            (rest char-list) empty next-prefix) #f next-prefix))]
-        [(char<? char (trie-char (first lst))) ;; place where it is, pop off front and go
+        [(< char (trie-char (first lst))) ;; place where it is, pop off front and go
          (cons (trie char (create-children
                            (rest char-list) empty next-prefix) #f next-prefix) lst)]
-        [(char=? char (trie-char (first lst))) ;; equal, step down
+        [(= char (trie-char (first lst))) ;; equal, step down
          (cons (trie char (create-children (rest char-list) (trie-children (first lst)) next-prefix)
                      (trie-end-word? (first lst))
                      (trie-word-up-to (first lst)))
@@ -69,7 +68,7 @@
 
 ; contract: trie? trie? -> boolean?
 (define (trie<? trie-node1 trie-node2)
-  (char<? (trie-char trie-node1) (trie-char trie-node2)))
+  (< (trie-char trie-node1) (trie-char trie-node2)))
 
 ;; contract: trie? -> void
 (define (pre-order-traverse trie-node)
