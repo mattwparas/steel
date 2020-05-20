@@ -130,6 +130,34 @@ fn check_length(what: &str, tokens: &[Rc<Expr>], expected: usize) -> Result<()> 
     }
 }
 
+// TODO include the intern cache when possible
+fn expand(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<Expr>> {
+    let env = Rc::clone(env);
+    let expr = Rc::clone(expr);
+
+    match expr.deref() {
+        Expr::Atom(_) => return Ok(expr),
+        Expr::VectorVal(list_of_tokens) => {
+            if let Some(f) = list_of_tokens.first() {
+                if let Expr::Atom(Token::Identifier(s)) = f.as_ref() {
+                    let lookup = env.borrow().lookup(&s);
+
+                    if let Ok(v) = lookup {
+                        if let SteelVal::MacroV(steel_macro) = v.as_ref() {
+                            return steel_macro.expand(&list_of_tokens);
+                        }
+                    }
+                }
+                let result: Result<Vec<Rc<Expr>>> =
+                    list_of_tokens.iter().map(|x| expand(x, &env)).collect();
+                return Ok(Rc::new(Expr::VectorVal(result?)));
+            } else {
+                return Ok(expr);
+            }
+        }
+    }
+}
+
 fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
     let mut env = Rc::clone(env);
     let mut expr = Rc::clone(expr);
@@ -519,11 +547,12 @@ fn eval_make_lambda(
         begin_body.append(&mut body_exps);
 
         let parsed_list = parse_list_of_identifiers(Rc::clone(list_of_symbols))?;
-        let constructed_lambda = SteelLambda::new(
-            parsed_list,
-            Rc::new(Expr::VectorVal(begin_body)),
-            parent_env,
-        );
+
+        let new_expr = Rc::new(Expr::VectorVal(begin_body));
+
+        // call the expander here
+        let constructed_lambda =
+            SteelLambda::new(parsed_list, expand(&new_expr, &parent_env)?, parent_env);
         Ok(Rc::new(SteelVal::LambdaV(constructed_lambda)))
     } else {
         let e = format!(

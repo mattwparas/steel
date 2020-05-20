@@ -154,6 +154,34 @@ impl ListOperations {
         })
     }
 
+    pub fn push_back() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            // let mut lst = Vec::new();
+            if args.len() != 2 {
+                stop!(ArityMismatch => "push-back expected 2 arguments");
+            }
+
+            match args[0].as_ref() {
+                SteelVal::Pair(_, _) => {
+                    let mut lst: Vec<_> = SteelVal::iter(Rc::clone(&args[0])).collect();
+                    lst.push(Rc::clone(&args[1]));
+                    ListOperations::built_in_list_func()(lst)
+                }
+                SteelVal::VectorV(v) => {
+                    if v.is_empty() {
+                        let lst = vec![Rc::clone(&args[1])];
+                        ListOperations::built_in_list_func()(lst)
+                    } else {
+                        stop!(TypeMismatch => "push-back requires a list as the first argument")
+                    }
+                }
+                _ => {
+                    stop!(TypeMismatch => "push-back requires a list as the first argument");
+                }
+            }
+        })
+    }
+
     pub fn append() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             let mut lst = Vec::new();
