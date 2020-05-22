@@ -18,12 +18,12 @@ pub enum MacroPattern {
 
 impl MacroPattern {
     // TODO make this not so trash
-    pub fn deconstruct(&self) -> Option<Vec<String>> {
+    pub fn deconstruct(&self) -> Vec<&str> {
         match self {
-            Self::Syntax(s) => Some(vec![s.clone()]),
-            Self::Single(s) => Some(vec![s.clone()]),
-            Self::Many(s) => Some(vec![s.clone()]),
-            Self::Nested(v) => Some(v.iter().filter_map(|x| x.deconstruct()).flatten().collect()),
+            Self::Syntax(s) => vec![&s],
+            Self::Single(s) => vec![&s],
+            Self::Many(s) => vec![&s],
+            Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
         }
     }
 }
@@ -56,15 +56,11 @@ impl MacroCase {
     ) -> Rc<Expr> {
         // unimplemented!()
         let env = Rc::clone(env);
-        let args_str: Vec<String> = args
-            .iter()
-            .filter_map(|x| x.deconstruct())
-            .flatten()
-            .collect();
+        let args_str: Vec<&str> = args.iter().map(|x| x.deconstruct()).flatten().collect();
         match expr.as_ref() {
             Expr::Atom(t) => {
                 if let Identifier(s) = t {
-                    if args_str.contains(s) || SteelMacro::is_reserved_keyword(&s) {
+                    if args_str.contains(&s.as_str()) || SteelMacro::is_reserved_keyword(&s) {
                         return expr;
                     } else if env.borrow().lookup(&s).is_err() {
                         return Rc::new(Expr::Atom(Identifier("##".to_string() + s)));
