@@ -42,29 +42,9 @@ impl Evaluator {
     }
 
     pub fn parse_and_eval(&mut self, expr_str: &str) -> Result<Vec<SteelVal>> {
-        // println!(
-        //     "{:?}",
-        //     self.intern_cache
-        //         .iter()
-        //         .map(|(x, y)| (x, Rc::strong_count(y)))
-        //         .collect::<Vec<(&String, usize)>>()
-        // );
         let parsed: result::Result<Vec<Expr>, ParseError> =
             Parser::new(expr_str, &mut self.intern_cache).collect();
         let parsed = parsed?;
-
-        // let test = parsed.clone();
-
-        // let arg_vec = vec![
-        //     MacroPattern::Single("a".to_string()),
-        //     MacroPattern::Single("b".to_string()),
-        // ];
-
-        // let res: Vec<Rc<Expr>> = test
-        //     .into_iter()
-        //     .map(|x| MacroCase::rename_identifiers(Rc::new(x), &self.global_env, &arg_vec))
-        //     .collect();
-        // println!("{:?}", res);
 
         parsed.into_iter().map(|x| self.eval(x)).collect()
     }
