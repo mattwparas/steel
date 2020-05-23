@@ -124,7 +124,9 @@ fn expand(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<Expr>> {
 
                     if let Ok(v) = lookup {
                         if let SteelVal::MacroV(steel_macro) = v.as_ref() {
-                            return steel_macro.expand(&list_of_tokens);
+                            let expanded = steel_macro.expand(&list_of_tokens)?;
+                            return expand(&expanded, &env);
+                            // return steel_macro.expand(&list_of_tokens)?;
                         }
                     }
                 }
