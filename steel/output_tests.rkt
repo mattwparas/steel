@@ -29,5 +29,5 @@ Parse: Unexpected token, CloseParen
 #false
 #<void>
 #<void>
-80
-60
+80.0
+60.0

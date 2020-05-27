@@ -23,6 +23,7 @@ pub enum Token {
     BooleanLiteral(bool),
     Identifier(String),
     NumberLiteral(f64),
+    IntegerLiteral(isize),
     StringLiteral(String),
 }
 
@@ -34,7 +35,8 @@ impl fmt::Display for Token {
             CharacterLiteral(x) => write!(f, "#\\{}", x),
             BooleanLiteral(x) => write!(f, "#{}", x),
             Identifier(x) => write!(f, "{}", x),
-            NumberLiteral(x) => write!(f, "{}", x),
+            NumberLiteral(x) => write!(f, "{:?}", x),
+            IntegerLiteral(x) => write!(f, "{}", x),
             StringLiteral(x) => write!(f, "\"{}\"", x),
             QuoteTick => write!(f, "'"),
         }

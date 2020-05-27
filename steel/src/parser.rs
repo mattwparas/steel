@@ -192,10 +192,10 @@ mod parser_tests {
                 Atom(Identifier("b".to_string())),
                 VectorVal(vec![
                     Rc::new(Atom(Identifier("lambda".to_string()))),
-                    Rc::new(Atom(NumberLiteral(1.0))),
+                    Rc::new(Atom(IntegerLiteral(1))),
                     Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("+".to_string()))),
-                        Rc::new(Atom(NumberLiteral(2.0))),
+                        Rc::new(Atom(IntegerLiteral(2))),
                         Rc::new(Atom(NumberLiteral(3.5))),
                     ])),
                 ]),
@@ -209,14 +209,14 @@ mod parser_tests {
             &[
                 VectorVal(vec![
                     Rc::new(Atom(Identifier("+".to_string()))),
-                    Rc::new(Atom(NumberLiteral(1.0))),
-                    Rc::new(Atom(NumberLiteral(2.0))),
-                    Rc::new(Atom(NumberLiteral(3.0))),
+                    Rc::new(Atom(IntegerLiteral(1))),
+                    Rc::new(Atom(IntegerLiteral(2))),
+                    Rc::new(Atom(IntegerLiteral(3))),
                 ]),
                 VectorVal(vec![
                     Rc::new(Atom(Identifier("-".to_string()))),
-                    Rc::new(Atom(NumberLiteral(4.0))),
-                    Rc::new(Atom(NumberLiteral(3.0))),
+                    Rc::new(Atom(IntegerLiteral(4))),
+                    Rc::new(Atom(IntegerLiteral(3))),
                 ]),
             ],
         );
@@ -227,13 +227,13 @@ mod parser_tests {
             "(+ 1 (foo (bar 2 3)))",
             &[VectorVal(vec![
                 Rc::new(Atom(Identifier("+".to_string()))),
-                Rc::new(Atom(NumberLiteral(1.0))),
+                Rc::new(Atom(IntegerLiteral(1))),
                 Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("foo".to_string()))),
                     Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("bar".to_owned()))),
-                        Rc::new(Atom(NumberLiteral(2.0))),
-                        Rc::new(Atom(NumberLiteral(3.0))),
+                        Rc::new(Atom(IntegerLiteral(2))),
+                        Rc::new(Atom(IntegerLiteral(3))),
                     ])),
                 ])),
             ])],
@@ -242,18 +242,18 @@ mod parser_tests {
             "(+ 1 (+ 2 3) (foo (bar 2 3)))",
             &[VectorVal(vec![
                 Rc::new(Atom(Identifier("+".to_string()))),
-                Rc::new(Atom(NumberLiteral(1.0))),
+                Rc::new(Atom(IntegerLiteral(1))),
                 Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("+".to_string()))),
-                    Rc::new(Atom(NumberLiteral(2.0))),
-                    Rc::new(Atom(NumberLiteral(3.0))),
+                    Rc::new(Atom(IntegerLiteral(2))),
+                    Rc::new(Atom(IntegerLiteral(3))),
                 ])),
                 Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("foo".to_string()))),
                     Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("bar".to_owned()))),
-                        Rc::new(Atom(NumberLiteral(2.0))),
-                        Rc::new(Atom(NumberLiteral(3.0))),
+                        Rc::new(Atom(IntegerLiteral(2))),
+                        Rc::new(Atom(IntegerLiteral(3))),
                     ])),
                 ])),
             ])],
@@ -262,11 +262,11 @@ mod parser_tests {
             "(+ 1 (+ 2 3) (foo (+ (bar 1 1) 3) 5))",
             &[VectorVal(vec![
                 Rc::new(Atom(Identifier("+".to_string()))),
-                Rc::new(Atom(NumberLiteral(1.0))),
+                Rc::new(Atom(IntegerLiteral(1))),
                 Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("+".to_string()))),
-                    Rc::new(Atom(NumberLiteral(2.0))),
-                    Rc::new(Atom(NumberLiteral(3.0))),
+                    Rc::new(Atom(IntegerLiteral(2))),
+                    Rc::new(Atom(IntegerLiteral(3))),
                 ])),
                 Rc::new(VectorVal(vec![
                     Rc::new(Atom(Identifier("foo".to_string()))),
@@ -274,12 +274,12 @@ mod parser_tests {
                         Rc::new(Atom(Identifier("+".to_string()))),
                         Rc::new(VectorVal(vec![
                             Rc::new(Atom(Identifier("bar".to_string()))),
-                            Rc::new(Atom(NumberLiteral(1.0))),
-                            Rc::new(Atom(NumberLiteral(1.0))),
+                            Rc::new(Atom(IntegerLiteral(1))),
+                            Rc::new(Atom(IntegerLiteral(1))),
                         ])),
-                        Rc::new(Atom(NumberLiteral(3.0))),
+                        Rc::new(Atom(IntegerLiteral(3))),
                     ])),
-                    Rc::new(Atom(NumberLiteral(5.0))),
+                    Rc::new(Atom(IntegerLiteral(5))),
                 ])),
             ])],
         );
@@ -300,7 +300,7 @@ mod parser_tests {
                     Rc::new(VectorVal(vec![
                         Rc::new(Atom(Identifier("-".to_string()))),
                         Rc::new(Atom(Identifier("a".to_string()))),
-                        Rc::new(Atom(NumberLiteral(1.0))),
+                        Rc::new(Atom(IntegerLiteral(1))),
                     ])),
                     Rc::new(Atom(Identifier("b".to_string()))),
                 ])),
@@ -312,8 +312,8 @@ mod parser_tests {
             &[VectorVal(vec![
                 Rc::new(Atom(Identifier("if".to_string()))),
                 Rc::new(Atom(BooleanLiteral(true))),
-                Rc::new(Atom(NumberLiteral(1.0))),
-                Rc::new(Atom(NumberLiteral(2.0))),
+                Rc::new(Atom(IntegerLiteral(1))),
+                Rc::new(Atom(IntegerLiteral(2))),
             ])],
         );
         assert_parse(
@@ -333,8 +333,8 @@ mod parser_tests {
                 ]),
                 VectorVal(vec![
                     Rc::new(Atom(Identifier("-".to_string()))),
-                    Rc::new(Atom(NumberLiteral(1.0))),
-                    Rc::new(Atom(NumberLiteral(2.0))),
+                    Rc::new(Atom(IntegerLiteral(1))),
+                    Rc::new(Atom(IntegerLiteral(2))),
                 ]),
                 VectorVal(vec![Rc::new(Atom(StringLiteral(
                     "dumpsterfire".to_string(),

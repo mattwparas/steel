@@ -13,6 +13,11 @@ pub struct Tokenizer<'a> {
     input: Peekable<Chars<'a>>,
 }
 
+enum Sign {
+    Pos,
+    Neg,
+}
+
 impl<'a> Tokenizer<'a> {
     pub fn new(input: &'a str) -> Self {
         Tokenizer {
@@ -113,6 +118,45 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    fn read_num_or_int(&mut self, sign: Sign) -> Result<Token> {
+        // unimplemented!()
+        let mut num = String::new();
+        while let Some(&c) = self.input.peek() {
+            if !c.is_numeric() {
+                break;
+            }
+
+            self.input.next();
+            num.push(c);
+        }
+
+        if let Some(&'.') = self.input.peek() {
+            self.input.next();
+            num.push('.');
+
+            while let Some(&c) = self.input.peek() {
+                if !c.is_numeric() {
+                    break;
+                }
+
+                self.input.next();
+                num.push(c);
+            }
+            let num: f64 = match sign {
+                Sign::Pos => num.parse().unwrap(),
+                Sign::Neg => num.parse::<f64>().unwrap() * -1.0,
+            };
+            Ok(Token::NumberLiteral(num))
+        } else {
+            // We've found an integer
+            let num: isize = match sign {
+                Sign::Pos => num.parse().unwrap(),
+                Sign::Neg => num.parse::<isize>().unwrap() * -1,
+            };
+            Ok(Token::IntegerLiteral(num))
+        }
+    }
+
     fn read_number(&mut self) -> f64 {
         let mut num = String::new();
         while let Some(&c) = self.input.peek() {
@@ -190,7 +234,8 @@ impl<'a> Iterator for Tokenizer<'a> {
                 self.input.next();
                 match self.input.peek() {
                     Some(&c) if c.is_numeric() => {
-                        Some(Ok(Token::NumberLiteral(self.read_number())))
+                        Some(self.read_num_or_int(Sign::Pos))
+                        // Some(Ok(Token::NumberLiteral(self.read_number())))
                     }
                     _ => Some(Ok(Token::Identifier("+".to_string()))),
                 }
@@ -199,7 +244,8 @@ impl<'a> Iterator for Tokenizer<'a> {
                 self.input.next();
                 match self.input.peek() {
                     Some(&c) if c.is_numeric() => {
-                        Some(Ok(Token::NumberLiteral(self.read_number() * -1.0)))
+                        Some(self.read_num_or_int(Sign::Neg))
+                        // Some(Ok(Token::NumberLiteral(self.read_number() * -1.0)))
                     }
                     Some(&c) if c == ' ' => Some(Ok(Token::Identifier("-".to_string()))),
                     _ => Some(Ok(self.read_word_with_starting_hyphen())),
@@ -226,7 +272,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                 Some(Ok(self.read_word()))
             }
             Some('=') | Some('<') | Some('>') => Some(Ok(self.read_word())),
-            Some(c) if c.is_numeric() => Some(Ok(Token::NumberLiteral(self.read_number()))),
+            Some(c) if c.is_numeric() => Some(self.read_num_or_int(Sign::Pos)),
             Some(_) => match self.input.next() {
                 Some(e) => Some(Err(TokenError::UnexpectedChar(e))),
                 _ => None,
@@ -271,11 +317,11 @@ mod tests {
     #[test]
     fn test_number() {
         let mut s = Tokenizer::new("0 -0 -1.2 +2.3 999 1.");
-        assert_eq!(s.next(), Some(Ok(NumberLiteral(0.0))));
-        assert_eq!(s.next(), Some(Ok(NumberLiteral(0.0))));
+        assert_eq!(s.next(), Some(Ok(IntegerLiteral(0))));
+        assert_eq!(s.next(), Some(Ok(IntegerLiteral(0))));
         assert_eq!(s.next(), Some(Ok(NumberLiteral(-1.2))));
         assert_eq!(s.next(), Some(Ok(NumberLiteral(2.3))));
-        assert_eq!(s.next(), Some(Ok(NumberLiteral(999.0))));
+        assert_eq!(s.next(), Some(Ok(IntegerLiteral(999))));
         assert_eq!(s.next(), Some(Ok(NumberLiteral(1.0))));
         assert_eq!(s.next(), None);
     }

@@ -16,6 +16,8 @@ use crate::throw;
 use std::collections::HashMap;
 use std::ops::Deref;
 
+use crate::compiler::AST;
+
 // use crate::rvals::MacroPattern;
 use crate::expander::SteelMacro;
 
@@ -49,6 +51,26 @@ impl Evaluator {
         parsed.into_iter().map(|x| self.eval(x)).collect()
     }
 
+    pub fn parse_and_compile_with_env(
+        &mut self,
+        expr_str: &str,
+        env: Rc<RefCell<Env>>,
+    ) -> Result<AST> {
+        let parsed: result::Result<Vec<Expr>, ParseError> =
+            Parser::new(expr_str, &mut self.intern_cache).collect();
+        let parsed = parsed?;
+        AST::compile(parsed, env)
+    }
+
+    pub fn eval_with_env_from_ast(compiled_ast: &AST) -> Result<Vec<SteelVal>> {
+        compiled_ast
+            .get_expr()
+            .iter()
+            .map(|x| evaluate(x, compiled_ast.get_env()).map(|x| (*x).clone()))
+            .collect()
+        // evaluate(AST.get_expr(), AST.get_env())
+    }
+
     pub fn clear_bindings(&mut self) {
         self.global_env.borrow_mut().clear_bindings();
     }
@@ -68,6 +90,10 @@ impl Evaluator {
             .borrow_mut()
             .lookup(name)
             .map(|x| (*x).clone())
+    }
+
+    pub fn get_env(&self) -> &Rc<RefCell<Env>> {
+        &self.global_env
     }
 }
 
@@ -160,7 +186,7 @@ fn evaluate(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                             expr = eval_if(&list_of_tokens[1..], &env)?
                         }
                         Expr::Atom(Token::Identifier(s)) if s == "define" => {
-                            return eval_define(&list_of_tokens[1..], env)
+                            return eval_define(&list_of_tokens[1..], &env)
                                 .map(|_| VOID.with(|f| Rc::clone(f))); // TODO
                         }
                         Expr::Atom(Token::Identifier(s)) if s == "define-syntax" => {
@@ -316,7 +342,10 @@ fn eval_apply(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<S
     }
 }
 
-fn eval_macro_def(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {
+pub fn eval_macro_def(
+    list_of_tokens: &[Rc<Expr>],
+    env: Rc<RefCell<Env>>,
+) -> Result<Rc<RefCell<Env>>> {
     let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, &env)?;
     // println!("{:?}", parsed_macro);
     env.borrow_mut().define(
@@ -446,7 +475,11 @@ fn eval_atom(t: &Token, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
         Token::NumberLiteral(n) => Ok(Rc::new(SteelVal::NumV(*n))),
         Token::StringLiteral(s) => Ok(Rc::new(SteelVal::StringV(s.clone()))),
         Token::CharacterLiteral(c) => Ok(Rc::new(SteelVal::CharV(*c))),
-        what => stop!(UnexpectedToken => what),
+        Token::IntegerLiteral(n) => Ok(Rc::new(SteelVal::IntV(*n))),
+        what => {
+            // println!("getting here");
+            stop!(UnexpectedToken => what)
+        }
     }
 }
 /// evaluates a primitive function into single returnable value
@@ -604,7 +637,7 @@ fn eval_eval_expr(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result
 }
 
 // TODO maybe have to evaluate the params but i'm not sure
-fn eval_define(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {
+pub fn eval_define(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<()> {
     if list_of_tokens.len() > 1 {
         match (
             list_of_tokens.get(0).as_ref(),
@@ -622,9 +655,9 @@ fn eval_define(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<
                             );
                             stop!(ArityMismatch => e)
                         }
-                        let eval_body = evaluate(body, &env)?;
+                        let eval_body = evaluate(body, env)?;
                         env.borrow_mut().define(s.to_string(), eval_body);
-                        Ok(env)
+                        Ok(())
                     }
                     // construct lambda to parse
                     Expr::VectorVal(list_of_identifiers) => {
@@ -646,9 +679,9 @@ fn eval_define(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<
                                 Rc::new(Expr::VectorVal(begin_body)),
                             ];
                             let constructed_lambda = Rc::new(Expr::VectorVal(fake_lambda));
-                            let eval_body = evaluate(&constructed_lambda, &env)?;
+                            let eval_body = evaluate(&constructed_lambda, env)?;
                             env.borrow_mut().define(s.to_string(), eval_body);
-                            Ok(env)
+                            Ok(())
                         } else {
                             stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
                         }
@@ -890,7 +923,7 @@ mod eval_define_test {
     fn wrong_length_test() {
         let list = vec![Rc::new(Atom(Identifier("a".to_string())))];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_define(&list[1..], default_env);
+        let res = eval_define(&list[1..], &default_env);
         assert!(res.is_err());
     }
 
@@ -898,7 +931,7 @@ mod eval_define_test {
     fn no_identifier_test() {
         let list = vec![Rc::new(Atom(StringLiteral("a".to_string())))];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_define(&list[1..], default_env);
+        let res = eval_define(&list[1..], &default_env);
         assert!(res.is_err());
     }
 
@@ -910,7 +943,7 @@ mod eval_define_test {
             Rc::new(Atom(BooleanLiteral(true))),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_define(&list[1..], default_env);
+        let res = eval_define(&list[1..], &default_env);
         assert!(res.is_ok());
     }
 
@@ -922,7 +955,7 @@ mod eval_define_test {
             Rc::new(Atom(BooleanLiteral(true))),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_define(&list[1..], default_env);
+        let res = eval_define(&list[1..], &default_env);
         assert!(res.is_ok());
     }
 
@@ -936,7 +969,7 @@ mod eval_define_test {
             Rc::new(Atom(BooleanLiteral(true))),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let res = eval_define(&list[1..], default_env);
+        let res = eval_define(&list[1..], &default_env);
         assert!(res.is_err());
     }
 }
