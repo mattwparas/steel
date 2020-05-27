@@ -19,6 +19,7 @@ pub mod stdlib;
 #[macro_use]
 pub mod expander;
 // #[macro_use]
+pub mod compiler;
 pub mod structs;
 
 pub use self::{

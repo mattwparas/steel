@@ -161,9 +161,9 @@ pub fn build_interpreter_and_modify() {
 
     // write a quick script
     let script = "
-        (define cool-test (CoolTest 100))
-        (define cool-test2 (CoolTest 200))
-        (define return-val (set-CoolTest-val! cool-test 200))
+        (define cool-test (CoolTest 100.0))
+        (define cool-test2 (CoolTest 200.0))
+        (define return-val (set-CoolTest-val! cool-test 200.0))
         (define foo-test (Foo unnamed))
         (define sum-test (add_cool_tests cool-test cool-test2))
         (displayln (multiple_types 25))

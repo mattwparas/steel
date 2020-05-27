@@ -2,6 +2,7 @@
 // #[macro_use]
 use crate::primitives::IoFunctions;
 use crate::primitives::ListOperations;
+use crate::primitives::NumOperations;
 use crate::primitives::StringOperations;
 use crate::primitives::VectorOperations;
 use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
@@ -76,6 +77,20 @@ macro_rules! gen_pred {
             if let Some(first) = args.first() {
                 if let SteelVal::$variant(..) = first.as_ref() {
                     return Ok(TRUE.with(|f| Rc::clone(f)));
+                }
+            }
+            Ok(FALSE.with(|f| Rc::clone(f)))
+        })
+    }};
+
+    ($variant1:ident, $variant2:ident) => {{
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if let Some(first) = args.first() {
+                match first.as_ref() {
+                    SteelVal::$variant1(..) | SteelVal::$variant2(..) => {
+                        return Ok(TRUE.with(|f| Rc::clone(f)));
+                    }
+                    _ => {}
                 }
             }
             Ok(FALSE.with(|f| Rc::clone(f)))
@@ -231,10 +246,14 @@ impl Env {
     }
     fn default_bindings() -> Vec<(&'static str, SteelVal)> {
         vec![
-            ("+", SteelVal::FuncV(Adder::new_func())),
-            ("*", SteelVal::FuncV(Multiplier::new_func())),
-            ("/", SteelVal::FuncV(Divider::new_func())),
-            ("-", SteelVal::FuncV(Subtractor::new_func())),
+            // ("+", SteelVal::FuncV(Adder::new_func())),
+            ("+", NumOperations::adder()),
+            // ("*", SteelVal::FuncV(Multiplier::new_func())),
+            ("*", NumOperations::multiply()),
+            // ("/", SteelVal::FuncV(Divider::new_func())),
+            ("/", NumOperations::divide()),
+            // ("-", SteelVal::FuncV(Subtractor::new_func())),
+            ("-", NumOperations::subtract()),
             ("list", ListOperations::list()),
             ("car", ListOperations::car()),
             ("cdr", ListOperations::cdr()),
@@ -255,7 +274,7 @@ impl Env {
             ("null?", VectorOperations::list_vec_null()),
             ("push", VectorOperations::vec_push()),
             ("range-vec", VectorOperations::vec_range()),
-            ("number?", gen_pred!(NumV)),
+            ("number?", gen_pred!(NumV, IntV)),
             ("string?", gen_pred!(StringV)),
             ("symbol?", gen_pred!(SymbolV)),
             ("vector?", gen_pred!(VectorV)),

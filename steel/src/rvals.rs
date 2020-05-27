@@ -98,6 +98,8 @@ pub enum SteelVal {
     BoolV(bool),
     /// Represents a number, currently only f64 numbers are supported
     NumV(f64),
+    /// Represents an integer
+    IntV(isize),
     /// Represents a character type
     CharV(char),
     /// Represents a cons cell
@@ -319,6 +321,7 @@ impl TryFrom<Rc<Expr>> for SteelVal {
                 BooleanLiteral(x) => Ok(BoolV(*x)),
                 Identifier(x) => Ok(SymbolV(x.clone())),
                 NumberLiteral(x) => Ok(NumV(*x)),
+                IntegerLiteral(x) => Ok(IntV(*x)),
                 StringLiteral(x) => Ok(StringV(x.clone())),
                 CharacterLiteral(x) => Ok(CharV(*x)),
             },
@@ -347,6 +350,7 @@ impl TryFrom<&SteelVal> for Rc<Expr> {
         match r {
             BoolV(x) => Ok(Rc::new(Expr::Atom(BooleanLiteral(*x)))),
             NumV(x) => Ok(Rc::new(Expr::Atom(NumberLiteral(*x)))),
+            IntV(x) => Ok(Rc::new(Expr::Atom(IntegerLiteral(*x)))),
             VectorV(lst) => {
                 let items: result::Result<Vec<Self>, Self::Error> =
                     lst.into_iter().map(Self::try_from).collect();
@@ -382,6 +386,9 @@ impl PartialEq for SteelVal {
         match (self, other) {
             (BoolV(l), BoolV(r)) => l == r,
             (NumV(l), NumV(r)) => l == r,
+            (IntV(l), IntV(r)) => l == r,
+            (NumV(l), IntV(r)) => *l == *r as f64,
+            (IntV(l), NumV(r)) => *l as f64 == *r,
             (StringV(l), StringV(r)) => l == r,
             (VectorV(l), VectorV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
@@ -409,6 +416,7 @@ impl PartialOrd for SteelVal {
             (NumV(n), NumV(o)) => n.partial_cmp(o),
             (StringV(s), StringV(o)) => s.partial_cmp(o),
             (CharV(l), CharV(r)) => l.partial_cmp(r),
+            (IntV(l), IntV(r)) => l.partial_cmp(r),
             _ => None, // unimplemented for other types
         }
     }
@@ -496,7 +504,8 @@ impl fmt::Debug for SteelVal {
 fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
     match val {
         BoolV(b) => write!(f, "#{}", b),
-        NumV(x) => write!(f, "{}", x),
+        NumV(x) => write!(f, "{:?}", x),
+        IntV(x) => write!(f, "{}", x),
         StringV(s) => write!(f, "\"{}\"", s),
         CharV(c) => write!(f, "#\\{}", c),
         FuncV(_) => write!(f, "#<function>"),
@@ -554,7 +563,7 @@ fn display_test() {
     use crate::parser::tokens::Token;
     use im_rc::vector;
     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
-    assert_eq!(SteelVal::NumV(1.0).to_string(), "1");
+    assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
     assert_eq!(
         SteelVal::FuncV(|_args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             Ok(Rc::new(SteelVal::VectorV(vector![])))
@@ -569,7 +578,7 @@ fn display_test() {
             Rc::new(RefCell::new(crate::env::Env::default_env())),
         ))
         .to_string(),
-        "#<(lambda (arg1) 1)>"
+        "#<(lambda (arg1) 1.0)>"
     );
     assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
 }
@@ -590,7 +599,7 @@ fn display_list_test() {
             ))
         ])
         .to_string(),
-        "\'#(#false 1 #<(lambda (arg1) 1)>)"
+        "\'#(#false 1.0 #<(lambda (arg1) 1.0)>)"
     );
     assert_eq!(
         VectorV(vector![
@@ -600,7 +609,7 @@ fn display_list_test() {
             VectorV(vector![NumV(7.0)])
         ])
         .to_string(),
-        "'#((1 (2 3)) (4 5) 6 (7))"
+        "'#((1.0 (2.0 3.0)) (4.0 5.0) 6.0 (7.0))"
     );
 }
 

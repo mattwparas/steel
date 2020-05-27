@@ -58,10 +58,31 @@ fn main() {
     let args = args().collect::<Vec<_>>();
 
     if args.len() == 1 {
-        finish(test_repl());
+        // let mut interpreter = build_interpreter! {};
+        // if let Err(e) = interpreter.require(PRELUDE) {
+        //     eprintln!("Error loading prelude: {}", e)
+        // }
+        // let contents =
+        //     fs::read_to_string("struct.rkt").expect("Something weont wrong reading the file");
 
-    // build_interpreter_and_modify();
-    // finish(my_repl());
+        // let ast = interpreter.compile(&contents).unwrap();
+        // // if let Err(e) = ast {
+        // //     eprintln!("Error compiling the file: {}", e);
+        // // }
+
+        // let res = SteelInterpreter::evaluate_from_ast(&ast);
+
+        // match res {
+        //     Ok(r) => r.iter().for_each(|x| match x {
+        //         SteelVal::Void => {}
+        //         _ => println!("{}", x),
+        //     }),
+        //     Err(e) => eprintln!("{}", e.to_string()),
+        // }
+
+        // interpreter.parse_and
+
+        finish(test_repl());
     } else if args.len() == 2 {
         let path = &args[1];
         let mut interpreter = build_interpreter! {};
@@ -171,12 +192,24 @@ pub fn test_option(input: usize) -> Option<usize> {
 }
 
 #[function]
+pub fn panic_time() {
+    panic!("What do I do?")
+}
+
+#[function]
 pub fn test_result(input: usize) -> std::result::Result<usize, String> {
     if input == 1 {
         Ok(1)
     } else {
         Err("We got an error".to_string())
     }
+}
+
+#[function]
+pub fn mutation_test(arg: CoolTest) -> CoolTest {
+    let mut arg = arg;
+    arg.val = 10000.0;
+    arg
 }
 
 pub fn test_repl() -> std::io::Result<()> {
@@ -194,7 +227,8 @@ pub fn test_repl() -> std::io::Result<()> {
             "new-mutex-wrapper" => new_mutex_wrapper,
             "display-cool-test" => pretty_print_cool_test,
             "test-result" => test_result,
-            "test-option" => test_option
+            "test-option" => test_option,
+            "panic-time" => panic_time,
         }
     })
 }
@@ -281,9 +315,9 @@ fn build_interpreter_and_modify() {
 
     // write a quick script
     let script = "
-        (define cool-test (CoolTest 100))
-        (define cool-test2 (CoolTest 200))
-        (define return-val (set-CoolTest-val! cool-test 200))
+        (define cool-test (CoolTest 100.0))
+        (define cool-test2 (CoolTest 200.0))
+        (define return-val (set-CoolTest-val! cool-test 200.0))
         (define foo-test (Foo unnamed))
         (define sum-test (add_cool_tests cool-test cool-test2))
         (displayln (multiple_types 25))
@@ -309,8 +343,8 @@ fn build_interpreter_and_modify() {
                 CoolTest::try_from(interpreter.extract_value("sum-test").unwrap()).unwrap();
             assert_eq!(ret_val4, CoolTest { val: 300.0 })
         }
-        Err(_e) => {
-            panic!("steel macro test failed");
+        Err(e) => {
+            panic!(e.to_string());
         }
     }
 }

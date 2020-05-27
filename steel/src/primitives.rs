@@ -1,10 +1,12 @@
 mod io;
 mod lists;
+mod nums;
 mod strings;
 mod vectors;
 
 pub use io::IoFunctions;
 pub use lists::ListOperations;
+pub use nums::NumOperations;
 pub use strings::StringOperations;
 pub use vectors::VectorOperations;
 
@@ -211,7 +213,8 @@ fn vec_to_list(args: Vec<SteelVal>) -> SteelVal {
 }
 
 from_f64!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-try_from_impl!(NumV => f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+try_from_impl!(NumV => f64, f32);
+try_from_impl!(IntV => i64, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 
 impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
@@ -331,19 +334,13 @@ mod try_from_tests {
     fn try_from_vec_usize() {
         let input: Vec<usize> = vec![0, 1];
         let res = SteelVal::try_from(input);
-        let expected = SteelVal::Pair(
-            Rc::new(SteelVal::NumV(0.0)),
-            Some(Rc::new(SteelVal::NumV(1.0))),
-        );
+        let expected = SteelVal::Pair(Rc::new(SteelVal::IntV(0)), Some(Rc::new(SteelVal::IntV(1))));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn try_from_steelval_list_to_vec_usize() {
-        let input = SteelVal::Pair(
-            Rc::new(SteelVal::NumV(0.0)),
-            Some(Rc::new(SteelVal::NumV(1.0))),
-        );
+        let input = SteelVal::Pair(Rc::new(SteelVal::IntV(0)), Some(Rc::new(SteelVal::IntV(1))));
         let res = <Vec<usize>>::try_from(input);
         let expected: Vec<usize> = vec![0, 1];
         assert_eq!(res.unwrap(), expected);
@@ -365,7 +362,7 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_vec_to_vec_usize() {
-        let input = SteelVal::VectorV(vector![SteelVal::NumV(0.0), SteelVal::NumV(1.0)]);
+        let input = SteelVal::VectorV(vector![SteelVal::IntV(0), SteelVal::IntV(1)]);
         let res = <Vec<usize>>::try_from(input);
         let expected: Vec<usize> = vec![0, 1];
         assert_eq!(res.unwrap(), expected);
@@ -373,10 +370,7 @@ mod try_from_tests {
 
     #[test]
     fn try_from_ref_steelval_list_to_vec_usize() {
-        let input = SteelVal::Pair(
-            Rc::new(SteelVal::NumV(0.0)),
-            Some(Rc::new(SteelVal::NumV(1.0))),
-        );
+        let input = SteelVal::Pair(Rc::new(SteelVal::IntV(0)), Some(Rc::new(SteelVal::IntV(1))));
         let res = <Vec<usize>>::try_from(&input);
         let expected: Vec<usize> = vec![0, 1];
         assert_eq!(res.unwrap(), expected);
@@ -384,7 +378,7 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_ref_vec_to_vec_usize() {
-        let input = SteelVal::VectorV(vector![SteelVal::NumV(0.0), SteelVal::NumV(1.0)]);
+        let input = SteelVal::VectorV(vector![SteelVal::IntV(0), SteelVal::IntV(1)]);
         let res = <Vec<usize>>::try_from(&input);
         let expected: Vec<usize> = vec![0, 1];
         assert_eq!(res.unwrap(), expected);

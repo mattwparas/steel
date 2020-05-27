@@ -402,7 +402,7 @@ mod list_operation_tests {
     fn car_bad_input() {
         let args = vec![SteelVal::NumV(1.0)];
         let res = apply_function(ListOperations::car(), args);
-        let expected = SteelErr::TypeMismatch("car takes a list, given: 1".to_string());
+        let expected = SteelErr::TypeMismatch("car takes a list, given: 1.0".to_string());
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -446,7 +446,7 @@ mod list_operation_tests {
     fn cdr_bad_input() {
         let args = vec![SteelVal::NumV(1.0)];
         let res = apply_function(ListOperations::cdr(), args);
-        let expected = SteelErr::TypeMismatch("cdr takes a list, given: 1".to_string());
+        let expected = SteelErr::TypeMismatch("cdr takes a list, given: 1.0".to_string());
         assert_eq!(res.unwrap_err(), expected);
     }
     #[test]
