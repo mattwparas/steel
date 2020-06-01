@@ -2,6 +2,7 @@ use crate::env::Env;
 use crate::expander::SteelMacro;
 use crate::parser::tokens::Token::*;
 use crate::parser::Expr;
+use crate::port::SteelPort;
 use crate::rerrs::SteelErr;
 // use std::any::Any;
 use std::any::Any;
@@ -124,10 +125,12 @@ pub enum SteelVal {
     Custom(Box<dyn CustomType>),
     // Embedded HashMap
     // HashMapV(HashMap<SteelVal, SteelVal>),
-    // Represents a scheme-only struct
+    /// Represents a scheme-only struct
     StructV(SteelStruct),
-    // Represents a special rust closure
+    /// Represents a special rust closure
     StructClosureV(SteelStruct, StructClosureSignature),
+    /// Represents a port object
+    PortV(SteelPort),
 }
 
 pub struct Iter(Option<Rc<SteelVal>>);
@@ -376,6 +379,7 @@ impl TryFrom<&SteelVal> for Rc<Expr> {
             CharV(x) => Ok(Rc::new(Expr::Atom(CharacterLiteral(*x)))),
             StructV(_) => Err("Can't convert from Struct to expression!"),
             StructClosureV(_, _) => Err("Can't convert from struct-function to expression!"),
+            PortV(_) => Err("Can't convert from port to expression!"),
         }
     }
 }
@@ -533,6 +537,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         }
         StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
         StructClosureV(_, _) => write!(f, "#<struct-constructor>"),
+        PortV(_) => write!(f, "#<port>"),
     }
 }
 

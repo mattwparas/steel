@@ -78,6 +78,7 @@ impl MacroCase {
     }
 
     fn recursive_match(&self, list_of_tokens: &[Rc<Expr>]) -> bool {
+        // println!("{:?}, {:?}", self.args, list_of_tokens);
         Self::match_vec_pattern_to_list_of_tokens(&self.args, list_of_tokens)
     }
 
@@ -107,7 +108,7 @@ impl MacroCase {
                     MacroPattern::Nested(vec) => {
                         if let Expr::VectorVal(l) = val.as_ref() {
                             // TODO more elegant let* case
-                            if vec.len() == 0 && l.len() != 0 {
+                            if vec.len() == 0 && !l.is_empty() {
                                 return false;
                             }
                             if Self::match_vec_pattern_to_list_of_tokens(&vec, l) {

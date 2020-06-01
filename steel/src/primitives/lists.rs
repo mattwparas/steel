@@ -85,10 +85,10 @@ impl ListOperations {
             let mut args = args.into_iter().map(|x| (*x).clone());
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
-                    if let (NumV(lower), NumV(upper)) = (elem, lst) {
+                    if let (IntV(lower), IntV(upper)) = (elem, lst) {
                         let mut res = Vec::new();
                         for i in lower as usize..upper as usize {
-                            res.push(Rc::new(SteelVal::NumV(i as f64)));
+                            res.push(Rc::new(SteelVal::IntV(i as isize)));
                         }
                         Self::built_in_list_func()(res)
                     } else {

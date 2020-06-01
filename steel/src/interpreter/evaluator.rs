@@ -142,7 +142,7 @@ fn expand(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<Expr>> {
     let expr = Rc::clone(expr);
 
     match expr.deref() {
-        Expr::Atom(_) => return Ok(expr),
+        Expr::Atom(_) => Ok(expr),
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
                 if let Expr::Atom(Token::Identifier(s)) = f.as_ref() {
@@ -158,9 +158,9 @@ fn expand(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<Expr>> {
                 }
                 let result: Result<Vec<Rc<Expr>>> =
                     list_of_tokens.iter().map(|x| expand(x, &env)).collect();
-                return Ok(Rc::new(Expr::VectorVal(result?)));
+                Ok(Rc::new(Expr::VectorVal(result?)))
             } else {
-                return Ok(expr);
+                Ok(expr)
             }
         }
     }
@@ -318,7 +318,7 @@ fn eval_apply(list_of_tokens: &[Rc<Expr>], env: Rc<RefCell<Env>>) -> Result<Rc<S
 
     match evaluate(func, &env)?.as_ref() {
         SteelVal::FuncV(func) => {
-            return func(optional_args);
+            func(optional_args)
             // return eval_func(*func, &list_of_tokens[1..], &env)
         }
         SteelVal::LambdaV(lambda) => {

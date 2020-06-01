@@ -2,8 +2,8 @@
 First, consume the entire syntax tree and create global definitions
 */
 
-use std::fs::File;
-use std::io::prelude::*;
+// use std::fs::File;
+// use std::io::prelude::*;
 
 use crate::env::Env;
 use crate::parser::tokens::Token;
@@ -49,6 +49,38 @@ impl AST {
     }
 }
 
+// fn expression_is_constant(expr: Rc<Expr>) -> bool {
+//     match expr.as_ref() {
+//         Expr::Atom(t)
+//     }
+// }
+
+/*
+identify flat functions
+procedure cloning / versioning
+
+(define test-function (lambda (a) (+ a 5)))
+
+constant folding
+
+how to check if value is a constant:
+
+
+*/
+
+// fn function_call_is_closure(expr: Rc<Expr>, env: &Rc<RefCell<Env>>) -> bool {
+//     match expr.as_ref() {
+//         Expr::Atom(_) => false,
+//         Expr::VectorVal(list_of_tokens) => {
+//             if let Some(function_name) = list_of_tokens.get(0) {
+
+//             } else {
+//                 false
+//             }
+//         }
+//     }
+// }
+
 fn extract_macro_definitions(exprs: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Vec<Rc<Expr>>> {
     let mut others: Vec<Rc<Expr>> = Vec::new();
     for expr in exprs {
@@ -70,7 +102,7 @@ fn extract_and_expand_function_definitions(
     for expr in exprs {
         match expr.as_ref() {
             Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
-                let _ = eval_define(&list_of_tokens[1..], env)?;
+                eval_define(&list_of_tokens[1..], env)?;
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
                 let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
@@ -149,8 +181,8 @@ fn is_function_definition(expr: &Rc<Expr>) -> bool {
     false
 }
 
-fn write_to_file() -> std::io::Result<()> {
-    let mut file = File::create("test.txt")?;
-    file.write_all(b"Hello, world!")?;
-    Ok(())
-}
+// fn write_to_file() -> std::io::Result<()> {
+//     let mut file = File::create("test.txt")?;
+//     file.write_all(b"Hello, world!")?;
+//     Ok(())
+// }
