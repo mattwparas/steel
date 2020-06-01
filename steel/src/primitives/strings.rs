@@ -16,7 +16,7 @@ impl StringOperations {
                     (&args[0].as_ref(), &args[1].as_ref())
                 {
                     let new_string = l.clone() + &r.clone();
-                    return Ok(Rc::new(SteelVal::StringV(new_string)));
+                    Ok(Rc::new(SteelVal::StringV(new_string)))
                 } else {
                     stop!(TypeMismatch => "string-append expected two strings")
                 }

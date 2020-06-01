@@ -3,9 +3,10 @@
 use crate::primitives::IoFunctions;
 use crate::primitives::ListOperations;
 use crate::primitives::NumOperations;
+use crate::primitives::PortOperations;
 use crate::primitives::StringOperations;
 use crate::primitives::VectorOperations;
-use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
+// use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
@@ -302,6 +303,9 @@ impl Env {
             ("split-whitespace", StringOperations::split_whitespace()),
             ("void", SteelVal::Void),
             ("list->string", ListOperations::list_to_string()),
+            ("open-input-file", PortOperations::open_input_file()),
+            ("read-port-to-string", PortOperations::read_port_to_string()),
+            ("read-line-from-port", PortOperations::read_line_to_string()),
             // ("flatten", ListOperations::flatten()),
         ]
     }

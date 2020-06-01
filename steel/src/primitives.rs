@@ -1,12 +1,14 @@
 mod io;
 mod lists;
 mod nums;
+mod ports;
 mod strings;
 mod vectors;
 
 pub use io::IoFunctions;
 pub use lists::ListOperations;
 pub use nums::NumOperations;
+pub use ports::PortOperations;
 pub use strings::StringOperations;
 pub use vectors::VectorOperations;
 

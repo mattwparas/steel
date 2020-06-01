@@ -157,33 +157,33 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn read_number(&mut self) -> f64 {
-        let mut num = String::new();
-        while let Some(&c) = self.input.peek() {
-            if !c.is_numeric() {
-                break;
-            }
+    // fn read_number(&mut self) -> f64 {
+    //     let mut num = String::new();
+    //     while let Some(&c) = self.input.peek() {
+    //         if !c.is_numeric() {
+    //             break;
+    //         }
 
-            self.input.next();
-            num.push(c);
-        }
+    //         self.input.next();
+    //         num.push(c);
+    //     }
 
-        if let Some(&'.') = self.input.peek() {
-            self.input.next();
-            num.push('.');
+    //     if let Some(&'.') = self.input.peek() {
+    //         self.input.next();
+    //         num.push('.');
 
-            while let Some(&c) = self.input.peek() {
-                if !c.is_numeric() {
-                    break;
-                }
+    //         while let Some(&c) = self.input.peek() {
+    //             if !c.is_numeric() {
+    //                 break;
+    //             }
 
-                self.input.next();
-                num.push(c);
-            }
-        }
+    //             self.input.next();
+    //             num.push(c);
+    //         }
+    //     }
 
-        num.parse().unwrap()
-    }
+    //     num.parse().unwrap()
+    // }
 
     fn read_string(&mut self) -> Result<Token> {
         // Skip the opening quote.
