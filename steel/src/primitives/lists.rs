@@ -487,13 +487,13 @@ mod list_operation_tests {
 
     #[test]
     fn range_test_normal_input() {
-        let args = vec![SteelVal::NumV(0.0), SteelVal::NumV(3.0)];
+        let args = vec![SteelVal::IntV(0), SteelVal::IntV(3)];
         let res = apply_function(ListOperations::range(), args);
         let expected = Rc::new(SteelVal::Pair(
-            Rc::new(SteelVal::NumV(0.0)),
+            Rc::new(SteelVal::IntV(0)),
             Some(Rc::new(SteelVal::Pair(
-                Rc::new(SteelVal::NumV(1.0)),
-                Some(Rc::new(SteelVal::NumV(2.0))),
+                Rc::new(SteelVal::IntV(1)),
+                Some(Rc::new(SteelVal::IntV(2))),
             ))),
         ));
         assert_eq!(res.unwrap(), expected);
