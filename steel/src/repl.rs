@@ -7,6 +7,17 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::path::Path;
 // use std::time::Instant;
+use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
+use rustyline::validate::{
+    MatchingBracketValidator, ValidationContext, ValidationResult, Validator,
+};
+use rustyline::{hint::Hinter, CompletionType, Context};
+use rustyline_derive::Helper;
+
+use rustyline::completion::Completer;
+use rustyline::completion::Pair;
+
+use std::borrow::Cow;
 
 #[macro_export]
 macro_rules! build_repl {
@@ -23,6 +34,73 @@ macro_rules! build_repl {
     };
 }
 
+impl Completer for RustylineHelper {
+    type Candidate = Pair;
+
+    // fn complete(
+    //     &self,
+    //     line: &str,
+    //     cursor_pos: usize,
+    //     context: &Context,
+    // ) -> Result<(usize, Vec<Self::Candidate>), ReadlineError> {
+    //     Err()
+    // }
+    // fn update(&self, line: &mut LineBuffer, start: usize, elected: &str) {
+    //     self.filename_completer.update(line, start, elected)
+    // }
+}
+
+#[derive(Helper)]
+struct RustylineHelper {
+    highlighter: MatchingBracketHighlighter,
+    validator: MatchingBracketValidator,
+}
+
+impl Validator for RustylineHelper {
+    fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
+        self.validator.validate(ctx)
+    }
+
+    fn validate_while_typing(&self) -> bool {
+        self.validator.validate_while_typing()
+    }
+}
+
+impl Hinter for RustylineHelper {
+    fn hint(&self, _line: &str, _pos: usize, _context: &Context) -> Option<String> {
+        None
+    }
+}
+
+impl Highlighter for RustylineHelper {
+    fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
+        self.highlighter.highlight(line, pos)
+    }
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        prompt: &'p str,
+        default: bool,
+    ) -> Cow<'b, str> {
+        self.highlighter.highlight_prompt(prompt, default)
+    }
+
+    fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
+        self.highlighter.highlight_hint(hint)
+    }
+
+    fn highlight_candidate<'c>(
+        &self,
+        candidate: &'c str,
+        completion: CompletionType,
+    ) -> Cow<'c, str> {
+        self.highlighter.highlight_candidate(candidate, completion)
+    }
+
+    fn highlight_char(&self, line: &str, pos: usize) -> bool {
+        self.highlighter.highlight_char(line, pos)
+    }
+}
+
 // Found on Hoth...
 pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Result<()> {
     // let now = Instant::now();
@@ -33,7 +111,16 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
     println!("{}", "Welcome to Steel 1.0".bright_blue().bold());
     let prompt = format!("{}", "λ > ".bright_green().bold());
 
-    let mut rl = Editor::<()>::new();
+    // let highlighter = MatchingBracketHighlighter::new();
+
+    let mut rl = Editor::<RustylineHelper>::new();
+    rl.set_helper(Some(RustylineHelper {
+        highlighter: MatchingBracketHighlighter::default(),
+        validator: MatchingBracketValidator::default(),
+    }));
+
+    // let mut rl = Editor::<RustylineHelper>::new();
+    // let mut rl = Editor::<MatchingBracketHighlighter>::new();
     loop {
         let readline = rl.readline(&prompt);
         match readline {

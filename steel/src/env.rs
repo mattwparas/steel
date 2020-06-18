@@ -1,10 +1,12 @@
 // use crate::rvals::Result;
 // #[macro_use]
+use crate::primitives::ControlOperations;
 use crate::primitives::IoFunctions;
 use crate::primitives::ListOperations;
 use crate::primitives::NumOperations;
 use crate::primitives::PortOperations;
 use crate::primitives::StringOperations;
+use crate::primitives::SymbolOperations;
 use crate::primitives::VectorOperations;
 // use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
 use crate::rerrs::SteelErr;
@@ -14,6 +16,9 @@ use crate::stop;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::rc::Weak;
+// use std::convert::AsRef;
+// use std::borrow::BorrowMut;
 
 thread_local! {
     pub static VOID: Rc<SteelVal> = Rc::new(SteelVal::Void);
@@ -107,11 +112,16 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
 pub struct Env {
     bindings: HashMap<String, Rc<SteelVal>>,
     parent: Option<Rc<RefCell<Env>>>,
+    sub_expression: Option<Weak<RefCell<Env>>>,
+    heap: Vec<Rc<RefCell<Env>>>,
+    is_binding_context: bool,
 }
 
 impl Drop for Env {
     fn drop(&mut self) {
+        self.heap.clear();
         self.clear_bindings();
+        self.heap.clear();
     }
 }
 
@@ -122,7 +132,32 @@ impl Env {
         Env {
             bindings: HashMap::new(),
             parent: Some(Rc::clone(&parent)),
+            sub_expression: None,
+            heap: Vec::new(),
+            is_binding_context: false,
         }
+    }
+
+    pub fn new_subexpression(sub_expression: Weak<RefCell<Self>>) -> Self {
+        Env {
+            bindings: HashMap::new(),
+            parent: None,
+            sub_expression: Some(sub_expression),
+            heap: Vec::new(),
+            is_binding_context: false,
+        }
+    }
+
+    pub fn is_binding_context(&self) -> bool {
+        self.is_binding_context
+    }
+
+    pub fn set_binding_context(&mut self, b: bool) {
+        self.is_binding_context = b;
+    }
+
+    pub fn is_root(&self) -> bool {
+        self.parent.is_none() && self.sub_expression.is_none()
     }
 
     /// top level global env has no parent
@@ -130,7 +165,57 @@ impl Env {
         Env {
             bindings: HashMap::new(),
             parent: None,
+            sub_expression: None,
+            heap: Vec::new(),
+            is_binding_context: false,
         }
+    }
+
+    pub fn heap(&self) -> &[Rc<RefCell<Env>>] {
+        &self.heap
+    }
+
+    pub fn parent(&self) -> &Option<Rc<RefCell<Env>>> {
+        &self.parent
+    }
+
+    pub fn add_to_heap(&mut self, val: Rc<RefCell<Env>>) {
+        self.heap.push(val);
+    }
+
+    // pub fn sub_expression(&self) -> &Option<Rc<RefCell<Env>>> {
+    //     &self.sub_expression
+    // }
+
+    pub fn is_one_layer_down(&self) -> bool {
+        self.parent.is_some()
+
+        // if let self.parent.is_some() {
+        //     true
+        // } else {
+        //     false;
+        // }
+
+        // if let Some(parent) = &self.sub_expression {
+        //     match parent.upgrade() {
+        //         Some(x) => {
+        //             if x.borrow().parent.is_none() {
+        //                 return true;
+        //             }
+        //             if x.borrow().sub_expression.is_some() {
+        //                 println!("Sub expression has parent of sub expression");
+        //             }
+        //         }
+        //         None => {
+        //             println!("Getting inside here!");
+        //             return false;
+        //         }
+        //     }
+        // } else {
+        //     println!("Getting here where the parent is not as sub_expression");
+        // }
+
+        // false
     }
 
     pub fn clear_bindings(&mut self) {
@@ -139,6 +224,10 @@ impl Env {
 
     pub fn print_bindings(&self) {
         println!("{:#?}", self.bindings);
+    }
+
+    pub fn bindings(&self) -> &HashMap<String, Rc<SteelVal>> {
+        &self.bindings
     }
 
     /// Within the current environment, bind
@@ -179,15 +268,68 @@ impl Env {
     ///
     /// Otherwise, error with `FreeIdentifier`
     pub fn set(&mut self, key: String, val: Rc<SteelVal>) -> Result<Rc<SteelVal>> {
+        // println!("GETTING INSIDE SET!");
+
         if self.bindings.contains_key(&key) {
+            // println!("Inside here...");
+
             self.bindings
                 .insert(key.clone(), val)
                 .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string()))
         } else {
-            match &self.parent {
-                Some(par) => par.borrow_mut().set(key, val),
-                None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key)),
+            // match &self.parent {
+            //     Some(par) => par.borrow_mut().set(key, val),
+            //     None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key)),
+            // }
+
+            if self.parent.is_some() {
+                match &self.parent {
+                    Some(par) => par.borrow_mut().set(key, val),
+                    None => {
+                        // println!("In this case");
+                        stop!(FreeIdentifier => key.to_string()); // Err(SteelErr::FreeIdentifier(name.to_string())),
+                    }
+                }
+            } else {
+                match &self.sub_expression {
+                    Some(par) => {
+                        match par.upgrade() {
+                            Some(x) => x.borrow_mut().set(key, val),
+                            None => {
+                                // println!("Getting here: {:?}", self.bindings);
+                                // println!("{}", self.is_root());
+                                // println!("{}", self.)
+                                stop!(Generic => "Parent subexpression was dropped looking for {}", key.to_string())
+                            }
+                        }
+
+                        // par.upgrade().and_then(|x| x.borrow().lookup(name)).ok_or_else(stop!(Generic => "parent as dropped"))
+                        // (*par).borrow().lookup(name)
+                    }
+                    None => {
+                        // println!("Somehow getting here!");
+                        stop!(FreeIdentifier => key.to_string())
+                    }
+                }
             }
+
+            // match &self.sub_expression {
+            //     Some(par) => {
+            //         match par.upgrade() {
+            //             Some(x) => x.borrow_mut().set(key, val),
+            //             None => {
+            //                 println!("Getting here: {:?}", self.bindings);
+            //                 println!("{}", self.is_root());
+            //                 // println!("{}", self.)
+            //                 stop!(Generic => "Parent subexpression was dropped looking for {}", key)
+            //             }
+            //         }
+
+            //         // par.upgrade().and_then(|x| x.borrow().lookup(name)).ok_or_else(stop!(Generic => "parent as dropped"))
+            //         // (*par).borrow().lookup(name)
+            //     }
+            //     None => stop!(FreeIdentifier => key.to_string()),
+            // }
         }
     }
 
@@ -207,6 +349,15 @@ impl Env {
                 Some(par) => par.borrow_mut().remove(key),
                 None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key.to_string())),
             }
+
+            // if self.parent.is_some() {
+
+            // } else {
+            //     // match &self.sub_expression {
+            //     //     Some(par) => par.borrow_mut().remove(key),
+            //     //     None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key.to_string())),
+            //     // }
+            // }
         }
     }
 
@@ -227,9 +378,42 @@ impl Env {
             // from Cell that may be modified later
             Ok(Rc::clone(&self.bindings[name]))
         } else {
-            match &self.parent {
-                Some(par) => par.borrow().lookup(name),
-                None => stop!(FreeIdentifier => name), // Err(SteelErr::FreeIdentifier(name.to_string())),
+            // match &self.parent {
+            //     Some(par) => par.borrow().lookup(name),
+            //     None => stop!(FreeIdentifier => name), // Err(SteelErr::FreeIdentifier(name.to_string())),
+            // }
+
+            // if self.is_root() {}
+
+            if self.parent.is_some() {
+                match &self.parent {
+                    Some(par) => par.borrow().lookup(name),
+                    None => {
+                        // println!("In this case");
+                        stop!(FreeIdentifier => name); // Err(SteelErr::FreeIdentifier(name.to_string())),
+                    }
+                }
+            } else {
+                match &self.sub_expression {
+                    Some(par) => {
+                        match par.upgrade() {
+                            Some(x) => x.borrow().lookup(name),
+                            None => {
+                                // println!("Getting here: {:?}", self.bindings);
+                                // println!("{}", self.is_root());
+                                // println!("{}", self.)
+                                stop!(Generic => "Parent subexpression was dropped looking for {}", name)
+                            }
+                        }
+
+                        // par.upgrade().and_then(|x| x.borrow().lookup(name)).ok_or_else(stop!(Generic => "parent as dropped"))
+                        // (*par).borrow().lookup(name)
+                    }
+                    None => {
+                        // println!("Somehow getting here!");
+                        stop!(FreeIdentifier => name)
+                    }
+                }
             }
         }
     }
@@ -306,6 +490,8 @@ impl Env {
             ("open-input-file", PortOperations::open_input_file()),
             ("read-port-to-string", PortOperations::read_port_to_string()),
             ("read-line-from-port", PortOperations::read_line_to_string()),
+            ("concat-symbols", SymbolOperations::concat_symbols()),
+            ("error!", ControlOperations::error()),
             // ("flatten", ListOperations::flatten()),
         ]
     }

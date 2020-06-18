@@ -11,6 +11,7 @@ pub type Result<T> = result::Result<T, TokenError>;
 #[derive(Debug)]
 pub struct Tokenizer<'a> {
     input: Peekable<Chars<'a>>,
+    line_number: usize,
 }
 
 enum Sign {
@@ -18,11 +19,20 @@ enum Sign {
     Neg,
 }
 
+// pub trait LineNumber {
+//     fn line_number(&self) -> usize;
+// }
+
 impl<'a> Tokenizer<'a> {
     pub fn new(input: &'a str) -> Self {
         Tokenizer {
             input: input.chars().peekable(),
+            line_number: 1,
         }
+    }
+
+    pub fn line_number(&self) -> usize {
+        self.line_number
     }
 
     fn consume_whitespace(&mut self) {
@@ -39,6 +49,9 @@ impl<'a> Tokenizer<'a> {
         while let Some(&c) = self.input.peek() {
             match c {
                 c if c.is_whitespace() => {
+                    if c == '\n' {
+                        self.line_number += 1;
+                    }
                     self.input.next();
                 }
                 ';' => self.read_rest_of_line(),
@@ -52,6 +65,7 @@ impl<'a> Tokenizer<'a> {
     fn read_rest_of_line(&mut self) {
         while let Some(c) = self.input.next() {
             if c == '\n' {
+                self.line_number += 1;
                 break;
             }
         }
@@ -95,7 +109,7 @@ impl<'a> Tokenizer<'a> {
             match c {
                 '(' | '[' | '{' | ')' | ']' | '}' => break,
                 c if c.is_whitespace() => break,
-                c if c == '#' => return Err(TokenError::UnexpectedChar('#')),
+                c if c == '#' => return Err(TokenError::UnexpectedChar('#', self.line_number)),
                 _ => {
                     self.input.next();
                     word.push(c);
@@ -108,10 +122,13 @@ impl<'a> Tokenizer<'a> {
             "f" | "false" => Ok(Token::BooleanLiteral(false)),
             character if character.starts_with('\\') => match word.len() {
                 2 | 3 | 4 => {
-                    let c = word.chars().last().ok_or(TokenError::InvalidCharacter)?;
+                    let c = word
+                        .chars()
+                        .last()
+                        .ok_or(TokenError::InvalidCharacter(self.line_number))?;
                     Ok(Token::CharacterLiteral(c))
                 }
-                _ => Err(TokenError::InvalidCharacter),
+                _ => Err(TokenError::InvalidCharacter(self.line_number)),
             },
             _ => Ok(Token::Identifier(word)), // TODO
                                               // _ => Err(TokenError::UnexpectedChar(#))
@@ -199,19 +216,29 @@ impl<'a> Tokenizer<'a> {
                         self.input.next();
                         buf.push(c);
                     }
-                    _ => return Err(TokenError::InvalidEscape),
+                    _ => return Err(TokenError::InvalidEscape(self.line_number)),
                 },
                 _ => buf.push(c),
             }
         }
 
         buf.insert(0, '"');
-        Err(TokenError::IncompleteString)
+        Err(TokenError::IncompleteString(self.line_number))
     }
 }
 
+// pub trait LineNumber {
+
+// }
+
+// impl LineNumber for std::iter::Peekable<Tokenizer<'a>> {
+//     // self.line_number
+// }
+
 impl<'a> Iterator for Tokenizer<'a> {
     type Item = Result<Token>;
+
+    // fn count()
 
     fn next(&mut self) -> Option<Self::Item> {
         self.consume_whitespace_and_comments_until_next_input();
@@ -265,7 +292,8 @@ impl<'a> Iterator for Tokenizer<'a> {
             }
             Some('"') => Some(self.read_string()),
             Some(c)
-                if !c.is_whitespace() && (c.is_alphabetic() && !c.is_numeric())
+                if !c.is_whitespace()
+                    && (c.is_alphabetic() && !c.is_numeric() || *c == '?' || *c == '!')
                     || *c == '_'
                     || *c == '.' =>
             {
@@ -274,7 +302,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             Some('=') | Some('<') | Some('>') => Some(Ok(self.read_word())),
             Some(c) if c.is_numeric() => Some(self.read_num_or_int(Sign::Pos)),
             Some(_) => match self.input.next() {
-                Some(e) => Some(Err(TokenError::UnexpectedChar(e))),
+                Some(e) => Some(Err(TokenError::UnexpectedChar(e, self.line_number))),
                 _ => None,
             },
         }
@@ -299,7 +327,7 @@ mod tests {
     fn test_unexpected_char() {
         let mut s = Tokenizer::new("($)");
         assert_eq!(s.next(), Some(Ok(OpenParen)));
-        assert_eq!(s.next(), Some(Err(TokenError::UnexpectedChar('$'))));
+        assert_eq!(s.next(), Some(Err(TokenError::UnexpectedChar('$', 1))));
     }
 
     #[test]

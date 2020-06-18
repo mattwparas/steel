@@ -202,6 +202,7 @@ impl MacroCase {
                     if let Some(e) = token_iter.next() {
                         bindings.insert(s.to_string(), e);
                     } else {
+                        // println!("Macro Expansion Failed in Single Pattern: {}", s);
                         stop!(ArityMismatch => "macro expansion failed in single pattern")
                     }
                 }
@@ -296,6 +297,49 @@ impl MacroCase {
             }
             Expr::VectorVal(vec_exprs) => {
                 let mut vec_exprs = vec_exprs.clone();
+                if let Some(checkdatum) = vec_exprs.get(0) {
+                    if let Expr::Atom(Identifier(ref check)) = checkdatum.as_ref() {
+                        // println!("{}", check);
+
+                        if check == "datum->syntax" {
+                            let mut buffer = String::new();
+                            if let Some((_, rest)) = vec_exprs.split_first() {
+                                for syntax in rest {
+                                    // println!("{}", syntax);
+
+                                    let transformer = syntax.atom_identifier_or_else(
+                                        throw!(BadSyntax => "datum->syntax requires an identifier"),
+                                    )?;
+
+                                    if transformer.starts_with("##") {
+                                        let (_, cdr) = transformer.split_at(2);
+                                        buffer.push_str(cdr);
+                                    } else {
+                                        if let Some(body) = bindings.get(transformer) {
+                                            println!("{}", body.to_string());
+
+                                            buffer.push_str(body.to_string().as_str());
+                                        }
+
+                                        // buffer.push_str(transformer);
+                                    }
+
+                                    // if let SteelVal::StringV(s) = syntax.as_ref() {
+                                    //     buffer.push_str(s);
+                                    // } else {
+                                    //     stop!(Generic => "datum->syntax arguments invalid");
+                                    // }
+                                }
+
+                                // println!("Finished with: {}", buffer);
+
+                                return Ok(Rc::new(Expr::Atom(Identifier(buffer))));
+                            }
+
+                            // println!("Found a datum->syntax!");
+                        }
+                    }
+                }
 
                 // TODO find this issue
                 // Go to the position before the ellipses, look up that variable, insert all the expressions
@@ -459,7 +503,8 @@ impl SteelMacro {
         // unimplemented!()
         match word {
             "lambda" | "define" | "map'" | "filter'" | "and" | "or" | "define-syntax-rule"
-            | "eval" | "set!" | "let" | "begin" | "if" | "quote" | "..." => true,
+            | "eval" | "set!" | "let" | "begin" | "if" | "quote" | "..." | "struct"
+            | "datum->syntax" => true,
             _ => false,
         }
     }

@@ -34,6 +34,11 @@ pub const PRELUDE: &str = "
 (define compose (lambda (f g) (lambda (arg) (f (g arg)))))
 
 
+(define (not a)
+  (if a
+      #f
+      #t))
+
 (define (foldl func accum lst)
   (if (null? lst)
       accum
@@ -135,7 +140,7 @@ pub const PRELUDE: &str = "
     (if (or (zero? x) (null? l))
         accum
         (loop (sub1 x) (cdr l) (append accum (list (car l))))))
-    (loop n lst '()))
+  (loop n lst '()))
 
 (define (drop lst n)
   (define (loop x l)

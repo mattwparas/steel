@@ -30,7 +30,6 @@ use std::convert::TryFrom;
 
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
-
 // extern crate reqwest;
 
 // use std::io::Read;
@@ -52,6 +51,10 @@ use std::sync::{Arc, Mutex};
 //     println!("Body:\n{}", body);
 
 //     Ok("Success!".to_string())
+// }
+
+// const fn foo() -> &'static str {
+//     "hello world"
 // }
 
 fn main() {

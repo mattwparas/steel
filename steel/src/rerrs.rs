@@ -20,7 +20,7 @@ pub enum SteelErr {
     ConversionError(String),
     #[error("Error: IO error")]
     Io(#[from] std::io::Error),
-    #[error("Error: Parse error")]
+    #[error("Error: Parse error: {0}")]
     Parse(#[from] ParseError),
     #[error("Error: Infallible")]
     Infallible(#[from] Infallible),

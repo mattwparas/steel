@@ -58,18 +58,43 @@ impl fmt::Display for Expr {
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum ParseError {
-    #[error("Parse: Error reading tokens")]
+    #[error("Parse: Error reading tokens: {0}")]
     TokenError(#[from] TokenError),
-    #[error("Parse: Unexpected token, {0:?}")]
+    #[error("Parse: Unexpected token: {0:?}")]
     Unexpected(Token),
     #[error("Parse: Unexpected EOF")]
     UnexpectedEOF,
 }
 
+// pub struct PeekTokenizer<'a> {
+//     tokenizer:
+// }
+
+// pub trait LineNumber {
+//     fn line_number(&self) -> usize;
+// }
+
+// pub struct PeekTokenizer<'a> {
+//     line_number:
+// }
+
+// impl<'a> LineNumber for Peekable<Tokenizer<'a>> {
+//     fn line_number(&self) -> usize {
+//         unimplemented!()
+//     }
+// }
+
+// impl Peekable<Tokenizer<'a>> {
+//     pub fn line_number(&self) -> usize {
+//         unimplemented!()
+//     }
+// }
+
 #[derive(Debug)]
 pub struct Parser<'a> {
     tokenizer: Peekable<Tokenizer<'a>>,
     intern: &'a mut HashMap<String, Rc<Expr>>,
+    // span: String,
 }
 
 pub type Result<T> = result::Result<T, ParseError>;

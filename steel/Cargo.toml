@@ -8,7 +8,8 @@ edition = "2018"
 
 [dependencies]
 thiserror = "1.0"
-rustyline = "5.0.6"
+rustyline = "6.2.0"
+rustyline-derive = "0.2.0"
 im-rc = "14.3.0"
 colored = "1.9"
 
