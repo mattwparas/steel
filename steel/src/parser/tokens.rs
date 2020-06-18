@@ -4,14 +4,14 @@ use Token::*;
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum TokenError {
-    #[error("Unexpected char, {0}")]
-    UnexpectedChar(char),
-    #[error("Incomplete String")]
-    IncompleteString,
-    #[error("Invalid Escape")]
-    InvalidEscape,
-    #[error("Invalid Character")]
-    InvalidCharacter,
+    #[error("Unexpected char, {0} on line: {1}")]
+    UnexpectedChar(char, usize),
+    #[error("Incomplete String on line {0}")]
+    IncompleteString(usize),
+    #[error("Invalid Escape on line {0}")]
+    InvalidEscape(usize),
+    #[error("Invalid Character on line {0}")]
+    InvalidCharacter(usize),
 }
 
 #[derive(Clone, Debug, PartialEq)]

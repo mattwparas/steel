@@ -88,6 +88,9 @@ impl SteelStruct {
         let field_names = list_of_tokens[0].vector_val_or_else(
             throw!(ArityMismatch => "struct requires list of identifiers for the field names"),
         )?;
+
+        println!("{:?}", field_names);
+
         let field_names_as_strs: Vec<String> = field_names
             .iter()
             .map(|x| {
@@ -184,17 +187,34 @@ fn predicate(name: &str) -> SteelVal {
                 stop!(ArityMismatch => error_message);
             }
 
-            let my_struct = args[0].struct_or_else(throw!(TypeMismatch => "expected struct"))?;
-
-            if let StructFunctionType::Predicate(name_huh) = &factory.function_purpose {
-                if my_struct.name.as_ref() == name_huh {
-                    Ok(TRUE.with(|f| Rc::clone(f)))
-                } else {
-                    Ok(FALSE.with(|f| Rc::clone(f)))
+            match args[0].as_ref() {
+                SteelVal::StructV(my_struct) => {
+                    if let StructFunctionType::Predicate(name_huh) = &factory.function_purpose {
+                        if my_struct.name.as_ref() == name_huh {
+                            Ok(TRUE.with(|f| Rc::clone(f)))
+                        } else {
+                            Ok(FALSE.with(|f| Rc::clone(f)))
+                        }
+                    } else {
+                        stop!(TypeMismatch => "something went wrong with struct predicate")
+                    }
                 }
-            } else {
-                stop!(TypeMismatch => "something went wrong with struct predicate")
+                _ => Ok(FALSE.with(|f| Rc::clone(f))),
             }
+
+            // let my_struct = args[0].struct_or_else(|| {
+            //     return Ok(FALSE.with(|f| Rc::clone(f)));
+            // })?;
+
+            // if let StructFunctionType::Predicate(name_huh) = &factory.function_purpose {
+            //     if my_struct.name.as_ref() == name_huh {
+            //         Ok(TRUE.with(|f| Rc::clone(f)))
+            //     } else {
+            //         Ok(FALSE.with(|f| Rc::clone(f)))
+            //     }
+            // } else {
+            //     stop!(TypeMismatch => "something went wrong with struct predicate")
+            // }
         },
     )
 }
@@ -249,7 +269,7 @@ fn setter(name: &str, field: &str) -> SteelVal {
         |args: Vec<Rc<SteelVal>>, factory: &SteelStruct| -> Result<Rc<SteelVal>> {
             if args.len() != 2 {
                 let error_message = format!(
-                    "{} getter expected two arguments, found {}",
+                    "{} setter expected two arguments, found {}",
                     factory.name,
                     args.len()
                 );

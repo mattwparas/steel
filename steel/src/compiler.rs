@@ -41,9 +41,11 @@ impl AST {
     }
 
     pub fn compile(exprs: Vec<Expr>, env: Rc<RefCell<Env>>) -> Result<Self> {
+        let mut heap = Vec::new();
         let exprs: Vec<Rc<Expr>> = exprs.into_iter().map(Rc::new).collect();
         let macros_extracted = extract_macro_definitions(&exprs, &env)?;
-        let functions_extracted = extract_and_expand_function_definitions(&macros_extracted, &env)?;
+        let functions_extracted =
+            extract_and_expand_function_definitions(&macros_extracted, &env, &mut heap)?;
 
         Ok(AST::new(functions_extracted, env))
     }
@@ -97,12 +99,13 @@ fn extract_macro_definitions(exprs: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Resu
 fn extract_and_expand_function_definitions(
     exprs: &[Rc<Expr>],
     env: &Rc<RefCell<Env>>,
+    heap: &mut Vec<Rc<RefCell<Env>>>,
 ) -> Result<Vec<Rc<Expr>>> {
     let mut others: Vec<Rc<Expr>> = Vec::new();
     for expr in exprs {
         match expr.as_ref() {
             Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
-                eval_define(&list_of_tokens[1..], env)?;
+                eval_define(&list_of_tokens[1..], env, heap)?;
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
                 let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;

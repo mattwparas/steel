@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt;
 use std::rc::Rc;
+use std::rc::Weak;
 use SteelVal::*;
 
 use im_rc::Vector;
@@ -434,20 +435,25 @@ pub struct SteelLambda {
     /// body of the function with identifiers yet to be bound
     body_exp: Rc<Expr>,
     /// parent environment that created this Lambda.
-    /// the actual environment with correct bindingsis built at runtime
+    /// the actual environment with correct bindings is built at runtime
     /// once the function is called
-    parent_env: Rc<RefCell<Env>>,
+    parent_env: Option<Rc<RefCell<Env>>>,
+    /// parent subenvironment that created this lambda.
+    /// the actual environment gets upgraded at runtime if needed
+    sub_expression_env: Option<Weak<RefCell<Env>>>,
 }
 impl SteelLambda {
     pub fn new(
         params_exp: Vec<String>,
         body_exp: Rc<Expr>,
-        parent_env: Rc<RefCell<Env>>,
+        parent_env: Option<Rc<RefCell<Env>>>,
+        sub_expression_env: Option<Weak<RefCell<Env>>>,
     ) -> SteelLambda {
         SteelLambda {
             params_exp,
             body_exp,
             parent_env,
+            sub_expression_env,
         }
     }
     /// symbols representing the arguments to the function
@@ -472,8 +478,12 @@ impl SteelLambda {
     ///
     /// The actual environment with correct bindings is built at runtime
     /// once the function is called
-    pub fn parent_env(&self) -> &Rc<RefCell<Env>> {
-        &self.parent_env
+    pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
+        self.parent_env.as_ref()
+    }
+
+    pub fn sub_expression_env(&self) -> Option<&Weak<RefCell<Env>>> {
+        self.sub_expression_env.as_ref()
     }
 }
 
@@ -580,7 +590,8 @@ fn display_test() {
         SteelVal::LambdaV(SteelLambda::new(
             vec!["arg1".to_owned()],
             Rc::new(Expr::Atom(Token::NumberLiteral(1.0))),
-            Rc::new(RefCell::new(crate::env::Env::default_env())),
+            Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
+            None
         ))
         .to_string(),
         "#<(lambda (arg1) 1.0)>"
@@ -600,7 +611,8 @@ fn display_list_test() {
             LambdaV(SteelLambda::new(
                 vec!["arg1".to_owned()],
                 Rc::new(Expr::Atom(Token::NumberLiteral(1.0))),
-                Rc::new(RefCell::new(crate::env::Env::default_env())),
+                Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
+                None
             ))
         ])
         .to_string(),

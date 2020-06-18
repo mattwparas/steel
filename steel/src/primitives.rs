@@ -1,15 +1,19 @@
+mod control;
 mod io;
 mod lists;
 mod nums;
 mod ports;
 mod strings;
+mod symbols;
 mod vectors;
 
+pub use control::ControlOperations;
 pub use io::IoFunctions;
 pub use lists::ListOperations;
 pub use nums::NumOperations;
 pub use ports::PortOperations;
 pub use strings::StringOperations;
+pub use symbols::SymbolOperations;
 pub use vectors::VectorOperations;
 
 // use crate::converter::SteelFunctor;
