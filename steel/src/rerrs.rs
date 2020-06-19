@@ -2,6 +2,10 @@ use crate::parser::ParseError;
 use std::convert::Infallible;
 use thiserror::Error;
 
+pub struct Span {
+    expr: String,
+}
+
 #[derive(Debug, Error)]
 pub enum SteelErr {
     #[error("Error: Arity Mismatch: {0}")]

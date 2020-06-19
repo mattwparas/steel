@@ -37,11 +37,11 @@
 
 ;; (displayln (add-card-to-player p1 (Wheat)))
 
-(define-syntax ->>
-  (syntax-rules ()
-    [(->> a) a]
-    [(->> a (b c ...)) ((l> b c ...) a)]
-    [(->> a b c ...) (->> (->> a b) c ...)]))
+;; (define-syntax ->>
+;;   (syntax-rules ()
+;;     [(->> a) a]
+;;     [(->> a (b c ...)) ((l> b c ...) a)]
+;;     [(->> a b c ...) (->> (->> a b) c ...)]))
 
 
 ;; (define-syntax method
@@ -50,13 +50,13 @@
 ;;     )
 
 
-(define (test-method this arg1 arg2 ...)
-  ...)
+;; (define (test-method this arg1 arg2 ...)
+;;   ...)
 
 
-(define blagh (Test-Struct 1 2 3 4 5))
+;; (define blagh (Test-Struct 1 2 3 4 5))
 
-(blagh.test-method arg1 arg2) -> (test-method blagh arg1 arg2)
+;; (blagh.test-method arg1 arg2) -> (test-method blagh arg1 arg2)
 
 
 ;; (define-syntax enum
@@ -112,29 +112,23 @@
   (+ arg1 arg2))
 
 
-(define (test arg1 arg2)
-  (when (not (even? arg1))
-    (error! "contract violation"))
-  (when (not (odd? arg2))
-    (error! "contract violation"))
-  (+ arg1 arg2))
 
-;; (lambda (arg1 arg2)
-;;   (begin
-;;     (begin
-;;       (if (not (even? arg1))
-;;           (begin (error! "contract violation:"))
-;;           void)
-;;       (begin
-;;         (if (not (odd? arg2))
-;;             (begin (error! "contract violation!"))
-;;             void)
-;;         (begin
-;;           (define ##res ((lambda () (+ arg1 arg2))))
-;;           (if (not (number? ##res))
-;;               (begin (error! "contract violation on result!"))
-;;               void)
-;;           ##res)))))
+(lambda (arg1 arg2)
+  (begin
+    (begin
+      (if (not (even? arg1))
+          (begin (error! "contract violation:"))
+          void)
+      (begin
+        (if (not (odd? arg2))
+            (begin (error! "contract violation!"))
+            void)
+        (begin
+          (define ##res ((lambda () (+ arg1 arg2))))
+          (if (not (number? ##res))
+              (begin (error! "contract violation on result!"))
+              void)
+          ##res)))))
 
 ;; TODO fix ordering of macro patterns such that mismatch of pattern doesn't happen
 (define-syntax define/contract-helper
@@ -145,7 +139,7 @@
      (begin
        (define res ((lambda () body ...)))
        (unless (argc res)
-         (error! name ":" "contract violation on result: " res "violated the contract: " argc))
+         (error! 'name ":" "contract violation on result: " res "violated the contract: " 'argc))
        res)]
     [(define/contract-helper name
        (arg args ...)
@@ -153,7 +147,7 @@
        body ...)
      (begin
        (unless (argc arg)
-         (error! name ":" "contract violation:" arg "violated the contract:" argc))
+         (error! 'name ":" "contract violation:" arg "violated the contract:" 'argc))
        (define/contract-helper name (args ...) (-> argcs ...) body ...))]))
 
 (define-syntax define/contract
@@ -168,9 +162,9 @@
 (define-syntax def-method
   (syntax-rules ()
     [(def-method struct-name (define (a this b ...) body ...))
-     (define (a this b ...)
+     (define ((datum->syntax struct-name . a) this b ...)
        (unless ((datum->syntax struct-name ?) this)
-         (error! a "method takes a value of" struct-name "given" this))
+         (error! (datum->syntax struct-name . a) "method takes a value of" struct-name "given" this))
        body ...)]))
 
 
@@ -185,10 +179,13 @@
 
 (struct Apple (a b c))
 (impl Apple
-      (define eat (this number)
+      (define (eat this number)
         (+ number 25))
-      (define color (this number)
+      (define (color this number)
         (+ number 50)))
+
+
+;; (define-syntax interface)
 
 
 (define-syntax define-type

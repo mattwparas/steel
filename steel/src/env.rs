@@ -492,6 +492,7 @@ impl Env {
             ("read-line-from-port", PortOperations::read_line_to_string()),
             ("concat-symbols", SymbolOperations::concat_symbols()),
             ("error!", ControlOperations::error()),
+            ("symbol->string", SymbolOperations::symbol_to_string()),
             // ("flatten", ListOperations::flatten()),
         ]
     }
