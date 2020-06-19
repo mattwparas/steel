@@ -89,7 +89,7 @@ impl SteelStruct {
             throw!(ArityMismatch => "struct requires list of identifiers for the field names"),
         )?;
 
-        println!("{:?}", field_names);
+        // println!("{:?}", field_names);
 
         let field_names_as_strs: Vec<String> = field_names
             .iter()

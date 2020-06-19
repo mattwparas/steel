@@ -316,7 +316,7 @@ impl MacroCase {
                                         buffer.push_str(cdr);
                                     } else {
                                         if let Some(body) = bindings.get(transformer) {
-                                            println!("{}", body.to_string());
+                                            // println!("{}", body.to_string());
 
                                             buffer.push_str(body.to_string().as_str());
                                         }

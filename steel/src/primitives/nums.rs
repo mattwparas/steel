@@ -9,6 +9,20 @@ use std::rc::Rc;
 
 pub struct NumOperations {}
 impl NumOperations {
+    // pub fn random_int() -> SteelVal {
+    //     SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+    //         if args.is_empty() {
+    //             stop!(ArityMismatch => "random-int requires an upper bound");
+    //         }
+
+    //         if args.len() > 1 {
+    //             stop!(ArityMismatch => "random-int takes one argument")
+    //         }
+
+    //         if let SteelVal::IntV()
+    //     })
+    // }
+
     pub fn adder() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if args.is_empty() {

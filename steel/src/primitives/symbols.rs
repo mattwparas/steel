@@ -24,19 +24,24 @@ impl SymbolOperations {
             }
 
             return Ok(Rc::new(SteelVal::SymbolV(new_symbol)));
+        })
+    }
 
-            // if args.len() == 2 {
-            //     if let (SteelVal::StringV(l), SteelVal::StringV(r)) =
-            //         (&args[0].as_ref(), &args[1].as_ref())
-            //     {
-            //         let new_string = l.clone() + &r.clone();
-            //         Ok(Rc::new(SteelVal::StringV(new_string)))
-            //     } else {
-            //         stop!(TypeMismatch => "string-append expected two strings")
-            //     }
-            // } else {
-            //     stop!(ArityMismatch => "string-append takes two arguments")
-            // }
+    pub fn symbol_to_string() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() == 1 {
+                if let SteelVal::SymbolV(quoted_value) = args[0].as_ref() {
+                    return Ok(Rc::new(SteelVal::SymbolV(quoted_value.clone())));
+                } else {
+                    let error_message = format!(
+                        "symbol->string expected a symbol, found {}",
+                        args[0].as_ref()
+                    );
+                    stop!(TypeMismatch => error_message)
+                }
+            } else {
+                stop!(ArityMismatch => "symbol->string expects only one argument")
+            }
         })
     }
 }
