@@ -1,14 +1,3 @@
-; #lang racket
-;; ------------------------- TRIE ---------------------------- ;;
-
-(export trie-sort
-        alex-is-the-best
-        macro-test)
-
-(require "dep.rkt")
-
-(define (macro-test) (when #t 1500))
-
 (struct trie (char children end-word? word-up-to))
 
 ;; Rename functions for the sake of compatibility
@@ -77,11 +66,6 @@
 (define (trie<? trie-node1 trie-node2)
   (< (trie-char trie-node1) (trie-char trie-node2)))
 
-;; contract: trie? -> void
-(define (pre-order-traverse trie-node)
-  (displayln (list (trie-char trie-node) (trie-end-word? trie-node) (trie-word-up-to trie-node)))
-  (map pre-order-traverse (trie-children trie-node))
-  "finished")
 
 ;; contract: trie? (listof string?) -> trie?
 (define (build-trie-from-list-of-words trie list-of-words)
@@ -106,32 +90,3 @@
     (cons (list->string (trie-word-up-to trie-node))
       (flatten (map pre-order (trie-children trie-node))))
     (flatten (map pre-order (trie-children trie-node)))))
-
-;; a little print test
-; (define test-list (list "apple" "app" "ape" "nest"))
-
-(define test-list
-  (list
-   "suppose"
-   "believe"
-   "changeable"
-   "absent"
-   "busy"
-   "float"
-   "debonair"
-   "throat"
-   "grey"
-   "use"
-   "measure"
-   "van"
-   "thirsty"
-   "notify"
-   "star"
-   ))
-
-
-; (define start (current-inexact-milliseconds))
-(define trie1 (build-trie-from-list-of-words empty-trie test-list))
-(displayln (trie-sort test-list))
-
-; (displayln (- (current-inexact-milliseconds) start))

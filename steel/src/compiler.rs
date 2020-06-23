@@ -8,7 +8,7 @@ First, consume the entire syntax tree and create global definitions
 use crate::env::Env;
 use crate::parser::tokens::Token;
 use crate::parser::Expr;
-// use crate::rerrs::SteelErr;
+use crate::rerrs::SteelErr;
 use std::cell::RefCell;
 // use std::collections::HashMap;
 use std::rc::Rc;
@@ -18,18 +18,63 @@ use crate::rvals::Result;
 use crate::rvals::SteelVal;
 use crate::structs::SteelStruct;
 
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::ops::Deref;
 
+use crate::stop;
+
 use crate::interpreter::evaluator::eval_define;
+use crate::interpreter::evaluator::eval_require;
+use crate::interpreter::evaluator::Evaluator;
+use std::io::Read;
 
 pub struct AST {
     expr: Vec<Rc<Expr>>,
     env: Rc<RefCell<Env>>,
+    exported: HashSet<String>,
 }
 
 impl AST {
-    pub fn new(expr: Vec<Rc<Expr>>, env: Rc<RefCell<Env>>) -> Self {
-        AST { expr, env }
+    pub fn new(expr: Vec<Rc<Expr>>, env: Rc<RefCell<Env>>, exported: HashSet<String>) -> Self {
+        AST {
+            expr,
+            env,
+            exported,
+        }
+    }
+
+    // pub fn parse_and_compile_with_env(
+    //     &mut self,
+    //     expr_str: &str,
+    //     env: Rc<RefCell<Env>>,
+    // ) -> Result<AST> {
+    //     let parsed: result::Result<Vec<Expr>, ParseError> =
+    //         Parser::new(expr_str, &mut self.intern_cache).collect();
+    //     let parsed = parsed?;
+    //     AST::compile(parsed, env)
+    // }
+
+    pub fn compile_module<'a>(
+        path: &str,
+        intern: &'a mut HashMap<String, Rc<Expr>>,
+    ) -> Result<Self> {
+        let mut file = std::fs::File::open(path)?;
+        let mut exprs = String::new();
+        file.read_to_string(&mut exprs)?;
+        // Env::default_env();
+        // let env = Env::default_env();
+        //
+
+        let env = Evaluator::generate_default_env_with_prelude()?;
+
+        // let parsed: result:Result<Vec<Expr>, ParseError> = Parser::new(expr)
+        Evaluator::parse_and_compile_with_env_and_intern(&exprs, env, intern)
+        // unimplemented!()
+    }
+
+    pub fn get_exported(&self) -> &HashSet<String> {
+        &self.exported
     }
 
     pub fn get_expr(&self) -> &[Rc<Expr>] {
@@ -40,10 +85,21 @@ impl AST {
         &self.env
     }
 
-    pub fn compile(exprs: Vec<Expr>, env: Rc<RefCell<Env>>) -> Result<Self> {
+    pub fn compile<'a>(
+        exprs: Vec<Expr>,
+        env: Rc<RefCell<Env>>,
+        // intern: &'a mut HashMap<String, Rc<Expr>>,
+    ) -> Result<Self> {
         let mut heap = Vec::new();
         let mut last_expr: Option<Rc<Expr>> = None;
         let exprs: Vec<Rc<Expr>> = exprs.into_iter().map(Rc::new).collect();
+
+        // Do require step here...
+        let exprs = extract_and_compile_requires(&exprs, &env)?;
+
+        identify_function_definitions(&exprs, &env, &mut heap, &mut last_expr)?;
+
+        // TODO extract functions once, extract macros, extract functions, expand functions in env not in place
         let macros_extracted = extract_macro_definitions(&exprs, &env)?;
         let functions_extracted = extract_and_expand_function_definitions(
             &macros_extracted,
@@ -52,7 +108,19 @@ impl AST {
             &mut last_expr,
         )?;
 
-        Ok(AST::new(functions_extracted, env))
+        let exported_functions = extract_exported_identifiers(&functions_extracted)?;
+
+        Ok(AST::new(functions_extracted, env, exported_functions))
+    }
+
+    // pub fn compile_from_require()
+
+    pub fn lookup(&self, name: &str) -> Result<Rc<SteelVal>> {
+        if self.exported.contains(name) {
+            self.env.borrow().lookup(name)
+        } else {
+            stop!(FreeIdentifier => "name not found in module")
+        }
     }
 }
 
@@ -88,6 +156,29 @@ how to check if value is a constant:
 //     }
 // }
 
+fn extract_exported_identifiers(exprs: &[Rc<Expr>]) -> Result<HashSet<String>> {
+    let mut symbols: HashSet<String> = HashSet::new();
+    for expr in exprs {
+        match expr.as_ref() {
+            Expr::VectorVal(list_of_tokens) if is_export_statement(expr) => {
+                for identifier in &list_of_tokens[1..] {
+                    if let Expr::Atom(Token::Identifier(t)) = identifier.as_ref() {
+                        symbols.insert(t.clone());
+                    } else {
+                        stop!(TypeMismatch => "require expects identifiers");
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(symbols)
+}
+
+// if is_require_statement(e
+
+// fn is_require_statement()
+
 fn extract_macro_definitions(exprs: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Vec<Rc<Expr>>> {
     let mut others: Vec<Rc<Expr>> = Vec::new();
     for expr in exprs {
@@ -99,6 +190,30 @@ fn extract_macro_definitions(exprs: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Resu
         }
     }
     Ok(others)
+}
+
+fn identify_function_definitions(
+    exprs: &[Rc<Expr>],
+    env: &Rc<RefCell<Env>>,
+    heap: &mut Vec<Rc<RefCell<Env>>>,
+    last_expr: &mut Option<Rc<Expr>>,
+) -> Result<()> {
+    // let mut others: Vec<Rc<Expr>> = Vec::new();
+    for expr in exprs {
+        match expr.as_ref() {
+            Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
+                eval_define(&list_of_tokens[1..], env, heap, last_expr)?;
+            }
+            Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
+                let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
+                env.borrow_mut()
+                    .define_zipped(defs.into_iter().map(|x| (x.0, Rc::new(x.1))));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+    // Ok(others)
 }
 
 fn extract_and_expand_function_definitions(
@@ -124,6 +239,24 @@ fn extract_and_expand_function_definitions(
     Ok(others)
 }
 
+fn extract_and_compile_requires(
+    exprs: &[Rc<Expr>],
+    env: &Rc<RefCell<Env>>,
+) -> Result<Vec<Rc<Expr>>> {
+    // unimplemented!();
+    let mut others: Vec<Rc<Expr>> = Vec::new();
+    for expr in exprs {
+        match expr.as_ref() {
+            Expr::VectorVal(list_of_tokens) if is_require_statement(expr) => {
+                // eval_define(&list_of_tokens[1..], env, heap, last_expr)?;
+                eval_require(&list_of_tokens[1..], env)?;
+            }
+            _ => others.push(Rc::clone(expr)),
+        }
+    }
+    Ok(others)
+}
+
 pub fn construct_macro_def(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<()> {
     let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, &env)?;
     // println!("{:?}", parsed_macro);
@@ -137,6 +270,40 @@ pub fn construct_macro_def(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) 
 // fn construct_define(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<()> {
 //     unimplemented!()
 // }
+
+fn is_require_statement(expr: &Rc<Expr>) -> bool {
+    let expr = Rc::clone(expr);
+    match expr.deref() {
+        Expr::Atom(_) => return false,
+        Expr::VectorVal(list_of_tokens) => {
+            if let Some(f) = list_of_tokens.first() {
+                if let Expr::Atom(Token::Identifier(s)) = f.as_ref() {
+                    if s == "require" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn is_export_statement(expr: &Rc<Expr>) -> bool {
+    let expr = Rc::clone(expr);
+    match expr.deref() {
+        Expr::Atom(_) => return false,
+        Expr::VectorVal(list_of_tokens) => {
+            if let Some(f) = list_of_tokens.first() {
+                if let Expr::Atom(Token::Identifier(s)) = f.as_ref() {
+                    if s == "export" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
 
 fn is_macro_definition(expr: &Rc<Expr>) -> bool {
     let expr = Rc::clone(expr);

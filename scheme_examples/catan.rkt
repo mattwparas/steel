@@ -2,35 +2,11 @@
 
 ;; stress test the heap
 
-(define (test)
-  (let ([a 10] [b 20])
-    (lambda () (+ a b))))
+;; (define (test)
+;;   (let ([a 10] [b 20])
+;;     (lambda () (+ a b))))
 
 
-;; [players]
-(struct GameState (players))
-
-
-(struct Player (name score resources))
-
-;; ADTs
-
-(define (add-card-to-player player resource)
-    (set-Player-resources! player
-                           (cons
-                            resource
-                            (Player-resources player))))
-
-(define (update-score-for-player player)
-  (define p-resources (Player-resources player))
-  (if (> (length (filter (lambda (x) (Wheat? x)) p-resources)) 0)
-      (set-Player-score! player
-                         (add1 (Player-score player)))
-      player))
-
-(struct Wheat ())
-(struct Sheep ())
-(struct Rock ())
 
 ;; (define p1 (Player "Matt" 0 '()))
 ;; (define p2 (Player "Alex" 0 '()))
@@ -57,6 +33,9 @@
 ;; (define blagh (Test-Struct 1 2 3 4 5))
 
 ;; (blagh.test-method arg1 arg2) -> (test-method blagh arg1 arg2)
+
+
+
 
 
 ;; (define-syntax enum
@@ -89,10 +68,10 @@
 ;;           (begin e2 ...)
 ;;           (cond c1 ...))]))
 
-(define-syntax test
-  (syntax-rules ()
-    [(test a)
-     (datum->syntax a)]))
+;; (define-syntax test
+;;   (syntax-rules ()
+;;     [(test a)
+;;      (datum->syntax a)]))
 
 
 ;; (define-syntax gen-pred
@@ -102,33 +81,16 @@
 
 
 
-(define-mut x 0)
-(lambda-mut (x y z) (+ x y z))
+;; (define-mut x 0)
+;; (lambda-mut (x y z) (+ x y z))
 
+;; transform syntax from one thing to another thing
 
 
 (define/contract (test arg1 arg2)
   (-> even? odd? number?)
   (+ arg1 arg2))
 
-
-
-(lambda (arg1 arg2)
-  (begin
-    (begin
-      (if (not (even? arg1))
-          (begin (error! "contract violation:"))
-          void)
-      (begin
-        (if (not (odd? arg2))
-            (begin (error! "contract violation!"))
-            void)
-        (begin
-          (define ##res ((lambda () (+ arg1 arg2))))
-          (if (not (number? ##res))
-              (begin (error! "contract violation on result!"))
-              void)
-          ##res)))))
 
 ;; TODO fix ordering of macro patterns such that mismatch of pattern doesn't happen
 (define-syntax define/contract-helper
@@ -139,7 +101,12 @@
      (begin
        (define res ((lambda () body ...)))
        (unless (argc res)
-         (error! 'name ":" "contract violation on result: " res "violated the contract: " 'argc))
+         (error! (symbol->string 'name)
+                 ":"
+                 "contract violation on result:"
+                 res
+                 "violated the contract:"
+                 (symbol->string 'argc)))
        res)]
     [(define/contract-helper name
        (arg args ...)
@@ -147,7 +114,12 @@
        body ...)
      (begin
        (unless (argc arg)
-         (error! 'name ":" "contract violation:" arg "violated the contract:" 'argc))
+         (error! (symbol->string 'name)
+                 ":"
+                 "contract violation:"
+                 arg
+                 "violated the contract:"
+                 (symbol->string 'argc)))
        (define/contract-helper name (args ...) (-> argcs ...) body ...))]))
 
 (define-syntax define/contract
@@ -177,18 +149,29 @@
      (def-method struct-name (define (a this b ...) body ...))]))
 
 
-(struct Apple (a b c))
-(impl Apple
-      (define (eat this number)
-        (+ number 25))
-      (define (color this number)
-        (+ number 50)))
+;; (struct Apple (a b c))
+;; (impl Apple
+;;       (define (eat this number)
+;;         (+ number 25))
+;;       (define (color this number)
+;;         (+ number 50)))
 
 
 ;; (define-syntax interface)
 
 
-(define-syntax define-type
+;; (match Option expr =>
+;;        None => (expression)
+;;        Some(x) => (expression))
+
+;; (define-type Option
+;;   (None ())
+;;   (Some (x)))
+
+
+
+
+(define-syntax define-type-help
   (syntax-rules ()
     [(define-type name (variant fields) rest ...)
      (begin
@@ -206,18 +189,18 @@
      ((datum->syntax variant ?) x)]))
 
 
-(define-syntax define-type-test
+(define-syntax define-type
   (syntax-rules ()
-    [(define-type-test name (variant fields) rest ...)
+    [(define-type name (variant fields) rest ...)
      (begin
        (define ((datum->syntax name ?) x)
          (define-type-body x (variant fields) rest ...))
-       (define-type name (variant fields) rest ...))]
+       (define-type-help name (variant fields) rest ...))]
     [(define-type-test name (variant fields))
      (begin
        (define ((datum->syntax name ?) x)
          (define-type-body x (variant fields)))
-       (define-type name (variant fields)))]))
+       (define-type-help name (variant fields)))]))
 
 
 ;; (define-syntax define-type
@@ -229,6 +212,61 @@
 ;;        (define-type name (b ...)))]
 ;;     [(define-type name (a))
 ;;      (struct a)]))
+
+
+;; [players]
+(struct GameState (players))
+
+(struct Player (name score resources))
+
+;; ADTs
+
+(define (add-card-to-player player resource)
+    (set-Player-resources! player
+                           (cons
+                            resource
+                            (Player-resources player))))
+
+(define (update-score-for-player player)
+  (define p-resources (Player-resources player))
+  (if (> (length (filter (lambda (x) (Wheat? x)) p-resources)) 0)
+      (set-Player-score! player
+                         (add1 (Player-score player)))
+      player))
+
+;; (struct Wheat ())
+;; (struct Sheep ())
+;; (struct Rock ())
+
+
+
+;;
+;;           [global env]
+;;          /           \
+;;       [sub1]        [sub2] -> [sub3] -> [sub4] -> [sub5] ...
+;;                        |         |         |         |
+;;
+;;
+;;
+
+
+
+
+(define (guessing-game n)
+  (define number (random-int n))
+  (displayln "Guess a number between 0 and 20!")
+  (define found #f)
+  (define (loop)
+    (define guessed-number
+      (string->int (read-to-string)))
+    (if (= guessed-number number)
+        (displayln "You found it!")
+        (begin
+          (if (> guessed-number number)
+            (displayln "lower")
+            (displayln "higher"))
+          (loop))))
+  (loop))
 
 
 
