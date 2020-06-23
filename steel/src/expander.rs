@@ -485,22 +485,22 @@ impl SteelMacro {
     // TODO
     // its worth a shot
     fn match_case(&self, list_of_tokens: &[Rc<Expr>]) -> Result<&MacroCase> {
-        println!("{:?}", list_of_tokens);
+        // println!("{:?}", list_of_tokens);
 
         for case in &self.cases {
-            println!("Case: {:?}", case.args);
+            // println!("Case: {:?}", case.args);
 
             // TODO this should actually be `case.arity() - num_ellipses_in_top_level`
             if (case.has_ellipses() && list_of_tokens.len() >= (case.arity() - 1))
                 || case.arity() == list_of_tokens.len()
             {
-                println!("got inside the if");
+                // println!("got inside the if");
                 if case.recursive_match(list_of_tokens) {
                     return Ok(case);
                 }
             }
         }
-        println!("getting to here...");
+        // println!("getting to here...");
         stop!(ArityMismatch => "macro expansion could not match case")
     }
 
