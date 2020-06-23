@@ -109,6 +109,18 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
     // }
     // println!("Time to load prelude: {:?}", now.elapsed());
     println!("{}", "Welcome to Steel 1.0".bright_blue().bold());
+    println!(
+        "{}",
+        r#"
+     _____ __            __
+    / ___// /____  ___  / /
+    \__ \/ __/ _ \/ _ \/ /
+   ___/ / /_/  __/  __/ /
+  /____/\__/\___/\___/_/ 
+    "#
+        .bright_yellow()
+        .bold()
+    );
     let prompt = format!("{}", "λ > ".bright_green().bold());
 
     // let highlighter = MatchingBracketHighlighter::new();
