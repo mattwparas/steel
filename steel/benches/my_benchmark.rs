@@ -5,7 +5,7 @@ use steel::PRELUDE;
 
 fn range(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
-    interpreter.require(PRELUDE).unwrap();
+    // interpreter.require(PRELUDE).unwrap();
 
     let script = "(range 0 50000)";
 
@@ -16,7 +16,7 @@ fn range(c: &mut Criterion) {
 
 fn map(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
-    interpreter.require(PRELUDE).unwrap();
+    // interpreter.require(PRELUDE).unwrap();
 
     let warmup = "(define lst (range 0 50000))";
     interpreter.evaluate(black_box(&warmup)).unwrap();
@@ -30,7 +30,7 @@ fn map(c: &mut Criterion) {
 
 fn filter(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
-    interpreter.require(PRELUDE).unwrap();
+    // interpreter.require(PRELUDE).unwrap();
 
     let warmup = "(define lst (range 0 50000))";
     interpreter.evaluate(black_box(&warmup)).unwrap();
@@ -44,7 +44,7 @@ fn filter(c: &mut Criterion) {
 
 fn trie_sort(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
-    interpreter.require(PRELUDE).unwrap();
+    // interpreter.require(PRELUDE).unwrap();
     // require the trie sort library
     interpreter.require(steel::stdlib::TRIESORT).unwrap();
 
@@ -74,7 +74,7 @@ fn trie_sort(c: &mut Criterion) {
 
 fn merge_sort(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
-    interpreter.require(PRELUDE).unwrap();
+    // interpreter.require(PRELUDE).unwrap();
     let warmup = "
 ;;; -----------------------------------------------------------------
 ;;; Merge two lists of numbers which are already in increasing order
@@ -150,7 +150,7 @@ fn merge_sort(c: &mut Criterion) {
 
 fn struct_construct(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
-    interpreter.require(PRELUDE).unwrap();
+    // interpreter.require(PRELUDE).unwrap();
     let warmup = "(struct node (left right))";
     interpreter.evaluate(black_box(&warmup)).unwrap();
     let script = "(node (list 1 2 3 4) (list 1 2 3 4))";
@@ -161,7 +161,7 @@ fn struct_construct(c: &mut Criterion) {
 
 fn struct_construct_bigger(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
-    interpreter.require(PRELUDE).unwrap();
+    // interpreter.require(PRELUDE).unwrap();
     let warmup = "(struct node (left right middle back))";
     interpreter.evaluate(black_box(&warmup)).unwrap();
     let script = "(node (list 1 2 3 4) (list 1 2 3 4) (list 1 2 3 4) (list 1 2 3 4))";
@@ -172,7 +172,7 @@ fn struct_construct_bigger(c: &mut Criterion) {
 
 fn struct_get(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
-    interpreter.require(PRELUDE).unwrap();
+    // interpreter.require(PRELUDE).unwrap();
     let warmup = "(struct node (left right)) (define test (node (list 1 2 3) (list 1 2 3)))";
     interpreter.evaluate(black_box(&warmup)).unwrap();
     let script = "(node-left test)";
@@ -183,10 +183,10 @@ fn struct_get(c: &mut Criterion) {
 
 fn struct_set(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
-    interpreter.require(PRELUDE).unwrap();
+    // interpreter.require(PRELUDE).unwrap();
     let warmup = "(struct node (left right)) (define test (node (list 1 2 3) (list 1 2 3)))";
     interpreter.evaluate(black_box(&warmup)).unwrap();
-    let script = "(node-left-set! test (list 1 2 3))";
+    let script = "(set-node-left! test (list 1 2 3))";
     c.bench_function("struct-set", |b| {
         b.iter(|| interpreter.evaluate(black_box(&script)))
     });

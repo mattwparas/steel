@@ -5,23 +5,28 @@ use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use std::rc::Rc;
 
-// use crate::primitives::lists::ListOperations;
+use rand::Rng;
 
 pub struct NumOperations {}
 impl NumOperations {
-    // pub fn random_int() -> SteelVal {
-    //     SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
-    //         if args.is_empty() {
-    //             stop!(ArityMismatch => "random-int requires an upper bound");
-    //         }
+    pub fn random_int() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.is_empty() {
+                stop!(ArityMismatch => "random-int requires an upper bound");
+            }
 
-    //         if args.len() > 1 {
-    //             stop!(ArityMismatch => "random-int takes one argument")
-    //         }
+            if args.len() > 1 {
+                stop!(ArityMismatch => "random-int takes one argument")
+            }
 
-    //         if let SteelVal::IntV()
-    //     })
-    // }
+            if let SteelVal::IntV(upper_bound) = args[0].as_ref() {
+                let mut rng = rand::thread_rng();
+                return Ok(Rc::new(SteelVal::IntV(rng.gen_range(0, upper_bound))));
+            } else {
+                stop!(TypeMismatch => "random-int requires an integer upper bound");
+            }
+        })
+    }
 
     pub fn adder() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {

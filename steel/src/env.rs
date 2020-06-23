@@ -19,6 +19,7 @@ use std::rc::Rc;
 use std::rc::Weak;
 // use std::convert::AsRef;
 // use std::borrow::BorrowMut;
+use crate::compiler::AST;
 
 thread_local! {
     pub static VOID: Rc<SteelVal> = Rc::new(SteelVal::Void);
@@ -115,6 +116,8 @@ pub struct Env {
     sub_expression: Option<Weak<RefCell<Env>>>,
     heap: Vec<Rc<RefCell<Env>>>,
     is_binding_context: bool,
+    module: Vec<AST>,
+    is_module_context: bool,
 }
 
 impl Drop for Env {
@@ -122,6 +125,7 @@ impl Drop for Env {
         self.heap.clear();
         self.clear_bindings();
         self.heap.clear();
+        self.module.clear();
     }
 }
 
@@ -135,7 +139,13 @@ impl Env {
             sub_expression: None,
             heap: Vec::new(),
             is_binding_context: false,
+            module: Vec::new(),
+            is_module_context: false,
         }
+    }
+
+    pub fn add_module(&mut self, new_mod: AST) {
+        self.module.push(new_mod)
     }
 
     pub fn new_subexpression(sub_expression: Weak<RefCell<Self>>) -> Self {
@@ -145,6 +155,8 @@ impl Env {
             sub_expression: Some(sub_expression),
             heap: Vec::new(),
             is_binding_context: false,
+            module: Vec::new(),
+            is_module_context: false,
         }
     }
 
@@ -154,6 +166,14 @@ impl Env {
 
     pub fn set_binding_context(&mut self, b: bool) {
         self.is_binding_context = b;
+    }
+
+    pub fn is_module_context(&self) -> bool {
+        self.is_module_context
+    }
+
+    pub fn set_module_context(&mut self, b: bool) {
+        self.is_module_context = b;
     }
 
     pub fn is_root(&self) -> bool {
@@ -168,6 +188,8 @@ impl Env {
             sub_expression: None,
             heap: Vec::new(),
             is_binding_context: false,
+            module: Vec::new(),
+            is_module_context: false,
         }
     }
 
@@ -183,39 +205,16 @@ impl Env {
         self.heap.push(val);
     }
 
+    pub fn get_modules(&self) -> &[AST] {
+        &self.module
+    }
+
     // pub fn sub_expression(&self) -> &Option<Rc<RefCell<Env>>> {
     //     &self.sub_expression
     // }
 
     pub fn is_one_layer_down(&self) -> bool {
         self.parent.is_some()
-
-        // if let self.parent.is_some() {
-        //     true
-        // } else {
-        //     false;
-        // }
-
-        // if let Some(parent) = &self.sub_expression {
-        //     match parent.upgrade() {
-        //         Some(x) => {
-        //             if x.borrow().parent.is_none() {
-        //                 return true;
-        //             }
-        //             if x.borrow().sub_expression.is_some() {
-        //                 println!("Sub expression has parent of sub expression");
-        //             }
-        //         }
-        //         None => {
-        //             println!("Getting inside here!");
-        //             return false;
-        //         }
-        //     }
-        // } else {
-        //     println!("Getting here where the parent is not as sub_expression");
-        // }
-
-        // false
     }
 
     pub fn clear_bindings(&mut self) {
@@ -277,59 +276,27 @@ impl Env {
                 .insert(key.clone(), val)
                 .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string()))
         } else {
-            // match &self.parent {
-            //     Some(par) => par.borrow_mut().set(key, val),
-            //     None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key)),
-            // }
-
             if self.parent.is_some() {
                 match &self.parent {
                     Some(par) => par.borrow_mut().set(key, val),
                     None => {
-                        // println!("In this case");
                         stop!(FreeIdentifier => key.to_string()); // Err(SteelErr::FreeIdentifier(name.to_string())),
                     }
                 }
             } else {
                 match &self.sub_expression {
-                    Some(par) => {
-                        match par.upgrade() {
-                            Some(x) => x.borrow_mut().set(key, val),
-                            None => {
-                                // println!("Getting here: {:?}", self.bindings);
-                                // println!("{}", self.is_root());
-                                // println!("{}", self.)
-                                stop!(Generic => "Parent subexpression was dropped looking for {}", key.to_string())
-                            }
+                    Some(par) => match par.upgrade() {
+                        Some(x) => x.borrow_mut().set(key, val),
+                        None => {
+                            stop!(Generic => "Parent subexpression was dropped looking for {}", key.to_string())
                         }
-
-                        // par.upgrade().and_then(|x| x.borrow().lookup(name)).ok_or_else(stop!(Generic => "parent as dropped"))
-                        // (*par).borrow().lookup(name)
-                    }
+                    },
                     None => {
                         // println!("Somehow getting here!");
                         stop!(FreeIdentifier => key.to_string())
                     }
                 }
             }
-
-            // match &self.sub_expression {
-            //     Some(par) => {
-            //         match par.upgrade() {
-            //             Some(x) => x.borrow_mut().set(key, val),
-            //             None => {
-            //                 println!("Getting here: {:?}", self.bindings);
-            //                 println!("{}", self.is_root());
-            //                 // println!("{}", self.)
-            //                 stop!(Generic => "Parent subexpression was dropped looking for {}", key)
-            //             }
-            //         }
-
-            //         // par.upgrade().and_then(|x| x.borrow().lookup(name)).ok_or_else(stop!(Generic => "parent as dropped"))
-            //         // (*par).borrow().lookup(name)
-            //     }
-            //     None => stop!(FreeIdentifier => key.to_string()),
-            // }
         }
     }
 
@@ -349,15 +316,6 @@ impl Env {
                 Some(par) => par.borrow_mut().remove(key),
                 None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key.to_string())),
             }
-
-            // if self.parent.is_some() {
-
-            // } else {
-            //     // match &self.sub_expression {
-            //     //     Some(par) => par.borrow_mut().remove(key),
-            //     //     None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key.to_string())),
-            //     // }
-            // }
         }
     }
 
@@ -371,48 +329,38 @@ impl Env {
         // println!("Looking up: {}", name);
 
         // println!("{:?}", self.bindings.keys());
-
         if self.bindings.contains_key(name) {
             // value needs to be cloned because
             // user needs to be able to own a persistent value
             // from Cell that may be modified later
             Ok(Rc::clone(&self.bindings[name]))
         } else {
-            // match &self.parent {
-            //     Some(par) => par.borrow().lookup(name),
-            //     None => stop!(FreeIdentifier => name), // Err(SteelErr::FreeIdentifier(name.to_string())),
-            // }
-
-            // if self.is_root() {}
+            // half assed module approach
+            if !self.module.is_empty() {
+                for module in &self.module {
+                    let res = module.lookup(name);
+                    if res.is_ok() {
+                        return res;
+                    }
+                }
+            }
 
             if self.parent.is_some() {
                 match &self.parent {
                     Some(par) => par.borrow().lookup(name),
                     None => {
-                        // println!("In this case");
                         stop!(FreeIdentifier => name); // Err(SteelErr::FreeIdentifier(name.to_string())),
                     }
                 }
             } else {
                 match &self.sub_expression {
-                    Some(par) => {
-                        match par.upgrade() {
-                            Some(x) => x.borrow().lookup(name),
-                            None => {
-                                // println!("Getting here: {:?}", self.bindings);
-                                // println!("{}", self.is_root());
-                                // println!("{}", self.)
-                                stop!(Generic => "Parent subexpression was dropped looking for {}", name)
-                            }
+                    Some(par) => match par.upgrade() {
+                        Some(x) => x.borrow().lookup(name),
+                        None => {
+                            stop!(Generic => "Parent subexpression was dropped looking for {}", name)
                         }
-
-                        // par.upgrade().and_then(|x| x.borrow().lookup(name)).ok_or_else(stop!(Generic => "parent as dropped"))
-                        // (*par).borrow().lookup(name)
-                    }
-                    None => {
-                        // println!("Somehow getting here!");
-                        stop!(FreeIdentifier => name)
-                    }
+                    },
+                    None => stop!(FreeIdentifier => name),
                 }
             }
         }
@@ -493,6 +441,8 @@ impl Env {
             ("concat-symbols", SymbolOperations::concat_symbols()),
             ("error!", ControlOperations::error()),
             ("symbol->string", SymbolOperations::symbol_to_string()),
+            ("random-int", NumOperations::random_int()),
+            ("string->int", StringOperations::string_to_int()),
             // ("flatten", ListOperations::flatten()),
         ]
     }

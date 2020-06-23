@@ -50,6 +50,18 @@ pub struct Evaluator {
 
 impl Evaluator {
     pub fn new() -> Self {
+        // env.borrow_mut()
+        //         .add_module(AST::compile_module(path, &mut intern)?)
+
+        Evaluator {
+            global_env: Self::generate_default_env_with_prelude().unwrap(), // if this fails, we have a problem
+            intern_cache: HashMap::new(),
+            heap: Vec::new(),
+            last_expr: None,
+        }
+    }
+
+    pub fn new_raw() -> Self {
         Evaluator {
             global_env: Rc::new(RefCell::new(Env::default_env())),
             intern_cache: HashMap::new(),
@@ -57,41 +69,46 @@ impl Evaluator {
             last_expr: None,
         }
     }
+
+    pub fn generate_default_env_with_prelude() -> Result<Rc<RefCell<Env>>> {
+        let mut intern = HashMap::new();
+        let def_env = Rc::new(RefCell::new(Env::default_env()));
+
+        // let load_order = &[
+        //     crate::stdlib::PRELUDE,
+        //     crate::stdlib::CONTRACTS,
+        //     crate::stdlib::TYPES,
+        //     crate::stdlib::METHODS,
+        //     crate::stdlib::MERGE,
+        // ];
+
+        def_env
+            .borrow_mut()
+            .add_module(Evaluator::parse_and_compile_with_env_and_intern(
+                crate::stdlib::PRELUDE,
+                Rc::new(RefCell::new(Env::default_env())),
+                &mut intern,
+            )?);
+
+        // for module in load_order {
+        //     def_env
+        //         .borrow_mut()
+        //         .add_module(Evaluator::parse_and_compile_with_env_and_intern(
+        //             module,
+        //             Rc::new(RefCell::new(Env::default_env())),
+        //             &mut intern,
+        //         )?)
+        // }
+
+        Ok(def_env)
+    }
+
     pub fn eval(&mut self, expr: Expr) -> Result<SteelVal> {
         // global environment updates automatically
         let expr = Rc::new(expr);
         let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
         let res =
             evaluate(&expr, &self.global_env, &mut heap, &mut self.last_expr).map(|x| (*x).clone());
-        // heap.clear();
-        // println!(
-        //     "Heap: {:?}",
-        //     heap.iter()
-        //         .map(|x| Rc::strong_count(x))
-        //         .collect::<Vec<usize>>()
-        // );
-
-        // println!("Env Strong Count: {}", Rc::strong_count(&self.global_env));
-        // println!(
-        //     "Global Heap: {:?}",
-        //     // self.global_env
-        //     // .borrow()
-        //     // .heap()
-        //     self.heap
-        //         .iter()
-        //         .map(|x| Rc::strong_count(x))
-        //         .collect::<Vec<usize>>()
-        // );
-        // println!(
-        //     "Global Heap: {:?}",
-        //     // self.global_env
-        //     // .borrow()
-        //     // .heap()
-        //     self.heap
-        //         .iter()
-        //         .map(|x| x.borrow().bindings().clone())
-        //         .collect::<Vec<HashMap<String, Rc<SteelVal>>>>()
-        // );
 
         if self.global_env.borrow().is_binding_context() {
             self.heap.append(&mut heap);
@@ -106,6 +123,11 @@ impl Evaluator {
             }
             // println!("Last expression executed: {}", expr.to_string());
         }
+
+        for module in self.global_env.borrow().get_modules() {
+            println!("{:?}", module.get_exported());
+        }
+        // println!("{:?}", self.mod)
 
         res
     }
@@ -129,6 +151,17 @@ impl Evaluator {
     ) -> Result<AST> {
         let parsed: result::Result<Vec<Expr>, ParseError> =
             Parser::new(expr_str, &mut self.intern_cache).collect();
+        let parsed = parsed?;
+        // AST::compile(parsed, env, &mut self.intern_cache)
+        AST::compile(parsed, env)
+    }
+
+    pub fn parse_and_compile_with_env_and_intern<'a>(
+        expr_str: &str,
+        env: Rc<RefCell<Env>>,
+        intern: &'a mut HashMap<String, Rc<Expr>>,
+    ) -> Result<AST> {
+        let parsed: result::Result<Vec<Expr>, ParseError> = Parser::new(expr_str, intern).collect();
         let parsed = parsed?;
         AST::compile(parsed, env)
     }
@@ -178,6 +211,7 @@ impl Drop for Evaluator {
         println!("Before exiting: {}", Rc::strong_count(&self.global_env));
         self.global_env.borrow_mut().clear_bindings();
         println!("After clearing: {}", Rc::strong_count(&self.global_env));
+        // TODO print out the intern cache strong counts
         self.intern_cache.clear();
     }
 }
@@ -316,6 +350,22 @@ fn evaluate(
                         */
                         Expr::Atom(Token::Identifier(s)) if s == "try!" => {
                             // unimplemented!();
+                            let result = eval_try(&list_of_tokens[1..], &env, heap, last_expr)?;
+                            match result {
+                                (Some(expr_except), _) => expr = expr_except,
+                                (None, ok) => return ok,
+                            }
+                        }
+
+                        Expr::Atom(Token::Identifier(s)) if s == "export" => {
+                            // TODO
+                            unimplemented!()
+                        }
+
+                        Expr::Atom(Token::Identifier(s)) if s == "require" => {
+                            // TODO
+                            return eval_require(&list_of_tokens[1..], &env)
+                                .map(|_| VOID.with(|f| Rc::clone(f)));
                         }
 
                         // Expr::Atom(Token::Identifier(s)) if s == "go!"
@@ -395,6 +445,51 @@ fn evaluate(
                 }
             }
         }
+    }
+}
+
+pub fn eval_require(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<()> {
+    let mut intern: HashMap<String, Rc<Expr>> = HashMap::new();
+    for expr in list_of_tokens {
+        if let Expr::Atom(Token::StringLiteral(path)) = expr.as_ref() {
+            env.borrow_mut()
+                .add_module(AST::compile_module(path, &mut intern)?)
+        }
+    }
+    Ok(())
+}
+
+// TODO come back to this
+// (try! (expr) )
+fn eval_try(
+    list_of_tokens: &[Rc<Expr>],
+    env: &Rc<RefCell<Env>>,
+    heap: &mut Vec<Rc<RefCell<Env>>>,
+    last_expr: &mut Option<Rc<Expr>>,
+) -> Result<(Option<Rc<Expr>>, Result<Rc<SteelVal>>)> {
+    // unimplemented!();
+    if let [test_expr, except_expr] = list_of_tokens {
+        let result = evaluate(&test_expr, env, heap, last_expr);
+        match result.as_ref() {
+            // Ok(result) => {
+            //     return 
+            // }
+            Err(_) => {
+                return Ok((Some(Rc::clone(except_expr)), result))
+            }
+            _ => return Ok((None, result))
+
+            // SteelVal::BoolV(true) => Ok(Rc::clone(then_expr)),
+            // _ => Ok(Rc::clone(else_expr)),
+        }
+    } else {
+        let e = format!(
+            "{}: expected {} args got {}",
+            "try!",
+            2,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e);
     }
 }
 
@@ -571,20 +666,6 @@ fn eval_filter(
                     } else {
                         stop!(Generic => "Root env is missing!")
                     }
-
-                    // // build a new environment using the parent environment
-                    // let parent_env = lambda.parent_env();
-                    // let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
-                    // let params_exp = lambda.params_exp();
-                    // inner_env
-                    //     .borrow_mut()
-                    //     .define_all(params_exp, vec![val.clone()])?;
-
-                    // let result = evaluate(&lambda.body_exp(), &inner_env)?;
-
-                    // if let SteelVal::BoolV(true) = result.as_ref() {
-                    //     collected_results.push(val);
-                    // }
                 }
                 // TODO
                 // SteelVal::StructClosureV(factory, function) => {
@@ -602,7 +683,7 @@ fn eval_filter(
                 //     }
                 // }
                 e => {
-                    println!("Getting in here the filter case");
+                    // println!("Getting in here the filter case");
                     stop!(TypeMismatch => e)
                 }
             }
@@ -864,80 +945,8 @@ fn eval_make_lambda(
                 None,
             )
         } else {
-            // println!(
-            //     "Adding to the heap with RC: {} and weak count: {}",
-            //     Rc::strong_count(&parent_env),
-            //     Rc::weak_count(&parent_env)
-            // );
-
-            // if let Some(last) = heap.last() {
-            //     if Rc::strong_count(&last) > 1 {
-            //         heap.pop();
-            //     }
-            // }
-
-            // if Rc::strong_count(&parent_env) > 1 {
-            //     heap.pop();
-            // }
-
-            // if !parent_env.borrow().bindings().is_empty() {
-            //     global_heap.push(Rc::clone(&parent_env));
-            // }
-
             heap.push(Rc::clone(&parent_env));
 
-            // if !parent_env.borrow().is_one_layer_down() {
-            //     heap.push(Rc::clone(&parent_env));
-            // }
-
-            // heap.push(Rc::clone(&parent_env));
-
-            // if Rc::strong_count(&parent_env) > 1 {
-            //     heap.push(Rc::clone(&parent_env));
-            // } else {
-            //     global_heap.push(Rc::clone(&parent_env));
-            // }
-
-            // if Rc::strong_count(&parent_env) == 1 {
-            //     global_heap.push(Rc::clone(&parent_env));
-            // }
-
-            // global_heap.push(Rc::clone(&parent_env));
-            // if Rc::strong_count(&parent_env) == 1 {
-            //     println!("Heap Size: {}", heap.len());
-            //     println!(
-            //         "Is one layer down: {}",
-            //         parent_env.borrow().is_one_layer_down()
-            //     );
-            //     // parent_env.borrow().print_bindings();
-
-            //     if parent_env.borrow().is_one_layer_down() {
-            //         println!("Adding to global heap");
-            //         global_heap.push(Rc::clone(&parent_env));
-            //     // heap.push(Rc::clone(&parent_env));
-            //     // heap.push(Rc::clone(&parent_env));
-            //     // parent_env
-            //     //     .borrow()
-            //     //     .parent()
-            //     //     .as_ref()
-            //     //     .unwrap()
-            //     //     .borrow_mut()
-            //     //     .add_to_heap(Rc::clone(&parent_env));
-            //     // parent_env.borrow_mut().add_to_heap(Rc::clone(&parent_env))
-            //     } else {
-            //         // parent_env.borrow_mut().add_to_heap(Rc::clone(&parent_env));
-            //         println!("Adding to local heap");
-            //         // heap.push(Rc::clone(&parent_env));
-            //         global_heap.push(Rc::clone(&parent_env));
-            //         // parent_env
-            //         //     .borrow()
-            //         //     .sub_expression()
-            //         //     .as_ref()
-            //         //     .unwrap()
-            //         //     .borrow_mut()
-            //         //     .add_to_heap(Rc::clone(&parent_env));
-            //     }
-            // }
             SteelLambda::new(
                 parsed_list,
                 expand(&new_expr, &parent_env)?,
@@ -945,15 +954,6 @@ fn eval_make_lambda(
                 Some(Rc::downgrade(&parent_env)),
             )
         };
-
-        // let constructed_lambda =
-        //     SteelLambda::new(parsed_list, expand(&new_expr, &parent_env)?, parent_env);
-
-        // if parent_env.borrow().is_root() {
-        //     // call the expander here
-        //     let constructed_lambda =
-        //         SteelLambda::new(parsed_list, expand(&new_expr, &parent_env)?, parent_env);
-        // }
 
         Ok(Rc::new(SteelVal::LambdaV(constructed_lambda)))
     } else {

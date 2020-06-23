@@ -150,7 +150,7 @@ pub fn build_interpreter_and_modify() {
         Foo
     };
 
-    interpreter.require(PRELUDE).unwrap();
+    // interpreter.require(PRELUDE).unwrap();
 
     // define value outside of interpreter to embed
     let test = UnnamedFields(100);

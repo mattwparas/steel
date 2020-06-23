@@ -155,7 +155,6 @@ impl<'a> Parser<'a> {
                             Some(rc) => current_frame.push(Rc::clone(rc)),
                             None => {
                                 // could convert the variable.methodname into methodname variable here
-
                                 let val = Rc::new(Expr::Atom(tok.clone()));
                                 current_frame.push(val.clone());
                                 self.intern.insert(s.to_string(), val);

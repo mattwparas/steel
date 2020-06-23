@@ -1,7 +1,7 @@
 use crate::interpreter;
 extern crate rustyline;
 use crate::rvals::SteelVal;
-use crate::stdlib::PRELUDE;
+// use crate::stdlib::PRELUDE;
 use colored::*;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -104,9 +104,9 @@ impl Highlighter for RustylineHelper {
 // Found on Hoth...
 pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Result<()> {
     // let now = Instant::now();
-    if let Err(e) = interpreter.require(PRELUDE) {
-        eprintln!("Error loading prelude: {}", e)
-    }
+    // if let Err(e) = interpreter.require(PRELUDE) {
+    //     eprintln!("Error loading prelude: {}", e)
+    // }
     // println!("Time to load prelude: {:?}", now.elapsed());
     println!("{}", "Welcome to Steel 1.0".bright_blue().bold());
     let prompt = format!("{}", "λ > ".bright_green().bold());

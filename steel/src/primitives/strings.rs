@@ -7,6 +7,12 @@ use std::rc::Rc;
 
 use crate::primitives::lists::ListOperations;
 
+macro_rules! ok_string {
+    ($string:expr) => {
+        Ok(Rc::new(SteelVal::StringV($string)))
+    };
+}
+
 pub struct StringOperations {}
 impl StringOperations {
     pub fn string_append() -> SteelVal {
@@ -16,12 +22,35 @@ impl StringOperations {
                     (&args[0].as_ref(), &args[1].as_ref())
                 {
                     let new_string = l.clone() + &r.clone();
-                    Ok(Rc::new(SteelVal::StringV(new_string)))
+                    ok_string!(new_string)
+                // Ok(Rc::new(SteelVal::StringV(new_string)))
                 } else {
                     stop!(TypeMismatch => "string-append expected two strings")
                 }
             } else {
                 stop!(ArityMismatch => "string-append takes two arguments")
+            }
+        })
+    }
+
+    pub fn string_to_int() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() == 1 {
+                if let SteelVal::StringV(s) = &args[0].as_ref() {
+                    let parsed_int = s.parse::<isize>();
+                    match parsed_int {
+                        Ok(n) => {
+                            return Ok(Rc::new(SteelVal::IntV(n)));
+                        }
+                        Err(_) => {
+                            stop!(TypeMismatch => "could not convert number to integer");
+                        }
+                    }
+                } else {
+                    stop!(TypeMismatch => "string->int expected a string")
+                }
+            } else {
+                stop!(ArityMismatch => "string->int takes one argument")
             }
         })
     }
@@ -47,7 +76,8 @@ impl StringOperations {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let upper = s.to_uppercase();
-                    Ok(Rc::new(SteelVal::StringV(upper)))
+                    ok_string!(upper)
+                // Ok(Rc::new(SteelVal::StringV(upper)))
                 } else {
                     stop!(TypeMismatch => "string-upcase expected a string")
                 }
@@ -62,7 +92,8 @@ impl StringOperations {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let lower = s.to_lowercase();
-                    Ok(Rc::new(SteelVal::StringV(lower)))
+                    ok_string!(lower.to_string())
+                // Ok(Rc::new(SteelVal::StringV(lower)))
                 } else {
                     stop!(TypeMismatch => "string-lowercase expected a string")
                 }
@@ -77,7 +108,8 @@ impl StringOperations {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let trimmed = s.trim();
-                    Ok(Rc::new(SteelVal::StringV(trimmed.to_string())))
+                    ok_string!(trimmed.to_string())
+                // Ok(Rc::new(SteelVal::StringV(trimmed.to_string())))
                 } else {
                     stop!(TypeMismatch => "trim expected a string")
                 }
@@ -92,7 +124,8 @@ impl StringOperations {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let trimmed = s.trim_start();
-                    Ok(Rc::new(SteelVal::StringV(trimmed.to_string())))
+                    ok_string!(trimmed.to_string())
+                // Ok(Rc::new(SteelVal::StringV(trimmed.to_string())))
                 } else {
                     stop!(TypeMismatch => "trim-start expected a string")
                 }
@@ -107,7 +140,8 @@ impl StringOperations {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let trimmed = s.trim_end();
-                    Ok(Rc::new(SteelVal::StringV(trimmed.to_string())))
+                    ok_string!(trimmed.to_string())
+                // Ok(Rc::new(SteelVal::StringV(trimmed.to_string())))
                 } else {
                     stop!(TypeMismatch => "trim-end expected a string")
                 }
