@@ -3,7 +3,7 @@ extern crate steel;
 use crate::steel::interpreter::evaluator::Evaluator;
 use helpers::*;
 
-use steel::stdlib::PRELUDE;
+// use steel::stdlib::PRELUDE;
 
 #[test]
 fn basic_test() {
