@@ -13,6 +13,9 @@ rustyline-derive = "0.2.0"
 im-rc = "14.3.0"
 colored = "1.9"
 rand = "0.7.3"
+codespan-reporting = "0.9.4"
+structopt = "0.3.15"
+unindent = "0.1"
 
 [dev-dependencies]
 criterion = "0.3"

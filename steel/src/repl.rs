@@ -101,6 +101,10 @@ impl Highlighter for RustylineHelper {
     }
 }
 
+fn display_help() {
+    println!("Help TBD")
+}
+
 // Found on Hoth...
 pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Result<()> {
     // let now = Instant::now();
@@ -108,20 +112,20 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
     //     eprintln!("Error loading prelude: {}", e)
     // }
     // println!("Time to load prelude: {:?}", now.elapsed());
-    println!("{}", "Welcome to Steel 1.0".bright_blue().bold());
+    // println!("{}", "Welcome to:".bright_blue().bold());
     println!(
         "{}",
         r#"
      _____ __            __
-    / ___// /____  ___  / /
-    \__ \/ __/ _ \/ _ \/ /
-   ___/ / /_/  __/  __/ /
+    / ___// /____  ___  / /          Version 0.1.0
+    \__ \/ __/ _ \/ _ \/ /           https://github.com.mattwparas/steel
+   ___/ / /_/  __/  __/ /            :? for help
   /____/\__/\___/\___/_/ 
     "#
         .bright_yellow()
         .bold()
     );
-    let prompt = format!("{}", "λ > ".bright_green().bold());
+    let prompt = format!("{}", "λ > ".bright_green().bold().italic());
 
     // let highlighter = MatchingBracketHighlighter::new();
 
@@ -142,6 +146,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                     ":quit" => return Ok(()),
                     ":reset" => interpreter.reset(),
                     ":env" => interpreter.print_bindings(),
+                    ":?" => display_help(),
                     line if line.contains(":require") => {
                         let line = line.trim_start_matches(":require").trim();
                         let path = Path::new(line);
@@ -157,7 +162,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         match res {
                             Ok(r) => r.iter().for_each(|x| match x {
                                 SteelVal::Void => {}
-                                _ => println!("{}", x),
+                                _ => println!("{} {}", "=>".bright_blue().bold(), x),
                             }),
                             Err(e) => eprintln!("{}", e.to_string().bright_red()),
                         }

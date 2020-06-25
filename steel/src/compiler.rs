@@ -30,14 +30,21 @@ use crate::interpreter::evaluator::Evaluator;
 use std::io::Read;
 
 pub struct AST {
+    source: String,
     expr: Vec<Rc<Expr>>,
     env: Rc<RefCell<Env>>,
     exported: HashSet<String>,
 }
 
 impl AST {
-    pub fn new(expr: Vec<Rc<Expr>>, env: Rc<RefCell<Env>>, exported: HashSet<String>) -> Self {
+    pub fn new(
+        source: String,
+        expr: Vec<Rc<Expr>>,
+        env: Rc<RefCell<Env>>,
+        exported: HashSet<String>,
+    ) -> Self {
         AST {
+            source,
             expr,
             env,
             exported,
@@ -86,18 +93,20 @@ impl AST {
     }
 
     pub fn compile<'a>(
+        source: String,
         exprs: Vec<Expr>,
         env: Rc<RefCell<Env>>,
         // intern: &'a mut HashMap<String, Rc<Expr>>,
     ) -> Result<Self> {
         let mut heap = Vec::new();
-        let mut last_expr: Option<Rc<Expr>> = None;
+        let mut expr_stack: Vec<Rc<Expr>> = Vec::new();
+        let mut last_macro: Option<Rc<Expr>> = None;
         let exprs: Vec<Rc<Expr>> = exprs.into_iter().map(Rc::new).collect();
 
         // Do require step here...
         let exprs = extract_and_compile_requires(&exprs, &env)?;
 
-        identify_function_definitions(&exprs, &env, &mut heap, &mut last_expr)?;
+        identify_function_definitions(&exprs, &env, &mut heap, &mut expr_stack, &mut last_macro)?;
 
         // TODO extract functions once, extract macros, extract functions, expand functions in env not in place
         let macros_extracted = extract_macro_definitions(&exprs, &env)?;
@@ -105,12 +114,18 @@ impl AST {
             &macros_extracted,
             &env,
             &mut heap,
-            &mut last_expr,
+            &mut expr_stack,
+            &mut last_macro,
         )?;
 
         let exported_functions = extract_exported_identifiers(&functions_extracted)?;
 
-        Ok(AST::new(functions_extracted, env, exported_functions))
+        Ok(AST::new(
+            source,
+            functions_extracted,
+            env,
+            exported_functions,
+        ))
     }
 
     // pub fn compile_from_require()
@@ -196,13 +211,14 @@ fn identify_function_definitions(
     exprs: &[Rc<Expr>],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    last_expr: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Rc<Expr>>,
+    last_macro: &mut Option<Rc<Expr>>,
 ) -> Result<()> {
     // let mut others: Vec<Rc<Expr>> = Vec::new();
     for expr in exprs {
         match expr.as_ref() {
             Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
-                eval_define(&list_of_tokens[1..], env, heap, last_expr)?;
+                eval_define(&list_of_tokens[1..], env, heap, expr_stack, last_macro)?;
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
                 let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
@@ -220,13 +236,14 @@ fn extract_and_expand_function_definitions(
     exprs: &[Rc<Expr>],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    last_expr: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Rc<Expr>>,
+    last_macro: &mut Option<Rc<Expr>>,
 ) -> Result<Vec<Rc<Expr>>> {
     let mut others: Vec<Rc<Expr>> = Vec::new();
     for expr in exprs {
         match expr.as_ref() {
             Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
-                eval_define(&list_of_tokens[1..], env, heap, last_expr)?;
+                eval_define(&list_of_tokens[1..], env, heap, expr_stack, last_macro)?;
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
                 let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;

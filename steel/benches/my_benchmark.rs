@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use steel::interpreter::SteelInterpreter;
-use steel::PRELUDE;
+// use steel::PRELUDE;
 
 fn range(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
