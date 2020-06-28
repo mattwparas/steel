@@ -20,7 +20,7 @@ use crate::compiler::AST;
 // use crate::rvals::MacroPattern;
 use crate::expander::SteelMacro;
 
-use codespan_reporting::files::SimpleFile;
+// use codespan_reporting::files::SimpleFile;
 use codespan_reporting::files::SimpleFiles;
 
 pub struct Scope {
@@ -164,7 +164,7 @@ impl Evaluator {
 
         let res: Result<Vec<SteelVal>> = parsed.into_iter().map(|x| self.eval(x)).collect();
 
-        // perform the necessary error injection
+        // perform the necessary error injection here
         if res.is_err() {
             // println!(
             //     "call stack: {:?}",
@@ -278,9 +278,9 @@ impl Evaluator {
 impl Drop for Evaluator {
     fn drop(&mut self) {
         self.heap.clear();
-        println!("Before exiting: {}", Rc::strong_count(&self.global_env));
+        // println!("Before exiting: {}", Rc::strong_count(&self.global_env));
         self.global_env.borrow_mut().clear_bindings();
-        println!("After clearing: {}", Rc::strong_count(&self.global_env));
+        // println!("After clearing: {}", Rc::strong_count(&self.global_env));
         // TODO print out the intern cache strong counts
         self.intern_cache.clear();
     }
