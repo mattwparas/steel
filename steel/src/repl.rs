@@ -19,6 +19,8 @@ use rustyline::completion::Pair;
 
 use std::borrow::Cow;
 
+use crate::vm::flatten_expression_tree;
+
 #[macro_export]
 macro_rules! build_repl {
     ($($type:ty),*) => {
@@ -155,6 +157,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         }
                     }
                     _ => {
+                        // println!("Flatten expressions: {:?}", flatten_expression_tree(&line));
                         // let now = Instant::now();
                         let res = interpreter.evaluate(&line);
                         // it prints '2'

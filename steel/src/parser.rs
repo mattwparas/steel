@@ -66,30 +66,6 @@ pub enum ParseError {
     UnexpectedEOF,
 }
 
-// pub struct PeekTokenizer<'a> {
-//     tokenizer:
-// }
-
-// pub trait LineNumber {
-//     fn line_number(&self) -> usize;
-// }
-
-// pub struct PeekTokenizer<'a> {
-//     line_number:
-// }
-
-// impl<'a> LineNumber for Peekable<Tokenizer<'a>> {
-//     fn line_number(&self) -> usize {
-//         unimplemented!()
-//     }
-// }
-
-// impl Peekable<Tokenizer<'a>> {
-//     pub fn line_number(&self) -> usize {
-//         unimplemented!()
-//     }
-// }
-
 #[derive(Debug)]
 pub struct Parser<'a> {
     tokenizer: Peekable<Tokenizer<'a>>,

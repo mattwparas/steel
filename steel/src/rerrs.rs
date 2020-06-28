@@ -97,7 +97,7 @@ impl SteelErr {
 
     fn report(&self, _file_name: &str, file_content: &str, error_expr: &str) -> Diagnostic<()> {
         let mut l = 0;
-        let mut r = 10;
+        let mut r = 0;
 
         if let Some(lp) = file_content.find(error_expr) {
             l = lp;

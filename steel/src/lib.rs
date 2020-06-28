@@ -22,6 +22,7 @@ pub mod expander;
 pub mod compiler;
 pub mod port;
 pub mod structs;
+pub mod vm;
 
 pub use self::{
     interpreter::SteelInterpreter,
