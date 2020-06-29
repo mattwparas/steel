@@ -14,9 +14,51 @@ use std::result;
 use std::str;
 use thiserror::Error;
 
+use crate::parser::span::Span;
+
+#[derive(Debug, Clone)]
+pub struct SyntaxObject {
+    pub(crate)ty: TokenType,
+    pub(crate)span: Span
+}
+
+impl PartialEq for SyntaxObject {
+    fn eq(&self, other: &Self) -> bool {
+        self.ty == other.ty
+    }
+}
+
+impl SyntaxObject {
+    pub fn new(ty: TokenType, span: Span) -> Self {
+        SyntaxObject {
+            ty,
+            span
+        }
+    }
+
+    pub fn default(ty: TokenType) -> Self {
+        SyntaxObject {
+            ty,
+            span: Span::new(0, 0)
+        }
+    }
+}
+
+impl From<&Token<'_>> for SyntaxObject {
+    fn from(val: &Token) -> SyntaxObject {
+        SyntaxObject::new(val.ty.clone(), val.span)
+    }
+}
+
+// impl From<Box<dyn CustomType>> for SteelVal {
+//     fn from(val: Box<dyn CustomType>) -> SteelVal {
+//         val.new_steel_val()
+//     }
+// }
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Atom(TokenType),
+    Atom(SyntaxObject),
     VectorVal(Vec<Rc<Expr>>),
 }
 
@@ -36,18 +78,56 @@ impl Expr {
         err: F,
     ) -> std::result::Result<&str, E> {
         match self {
-            Self::Atom(TokenType::Identifier(s)) => Ok(s),
+            Self::Atom(SyntaxObject { ty: TokenType::Identifier(s), .. })  => Ok(s),
             _ => Err(err()),
         }
     }
 
-    // pub fn
+    pub fn span(&self) -> Span {
+        // let mut span = Span::new(0, 0);
+
+        fn collect_span(vec_exprs: Vec<Rc<Expr>>) -> Vec<Span> {
+            let mut spans = Vec::new();
+            for exp in vec_exprs {
+                match (*exp).clone() {
+                    Expr::Atom(SyntaxObject { span: s, ..}) => {
+                        spans.push(s);
+                    }
+                    Expr::VectorVal(vec_exprs2) => {
+                        let mut res = collect_span(vec_exprs2);
+                        spans.append(&mut res);
+                    }
+                }
+            }
+            spans
+        }
+
+        match &self {
+            Self::Atom(SyntaxObject{ span: s, ..}) => {
+                return s.clone();
+            }
+            Self::VectorVal(vec_exprs) => {
+                let spans = collect_span(vec_exprs.clone());
+                let mut span = Span::new(0, 0);
+                for s in spans {
+                    if s.start() < span.start() {
+                        span = Span::new(s.start(), span.end());
+                    }
+                    if s.end() > span.end() {
+                        span = Span::new(s.start(), s.end());
+                    }
+                }
+                return span
+            }
+        }
+
+    }
 }
 
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Expr::Atom(t) => write!(f, "{}", t.to_string()),
+            Expr::Atom(t) => write!(f, "{}", t.ty.to_string()),
             Expr::VectorVal(t) => {
                 let lst = t
                     .iter()
@@ -67,7 +147,23 @@ pub enum ParseError {
     Unexpected(TokenType),
     #[error("Parse: Unexpected EOF")]
     UnexpectedEOF,
+    #[error("Parse: Unexpected character: {0}")]
+    UnexpectedChar(char, Span),
+    #[error("Parse: Incomplete String: {0}")]
+    IncompleteString(String, Span),
 }
+
+// #[derive(Clone, Debug, PartialEq, Error)]
+// pub enum TokenError {
+//     #[error("Unexpected char, {0} on line: {1}")]
+//     UnexpectedChar(char, usize),
+//     #[error("Incomplete String on line {0}")]
+//     IncompleteString(usize),
+//     #[error("Invalid Escape on line {0}")]
+//     InvalidEscape(usize),
+//     #[error("Invalid Character on line {0}")]
+//     InvalidCharacter(usize),
+// }
 
 #[derive(Debug)]
 pub struct Parser<'a> {
@@ -78,6 +174,18 @@ pub struct Parser<'a> {
 
 pub type Result<T> = result::Result<T, ParseError>;
 
+fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
+    if let TokenType::Error = t.ty {
+        if t.source.starts_with("\"") {
+            return ParseError::IncompleteString(t.source.to_string(), t.span);
+        } else {
+            return ParseError::UnexpectedChar(t.source.chars().next().unwrap(), t.span);
+        }
+    } else {
+        return ParseError::UnexpectedEOF;
+    }
+}
+
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, intern: &'a mut HashMap<String, Rc<Expr>>) -> Self {
         Parser {
@@ -86,11 +194,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn construct_quote(&mut self, val: Expr) -> Expr {
+    fn construct_quote(&mut self, val: Expr, span: Span) -> Expr {
         let q = match self.intern.get("quote") {
             Some(rc) => Rc::clone(rc),
             None => {
-                let val = Rc::new(Expr::Atom(TokenType::Identifier("quote".to_string())));
+                let val = Rc::new(Expr::Atom(SyntaxObject::new(TokenType::Identifier("quote".to_string()), span)));
                 self.intern.insert("quote".to_string(), Rc::clone(&val));
                 val
             }
@@ -106,45 +214,91 @@ impl<'a> Parser<'a> {
 
         loop {
             match self.tokenizer.next() {
-                Some(Token { ty: t, .. }) => match t {
-                    TokenType::Error => return Err(ParseError::Unexpected(TokenType::Error)), // TODO
-                    TokenType::QuoteTick => {
-                        let quote_inner = self
-                            .next()
-                            .unwrap_or(Err(ParseError::UnexpectedEOF))
-                            .map(|x| self.construct_quote(x));
-                        match quote_inner {
-                            Ok(expr) => current_frame.push(Rc::new(expr)),
-                            Err(e) => return Err(e),
-                        }
-                    }
-                    TokenType::OpenParen => {
-                        stack.push(current_frame);
-                        current_frame = Vec::new();
-                    }
-                    TokenType::CloseParen => {
-                        if let Some(mut prev_frame) = stack.pop() {
-                            prev_frame.push(Rc::new(Expr::VectorVal(current_frame)));
-                            current_frame = prev_frame;
-                        } else {
-                            return Ok(Expr::VectorVal(current_frame));
-                        }
-                    }
-                    tok => match &tok {
-                        TokenType::Identifier(s) => match self.intern.get(s) {
-                            Some(rc) => current_frame.push(Rc::clone(rc)),
-                            None => {
-                                // could convert the variable.methodname into methodname variable here
-                                let val = Rc::new(Expr::Atom(tok.clone()));
-                                current_frame.push(val.clone());
-                                self.intern.insert(s.to_string(), val);
+                Some(token) => {
+                    match token.ty {
+                        TokenType::Error => return Err(tokentype_error_to_parse_error(&token)), // TODO
+                        TokenType::QuoteTick => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                                .map(|x| self.construct_quote(x, token.span));
+                            match quote_inner {
+                                Ok(expr) => current_frame.push(Rc::new(expr)),
+                                Err(e) => return Err(e),
                             }
-                        },
-                        _ => current_frame.push(Rc::new(Expr::Atom(tok))),
-                    },
-                },
-                // Some(Err(e)) => return Err(ParseError::TokenError(e)),
-                None => return Err(ParseError::UnexpectedEOF),
+                        }
+                        TokenType::OpenParen => {
+                            stack.push(current_frame);
+                            current_frame = Vec::new();
+                        }
+                        TokenType::CloseParen => {
+                            if let Some(mut prev_frame) = stack.pop() {
+                                prev_frame.push(Rc::new(Expr::VectorVal(current_frame)));
+                                current_frame = prev_frame;
+                            } else {
+                                return Ok(Expr::VectorVal(current_frame));
+                            }
+                        }
+                        // tok => match &tok {
+                        // TODO take out all of the Rc's and redo the intern cache so that its not garbo
+                        // TokenType::Identifier(ref s) => match self.intern.get(s) {
+                        //     Some(rc) => current_frame.push(Rc::clone(rc)),
+                        //     None => {
+                        //         // could convert the variable.methodname into methodname variable here
+                        //         let val = Rc::new(Expr::Atom(SyntaxObject::from(&token))); // TODO
+                        //         current_frame.push(val.clone());
+                        //         self.intern.insert(s.to_string(), val);
+                        //     }
+                        // },
+                        _ => current_frame.push(Rc::new(Expr::Atom(SyntaxObject::from(&token)))), // TODO
+                        // },
+                    }
+                }
+                
+
+                None => return Err(ParseError::UnexpectedEOF)
+
+
+
+                // Some(Token { ty: t, .. }) => match t {
+                //     TokenType::Error => return Err(ParseError::Unexpected(TokenType::Error)), // TODO
+                //     TokenType::QuoteTick => {
+                //         let quote_inner = self
+                //             .next()
+                //             .unwrap_or(Err(ParseError::UnexpectedEOF))
+                //             .map(|x| self.construct_quote(x));
+                //         match quote_inner {
+                //             Ok(expr) => current_frame.push(Rc::new(expr)),
+                //             Err(e) => return Err(e),
+                //         }
+                //     }
+                //     TokenType::OpenParen => {
+                //         stack.push(current_frame);
+                //         current_frame = Vec::new();
+                //     }
+                //     TokenType::CloseParen => {
+                //         if let Some(mut prev_frame) = stack.pop() {
+                //             prev_frame.push(Rc::new(Expr::VectorVal(current_frame)));
+                //             current_frame = prev_frame;
+                //         } else {
+                //             return Ok(Expr::VectorVal(current_frame));
+                //         }
+                //     }
+                //     tok => match &tok {
+                //         TokenType::Identifier(s) => match self.intern.get(s) {
+                //             Some(rc) => current_frame.push(Rc::clone(rc)),
+                //             None => {
+                //                 // could convert the variable.methodname into methodname variable here
+                //                 let val = Rc::new(Expr::Atom(tok.clone()));
+                //                 current_frame.push(val.clone());
+                //                 self.intern.insert(s.to_string(), val);
+                //             }
+                //         },
+                //         _ => current_frame.push(Rc::new(Expr::Atom(tok))),
+                //     },
+                // },
+                // // Some(Err(e)) => return Err(ParseError::TokenError(e)),
+                // None => return Err(ParseError::UnexpectedEOF),
             }
         }
     }
@@ -159,11 +313,11 @@ impl<'a> Iterator for Parser<'a> {
             TokenType::QuoteTick => self
                 .next()
                 .unwrap_or(Err(ParseError::UnexpectedEOF))
-                .map(|x| self.construct_quote(x)),
+                .map(|x| self.construct_quote(x, res.span)),
             TokenType::OpenParen => self.read_from_tokens(),
             TokenType::CloseParen => Err(ParseError::Unexpected(TokenType::CloseParen)),
-            TokenType::Error => Err(ParseError::Unexpected(TokenType::Error)),
-            tok => Ok(Expr::Atom(tok)),
+            TokenType::Error => Err(tokentype_error_to_parse_error(&res)),
+            _ => Ok(Expr::Atom(SyntaxObject::from(&res))),
         })
     }
 }
@@ -185,23 +339,23 @@ mod parser_tests {
         assert_parse(
             "a b +",
             &[
-                Atom(Identifier("a".to_string())),
-                Atom(Identifier("b".to_string())),
-                Atom(Identifier("+".to_string())),
+                Atom(SyntaxObject::default(Identifier("a".to_string()))),
+                Atom(SyntaxObject::default(Identifier("b".to_string()))),
+                Atom(SyntaxObject::default(Identifier("+".to_string()))),
             ],
         );
         assert_parse(
             "a b (lambda  1 (+ 2 3.5))",
             &[
-                Atom(Identifier("a".to_string())),
-                Atom(Identifier("b".to_string())),
+                Atom(SyntaxObject::default(Identifier("a".to_string()))),
+                Atom(SyntaxObject::default(Identifier("b".to_string()))),
                 VectorVal(vec![
-                    Rc::new(Atom(Identifier("lambda".to_string()))),
-                    Rc::new(Atom(IntegerLiteral(1))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("lambda".to_string())))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(1)))),
                     Rc::new(VectorVal(vec![
-                        Rc::new(Atom(Identifier("+".to_string()))),
-                        Rc::new(Atom(IntegerLiteral(2))),
-                        Rc::new(Atom(NumberLiteral(3.5))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("+".to_string())))),
+                        Rc::new(Atom(SyntaxObject::default(IntegerLiteral(2)))),
+                        Rc::new(Atom(SyntaxObject::default(NumberLiteral(3.5)))),
                     ])),
                 ]),
             ],
@@ -213,15 +367,15 @@ mod parser_tests {
             "(+ 1 2 3) (- 4 3)",
             &[
                 VectorVal(vec![
-                    Rc::new(Atom(Identifier("+".to_string()))),
-                    Rc::new(Atom(IntegerLiteral(1))),
-                    Rc::new(Atom(IntegerLiteral(2))),
-                    Rc::new(Atom(IntegerLiteral(3))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("+".to_string())))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(1)))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(2)))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(3)))),
                 ]),
                 VectorVal(vec![
-                    Rc::new(Atom(Identifier("-".to_string()))),
-                    Rc::new(Atom(IntegerLiteral(4))),
-                    Rc::new(Atom(IntegerLiteral(3))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("-".to_string())))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(4)))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(3)))),
                 ]),
             ],
         );
@@ -231,14 +385,14 @@ mod parser_tests {
         assert_parse(
             "(+ 1 (foo (bar 2 3)))",
             &[VectorVal(vec![
-                Rc::new(Atom(Identifier("+".to_string()))),
-                Rc::new(Atom(IntegerLiteral(1))),
+                Rc::new(Atom(SyntaxObject::default(Identifier("+".to_string())))),
+                Rc::new(Atom(SyntaxObject::default(IntegerLiteral(1)))),
                 Rc::new(VectorVal(vec![
-                    Rc::new(Atom(Identifier("foo".to_string()))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("foo".to_string())))),
                     Rc::new(VectorVal(vec![
-                        Rc::new(Atom(Identifier("bar".to_owned()))),
-                        Rc::new(Atom(IntegerLiteral(2))),
-                        Rc::new(Atom(IntegerLiteral(3))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("bar".to_owned())))),
+                        Rc::new(Atom(SyntaxObject::default(IntegerLiteral(2)))),
+                        Rc::new(Atom(SyntaxObject::default(IntegerLiteral(3)))),
                     ])),
                 ])),
             ])],
@@ -246,19 +400,19 @@ mod parser_tests {
         assert_parse(
             "(+ 1 (+ 2 3) (foo (bar 2 3)))",
             &[VectorVal(vec![
-                Rc::new(Atom(Identifier("+".to_string()))),
-                Rc::new(Atom(IntegerLiteral(1))),
+                Rc::new(Atom(SyntaxObject::default(Identifier("+".to_string())))),
+                Rc::new(Atom(SyntaxObject::default(IntegerLiteral(1)))),
                 Rc::new(VectorVal(vec![
-                    Rc::new(Atom(Identifier("+".to_string()))),
-                    Rc::new(Atom(IntegerLiteral(2))),
-                    Rc::new(Atom(IntegerLiteral(3))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("+".to_string())))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(2)))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(3)))),
                 ])),
                 Rc::new(VectorVal(vec![
-                    Rc::new(Atom(Identifier("foo".to_string()))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("foo".to_string())))),
                     Rc::new(VectorVal(vec![
-                        Rc::new(Atom(Identifier("bar".to_owned()))),
-                        Rc::new(Atom(IntegerLiteral(2))),
-                        Rc::new(Atom(IntegerLiteral(3))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("bar".to_owned())))),
+                        Rc::new(Atom(SyntaxObject::default(IntegerLiteral(2)))),
+                        Rc::new(Atom(SyntaxObject::default(IntegerLiteral(3)))),
                     ])),
                 ])),
             ])],
@@ -266,25 +420,25 @@ mod parser_tests {
         assert_parse(
             "(+ 1 (+ 2 3) (foo (+ (bar 1 1) 3) 5))",
             &[VectorVal(vec![
-                Rc::new(Atom(Identifier("+".to_string()))),
-                Rc::new(Atom(IntegerLiteral(1))),
+                Rc::new(Atom(SyntaxObject::default(Identifier("+".to_string())))),
+                Rc::new(Atom(SyntaxObject::default(IntegerLiteral(1)))),
                 Rc::new(VectorVal(vec![
-                    Rc::new(Atom(Identifier("+".to_string()))),
-                    Rc::new(Atom(IntegerLiteral(2))),
-                    Rc::new(Atom(IntegerLiteral(3))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("+".to_string())))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(2)))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(3)))),
                 ])),
                 Rc::new(VectorVal(vec![
-                    Rc::new(Atom(Identifier("foo".to_string()))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("foo".to_string())))),
                     Rc::new(VectorVal(vec![
-                        Rc::new(Atom(Identifier("+".to_string()))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("+".to_string())))),
                         Rc::new(VectorVal(vec![
-                            Rc::new(Atom(Identifier("bar".to_string()))),
-                            Rc::new(Atom(IntegerLiteral(1))),
-                            Rc::new(Atom(IntegerLiteral(1))),
+                            Rc::new(Atom(SyntaxObject::default(Identifier("bar".to_string())))),
+                            Rc::new(Atom(SyntaxObject::default(IntegerLiteral(1)))),
+                            Rc::new(Atom(SyntaxObject::default(IntegerLiteral(1)))),
                         ])),
-                        Rc::new(Atom(IntegerLiteral(3))),
+                        Rc::new(Atom(SyntaxObject::default(IntegerLiteral(3)))),
                     ])),
-                    Rc::new(Atom(IntegerLiteral(5))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(5)))),
                 ])),
             ])],
         );
@@ -294,20 +448,20 @@ mod parser_tests {
         assert_parse(
             "(define (foo a b) (+ (- a 1) b))",
             &[VectorVal(vec![
-                Rc::new(Atom(Identifier("define".to_string()))),
+                Rc::new(Atom(SyntaxObject::default(Identifier("define".to_string())))),
                 Rc::new(VectorVal(vec![
-                    Rc::new(Atom(Identifier("foo".to_string()))),
-                    Rc::new(Atom(Identifier("a".to_string()))),
-                    Rc::new(Atom(Identifier("b".to_string()))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("foo".to_string())))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string())))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("b".to_string())))),
                 ])),
                 Rc::new(VectorVal(vec![
-                    Rc::new(Atom(Identifier("+".to_string()))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("+".to_string())))),
                     Rc::new(VectorVal(vec![
-                        Rc::new(Atom(Identifier("-".to_string()))),
-                        Rc::new(Atom(Identifier("a".to_string()))),
-                        Rc::new(Atom(IntegerLiteral(1))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("-".to_string())))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string())))),
+                        Rc::new(Atom(SyntaxObject::default(IntegerLiteral(1)))),
                     ])),
-                    Rc::new(Atom(Identifier("b".to_string()))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("b".to_string())))),
                 ])),
             ])],
         );
@@ -315,35 +469,35 @@ mod parser_tests {
         assert_parse(
             "(if   #t     1 2)",
             &[VectorVal(vec![
-                Rc::new(Atom(Identifier("if".to_string()))),
-                Rc::new(Atom(BooleanLiteral(true))),
-                Rc::new(Atom(IntegerLiteral(1))),
-                Rc::new(Atom(IntegerLiteral(2))),
+                Rc::new(Atom(SyntaxObject::default(Identifier("if".to_string())))),
+                Rc::new(Atom(SyntaxObject::default(BooleanLiteral(true)))),
+                Rc::new(Atom(SyntaxObject::default(IntegerLiteral(1)))),
+                Rc::new(Atom(SyntaxObject::default(IntegerLiteral(2)))),
             ])],
         );
         assert_parse(
             "(lambda (a b) (+ a b)) (- 1 2) (\"dumpsterfire\")",
             &[
                 VectorVal(vec![
-                    Rc::new(Atom(Identifier("lambda".to_string()))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("lambda".to_string())))),
                     Rc::new(VectorVal(vec![
-                        Rc::new(Atom(Identifier("a".to_string()))),
-                        Rc::new(Atom(Identifier("b".to_string()))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string())))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("b".to_string())))),
                     ])),
                     Rc::new(VectorVal(vec![
-                        Rc::new(Atom(Identifier("+".to_string()))),
-                        Rc::new(Atom(Identifier("a".to_string()))),
-                        Rc::new(Atom(Identifier("b".to_string()))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("+".to_string())))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string())))),
+                        Rc::new(Atom(SyntaxObject::default(Identifier("b".to_string())))),
                     ])),
                 ]),
                 VectorVal(vec![
-                    Rc::new(Atom(Identifier("-".to_string()))),
-                    Rc::new(Atom(IntegerLiteral(1))),
-                    Rc::new(Atom(IntegerLiteral(2))),
+                    Rc::new(Atom(SyntaxObject::default(Identifier("-".to_string())))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(1)))),
+                    Rc::new(Atom(SyntaxObject::default(IntegerLiteral(2)))),
                 ]),
-                VectorVal(vec![Rc::new(Atom(StringLiteral(
+                VectorVal(vec![Rc::new(Atom(SyntaxObject::default(StringLiteral(
                     "dumpsterfire".to_string(),
-                )))]),
+                ))))]),
             ],
         );
     }

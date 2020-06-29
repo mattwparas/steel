@@ -2,6 +2,7 @@ use crate::env::Env;
 use crate::expander::SteelMacro;
 use crate::parser::tokens::TokenType::*;
 use crate::parser::Expr;
+use crate::parser::SyntaxObject;
 use crate::port::SteelPort;
 use crate::rerrs::SteelErr;
 // use std::any::Any;
@@ -318,7 +319,7 @@ impl TryFrom<Rc<Expr>> for SteelVal {
     type Error = SteelErr;
     fn try_from(e: Rc<Expr>) -> std::result::Result<Self, Self::Error> {
         match &*e {
-            Expr::Atom(a) => match a {
+            Expr::Atom(a) => match &a.ty {
                 OpenParen => Err(SteelErr::UnexpectedToken("(".to_string())),
                 CloseParen => Err(SteelErr::UnexpectedToken(")".to_string())),
                 QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string())),
@@ -354,20 +355,30 @@ impl TryFrom<&SteelVal> for Rc<Expr> {
     type Error = &'static str;
     fn try_from(r: &SteelVal) -> result::Result<Self, Self::Error> {
         match r {
-            BoolV(x) => Ok(Rc::new(Expr::Atom(BooleanLiteral(*x)))),
-            NumV(x) => Ok(Rc::new(Expr::Atom(NumberLiteral(*x)))),
-            IntV(x) => Ok(Rc::new(Expr::Atom(IntegerLiteral(*x)))),
+            BoolV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(BooleanLiteral(
+                *x,
+            ))))),
+            NumV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(NumberLiteral(
+                *x,
+            ))))),
+            IntV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(IntegerLiteral(
+                *x,
+            ))))),
             VectorV(lst) => {
                 let items: result::Result<Vec<Self>, Self::Error> =
                     lst.into_iter().map(Self::try_from).collect();
                 Ok(Rc::new(Expr::VectorVal(items?)))
             }
             Void => Err("Can't convert from Void to expression!"),
-            StringV(x) => Ok(Rc::new(Expr::Atom(StringLiteral(x.clone())))),
+            StringV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(StringLiteral(
+                x.clone(),
+            ))))),
             FuncV(_) => Err("Can't convert from Function to expression!"),
             LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             MacroV(_) => Err("Can't convert from Macro to expression!"),
-            SymbolV(x) => Ok(Rc::new(Expr::Atom(Identifier(x.clone())))),
+            SymbolV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(Identifier(
+                x.clone(),
+            ))))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
             // Pair(_, _) => Err("Can't convert from pair"), // TODO
             Pair(_, _) => {
@@ -379,7 +390,9 @@ impl TryFrom<&SteelVal> for Rc<Expr> {
                     Err("Couldn't convert from list to expression")
                 }
             }
-            CharV(x) => Ok(Rc::new(Expr::Atom(CharacterLiteral(*x)))),
+            CharV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(
+                CharacterLiteral(*x),
+            )))),
             StructV(_) => Err("Can't convert from Struct to expression!"),
             StructClosureV(_, _) => Err("Can't convert from struct-function to expression!"),
             PortV(_) => Err("Can't convert from port to expression!"),
@@ -591,7 +604,9 @@ fn display_test() {
     assert_eq!(
         SteelVal::LambdaV(SteelLambda::new(
             vec!["arg1".to_owned()],
-            Rc::new(Expr::Atom(TokenType::NumberLiteral(1.0))),
+            Rc::new(Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(
+                1.0
+            )))),
             Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
             None
         ))
@@ -612,7 +627,9 @@ fn display_list_test() {
             NumV(1.0),
             LambdaV(SteelLambda::new(
                 vec!["arg1".to_owned()],
-                Rc::new(Expr::Atom(TokenType::NumberLiteral(1.0))),
+                Rc::new(Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(
+                    1.0
+                )))),
                 Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
                 None
             ))

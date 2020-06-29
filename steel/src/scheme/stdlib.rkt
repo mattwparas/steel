@@ -128,7 +128,7 @@
 (define (map func lst) 
   (if (empty? lst)
       lst
-      (map' func lst)))
+      (mapR func lst)))
 
 
 (define foldr (lambda (func accum lst)
@@ -168,7 +168,7 @@
 
 ;; (define filter (lambda (pred lst)   (reverse (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst))))
 
-(define (filter pred lst) (if (empty? lst) lst (filter' pred lst)))
+(define (filter pred lst) (if (empty? lst) lst (filterR pred lst)))
 
 (define (fact n)
   (define factorial-tail (lambda (n acc) 
