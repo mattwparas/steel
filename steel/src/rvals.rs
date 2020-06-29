@@ -1,6 +1,6 @@
 use crate::env::Env;
 use crate::expander::SteelMacro;
-use crate::parser::tokens::Token::*;
+use crate::parser::tokens::TokenType::*;
 use crate::parser::Expr;
 use crate::port::SteelPort;
 use crate::rerrs::SteelErr;
@@ -328,6 +328,8 @@ impl TryFrom<Rc<Expr>> for SteelVal {
                 IntegerLiteral(x) => Ok(IntV(*x)),
                 StringLiteral(x) => Ok(StringV(x.clone())),
                 CharacterLiteral(x) => Ok(CharV(*x)),
+                Error => Err(SteelErr::UnexpectedToken("error".to_string())),
+                Comment => Err(SteelErr::UnexpectedToken("comment".to_string())),
             },
             Expr::VectorVal(lst) => {
                 let items: std::result::Result<Vec<Rc<Self>>, Self::Error> = lst
@@ -575,7 +577,7 @@ fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
 
 #[test]
 fn display_test() {
-    use crate::parser::tokens::Token;
+    use crate::parser::tokens::TokenType;
     use im_rc::vector;
     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
     assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
@@ -589,7 +591,7 @@ fn display_test() {
     assert_eq!(
         SteelVal::LambdaV(SteelLambda::new(
             vec!["arg1".to_owned()],
-            Rc::new(Expr::Atom(Token::NumberLiteral(1.0))),
+            Rc::new(Expr::Atom(TokenType::NumberLiteral(1.0))),
             Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
             None
         ))
@@ -601,7 +603,7 @@ fn display_test() {
 
 #[test]
 fn display_list_test() {
-    use crate::parser::tokens::Token;
+    use crate::parser::tokens::TokenType;
     use im_rc::vector;
     assert_eq!(VectorV(vector![]).to_string(), "'#()");
     assert_eq!(
@@ -610,7 +612,7 @@ fn display_list_test() {
             NumV(1.0),
             LambdaV(SteelLambda::new(
                 vec!["arg1".to_owned()],
-                Rc::new(Expr::Atom(Token::NumberLiteral(1.0))),
+                Rc::new(Expr::Atom(TokenType::NumberLiteral(1.0))),
                 Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
                 None
             ))

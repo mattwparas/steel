@@ -1,7 +1,10 @@
 pub mod lexer;
+pub mod span;
 pub mod tokens;
-use lexer::Tokenizer;
-use tokens::{Token, TokenError};
+
+// use lexer::Tokenizer;
+use lexer::TokenStream;
+use tokens::{Token, TokenError, TokenType};
 
 use std::collections::HashMap;
 use std::fmt;
@@ -13,7 +16,7 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Atom(Token),
+    Atom(TokenType),
     VectorVal(Vec<Rc<Expr>>),
 }
 
@@ -33,7 +36,7 @@ impl Expr {
         err: F,
     ) -> std::result::Result<&str, E> {
         match self {
-            Self::Atom(Token::Identifier(s)) => Ok(s),
+            Self::Atom(TokenType::Identifier(s)) => Ok(s),
             _ => Err(err()),
         }
     }
@@ -61,14 +64,14 @@ pub enum ParseError {
     #[error("Parse: Error reading tokens: {0}")]
     TokenError(#[from] TokenError),
     #[error("Parse: Unexpected token: {0:?}")]
-    Unexpected(Token),
+    Unexpected(TokenType),
     #[error("Parse: Unexpected EOF")]
     UnexpectedEOF,
 }
 
 #[derive(Debug)]
 pub struct Parser<'a> {
-    tokenizer: Peekable<Tokenizer<'a>>,
+    tokenizer: TokenStream<'a>,
     intern: &'a mut HashMap<String, Rc<Expr>>,
     // span: String,
 }
@@ -78,7 +81,7 @@ pub type Result<T> = result::Result<T, ParseError>;
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, intern: &'a mut HashMap<String, Rc<Expr>>) -> Self {
         Parser {
-            tokenizer: Tokenizer::new(input).peekable(),
+            tokenizer: TokenStream::new(input, true),
             intern,
         }
     }
@@ -87,7 +90,7 @@ impl<'a> Parser<'a> {
         let q = match self.intern.get("quote") {
             Some(rc) => Rc::clone(rc),
             None => {
-                let val = Rc::new(Expr::Atom(Token::Identifier("quote".to_string())));
+                let val = Rc::new(Expr::Atom(TokenType::Identifier("quote".to_string())));
                 self.intern.insert("quote".to_string(), Rc::clone(&val));
                 val
             }
@@ -103,8 +106,9 @@ impl<'a> Parser<'a> {
 
         loop {
             match self.tokenizer.next() {
-                Some(Ok(t)) => match t {
-                    Token::QuoteTick => {
+                Some(Token { ty: t, .. }) => match t {
+                    TokenType::Error => return Err(ParseError::Unexpected(TokenType::Error)), // TODO
+                    TokenType::QuoteTick => {
                         let quote_inner = self
                             .next()
                             .unwrap_or(Err(ParseError::UnexpectedEOF))
@@ -114,11 +118,11 @@ impl<'a> Parser<'a> {
                             Err(e) => return Err(e),
                         }
                     }
-                    Token::OpenParen => {
+                    TokenType::OpenParen => {
                         stack.push(current_frame);
                         current_frame = Vec::new();
                     }
-                    Token::CloseParen => {
+                    TokenType::CloseParen => {
                         if let Some(mut prev_frame) = stack.pop() {
                             prev_frame.push(Rc::new(Expr::VectorVal(current_frame)));
                             current_frame = prev_frame;
@@ -127,7 +131,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                     tok => match &tok {
-                        Token::Identifier(s) => match self.intern.get(s) {
+                        TokenType::Identifier(s) => match self.intern.get(s) {
                             Some(rc) => current_frame.push(Rc::clone(rc)),
                             None => {
                                 // could convert the variable.methodname into methodname variable here
@@ -139,7 +143,7 @@ impl<'a> Parser<'a> {
                         _ => current_frame.push(Rc::new(Expr::Atom(tok))),
                     },
                 },
-                Some(Err(e)) => return Err(ParseError::TokenError(e)),
+                // Some(Err(e)) => return Err(ParseError::TokenError(e)),
                 None => return Err(ParseError::UnexpectedEOF),
             }
         }
@@ -150,17 +154,16 @@ impl<'a> Iterator for Parser<'a> {
     type Item = Result<Expr>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.tokenizer.next().map(|res| match res {
-            Err(e) => Err(ParseError::TokenError(e)),
-            Ok(tok) => match tok {
-                Token::QuoteTick => self
-                    .next()
-                    .unwrap_or(Err(ParseError::UnexpectedEOF))
-                    .map(|x| self.construct_quote(x)),
-                Token::OpenParen => self.read_from_tokens(),
-                Token::CloseParen => Err(ParseError::Unexpected(Token::CloseParen)),
-                tok => Ok(Expr::Atom(tok)),
-            },
+        self.tokenizer.next().map(|res| match res.ty {
+            // Err(e) => Err(ParseError::TokenError(e)),
+            TokenType::QuoteTick => self
+                .next()
+                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                .map(|x| self.construct_quote(x)),
+            TokenType::OpenParen => self.read_from_tokens(),
+            TokenType::CloseParen => Err(ParseError::Unexpected(TokenType::CloseParen)),
+            TokenType::Error => Err(ParseError::Unexpected(TokenType::Error)),
+            tok => Ok(Expr::Atom(tok)),
         })
     }
 }
@@ -168,7 +171,7 @@ impl<'a> Iterator for Parser<'a> {
 #[cfg(test)]
 mod parser_tests {
     use super::Expr::*;
-    use super::Token::*;
+    use super::TokenType::*;
     use super::*;
 
     #[test]
@@ -351,10 +354,10 @@ mod parser_tests {
         assert_parse_err("(abc", ParseError::UnexpectedEOF);
         assert_parse_err("(ab 1 2", ParseError::UnexpectedEOF);
         assert_parse_err("((((ab 1 2) (", ParseError::UnexpectedEOF);
-        assert_parse_err("())", ParseError::Unexpected(Token::CloseParen));
+        assert_parse_err("())", ParseError::Unexpected(TokenType::CloseParen));
         assert_parse_err("() ((((", ParseError::UnexpectedEOF);
-        assert_parse_err("')", ParseError::Unexpected(Token::CloseParen));
-        assert_parse_err("(')", ParseError::Unexpected(Token::CloseParen));
+        assert_parse_err("')", ParseError::Unexpected(TokenType::CloseParen));
+        assert_parse_err("(')", ParseError::Unexpected(TokenType::CloseParen));
         assert_parse_err("('", ParseError::UnexpectedEOF);
     }
 

@@ -7,6 +7,7 @@ First, consume the entire syntax tree and create global definitions
 
 use crate::env::Env;
 use crate::parser::tokens::Token;
+use crate::parser::tokens::TokenType;
 use crate::parser::Expr;
 use crate::rerrs::SteelErr;
 use std::cell::RefCell;
@@ -177,7 +178,7 @@ fn extract_exported_identifiers(exprs: &[Rc<Expr>]) -> Result<HashSet<String>> {
         match expr.as_ref() {
             Expr::VectorVal(list_of_tokens) if is_export_statement(expr) => {
                 for identifier in &list_of_tokens[1..] {
-                    if let Expr::Atom(Token::Identifier(t)) = identifier.as_ref() {
+                    if let Expr::Atom(TokenType::Identifier(t)) = identifier.as_ref() {
                         symbols.insert(t.clone());
                     } else {
                         stop!(TypeMismatch => "require expects identifiers");
@@ -294,7 +295,7 @@ fn is_require_statement(expr: &Rc<Expr>) -> bool {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(Token::Identifier(s)) = f.as_ref() {
+                if let Expr::Atom(TokenType::Identifier(s)) = f.as_ref() {
                     if s == "require" {
                         return true;
                     }
@@ -311,7 +312,7 @@ fn is_export_statement(expr: &Rc<Expr>) -> bool {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(Token::Identifier(s)) = f.as_ref() {
+                if let Expr::Atom(TokenType::Identifier(s)) = f.as_ref() {
                     if s == "export" {
                         return true;
                     }
@@ -328,7 +329,7 @@ fn is_macro_definition(expr: &Rc<Expr>) -> bool {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(Token::Identifier(s)) = f.as_ref() {
+                if let Expr::Atom(TokenType::Identifier(s)) = f.as_ref() {
                     if s == "define-syntax" {
                         return true;
                     }
@@ -345,7 +346,7 @@ fn is_struct_definition(expr: &Rc<Expr>) -> bool {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(Token::Identifier(s)) = f.as_ref() {
+                if let Expr::Atom(TokenType::Identifier(s)) = f.as_ref() {
                     if s == "struct" {
                         return true;
                     }
@@ -363,7 +364,7 @@ fn is_function_definition(expr: &Rc<Expr>) -> bool {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(Token::Identifier(s)) = f.as_ref() {
+                if let Expr::Atom(TokenType::Identifier(s)) = f.as_ref() {
                     if s == "define" {
                         return true;
                     }

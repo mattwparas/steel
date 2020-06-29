@@ -1,5 +1,6 @@
 #[cfg(not(target_os = "windows"))]
 pub const PRELUDE: &str = include_str!("scheme/stdlib.rkt");
+// pub const PRELUDE: &str = include_str!("scheme/test.rkt");
 #[cfg(not(target_os = "windows"))]
 pub const TRIESORT: &str = include_str!("scheme/trie.rkt");
 #[cfg(not(target_os = "windows"))]
