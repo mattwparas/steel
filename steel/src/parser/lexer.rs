@@ -2,13 +2,13 @@
 // pub mod tokens;
 
 use crate::parser::tokens::{Token, TokenError, TokenType};
-use std::iter::{Iterator, Peekable};
+use std::iter::Iterator;
 use std::result;
-use std::str::Chars;
+// use std::str::Chars;
 
-use core::ops;
+// use core::ops;
 use std::fmt;
-use thiserror::Error;
+// use thiserror::Error;
 // use TokenType::*;
 
 use logos::{Lexer, Logos};
@@ -582,10 +582,6 @@ mod tests {
                 span: Span::new(14, 20),
             })
         );
-
-        // assert_eq!(s.next(), Some(Ok(StringLiteral("".to_owned()))));
-        // assert_eq!(s.next(), Some(Ok(StringLiteral("Foo bar".to_owned()))));
-        // assert_eq!(s.next(), Some(Ok(StringLiteral(r#""\"#.to_owned()))));
         assert_eq!(s.next(), None);
     }
 
@@ -604,81 +600,68 @@ mod tests {
             Token {
                 ty: OpenParen,
                 source: "(",
-                span: Span::new(0, 1)
+                span: Span::new(0, 1),
             },
             Token {
                 ty: Identifier("apples".to_string()),
                 source: "apples",
-                span: Span::new(1, 7)
+                span: Span::new(1, 7),
             },
             Token {
                 ty: OpenParen,
                 source: "(",
-                span: Span::new(8, 9)
+                span: Span::new(8, 9),
             },
             Token {
                 ty: Identifier("function".to_string()),
                 source: "function",
-                span: Span::new(9, 17)
+                span: Span::new(9, 17),
             },
             Token {
                 ty: Identifier("a".to_string()),
                 source: "a",
-                span: Span::new(18, 19)
+                span: Span::new(18, 19),
             },
             Token {
                 ty: Identifier("b".to_string()),
                 source: "b",
-                span: Span::new(20, 21)
+                span: Span::new(20, 21),
             },
             Token {
                 ty: CloseParen,
                 source: ")",
-                span: Span::new(21, 22)
+                span: Span::new(21, 22),
             },
             Token {
                 ty: OpenParen,
                 source: "(",
-                span: Span::new(23, 24)
+                span: Span::new(23, 24),
             },
             Token {
                 ty: Identifier("+".to_string()),
                 source: "+",
-                span: Span::new(24, 25)
+                span: Span::new(24, 25),
             },
             Token {
                 ty: Identifier("a".to_string()),
                 source: "a",
-                span: Span::new(26, 27)
+                span: Span::new(26, 27),
             },
             Token {
                 ty: Identifier("b".to_string()),
                 source: "b",
-                span: Span::new(28, 29)
+                span: Span::new(28, 29),
             },
             Token {
                 ty: CloseParen,
                 source: ")",
-                span: Span::new(29, 30)
+                span: Span::new(29, 30),
             },
             Token {
                 ty: CloseParen,
                 source: ")",
-                span: Span::new(30, 31)
-            }
-
-            // Identifier("apples".to_string()),
-            // OpenParen,
-            // Identifier("function".to_string()),
-            // Identifier("a".to_string()),
-            // Identifier("b".to_string()),
-            // CloseParen,
-            // OpenParen,
-            // Identifier("+".to_string()),
-            // Identifier("a".to_string()),
-            // Identifier("b".to_string()),
-            // CloseParen,
-            // CloseParen,
+                span: Span::new(30, 31),
+            },
         ];
 
         assert_eq!(res, expected);

@@ -56,7 +56,7 @@ pub enum TokenType {
     #[token("]")]
     #[token("}")]
     CloseParen,
-    #[token("'")]
+    #[token(r"'")]
     QuoteTick,
     #[regex(r"#\\\p{L}", parse_char)]
     CharacterLiteral(char),
