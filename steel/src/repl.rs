@@ -19,7 +19,9 @@ use rustyline::completion::Pair;
 
 use std::borrow::Cow;
 
-use crate::vm::flatten_expression_tree;
+use crate::parser::lexer::TokenStream;
+
+// use crate::vm::flatten_expression_tree;
 
 #[macro_export]
 macro_rules! build_repl {
@@ -157,6 +159,9 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         }
                     }
                     _ => {
+                        // For debugging purposes
+                        println!("token stream: {:?}", TokenStream::new(&line, true));
+
                         // println!("Flatten expressions: {:?}", flatten_expression_tree(&line));
                         // let now = Instant::now();
                         let res = interpreter.evaluate(&line);

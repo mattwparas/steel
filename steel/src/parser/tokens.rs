@@ -1,6 +1,11 @@
+use core::ops;
 use std::fmt;
 use thiserror::Error;
-use Token::*;
+use TokenType::*;
+
+use logos::{Lexer, Logos};
+
+use crate::parser::span::Span;
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum TokenError {
@@ -14,20 +19,87 @@ pub enum TokenError {
     InvalidCharacter(usize),
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Token {
-    OpenParen,
-    CloseParen,
-    QuoteTick,
-    CharacterLiteral(char),
-    BooleanLiteral(bool),
-    Identifier(String),
-    NumberLiteral(f64),
-    IntegerLiteral(isize),
-    StringLiteral(String),
+fn gen_bool(lex: &mut Lexer<TokenType>) -> Option<bool> {
+    let slice = lex.slice();
+    match slice {
+        "#t" | "#true" => Some(true),
+        "#f" | "#false" => Some(false),
+        _ => None,
+    }
 }
 
-impl fmt::Display for Token {
+fn parse_char(lex: &mut Lexer<TokenType>) -> Option<char> {
+    let slice = lex.slice();
+    match slice {
+        character if character.starts_with("#\\") => match slice.len() {
+            3 | 4 | 5 => slice.chars().last(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn parse_str(lex: &mut Lexer<TokenType>) -> Option<String> {
+    let slice = lex.slice();
+    let end = slice.trim_end_matches("\"");
+    let new = end.trim_start_matches("\"");
+    Some(new.to_string())
+}
+
+#[derive(Logos, Clone, Debug, PartialEq)]
+pub enum TokenType {
+    #[token("(")]
+    #[token("[")]
+    #[token("{")]
+    OpenParen,
+    #[token(")")]
+    #[token("]")]
+    #[token("}")]
+    CloseParen,
+    #[token("'")]
+    QuoteTick,
+    #[regex(r"#\\\p{L}", parse_char)]
+    CharacterLiteral(char),
+
+    #[regex(";[^\r\n]*", priority = 2)] // "
+    #[regex(";[^\n]*", priority = 1)] // "
+    Comment,
+
+    #[token("#true", gen_bool)]
+    #[token("#false", gen_bool)]
+    #[token("#t", gen_bool)]
+    #[token("#f", gen_bool)]
+    BooleanLiteral(bool),
+
+    // /// An identifier literal.
+    // #[regex(r#"(?&ident)"#)]
+    // Identifier(String),
+    #[regex(r#"[_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}][_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#, callback = |lex| lex.slice().parse())]
+    Identifier(String),
+
+    // #[token("inf")]
+    // #[token("NaN")]
+    #[regex(r#"[+-]?[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?"#, |lex| lex.slice().parse())] // "
+    #[regex(
+        r#"[+-]?0x[0-9a-fA-F][0-9a-fA-F_]*\.[0-9a-fA-F][0-9a-fA-F_]*([pP][+-]?[0-9][0-9_]?)?"#, |lex| lex.slice().parse()
+    )]
+    #[regex(r#"[+-]?[0-9][0-9_]*\."#, |lex| lex.slice().parse())]
+    NumberLiteral(f64),
+
+    #[regex("[+-]?[0-9][0-9_]*", priority = 2, callback = |lex| lex.slice().parse())] // "
+    #[regex("[+-]?0b[0-1][0-1_]*", |lex| lex.slice().parse())] // "
+    #[regex("[+-]?0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| lex.slice().parse())] // "
+    IntegerLiteral(isize),
+
+    #[regex(r#"b?"(\\.|[^\\"])*""#, parse_str)] // "
+    StringLiteral(String),
+
+    #[error]
+    #[regex(r"[ \t\n\f]+", logos::skip)] // "
+    Error,
+}
+
+impl fmt::Display for TokenType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             OpenParen => write!(f, "("),
@@ -39,6 +111,95 @@ impl fmt::Display for Token {
             IntegerLiteral(x) => write!(f, "{}", x),
             StringLiteral(x) => write!(f, "\"{}\"", x),
             QuoteTick => write!(f, "'"),
+            Error => write!(f, "error"),
+            Comment => write!(f, ""),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token<'a> {
+    pub(crate) ty: TokenType,
+    pub(crate) source: &'a str,
+    pub(crate) span: Span,
+}
+
+impl<'a> Token<'a> {
+    pub const fn new(ty: TokenType, source: &'a str, range: ops::Range<usize>) -> Self {
+        Self {
+            ty,
+            source,
+            span: Span::new(range.start, range.end),
+        }
+    }
+
+    // pub const fn ty(&self) -> TokenType {
+    //     self.ty
+    // }
+
+    pub const fn span(&self) -> Span {
+        self.span
+    }
+
+    pub const fn range(&self) -> ops::Range<usize> {
+        self.span.start()..self.span.end()
+    }
+
+    pub const fn source(&self) -> &'a str {
+        self.source
+    }
+}
+
+impl Into<Span> for Token<'_> {
+    fn into(self) -> Span {
+        self.span()
+    }
+}
+
+impl Into<Span> for &Token<'_> {
+    fn into(self) -> Span {
+        self.span()
+    }
+}
+
+impl<'a> Into<ops::Range<usize>> for Token<'a> {
+    fn into(self) -> ops::Range<usize> {
+        self.span.into()
+    }
+}
+
+impl<'a> Into<ops::Range<usize>> for &Token<'a> {
+    fn into(self) -> ops::Range<usize> {
+        self.span.into()
+    }
+}
+
+impl<'a> Into<(usize, usize)> for Token<'a> {
+    fn into(self) -> (usize, usize) {
+        self.span.into()
+    }
+}
+
+impl<'a> Into<(usize, usize)> for &Token<'a> {
+    fn into(self) -> (usize, usize) {
+        self.span.into()
+    }
+}
+
+impl<'a> Into<[usize; 2]> for Token<'a> {
+    fn into(self) -> [usize; 2] {
+        self.span.into()
+    }
+}
+
+impl<'a> Into<[usize; 2]> for &Token<'a> {
+    fn into(self) -> [usize; 2] {
+        self.span.into()
+    }
+}
+
+impl fmt::Display for Token<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} @ {:?}", self.source, self.span)
     }
 }

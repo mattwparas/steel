@@ -1,5 +1,5 @@
 use crate::env::Env;
-use crate::parser::tokens::Token::*;
+use crate::parser::tokens::TokenType::*;
 use crate::parser::Expr;
 use crate::rerrs::SteelErr;
 use std::cell::RefCell;
