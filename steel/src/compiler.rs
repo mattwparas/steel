@@ -33,7 +33,7 @@ use std::io::Read;
 
 pub struct AST {
     source: String,
-    expr: Vec<Rc<Expr>>,
+    expr: Vec<Expr>,
     env: Rc<RefCell<Env>>,
     exported: HashSet<String>,
 }
@@ -41,7 +41,7 @@ pub struct AST {
 impl AST {
     pub fn new(
         source: String,
-        expr: Vec<Rc<Expr>>,
+        expr: Vec<Expr>,
         env: Rc<RefCell<Env>>,
         exported: HashSet<String>,
     ) -> Self {
@@ -66,7 +66,7 @@ impl AST {
 
     pub fn compile_module<'a>(
         path: &str,
-        intern: &'a mut HashMap<String, Rc<Expr>>,
+        intern: &'a mut HashMap<String, Rc<TokenType>>,
     ) -> Result<Self> {
         let mut file = std::fs::File::open(path)?;
         let mut exprs = String::new();
@@ -86,7 +86,7 @@ impl AST {
         &self.exported
     }
 
-    pub fn get_expr(&self) -> &[Rc<Expr>] {
+    pub fn get_expr(&self) -> &[Expr] {
         &self.expr
     }
 
@@ -101,14 +101,15 @@ impl AST {
         // intern: &'a mut HashMap<String, Rc<Expr>>,
     ) -> Result<Self> {
         let mut heap = Vec::new();
-        let mut expr_stack: Vec<Rc<Expr>> = Vec::new();
-        let mut last_macro: Option<Rc<Expr>> = None;
-        let exprs: Vec<Rc<Expr>> = exprs.into_iter().map(Rc::new).collect();
+        let mut expr_stack: Vec<Expr> = Vec::new();
+        // let mut last_macro: Option<Rc<Expr>> = None;
+
+        // let exprs: Vec<Expr> = exprs.into_iter().map(Rc::new).collect();
 
         // Do require step here...
         let exprs = extract_and_compile_requires(&exprs, &env)?;
 
-        identify_function_definitions(&exprs, &env, &mut heap, &mut expr_stack, &mut last_macro)?;
+        identify_function_definitions(&exprs, &env, &mut heap, &mut expr_stack)?;
 
         // TODO extract functions once, extract macros, extract functions, expand functions in env not in place
         let macros_extracted = extract_macro_definitions(&exprs, &env)?;
@@ -117,7 +118,7 @@ impl AST {
             &env,
             &mut heap,
             &mut expr_stack,
-            &mut last_macro,
+            // &mut last_macro,
         )?;
 
         let exported_functions = extract_exported_identifiers(&functions_extracted)?;
@@ -173,18 +174,19 @@ how to check if value is a constant:
 //     }
 // }
 
-fn extract_exported_identifiers(exprs: &[Rc<Expr>]) -> Result<HashSet<String>> {
+fn extract_exported_identifiers(exprs: &[Expr]) -> Result<HashSet<String>> {
     let mut symbols: HashSet<String> = HashSet::new();
     for expr in exprs {
-        match expr.as_ref() {
+        match expr {
             Expr::VectorVal(list_of_tokens) if is_export_statement(expr) => {
                 for identifier in &list_of_tokens[1..] {
-                    if let Expr::Atom(SyntaxObject {
-                        ty: TokenType::Identifier(t),
-                        ..
-                    }) = identifier.as_ref()
-                    {
-                        symbols.insert(t.clone());
+                    if let Expr::Atom(SyntaxObject { ty: tt, .. }) = identifier {
+                        if let TokenType::Identifier(t) = tt.as_ref() {
+                            symbols.insert(t.clone());
+                        } else {
+                            stop!(TypeMismatch => "require expects identifiers");
+                        }
+                    // symbols.insert(t.clone());
                     } else {
                         stop!(TypeMismatch => "require expects identifiers");
                     }
@@ -200,31 +202,31 @@ fn extract_exported_identifiers(exprs: &[Rc<Expr>]) -> Result<HashSet<String>> {
 
 // fn is_require_statement()
 
-fn extract_macro_definitions(exprs: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Vec<Rc<Expr>>> {
-    let mut others: Vec<Rc<Expr>> = Vec::new();
+fn extract_macro_definitions(exprs: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Vec<Expr>> {
+    let mut others: Vec<Expr> = Vec::new();
     for expr in exprs {
-        match expr.as_ref() {
+        match expr {
             Expr::VectorVal(list_of_tokens) if is_macro_definition(expr) => {
                 construct_macro_def(&list_of_tokens[1..], env)?;
             }
-            _ => others.push(Rc::clone(expr)),
+            _ => others.push(expr.clone()),
         }
     }
     Ok(others)
 }
 
 fn identify_function_definitions(
-    exprs: &[Rc<Expr>],
+    exprs: &[Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<Rc<Expr>>,
 ) -> Result<()> {
     // let mut others: Vec<Rc<Expr>> = Vec::new();
     for expr in exprs {
-        match expr.as_ref() {
+        match expr {
             Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
-                eval_define(&list_of_tokens[1..], env, heap, expr_stack, last_macro)?;
+                eval_define(&list_of_tokens[1..], env, heap, expr_stack)?;
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
                 let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
@@ -239,48 +241,45 @@ fn identify_function_definitions(
 }
 
 fn extract_and_expand_function_definitions(
-    exprs: &[Rc<Expr>],
+    exprs: &[Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
-) -> Result<Vec<Rc<Expr>>> {
-    let mut others: Vec<Rc<Expr>> = Vec::new();
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<Rc<Expr>>,
+) -> Result<Vec<Expr>> {
+    let mut others: Vec<Expr> = Vec::new();
     for expr in exprs {
-        match expr.as_ref() {
+        match expr {
             Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
-                eval_define(&list_of_tokens[1..], env, heap, expr_stack, last_macro)?;
+                eval_define(&list_of_tokens[1..], env, heap, expr_stack)?;
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
                 let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
                 env.borrow_mut()
                     .define_zipped(defs.into_iter().map(|x| (x.0, Rc::new(x.1))));
             }
-            _ => others.push(Rc::clone(expr)),
+            _ => others.push(expr.clone()),
         }
     }
     Ok(others)
 }
 
-fn extract_and_compile_requires(
-    exprs: &[Rc<Expr>],
-    env: &Rc<RefCell<Env>>,
-) -> Result<Vec<Rc<Expr>>> {
+fn extract_and_compile_requires(exprs: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Vec<Expr>> {
     // unimplemented!();
-    let mut others: Vec<Rc<Expr>> = Vec::new();
+    let mut others: Vec<Expr> = Vec::new();
     for expr in exprs {
-        match expr.as_ref() {
+        match expr {
             Expr::VectorVal(list_of_tokens) if is_require_statement(expr) => {
                 // eval_define(&list_of_tokens[1..], env, heap, last_expr)?;
                 eval_require(&list_of_tokens[1..], env)?;
             }
-            _ => others.push(Rc::clone(expr)),
+            _ => others.push(expr.clone()),
         }
     }
     Ok(others)
 }
 
-pub fn construct_macro_def(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<()> {
+pub fn construct_macro_def(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<()> {
     let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, &env)?;
     // println!("{:?}", parsed_macro);
     env.borrow_mut().define(
@@ -294,19 +293,17 @@ pub fn construct_macro_def(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) 
 //     unimplemented!()
 // }
 
-fn is_require_statement(expr: &Rc<Expr>) -> bool {
-    let expr = Rc::clone(expr);
-    match expr.deref() {
+fn is_require_statement(expr: &Expr) -> bool {
+    // let expr = Rc::clone(expr);
+    match expr {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(SyntaxObject {
-                    ty: TokenType::Identifier(s),
-                    ..
-                }) = f.as_ref()
-                {
-                    if s == "require" {
-                        return true;
+                if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
+                    if let TokenType::Identifier(s) = t.as_ref() {
+                        if s == "require" {
+                            return true;
+                        }
                     }
                 }
             }
@@ -315,19 +312,17 @@ fn is_require_statement(expr: &Rc<Expr>) -> bool {
     false
 }
 
-fn is_export_statement(expr: &Rc<Expr>) -> bool {
-    let expr = Rc::clone(expr);
-    match expr.deref() {
+fn is_export_statement(expr: &Expr) -> bool {
+    // let expr = Rc::clone(expr);
+    match expr {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(SyntaxObject {
-                    ty: TokenType::Identifier(s),
-                    ..
-                }) = f.as_ref()
-                {
-                    if s == "export" {
-                        return true;
+                if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
+                    if let TokenType::Identifier(s) = t.as_ref() {
+                        if s == "export" {
+                            return true;
+                        }
                     }
                 }
             }
@@ -336,19 +331,17 @@ fn is_export_statement(expr: &Rc<Expr>) -> bool {
     false
 }
 
-fn is_macro_definition(expr: &Rc<Expr>) -> bool {
-    let expr = Rc::clone(expr);
-    match expr.deref() {
+fn is_macro_definition(expr: &Expr) -> bool {
+    // let expr = Rc::clone(expr);
+    match expr {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(SyntaxObject {
-                    ty: TokenType::Identifier(s),
-                    ..
-                }) = f.as_ref()
-                {
-                    if s == "define-syntax" {
-                        return true;
+                if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
+                    if let TokenType::Identifier(s) = t.as_ref() {
+                        if s == "define-syntax" {
+                            return true;
+                        }
                     }
                 }
             }
@@ -357,19 +350,16 @@ fn is_macro_definition(expr: &Rc<Expr>) -> bool {
     false
 }
 
-fn is_struct_definition(expr: &Rc<Expr>) -> bool {
-    let expr = Rc::clone(expr);
-    match expr.deref() {
+fn is_struct_definition(expr: &Expr) -> bool {
+    match expr {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(SyntaxObject {
-                    ty: TokenType::Identifier(s),
-                    ..
-                }) = f.as_ref()
-                {
-                    if s == "struct" {
-                        return true;
+                if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
+                    if let TokenType::Identifier(s) = t.as_ref() {
+                        if s == "struct" {
+                            return true;
+                        }
                     }
                 }
             }
@@ -379,19 +369,17 @@ fn is_struct_definition(expr: &Rc<Expr>) -> bool {
 }
 
 // TODO include the intern cache when possible
-fn is_function_definition(expr: &Rc<Expr>) -> bool {
-    let expr = Rc::clone(expr);
-    match expr.deref() {
+fn is_function_definition(expr: &Expr) -> bool {
+    // let expr = Rc::clone(expr);
+    match expr {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(SyntaxObject {
-                    ty: TokenType::Identifier(s),
-                    ..
-                }) = f.as_ref()
-                {
-                    if s == "define" {
-                        return true;
+                if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
+                    if let TokenType::Identifier(s) = t.as_ref() {
+                        if s == "define" {
+                            return true;
+                        }
                     }
                 }
             }

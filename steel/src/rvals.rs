@@ -315,11 +315,11 @@ impl Drop for SteelVal {
 
 // sometimes you want to just
 // return an expression
-impl TryFrom<Rc<Expr>> for SteelVal {
+impl TryFrom<Expr> for SteelVal {
     type Error = SteelErr;
-    fn try_from(e: Rc<Expr>) -> std::result::Result<Self, Self::Error> {
-        match &*e {
-            Expr::Atom(a) => match &a.ty {
+    fn try_from(e: Expr) -> std::result::Result<Self, Self::Error> {
+        match e {
+            Expr::Atom(a) => match &a.ty.as_ref() {
                 OpenParen => Err(SteelErr::UnexpectedToken("(".to_string())),
                 CloseParen => Err(SteelErr::UnexpectedToken(")".to_string())),
                 QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string())),
@@ -351,48 +351,36 @@ impl TryFrom<Rc<Expr>> for SteelVal {
 
 /// Sometimes you want to execute a list
 /// as if it was an expression
-impl TryFrom<&SteelVal> for Rc<Expr> {
+impl TryFrom<&SteelVal> for Expr {
     type Error = &'static str;
     fn try_from(r: &SteelVal) -> result::Result<Self, Self::Error> {
         match r {
-            BoolV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(BooleanLiteral(
-                *x,
-            ))))),
-            NumV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(NumberLiteral(
-                *x,
-            ))))),
-            IntV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(IntegerLiteral(
-                *x,
-            ))))),
+            BoolV(x) => Ok(Expr::Atom(SyntaxObject::default(BooleanLiteral(*x)))),
+            NumV(x) => Ok(Expr::Atom(SyntaxObject::default(NumberLiteral(*x)))),
+            IntV(x) => Ok(Expr::Atom(SyntaxObject::default(IntegerLiteral(*x)))),
             VectorV(lst) => {
                 let items: result::Result<Vec<Self>, Self::Error> =
                     lst.into_iter().map(Self::try_from).collect();
-                Ok(Rc::new(Expr::VectorVal(items?)))
+                Ok(Expr::VectorVal(items?))
             }
             Void => Err("Can't convert from Void to expression!"),
-            StringV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(StringLiteral(
-                x.clone(),
-            ))))),
+            StringV(x) => Ok(Expr::Atom(SyntaxObject::default(StringLiteral(x.clone())))),
             FuncV(_) => Err("Can't convert from Function to expression!"),
             LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             MacroV(_) => Err("Can't convert from Macro to expression!"),
-            SymbolV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(Identifier(
-                x.clone(),
-            ))))),
+            SymbolV(x) => Ok(Expr::Atom(SyntaxObject::default(Identifier(x.clone())))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
             // Pair(_, _) => Err("Can't convert from pair"), // TODO
             Pair(_, _) => {
                 if let VectorV(ref lst) = collect_pair_into_vector(r) {
                     let items: result::Result<Vec<Self>, Self::Error> =
                         lst.into_iter().map(Self::try_from).collect();
-                    Ok(Rc::new(Expr::VectorVal(items?)))
+                    Ok(Expr::VectorVal(items?))
                 } else {
                     Err("Couldn't convert from list to expression")
                 }
             }
-            CharV(x) => Ok(Rc::new(Expr::Atom(SyntaxObject::default(
-                CharacterLiteral(*x),
-            )))),
+            CharV(x) => Ok(Expr::Atom(SyntaxObject::default(CharacterLiteral(*x)))),
             StructV(_) => Err("Can't convert from Struct to expression!"),
             StructClosureV(_, _) => Err("Can't convert from struct-function to expression!"),
             PortV(_) => Err("Can't convert from port to expression!"),
@@ -448,7 +436,7 @@ pub struct SteelLambda {
     /// symbols representing the arguments to the function
     params_exp: Vec<String>,
     /// body of the function with identifiers yet to be bound
-    body_exp: Rc<Expr>,
+    body_exp: Expr,
     /// parent environment that created this Lambda.
     /// the actual environment with correct bindings is built at runtime
     /// once the function is called
@@ -460,7 +448,7 @@ pub struct SteelLambda {
 impl SteelLambda {
     pub fn new(
         params_exp: Vec<String>,
-        body_exp: Rc<Expr>,
+        body_exp: Expr,
         parent_env: Option<Rc<RefCell<Env>>>,
         sub_expression_env: Option<Weak<RefCell<Env>>>,
     ) -> SteelLambda {
@@ -476,8 +464,8 @@ impl SteelLambda {
         &self.params_exp
     }
     /// body of the function with identifiers yet to be bound
-    pub fn body_exp(&self) -> Rc<Expr> {
-        self.body_exp.clone()
+    pub fn body_exp(&self) -> &Expr {
+        &self.body_exp
     }
 
     pub fn pretty_print_closure(&self) -> String {
@@ -604,9 +592,7 @@ fn display_test() {
     assert_eq!(
         SteelVal::LambdaV(SteelLambda::new(
             vec!["arg1".to_owned()],
-            Rc::new(Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(
-                1.0
-            )))),
+            Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
             Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
             None
         ))
@@ -627,9 +613,7 @@ fn display_list_test() {
             NumV(1.0),
             LambdaV(SteelLambda::new(
                 vec!["arg1".to_owned()],
-                Rc::new(Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(
-                    1.0
-                )))),
+                Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
                 Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
                 None
             ))

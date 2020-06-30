@@ -35,15 +35,15 @@ impl MacroPattern {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MacroCase {
     args: Vec<MacroPattern>,
-    body: Rc<Expr>,
+    body: Expr,
 }
 
 impl MacroCase {
-    pub fn new(args: Vec<MacroPattern>, body: Rc<Expr>) -> MacroCase {
+    pub fn new(args: Vec<MacroPattern>, body: Expr) -> MacroCase {
         MacroCase { args, body }
     }
 
-    pub fn expand(&self, list_of_tokens: &[Rc<Expr>]) -> Result<Rc<Expr>> {
+    pub fn expand(&self, list_of_tokens: &[Expr]) -> Result<Expr> {
         self.replace_exprs_in_body(list_of_tokens)
     }
 
@@ -66,48 +66,39 @@ impl MacroCase {
     // otherwise leave the same
     // TODO
     // fix this kinda junky function
-    pub fn rename_identifiers(
-        expr: Rc<Expr>,
-        env: &Rc<RefCell<Env>>,
-        args: &[MacroPattern],
-    ) -> Rc<Expr> {
+    pub fn rename_identifiers(expr: Expr, env: &Rc<RefCell<Env>>, args: &[MacroPattern]) -> Expr {
         // unimplemented!()
         let env = Rc::clone(env);
         let args_str: Vec<&str> = args.iter().map(|x| x.deconstruct()).flatten().collect();
-        match expr.as_ref() {
-            Expr::Atom(t) => {
-                if let Identifier(s) = &t.ty {
+        match expr {
+            Expr::Atom(ref t) => {
+                if let Identifier(s) = &t.ty.as_ref() {
                     if args_str.contains(&s.as_str()) || SteelMacro::is_reserved_keyword(&s) {
                         return expr;
                     } else if env.borrow().lookup(&s).is_err() {
-                        return Rc::new(Expr::Atom(SyntaxObject::default(Identifier(
-                            "##".to_string() + s,
-                        ))));
+                        return Expr::Atom(SyntaxObject::default(Identifier("##".to_string() + s)));
                     }
                 }
 
-                Rc::new(Expr::Atom(Self::clobber_span_information(t)))
+                Expr::Atom(Self::clobber_span_information(t))
                 //  expr // Old TODO
                 // expr
             }
-            Expr::VectorVal(vec_exprs) => Rc::new(Expr::VectorVal(
+            Expr::VectorVal(vec_exprs) => Expr::VectorVal(
                 vec_exprs
-                    .iter()
-                    .map(|x| Self::rename_identifiers(Rc::clone(x), &env, args))
+                    .into_iter()
+                    .map(|x| Self::rename_identifiers(x, &env, args))
                     .collect(),
-            )),
+            ),
         }
     }
 
-    fn recursive_match(&self, list_of_tokens: &[Rc<Expr>]) -> bool {
+    fn recursive_match(&self, list_of_tokens: &[Expr]) -> bool {
         // println!("{:?}, {:?}", self.args, list_of_tokens);
         Self::match_vec_pattern_to_list_of_tokens(&self.args, list_of_tokens)
     }
 
-    fn match_vec_pattern_to_list_of_tokens(
-        args: &[MacroPattern],
-        list_of_tokens: &[Rc<Expr>],
-    ) -> bool {
+    fn match_vec_pattern_to_list_of_tokens(args: &[MacroPattern], list_of_tokens: &[Expr]) -> bool {
         let mut token_iter = list_of_tokens.iter();
         for pat in args {
             // println!("Matching pattern: {:?}", pat);
@@ -117,12 +108,13 @@ impl MacroCase {
                         continue;
                     }
                     MacroPattern::Syntax(v) => {
-                        if let Expr::Atom(SyntaxObject {
-                            ty: Identifier(s), ..
-                        }) = val.as_ref()
-                        {
-                            if s == v || v == "_" {
-                                continue;
+                        if let Expr::Atom(SyntaxObject { ty: t, .. }) = val {
+                            if let Identifier(s) = t.as_ref() {
+                                if s == v || v == "_" {
+                                    continue;
+                                } else {
+                                    return false;
+                                }
                             } else {
                                 return false;
                             }
@@ -131,7 +123,7 @@ impl MacroCase {
                         }
                     }
                     MacroPattern::Nested(vec) => {
-                        if let Expr::VectorVal(l) = val.as_ref() {
+                        if let Expr::VectorVal(l) = val {
                             // TODO more elegant let* case
                             if vec.len() == 0 && !l.is_empty() {
                                 return false;
@@ -156,40 +148,43 @@ impl MacroCase {
     fn parse_pattern_into_vec(
         macro_name: &str,
         special_forms: &[String],
-        list_of_tokens: &[Rc<Expr>],
+        list_of_tokens: &[Expr],
     ) -> Result<Vec<MacroPattern>> {
         let mut pattern_vec: Vec<MacroPattern> = Vec::new();
         let mut peek_token_iter = list_of_tokens.iter().peekable();
 
         while let Some(token) = peek_token_iter.next() {
-            match token.as_ref() {
-                Expr::Atom(SyntaxObject {
-                    ty: Identifier(t), ..
-                }) => {
-                    if t == macro_name || special_forms.contains(t) {
-                        pattern_vec.push(MacroPattern::Syntax(t.clone()))
-                    } else {
-                        if let Some(nxt) = peek_token_iter.peek() {
-                            if let Expr::Atom(SyntaxObject {
-                                ty: Identifier(n), ..
-                            }) = nxt.as_ref()
-                            {
-                                if n == "..." {
-                                    peek_token_iter.next();
-                                    pattern_vec.push(MacroPattern::Many(t.clone()))
+            match token {
+                Expr::Atom(SyntaxObject { ty: s, .. }) => {
+                    if let Identifier(t) = s.as_ref() {
+                        if t == macro_name || special_forms.contains(t) {
+                            pattern_vec.push(MacroPattern::Syntax(t.clone()))
+                        } else {
+                            if let Some(nxt) = peek_token_iter.peek() {
+                                if let Expr::Atom(SyntaxObject { ty: tt, .. }) = nxt {
+                                    if let Identifier(n) = tt.as_ref() {
+                                        if n == "..." {
+                                            peek_token_iter.next();
+                                            pattern_vec.push(MacroPattern::Many(t.clone()))
+                                        } else {
+                                            pattern_vec.push(MacroPattern::Single(t.clone()))
+                                        }
+                                    } else {
+                                        pattern_vec.push(MacroPattern::Single(t.clone()));
+                                    }
                                 } else {
-                                    pattern_vec.push(MacroPattern::Single(t.clone()))
+                                    pattern_vec.push(MacroPattern::Single(t.clone()));
                                 }
                             } else {
                                 pattern_vec.push(MacroPattern::Single(t.clone()));
                             }
-                        } else {
-                            pattern_vec.push(MacroPattern::Single(t.clone()));
                         }
+                    } else {
+                        stop!(BadSyntax => "syntax-rules requires identifiers in the pattern")
                     }
                 }
                 Expr::VectorVal(l) => pattern_vec.push(MacroPattern::Nested(
-                    Self::parse_pattern_into_vec(macro_name, special_forms, l)?,
+                    Self::parse_pattern_into_vec(macro_name, special_forms, &l)?,
                 )),
                 _ => stop!(BadSyntax => "syntax-rules requires identifiers in the pattern"),
             }
@@ -200,16 +195,16 @@ impl MacroCase {
     pub fn parse_from_tokens(
         macro_name: &str,
         special_forms: &[String],
-        list_of_tokens: &[Rc<Expr>],
+        list_of_tokens: &[Expr],
         env: &Rc<RefCell<Env>>,
     ) -> Result<MacroCase> {
         if let [pattern_expr, body_expr] = list_of_tokens {
-            let pattern_expr_vec = pattern_expr.as_ref().vector_val_or_else(
+            let pattern_expr_vec = pattern_expr.vector_val_or_else(
                 throw!(TypeMismatch => "syntax-rules expected a pattern in the case argument"),
             )?;
 
             let args = Self::parse_pattern_into_vec(macro_name, special_forms, pattern_expr_vec)?;
-            let renamed_body = Self::rename_identifiers(Rc::clone(body_expr), env, &args);
+            let renamed_body = Self::rename_identifiers(body_expr.clone(), env, &args);
             Ok(MacroCase::new(args, renamed_body))
         } else {
             stop!(ArityMismatch => "syntax-rules cases have 2 arguments")
@@ -220,17 +215,17 @@ impl MacroCase {
     // TODO
     fn collect_bindings(
         args: &[MacroPattern],
-        list_of_tokens: &[Rc<Expr>],
-        bindings: &mut HashMap<String, Rc<Expr>>,
+        list_of_tokens: &[Expr],
+        bindings: &mut HashMap<String, Expr>,
     ) -> Result<()> {
-        let mut token_iter = list_of_tokens.iter().map(|x| Rc::clone(x));
+        let mut token_iter = list_of_tokens.iter();
 
         for arg in args {
             match arg {
                 // bind the expression to the variable
                 MacroPattern::Single(s) => {
                     if let Some(e) = token_iter.next() {
-                        bindings.insert(s.to_string(), e);
+                        bindings.insert(s.to_string(), e.clone());
                     } else {
                         // println!("Macro Expansion Failed in Single Pattern: {}", s);
                         stop!(ArityMismatch => "macro expansion failed in single pattern")
@@ -241,7 +236,7 @@ impl MacroCase {
                     let e = token_iter
                         .next()
                         .ok_or_else(throw!(BadSyntax => "macro expansion expected keyword"))?;
-                    let syn = e.as_ref().atom_identifier_or_else(
+                    let syn = e.atom_identifier_or_else(
                         throw!(BadSyntax => "macro expansion expected keyword"),
                     )?;
                     if s != syn {
@@ -251,8 +246,8 @@ impl MacroCase {
                 // TODO
                 // bind the ellipses to the rest of the statement
                 MacroPattern::Many(ident) => {
-                    let rest: Vec<Rc<Expr>> = token_iter.collect();
-                    bindings.insert(ident.to_string(), Rc::new(Expr::VectorVal(rest)));
+                    let rest: Vec<Expr> = token_iter.map(|x| x.clone()).collect();
+                    bindings.insert(ident.to_string(), Expr::VectorVal(rest));
                     break;
                 }
                 MacroPattern::Nested(children) => {
@@ -260,7 +255,7 @@ impl MacroCase {
                         .next()
                         .ok_or_else(throw!(ArityMismatch => "Macro expected a pattern"))?;
 
-                    let child_vec = child.as_ref().vector_val_or_else(
+                    let child_vec = child.vector_val_or_else(
                         throw!(BadSyntax => "macro expected a vector of values"),
                     )?;
 
@@ -273,10 +268,10 @@ impl MacroCase {
     }
 
     // let recursive macros handle themselves - only expand the case that it can and then move on
-    fn replace_exprs_in_body(&self, list_of_tokens: &[Rc<Expr>]) -> Result<Rc<Expr>> {
-        let mut bindings: HashMap<String, Rc<Expr>> = HashMap::new();
+    fn replace_exprs_in_body(&self, list_of_tokens: &[Expr]) -> Result<Expr> {
+        let mut bindings: HashMap<String, Expr> = HashMap::new();
         Self::collect_bindings(&self.args, list_of_tokens, &mut bindings)?;
-        Self::recursive_replace(Rc::clone(&self.body), &bindings)
+        Self::recursive_replace(&self.body, &bindings)
     }
 
     pub fn arity(&self) -> usize {
@@ -298,10 +293,10 @@ impl MacroCase {
         })
     }
 
-    fn check_ellipses(expr: &Rc<Expr>) -> bool {
-        let expr = Rc::clone(expr);
-        if let Expr::Atom(t) = expr.as_ref() {
-            if let Identifier(s) = &t.ty {
+    fn check_ellipses(expr: &Expr) -> bool {
+        // let expr = Rc::clone(expr);
+        if let Expr::Atom(t) = expr {
+            if let Identifier(s) = &t.ty.as_ref() {
                 s == "..."
             } else {
                 false
@@ -312,58 +307,55 @@ impl MacroCase {
     }
 
     // walk through the expression and replace all of the bindings with the expressions
-    fn recursive_replace(expr: Rc<Expr>, bindings: &HashMap<String, Rc<Expr>>) -> Result<Rc<Expr>> {
-        match expr.as_ref() {
+    fn recursive_replace(expr: &Expr, bindings: &HashMap<String, Expr>) -> Result<Expr> {
+        match expr {
             Expr::Atom(t) => {
-                if let Identifier(s) = &t.ty {
+                if let Identifier(s) = &t.ty.as_ref() {
                     if let Some(body) = bindings.get(s) {
-                        Ok(Rc::clone(body))
+                        Ok(body.clone())
                     } else {
-                        Ok(expr)
+                        Ok(expr.clone())
                     }
                 } else {
-                    Ok(expr)
+                    Ok(expr.clone())
                 }
             }
             Expr::VectorVal(vec_exprs) => {
                 let mut vec_exprs = vec_exprs.clone();
                 if let Some(checkdatum) = vec_exprs.get(0) {
-                    if let Expr::Atom(SyntaxObject {
-                        ty: Identifier(ref check),
-                        ..
-                    }) = checkdatum.as_ref()
-                    {
-                        // println!("{}", check);
+                    if let Expr::Atom(SyntaxObject { ty: t, .. }) = checkdatum {
+                        if let Identifier(check) = t.as_ref() {
+                            if check == "datum->syntax" {
+                                let mut buffer = String::new();
+                                if let Some((_, rest)) = vec_exprs.split_first() {
+                                    for syntax in rest {
+                                        // println!("{}", syntax);
 
-                        if check == "datum->syntax" {
-                            let mut buffer = String::new();
-                            if let Some((_, rest)) = vec_exprs.split_first() {
-                                for syntax in rest {
-                                    // println!("{}", syntax);
+                                        let transformer = syntax.atom_identifier_or_else(
+                                            throw!(BadSyntax => "datum->syntax requires an identifier"),
+                                        )?;
 
-                                    let transformer = syntax.atom_identifier_or_else(
-                                        throw!(BadSyntax => "datum->syntax requires an identifier"),
-                                    )?;
+                                        if transformer.starts_with("##") {
+                                            let (_, cdr) = transformer.split_at(2);
+                                            buffer.push_str(cdr);
+                                        } else {
+                                            if let Some(body) = bindings.get(transformer) {
+                                                // println!("{}", body.to_string());
 
-                                    if transformer.starts_with("##") {
-                                        let (_, cdr) = transformer.split_at(2);
-                                        buffer.push_str(cdr);
-                                    } else {
-                                        if let Some(body) = bindings.get(transformer) {
-                                            // println!("{}", body.to_string());
-
-                                            buffer.push_str(body.to_string().as_str());
+                                                buffer.push_str(body.to_string().as_str());
+                                            }
                                         }
                                     }
+
+                                    return Ok(Expr::Atom(SyntaxObject::default(Identifier(
+                                        buffer,
+                                    ))));
                                 }
 
-                                return Ok(Rc::new(Expr::Atom(SyntaxObject::default(Identifier(
-                                    buffer,
-                                )))));
+                                // println!("Found a datum->syntax!");
                             }
-
-                            // println!("Found a datum->syntax!");
                         }
+                        // println!("{}", check);
                     }
                 }
 
@@ -377,12 +369,12 @@ impl MacroCase {
                     )?;
 
                     let rest = bindings
-                        .get(variable_to_lookup.as_ref().atom_identifier_or_else(
+                        .get(variable_to_lookup.atom_identifier_or_else(
                             throw!(BadSyntax => "macro expansion failed at lookup!"),
                         )?)
                         .ok_or_else(throw!(BadSyntax => "macro expansion failed at lookup here"))?;
 
-                    let list_of_exprs = rest.as_ref().vector_val_or_else(
+                    let list_of_exprs = rest.vector_val_or_else(
                         throw!(BadSyntax => "macro expansion failed, expected list of expressions"),
                     )?;
 
@@ -392,12 +384,12 @@ impl MacroCase {
                     vec_exprs = first_chunk;
                 }
 
-                Ok(Rc::new(Expr::VectorVal(
+                Ok(Expr::VectorVal(
                     vec_exprs
-                        .into_iter()
+                        .iter()
                         .map(|x| Self::recursive_replace(x, &bindings))
-                        .collect::<Result<Vec<Rc<Expr>>>>()?,
-                )))
+                        .collect::<Result<Vec<Expr>>>()?,
+                ))
             }
         }
     }
@@ -430,7 +422,7 @@ impl SteelMacro {
 
     fn parse_syntax_rules(
         macro_name: String,
-        list_of_tokens: &[Rc<Expr>],
+        list_of_tokens: &[Expr],
         env: &Rc<RefCell<Env>>,
     ) -> Result<SteelMacro> {
         // cannot check arity, only minimum
@@ -444,7 +436,7 @@ impl SteelMacro {
 
         let name = token_iter.next().ok_or_else(
             throw!(ArityMismatch => "syntax-rules expected an identifier in the first argument"),
-        )?.as_ref().atom_identifier_or_else(
+        )?.atom_identifier_or_else(
             throw!(TypeMismatch => "syntax-rules expected an identifier in the first argument"),
         )?;
 
@@ -456,14 +448,13 @@ impl SteelMacro {
         let list_of_idents = token_iter
             .next()
             .ok_or_else(throw!(ArityMismatch => "syntax-rules expected a list of identifiers"))?
-            .as_ref()
             .vector_val_or_else(
                 throw!(TypeMismatch => "syntax-rules expected a list of identifiers"),
             )?;
 
         // parse each special form inside the syntax-rules
         for special_form in list_of_idents {
-            let name = special_form.as_ref().atom_identifier_or_else(
+            let name = special_form.atom_identifier_or_else(
                 throw!(TypeMismatch => "syntax-rules expected a list of identifiers"),
             )?;
             special_forms_vec.push(name.to_string())
@@ -475,7 +466,6 @@ impl SteelMacro {
                 &macro_name,
                 &special_forms_vec,
                 next_case
-                    .as_ref()
                     .vector_val_or_else(throw!(BadSyntax => "syntax-rules expected a pattern"))?,
                 env,
             )?);
@@ -486,7 +476,7 @@ impl SteelMacro {
 
     // TODO
     pub fn parse_from_tokens(
-        list_of_tokens: &[Rc<Expr>],
+        list_of_tokens: &[Expr],
         env: &Rc<RefCell<Env>>,
     ) -> Result<SteelMacro> {
         if list_of_tokens.len() != 2 {
@@ -494,11 +484,11 @@ impl SteelMacro {
         }
 
         if let [name_expr, syntax_rules_expr] = list_of_tokens {
-            let name = name_expr.as_ref().atom_identifier_or_else(
+            let name = name_expr.atom_identifier_or_else(
                 throw!(TypeMismatch => "define-syntax expected a syntax-rules in the second position"),
             )?;
 
-            let syntax_rules_tokens = syntax_rules_expr.as_ref().vector_val_or_else(
+            let syntax_rules_tokens = syntax_rules_expr.vector_val_or_else(
                 throw!(TypeMismatch => "define-syntax expected a syntax-rules in the second position"),
             )?;
 
@@ -510,7 +500,7 @@ impl SteelMacro {
 
     // TODO
     // its worth a shot
-    fn match_case(&self, list_of_tokens: &[Rc<Expr>]) -> Result<&MacroCase> {
+    fn match_case(&self, list_of_tokens: &[Expr]) -> Result<&MacroCase> {
         // println!("{:?}", list_of_tokens);
 
         for case in &self.cases {
@@ -540,7 +530,7 @@ impl SteelMacro {
         }
     }
 
-    pub fn expand(&self, list_of_tokens: &[Rc<Expr>]) -> Result<Rc<Expr>> {
+    pub fn expand(&self, list_of_tokens: &[Expr]) -> Result<Expr> {
         let case_to_expand = self.match_case(list_of_tokens)?;
         case_to_expand.expand(list_of_tokens)
     }
@@ -551,6 +541,7 @@ mod parse_macro_tests {
 
     use super::MacroPattern::*;
     use super::*;
+    use crate::parser::tokens::TokenType;
     use crate::parser::Expr::*;
     use crate::parser::ParseError;
     use crate::parser::Parser;
@@ -562,33 +553,33 @@ mod parse_macro_tests {
         //       [(when a b ...)
         //        (if a (begin b ...) void)]))
         let input = &[
-            Rc::new(Atom(SyntaxObject::default(Identifier(
+            Atom(SyntaxObject::default(Identifier(
                 "define-syntax".to_string(),
-            )))),
-            Rc::new(Atom(SyntaxObject::default(Identifier("when".to_string())))),
-            Rc::new(VectorVal(vec![
-                Rc::new(Atom(SyntaxObject::default(Identifier(
+            ))),
+            Atom(SyntaxObject::default(Identifier("when".to_string()))),
+            VectorVal(vec![
+                Atom(SyntaxObject::default(Identifier(
                     "syntax-rules".to_string(),
-                )))),
-                Rc::new(VectorVal(vec![])),
-                Rc::new(VectorVal(vec![
-                    Rc::new(VectorVal(vec![
-                        Rc::new(Atom(SyntaxObject::default(Identifier("when".to_string())))),
-                        Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string())))),
-                        Rc::new(Atom(SyntaxObject::default(Identifier("b".to_string())))),
-                        Rc::new(Atom(SyntaxObject::default(Identifier("...".to_string())))),
-                    ])),
-                    Rc::new(VectorVal(vec![
-                        Rc::new(Atom(SyntaxObject::default(Identifier("if".to_string())))),
-                        Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string())))),
-                        Rc::new(VectorVal(vec![
-                            Rc::new(Atom(SyntaxObject::default(Identifier("begin".to_string())))),
-                            Rc::new(Atom(SyntaxObject::default(Identifier("b".to_string())))),
-                        ])),
-                        Rc::new(Atom(SyntaxObject::default(Identifier("void".to_string())))),
-                    ])),
-                ])),
-            ])),
+                ))),
+                VectorVal(vec![]),
+                VectorVal(vec![
+                    VectorVal(vec![
+                        Atom(SyntaxObject::default(Identifier("when".to_string()))),
+                        Atom(SyntaxObject::default(Identifier("a".to_string()))),
+                        Atom(SyntaxObject::default(Identifier("b".to_string()))),
+                        Atom(SyntaxObject::default(Identifier("...".to_string()))),
+                    ]),
+                    VectorVal(vec![
+                        Atom(SyntaxObject::default(Identifier("if".to_string()))),
+                        Atom(SyntaxObject::default(Identifier("a".to_string()))),
+                        VectorVal(vec![
+                            Atom(SyntaxObject::default(Identifier("begin".to_string()))),
+                            Atom(SyntaxObject::default(Identifier("b".to_string()))),
+                        ]),
+                        Atom(SyntaxObject::default(Identifier("void".to_string()))),
+                    ]),
+                ]),
+            ]),
         ];
 
         let default_env = Rc::new(RefCell::new(Env::default_env()));
@@ -603,15 +594,15 @@ mod parse_macro_tests {
                     Single("a".to_string()),
                     Many("b".to_string()),
                 ],
-                body: Rc::new(VectorVal(vec![
-                    Rc::new(Atom(SyntaxObject::default(Identifier("if".to_string())))),
-                    Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string())))),
-                    Rc::new(VectorVal(vec![
-                        Rc::new(Atom(SyntaxObject::default(Identifier("begin".to_string())))),
-                        Rc::new(Atom(SyntaxObject::default(Identifier("b".to_string())))),
-                    ])),
-                    Rc::new(Atom(SyntaxObject::default(Identifier("void".to_string())))),
-                ])),
+                body: VectorVal(vec![
+                    Atom(SyntaxObject::default(Identifier("if".to_string()))),
+                    Atom(SyntaxObject::default(Identifier("a".to_string()))),
+                    VectorVal(vec![
+                        Atom(SyntaxObject::default(Identifier("begin".to_string()))),
+                        Atom(SyntaxObject::default(Identifier("b".to_string()))),
+                    ]),
+                    Atom(SyntaxObject::default(Identifier("void".to_string()))),
+                ]),
             }],
         };
 
@@ -634,11 +625,11 @@ mod parse_macro_tests {
                 cases: vec![
                     MacroCase {
                         args: vec![Syntax("or".to_string())],
-                        body: Rc::new(Atom(SyntaxObject::default(BooleanLiteral(false)))),
+                        body: Atom(SyntaxObject::default(BooleanLiteral(false))),
                     },
                     MacroCase {
                         args: vec![Syntax("or".to_string()), Single("x".to_string())],
-                        body: Rc::new(Atom(SyntaxObject::default(Identifier("x".to_string())))),
+                        body: Atom(SyntaxObject::default(Identifier("x".to_string()))),
                     },
                     MacroCase {
                         args: vec![
@@ -646,19 +637,19 @@ mod parse_macro_tests {
                             Single("x".to_string()),
                             Single("y".to_string()),
                         ],
-                        body: Rc::new(VectorVal(vec![
-                            Rc::new(Atom(SyntaxObject::default(Identifier("let".to_string())))),
-                            Rc::new(VectorVal(vec![Rc::new(VectorVal(vec![
-                                Rc::new(Atom(SyntaxObject::default(Identifier("##z".to_string())))),
-                                Rc::new(Atom(SyntaxObject::default(Identifier("x".to_string())))),
-                            ]))])),
-                            Rc::new(VectorVal(vec![
-                                Rc::new(Atom(SyntaxObject::default(Identifier("if".to_string())))),
-                                Rc::new(Atom(SyntaxObject::default(Identifier("##z".to_string())))),
-                                Rc::new(Atom(SyntaxObject::default(Identifier("##z".to_string())))),
-                                Rc::new(Atom(SyntaxObject::default(Identifier("y".to_string())))),
-                            ])),
-                        ])),
+                        body: VectorVal(vec![
+                            Atom(SyntaxObject::default(Identifier("let".to_string()))),
+                            VectorVal(vec![VectorVal(vec![
+                                Atom(SyntaxObject::default(Identifier("##z".to_string()))),
+                                Atom(SyntaxObject::default(Identifier("x".to_string()))),
+                            ])]),
+                            VectorVal(vec![
+                                Atom(SyntaxObject::default(Identifier("if".to_string()))),
+                                Atom(SyntaxObject::default(Identifier("##z".to_string()))),
+                                Atom(SyntaxObject::default(Identifier("##z".to_string()))),
+                                Atom(SyntaxObject::default(Identifier("y".to_string()))),
+                            ]),
+                        ]),
                     },
                     MacroCase {
                         args: vec![
@@ -666,15 +657,15 @@ mod parse_macro_tests {
                             Single("x".to_string()),
                             Many("y".to_string()),
                         ],
-                        body: Rc::new(VectorVal(vec![
-                            Rc::new(Atom(SyntaxObject::default(Identifier("or".to_string())))),
-                            Rc::new(Atom(SyntaxObject::default(Identifier("x".to_string())))),
-                            Rc::new(VectorVal(vec![
-                                Rc::new(Atom(SyntaxObject::default(Identifier("or".to_string())))),
-                                Rc::new(Atom(SyntaxObject::default(Identifier("y".to_string())))),
-                                Rc::new(Atom(SyntaxObject::default(Identifier("...".to_string())))),
-                            ])),
-                        ])),
+                        body: VectorVal(vec![
+                            Atom(SyntaxObject::default(Identifier("or".to_string()))),
+                            Atom(SyntaxObject::default(Identifier("x".to_string()))),
+                            VectorVal(vec![
+                                Atom(SyntaxObject::default(Identifier("or".to_string()))),
+                                Atom(SyntaxObject::default(Identifier("y".to_string()))),
+                                Atom(SyntaxObject::default(Identifier("...".to_string()))),
+                            ]),
+                        ]),
                     },
                 ],
             },
@@ -710,14 +701,12 @@ mod parse_macro_tests {
                             Syntax("cond".to_string()),
                             Nested(vec![Single("e1".to_string()), Many("e2".to_string())]),
                         ],
-                        body: Rc::new(VectorVal(vec![
-                            Rc::new(Atom(SyntaxObject::default(Identifier(
-                                "##when".to_string(),
-                            )))),
-                            Rc::new(Atom(SyntaxObject::default(Identifier("e1".to_string())))),
-                            Rc::new(Atom(SyntaxObject::default(Identifier("e2".to_string())))),
-                            Rc::new(Atom(SyntaxObject::default(Identifier("...".to_string())))),
-                        ])),
+                        body: VectorVal(vec![
+                            Atom(SyntaxObject::default(Identifier("##when".to_string()))),
+                            Atom(SyntaxObject::default(Identifier("e1".to_string()))),
+                            Atom(SyntaxObject::default(Identifier("e2".to_string()))),
+                            Atom(SyntaxObject::default(Identifier("...".to_string()))),
+                        ]),
                     },
                     MacroCase {
                         args: vec![
@@ -754,14 +743,12 @@ mod parse_macro_tests {
                         Syntax("cond".to_string()),
                         Nested(vec![Single("e1".to_string()), Many("e2".to_string())]),
                     ],
-                    body: Rc::new(VectorVal(vec![
-                        Rc::new(Atom(SyntaxObject::default(Identifier(
-                            "##when".to_string(),
-                        )))),
-                        Rc::new(Atom(SyntaxObject::default(Identifier("e1".to_string())))),
-                        Rc::new(Atom(SyntaxObject::default(Identifier("e2".to_string())))),
-                        Rc::new(Atom(SyntaxObject::default(Identifier("...".to_string())))),
-                    ])),
+                    body: VectorVal(vec![
+                        Atom(SyntaxObject::default(Identifier("##when".to_string()))),
+                        Atom(SyntaxObject::default(Identifier("e1".to_string()))),
+                        Atom(SyntaxObject::default(Identifier("e2".to_string()))),
+                        Atom(SyntaxObject::default(Identifier("...".to_string()))),
+                    ]),
                 },
                 MacroCase {
                     args: vec![
@@ -802,14 +789,14 @@ mod parse_macro_tests {
         assert_eq!(res.unwrap(), expected);
     }
 
-    fn parse_with_empty_cache(s: &str) -> Rc<Expr> {
-        let mut cache: HashMap<String, Rc<Expr>> = HashMap::new();
+    fn parse_with_empty_cache(s: &str) -> Expr {
+        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
         let a: std::result::Result<Vec<Expr>, ParseError> = Parser::new(s, &mut cache).collect();
         let a = a.unwrap()[0].clone();
-        Rc::new(a)
+        a
     }
 
-    fn parse_statement(s: &str) -> Vec<Rc<Expr>> {
+    fn parse_statement(s: &str) -> Vec<Expr> {
         let a = parse_with_empty_cache(s);
         a.vector_val_or_else(throw!(BadSyntax => "Malformed statement in the test"))
             .unwrap()
