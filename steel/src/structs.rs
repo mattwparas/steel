@@ -75,7 +75,7 @@ impl SteelStruct {
 }
 
 impl SteelStruct {
-    pub fn generate_from_tokens(list_of_tokens: &[Rc<Expr>]) -> Result<Vec<(String, SteelVal)>> {
+    pub fn generate_from_tokens(list_of_tokens: &[Expr]) -> Result<Vec<(String, SteelVal)>> {
         let (name, list_of_tokens) = list_of_tokens.split_first().ok_or_else(
             throw!(ArityMismatch => "struct definition requires a name and a list of field names"),
         )?;

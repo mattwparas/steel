@@ -14,7 +14,10 @@ use crate::rvals::{FunctionSignature, Result, SteelLambda, SteelVal, StructClosu
 use crate::stop;
 use crate::structs::SteelStruct;
 use crate::throw;
+// extern crate generational_arena;
+use generational_arena::Arena;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::ops::Deref;
 
 use crate::compiler::AST;
@@ -57,14 +60,34 @@ impl Scope {
 //     ),
 // );
 
+// pub struct GrowableStack {
+//     stack: Vec<Expr>,
+// }
+
+// impl GrowableStack {
+//     pub fn new() -> Self {
+//         GrowableStack { stack: Vec::new() }
+//     }
+
+//     pub fn push<'a>(&'a mut self, expr: Expr) -> usize {
+//         self.stack.push(expr);
+//         self.stack.len() - 1
+//         // self.stack.last().unwrap()
+//     }
+
+//     pub fn get(&self, idx: usize) -> Option<&Expr> {
+//         self.stack.get(idx)
+//     }
+// }
+
 pub struct Evaluator {
     global_env: Rc<RefCell<Env>>,
-    intern_cache: HashMap<String, Rc<Expr>>,
+    intern_cache: HashMap<String, Rc<TokenType>>,
     heap: Vec<Rc<RefCell<Env>>>,
-    // expr_stack: Option<Rc<Expr>>,
-    expr_stack: Vec<Rc<Expr>>,
+    // expr_stack: Option<&Expr>,
+    expr_stack: Vec<Expr>,
     files: SimpleFiles<String, String>,
-    last_macro: Option<Rc<Expr>>,
+    // last_macro: Option<&Expr>,
 }
 
 impl Evaluator {
@@ -79,7 +102,7 @@ impl Evaluator {
             // expr_stack: None,
             expr_stack: Vec::new(),
             files: SimpleFiles::new(),
-            last_macro: None,
+            // last_macro: None,
         }
     }
 
@@ -91,7 +114,7 @@ impl Evaluator {
             // expr_stack: None,
             expr_stack: Vec::new(),
             files: SimpleFiles::new(),
-            last_macro: None,
+            // last_macro: None,
         }
     }
 
@@ -137,7 +160,7 @@ impl Evaluator {
             &self.global_env,
             &mut heap,
             &mut self.expr_stack,
-            &mut self.last_macro,
+            // &mut self.last_macro,
         )
         .map(|x| (*x).clone());
 
@@ -184,9 +207,9 @@ impl Evaluator {
 
                 if let Err(my_error) = res.as_ref() {
                     // println!("{}", self.last_macro);
-                    if let Some(last) = &self.last_macro {
-                        println!("Last Macro: {}", last.to_string());
-                    }
+                    // if let Some(last) = &self.last_macro {
+                    //     println!("Last Macro: {}", last.to_string());
+                    // }
 
                     // println!("Call Stack: {:?}", &self.expr_stack);
 
@@ -239,7 +262,7 @@ impl Evaluator {
     pub fn parse_and_compile_with_env_and_intern<'a>(
         expr_str: &str,
         env: Rc<RefCell<Env>>,
-        intern: &'a mut HashMap<String, Rc<Expr>>,
+        intern: &'a mut HashMap<String, Rc<TokenType>>,
     ) -> Result<AST> {
         let parsed: result::Result<Vec<Expr>, ParseError> = Parser::new(expr_str, intern).collect();
         let parsed = parsed?;
@@ -248,8 +271,8 @@ impl Evaluator {
 
     pub fn eval_with_env_from_ast(compiled_ast: &AST) -> Result<Vec<SteelVal>> {
         let mut heap = Vec::new();
-        let mut expr_stack: Vec<Rc<Expr>> = Vec::new();
-        let mut last_macro: Option<Rc<Expr>> = None;
+        let mut expr_stack: Vec<Expr> = Vec::new();
+        // let mut last_macro: Option<&Expr> = None;
         compiled_ast
             .get_expr()
             .iter()
@@ -259,7 +282,7 @@ impl Evaluator {
                     compiled_ast.get_env(),
                     &mut heap,
                     &mut expr_stack,
-                    &mut last_macro,
+                    // &mut last_macro,
                 )
                 .map(|x| (*x).clone())
             })
@@ -304,16 +327,18 @@ impl Drop for Evaluator {
     }
 }
 
-fn parse_list_of_identifiers(identifiers: Rc<Expr>) -> Result<Vec<String>> {
-    match identifiers.deref() {
+fn parse_list_of_identifiers(identifiers: &Expr) -> Result<Vec<String>> {
+    match identifiers {
         Expr::VectorVal(l) => {
             let res: Result<Vec<String>> = l
                 .iter()
-                .map(|x| match &**x {
-                    Expr::Atom(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        ..
-                    }) => Ok(s.clone()),
+                .map(|x| match x {
+                    Expr::Atom(SyntaxObject { ty: t, .. }) => match t.as_ref() {
+                        TokenType::Identifier(s) => Ok(s.clone()),
+                        _ => Err(SteelErr::TypeMismatch(
+                            "lambda must have symbols as arguments".to_string(),
+                        )),
+                    },
                     _ => Err(SteelErr::TypeMismatch(
                         "Lambda must have symbols as arguments".to_string(),
                     )),
@@ -326,7 +351,7 @@ fn parse_list_of_identifiers(identifiers: Rc<Expr>) -> Result<Vec<String>> {
 }
 
 /// returns error if tokens.len() != expected
-fn check_length(what: &str, tokens: &[Rc<Expr>], expected: usize) -> Result<()> {
+fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
     if tokens.len() == expected {
         Ok(())
     } else {
@@ -340,314 +365,365 @@ fn check_length(what: &str, tokens: &[Rc<Expr>], expected: usize) -> Result<()> 
 }
 
 // TODO include the intern cache when possible
-fn expand(expr: &Rc<Expr>, env: &Rc<RefCell<Env>>) -> Result<Rc<Expr>> {
+fn expand(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<Expr> {
     let env = Rc::clone(env);
-    let expr = Rc::clone(expr);
+    // let expr = Rc::clone(expr);
 
-    match expr.deref() {
-        Expr::Atom(_) => Ok(expr),
+    match expr {
+        Expr::Atom(_) => Ok(expr.clone()),
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(SyntaxObject {
-                    ty: TokenType::Identifier(s),
-                    ..
-                }) = f.as_ref()
-                {
-                    let lookup = env.borrow().lookup(&s);
+                if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
+                    if let TokenType::Identifier(s) = t.as_ref() {
+                        let lookup = env.borrow().lookup(&s);
 
-                    if let Ok(v) = lookup {
-                        if let SteelVal::MacroV(steel_macro) = v.as_ref() {
-                            let expanded = steel_macro.expand(&list_of_tokens)?;
-                            return expand(&expanded, &env);
-                            // return steel_macro.expand(&list_of_tokens)?;
+                        if let Ok(v) = lookup {
+                            if let SteelVal::MacroV(steel_macro) = v.as_ref() {
+                                let expanded = steel_macro.expand(&list_of_tokens)?;
+                                return expand(&expanded, &env);
+                                // return steel_macro.expand(&list_of_tokens)?;
+                            }
                         }
                     }
                 }
-                let result: Result<Vec<Rc<Expr>>> =
+                let result: Result<Vec<Expr>> =
                     list_of_tokens.iter().map(|x| expand(x, &env)).collect();
-                Ok(Rc::new(Expr::VectorVal(result?)))
+                Ok(Expr::VectorVal(result?))
             } else {
-                Ok(expr)
+                Ok(expr.clone())
             }
         }
     }
 }
 
-fn evaluate(
-    expr: &Rc<Expr>,
-    env: &Rc<RefCell<Env>>,
-    heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
+fn evaluate<'a, 'global>(
+    expr: &'a Expr,
+    env: &'global Rc<RefCell<Env>>,
+    heap: &'global mut Vec<Rc<RefCell<Env>>>,
+    expr_stack: &'global mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
 ) -> Result<Rc<SteelVal>> {
     let mut env = Rc::clone(env);
-    let mut expr = Rc::clone(expr);
+    let mut expr = expr.clone();
     let mut heap2: Vec<Rc<RefCell<Env>>> = Vec::new();
+    let mut local_expr_stack: Arena<Expr> = Arena::new();
+    let mut local_val_stack: Vec<Rc<SteelVal>> = Vec::new();
 
     loop {
-        // println!("looping with expr: {:?}", &expr.to_string());
-
-        expr_stack.push(Rc::clone(&expr));
+        // expr_stack.push(expr.clone());
 
         if expr_stack.len() > 200 {
             // println!("Draining the call stack");
             let _ = expr_stack.drain(0..100);
         }
 
-        // let count = Rc::strong_count(&env);
-        // if count > 1 {
-        //     println!("{}", count);
-        //     env.borrow_mut().print_bindings();
-        // }
         // println!("{}", count);
-        match expr.deref() {
-            Expr::Atom(t) => return eval_atom(t, &env),
+        match expr {
+            Expr::Atom(t) => return eval_atom(&t, &env),
 
             Expr::VectorVal(list_of_tokens) => {
                 // expr_stack.push(Rc::clone(&expr));
                 // last_expr.replace(Rc::clone(&expr));
 
                 if let Some(f) = list_of_tokens.first() {
-                    match f.deref() {
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "quote" => {
-                            check_length("Quote", &list_of_tokens, 2)?;
-                            let converted = SteelVal::try_from(list_of_tokens[1].clone())?;
-                            return Ok(Rc::new(converted));
+                    if let Expr::Atom(SyntaxObject { ty: t, .. }) = &f {
+                        match t.as_ref() {
+                            TokenType::Identifier(s) if s == "quote" => {
+                                check_length("Quote", &list_of_tokens, 2)?;
+                                let converted = SteelVal::try_from(list_of_tokens[1].clone())?;
+                                return Ok(Rc::new(converted));
+                            }
+                            TokenType::Identifier(s) if s == "if" => {
+                                expr = eval_if(
+                                    &list_of_tokens[1..],
+                                    &env,
+                                    heap,
+                                    expr_stack,
+                                    // last_macro,
+                                )?
+                                .clone();
+
+                                continue;
+                            }
+                            TokenType::Identifier(s) if s == "define" => {
+                                return eval_define(
+                                    &list_of_tokens[1..],
+                                    &env,
+                                    heap,
+                                    expr_stack,
+                                    // last_macro,
+                                )
+                                .map(|_| VOID.with(|f| Rc::clone(f))); // TODO
+                            }
+                            TokenType::Identifier(s) if s == "define-syntax" => {
+                                return eval_macro_def(&list_of_tokens[1..], env)
+                                    .map(|_| VOID.with(|f| Rc::clone(f)));
+                            }
+                            // (lambda (vars*) (body))
+                            TokenType::Identifier(s) if s == "lambda" || s == "λ" => {
+                                // heap.push(Rc::clone(&env));
+                                return eval_make_lambda(&list_of_tokens[1..], env, heap);
+                            }
+                            TokenType::Identifier(s) if s == "eval" => {
+                                return eval_eval_expr(
+                                    &list_of_tokens[1..],
+                                    &env,
+                                    heap,
+                                    expr_stack,
+                                    // last_macro,
+                                );
+                            }
+                            // set! expression
+                            TokenType::Identifier(s) if s == "set!" => {
+                                return eval_set(
+                                    &list_of_tokens[1..],
+                                    &env,
+                                    heap,
+                                    expr_stack,
+                                    // last_macro,
+                                );
+                            }
+                            // (let (var binding)* (body))
+                            TokenType::Identifier(s) if s == "let" => {
+                                let ex = eval_let(&list_of_tokens[1..], &env)?;
+                                // let idx = local_expr_stack.insert(ex);
+                                // expr = local_expr_stack.get(idx).unwrap();
+                                expr = ex;
+
+                                continue;
+                            }
+                            TokenType::Identifier(s) if s == "begin" => {
+                                expr = eval_begin(
+                                    &list_of_tokens[1..],
+                                    &env,
+                                    heap,
+                                    expr_stack,
+                                    // last_macro,
+                                )?
+                                .clone();
+
+                                continue;
+                            }
+                            TokenType::Identifier(s) if s == "apply" => {
+                                return eval_apply(
+                                    &list_of_tokens[1..],
+                                    env,
+                                    heap,
+                                    expr_stack,
+                                    // last_macro,
+                                );
+                            }
+                            // Catches errors and captures an Error result from the execution
+                            // resumes execution at the other branch of the execution
+                            // try! should match the following form:
+
+                            /*
+                            (try! [expression1] [except expression2])
+                            */
+                            TokenType::Identifier(s) if s == "try!" => {
+                                // unimplemented!();
+                                let result = eval_try(
+                                    &list_of_tokens[1..],
+                                    &env,
+                                    heap,
+                                    expr_stack,
+                                    // last_macro,
+                                )?;
+                                match result {
+                                    (Some(expr_except), _) => expr = expr_except.clone(),
+                                    (None, ok) => return ok,
+                                }
+
+                                continue;
+                            }
+
+                            TokenType::Identifier(s) if s == "export" => {
+                                // TODO
+                                unimplemented!()
+                            }
+
+                            TokenType::Identifier(s) if s == "require" => {
+                                // TODO
+                                return eval_require(&list_of_tokens[1..], &env)
+                                    .map(|_| VOID.with(|f| Rc::clone(f)));
+                            }
+
+                            TokenType::Identifier(s) if s == "mapR" => {
+                                return eval_map(
+                                    &list_of_tokens[1..],
+                                    &env,
+                                    heap,
+                                    expr_stack,
+                                    // last_macro,
+                                );
+                            }
+                            TokenType::Identifier(s) if s == "filterR" => {
+                                return eval_filter(
+                                    &list_of_tokens[1..],
+                                    &env,
+                                    heap,
+                                    expr_stack,
+                                    // last_macro,
+                                );
+                            }
+                            TokenType::Identifier(s) if s == "struct" => {
+                                let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
+                                env.borrow_mut()
+                                    .define_zipped(defs.into_iter().map(|x| (x.0, Rc::new(x.1))));
+                                return Ok(VOID.with(|f| Rc::clone(f)));
+                            }
+
+                            _ => {}
                         }
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "if" => {
-                            expr =
-                                eval_if(&list_of_tokens[1..], &env, heap, expr_stack, last_macro)?
-                        }
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "define" => {
-                            return eval_define(
+                    }
+
+                    // let f2 = f.clone();
+                    // let e2 = evaluate(f, &env, heap, expr_stack)?;
+
+                    // local_val_stack.push();
+
+                    let evaluated = evaluate(f, &env, heap, expr_stack)?;
+
+                    match evaluated.deref() {
+                        SteelVal::FuncV(func) => {
+                            // println!("GETTING TO PURE FUNCTION WITH ENV: ");
+                            // env.borrow().print_bindings();
+                            return eval_func(
+                                *func,
                                 &list_of_tokens[1..],
                                 &env,
                                 heap,
                                 expr_stack,
-                                last_macro,
-                            )
-                            .map(|_| VOID.with(|f| Rc::clone(f))); // TODO
+                                // last_macro,
+                            );
                         }
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "define-syntax" => {
-                            return eval_macro_def(&list_of_tokens[1..], env)
-                                .map(|_| VOID.with(|f| Rc::clone(f)));
-                        }
-                        // (lambda (vars*) (body))
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "lambda" || s == "λ" => {
+                        SteelVal::LambdaV(lambda) => {
+                            heap2.push(Rc::clone(&env));
                             // heap.push(Rc::clone(&env));
-                            return eval_make_lambda(&list_of_tokens[1..], env, heap);
-                        }
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "eval" => {
-                            return eval_eval_expr(
+                            // println!("Heap size: {}", heap.len());
+                            // println!("Adding to the heap:");
+                            // env.borrow().print_bindings();
+                            let (new_expr, new_env) = eval_lambda(
+                                lambda,
                                 &list_of_tokens[1..],
                                 &env,
                                 heap,
                                 expr_stack,
-                                last_macro,
-                            )
+                                // last_macro,
+                            )?;
+
+                            expr = new_expr.clone();
+                            env = new_env;
+                            // heap.pop();
+                            // heap.push(Rc::clone(&env));
                         }
-                        // set! expression
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "set!" => {
-                            return eval_set(
-                                &list_of_tokens[1..],
-                                &env,
-                                heap,
-                                expr_stack,
-                                last_macro,
-                            )
+                        SteelVal::MacroV(steel_macro) => {
+                            // last_macro.replace(Rc::clone(&expr));
+                            // println!("Found macro definition!");
+
+                            // let idx = local_expr_stack.insert(steel_macro.expand(&list_of_tokens)?);
+                            expr = steel_macro.expand(&list_of_tokens)?;
+
+                            // last_macro.replace(Rc::clone(&expr));
+                            // println!("{:?}", expr.clone().to_string());
+                            // println!()
                         }
-                        // (let (var binding)* (body))
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "let" => expr = eval_let(&list_of_tokens[1..], &env)?,
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "begin" => {
-                            expr = eval_begin(
+                        SteelVal::StructClosureV(factory, function) => {
+                            return eval_struct_constructor(
                                 &list_of_tokens[1..],
-                                &env,
-                                heap,
-                                expr_stack,
-                                last_macro,
-                            )?
-                        }
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "apply" => {
-                            return eval_apply(
-                                &list_of_tokens[1..],
+                                &factory,
+                                *function,
                                 env,
                                 heap,
                                 expr_stack,
-                                last_macro,
-                            )
+                                // last_macro,
+                            );
                         }
-                        // Catches errors and captures an Error result from the execution
-                        // resumes execution at the other branch of the execution
-                        // try! should match the following form:
-
-                        /*
-                        (try! [expression1] [except expression2])
-                        */
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "try!" => {
-                            // unimplemented!();
-                            let result =
-                                eval_try(&list_of_tokens[1..], &env, heap, expr_stack, last_macro)?;
-                            match result {
-                                (Some(expr_except), _) => expr = expr_except,
-                                (None, ok) => return ok,
-                            }
-                        }
-
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "export" => {
-                            // TODO
-                            unimplemented!()
-                        }
-
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "require" => {
-                            // TODO
-                            return eval_require(&list_of_tokens[1..], &env)
-                                .map(|_| VOID.with(|f| Rc::clone(f)));
-                        }
-
-                        // Expr::Atom(TokenType::Identifier(s)) if s == "go!"
-
-                        // Expr::Atom(TokenType::Identifier(s)) if s == "and" => {
-                        //     return eval_and(&list_of_tokens[1..], &env)
-                        // }
-                        // Expr::Atom(TokenType::Identifier(s)) if s == "or" => {
-                        //     return eval_or(&list_of_tokens[1..], &env)
-                        // }
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "mapR" => {
-                            return eval_map(
-                                &list_of_tokens[1..],
-                                &env,
-                                heap,
-                                expr_stack,
-                                last_macro,
-                            )
-                        }
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "filterR" => {
-                            return eval_filter(
-                                &list_of_tokens[1..],
-                                &env,
-                                heap,
-                                expr_stack,
-                                last_macro,
-                            )
-                        }
-                        Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) if s == "struct" => {
-                            let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
-                            env.borrow_mut()
-                                .define_zipped(defs.into_iter().map(|x| (x.0, Rc::new(x.1))));
-                            return Ok(VOID.with(|f| Rc::clone(f)));
-                        }
-                        // (sym args*), sym must be a procedure
-                        _sym => {
-                            match evaluate(f, &env, heap, expr_stack, last_macro)?.as_ref() {
-                                SteelVal::FuncV(func) => {
-                                    // println!("GETTING TO PURE FUNCTION WITH ENV: ");
-                                    // env.borrow().print_bindings();
-                                    return eval_func(
-                                        *func,
-                                        &list_of_tokens[1..],
-                                        &env,
-                                        heap,
-                                        expr_stack,
-                                        last_macro,
-                                    );
-                                }
-                                SteelVal::LambdaV(lambda) => {
-                                    heap2.push(Rc::clone(&env));
-                                    // heap.push(Rc::clone(&env));
-                                    // println!("Heap size: {}", heap.len());
-                                    // println!("Adding to the heap:");
-                                    // env.borrow().print_bindings();
-                                    let (new_expr, new_env) = eval_lambda(
-                                        lambda,
-                                        &list_of_tokens[1..],
-                                        &env,
-                                        heap,
-                                        expr_stack,
-                                        last_macro,
-                                    )?;
-                                    expr = new_expr;
-                                    env = new_env;
-                                    // heap.pop();
-                                    // heap.push(Rc::clone(&env));
-                                }
-                                SteelVal::MacroV(steel_macro) => {
-                                    last_macro.replace(Rc::clone(&expr));
-                                    // println!("Found macro definition!");
-                                    expr = steel_macro.expand(&list_of_tokens)?;
-
-                                    // last_macro.replace(Rc::clone(&expr));
-                                    // println!("{:?}", expr.clone().to_string());
-                                    // println!()
-                                }
-                                SteelVal::StructClosureV(factory, function) => {
-                                    return eval_struct_constructor(
-                                        &list_of_tokens[1..],
-                                        &factory,
-                                        *function,
-                                        env,
-                                        heap,
-                                        expr_stack,
-                                        last_macro,
-                                    )
-                                }
-                                e => {
-                                    let error_message = format!("Application not a procedure - expected a function, found: {}", e);
-                                    // let mut span = expr.to_string();
-                                    // span.truncate(20);
-                                    // println!("Span information: {}", span);
-                                    stop!(TypeMismatch => error_message);
-                                }
-                            }
+                        e => {
+                            let error_message = format!(
+                                "Application not a procedure - expected a function, found: {}",
+                                e
+                            );
+                            // let mut span = expr.to_string();
+                            // span.truncate(20);
+                            // println!("Span information: {}", span);
+                            stop!(TypeMismatch => error_message);
                         }
                     }
+
+                // match f {
+                //     Expr::Atom(SyntaxObject { ty: t, .. }) => match t.as_ref() {
+                //         // (sym args*), sym must be a procedure
+                //         _sym => {}
+                //     },
+
+                //     // (sym args*), sym must be a procedure
+                //     _sym => {
+                //         match evaluate(f, &env, heap, expr_stack)?.as_ref() {
+                //             SteelVal::FuncV(func) => {
+                //                 // println!("GETTING TO PURE FUNCTION WITH ENV: ");
+                //                 // env.borrow().print_bindings();
+                //                 return eval_func(
+                //                     *func,
+                //                     &list_of_tokens[1..],
+                //                     &env,
+                //                     heap,
+                //                     expr_stack,
+                //                     // last_macro,
+                //                 );
+                //             }
+                //             SteelVal::LambdaV(lambda) => {
+                //                 heap2.push(Rc::clone(&env));
+                //                 // heap.push(Rc::clone(&env));
+                //                 // println!("Heap size: {}", heap.len());
+                //                 // println!("Adding to the heap:");
+                //                 // env.borrow().print_bindings();
+                //                 let (new_expr, new_env) = eval_lambda(
+                //                     lambda,
+                //                     &list_of_tokens[1..],
+                //                     &env,
+                //                     heap,
+                //                     expr_stack,
+                //                     // last_macro,
+                //                 )?;
+                //                 expr = new_expr;
+                //                 env = new_env;
+
+                //                 continue;
+                //                 // heap.pop();
+                //                 // heap.push(Rc::clone(&env));
+                //             }
+                //             SteelVal::MacroV(steel_macro) => {
+                //                 // last_macro.replace(Rc::clone(&expr));
+                //                 // println!("Found macro definition!");
+                //                 local_expr_stack.push(steel_macro.expand(&list_of_tokens)?);
+                //                 expr = local_expr_stack.last().unwrap();
+
+                //                 // last_macro.replace(Rc::clone(&expr));
+                //                 // println!("{:?}", expr.clone().to_string());
+                //                 // println!()
+                //             }
+                //             SteelVal::StructClosureV(factory, function) => {
+                //                 return eval_struct_constructor(
+                //                     &list_of_tokens[1..],
+                //                     &factory,
+                //                     *function,
+                //                     env,
+                //                     heap,
+                //                     expr_stack,
+                //                     // last_macro,
+                //                 );
+                //             }
+                //             e => {
+                //                 let error_message = format!("Application not a procedure - expected a function, found: {}", e);
+                //                 // let mut span = expr.to_string();
+                //                 // span.truncate(20);
+                //                 // println!("Span information: {}", span);
+                //                 stop!(TypeMismatch => error_message);
+                //             }
+                //         }
+                //     }
+                // }
                 } else {
                     stop!(TypeMismatch => "Given empty list")
                 }
@@ -656,16 +732,16 @@ fn evaluate(
     }
 }
 
-pub fn eval_require(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<()> {
-    let mut intern: HashMap<String, Rc<Expr>> = HashMap::new();
+pub fn eval_require(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<()> {
+    let mut intern: HashMap<String, Rc<TokenType>> = HashMap::new();
     for expr in list_of_tokens {
-        if let Expr::Atom(SyntaxObject {
-            ty: TokenType::StringLiteral(path),
-            ..
-        }) = expr.as_ref()
-        {
-            env.borrow_mut()
-                .add_module(AST::compile_module(path, &mut intern)?)
+        if let Expr::Atom(SyntaxObject { ty: t, .. }) = expr {
+            if let TokenType::StringLiteral(path) = t.as_ref() {
+                env.borrow_mut()
+                    .add_module(AST::compile_module(path, &mut intern)?)
+            } else {
+                stop!(Generic => "require takes a string as an argument");
+            }
         }
     }
     Ok(())
@@ -673,22 +749,22 @@ pub fn eval_require(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Resu
 
 // TODO come back to this
 // (try! (expr) )
-fn eval_try(
-    list_of_tokens: &[Rc<Expr>],
+fn eval_try<'a>(
+    list_of_tokens: &'a [Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
-) -> Result<(Option<Rc<Expr>>, Result<Rc<SteelVal>>)> {
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
+) -> Result<(Option<&'a Expr>, Result<Rc<SteelVal>>)> {
     // unimplemented!();
     if let [test_expr, except_expr] = list_of_tokens {
-        let result = evaluate(&test_expr, env, heap, expr_stack, last_macro);
+        let result = evaluate(&test_expr, env, heap, expr_stack);
         match result.as_ref() {
             // Ok(result) => {
             //     return 
             // }
             Err(_) => {
-                return Ok((Some(Rc::clone(except_expr)), result))
+                return Ok((Some(except_expr), result))
             }
             _ => return Ok((None, result))
 
@@ -707,35 +783,35 @@ fn eval_try(
 }
 
 fn eval_struct_constructor(
-    list_of_tokens: &[Rc<Expr>],
+    list_of_tokens: &[Expr],
     factory: &SteelStruct,
     func: StructClosureSignature,
     env: Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
 ) -> Result<Rc<SteelVal>> {
     let args_eval: Result<Vec<Rc<SteelVal>>> = list_of_tokens
         .iter()
-        .map(|x| evaluate(&x, &env, heap, expr_stack, last_macro))
+        .map(|x| evaluate(&x, &env, heap, expr_stack))
         .collect();
     let args_eval = args_eval?;
     // not a "pure" function per se, takes the factory from the struct
     func(args_eval, factory)
 }
 
-// fn concat_idents(list_of_tokens: &[Rc<Expr>]) -> Rc<Expr> {
+// fn concat_idents(list_of_tokens: &[Expr]) -> Rc<Expr> {
 //     list_of_tokens.map(|x|)
 // }
 
 // TODO
 // this is super super super super not good but it is what it is for now
 fn eval_apply(
-    list_of_tokens: &[Rc<Expr>],
+    list_of_tokens: &[Expr],
     env: Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
 ) -> Result<Rc<SteelVal>> {
     let (func, rest) = list_of_tokens
         .split_first()
@@ -745,7 +821,7 @@ fn eval_apply(
         .split_last()
         .ok_or_else(throw!(TypeMismatch => "apply expected at least 2 arguments"))?;
 
-    let list_res = evaluate(last, &env, heap, expr_stack, last_macro)?;
+    let list_res = evaluate(last, &env, heap, expr_stack)?;
 
     match list_res.as_ref() {
         SteelVal::Pair(_, _) => {}
@@ -755,14 +831,14 @@ fn eval_apply(
     let vec_of_vals = ListOperations::collect_into_vec(&list_res)?;
     let optional_args: Result<Vec<Rc<SteelVal>>> = optional_args
         .iter()
-        .map(|x| evaluate(&x, &env, heap, expr_stack, last_macro))
+        .map(|x| evaluate(&x, &env, heap, expr_stack))
         .collect();
 
     let mut optional_args = optional_args?;
 
     optional_args.extend(vec_of_vals);
 
-    match evaluate(func, &env, heap, expr_stack, last_macro)?.as_ref() {
+    match evaluate(func, &env, heap, expr_stack)?.as_ref() {
         SteelVal::FuncV(func) => {
             func(optional_args)
             // return eval_func(*func, &list_of_tokens[1..], &env)
@@ -778,7 +854,7 @@ fn eval_apply(
                     .borrow_mut()
                     .define_all(params_exp, optional_args)?;
 
-                evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack, last_macro)
+                evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack)
             } else if let Some(parent_env) = lambda.sub_expression_env() {
                 // unimplemented!()
                 let inner_env = Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone())));
@@ -787,7 +863,7 @@ fn eval_apply(
                     .borrow_mut()
                     .define_all(params_exp, optional_args)?;
 
-                evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack, last_macro)
+                evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack)
             } else {
                 stop!(Generic => "Root env is missing!")
             }
@@ -811,10 +887,7 @@ fn eval_apply(
     }
 }
 
-pub fn eval_macro_def(
-    list_of_tokens: &[Rc<Expr>],
-    env: Rc<RefCell<Env>>,
-) -> Result<Rc<RefCell<Env>>> {
+pub fn eval_macro_def(list_of_tokens: &[Expr], env: Rc<RefCell<Env>>) -> Result<Rc<RefCell<Env>>> {
     let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, &env)?;
     // println!("{:?}", parsed_macro);
     env.borrow_mut().define(
@@ -827,15 +900,15 @@ pub fn eval_macro_def(
 // evaluates a special form 'filter' for speed up
 // TODO fix this noise
 fn eval_filter(
-    list_of_tokens: &[Rc<Expr>],
+    list_of_tokens: &[Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
 ) -> Result<Rc<SteelVal>> {
     if let [func_expr, list_expr] = list_of_tokens {
-        let func_res = evaluate(&func_expr, env, heap, expr_stack, last_macro)?;
-        let list_res = evaluate(&list_expr, env, heap, expr_stack, last_macro)?;
+        let func_res = evaluate(&func_expr, env, heap, expr_stack)?;
+        let list_res = evaluate(&list_expr, env, heap, expr_stack)?;
 
         match list_res.as_ref() {
             SteelVal::Pair(_, _) => {}
@@ -862,8 +935,7 @@ fn eval_filter(
                         inner_env
                             .borrow_mut()
                             .define_all(params_exp, vec![val.clone()])?;
-                        let result =
-                            evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack, last_macro)?;
+                        let result = evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack)?;
 
                         if let SteelVal::BoolV(true) = result.as_ref() {
                             collected_results.push(val);
@@ -876,8 +948,7 @@ fn eval_filter(
                         inner_env
                             .borrow_mut()
                             .define_all(params_exp, vec![val.clone()])?;
-                        let result =
-                            evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack, last_macro)?;
+                        let result = evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack)?;
                         if let SteelVal::BoolV(true) = result.as_ref() {
                             collected_results.push(val);
                         }
@@ -923,17 +994,17 @@ fn eval_filter(
 
 /// evaluates a special form 'map' for speed up
 fn eval_map(
-    list_of_tokens: &[Rc<Expr>],
+    list_of_tokens: &[Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
 ) -> Result<Rc<SteelVal>> {
     println!("inside here!");
 
     if let [func_expr, list_expr] = list_of_tokens {
-        let func_res = evaluate(&func_expr, env, heap, expr_stack, last_macro)?;
-        let list_res = evaluate(&list_expr, env, heap, expr_stack, last_macro)?;
+        let func_res = evaluate(&func_expr, env, heap, expr_stack)?;
+        let list_res = evaluate(&list_expr, env, heap, expr_stack)?;
 
         match list_res.as_ref() {
             SteelVal::Pair(_, _) => {}
@@ -958,8 +1029,7 @@ fn eval_map(
                         inner_env
                             .borrow_mut()
                             .define_all(params_exp, vec![val.clone()])?;
-                        let result =
-                            evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack, last_macro)?;
+                        let result = evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack)?;
                         collected_results.push(result);
                     // if let SteelVal::BoolV(true) = result.as_ref() {
                     //     collected_results.push(val);
@@ -972,8 +1042,7 @@ fn eval_map(
                         inner_env
                             .borrow_mut()
                             .define_all(params_exp, vec![val.clone()])?;
-                        let result =
-                            evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack, last_macro)?;
+                        let result = evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack)?;
                         collected_results.push(result);
                     // if let SteelVal::BoolV(true) = result.as_ref() {
                     //     collected_results.push(val);
@@ -1011,7 +1080,7 @@ fn eval_map(
 
 /// evaluates an atom expression in given environment
 fn eval_atom(t: &SyntaxObject, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
-    match &t.ty {
+    match &t.ty.as_ref() {
         TokenType::BooleanLiteral(b) => {
             if *b {
                 Ok(TRUE.with(|f| Rc::clone(f)))
@@ -1033,23 +1102,23 @@ fn eval_atom(t: &SyntaxObject, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
 /// evaluates a primitive function into single returnable value
 fn eval_func(
     func: FunctionSignature,
-    list_of_tokens: &[Rc<Expr>],
+    list_of_tokens: &[Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
 ) -> Result<Rc<SteelVal>> {
-    // let mut expr_stack: Vec<Rc<Expr>> = ;
+    // let mut expr_stack: Vec<&Expr> = ;
     let args_eval: Result<Vec<Rc<SteelVal>>> = list_of_tokens
         .iter()
-        .map(|x| evaluate(&x, &env, heap, expr_stack, last_macro))
+        .map(|x| evaluate(&x, &env, heap, expr_stack))
         .collect();
     let args_eval = args_eval?;
     // pure function doesn't need the env
     func(args_eval)
 }
 
-// fn eval_and(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
+// fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
 //     for expr in list_of_tokens {
 //         match evaluate(expr, env)?.as_ref() {
 //             SteelVal::BoolV(true) => continue,
@@ -1060,7 +1129,7 @@ fn eval_func(
 //     Ok(TRUE.with(|f| Rc::clone(f)))
 // }
 
-// fn eval_or(list_of_tokens: &[Rc<Expr>], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
+// fn eval_or(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
 //     for expr in list_of_tokens {
 //         match evaluate(expr, env)?.as_ref() {
 //             SteelVal::BoolV(true) => return Ok(TRUE.with(|f| Rc::clone(f))), // Rc::new(SteelVal::BoolV(true))),
@@ -1073,17 +1142,17 @@ fn eval_func(
 /// evaluates a lambda into a body expression to execute
 /// and an inner environment
 /// TODO - come back to eliminate the cloning that occurs in the symbol -> String process
-fn eval_lambda(
-    lambda: &SteelLambda,
-    list_of_tokens: &[Rc<Expr>],
+fn eval_lambda<'a, 'global>(
+    lambda: &'a SteelLambda,
+    list_of_tokens: &'a [Expr],
     env: &Rc<RefCell<Env>>,
-    heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
-) -> Result<(Rc<Expr>, Rc<RefCell<Env>>)> {
+    heap: &'global mut Vec<Rc<RefCell<Env>>>,
+    expr_stack: &'global mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
+) -> Result<(&'a Expr, Rc<RefCell<Env>>)> {
     let args_eval: Result<Vec<Rc<SteelVal>>> = list_of_tokens
         .iter()
-        .map(|x| evaluate(&x, &env, heap, expr_stack, last_macro))
+        .map(|x| evaluate(&x, &env, heap, expr_stack))
         .collect();
     let args_eval: Vec<Rc<SteelVal>> = args_eval?;
 
@@ -1128,17 +1197,17 @@ fn eval_lambda(
     */
 }
 /// evaluates `(test then else)` into `then` or `else`
-fn eval_if(
-    list_of_tokens: &[Rc<Expr>],
+fn eval_if<'a>(
+    list_of_tokens: &'a [Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
-) -> Result<Rc<Expr>> {
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
+) -> Result<&'a Expr> {
     if let [test_expr, then_expr, else_expr] = list_of_tokens {
-        match evaluate(&test_expr, env, heap, expr_stack, last_macro)?.as_ref() {
-            SteelVal::BoolV(true) => Ok(Rc::clone(then_expr)),
-            _ => Ok(Rc::clone(else_expr)),
+        match evaluate(&test_expr, env, heap, expr_stack)?.as_ref() {
+            SteelVal::BoolV(true) => Ok(then_expr),
+            _ => Ok(else_expr),
         }
     } else {
         let e = format!("{}: expected {} args got {}", "If", 3, list_of_tokens.len());
@@ -1147,21 +1216,21 @@ fn eval_if(
 }
 
 fn eval_make_lambda(
-    list_of_tokens: &[Rc<Expr>],
+    list_of_tokens: &[Expr],
     parent_env: Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
 ) -> Result<Rc<SteelVal>> {
     if list_of_tokens.len() > 1 {
         let list_of_symbols = &list_of_tokens[0];
         let mut body_exps = list_of_tokens[1..].to_vec();
-        let mut begin_body: Vec<Rc<Expr>> = vec![Rc::new(Expr::Atom(SyntaxObject::default(
+        let mut begin_body: Vec<Expr> = vec![Expr::Atom(SyntaxObject::default(
             TokenType::Identifier("begin".to_string()),
-        )))];
+        ))];
         begin_body.append(&mut body_exps);
 
-        let parsed_list = parse_list_of_identifiers(Rc::clone(list_of_symbols))?;
+        let parsed_list = parse_list_of_identifiers(list_of_symbols)?;
 
-        let new_expr = Rc::new(Expr::VectorVal(begin_body));
+        let new_expr = Expr::VectorVal(begin_body);
 
         let constructed_lambda = if parent_env.borrow().is_root() {
             // heap.push(Rc::clone(&parent_env));
@@ -1196,42 +1265,42 @@ fn eval_make_lambda(
 }
 
 // Evaluate all but the last, pass the last back up to the loop
-fn eval_begin(
-    list_of_tokens: &[Rc<Expr>],
+fn eval_begin<'a>(
+    list_of_tokens: &'a [Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
-) -> Result<Rc<Expr>> {
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
+) -> Result<&'a Expr> {
     let mut tokens_iter = list_of_tokens.iter();
     let last_token = tokens_iter.next_back();
     // throw away intermediate evaluations
     for token in tokens_iter {
-        evaluate(token, env, heap, expr_stack, last_macro)?;
+        evaluate(token, env, heap, expr_stack)?;
     }
     if let Some(v) = last_token {
-        Ok(Rc::clone(v))
+        Ok(v)
     } else {
         stop!(ArityMismatch => "begin requires at least one argument");
     }
 }
 
 fn eval_set(
-    list_of_tokens: &[Rc<Expr>],
+    list_of_tokens: &[Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
 ) -> Result<Rc<SteelVal>> {
     if let [symbol, rest_expr] = list_of_tokens {
-        let value = evaluate(rest_expr, env, heap, expr_stack, last_macro)?;
+        let value = evaluate(rest_expr, env, heap, expr_stack)?;
 
-        if let Expr::Atom(SyntaxObject {
-            ty: TokenType::Identifier(s),
-            ..
-        }) = &**symbol
-        {
-            env.borrow_mut().set(s.clone(), value)
+        if let Expr::Atom(SyntaxObject { ty: t, .. }) = symbol {
+            if let TokenType::Identifier(s) = t.as_ref() {
+                env.borrow_mut().set(s.clone(), value)
+            } else {
+                stop!(TypeMismatch => symbol)
+            }
         } else {
             stop!(TypeMismatch => symbol)
         }
@@ -1250,16 +1319,16 @@ fn eval_set(
 // Evaluate the inner expression, check that it is a quoted expression,
 // evaluate body of quoted expression
 fn eval_eval_expr(
-    list_of_tokens: &[Rc<Expr>],
+    list_of_tokens: &[Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
 ) -> Result<Rc<SteelVal>> {
     if let [e] = list_of_tokens {
-        let res_expr = evaluate(e, env, heap, expr_stack, last_macro)?;
-        match <Rc<Expr>>::try_from(&(*res_expr).clone()) {
-            Ok(e) => evaluate(&e, env, heap, expr_stack, last_macro),
+        let res_expr = evaluate(e, env, heap, expr_stack)?;
+        match <Expr>::try_from(&(*res_expr).clone()) {
+            Ok(e) => evaluate(&e, env, heap, expr_stack),
             Err(_) => stop!(ContractViolation => "Eval not given an expression"),
         }
     } else {
@@ -1275,74 +1344,72 @@ fn eval_eval_expr(
 
 // TODO maybe have to evaluate the params but i'm not sure
 pub fn eval_define(
-    list_of_tokens: &[Rc<Expr>],
+    list_of_tokens: &[Expr],
     env: &Rc<RefCell<Env>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Rc<Expr>>,
-    last_macro: &mut Option<Rc<Expr>>,
+    expr_stack: &mut Vec<Expr>,
+    // last_macro: &mut Option<&Expr>,
 ) -> Result<()> {
     env.borrow_mut().set_binding_context(true);
 
     if list_of_tokens.len() > 1 {
-        match (
-            list_of_tokens.get(0).as_ref(),
-            list_of_tokens.get(1).as_ref(),
-        ) {
+        match (list_of_tokens.get(0), list_of_tokens.get(1)) {
             (Some(symbol), Some(body)) => {
-                match symbol.deref().deref() {
-                    Expr::Atom(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        ..
-                    }) => {
-                        if list_of_tokens.len() != 2 {
-                            let e = format!(
-                                "{}: multiple expressions after the identifier, expected {} args got {}",
-                                "Define",
-                                2,
-                                list_of_tokens.len()
-                            );
-                            stop!(ArityMismatch => e)
+                match symbol.deref() {
+                    Expr::Atom(SyntaxObject { ty: t, .. }) => {
+                        if let TokenType::Identifier(s) = t.as_ref() {
+                            if list_of_tokens.len() != 2 {
+                                let e = format!(
+                                    "{}: multiple expressions after the identifier, expected {} args got {}",
+                                    "Define",
+                                    2,
+                                    list_of_tokens.len()
+                                );
+                                stop!(ArityMismatch => e)
+                            }
+                            let eval_body = evaluate(body, env, heap, expr_stack)?;
+                            env.borrow_mut().define(s.to_string(), eval_body);
+                            Ok(())
+                        } else {
+                            stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
                         }
-                        let eval_body = evaluate(body, env, heap, expr_stack, last_macro)?;
-                        env.borrow_mut().define(s.to_string(), eval_body);
-                        Ok(())
                     }
                     // construct lambda to parse
                     Expr::VectorVal(list_of_identifiers) => {
                         if list_of_identifiers.is_empty() {
                             stop!(TypeMismatch => "define expected an identifier, got empty list")
                         }
-                        if let Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }) = &*list_of_identifiers[0]
-                        {
-                            let mut begin_body = list_of_tokens[1..].to_vec();
-                            // let mut lst = list_of_tokens[1..].to_vec();
-                            // let mut begin_body: Vec<Rc<Expr>> =
-                            //     vec![Rc::new(Expr::Atom(TokenType::Identifier("begin".to_string())))];
-                            // begin_body.append(&mut lst);
+                        if let Expr::Atom(SyntaxObject { ty: t, .. }) = &list_of_identifiers[0] {
+                            if let TokenType::Identifier(s) = t.as_ref() {
+                                let mut begin_body = list_of_tokens[1..].to_vec();
+                                // let mut lst = list_of_tokens[1..].to_vec();
+                                // let mut begin_body: Vec<&Expr> =
+                                //     vec![Rc::new(Expr::Atom(TokenType::Identifier("begin".to_string())))];
+                                // begin_body.append(&mut lst);
 
-                            // eval_make_lambda(&list_of_tokens[1..], env);
+                                // eval_make_lambda(&list_of_tokens[1..], env);
 
-                            // eval_make_lambda
-                            // let fake_lambda: Vec<Rc<Expr>> = vec![
-                            //     Rc::new(Expr::Atom(TokenType::Identifier("lambda".to_string()))),
-                            //     Rc::new(Expr::VectorVal(list_of_identifiers[1..].to_vec())),
-                            //     Rc::new(Expr::VectorVal(begin_body)),
-                            // ];
-                            let mut fake_lambda: Vec<Rc<Expr>> = vec![
-                                Rc::new(Expr::Atom(SyntaxObject::default(TokenType::Identifier(
-                                    "lambda".to_string(),
-                                )))),
-                                Rc::new(Expr::VectorVal(list_of_identifiers[1..].to_vec())),
-                            ];
-                            fake_lambda.append(&mut begin_body);
-                            let constructed_lambda = Rc::new(Expr::VectorVal(fake_lambda));
-                            let eval_body =
-                                evaluate(&constructed_lambda, env, heap, expr_stack, last_macro)?;
-                            env.borrow_mut().define(s.to_string(), eval_body);
-                            Ok(())
+                                // eval_make_lambda
+                                // let fake_lambda: Vec<&Expr> = vec![
+                                //     Rc::new(Expr::Atom(TokenType::Identifier("lambda".to_string()))),
+                                //     Rc::new(Expr::VectorVal(list_of_identifiers[1..].to_vec())),
+                                //     Rc::new(Expr::VectorVal(begin_body)),
+                                // ];
+                                let mut fake_lambda: Vec<Expr> = vec![
+                                    Expr::Atom(SyntaxObject::default(TokenType::Identifier(
+                                        "lambda".to_string(),
+                                    ))),
+                                    Expr::VectorVal(list_of_identifiers[1..].to_vec()),
+                                ];
+                                fake_lambda.append(&mut begin_body);
+                                let constructed_lambda = Expr::VectorVal(fake_lambda);
+                                let eval_body =
+                                    evaluate(&constructed_lambda, env, heap, expr_stack)?;
+                                env.borrow_mut().define(s.to_string(), eval_body);
+                                Ok(())
+                            } else {
+                                stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
+                            }
                         } else {
                             stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
                         }
@@ -1374,16 +1441,17 @@ pub fn eval_define(
 // Let is actually just a lambda so update values to be that and loop
 // Syntax of a let -> (let ((a 10) (b 20) (c 25)) (body ...))
 // transformed ((lambda (a b c) (body ...)) 10 20 25)
-fn eval_let(list_of_tokens: &[Rc<Expr>], _env: &Rc<RefCell<Env>>) -> Result<Rc<Expr>> {
+// TODO fix this cloning issue
+fn eval_let<'a>(list_of_tokens: &'a [Expr], _env: &Rc<RefCell<Env>>) -> Result<Expr> {
     if let [bindings, body] = list_of_tokens {
-        let mut bindings_to_check: Vec<Rc<Expr>> = Vec::new();
-        let mut args_to_check: Vec<Rc<Expr>> = Vec::new();
+        let mut bindings_to_check: Vec<Expr> = Vec::new();
+        let mut args_to_check: Vec<Expr> = Vec::new();
 
         // TODO fix this noise
         match bindings.deref() {
             Expr::VectorVal(list_of_pairs) => {
                 for pair in list_of_pairs {
-                    match pair.deref() {
+                    match pair {
                         Expr::VectorVal(p) => match p.as_slice() {
                             [binding, expression] => {
                                 bindings_to_check.push(binding.clone());
@@ -1398,17 +1466,17 @@ fn eval_let(list_of_tokens: &[Rc<Expr>], _env: &Rc<RefCell<Env>>) -> Result<Rc<E
             _ => stop!(BadSyntax => "Let: Missing name or binding pairs"),
         }
 
-        let mut combined = vec![Rc::new(Expr::VectorVal(vec![
-            Rc::new(Expr::Atom(SyntaxObject::default(TokenType::Identifier(
+        let mut combined = vec![Expr::VectorVal(vec![
+            Expr::Atom(SyntaxObject::default(TokenType::Identifier(
                 "lambda".to_string(),
-            )))),
-            Rc::new(Expr::VectorVal(bindings_to_check)),
-            Rc::clone(body),
-        ]))];
+            ))),
+            Expr::VectorVal(bindings_to_check),
+            body.clone(),
+        ])];
         combined.append(&mut args_to_check);
 
         let application = Expr::VectorVal(combined);
-        Ok(Rc::new(application))
+        Ok(application)
     } else {
         let e = format!(
             "{}: expected {} args got {}",
@@ -1435,8 +1503,8 @@ mod length_test {
     #[test]
     fn length_test() {
         let tokens = vec![
-            Rc::new(Atom(SyntaxObject::default(NumberLiteral(1.0)))),
-            Rc::new(Atom(SyntaxObject::default(NumberLiteral(2.0)))),
+            Atom(SyntaxObject::default(NumberLiteral(1.0))),
+            Atom(SyntaxObject::default(NumberLiteral(2.0))),
         ];
         assert!(check_length("Test", &tokens, 2).is_ok());
     }
@@ -1444,8 +1512,8 @@ mod length_test {
     #[test]
     fn mismatch_test() {
         let tokens = vec![
-            Rc::new(Atom(SyntaxObject::default(NumberLiteral(1.0)))),
-            Rc::new(Atom(SyntaxObject::default(NumberLiteral(2.0)))),
+            Atom(SyntaxObject::default(NumberLiteral(1.0))),
+            Atom(SyntaxObject::default(NumberLiteral(2.0))),
         ];
         assert!(check_length("Test", &tokens, 1).is_err());
     }
@@ -1459,33 +1527,33 @@ mod parse_identifiers_test {
 
     #[test]
     fn non_symbols_test() {
-        let identifier = Rc::new(VectorVal(vec![
-            Rc::new(Atom(SyntaxObject::default(NumberLiteral(1.0)))),
-            Rc::new(Atom(SyntaxObject::default(NumberLiteral(2.0)))),
-        ]));
+        let identifier = VectorVal(vec![
+            Atom(SyntaxObject::default(NumberLiteral(1.0))),
+            Atom(SyntaxObject::default(NumberLiteral(2.0))),
+        ]);
 
-        let res = parse_list_of_identifiers(identifier);
+        let res = parse_list_of_identifiers(&identifier);
 
         assert!(res.is_err());
     }
 
     #[test]
     fn symbols_test() {
-        let identifier = Rc::new(VectorVal(vec![
-            Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string())))),
-            Rc::new(Atom(SyntaxObject::default(Identifier("b".to_string())))),
-        ]));
+        let identifier = VectorVal(vec![
+            Atom(SyntaxObject::default(Identifier("a".to_string()))),
+            Atom(SyntaxObject::default(Identifier("b".to_string()))),
+        ]);
 
-        let res = parse_list_of_identifiers(identifier);
+        let res = parse_list_of_identifiers(&identifier);
 
         assert_eq!(res.unwrap(), vec!["a".to_string(), "b".to_string()]);
     }
 
     #[test]
     fn malformed_test() {
-        let identifier = Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string()))));
+        let identifier = Atom(SyntaxObject::default(Identifier("a".to_string())));
 
-        let res = parse_list_of_identifiers(identifier);
+        let res = parse_list_of_identifiers(&identifier);
 
         assert!(res.is_err());
     }
@@ -1500,9 +1568,7 @@ mod eval_make_lambda_test {
     #[test]
     fn not_enough_args_test() {
         let mut heap = Vec::new();
-        let list = vec![Rc::new(Atom(SyntaxObject::default(Identifier(
-            "a".to_string(),
-        ))))];
+        let list = vec![Atom(SyntaxObject::default(Identifier("a".to_string())))];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_make_lambda(&list, default_env, &mut heap);
         assert!(res.is_err());
@@ -1512,9 +1578,9 @@ mod eval_make_lambda_test {
     fn not_list_val_test() {
         let mut heap = Vec::new();
         let list = vec![
-            Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string())))),
-            Rc::new(Atom(SyntaxObject::default(Identifier("b".to_string())))),
-            Rc::new(Atom(SyntaxObject::default(Identifier("c".to_string())))),
+            Atom(SyntaxObject::default(Identifier("a".to_string()))),
+            Atom(SyntaxObject::default(Identifier("b".to_string()))),
+            Atom(SyntaxObject::default(Identifier("c".to_string()))),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_make_lambda(&list[1..], default_env, &mut heap);
@@ -1525,11 +1591,11 @@ mod eval_make_lambda_test {
     fn ok_test() {
         let mut heap = Vec::new();
         let list = vec![
-            Rc::new(Atom(SyntaxObject::default(Identifier("a".to_string())))),
-            Rc::new(VectorVal(vec![Rc::new(Atom(SyntaxObject::default(
-                Identifier("b".to_string()),
-            )))])),
-            Rc::new(Atom(SyntaxObject::default(Identifier("c".to_string())))),
+            Atom(SyntaxObject::default(Identifier("a".to_string()))),
+            VectorVal(vec![Atom(SyntaxObject::default(Identifier(
+                "b".to_string(),
+            )))]),
+            Atom(SyntaxObject::default(Identifier("c".to_string()))),
         ];
         let default_env = Rc::new(RefCell::new(Env::default_env()));
         let res = eval_make_lambda(&list[1..], default_env, &mut heap);
