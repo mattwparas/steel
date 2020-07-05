@@ -20,6 +20,8 @@ use std::result;
 
 use crate::structs::SteelStruct;
 
+use crate::vm::Instruction;
+
 // use std::collections::HashMap;
 
 // use std::io::Read;
@@ -133,6 +135,8 @@ pub enum SteelVal {
     StructClosureV(SteelStruct, StructClosureSignature),
     /// Represents a port object
     PortV(SteelPort),
+    /// Represents a bytecode closure
+    Closure(ByteCodeLambda),
 }
 
 pub struct Iter(Option<Rc<SteelVal>>);
@@ -319,7 +323,7 @@ impl TryFrom<Expr> for SteelVal {
     type Error = SteelErr;
     fn try_from(e: Expr) -> std::result::Result<Self, Self::Error> {
         match e {
-            Expr::Atom(a) => match &a.ty.as_ref() {
+            Expr::Atom(a) => match &a.ty {
                 OpenParen => Err(SteelErr::UnexpectedToken("(".to_string())),
                 CloseParen => Err(SteelErr::UnexpectedToken(")".to_string())),
                 QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string())),
@@ -384,6 +388,7 @@ impl TryFrom<&SteelVal> for Expr {
             StructV(_) => Err("Can't convert from Struct to expression!"),
             StructClosureV(_, _) => Err("Can't convert from struct-function to expression!"),
             PortV(_) => Err("Can't convert from port to expression!"),
+            Closure(_) => Err("Can't convert from bytecode closure to expression"),
         }
     }
 }
@@ -427,6 +432,51 @@ impl PartialOrd for SteelVal {
             (IntV(l), IntV(r)) => l.partial_cmp(r),
             _ => None, // unimplemented for other types
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct ByteCodeLambda {
+    /// body of the function with identifiers yet to be bound
+    body_exp: Vec<Instruction>,
+    /// parent environment that created this Lambda.
+    /// the actual environment with correct bindings is built at runtime
+    /// once the function is called
+    parent_env: Option<Rc<RefCell<Env>>>,
+    /// parent subenvironment that created this lambda.
+    /// the actual environment gets upgraded at runtime if needed
+    sub_expression_env: Option<Weak<RefCell<Env>>>,
+    // bytecode instruction body
+    // body_byte: Vec<Instruction>,
+}
+
+impl ByteCodeLambda {
+    pub fn new(
+        body_exp: Vec<Instruction>,
+        parent_env: Option<Rc<RefCell<Env>>>,
+        sub_expression_env: Option<Weak<RefCell<Env>>>,
+    ) -> ByteCodeLambda {
+        ByteCodeLambda {
+            body_exp,
+            parent_env,
+            sub_expression_env,
+        }
+    }
+
+    // pub fn params_exp(&self) -> &[String] {
+    //     &self.params_exp
+    // }
+
+    pub fn body_exp(&self) -> &[Instruction] {
+        &self.body_exp
+    }
+
+    pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
+        self.parent_env.as_ref()
+    }
+
+    pub fn sub_expression_env(&self) -> Option<&Weak<RefCell<Env>>> {
+        self.sub_expression_env.as_ref()
     }
 }
 
@@ -551,6 +601,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
         StructClosureV(_, _) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
+        Closure(_) => write!(f, "#<bytecode-closure>"),
     }
 }
 

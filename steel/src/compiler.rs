@@ -142,6 +142,12 @@ impl AST {
     }
 }
 
+impl Drop for AST {
+    fn drop(&mut self) {
+        self.env.borrow_mut().clear_bindings();
+    }
+}
+
 // fn expression_is_constant(expr: Rc<Expr>) -> bool {
 //     match expr.as_ref() {
 //         Expr::Atom(t)
@@ -181,7 +187,7 @@ fn extract_exported_identifiers(exprs: &[Expr]) -> Result<HashSet<String>> {
             Expr::VectorVal(list_of_tokens) if is_export_statement(expr) => {
                 for identifier in &list_of_tokens[1..] {
                     if let Expr::Atom(SyntaxObject { ty: tt, .. }) = identifier {
-                        if let TokenType::Identifier(t) = tt.as_ref() {
+                        if let TokenType::Identifier(t) = tt {
                             symbols.insert(t.clone());
                         } else {
                             stop!(TypeMismatch => "require expects identifiers");
@@ -300,7 +306,7 @@ fn is_require_statement(expr: &Expr) -> bool {
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
                 if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
-                    if let TokenType::Identifier(s) = t.as_ref() {
+                    if let TokenType::Identifier(s) = t {
                         if s == "require" {
                             return true;
                         }
@@ -319,7 +325,7 @@ fn is_export_statement(expr: &Expr) -> bool {
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
                 if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
-                    if let TokenType::Identifier(s) = t.as_ref() {
+                    if let TokenType::Identifier(s) = t {
                         if s == "export" {
                             return true;
                         }
@@ -338,7 +344,7 @@ fn is_macro_definition(expr: &Expr) -> bool {
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
                 if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
-                    if let TokenType::Identifier(s) = t.as_ref() {
+                    if let TokenType::Identifier(s) = t {
                         if s == "define-syntax" {
                             return true;
                         }
@@ -356,7 +362,7 @@ fn is_struct_definition(expr: &Expr) -> bool {
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
                 if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
-                    if let TokenType::Identifier(s) = t.as_ref() {
+                    if let TokenType::Identifier(s) = t {
                         if s == "struct" {
                             return true;
                         }
@@ -376,7 +382,7 @@ fn is_function_definition(expr: &Expr) -> bool {
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
                 if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
-                    if let TokenType::Identifier(s) = t.as_ref() {
+                    if let TokenType::Identifier(s) = t {
                         if s == "define" {
                             return true;
                         }

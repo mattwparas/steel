@@ -21,6 +21,11 @@ use std::borrow::Cow;
 
 use crate::parser::lexer::TokenStream;
 
+use crate::vm::emit_instructions;
+use crate::vm::execute_vm;
+use crate::vm::pretty_print_instructions;
+use crate::vm::VirtualMachine;
+
 // use crate::vm::flatten_expression_tree;
 
 #[macro_export]
@@ -139,6 +144,8 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
         validator: MatchingBracketValidator::default(),
     }));
 
+    let mut vm = VirtualMachine::new();
+
     // let mut rl = Editor::<RustylineHelper>::new();
     // let mut rl = Editor::<MatchingBracketHighlighter>::new();
     loop {
@@ -159,21 +166,25 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         }
                     }
                     _ => {
-                        // For debugging purposes
-                        // println!("token stream: {:?}", TokenStream::new(&line, true));
+                        let gen_bytecode = emit_instructions(&line).unwrap();
 
-                        // println!("Flatten expressions: {:?}", flatten_expression_tree(&line));
-                        // let now = Instant::now();
-                        let res = interpreter.evaluate(&line);
-                        // it prints '2'
-                        // println!("{:?}", now.elapsed());
-                        match res {
-                            Ok(r) => r.iter().for_each(|x| match x {
-                                SteelVal::Void => {}
-                                _ => println!("{} {}", "=>".bright_blue().bold(), x),
-                            }),
-                            Err(e) => eprintln!("{}", e.to_string().bright_red()),
+                        for instruction_vec in gen_bytecode {
+                            // println!("{:?}", instruction_vec);
+
+                            pretty_print_instructions(instruction_vec.as_slice());
+                            let result = vm.execute(instruction_vec.as_slice());
+                            // let result = execute_vm(instruction_vec.as_slice());
+                            println!("{:?}", result);
                         }
+
+                        // let res = interpreter.evaluate(&line);
+                        // match res {
+                        //     Ok(r) => r.iter().for_each(|x| match x {
+                        //         SteelVal::Void => {}
+                        //         _ => println!("{} {}", "=>".bright_blue().bold(), x),
+                        //     }),
+                        //     Err(e) => eprintln!("{}", e.to_string().bright_red()),
+                        // }
                     }
                 }
             }

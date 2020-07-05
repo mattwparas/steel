@@ -97,6 +97,7 @@ impl Evaluator {
 
         Evaluator {
             global_env: Self::generate_default_env_with_prelude().unwrap(), // if this fails, we have a problem
+            // global_env: Rc::new(RefCell::new(Env::d))
             intern_cache: HashMap::new(),
             heap: Vec::new(),
             // expr_stack: None,
@@ -129,6 +130,11 @@ impl Evaluator {
         //     crate::stdlib::METHODS,
         //     crate::stdlib::MERGE,
         // ];
+
+        // In order to fix memory leak, every environment has to hold a weak reference
+        // to the parent
+
+        // otherwise this environment will not get dropped I believe
 
         def_env
             .borrow_mut()
@@ -333,7 +339,7 @@ fn parse_list_of_identifiers(identifiers: &Expr) -> Result<Vec<String>> {
             let res: Result<Vec<String>> = l
                 .iter()
                 .map(|x| match x {
-                    Expr::Atom(SyntaxObject { ty: t, .. }) => match t.as_ref() {
+                    Expr::Atom(SyntaxObject { ty: t, .. }) => match t {
                         TokenType::Identifier(s) => Ok(s.clone()),
                         _ => Err(SteelErr::TypeMismatch(
                             "lambda must have symbols as arguments".to_string(),
@@ -374,7 +380,7 @@ fn expand(expr: &Expr, env: &Rc<RefCell<Env>>) -> Result<Expr> {
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
                 if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
-                    if let TokenType::Identifier(s) = t.as_ref() {
+                    if let TokenType::Identifier(s) = t {
                         let lookup = env.borrow().lookup(&s);
 
                         if let Ok(v) = lookup {
@@ -427,7 +433,7 @@ fn evaluate<'a, 'global>(
 
                 if let Some(f) = list_of_tokens.first() {
                     if let Expr::Atom(SyntaxObject { ty: t, .. }) = &f {
-                        match t.as_ref() {
+                        match t {
                             TokenType::Identifier(s) if s == "quote" => {
                                 check_length("Quote", &list_of_tokens, 2)?;
                                 let converted = SteelVal::try_from(list_of_tokens[1].clone())?;
@@ -736,7 +742,7 @@ pub fn eval_require(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<(
     let mut intern: HashMap<String, Rc<TokenType>> = HashMap::new();
     for expr in list_of_tokens {
         if let Expr::Atom(SyntaxObject { ty: t, .. }) = expr {
-            if let TokenType::StringLiteral(path) = t.as_ref() {
+            if let TokenType::StringLiteral(path) = t {
                 env.borrow_mut()
                     .add_module(AST::compile_module(path, &mut intern)?)
             } else {
@@ -1080,7 +1086,7 @@ fn eval_map(
 
 /// evaluates an atom expression in given environment
 fn eval_atom(t: &SyntaxObject, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
-    match &t.ty.as_ref() {
+    match &t.ty {
         TokenType::BooleanLiteral(b) => {
             if *b {
                 Ok(TRUE.with(|f| Rc::clone(f)))
@@ -1296,7 +1302,7 @@ fn eval_set(
         let value = evaluate(rest_expr, env, heap, expr_stack)?;
 
         if let Expr::Atom(SyntaxObject { ty: t, .. }) = symbol {
-            if let TokenType::Identifier(s) = t.as_ref() {
+            if let TokenType::Identifier(s) = t {
                 env.borrow_mut().set(s.clone(), value)
             } else {
                 stop!(TypeMismatch => symbol)
@@ -1357,7 +1363,7 @@ pub fn eval_define(
             (Some(symbol), Some(body)) => {
                 match symbol.deref() {
                     Expr::Atom(SyntaxObject { ty: t, .. }) => {
-                        if let TokenType::Identifier(s) = t.as_ref() {
+                        if let TokenType::Identifier(s) = t {
                             if list_of_tokens.len() != 2 {
                                 let e = format!(
                                     "{}: multiple expressions after the identifier, expected {} args got {}",
@@ -1380,7 +1386,7 @@ pub fn eval_define(
                             stop!(TypeMismatch => "define expected an identifier, got empty list")
                         }
                         if let Expr::Atom(SyntaxObject { ty: t, .. }) = &list_of_identifiers[0] {
-                            if let TokenType::Identifier(s) = t.as_ref() {
+                            if let TokenType::Identifier(s) = t {
                                 let mut begin_body = list_of_tokens[1..].to_vec();
                                 // let mut lst = list_of_tokens[1..].to_vec();
                                 // let mut begin_body: Vec<&Expr> =
