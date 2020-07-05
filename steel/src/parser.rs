@@ -18,7 +18,7 @@ use crate::parser::span::Span;
 
 #[derive(Debug, Clone)]
 pub struct SyntaxObject {
-    pub(crate)ty: Rc<TokenType>,
+    pub(crate)ty: TokenType,
     pub(crate)span: Span
 }
 
@@ -29,7 +29,7 @@ impl PartialEq for SyntaxObject {
 }
 
 impl SyntaxObject {
-    pub fn new(ty: Rc<TokenType>, span: Span) -> Self {
+    pub fn new(ty: TokenType, span: Span) -> Self {
         SyntaxObject {
             ty,
             span
@@ -38,7 +38,7 @@ impl SyntaxObject {
 
     pub fn default(ty: TokenType) -> Self {
         SyntaxObject {
-            ty: Rc::new(ty),
+            ty,
             span: Span::new(0, 0)
         }
     }
@@ -46,7 +46,7 @@ impl SyntaxObject {
 
 impl From<&Token<'_>> for SyntaxObject {
     fn from(val: &Token) -> SyntaxObject {
-        SyntaxObject::new(Rc::new(val.ty.clone()), val.span)
+        SyntaxObject::new(val.ty.clone(), val.span)
     }
 }
 
@@ -78,7 +78,7 @@ impl Expr {
         err: F,
     ) -> std::result::Result<&str, E> {
         match self {
-            Self::Atom(SyntaxObject { ty: t, .. })  => match t.as_ref() {
+            Self::Atom(SyntaxObject { ty: t, .. })  => match t {
                 TokenType::Identifier(s) => Ok(s),
                 _ => Err(err())
             },
@@ -197,16 +197,25 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // TODO
     fn construct_quote(&mut self, val: Expr, span: Span) -> Expr {
-        let q = match self.intern.get("quote") {
-            Some(rc) => Expr::Atom(SyntaxObject::new(Rc::clone(rc), span)),
-            None => {
-                let rc_val = Rc::new(TokenType::Identifier("quote".to_string()));
-                let val = Expr::Atom(SyntaxObject::new(Rc::clone(&rc_val), span));
-                self.intern.insert("quote".to_string(), rc_val);
-                val
-            }
+
+        let q = {
+            let rc_val = TokenType::Identifier("quote".to_string());
+            let val = Expr::Atom(SyntaxObject::new(rc_val, span));
+            // self.intern.insert("quote".to_string(), rc_val);
+            val
         };
+
+        // let q = match self.intern.get("quote") {
+        //     Some(rc) => Expr::Atom(SyntaxObject::new(rc, span)),
+        //     None => {
+        //         let rc_val = TokenType::Identifier("quote".to_string());
+        //         let val = Expr::Atom(SyntaxObject::new(rc_val, span));
+        //         self.intern.insert("quote".to_string(), rc_val);
+        //         val
+        //     }
+        // };
 
         Expr::VectorVal(vec![q, val])
     }

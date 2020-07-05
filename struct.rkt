@@ -1,13 +1,13 @@
 ; #lang racket
 ;; ------------------------- TRIE ---------------------------- ;;
 
-(export trie-sort
-        alex-is-the-best
-        macro-test)
+; (export trie-sort
+;         alex-is-the-best
+;         macro-test)
 
-(require "dep.rkt")
+; (require "dep.rkt")
 
-(define (macro-test) (when #t 1500))
+; (define (macro-test) (when #t 1500))
 
 (struct trie (char children end-word? word-up-to))
 

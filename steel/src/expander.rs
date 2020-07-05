@@ -72,7 +72,7 @@ impl MacroCase {
         let args_str: Vec<&str> = args.iter().map(|x| x.deconstruct()).flatten().collect();
         match expr {
             Expr::Atom(ref t) => {
-                if let Identifier(s) = &t.ty.as_ref() {
+                if let Identifier(s) = &t.ty {
                     if args_str.contains(&s.as_str()) || SteelMacro::is_reserved_keyword(&s) {
                         return expr;
                     } else if env.borrow().lookup(&s).is_err() {
@@ -109,7 +109,7 @@ impl MacroCase {
                     }
                     MacroPattern::Syntax(v) => {
                         if let Expr::Atom(SyntaxObject { ty: t, .. }) = val {
-                            if let Identifier(s) = t.as_ref() {
+                            if let Identifier(s) = t {
                                 if s == v || v == "_" {
                                     continue;
                                 } else {
@@ -156,13 +156,13 @@ impl MacroCase {
         while let Some(token) = peek_token_iter.next() {
             match token {
                 Expr::Atom(SyntaxObject { ty: s, .. }) => {
-                    if let Identifier(t) = s.as_ref() {
+                    if let Identifier(t) = s {
                         if t == macro_name || special_forms.contains(t) {
                             pattern_vec.push(MacroPattern::Syntax(t.clone()))
                         } else {
                             if let Some(nxt) = peek_token_iter.peek() {
                                 if let Expr::Atom(SyntaxObject { ty: tt, .. }) = nxt {
-                                    if let Identifier(n) = tt.as_ref() {
+                                    if let Identifier(n) = tt {
                                         if n == "..." {
                                             peek_token_iter.next();
                                             pattern_vec.push(MacroPattern::Many(t.clone()))
@@ -296,7 +296,7 @@ impl MacroCase {
     fn check_ellipses(expr: &Expr) -> bool {
         // let expr = Rc::clone(expr);
         if let Expr::Atom(t) = expr {
-            if let Identifier(s) = &t.ty.as_ref() {
+            if let Identifier(s) = &t.ty {
                 s == "..."
             } else {
                 false
@@ -310,7 +310,7 @@ impl MacroCase {
     fn recursive_replace(expr: &Expr, bindings: &HashMap<String, Expr>) -> Result<Expr> {
         match expr {
             Expr::Atom(t) => {
-                if let Identifier(s) = &t.ty.as_ref() {
+                if let Identifier(s) = &t.ty {
                     if let Some(body) = bindings.get(s) {
                         Ok(body.clone())
                     } else {
@@ -324,7 +324,7 @@ impl MacroCase {
                 let mut vec_exprs = vec_exprs.clone();
                 if let Some(checkdatum) = vec_exprs.get(0) {
                     if let Expr::Atom(SyntaxObject { ty: t, .. }) = checkdatum {
-                        if let Identifier(check) = t.as_ref() {
+                        if let Identifier(check) = t {
                             if check == "datum->syntax" {
                                 let mut buffer = String::new();
                                 if let Some((_, rest)) = vec_exprs.split_first() {
