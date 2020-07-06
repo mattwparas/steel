@@ -37,6 +37,85 @@ use std::rc::Rc;
 
 // use crate::interpreter::evaluator::emit_instructions;
 
+// pass define statement
+// identify the handle for the function call
+// traverse idenitifying function calls
+// if the function call is in the tail position of any of the body, then transform that to be an explicit jump -> __JUMP__
+// only need to check the last thing in the body
+// pub fn identify_tail_call(expr: &Expr) {}
+
+pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &str) -> bool {
+    println!(
+        "Calling transform tail call with function: {}",
+        defining_context
+    );
+
+    let last_idx = instructions.len() - 1;
+
+    // could panic
+    let mut indices = vec![last_idx];
+
+    let mut transformed = false;
+
+    for (idx, instruction) in instructions.iter().enumerate() {
+        if instruction.op_code == OpCode::JMP && instruction.payload_size == last_idx {
+            indices.push(idx);
+        }
+    }
+
+    for index in &indices {
+        let prev_instruction = instructions.get(index - 1);
+        let prev_func_push = instructions.get(index - 2);
+
+        match (prev_instruction, prev_func_push) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::FUNC,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            ..
+                        }),
+                    ..
+                }),
+            ) => {
+                if s == defining_context {
+                    println!("Making optimization!");
+
+                    let new_jmp = Instruction::new_jmp(0);
+                    // inject tail call jump
+                    instructions[index - 1] = new_jmp;
+                    instructions[index - 2] = Instruction::new_pass();
+                    transformed = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // for index in &indices {
+    //     instructions[index - 2] = Instruction::new_pass();
+    // }
+
+    // let rev_iter = indices.iter().rev();
+    // for index in rev_iter {
+    //     instructions.remove(index - 2);
+    // }
+
+    return transformed;
+}
+
+// #[derive(Clone, Debug, PartialEq)]
+// pub struct Instruction {
+//     op_code: OpCode,
+//     payload_size: usize,
+//     contents: Option<SyntaxObject>,
+// }
+
 pub fn emit_instructions(expr_str: &str) -> Result<Vec<Vec<Instruction>>> {
     let mut intern = HashMap::new();
     let mut results = Vec::new();
@@ -47,7 +126,7 @@ pub fn emit_instructions(expr_str: &str) -> Result<Vec<Vec<Instruction>>> {
 
     for expr in parsed {
         let mut instructions: Vec<Instruction> = Vec::new();
-        emit_loop(expr.clone(), &mut instructions)?;
+        emit_loop(&expr, &mut instructions, None)?;
         instructions.push(Instruction::new_pop());
         results.push(instructions);
     }
@@ -75,7 +154,11 @@ pub fn pretty_print_instructions(instrs: &[Instruction]) {
     }
 }
 
-fn emit_loop(expr: Expr, instructions: &mut Vec<Instruction>) -> Result<()> {
+fn emit_loop(
+    expr: &Expr,
+    instructions: &mut Vec<Instruction>,
+    defining_context: Option<&str>,
+) -> Result<()> {
     match expr {
         Expr::Atom(s) => {
             instructions.push(Instruction::new(OpCode::PUSH, 0, s.clone()));
@@ -103,7 +186,7 @@ fn emit_loop(expr: Expr, instructions: &mut Vec<Instruction>) -> Result<()> {
                             // unimplemented!()
 
                             // load in the test condition
-                            emit_loop(test_expr.clone(), instructions)?;
+                            emit_loop(test_expr, instructions, None)?;
                             // push in If
                             instructions.push(Instruction::new_if(instructions.len() + 2));
                             // save spot of jump instruction, fill in after
@@ -111,12 +194,12 @@ fn emit_loop(expr: Expr, instructions: &mut Vec<Instruction>) -> Result<()> {
                             instructions.push(Instruction::new_jmp(0)); // dummy
 
                             // emit instructions for then expression
-                            emit_loop(then_expr.clone(), instructions)?;
+                            emit_loop(then_expr, instructions, None)?;
                             instructions.push(Instruction::new_jmp(0)); // dummy
                             let false_start = instructions.len();
 
                             // emit instructions for else expression
-                            emit_loop(else_expr.clone(), instructions)?;
+                            emit_loop(else_expr, instructions, None)?;
                             let j3 = instructions.len(); // first instruction after else
 
                             // set index of jump instruction to be
@@ -162,9 +245,28 @@ fn emit_loop(expr: Expr, instructions: &mut Vec<Instruction>) -> Result<()> {
 
                         match identifier {
                             Expr::Atom(syn) => {
-                                for expr in &list_of_tokens[2..] {
-                                    emit_loop(expr.clone(), instructions)?;
+                                let defining_context = if let TokenType::Identifier(name) = &syn.ty
+                                {
+                                    Some(name.as_str())
+                                } else {
+                                    None
+                                };
+
+                                if list_of_tokens.len() != 3 {
+                                    let e = format!(
+                                        "{}: multiple expressions after the identifier, expected {} args got {}",
+                                        "Define",
+                                        2,
+                                        list_of_tokens.len()
+                                    );
+                                    stop!(ArityMismatch => e)
                                 }
+
+                                emit_loop(&list_of_tokens[2], instructions, defining_context)?;
+
+                                // for expr in &list_of_tokens[2..] {
+                                //     emit_loop(expr, instructions, None)?;
+                                // }
 
                                 instructions.push(Instruction::new_pop());
                                 let defn_body_size = instructions.len() - sidx;
@@ -181,7 +283,7 @@ fn emit_loop(expr: Expr, instructions: &mut Vec<Instruction>) -> Result<()> {
                             }
 
                             // _ => {}
-                            Expr::VectorVal(l) => {
+                            Expr::VectorVal(_l) => {
                                 panic!("Complex defines not yet supported");
                             }
                         }
@@ -214,11 +316,14 @@ fn emit_loop(expr: Expr, instructions: &mut Vec<Instruction>) -> Result<()> {
 
                         let list_of_symbols = &list_of_tokens[1];
 
+                        // make recursive call with "fresh" vector so that offsets are correct
+                        let mut body_instructions = Vec::new();
+
                         match list_of_symbols {
                             Expr::VectorVal(l) => {
                                 for symbol in l {
                                     if let Expr::Atom(syn) = symbol {
-                                        instructions.push(Instruction::new_bind(syn.clone()))
+                                        body_instructions.push(Instruction::new_bind(syn.clone()))
                                     } else {
                                         stop!(Generic => "lambda function requires list of identifiers");
                                     }
@@ -227,12 +332,21 @@ fn emit_loop(expr: Expr, instructions: &mut Vec<Instruction>) -> Result<()> {
                             _ => stop!(TypeMismatch => "List of Identifiers"),
                         }
 
+                        // let mut body_instructions = Vec::new();
+
                         for expr in &list_of_tokens[2..] {
-                            emit_loop(expr.clone(), instructions)?;
+                            emit_loop(expr, &mut body_instructions, None)?;
                         }
 
                         // TODO look out here for the
-                        instructions.push(Instruction::new_pop());
+                        body_instructions.push(Instruction::new_pop());
+
+                        if let Some(ctx) = defining_context {
+                            transform_tail_call(&mut body_instructions, ctx);
+                        }
+
+                        instructions.append(&mut body_instructions);
+
                         let closure_body_size = instructions.len() - idx;
                         instructions.push(Instruction::new_eclosure());
 
@@ -270,16 +384,16 @@ fn emit_loop(expr: Expr, instructions: &mut Vec<Instruction>) -> Result<()> {
                     //     instructions.push("let".to_string());
                     //     return Ok(());
                     // }
-                    // Expr::Atom(SyntaxObject {
-                    //     ty: TokenType::Identifier(s),
-                    //     ..
-                    // }) if s == "begin" => {
-                    //     instructions.push("begin".to_string());
-                    //     for expr in &list_of_tokens[1..] {
-                    //         emit_loop(Rc::clone(expr), instructions)?;
-                    //     }
-                    //     return Ok(());
-                    // }
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "begin" => {
+                        // instructions.push("begin".to_string());
+                        for expr in &list_of_tokens[1..] {
+                            emit_loop(expr, instructions, None)?;
+                        }
+                        return Ok(());
+                    }
                     // Expr::Atom(SyntaxObject {
                     //     ty: TokenType::Identifier(s),
                     //     ..
@@ -355,10 +469,10 @@ fn emit_loop(expr: Expr, instructions: &mut Vec<Instruction>) -> Result<()> {
                     _sym => {
                         let pop_len = &list_of_tokens[1..].len();
                         for expr in &list_of_tokens[1..] {
-                            emit_loop(expr.clone(), instructions)?;
+                            emit_loop(expr, instructions, None)?;
                         }
 
-                        emit_loop(f.clone(), instructions)?;
+                        emit_loop(f, instructions, None)?;
 
                         instructions.push(Instruction::new_func(*pop_len));
 
@@ -461,6 +575,7 @@ pub enum OpCode {
     BIND = 10,
     SDEF = 11,
     EDEF = 12,
+    PASS = 13,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -558,6 +673,14 @@ impl Instruction {
             contents: None,
         }
     }
+
+    pub fn new_pass() -> Instruction {
+        Instruction {
+            op_code: OpCode::PASS,
+            payload_size: 0,
+            contents: None,
+        }
+    }
 }
 
 pub struct VirtualMachine {
@@ -617,8 +740,14 @@ pub fn vm(
     let mut cur_inst = &instructions[ip];
 
     while ip < instructions.len() {
+        // println!("{:?}", cur_inst);
+
         // println!("IP: {}", ip);
         match cur_inst.op_code {
+            OpCode::PASS => {
+                ip += 1;
+                cur_inst = &instructions[ip];
+            }
             OpCode::VOID => {
                 stack.push(VOID.with(|f| Rc::clone(f)));
                 ip += 1;
@@ -654,7 +783,7 @@ pub fn vm(
                         cur_inst = &instructions[ip];
                     }
                     SteelVal::Closure(closure) => {
-                        println!("Stack inside closure case: {:?}", stack);
+                        // println!("Stack inside closure case: {:?}", stack);
 
                         let mut args = stack.split_off(stack.len() - cur_inst.payload_size);
 
@@ -727,7 +856,7 @@ pub fn vm(
                     ..
                 } = &cur_inst.contents.as_ref().unwrap()
                 {
-                    println!("Inside bind statement - Instructions: {:?}", instructions);
+                    // println!("Inside bind statement - Instructions: {:?}", instructions);
                     global_env
                         .borrow_mut()
                         .define(bound_variable.to_string(), stack.pop().unwrap());
@@ -769,9 +898,12 @@ pub fn vm(
             }
             OpCode::SDEF => {
                 ip += 1;
+
+                global_env.borrow_mut().set_binding_context(true);
+
                 let defn_body = &instructions[ip..(ip + cur_inst.payload_size - 1)];
 
-                println!("Instructions for def body: {:?}", defn_body);
+                // println!("Instructions for def body: {:?}", defn_body);
 
                 let mut temp_stack = Vec::new();
                 let result = vm(defn_body, &mut temp_stack, heap, Rc::clone(&global_env))?;
@@ -788,6 +920,7 @@ pub fn vm(
 
     unimplemented!()
 }
+// (define test (lambda (x) (if (= x 100000) x (test (+ x 1)))))
 
 // fn eval_lambda(
 //     lambda: &SteelLambda,
