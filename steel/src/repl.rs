@@ -26,6 +26,8 @@ use crate::vm::execute_vm;
 use crate::vm::pretty_print_instructions;
 use crate::vm::VirtualMachine;
 
+use std::time::{Duration, Instant};
+
 // use crate::vm::flatten_expression_tree;
 
 #[macro_export]
@@ -172,9 +174,14 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                             // println!("{:?}", instruction_vec);
 
                             pretty_print_instructions(instruction_vec.as_slice());
+
+                            let now = Instant::now();
+
                             let result = vm.execute(instruction_vec.as_slice());
                             // let result = execute_vm(instruction_vec.as_slice());
                             println!("{:?}", result);
+
+                            println!("{:?}", now.elapsed());
                         }
 
                         // let res = interpreter.evaluate(&line);

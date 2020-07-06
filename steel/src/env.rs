@@ -236,6 +236,21 @@ impl Env {
         // println!("{:?}", self.bindings.keys());
         self.bindings.insert(key, val);
     }
+
+    pub fn try_define(&mut self, key: &str, val: Rc<SteelVal>) {
+        if let Some(v) = self.bindings.get_mut(key) {
+            *v = val;
+        } else {
+            self.bindings.insert(key.to_string(), val);
+        }
+
+        // if self.bindings.contains_key(key) {
+        //     self.bindings.get_mut(k)
+        // } else {
+
+        // }
+    }
+
     /// Within the current environment,
     /// bind identifiers `keys` to `vals`
     /// throws arity mismatch if they don't have the same length

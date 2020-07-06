@@ -742,16 +742,18 @@ pub fn vm(
     while ip < instructions.len() {
         // println!("{:?}", cur_inst);
 
+        cur_inst = &instructions[ip];
+
         // println!("IP: {}", ip);
         match cur_inst.op_code {
             OpCode::PASS => {
                 ip += 1;
-                cur_inst = &instructions[ip];
+                // cur_inst = &instructions[ip];
             }
             OpCode::VOID => {
                 stack.push(VOID.with(|f| Rc::clone(f)));
                 ip += 1;
-                cur_inst = &instructions[ip];
+                // cur_inst = &instructions[ip];
             }
             OpCode::PUSH => {
                 stack.push(eval_atom(
@@ -759,7 +761,7 @@ pub fn vm(
                     &global_env,
                 )?);
                 ip += 1;
-                cur_inst = &instructions[ip];
+                // cur_inst = &instructions[ip];
             }
             OpCode::FUNC => {
                 let stack_func = stack.pop().unwrap();
@@ -780,7 +782,7 @@ pub fn vm(
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
                         stack.push(f(args)?);
                         ip += 1;
-                        cur_inst = &instructions[ip];
+                        // cur_inst = &instructions[ip];
                     }
                     SteelVal::Closure(closure) => {
                         // println!("Stack inside closure case: {:?}", stack);
@@ -806,7 +808,7 @@ pub fn vm(
                         }
 
                         ip += 1;
-                        cur_inst = &instructions[ip];
+                        // cur_inst = &instructions[ip];
                     }
                     _ => {
                         stop!(BadSyntax => "Application not a procedure or function type not supported");
@@ -835,15 +837,15 @@ pub fn vm(
                 if let SteelVal::BoolV(true) = stack.pop().unwrap().as_ref() {
                     ip = cur_inst.payload_size; // Jump to payload
                                                 // ip += 2; // Jump to payload
-                    cur_inst = &instructions[ip];
+                                                // cur_inst = &instructions[ip];
                 } else {
                     ip += 1;
-                    cur_inst = &instructions[ip];
+                    // cur_inst = &instructions[ip];
                 }
             }
             OpCode::JMP => {
                 ip = cur_inst.payload_size;
-                cur_inst = &instructions[ip];
+                // cur_inst = &instructions[ip];
             }
             OpCode::POP => {
                 return stack
@@ -859,9 +861,9 @@ pub fn vm(
                     // println!("Inside bind statement - Instructions: {:?}", instructions);
                     global_env
                         .borrow_mut()
-                        .define(bound_variable.to_string(), stack.pop().unwrap());
+                        .try_define(bound_variable, stack.pop().unwrap());
                     ip += 1;
-                    cur_inst = &instructions[ip];
+                // cur_inst = &instructions[ip];
                 } else {
                     stop!(Generic => "lambda requires identifier")
                 }
@@ -892,7 +894,7 @@ pub fn vm(
                 // println!("{:?}", stack);
 
                 ip += cur_inst.payload_size;
-                cur_inst = &instructions[ip];
+                // cur_inst = &instructions[ip];
 
                 // let c = ByteCodeLambda::new(closure_body, )
             }
@@ -910,7 +912,7 @@ pub fn vm(
 
                 stack.push(result);
                 ip += cur_inst.payload_size;
-                cur_inst = &instructions[ip];
+                // cur_inst = &instructions[ip];
             }
             _ => {
                 unimplemented!();
