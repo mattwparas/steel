@@ -20,7 +20,7 @@ use std::result;
 
 use crate::structs::SteelStruct;
 
-use crate::vm::Instruction;
+use crate::vm::DenseInstruction;
 
 // use std::collections::HashMap;
 
@@ -438,7 +438,7 @@ impl PartialOrd for SteelVal {
 #[derive(Clone)]
 pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
-    body_exp: Vec<Instruction>,
+    body_exp: Vec<DenseInstruction>,
     /// parent environment that created this Lambda.
     /// the actual environment with correct bindings is built at runtime
     /// once the function is called
@@ -452,7 +452,7 @@ pub struct ByteCodeLambda {
 
 impl ByteCodeLambda {
     pub fn new(
-        body_exp: Vec<Instruction>,
+        body_exp: Vec<DenseInstruction>,
         parent_env: Option<Rc<RefCell<Env>>>,
         sub_expression_env: Option<Weak<RefCell<Env>>>,
     ) -> ByteCodeLambda {
@@ -467,7 +467,7 @@ impl ByteCodeLambda {
     //     &self.params_exp
     // }
 
-    pub fn body_exp(&self) -> &[Instruction] {
+    pub fn body_exp(&self) -> &[DenseInstruction] {
         &self.body_exp
     }
 

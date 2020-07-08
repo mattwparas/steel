@@ -6,7 +6,7 @@ First, consume the entire syntax tree and create global definitions
 // use std::io::prelude::*;
 
 use crate::env::Env;
-use crate::parser::tokens::Token;
+// use crate::parser::tokens::Token;
 use crate::parser::tokens::TokenType;
 use crate::parser::Expr;
 use crate::parser::SyntaxObject;
@@ -22,7 +22,7 @@ use crate::structs::SteelStruct;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::ops::Deref;
+// use std::ops::Deref;
 
 use crate::stop;
 
@@ -139,6 +139,15 @@ impl AST {
         } else {
             stop!(FreeIdentifier => "name not found in module")
         }
+    }
+
+    pub fn lookup_idx(&self, idx: usize) -> Result<Rc<SteelVal>> {
+        unimplemented!()
+        // if self.exported.contains(name) {
+        //     self.env.borrow().lookup_idx(name)
+        // } else {
+        //     stop!(FreeIdentifier => "name not found in module")
+        // }
     }
 }
 

@@ -15,11 +15,14 @@ use crate::stop;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+
 use std::rc::Rc;
 use std::rc::Weak;
 // use std::convert::AsRef;
 // use std::borrow::BorrowMut;
 use crate::compiler::AST;
+
+use crate::vm::SymbolMap;
 
 thread_local! {
     pub static VOID: Rc<SteelVal> = Rc::new(SteelVal::Void);
@@ -112,6 +115,8 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
 
 pub struct Env {
     bindings: HashMap<String, Rc<SteelVal>>,
+    bindings_vec: Vec<Rc<SteelVal>>,
+    offset: usize,
     parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
     heap: Vec<Rc<RefCell<Env>>>,
@@ -126,15 +131,18 @@ impl Drop for Env {
         self.clear_bindings();
         self.heap.clear();
         self.module.clear();
+        self.bindings_vec.clear();
     }
 }
 
 impl Env {
     /// Make a new `Env` from
     /// another parent `Env`.
-    pub fn new(parent: &Rc<RefCell<Self>>) -> Self {
+    pub fn new(parent: &Rc<RefCell<Self>>, offset: usize) -> Self {
         Env {
             bindings: HashMap::new(),
+            bindings_vec: Vec::new(),
+            offset,
             parent: Some(Rc::clone(&parent)),
             sub_expression: None,
             heap: Vec::new(),
@@ -148,9 +156,19 @@ impl Env {
         self.module.push(new_mod)
     }
 
-    pub fn new_subexpression(sub_expression: Weak<RefCell<Self>>) -> Self {
+    pub fn len(&self) -> usize {
+        self.bindings_vec.len()
+    }
+
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub fn new_subexpression(sub_expression: Weak<RefCell<Self>>, offset: usize) -> Self {
         Env {
             bindings: HashMap::new(),
+            bindings_vec: Vec::new(),
+            offset,
             parent: None,
             sub_expression: Some(sub_expression),
             heap: Vec::new(),
@@ -184,6 +202,8 @@ impl Env {
     pub fn root() -> Self {
         Env {
             bindings: HashMap::new(),
+            bindings_vec: Vec::new(),
+            offset: 0,
             parent: None,
             sub_expression: None,
             heap: Vec::new(),
@@ -235,6 +255,17 @@ impl Env {
         // println!("Defining: {} with val: {}", key, (*val).clone());
         // println!("{:?}", self.bindings.keys());
         self.bindings.insert(key, val);
+    }
+
+    pub fn define_idx(&mut self, idx: usize, val: Rc<SteelVal>) {
+        if idx < self.bindings_vec.len() {
+            self.bindings_vec[idx] = val;
+        } else {
+            self.bindings_vec.push(val);
+        }
+
+        // println!("{:?}", self.bindings_vec);
+        // self.offset += 1;
     }
 
     pub fn try_define(&mut self, key: &str, val: Rc<SteelVal>) {
@@ -334,6 +365,51 @@ impl Env {
         }
     }
 
+    pub fn lookup_idx(&self, idx: usize) -> Result<Rc<SteelVal>> {
+        // println!("Looking up {}, {}", idx, self.offset);
+        // println!("{:?}", self.bindings_vec);
+
+        if self.offset <= idx {
+            if let Some(v) = self.bindings_vec.get(idx - self.offset) {
+                Ok(Rc::clone(v))
+            } else {
+                stop!(FreeIdentifier => idx)
+            }
+        // }
+        // if let Some(v) = self.bindings_vec.get(idx - self.offset) {
+        //     Ok(Rc::clone(v))
+        } else {
+            // half assed module approach
+            if !self.module.is_empty() {
+                for module in &self.module {
+                    let res = module.lookup_idx(idx);
+                    if res.is_ok() {
+                        return res;
+                    }
+                }
+            }
+
+            if self.parent.is_some() {
+                match &self.parent {
+                    Some(par) => par.borrow().lookup_idx(idx),
+                    None => {
+                        stop!(FreeIdentifier => idx); // Err(SteelErr::FreeIdentifier(name.to_string())),
+                    }
+                }
+            } else {
+                match &self.sub_expression {
+                    Some(par) => match par.upgrade() {
+                        Some(x) => x.borrow().lookup_idx(idx),
+                        None => {
+                            stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
+                        }
+                    },
+                    None => stop!(FreeIdentifier => idx),
+                }
+            }
+        }
+    }
+
     /// Search starting from the current environment
     /// for `key`, looking through the parent chain in order.
     ///
@@ -390,8 +466,30 @@ impl Env {
                 .into_iter()
                 .map(|x| (x.0.to_string(), Rc::new(x.1))),
         );
+
+        for (idx, val) in Env::default_bindings().into_iter().enumerate() {
+            env.define_idx(idx, Rc::new(val.1));
+        }
+
+        // for (idx, val) in Env::default_bindings().iter().enumerate() {
+        //     env.define_idx(val)
+        // }
+
         env
     }
+
+    pub fn default_symbol_map() -> SymbolMap {
+        let mut sm = SymbolMap::new();
+        for val in Env::default_bindings() {
+            sm.add(val.0);
+        }
+        sm
+    }
+
+    // pub fn gen_rooted_sym_table() -> SymbolMap {
+    //     let mut env = Env::root();
+    // }
+
     fn default_bindings() -> Vec<(&'static str, SteelVal)> {
         vec![
             // ("+", SteelVal::FuncV(Adder::new_func())),
@@ -477,10 +575,10 @@ mod env_tests {
         // default_env <- c1 <- c2
         let default_env = Rc::new(RefCell::new(Env::default_env()));
         assert!(default_env.borrow().lookup("+").is_ok());
-        let c1 = Rc::new(RefCell::new(Env::new(&default_env)));
+        let c1 = Rc::new(RefCell::new(Env::new(&default_env, 0)));
         c1.borrow_mut()
             .define("x".to_owned(), Rc::new(SteelVal::NumV(1.0)));
-        let c2 = Rc::new(RefCell::new(Env::new(&c1)));
+        let c2 = Rc::new(RefCell::new(Env::new(&c1, 0)));
         c2.borrow_mut()
             .define("y".to_owned(), Rc::new(SteelVal::NumV(2.0)));
         assert!(default_env.borrow_mut().lookup("+").is_ok());
