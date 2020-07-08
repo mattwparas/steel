@@ -7,24 +7,22 @@ use std::result;
 
 // use crate::env::{Env, FALSE, TRUE, VOID};
 // use crate::parser::lexer::Tokenizer;
-use crate::parser::lexer::TokenStream;
-use crate::parser::tokens::Token;
-use crate::parser::tokens::TokenError;
+// use crate::parser::lexer::TokenStream;
+// use crate::parser::tokens::Token;
+// use crate::parser::tokens::TokenError;
 use crate::parser::tokens::TokenType;
 use crate::parser::SyntaxObject;
 use crate::parser::{Expr, ParseError, Parser};
 // use crate::primitives::ListOperations;
 use crate::rerrs::SteelErr;
-use crate::rvals::{
-    ByteCodeLambda, FunctionSignature, Result, SteelLambda, SteelVal, StructClosureSignature,
-};
+use crate::rvals::{ByteCodeLambda, Result, SteelVal};
 // use crate::stop;
 // use crate::structs::SteelStruct;
 // use crate::throw;
 use std::collections::HashMap;
 // use std::ops::Deref;
 
-use crate::interpreter::evaluator::Evaluator;
+// use crate::interpreter::evaluator::Evaluator;
 
 use std::ops::Deref;
 
@@ -34,6 +32,104 @@ use crate::env::TRUE;
 use crate::env::VOID;
 use std::cell::RefCell;
 use std::rc::Rc;
+
+use std::collections::HashSet;
+
+#[derive(Debug, PartialEq)]
+pub struct SymbolMap {
+    seen: Vec<String>,
+    // seen_set: HashSet<String>,
+    // shadowed: HashMap<String, Vec<usize>>,
+    bind_count: usize,
+}
+
+impl SymbolMap {
+    pub fn new() -> Self {
+        SymbolMap {
+            seen: Vec::new(),
+            // seen_set: HashSet::new(),
+            // seen: HashMap::new(),
+            // shadowed: HashMap::new(),
+            bind_count: 0,
+        }
+    }
+
+    pub fn add(&mut self, ident: &str) -> usize {
+        let idx = self.seen.len();
+        self.seen.push(ident.to_string());
+        idx
+    }
+
+    pub fn get_or_add(&mut self, ident: &str) -> usize {
+        let rev_iter = self.seen.iter().enumerate().rev();
+
+        for (idx, val) in rev_iter {
+            // println!("{}", idx);
+            if val == ident {
+                return idx;
+            }
+        }
+
+        let idx = self.seen.len();
+        self.seen.push(ident.to_string());
+        println!("Adding {} with index {}", ident, idx);
+        println!("{:?}", self.seen);
+
+        idx
+    }
+
+    // fallible
+    pub fn get(&mut self, ident: &str) -> usize {
+        // if self.seen_set.contains(ident) {
+
+        // }
+
+        let rev_iter = self.seen.iter().enumerate().rev();
+
+        for (idx, val) in rev_iter {
+            // println!("{}", idx);
+            if val == ident {
+                return idx;
+            }
+        }
+
+        println!("Unable to find {}", ident);
+
+        unreachable!();
+
+        // let idx = self.seen.len();
+        // self.seen.push(ident.to_string());
+        // println!("Adding {} with index {}", ident, idx);
+        // println!("{:?}", self.seen);
+
+        // idx
+
+        // unimplemented!()
+        // if let Some(idx) = self.seen.get(ident) {
+        //     *idx
+        // } else {
+        //     let length = self.seen.len();
+        //     self.seen.insert(ident.to_string(), length);
+        //     println!("Adding {} with index {}", ident, length);
+        //     length
+        // }
+    }
+
+    pub fn roll_back(&mut self, idx: usize) {
+        self.seen.truncate(idx);
+
+        // unimplemented!()
+    }
+
+    pub fn contains(&self, ident: &str) -> bool {
+        // self.seen.contains_key(ident)
+        unimplemented!()
+    }
+
+    pub fn len(&self) -> usize {
+        self.seen.len()
+    }
+}
 
 // use crate::interpreter::evaluator::emit_instructions;
 
@@ -64,6 +160,9 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
     }
 
     for index in &indices {
+        if *index < 2 {
+            continue;
+        }
         let prev_instruction = instructions.get(index - 1);
         let prev_func_push = instructions.get(index - 2);
 
@@ -88,8 +187,8 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
 
                     let new_jmp = Instruction::new_jmp(0);
                     // inject tail call jump
-                    instructions[index - 1] = new_jmp;
-                    instructions[index - 2] = Instruction::new_pass();
+                    instructions[index - 2] = new_jmp;
+                    instructions[index - 1] = Instruction::new_pass();
                     transformed = true;
                 }
             }
@@ -116,22 +215,123 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
 //     contents: Option<SyntaxObject>,
 // }
 
-pub fn emit_instructions(expr_str: &str) -> Result<Vec<Vec<Instruction>>> {
+// insert fast path for built in functions
+// rather than look up function in env, be able to call it directly?
+
+pub fn insert_debruijn_indicies(instructions: &mut [Instruction], symbol_map: &mut SymbolMap) {
+    let mut stack: Vec<usize> = Vec::new();
+    // name mangle
+    // Replace all identifiers with indices
+    for i in 0..instructions.len() {
+        match &instructions[i] {
+            Instruction {
+                op_code: OpCode::PUSH,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }),
+                ..
+            } => {
+                let idx = symbol_map.get(s);
+                println!("Renaming: {} to index: {}", s, idx);
+                if let Some(x) = instructions.get_mut(i) {
+                    x.payload_size = idx;
+                    x.contents = None;
+                }
+            }
+            Instruction {
+                op_code: OpCode::BIND,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }),
+                ..
+            } => {
+                // let idx = if stack.is_empty() {
+                //     symbol_map.get_or_add(s)
+                // } else {
+                //     symbol_map.add(s)
+                // };
+
+                let idx = symbol_map.get_or_add(s);
+
+                println!("Renaming: {} to index: {}", s, idx);
+                if let Some(x) = instructions.get_mut(i) {
+                    x.payload_size = idx;
+                    x.contents = None;
+                }
+            }
+            Instruction {
+                op_code: OpCode::SCLOSURE,
+                ..
+            } => stack.push(symbol_map.len()),
+            Instruction {
+                op_code: OpCode::ECLOSURE,
+                ..
+            } => symbol_map.roll_back(stack.pop().unwrap()),
+            Instruction {
+                op_code: OpCode::SDEF,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }),
+                ..
+            } => {
+                let idx = symbol_map.add(s);
+                println!("Renaming: {} to index: {}", s, idx);
+                if let Some(x) = instructions.get_mut(i) {
+                    x.contents = None;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn emit_instructions(
+    expr_str: &str,
+    symbol_map: &mut SymbolMap,
+    constants: &mut Vec<Rc<SteelVal>>,
+) -> Result<Vec<Vec<DenseInstruction>>> {
     let mut intern = HashMap::new();
     let mut results = Vec::new();
 
     let parsed: result::Result<Vec<Expr>, ParseError> =
         Parser::new(expr_str, &mut intern).collect();
-    let parsed = parsed.unwrap();
+    let parsed = parsed?;
 
     for expr in parsed {
         let mut instructions: Vec<Instruction> = Vec::new();
         emit_loop(&expr, &mut instructions, None)?;
         instructions.push(Instruction::new_pop());
-        results.push(instructions);
+
+        pretty_print_instructions(&instructions);
+
+        // let mut stack: Vec<usize> = Vec::new();
+
+        insert_debruijn_indicies(&mut instructions, symbol_map);
+
+        println!("Got after the debruijn indices");
+
+        extract_constants(&mut instructions, constants)?;
+
+        let dense_instructions = densify(instructions);
+
+        results.push(dense_instructions);
     }
 
+    // for i in 0..results.len() {
+    //     if let Some(instr) = results.
+    // }
+
     Ok(results)
+}
+
+pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
+    instructions.into_iter().map(|x| x.into()).collect()
 }
 
 pub fn pretty_print_instructions(instrs: &[Instruction]) {
@@ -151,6 +351,16 @@ pub fn pretty_print_instructions(instrs: &[Instruction]) {
                 i, instruction.op_code, instruction.payload_size
             );
         }
+    }
+}
+
+pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
+    // for (i, item) in foo.iter().enumerate()
+    for (i, instruction) in instrs.iter().enumerate() {
+        println!(
+            "{}    {:?} : {}",
+            i, instruction.op_code, instruction.payload_size
+        );
     }
 }
 
@@ -247,6 +457,10 @@ fn emit_loop(
                             Expr::Atom(syn) => {
                                 let defining_context = if let TokenType::Identifier(name) = &syn.ty
                                 {
+                                    // Get the defining context for the debruijn indices
+                                    if let Some(x) = instructions.get_mut(sidx) {
+                                        x.contents = Some(syn.clone());
+                                    }
                                     Some(name.as_str())
                                 } else {
                                     None
@@ -576,6 +790,28 @@ pub enum OpCode {
     SDEF = 11,
     EDEF = 12,
     PASS = 13,
+    PUSHCONST = 14,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct DenseInstruction {
+    op_code: OpCode,
+    payload_size: usize,
+}
+
+impl DenseInstruction {
+    pub fn new(op_code: OpCode, payload_size: usize) -> DenseInstruction {
+        DenseInstruction {
+            op_code,
+            payload_size,
+        }
+    }
+}
+
+impl From<Instruction> for DenseInstruction {
+    fn from(val: Instruction) -> DenseInstruction {
+        DenseInstruction::new(val.op_code, val.payload_size)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -696,16 +932,23 @@ impl VirtualMachine {
         }
     }
 
-    pub fn execute(&mut self, instructions: &[Instruction]) -> Result<Rc<SteelVal>> {
+    pub fn execute(
+        &mut self,
+        instructions: &[DenseInstruction],
+        constants: &[Rc<SteelVal>],
+    ) -> Result<Rc<SteelVal>> {
         // execute_vm(instructions)
         let mut stack: Vec<Rc<SteelVal>> = Vec::new();
         let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
+        // let mut constants: Vec<Rc<RefCell<Env>>
+
         // let global_env = Rc::new(RefCell::new(Env::default_env()));
         let result = vm(
             instructions,
             &mut stack,
             &mut heap,
             Rc::clone(&self.global_env),
+            constants,
         );
 
         if self.global_env.borrow().is_binding_context() {
@@ -717,18 +960,46 @@ impl VirtualMachine {
     }
 }
 
-pub fn execute_vm(instructions: &[Instruction]) -> Result<Rc<SteelVal>> {
+pub fn execute_vm(
+    instructions: &[DenseInstruction],
+    constants: &[Rc<SteelVal>],
+) -> Result<Rc<SteelVal>> {
     let mut stack: Vec<Rc<SteelVal>> = Vec::new();
     let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
+    // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
     let global_env = Rc::new(RefCell::new(Env::default_env()));
-    vm(instructions, &mut stack, &mut heap, global_env)
+    vm(instructions, &mut stack, &mut heap, global_env, constants)
+}
+
+// TODO make this not so garbage but its kind of okay
+pub fn extract_constants(
+    instructions: &mut [Instruction],
+    constants: &mut Vec<Rc<SteelVal>>,
+) -> Result<()> {
+    for i in 0..instructions.len() {
+        let inst = &instructions[i];
+        if let OpCode::PUSH = inst.op_code {
+            let idx = constants.len();
+            if inst.contents.is_some() {
+                constants.push(eval_atom(&inst.contents.as_ref().unwrap())?);
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::PUSHCONST;
+                    x.payload_size = idx;
+                    x.contents = None;
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn vm(
-    instructions: &[Instruction],
+    instructions: &[DenseInstruction],
     stack: &mut Vec<Rc<SteelVal>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
     global_env: Rc<RefCell<Env>>,
+    constants: &[Rc<SteelVal>],
 ) -> Result<Rc<SteelVal>> {
     // let mut stack: Vec<Rc<SteelVal>> = Vec::new();
     let mut ip = 0;
@@ -755,11 +1026,23 @@ pub fn vm(
                 ip += 1;
                 // cur_inst = &instructions[ip];
             }
+            OpCode::PUSHCONST => {
+                let val = Rc::clone(&constants[cur_inst.payload_size]);
+                stack.push(val);
+                ip += 1;
+                // unimplemented!();
+            }
             OpCode::PUSH => {
-                stack.push(eval_atom(
-                    &cur_inst.contents.as_ref().unwrap(),
-                    &global_env,
-                )?);
+                // if cur_inst.contents.is_some() {
+                //     stack.push(eval_atom(&cur_inst.contents.as_ref().unwrap())?);
+                // } else {
+                let value = global_env.borrow().lookup_idx(cur_inst.payload_size)?;
+                stack.push(value);
+                // stack.push()
+                // Put the lookup of the index here
+                // unimplemented!()
+                // }
+
                 ip += 1;
                 // cur_inst = &instructions[ip];
             }
@@ -780,7 +1063,9 @@ pub fn vm(
                     // }
                     SteelVal::FuncV(f) => {
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
+                        // println!("Calling function with args: {:?}", args);
                         stack.push(f(args)?);
+                        // println!("{:?}", stack);
                         ip += 1;
                         // cur_inst = &instructions[ip];
                     }
@@ -790,18 +1075,25 @@ pub fn vm(
                         let mut args = stack.split_off(stack.len() - cur_inst.payload_size);
 
                         if let Some(parent_env) = closure.parent_env() {
+                            let offset = parent_env.borrow().len();
                             // let parent_env = lambda.parent_env();
-                            let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
+                            let inner_env = Rc::new(RefCell::new(Env::new(&parent_env, offset)));
                             // let params_exp = lambda.params_exp();
-                            let result = vm(closure.body_exp(), &mut args, heap, inner_env)?;
+                            let result =
+                                vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
                             stack.push(result);
 
                         // evaluate(&lambda.body_exp(), &inner_env)
                         } else if let Some(parent_env) = closure.sub_expression_env() {
-                            // unimplemented!()
-                            let inner_env =
-                                Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone())));
-                            let result = vm(closure.body_exp(), &mut args, heap, inner_env)?;
+                            // TODO remove this unwrap
+                            let offset = parent_env.upgrade().unwrap().borrow().len(); // TODO
+                                                                                       // unimplemented!()
+                            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                                parent_env.clone(),
+                                offset,
+                            )));
+                            let result =
+                                vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
                             stack.push(result);
                         } else {
                             stop!(Generic => "Root env is missing!")
@@ -853,22 +1145,12 @@ pub fn vm(
                     .ok_or_else(|| SteelErr::Generic("stack empty at pop".to_string()));
             }
             OpCode::BIND => {
-                if let SyntaxObject {
-                    ty: TokenType::Identifier(bound_variable),
-                    ..
-                } = &cur_inst.contents.as_ref().unwrap()
-                {
-                    // println!("Inside bind statement - Instructions: {:?}", instructions);
-                    global_env
-                        .borrow_mut()
-                        .try_define(bound_variable, stack.pop().unwrap());
-                    ip += 1;
-                // cur_inst = &instructions[ip];
-                } else {
-                    stop!(Generic => "lambda requires identifier")
-                }
-
-                // let bound_variable =
+                // println!("{}")
+                let offset = global_env.borrow().offset();
+                global_env
+                    .borrow_mut()
+                    .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
+                ip += 1;
             }
             OpCode::SCLOSURE => {
                 ip += 1;
@@ -876,7 +1158,7 @@ pub fn vm(
                 let closure_body = instructions[ip..(ip + cur_inst.payload_size - 1)].to_vec();
 
                 println!("Closure body:");
-                pretty_print_instructions(&closure_body);
+                pretty_print_dense_instructions(&closure_body);
 
                 let capture_env = Rc::clone(&global_env);
 
@@ -908,7 +1190,13 @@ pub fn vm(
                 // println!("Instructions for def body: {:?}", defn_body);
 
                 let mut temp_stack = Vec::new();
-                let result = vm(defn_body, &mut temp_stack, heap, Rc::clone(&global_env))?;
+                let result = vm(
+                    defn_body,
+                    &mut temp_stack,
+                    heap,
+                    Rc::clone(&global_env),
+                    constants,
+                )?;
 
                 stack.push(result);
                 ip += cur_inst.payload_size;
@@ -969,7 +1257,7 @@ pub fn vm(
 // }
 
 /// evaluates an atom expression in given environment
-fn eval_atom(t: &SyntaxObject, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
+fn eval_atom(t: &SyntaxObject) -> Result<Rc<SteelVal>> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => {
             if *b {
@@ -978,7 +1266,7 @@ fn eval_atom(t: &SyntaxObject, env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {
                 Ok(FALSE.with(|f| Rc::clone(f)))
             }
         }
-        TokenType::Identifier(s) => env.borrow().lookup(&s),
+        // TokenType::Identifier(s) => env.borrow().lookup(&s),
         TokenType::NumberLiteral(n) => Ok(Rc::new(SteelVal::NumV(*n))),
         TokenType::StringLiteral(s) => Ok(Rc::new(SteelVal::StringV(s.clone()))),
         TokenType::CharacterLiteral(c) => Ok(Rc::new(SteelVal::CharV(*c))),

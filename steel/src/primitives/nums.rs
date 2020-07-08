@@ -59,7 +59,10 @@ impl NumOperations {
                         }
                         sum_float += n;
                     }
-                    _ => stop!(TypeMismatch => "+ expected a number"),
+                    _ => {
+                        let e = format!("+ expected a number, found {:?}", arg);
+                        stop!(TypeMismatch => e);
+                    }
                 }
             }
 

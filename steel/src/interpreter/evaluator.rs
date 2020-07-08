@@ -17,7 +17,7 @@ use crate::throw;
 // extern crate generational_arena;
 use generational_arena::Arena;
 use std::collections::HashMap;
-use std::collections::HashSet;
+// use std::collections::HashSet;
 use std::ops::Deref;
 
 use crate::compiler::AST;
@@ -412,8 +412,8 @@ fn evaluate<'a, 'global>(
     let mut env = Rc::clone(env);
     let mut expr = expr.clone();
     let mut heap2: Vec<Rc<RefCell<Env>>> = Vec::new();
-    let mut local_expr_stack: Arena<Expr> = Arena::new();
-    let mut local_val_stack: Vec<Rc<SteelVal>> = Vec::new();
+    let local_expr_stack: Arena<Expr> = Arena::new();
+    let local_val_stack: Vec<Rc<SteelVal>> = Vec::new();
 
     loop {
         // expr_stack.push(expr.clone());
@@ -854,7 +854,7 @@ fn eval_apply(
 
             if let Some(parent_env) = lambda.parent_env() {
                 // let parent_env = lambda.parent_env();
-                let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
+                let inner_env = Rc::new(RefCell::new(Env::new(&parent_env, 0)));
                 let params_exp = lambda.params_exp();
                 inner_env
                     .borrow_mut()
@@ -863,7 +863,8 @@ fn eval_apply(
                 evaluate(&lambda.body_exp(), &inner_env, heap, expr_stack)
             } else if let Some(parent_env) = lambda.sub_expression_env() {
                 // unimplemented!()
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone())));
+                let inner_env =
+                    Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone(), 0)));
                 let params_exp = lambda.params_exp();
                 inner_env
                     .borrow_mut()
@@ -936,7 +937,7 @@ fn eval_filter(
                 SteelVal::LambdaV(lambda) => {
                     if let Some(parent_env) = lambda.parent_env() {
                         // let parent_env = lambda.parent_env();
-                        let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
+                        let inner_env = Rc::new(RefCell::new(Env::new(&parent_env, 0)));
                         let params_exp = lambda.params_exp();
                         inner_env
                             .borrow_mut()
@@ -949,7 +950,7 @@ fn eval_filter(
                     } else if let Some(parent_env) = lambda.sub_expression_env() {
                         // unimplemented!()
                         let inner_env =
-                            Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone())));
+                            Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone(), 0)));
                         let params_exp = lambda.params_exp();
                         inner_env
                             .borrow_mut()
@@ -1030,7 +1031,7 @@ fn eval_map(
                 SteelVal::LambdaV(lambda) => {
                     if let Some(parent_env) = lambda.parent_env() {
                         // let parent_env = lambda.parent_env();
-                        let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
+                        let inner_env = Rc::new(RefCell::new(Env::new(&parent_env, 0)));
                         let params_exp = lambda.params_exp();
                         inner_env
                             .borrow_mut()
@@ -1043,7 +1044,7 @@ fn eval_map(
                     } else if let Some(parent_env) = lambda.sub_expression_env() {
                         // unimplemented!()
                         let inner_env =
-                            Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone())));
+                            Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone(), 0)));
                         let params_exp = lambda.params_exp();
                         inner_env
                             .borrow_mut()
@@ -1166,7 +1167,7 @@ fn eval_lambda<'a, 'global>(
 
     if let Some(parent_env) = lambda.parent_env() {
         // let parent_env = lambda.parent_env();
-        let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
+        let inner_env = Rc::new(RefCell::new(Env::new(&parent_env, 0)));
         let params_exp = lambda.params_exp();
         inner_env.borrow_mut().define_all(params_exp, args_eval)?;
         Ok((lambda.body_exp(), inner_env))
@@ -1177,7 +1178,7 @@ fn eval_lambda<'a, 'global>(
     // evaluate(&lambda.body_exp(), &inner_env)
     } else if let Some(parent_env) = lambda.sub_expression_env() {
         // unimplemented!()
-        let inner_env = Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone())));
+        let inner_env = Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone(), 0)));
         let params_exp = lambda.params_exp();
         inner_env.borrow_mut().define_all(params_exp, args_eval)?;
         Ok((lambda.body_exp(), inner_env))

@@ -8,7 +8,7 @@ use tokens::{Token, TokenError, TokenType};
 
 use std::collections::HashMap;
 use std::fmt;
-use std::iter::Peekable;
+// use std::iter::Peekable;
 use std::rc::Rc;
 use std::result;
 use std::str;

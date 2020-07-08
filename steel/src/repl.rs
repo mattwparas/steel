@@ -19,14 +19,17 @@ use rustyline::completion::Pair;
 
 use std::borrow::Cow;
 
-use crate::parser::lexer::TokenStream;
+// use crate::parser::lexer::TokenStream;
 
 use crate::vm::emit_instructions;
-use crate::vm::execute_vm;
-use crate::vm::pretty_print_instructions;
+// use crate::vm::execute_vm;
+use crate::vm::pretty_print_dense_instructions;
+use crate::vm::SymbolMap;
 use crate::vm::VirtualMachine;
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
+
+use crate::env::Env;
 
 // use crate::vm::flatten_expression_tree;
 
@@ -147,6 +150,8 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
     }));
 
     let mut vm = VirtualMachine::new();
+    let mut symbol_map = Env::default_symbol_map();
+    let mut constants = Vec::new();
 
     // let mut rl = Editor::<RustylineHelper>::new();
     // let mut rl = Editor::<MatchingBracketHighlighter>::new();
@@ -168,18 +173,24 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         }
                     }
                     _ => {
-                        let gen_bytecode = emit_instructions(&line).unwrap();
+                        let gen_bytecode =
+                            emit_instructions(&line, &mut symbol_map, &mut constants).unwrap();
 
                         for instruction_vec in gen_bytecode {
                             // println!("{:?}", instruction_vec);
 
-                            pretty_print_instructions(instruction_vec.as_slice());
+                            pretty_print_dense_instructions(instruction_vec.as_slice());
+
+                            println!("Constants: {:?}", constants);
 
                             let now = Instant::now();
 
-                            let result = vm.execute(instruction_vec.as_slice());
+                            let result =
+                                vm.execute(instruction_vec.as_slice(), constants.as_slice());
                             // let result = execute_vm(instruction_vec.as_slice());
                             println!("{:?}", result);
+
+                            // println!("{:?}", symbol_map);
 
                             println!("{:?}", now.elapsed());
                         }
