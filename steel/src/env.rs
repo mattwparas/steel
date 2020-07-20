@@ -121,8 +121,10 @@ pub struct Env {
     sub_expression: Option<Weak<RefCell<Env>>>,
     heap: Vec<Rc<RefCell<Env>>>,
     is_binding_context: bool,
+    is_binding_offset: bool,
     module: Vec<AST>,
     is_module_context: bool,
+    ndefs: usize,
 }
 
 impl Drop for Env {
@@ -147,8 +149,10 @@ impl Env {
             sub_expression: None,
             heap: Vec::new(),
             is_binding_context: false,
+            is_binding_offset: false,
             module: Vec::new(),
             is_module_context: false,
+            ndefs: 0,
         }
     }
 
@@ -160,9 +164,48 @@ impl Env {
         self.bindings_vec.len()
     }
 
-    pub fn offset(&self) -> usize {
+    pub fn local_offset(&self) -> usize {
         self.offset
     }
+
+    pub fn ndefs(&self) -> usize {
+        self.ndefs
+    }
+
+    pub fn parent_ndefs(&self) -> usize {
+        if let Some(p) = &self.parent {
+            p.borrow().ndefs()
+        } else if let Some(p) = &self.sub_expression {
+            p.upgrade().unwrap().borrow().ndefs()
+        } else {
+            0
+        }
+    }
+
+    pub fn offset(&self) -> usize {
+        // let parent_offset =
+
+        let parent_offset = if let Some(p) = &self.parent {
+            println!("Getting here!");
+            p.borrow().local_offset()
+        } else if let Some(p) = &self.sub_expression {
+            // println!("---------Inside this one----------");
+            p.upgrade().unwrap().borrow().offset()
+        } else {
+            println!("else case");
+            0
+        };
+
+        println!("Parent offset: {}", parent_offset);
+
+        self.offset + parent_offset
+    }
+
+    // pub fn parent_ndef(&self) -> usize {
+    //     if let Some(p) = &self.parent {
+    //         p.borrow().ndef_body()
+    //     }
+    // }
 
     pub fn new_subexpression(sub_expression: Weak<RefCell<Self>>, offset: usize) -> Self {
         Env {
@@ -173,9 +216,15 @@ impl Env {
             sub_expression: Some(sub_expression),
             heap: Vec::new(),
             is_binding_context: false,
+            is_binding_offset: false,
             module: Vec::new(),
             is_module_context: false,
+            ndefs: 0,
         }
+    }
+
+    pub fn set_ndefs(&mut self, ndefs: usize) {
+        self.ndefs = ndefs
     }
 
     pub fn is_binding_context(&self) -> bool {
@@ -184,6 +233,14 @@ impl Env {
 
     pub fn set_binding_context(&mut self, b: bool) {
         self.is_binding_context = b;
+    }
+
+    pub fn is_binding_offset(&self) -> bool {
+        self.is_binding_offset
+    }
+
+    pub fn set_binding_offset(&mut self, b: bool) {
+        self.is_binding_offset = b;
     }
 
     pub fn is_module_context(&self) -> bool {
@@ -208,8 +265,10 @@ impl Env {
             sub_expression: None,
             heap: Vec::new(),
             is_binding_context: false,
+            is_binding_offset: false,
             module: Vec::new(),
             is_module_context: false,
+            ndefs: 0,
         }
     }
 
@@ -258,14 +317,23 @@ impl Env {
     }
 
     pub fn define_idx(&mut self, idx: usize, val: Rc<SteelVal>) {
+        println!("Defining value: {:?} at idx: {}", val, idx);
+        println!("Current bindings: {:?}", self.bindings_vec);
         if idx < self.bindings_vec.len() {
             self.bindings_vec[idx] = val;
-        } else {
+        } else if idx == self.bindings_vec.len() {
             self.bindings_vec.push(val);
+        } else {
+            panic!("Out of bounds define statement");
         }
-
         // println!("{:?}", self.bindings_vec);
         // self.offset += 1;
+    }
+
+    pub fn reserve_defs(&mut self, ndefs: usize) {
+        for _ in 0..ndefs {
+            self.bindings_vec.push(VOID.with(|f| Rc::clone(f)));
+        }
     }
 
     pub fn try_define(&mut self, key: &str, val: Rc<SteelVal>) {
@@ -366,14 +434,34 @@ impl Env {
     }
 
     pub fn lookup_idx(&self, idx: usize) -> Result<Rc<SteelVal>> {
-        // println!("Looking up {}, {}", idx, self.offset);
-        // println!("{:?}", self.bindings_vec);
+        let offset = self.offset;
+        println!("Looking up {}, with offset: {}", idx, offset);
+        println!("{:?}", self.bindings_vec);
 
-        if self.offset <= idx {
-            if let Some(v) = self.bindings_vec.get(idx - self.offset) {
-                Ok(Rc::clone(v))
+        // if offset != 0 {
+        //     offset = offset - 1;
+        // }
+
+        // if self.sub_expression.is_some() {
+        //     offset = offset + 1;
+        // }
+
+        if idx >= offset {
+            let lookup = idx - offset;
+
+            // let lookup = if self.sub_expression.is_some() {
+            //     (self.bindings_vec.len() - 1) - (idx - offset + 1)
+            // } else {
+            //     idx - offset
+            // };
+
+            // let updated_offset = if offset != 0 { offset + 1 } else { offset };
+
+            if let Some(v) = self.bindings_vec.get(lookup) {
+                // println!("Found {:?}", v);
+                return Ok(Rc::clone(v));
             } else {
-                stop!(FreeIdentifier => idx)
+                stop!(FreeIdentifier => "blagh");
             }
         // }
         // if let Some(v) = self.bindings_vec.get(idx - self.offset) {
@@ -484,6 +572,24 @@ impl Env {
             sm.add(val.0);
         }
         sm
+    }
+
+    pub fn add_rooted_value(&mut self, sm: &mut SymbolMap, val: (&'static str, SteelVal)) {
+        sm.add(val.0);
+        self.bindings_vec.push(Rc::new(val.1));
+    }
+
+    // pub fn add_rooted_values()
+
+    pub fn define_zipped_rooted(
+        &mut self,
+        sm: &mut SymbolMap,
+        zipped: impl Iterator<Item = (String, SteelVal)>,
+    ) {
+        zipped.for_each(|(param, arg)| {
+            sm.add(param.as_str());
+            self.bindings_vec.push(Rc::new(arg));
+        });
     }
 
     // pub fn gen_rooted_sym_table() -> SymbolMap {

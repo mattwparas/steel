@@ -346,7 +346,7 @@ fn is_export_statement(expr: &Expr) -> bool {
     false
 }
 
-fn is_macro_definition(expr: &Expr) -> bool {
+pub fn is_macro_definition(expr: &Expr) -> bool {
     // let expr = Rc::clone(expr);
     match expr {
         Expr::Atom(_) => return false,
@@ -365,7 +365,7 @@ fn is_macro_definition(expr: &Expr) -> bool {
     false
 }
 
-fn is_struct_definition(expr: &Expr) -> bool {
+pub fn is_struct_definition(expr: &Expr) -> bool {
     match expr {
         Expr::Atom(_) => return false,
         Expr::VectorVal(list_of_tokens) => {
@@ -384,7 +384,7 @@ fn is_struct_definition(expr: &Expr) -> bool {
 }
 
 // TODO include the intern cache when possible
-fn is_function_definition(expr: &Expr) -> bool {
+pub fn is_function_definition(expr: &Expr) -> bool {
     // let expr = Rc::clone(expr);
     match expr {
         Expr::Atom(_) => return false,

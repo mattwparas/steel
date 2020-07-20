@@ -1389,19 +1389,6 @@ pub fn eval_define(
                         if let Expr::Atom(SyntaxObject { ty: t, .. }) = &list_of_identifiers[0] {
                             if let TokenType::Identifier(s) = t {
                                 let mut begin_body = list_of_tokens[1..].to_vec();
-                                // let mut lst = list_of_tokens[1..].to_vec();
-                                // let mut begin_body: Vec<&Expr> =
-                                //     vec![Rc::new(Expr::Atom(TokenType::Identifier("begin".to_string())))];
-                                // begin_body.append(&mut lst);
-
-                                // eval_make_lambda(&list_of_tokens[1..], env);
-
-                                // eval_make_lambda
-                                // let fake_lambda: Vec<&Expr> = vec![
-                                //     Rc::new(Expr::Atom(TokenType::Identifier("lambda".to_string()))),
-                                //     Rc::new(Expr::VectorVal(list_of_identifiers[1..].to_vec())),
-                                //     Rc::new(Expr::VectorVal(begin_body)),
-                                // ];
                                 let mut fake_lambda: Vec<Expr> = vec![
                                     Expr::Atom(SyntaxObject::default(TokenType::Identifier(
                                         "lambda".to_string(),
