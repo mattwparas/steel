@@ -31,6 +31,8 @@ use std::time::Instant;
 
 use crate::env::Env;
 
+use std::collections::HashMap;
+
 // use crate::vm::flatten_expression_tree;
 
 #[macro_export]
@@ -152,6 +154,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
     let mut vm = VirtualMachine::new();
     let mut symbol_map = Env::default_symbol_map();
     let mut constants = Vec::new();
+    let mut arity_map = HashMap::new();
 
     // let mut rl = Editor::<RustylineHelper>::new();
     // let mut rl = Editor::<MatchingBracketHighlighter>::new();
@@ -173,27 +176,40 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         }
                     }
                     _ => {
-                        let gen_bytecode =
-                            emit_instructions(&line, &mut symbol_map, &mut constants).unwrap();
+                        let gen_bytecode = vm.emit_instructions(
+                            &line,
+                            &mut symbol_map,
+                            &mut constants,
+                            &mut arity_map,
+                        );
 
-                        for instruction_vec in gen_bytecode {
-                            // println!("{:?}", instruction_vec);
+                        match gen_bytecode {
+                            Ok(gen_bytecode) => {
+                                for instruction_vec in gen_bytecode {
+                                    // println!("{:?}", instruction_vec);
 
-                            pretty_print_dense_instructions(instruction_vec.as_slice());
+                                    pretty_print_dense_instructions(instruction_vec.as_slice());
 
-                            println!("Constants: {:?}", constants);
+                                    println!("Constants: {:?}", constants);
 
-                            let now = Instant::now();
+                                    let now = Instant::now();
 
-                            let result =
-                                vm.execute(instruction_vec.as_slice(), constants.as_slice());
-                            // let result = execute_vm(instruction_vec.as_slice());
-                            println!("{:?}", result);
+                                    let result = vm
+                                        .execute(instruction_vec.as_slice(), constants.as_slice());
+                                    // let result = execute_vm(instruction_vec.as_slice());
+                                    println!("{:?}", result);
 
-                            // println!("{:?}", symbol_map);
+                                    // println!("{:?}", symbol_map);
 
-                            println!("{:?}", now.elapsed());
+                                    println!("{:?}", now.elapsed());
+                                }
+                            }
+                            Err(e) => eprintln!("{}", e),
                         }
+
+                        // if let Ok(gen_bytecode) = gen_bytecode {
+
+                        // }
 
                         // let res = interpreter.evaluate(&line);
                         // match res {

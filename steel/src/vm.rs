@@ -35,6 +35,341 @@ use std::rc::Rc;
 
 use std::collections::HashSet;
 
+use crate::expander::SteelMacro;
+use crate::structs::SteelStruct;
+
+pub struct Transformer {
+    name: String,
+    exprs: Vec<Expr>,
+    env: Rc<RefCell<Env>>,
+}
+
+impl Transformer {
+    pub fn new(name: String, exprs: Vec<Expr>, env: Rc<RefCell<Env>>) -> Self {
+        Transformer { name, exprs, env }
+    }
+
+    pub fn emit_instructions(
+        parsed_exprs: Vec<Expr>,
+        symbol_table: &mut SymbolMap,
+        constants: &mut Vec<Rc<SteelVal>>,
+    ) -> Vec<DenseInstruction> {
+        panic!("Transformer::emit_instructions(...) not implemented");
+    }
+
+    // pub fn expand_and_store_ast_with_default_env(
+    //     name: &str,
+    //     expr_str: &str,
+    //     symbol_table: &mut SymbolMap,
+    //     constants: &mut Vec<Rc<SteelVal>>,
+    // ) -> Result<Transformer> {
+    //     let mut intern = HashMap::new();
+    //     // let mut results = Vec::new();
+
+    //     let parsed: result::Result<Vec<Expr>, ParseError> =
+    //         Parser::new(expr_str, &mut intern).collect();
+    //     let parsed = parsed?;
+
+    //     let macro_env = Rc::new(RefCell::new(Env::root()));
+    //     // let real_env = Rc::new(RefCell::new(Env::default_env()));
+
+    //     let extracted_statements =
+    //         extract_macro_definitions(&parsed, &macro_env, &real_env, symbol_table)?;
+
+    //     unimplemented!()
+    // }
+}
+
+fn is_macro_definition(expr: &Expr) -> bool {
+    // let expr = Rc::clone(expr);
+    match expr {
+        Expr::Atom(_) => return false,
+        Expr::VectorVal(list_of_tokens) => {
+            if let Some(f) = list_of_tokens.first() {
+                if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
+                    if let TokenType::Identifier(s) = t {
+                        if s == "define-syntax" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn is_struct_definition(expr: &Expr) -> bool {
+    // let expr = Rc::clone(expr);
+    match expr {
+        Expr::Atom(_) => return false,
+        Expr::VectorVal(list_of_tokens) => {
+            if let Some(f) = list_of_tokens.first() {
+                if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
+                    if let TokenType::Identifier(s) = t {
+                        if s == "struct" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn construct_macro_def(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<()> {
+    let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, &env)?;
+    // println!("{:?}", parsed_macro);
+    env.borrow_mut().define(
+        parsed_macro.name().to_string(),
+        Rc::new(SteelVal::MacroV(parsed_macro)),
+    );
+    Ok(())
+}
+
+fn extract_macro_definitions(
+    exprs: &[Expr],
+    macro_env: &Rc<RefCell<Env>>,
+    struct_env: &Rc<RefCell<Env>>,
+    sm: &mut SymbolMap,
+) -> Result<Vec<Expr>> {
+    let mut others: Vec<Expr> = Vec::new();
+    for expr in exprs {
+        match expr {
+            Expr::VectorVal(list_of_tokens) if is_macro_definition(expr) => {
+                construct_macro_def(&list_of_tokens[1..], macro_env)?;
+            }
+            Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
+                let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
+                struct_env
+                    .borrow_mut()
+                    .define_zipped_rooted(sm, defs.into_iter());
+                // env.borrow_mut()
+                //     .define_zipped(defs.into_iter().map(|x| (x.0, Rc::new(x.1))));
+            }
+            _ => others.push(expr.clone()),
+        }
+    }
+    Ok(others)
+}
+
+// Let is actually just a lambda so update values to be that and loop
+// Syntax of a let -> (let ((a 10) (b 20) (c 25)) (body ...))
+// transformed ((lambda (a b c) (body ...)) 10 20 25)
+// TODO fix this cloning issue
+fn expand_let(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
+    if let [bindings, body] = list_of_tokens {
+        let mut bindings_to_check: Vec<Expr> = Vec::new();
+        let mut args_to_check: Vec<Expr> = Vec::new();
+
+        // TODO fix this noise
+        match bindings.deref() {
+            Expr::VectorVal(list_of_pairs) => {
+                for pair in list_of_pairs {
+                    match pair {
+                        Expr::VectorVal(p) => match p.as_slice() {
+                            [binding, expression] => {
+                                bindings_to_check.push(binding.clone());
+                                args_to_check.push(expression.clone());
+                            }
+                            _ => stop!(BadSyntax => "Let requires pairs for binding"),
+                        },
+                        _ => stop!(BadSyntax => "Let: Missing body"),
+                    }
+                }
+            }
+            _ => stop!(BadSyntax => "Let: Missing name or binding pairs"),
+        }
+
+        // Change the body to contain more than one expression
+        let expanded_body = expand(body.clone(), env)?;
+
+        let mut combined = vec![Expr::VectorVal(vec![
+            Expr::Atom(SyntaxObject::default(TokenType::Identifier(
+                "lambda".to_string(),
+            ))),
+            Expr::VectorVal(bindings_to_check),
+            expanded_body, // body.clone(), // TODO expand body here
+        ])];
+        combined.append(&mut args_to_check);
+
+        let application = Expr::VectorVal(combined);
+        Ok(application)
+    } else {
+        let e = format!(
+            "{}: expected {} args got {}",
+            "Let",
+            2,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e)
+    }
+}
+
+// fn expand_define(list_of_tokens: Vec<Expr>) -> Result<Expr> {
+//     unimplemented!();
+// }
+
+// TODO maybe have to evaluate the params but i'm not sure
+fn expand_define(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
+    // env.borrow_mut().set_binding_context(true);
+
+    if list_of_tokens.len() > 2 {
+        match (list_of_tokens.get(1), list_of_tokens.get(2)) {
+            (Some(symbol), Some(_body)) => {
+                match symbol.deref() {
+                    Expr::Atom(SyntaxObject { ty: t, .. }) => {
+                        if let TokenType::Identifier(_) = t {
+                            return Ok(Expr::VectorVal(list_of_tokens.to_vec()));
+                        } else {
+                            stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
+                        }
+                    }
+                    // construct lambda to parse
+                    Expr::VectorVal(list_of_identifiers) => {
+                        if list_of_identifiers.is_empty() {
+                            stop!(TypeMismatch => "define expected an identifier, got empty list")
+                        }
+                        if let Expr::Atom(SyntaxObject { ty: t, .. }) = &list_of_identifiers[0] {
+                            if let TokenType::Identifier(_s) = t {
+                                let mut begin_body = list_of_tokens[2..].to_vec();
+                                let mut fake_lambda: Vec<Expr> = vec![
+                                    Expr::Atom(SyntaxObject::default(TokenType::Identifier(
+                                        "lambda".to_string(),
+                                    ))),
+                                    Expr::VectorVal(list_of_identifiers[1..].to_vec()),
+                                ];
+                                fake_lambda.append(&mut begin_body);
+                                let constructed_lambda = Expr::VectorVal(fake_lambda);
+                                let expanded_body = expand(constructed_lambda, env)?;
+
+                                let return_val = Expr::VectorVal(vec![
+                                    list_of_tokens[0].clone(),
+                                    list_of_identifiers[0].clone(),
+                                    expanded_body,
+                                ]);
+
+                                Ok(return_val)
+                            } else {
+                                stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
+                            }
+                        } else {
+                            stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
+                        }
+                    }
+                    _ => stop!(TypeMismatch => "Define expects an identifier, got: {}", symbol),
+                }
+            }
+            _ => {
+                let e = format!(
+                    "{}: expected at least {} args got {}",
+                    "Define",
+                    2,
+                    list_of_tokens.len()
+                );
+                stop!(ArityMismatch => e)
+            }
+        }
+    } else {
+        let e = format!(
+            "{}: expected at least {} args got {}",
+            "Define",
+            2,
+            list_of_tokens.len()
+        );
+        stop!(ArityMismatch => e)
+    }
+}
+
+// TODO include the intern cache when possible
+fn expand(expr: Expr, env: &Rc<RefCell<Env>>) -> Result<Expr> {
+    let env = Rc::clone(env);
+    // let expr = Rc::clone(expr);
+
+    match &expr {
+        Expr::Atom(_) => Ok(expr),
+        Expr::VectorVal(list_of_tokens) => {
+            if let Some(f) = list_of_tokens.first() {
+                if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
+                    if let TokenType::Identifier(s) = t {
+                        match s.as_str() {
+                            "define" | "defn" => return expand_define(list_of_tokens, &env),
+                            "let" => return expand_let(&list_of_tokens[1..], &env),
+                            _ => {
+                                let lookup = env.borrow().lookup(&s);
+
+                                if let Ok(v) = lookup {
+                                    if let SteelVal::MacroV(steel_macro) = v.as_ref() {
+                                        let expanded = steel_macro.expand(&list_of_tokens)?;
+                                        return expand(expanded, &env);
+                                        // return steel_macro.expand(&list_of_tokens)?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let result: Result<Vec<Expr>> = list_of_tokens
+                    .into_iter()
+                    .map(|x| expand(x.clone(), &env))
+                    .collect();
+                Ok(Expr::VectorVal(result?))
+            } else {
+                Ok(expr)
+            }
+        }
+    }
+}
+
+pub enum Arity {
+    Exact(usize),
+    AtLeast(usize),
+}
+
+impl Arity {
+    pub fn check(&self, r: usize) -> bool {
+        match &self {
+            Self::Exact(l) => *l == r,
+            Self::AtLeast(l) => *l <= r,
+        }
+    }
+}
+
+pub struct ArityMap {
+    pairs: Vec<(String, Arity)>,
+}
+
+impl ArityMap {
+    pub fn new() -> Self {
+        ArityMap { pairs: Vec::new() }
+    }
+
+    pub fn add(&mut self, name: &str, arity: Arity) {
+        self.pairs.push((name.to_string(), arity))
+    }
+
+    // Should actually just result a Result<(), ArityError>
+    // This way performing an arity check is simply
+    // arity_map.check(name, arg_count)?
+    // And it will return an error
+    // TODO
+    pub fn check(&self, name: &str, arg_count: usize) -> bool {
+        let mut rev_iter = self.pairs.iter().rev();
+
+        rev_iter
+            .find(|x| x.0.as_str() == name)
+            .map(|x| x.1.check(arg_count))
+            .unwrap()
+    }
+
+    pub fn roll_back(&mut self, idx: usize) {
+        self.pairs.truncate(idx);
+    }
+}
+
+// fn recursive_expand(expr: Expr, )
+
 #[derive(Debug, PartialEq)]
 pub struct SymbolMap {
     seen: Vec<String>,
@@ -116,12 +451,13 @@ impl SymbolMap {
     }
 
     pub fn roll_back(&mut self, idx: usize) {
+        println!("Rolling back to: {}", idx);
         self.seen.truncate(idx);
 
         // unimplemented!()
     }
 
-    pub fn contains(&self, ident: &str) -> bool {
+    pub fn contains(&self, _ident: &str) -> bool {
         // self.seen.contains_key(ident)
         unimplemented!()
     }
@@ -208,18 +544,116 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
     return transformed;
 }
 
-// #[derive(Clone, Debug, PartialEq)]
-// pub struct Instruction {
-//     op_code: OpCode,
-//     payload_size: usize,
-//     contents: Option<SyntaxObject>,
-// }
-
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?
+pub fn collect_defines_from_current_scope(
+    instructions: &[Instruction],
+    symbol_map: &mut SymbolMap,
+) -> usize {
+    let mut def_stack: usize = 0;
+    let mut count = 0;
+
+    for i in 0..instructions.len() {
+        match &instructions[i] {
+            Instruction {
+                op_code: OpCode::SDEF,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }),
+                ..
+            } => {
+                if def_stack == 0 {
+                    let idx = symbol_map.get_or_add(s);
+                    count += 1;
+                    println!("####### FOUND DEFINE #########");
+                    println!("Renaming: {} to index: {}", s, idx);
+                    // if let Some(x) = instructions.get_mut(i) {
+                    //     x.contents = None;
+                    // }
+                }
+
+                // def_stack += 1;
+            }
+            Instruction {
+                op_code: OpCode::SCLOSURE,
+                ..
+            } => {
+                def_stack += 1;
+            }
+            Instruction {
+                op_code: OpCode::ECLOSURE,
+                ..
+            } => {
+                if def_stack > 0 {
+                    def_stack -= 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    count
+}
+
+pub fn collect_binds_from_current_scope(
+    instructions: &mut [Instruction],
+    symbol_map: &mut SymbolMap,
+    start: usize,
+    end: usize,
+) {
+    let mut def_stack: usize = 0;
+    for i in start..end {
+        match &instructions[i] {
+            Instruction {
+                op_code: OpCode::BIND,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }),
+                ..
+            } => {
+                if def_stack == 1 {
+                    let idx = symbol_map.add(s);
+
+                    println!("Renaming: {} to index: {}", s, idx);
+                    if let Some(x) = instructions.get_mut(i) {
+                        x.payload_size = idx;
+                        x.contents = None;
+                    }
+                }
+            }
+            Instruction {
+                op_code: OpCode::SCLOSURE,
+                ..
+            } => {
+                def_stack += 1;
+            }
+            Instruction {
+                op_code: OpCode::ECLOSURE,
+                ..
+            } => {
+                if def_stack > 0 {
+                    def_stack -= 1;
+                }
+            }
+            _ => {}
+        }
+    }
+}
 
 pub fn insert_debruijn_indicies(instructions: &mut [Instruction], symbol_map: &mut SymbolMap) {
     let mut stack: Vec<usize> = Vec::new();
+    // let mut def_stack: Vec<usize> = Vec::new();
+
+    // Snag the defines that are going to be available from the global scope
+    let _ = collect_defines_from_current_scope(instructions, symbol_map);
+
+    // Snag the binds before the defines
+    // collect_binds_from_current_scope(instructions, symbol_map);
+
     // name mangle
     // Replace all identifiers with indices
     for i in 0..instructions.len() {
@@ -240,6 +674,7 @@ pub fn insert_debruijn_indicies(instructions: &mut [Instruction], symbol_map: &m
                     x.contents = None;
                 }
             }
+            // Is this even necessary?
             Instruction {
                 op_code: OpCode::BIND,
                 contents:
@@ -249,12 +684,6 @@ pub fn insert_debruijn_indicies(instructions: &mut [Instruction], symbol_map: &m
                     }),
                 ..
             } => {
-                // let idx = if stack.is_empty() {
-                //     symbol_map.get_or_add(s)
-                // } else {
-                //     symbol_map.add(s)
-                // };
-
                 let idx = symbol_map.get_or_add(s);
 
                 println!("Renaming: {} to index: {}", s, idx);
@@ -266,22 +695,39 @@ pub fn insert_debruijn_indicies(instructions: &mut [Instruction], symbol_map: &m
             Instruction {
                 op_code: OpCode::SCLOSURE,
                 ..
-            } => stack.push(symbol_map.len()),
+            } => {
+                stack.push(symbol_map.len());
+                // More stuff goes here
+                let payload = *(&instructions[i].payload_size);
+
+                // Go through the current scope and collect binds from the lambds
+                collect_binds_from_current_scope(instructions, symbol_map, i, i + payload - 1);
+
+                // Go through the current scope and find defines and the count
+                let def_count = collect_defines_from_current_scope(
+                    &instructions[i + 1..(i + payload - 1)],
+                    symbol_map,
+                );
+                // Set the def count of the NDEFS instruction after the closure
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.payload_size = def_count;
+                }
+            }
             Instruction {
                 op_code: OpCode::ECLOSURE,
                 ..
             } => symbol_map.roll_back(stack.pop().unwrap()),
             Instruction {
                 op_code: OpCode::SDEF,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        ..
-                    }),
+                // contents:
+                //     Some(SyntaxObject {
+                //         ty: TokenType::Identifier(s),
+                //         ..
+                //     }),
                 ..
             } => {
-                let idx = symbol_map.add(s);
-                println!("Renaming: {} to index: {}", s, idx);
+                // let idx = symbol_map.add(s);
+                // println!("Renaming: {} to index: {}", s, idx);
                 if let Some(x) = instructions.get_mut(i) {
                     x.contents = None;
                 }
@@ -295,6 +741,8 @@ pub fn emit_instructions(
     expr_str: &str,
     symbol_map: &mut SymbolMap,
     constants: &mut Vec<Rc<SteelVal>>,
+    global_env: &Rc<RefCell<Env>>,
+    arity_map: &mut HashMap<String, usize>,
 ) -> Result<Vec<Vec<DenseInstruction>>> {
     let mut intern = HashMap::new();
     let mut results = Vec::new();
@@ -303,14 +751,18 @@ pub fn emit_instructions(
         Parser::new(expr_str, &mut intern).collect();
     let parsed = parsed?;
 
-    for expr in parsed {
+    let macro_env = Rc::new(RefCell::new(Env::root()));
+    // let real_env = Rc::new(RefCell::new(Env::default_env()));
+
+    let extracted_statements =
+        extract_macro_definitions(&parsed, &macro_env, global_env, symbol_map)?;
+
+    for expr in extracted_statements {
         let mut instructions: Vec<Instruction> = Vec::new();
-        emit_loop(&expr, &mut instructions, None)?;
+        emit_loop(&expr, &mut instructions, None, arity_map)?;
         instructions.push(Instruction::new_pop());
 
         pretty_print_instructions(&instructions);
-
-        // let mut stack: Vec<usize> = Vec::new();
 
         insert_debruijn_indicies(&mut instructions, symbol_map);
 
@@ -322,10 +774,6 @@ pub fn emit_instructions(
 
         results.push(dense_instructions);
     }
-
-    // for i in 0..results.len() {
-    //     if let Some(instr) = results.
-    // }
 
     Ok(results)
 }
@@ -368,6 +816,7 @@ fn emit_loop(
     expr: &Expr,
     instructions: &mut Vec<Instruction>,
     defining_context: Option<&str>,
+    arity_map: &mut HashMap<String, usize>,
 ) -> Result<()> {
     match expr {
         Expr::Atom(s) => {
@@ -396,7 +845,7 @@ fn emit_loop(
                             // unimplemented!()
 
                             // load in the test condition
-                            emit_loop(test_expr, instructions, None)?;
+                            emit_loop(test_expr, instructions, None, arity_map)?;
                             // push in If
                             instructions.push(Instruction::new_if(instructions.len() + 2));
                             // save spot of jump instruction, fill in after
@@ -404,12 +853,12 @@ fn emit_loop(
                             instructions.push(Instruction::new_jmp(0)); // dummy
 
                             // emit instructions for then expression
-                            emit_loop(then_expr, instructions, None)?;
+                            emit_loop(then_expr, instructions, None, arity_map)?;
                             instructions.push(Instruction::new_jmp(0)); // dummy
                             let false_start = instructions.len();
 
                             // emit instructions for else expression
-                            emit_loop(else_expr, instructions, None)?;
+                            emit_loop(else_expr, instructions, None, arity_map)?;
                             let j3 = instructions.len(); // first instruction after else
 
                             // set index of jump instruction to be
@@ -447,7 +896,7 @@ fn emit_loop(
                     Expr::Atom(SyntaxObject {
                         ty: TokenType::Identifier(s),
                         ..
-                    }) if s == "define" => {
+                    }) if s == "define" || s == "defn" => {
                         let sidx = instructions.len();
                         instructions.push(Instruction::new_sdef());
 
@@ -476,7 +925,12 @@ fn emit_loop(
                                     stop!(ArityMismatch => e)
                                 }
 
-                                emit_loop(&list_of_tokens[2], instructions, defining_context)?;
+                                emit_loop(
+                                    &list_of_tokens[2],
+                                    instructions,
+                                    defining_context,
+                                    arity_map,
+                                )?;
 
                                 // for expr in &list_of_tokens[2..] {
                                 //     emit_loop(expr, instructions, None)?;
@@ -498,6 +952,13 @@ fn emit_loop(
 
                             // _ => {}
                             Expr::VectorVal(_l) => {
+                                if list_of_tokens.len() < 3 {
+                                    let e = format!("define expected a function body");
+                                    stop!(ArityMismatch => e)
+                                }
+
+                                // let function_information =
+
                                 panic!("Complex defines not yet supported");
                             }
                         }
@@ -524,18 +985,24 @@ fn emit_loop(
                     Expr::Atom(SyntaxObject {
                         ty: TokenType::Identifier(s),
                         ..
-                    }) if s == "lambda" || s == "λ" => {
+                    }) if s == "lambda" || s == "λ" || s == "fn" => {
                         let idx = instructions.len();
                         instructions.push(Instruction::new_sclosure());
+
+                        instructions.push(Instruction::new_ndef(0)); // Default with 0 for now
 
                         let list_of_symbols = &list_of_tokens[1];
 
                         // make recursive call with "fresh" vector so that offsets are correct
                         let mut body_instructions = Vec::new();
 
+                        let mut arity = 0;
+
                         match list_of_symbols {
                             Expr::VectorVal(l) => {
-                                for symbol in l {
+                                arity = l.len();
+                                let rev_iter = l.into_iter().rev();
+                                for symbol in rev_iter {
                                     if let Expr::Atom(syn) = symbol {
                                         body_instructions.push(Instruction::new_bind(syn.clone()))
                                     } else {
@@ -549,7 +1016,7 @@ fn emit_loop(
                         // let mut body_instructions = Vec::new();
 
                         for expr in &list_of_tokens[2..] {
-                            emit_loop(expr, &mut body_instructions, None)?;
+                            emit_loop(expr, &mut body_instructions, None, arity_map)?;
                         }
 
                         // TODO look out here for the
@@ -557,12 +1024,13 @@ fn emit_loop(
 
                         if let Some(ctx) = defining_context {
                             transform_tail_call(&mut body_instructions, ctx);
+                            arity_map.insert(ctx.to_string(), arity);
                         }
 
                         instructions.append(&mut body_instructions);
 
                         let closure_body_size = instructions.len() - idx;
-                        instructions.push(Instruction::new_eclosure());
+                        instructions.push(Instruction::new_eclosure(arity));
 
                         if let Some(elem) = instructions.get_mut(idx) {
                             (*elem).payload_size = closure_body_size;
@@ -604,7 +1072,7 @@ fn emit_loop(
                     }) if s == "begin" => {
                         // instructions.push("begin".to_string());
                         for expr in &list_of_tokens[1..] {
-                            emit_loop(expr, instructions, None)?;
+                            emit_loop(expr, instructions, None, arity_map)?;
                         }
                         return Ok(());
                     }
@@ -682,11 +1150,37 @@ fn emit_loop(
                     // (sym args*), sym must be a procedure
                     _sym => {
                         let pop_len = &list_of_tokens[1..].len();
-                        for expr in &list_of_tokens[1..] {
-                            emit_loop(expr, instructions, None)?;
+
+                        if let Expr::Atom(SyntaxObject {
+                            ty: TokenType::Identifier(function_name),
+                            ..
+                        }) = &list_of_tokens[0]
+                        {
+                            // Make arity map have an enum for exact, less than, greater than, etc.
+                            if let Some(arity) = arity_map.get(function_name.as_str()) {
+                                if pop_len > arity {
+                                    // let = format!()
+                                    stop!(ArityMismatch => "arity mismatch in function call with function {}", function_name);
+                                }
+                            }
                         }
 
-                        emit_loop(f, instructions, None)?;
+                        // let function_name = list_of_tokens[0].atom_identifier_or_else(
+                        //     throw!(Generic => "something went wrong here in function call"),
+                        // )?;
+
+                        // if let Some(arity) = arity_map.get(function_name) {
+                        //     if pop_len > arity {
+                        //         // let = format!()
+                        //         stop!(ArityMismatch => "arity mismatch in function call with function {}", function_name);
+                        //     }
+                        // }
+
+                        for expr in &list_of_tokens[1..] {
+                            emit_loop(expr, instructions, None, arity_map)?;
+                        }
+
+                        emit_loop(f, instructions, None, arity_map)?;
 
                         instructions.push(Instruction::new_func(*pop_len));
 
@@ -694,6 +1188,7 @@ fn emit_loop(
 
                         return Ok(());
                     }
+                    Expr::VectorVal(_) => {}
                 }
             } else {
                 stop!(TypeMismatch => "Given empty list")
@@ -704,76 +1199,7 @@ fn emit_loop(
     Ok(())
 }
 
-// fn parse_list_of_identifiers(identifiers: Rc<Expr>) -> Result<Vec<String>> {
-//     match identifiers.deref() {
-//         Expr::VectorVal(l) => {
-//             let res: Result<Vec<String>> = l
-//                 .iter()
-//                 .map(|x| match &**x {
-//                     Expr::Atom(SyntaxObject {
-//                         ty: TokenType::Identifier(s),
-//                         ..
-//                     }) => Ok(s.clone()),
-//                     _ => Err(SteelErr::TypeMismatch(
-//                         "Lambda must have symbols as arguments".to_string(),
-//                     )),
-//                 })
-//                 .collect();
-//             res
-//         }
-//         _ => Err(SteelErr::TypeMismatch("List of Identifiers".to_string())),
-//     }
-// }
-
-// fn eval_make_lambda(
-//     list_of_tokens: &[Rc<Expr>],
-//     parent_env: Rc<RefCell<Env>>,
-//     heap: &mut Vec<Rc<RefCell<Env>>>,
-// ) -> Result<Rc<SteelVal>> {
-//     if list_of_tokens.len() > 1 {
-//         let list_of_symbols = &list_of_tokens[0];
-//         let mut body_exps = list_of_tokens[1..].to_vec();
-//         let mut begin_body: Vec<Rc<Expr>> = vec![Rc::new(Expr::Atom(SyntaxObject::default(
-//             TokenType::Identifier("begin".to_string()),
-//         )))];
-//         begin_body.append(&mut body_exps);
-
-//         let parsed_list = parse_list_of_identifiers(Rc::clone(list_of_symbols))?;
-
-//         let new_expr = Rc::new(Expr::VectorVal(begin_body));
-
-//         let constructed_lambda = if parent_env.borrow().is_root() {
-//             // heap.push(Rc::clone(&parent_env));
-//             // println!("Getting inside here!");
-//             SteelLambda::new(
-//                 parsed_list,
-//                 expand(&new_expr, &parent_env)?,
-//                 Some(parent_env),
-//                 None,
-//             )
-//         } else {
-//             heap.push(Rc::clone(&parent_env));
-
-//             SteelLambda::new(
-//                 parsed_list,
-//                 expand(&new_expr, &parent_env)?,
-//                 None,
-//                 Some(Rc::downgrade(&parent_env)),
-//             )
-//         };
-
-//         Ok(Rc::new(SteelVal::LambdaV(constructed_lambda)))
-//     } else {
-//         let e = format!(
-//             "{}: expected at least {} args got {}",
-//             "Lambda",
-//             1,
-//             list_of_tokens.len()
-//         );
-//         stop!(ArityMismatch => e)
-//     }
-// }
-
+#[repr(u8)]
 #[derive(Copy, Clone, Debug, Hash, PartialEq)]
 pub enum OpCode {
     VOID = 0,
@@ -791,6 +1217,7 @@ pub enum OpCode {
     EDEF = 12,
     PASS = 13,
     PUSHCONST = 14,
+    NDEFS = 15,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -827,6 +1254,14 @@ impl Instruction {
             op_code,
             payload_size,
             contents: Some(contents),
+        }
+    }
+
+    pub fn new_ndef(payload_size: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::NDEFS,
+            payload_size,
+            contents: None,
         }
     }
 
@@ -870,10 +1305,10 @@ impl Instruction {
         }
     }
 
-    pub fn new_eclosure() -> Instruction {
+    pub fn new_eclosure(arity: usize) -> Instruction {
         Instruction {
             op_code: OpCode::ECLOSURE,
-            payload_size: 0,
+            payload_size: arity,
             contents: None,
         }
     }
@@ -930,6 +1365,61 @@ impl VirtualMachine {
             global_env: Rc::new(RefCell::new(Env::default_env())),
             global_heap: Vec::new(),
         }
+    }
+
+    pub fn emit_instructions(
+        &self,
+        expr_str: &str,
+        symbol_map: &mut SymbolMap,
+        constants: &mut Vec<Rc<SteelVal>>,
+        arity_map: &mut HashMap<String, usize>,
+        // global_env: &Rc<RefCell<Env>>,
+    ) -> Result<Vec<Vec<DenseInstruction>>> {
+        let mut intern = HashMap::new();
+        let mut results = Vec::new();
+
+        let parsed: result::Result<Vec<Expr>, ParseError> =
+            Parser::new(expr_str, &mut intern).collect();
+        let parsed = parsed?;
+
+        let macro_env = Rc::new(RefCell::new(Env::root()));
+        // let real_env = Rc::new(RefCell::new(Env::default_env()));
+
+        let extracted_statements =
+            extract_macro_definitions(&parsed, &macro_env, &self.global_env, symbol_map)?;
+
+        let expanded_statements: Vec<Expr> = extracted_statements
+            .into_iter()
+            .map(|x| expand(x, &self.global_env))
+            .collect::<Result<Vec<Expr>>>()?;
+
+        // println!("{}", expanded_statements.to_string());
+
+        // for expr
+
+        for expr in expanded_statements {
+            println!("{}", expr.to_string());
+
+            let mut instructions: Vec<Instruction> = Vec::new();
+            emit_loop(&expr, &mut instructions, None, arity_map)?;
+            instructions.push(Instruction::new_pop());
+
+            pretty_print_instructions(&instructions);
+
+            // let mut stack: Vec<usize> = Vec::new();
+
+            insert_debruijn_indicies(&mut instructions, symbol_map);
+
+            println!("Got after the debruijn indices");
+
+            extract_constants(&mut instructions, constants)?;
+
+            let dense_instructions = densify(instructions);
+
+            results.push(dense_instructions);
+        }
+
+        Ok(results)
     }
 
     pub fn execute(
@@ -1014,6 +1504,7 @@ pub fn vm(
         // println!("{:?}", cur_inst);
 
         cur_inst = &instructions[ip];
+        // println!("instruction #: {}", ip);
 
         // println!("IP: {}", ip);
         match cur_inst.op_code {
@@ -1075,9 +1566,49 @@ pub fn vm(
                         let mut args = stack.split_off(stack.len() - cur_inst.payload_size);
 
                         if let Some(parent_env) = closure.parent_env() {
-                            let offset = parent_env.borrow().len();
+                            // let offset = parent_env.borrow().len()
+                            //     + parent_env.borrow().local_offset();
+
+                            println!("Top Level Closure ndefs: {}", closure.ndef_body());
+
+                            let offset = closure.offset() + parent_env.borrow().local_offset();
+
+                            // let offset = closure.offset() + global_env.borrow().local_offset();
+
+                            println!("Closure Offset: {}", closure.offset());
+                            println!("Parent offset: {}", parent_env.borrow().local_offset());
+
+                            // println!("############ Offset: {} ###############", offset);
+                            // println!("parent_env length: {}", parent_env.borrow().len());
+                            // println!("parent_env offset: {}", parent_env.borrow().local_offset());
+                            // println!("global_env length: {}", global_env.borrow().len());
+                            // println!("Original offset: {}", closure.offset());
+
+                            // println!("############# inside here ############");
+
+                            // if !global_env.borrow().is_root() {
+                            //     offset = offset - 1;
+                            // }
+
                             // let parent_env = lambda.parent_env();
                             let inner_env = Rc::new(RefCell::new(Env::new(&parent_env, offset)));
+
+                            inner_env
+                                .borrow_mut()
+                                .reserve_defs(if closure.ndef_body() > 0 {
+                                    closure.ndef_body() - 1
+                                } else {
+                                    0
+                                });
+
+                            // inner_env.borrow_mut().reserve_defs(closure.arity());
+
+                            // inner_env.borrow_mut().reserve_defs(if closure.arity() > 0 {
+                            //     closure.arity()
+                            // } else {
+                            //     0
+                            // });
+
                             // let params_exp = lambda.params_exp();
                             let result =
                                 vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
@@ -1086,12 +1617,100 @@ pub fn vm(
                         // evaluate(&lambda.body_exp(), &inner_env)
                         } else if let Some(parent_env) = closure.sub_expression_env() {
                             // TODO remove this unwrap
-                            let offset = parent_env.upgrade().unwrap().borrow().len(); // TODO
-                                                                                       // unimplemented!()
+                            // let offset = parent_env.upgrade().unwrap().borrow().len()
+                            //     + parent_env.upgrade().unwrap().borrow().local_offset(); // TODO
+                            // unimplemented!()
+                            // offset = offset + 1;
+
+                            // println!("Closure Offset: {}", closure.offset());
+                            // println!(
+                            //     "Parent offset: {}",
+                            //     parent_env.upgrade().unwrap().borrow().local_offset()
+                            // );
+
+                            // println!("closure ndef body: {}", closure.ndef_body());
+
+                            // let parent_ndefs =
+                            //     parent_env.upgrade().unwrap().borrow().parent_ndefs();
+
+                            // println!("Parent ndefs: {}", parent_ndefs);
+
+                            // // let offset = closure.offset()
+                            // //     + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                            // let closure_offset = if closure.offset() > 0 && parent_ndefs > 0 {
+                            //     println!("Case 1");
+                            //     parent_ndefs - 1 + closure.offset()
+                            // } else if closure.offset() == 0 && parent_ndefs > 0 {
+                            //     println!("Case 2");
+                            //     parent_ndefs
+                            // } else {
+                            //     println!("Case 3");
+                            //     closure.offset()
+                            // };
+
+                            let offset = closure.offset()
+                                + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                            // if closure.arity() == 0 {
+                            //     offset += 1;
+                            // }
+
+                            // offset += closure.arity() + 1;
+
+                            // if parent_env.upgrade().unwrap().borrow().is_binding_context()
+                            //     && closure.ndef_body() == 1
+                            // {
+                            //     offset -= 1
+                            // };
+
+                            println!("Earlier offset: {}", offset);
+                            println!("number of defs: {}", closure.ndef_body());
+
+                            // let offset = closure.offset() + global_env.borrow().local_offset();
+                            // + closure.arity();
+
+                            // println!("############ Offset: {} ###############", offset);
+                            // println!(
+                            //     "parent_env length: {}",
+                            //     parent_env.upgrade().unwrap().borrow().len()
+                            // );
+                            // println!(
+                            //     "parent_env offset: {}",
+                            //     c
+                            // );
+                            // println!("global_env length: {}", global_env.borrow().len());
+                            // println!("Original offset: {}", closure.offset());
+                            // if !global_env.borrow().is_root() {
+                            //     println!("############################################## here we are #######");
+                            //     offset = offset + 1;
+                            // }
+
+                            // println!("$$$$$$$$$$$$$$$$$$$ inside second $$$$$$$$$$$$$$$$$");
+
                             let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
                                 parent_env.clone(),
                                 offset,
                             )));
+
+                            inner_env
+                                .borrow_mut()
+                                .reserve_defs(if closure.ndef_body() > 0 {
+                                    closure.ndef_body() - 1
+                                } else {
+                                    0
+                                });
+
+                            // inner_env.borrow_mut().reserve_defs(if closure.arity() > 0 {
+                            //     closure.arity()
+                            // } else {
+                            //     0
+                            // });
+
+                            // if closure.arity() > 0 {
+                            //     inner_env.borrow_mut().reserve_defs(closure.arity() - 1);
+                            // }
+
                             let result =
                                 vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
                             stack.push(result);
@@ -1146,7 +1765,21 @@ pub fn vm(
             }
             OpCode::BIND => {
                 // println!("{}")
-                let offset = global_env.borrow().offset();
+                let offset = global_env.borrow().local_offset();
+
+                // if offset != 0 {
+                //     offset = offset - 1;
+                // }
+
+                println!(
+                    "Payload size: {}, Offset: {}",
+                    cur_inst.payload_size, offset
+                );
+
+                // Need to reserve the function definition?
+
+                // println!("Stack: {:?}", stack);
+
                 global_env
                     .borrow_mut()
                     .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
@@ -1154,28 +1787,143 @@ pub fn vm(
             }
             OpCode::SCLOSURE => {
                 ip += 1;
-                // Construct the closure body using the offsets from the payload
-                let closure_body = instructions[ip..(ip + cur_inst.payload_size - 1)].to_vec();
 
-                println!("Closure body:");
-                pretty_print_dense_instructions(&closure_body);
+                let forward_jump = cur_inst.payload_size - 1;
+                // Snag the number of definitions here
+                let ndefs = instructions[ip].payload_size;
+
+                println!("Found this many function definitions: {}", ndefs);
+
+                ip += 1;
+
+                // Construct the closure body using the offsets from the payload
+                // used to be - 1, now - 2
+                let closure_body = instructions[ip..(ip + forward_jump - 1)].to_vec();
+
+                // snag the arity from the eclosure instruction
+                let arity = instructions[ip + forward_jump - 1].payload_size;
+
+                // println!(
+                //     "Arity instruction: {:?}",
+                //     instructions[ip + cur_inst.payload_size]
+                // );
+
+                // println!("Closure body:");
+                // pretty_print_dense_instructions(&closure_body);
 
                 let capture_env = Rc::clone(&global_env);
 
+                // let closure_offset = global_env.borrow().len()
+                //     + if global_env.borrow().is_binding_context() {
+                //         1
+                //     } else {
+                //         1
+                //     };
+
+                // let closure_offset = global_env.borrow().len()
+                //     + if global_env.borrow().is_binding_context() {
+                //         1
+                //     } else {
+                //         0
+                //     };
+
+                // if global_env.borrow().is_binding_context() && ndefs > 0 {
+                //     // Reserve the spots
+                //     capture_env.borrow_mut().reserve_defs(ndefs - 1);
+                // } else {
+                //     // Reserve the spots
+                //     capture_env.borrow_mut().reserve_defs(ndefs);
+                // }
+
+                let mut closure_offset = global_env.borrow().len();
+
+                if global_env.borrow().is_binding_context()
+                    && !global_env.borrow().is_binding_offset()
+                {
+                    global_env.borrow_mut().set_binding_offset(true);
+                    closure_offset += 1
+                };
+
+                // Reserve the spots of the definitions that will be made
+                // capture_env.borrow_mut().reserve_defs(ndefs);
+
+                // let closure_offset = global_env.borrow().len();
+
+                // println!("!!!!!!!!!!!! Closure Offset: {}", closure_offset);
+                println!("!!!!!!!!!!!! Closure Arity: {}", arity);
+                println!("!!!!!!!!!!!! Closure ndefs: {}", ndefs);
+
                 // Determine the kind of bytecode lambda to construct
                 let constructed_lambda = if capture_env.borrow().is_root() {
-                    ByteCodeLambda::new(closure_body, Some(capture_env), None)
+                    // println!("Inside this one");
+
+                    // let closure_offset = global_env.borrow().len()
+                    //     + if global_env.borrow().is_binding_context() {
+                    //         1
+                    //     } else {
+                    //         0
+                    //     };
+
+                    // let closure_offset = global_env.borrow().len();
+
+                    // println!("!!!!!!!!!!!! Closure Offset: {}", closure_offset);
+                    // println!("!!!!!!!!!!!! Closure Arity: {}", arity);
+
+                    ByteCodeLambda::new(
+                        closure_body,
+                        Some(capture_env),
+                        None,
+                        closure_offset,
+                        arity,
+                        ndefs,
+                    )
                 } else {
+                    // set the number of definitions for the environment
+                    capture_env.borrow_mut().set_ndefs(ndefs);
+
+                    // let closure_offset = global_env.borrow().len();
+
+                    // if arity > 0 {
+                    //     closure_offset += arity - 1;
+                    // }
+
+                    // let pndefs = capture_env.borrow().parent_ndefs();
+                    // println!("Getting the parent n defs of {}", pndefs);
+
+                    // if pndefs > 0 {
+                    //     closure_offset += pndefs - 1;
+                    // }
+
+                    println!("Setting the ndefs here!!!!!!!!");
+                    // let closure_offset = arity
+                    //     + if global_env.borrow().is_binding_context() {
+                    //         0
+                    //     } else {
+                    //         0
+                    //     };
+
+                    // println!("!!!!!!!!!!!! Closure Offset: {}", closure_offset);
+                    // println!("!!!!!!!!!!!! Closure Arity: {}", arity);
+
+                    // println!("Inside the second one");
+
                     // TODO look at this heap thing
                     heap.push(Rc::clone(&capture_env));
-                    ByteCodeLambda::new(closure_body, None, Some(Rc::downgrade(&capture_env)))
+                    ByteCodeLambda::new(
+                        closure_body,
+                        None,
+                        Some(Rc::downgrade(&capture_env)),
+                        closure_offset,
+                        arity,
+                        ndefs,
+                    )
                 };
 
                 stack.push(Rc::new(SteelVal::Closure(constructed_lambda)));
 
                 // println!("{:?}", stack);
 
-                ip += cur_inst.payload_size;
+                ip += forward_jump;
                 // cur_inst = &instructions[ip];
 
                 // let c = ByteCodeLambda::new(closure_body, )
@@ -1184,6 +1932,7 @@ pub fn vm(
                 ip += 1;
 
                 global_env.borrow_mut().set_binding_context(true);
+                global_env.borrow_mut().set_binding_offset(false);
 
                 let defn_body = &instructions[ip..(ip + cur_inst.payload_size - 1)];
 
@@ -1210,51 +1959,6 @@ pub fn vm(
 
     unimplemented!()
 }
-// (define test (lambda (x) (if (= x 100000) x (test (+ x 1)))))
-
-// fn eval_lambda(
-//     lambda: &SteelLambda,
-//     list_of_tokens: &[Rc<Expr>],
-//     env: &Rc<RefCell<Env>>,
-//     heap: &mut Vec<Rc<RefCell<Env>>>,
-//     expr_stack: &mut Vec<Rc<Expr>>,
-//     last_macro: &mut Option<Rc<Expr>>,
-// ) -> Result<(Rc<Expr>, Rc<RefCell<Env>>)> {
-//     let args_eval: Result<Vec<Rc<SteelVal>>> = list_of_tokens
-//         .iter()
-//         .map(|x| evaluate(&x, &env, heap, expr_stack, last_macro))
-//         .collect();
-//     let args_eval: Vec<Rc<SteelVal>> = args_eval?;
-
-//     // heap.pop();
-
-//     if let Some(parent_env) = lambda.parent_env() {
-//         // let parent_env = lambda.parent_env();
-//         let inner_env = Rc::new(RefCell::new(Env::new(&parent_env)));
-//         let params_exp = lambda.params_exp();
-//         inner_env.borrow_mut().define_all(params_exp, args_eval)?;
-//         Ok((lambda.body_exp(), inner_env))
-//     // inner_env
-//     //     .borrow_mut()
-//     //     .define_all(params_exp, optional_args)?;
-
-//     // evaluate(&lambda.body_exp(), &inner_env)
-//     } else if let Some(parent_env) = lambda.sub_expression_env() {
-//         // unimplemented!()
-//         let inner_env = Rc::new(RefCell::new(Env::new_subexpression(parent_env.clone())));
-//         let params_exp = lambda.params_exp();
-//         inner_env.borrow_mut().define_all(params_exp, args_eval)?;
-//         Ok((lambda.body_exp(), inner_env))
-//     // inner_env
-//     //     .borrow_mut()
-//     //     .define_all(params_exp, optional_args)?;
-
-//     // evaluate(&lambda.body_exp(), &inner_env)
-//     } else {
-//         stop!(Generic => "Root env is missing!")
-//     }
-
-// }
 
 /// evaluates an atom expression in given environment
 fn eval_atom(t: &SyntaxObject) -> Result<Rc<SteelVal>> {
@@ -1277,10 +1981,6 @@ fn eval_atom(t: &SyntaxObject) -> Result<Rc<SteelVal>> {
         }
     }
 }
-
-// pub fn byte_code() {
-//     let x = 0x45;
-// }
 
 /*
 (+ 1 2 (+ 3 4 (+ 5 6)))
@@ -1320,78 +2020,4 @@ push 5
 push 6
 push (BUILT_IN_FUNCTION) (pop 3)
 END
-
-
-
-
-
-
-
-
 */
-
-// use crate::compiler::AST;
-// use crate::rvals::MacroPattern;
-// use crate::expander::SteelMacro;
-
-/*
-any time we have an expression returned for a lambda, I should just create a new stack frame
-in the case of tail recursion, I can try to reuse the stack frame when possible based on the args
-*/
-
-// pub fn flatten_expression_tree(expr_str: &str) -> Result<()> {
-//     let mut intern = HashMap::new();
-//     // let parsed: result::Result<Vec<Expr>, ParseError> =
-//     //     Parser::new(expr_str, &mut intern).collect();
-
-//     // let parsed = parsed.unwrap();
-
-//     let env = Evaluator::generate_default_env_with_prelude().unwrap();
-
-//     let ast = Evaluator::parse_and_compile_with_env_and_intern(expr_str, env, &mut intern);
-
-//     for expr in ast.get_expr() {
-
-//     }
-
-//     // let instructions = emit_instructions()
-
-//     // unimplemented!();
-// }
-
-// pub fn flatten_expression_tree(expr_str: &str) -> result::Result<Vec<Token>, TokenError> {
-//     // match expr.as_ref() {}
-//     // unimplemented!()]
-
-//     let mut intern = HashMap::new();
-
-//     let parsed: result::Result<Vec<Expr>, ParseError> =
-//         Parser::new(expr_str, &mut intern).collect();
-//     let parsed = parsed.unwrap();
-
-//     let mut result = Vec::new();
-
-//     for expr in parsed {
-//         let input = expr.to_string();
-//         let tok = Tokenizer::new(&input).collect::<result::Result<Vec<Token>, TokenError>>()?;
-//         result.push(tok);
-//     }
-
-//     Ok(result.into_iter().flatten().collect())
-
-//     // let result: result::Result<Vec<Token>, TokenError> = parsed
-//     //     .into_iter()
-//     //     .map(|x: Expr| {
-//     //         let input = x.to_string();
-//     //         Tokenizer::new(&input).collect::<result::Result<Vec<Token>, TokenError>>();
-//     //     })
-//     //     .flatten()
-//     //     .collect();
-
-//     // result
-
-//     // let expr = Expr::VectorVal()
-
-//     // let input = expr.to_string();
-//     // Tokenizer::new(&input).collect()
-// }

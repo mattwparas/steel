@@ -448,6 +448,9 @@ pub struct ByteCodeLambda {
     sub_expression_env: Option<Weak<RefCell<Env>>>,
     // bytecode instruction body
     // body_byte: Vec<Instruction>,
+    offset: usize,
+    arity: usize,
+    ndef_body: usize,
 }
 
 impl ByteCodeLambda {
@@ -455,11 +458,17 @@ impl ByteCodeLambda {
         body_exp: Vec<DenseInstruction>,
         parent_env: Option<Rc<RefCell<Env>>>,
         sub_expression_env: Option<Weak<RefCell<Env>>>,
+        offset: usize,
+        arity: usize,
+        ndef_body: usize,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             body_exp,
             parent_env,
             sub_expression_env,
+            offset,
+            arity,
+            ndef_body,
         }
     }
 
@@ -477,6 +486,18 @@ impl ByteCodeLambda {
 
     pub fn sub_expression_env(&self) -> Option<&Weak<RefCell<Env>>> {
         self.sub_expression_env.as_ref()
+    }
+
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub fn arity(&self) -> usize {
+        self.arity
+    }
+
+    pub fn ndef_body(&self) -> usize {
+        self.ndef_body
     }
 }
 
