@@ -24,6 +24,7 @@ use std::borrow::Cow;
 use crate::vm::emit_instructions;
 // use crate::vm::execute_vm;
 use crate::vm::pretty_print_dense_instructions;
+use crate::vm::ArityMap;
 use crate::vm::SymbolMap;
 use crate::vm::VirtualMachine;
 
@@ -154,7 +155,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
     let mut vm = VirtualMachine::new();
     let mut symbol_map = Env::default_symbol_map();
     let mut constants = Vec::new();
-    let mut arity_map = HashMap::new();
+    let mut arity_map = ArityMap::new();
 
     // let mut rl = Editor::<RustylineHelper>::new();
     // let mut rl = Editor::<MatchingBracketHighlighter>::new();

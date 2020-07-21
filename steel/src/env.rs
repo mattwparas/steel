@@ -317,8 +317,8 @@ impl Env {
     }
 
     pub fn define_idx(&mut self, idx: usize, val: Rc<SteelVal>) {
-        println!("Defining value: {:?} at idx: {}", val, idx);
-        println!("Current bindings: {:?}", self.bindings_vec);
+        // println!("Defining value: {:?} at idx: {}", val, idx);
+        // println!("Current bindings: {:?}", self.bindings_vec);
         if idx < self.bindings_vec.len() {
             self.bindings_vec[idx] = val;
         } else if idx == self.bindings_vec.len() {
@@ -435,8 +435,8 @@ impl Env {
 
     pub fn lookup_idx(&self, idx: usize) -> Result<Rc<SteelVal>> {
         let offset = self.offset;
-        println!("Looking up {}, with offset: {}", idx, offset);
-        println!("{:?}", self.bindings_vec);
+        // println!("Looking up {}, with offset: {}", idx, offset);
+        // println!("{:?}", self.bindings_vec);
 
         // if offset != 0 {
         //     offset = offset - 1;
