@@ -1,9 +1,12 @@
 mod arity;
+mod constants;
 mod expand;
 mod map;
 
 pub use arity::Arity;
 pub use arity::ArityMap;
+pub use constants::ConstantMap;
+pub use constants::ConstantTable;
 pub use expand::expand;
 pub use expand::extract_macro_definitions;
 pub use map::SymbolMap;
@@ -42,6 +45,8 @@ use crate::env::TRUE;
 use crate::env::VOID;
 use std::cell::RefCell;
 use std::rc::Rc;
+
+use std::convert::TryFrom;
 
 // use std::collections::HashSet;
 
@@ -190,10 +195,10 @@ pub fn collect_defines_from_current_scope(
                 ..
             } => {
                 if def_stack == 0 {
-                    let idx = symbol_map.get_or_add(s);
+                    let _ = symbol_map.get_or_add(s);
                     count += 1;
-                    println!("####### FOUND DEFINE #########");
-                    println!("Renaming: {} to index: {}", s, idx);
+                    // println!("####### FOUND DEFINE #########");
+                    // println!("Renaming: {} to index: {}", s, idx);
                     // if let Some(x) = instructions.get_mut(i) {
                     //     x.contents = None;
                     // }
@@ -243,7 +248,7 @@ pub fn collect_binds_from_current_scope(
                 if def_stack == 1 {
                     let idx = symbol_map.add(s);
 
-                    println!("Renaming: {} to index: {}", s, idx);
+                    // println!("Renaming: {} to index: {}", s, idx);
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = idx;
                         x.contents = None;
@@ -269,7 +274,7 @@ pub fn collect_binds_from_current_scope(
     }
 }
 
-pub fn insert_debruijn_indicies(instructions: &mut [Instruction], symbol_map: &mut SymbolMap) {
+pub fn insert_debruijn_indices(instructions: &mut [Instruction], symbol_map: &mut SymbolMap) {
     let mut stack: Vec<usize> = Vec::new();
     // let mut def_stack: Vec<usize> = Vec::new();
 
@@ -293,7 +298,7 @@ pub fn insert_debruijn_indicies(instructions: &mut [Instruction], symbol_map: &m
                 ..
             } => {
                 let idx = symbol_map.get(s);
-                println!("Renaming: {} to index: {}", s, idx);
+                // println!("Renaming: {} to index: {}", s, idx);
                 if let Some(x) = instructions.get_mut(i) {
                     x.payload_size = idx;
                     x.contents = None;
@@ -311,7 +316,7 @@ pub fn insert_debruijn_indicies(instructions: &mut [Instruction], symbol_map: &m
             } => {
                 let idx = symbol_map.get_or_add(s);
 
-                println!("Renaming: {} to index: {}", s, idx);
+                // println!("Renaming: {} to index: {}", s, idx);
                 if let Some(x) = instructions.get_mut(i) {
                     x.payload_size = idx;
                     x.contents = None;
@@ -362,10 +367,10 @@ pub fn insert_debruijn_indicies(instructions: &mut [Instruction], symbol_map: &m
     }
 }
 
-pub fn emit_instructions(
+pub fn emit_instructions<CT: ConstantTable>(
     expr_str: &str,
     symbol_map: &mut SymbolMap,
-    constants: &mut Vec<Rc<SteelVal>>,
+    constants: &mut CT,
     global_env: &Rc<RefCell<Env>>,
     arity_map: &mut ArityMap,
 ) -> Result<Vec<Vec<DenseInstruction>>> {
@@ -384,14 +389,16 @@ pub fn emit_instructions(
 
     for expr in extracted_statements {
         let mut instructions: Vec<Instruction> = Vec::new();
-        emit_loop(&expr, &mut instructions, None, arity_map)?;
+        emit_loop(&expr, &mut instructions, None, arity_map, constants)?;
         instructions.push(Instruction::new_pop());
 
         pretty_print_instructions(&instructions);
 
-        insert_debruijn_indicies(&mut instructions, symbol_map);
+        insert_debruijn_indices(&mut instructions, symbol_map);
 
-        println!("Got after the debruijn indices");
+        println!("------ DeBruijn Indices succeeded! ------");
+
+        // println!("Got after the debruijn indices");
 
         extract_constants(&mut instructions, constants)?;
 
@@ -437,11 +444,12 @@ pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
     }
 }
 
-fn emit_loop(
+fn emit_loop<CT: ConstantTable>(
     expr: &Expr,
     instructions: &mut Vec<Instruction>,
     defining_context: Option<&str>,
     arity_map: &mut ArityMap,
+    constant_map: &mut CT,
 ) -> Result<()> {
     match expr {
         Expr::Atom(s) => {
@@ -450,16 +458,27 @@ fn emit_loop(
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
                 match f.deref() {
-                    // Expr::Atom(SyntaxObject {
-                    //     ty: TokenType::Identifier(s),
-                    //     ..
-                    // }) if s == "quote" => {
-                    //     instructions.push("quote".to_string());
-                    //     for expr in &list_of_tokens[1..] {
-                    //         emit_loop(Rc::clone(expr), instructions)?;
-                    //     }
-                    //     return Ok(());
-                    // }
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "quote" => {
+                        check_length("quote", &list_of_tokens, 2)?;
+                        let converted = SteelVal::try_from(list_of_tokens[1].clone())?;
+                        let idx = constant_map.add_or_get(Rc::new(converted));
+                        instructions.push(Instruction::new_push_const(idx));
+                        // instructions.push(Instruction::new_quote());
+                        return Ok(());
+                    }
+
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "quote" => {
+                        check_length("eval", &list_of_tokens, 2)?;
+                        instructions.push(Instruction::new_eval());
+                        return Ok(());
+                    }
+
                     Expr::Atom(SyntaxObject {
                         ty: TokenType::Identifier(s),
                         ..
@@ -470,7 +489,7 @@ fn emit_loop(
                             // unimplemented!()
 
                             // load in the test condition
-                            emit_loop(test_expr, instructions, None, arity_map)?;
+                            emit_loop(test_expr, instructions, None, arity_map, constant_map)?;
                             // push in If
                             instructions.push(Instruction::new_if(instructions.len() + 2));
                             // save spot of jump instruction, fill in after
@@ -478,12 +497,12 @@ fn emit_loop(
                             instructions.push(Instruction::new_jmp(0)); // dummy
 
                             // emit instructions for then expression
-                            emit_loop(then_expr, instructions, None, arity_map)?;
+                            emit_loop(then_expr, instructions, None, arity_map, constant_map)?;
                             instructions.push(Instruction::new_jmp(0)); // dummy
                             let false_start = instructions.len();
 
                             // emit instructions for else expression
-                            emit_loop(else_expr, instructions, None, arity_map)?;
+                            emit_loop(else_expr, instructions, None, arity_map, constant_map)?;
                             let j3 = instructions.len(); // first instruction after else
 
                             // set index of jump instruction to be
@@ -498,23 +517,9 @@ fn emit_loop(
                             } else {
                                 stop!(Generic => "out of bounds jump");
                             }
-
-                        // instructions.get_mut(idx)
-
-                        // println!("{}, {}")
-
-                        // instructions.push(Instruction::new_jmp());
-                        // instructions.insert(j2 - 2, Instruction::new_jmp(j3));
-
-                        // instructions.insert(idx, Instruction::new_if(j1));
-                        // instructions.insert(idx + 1, Instruction::new_jmp(j2));
-
-                        // unimplemented!();
                         } else {
                             stop!(BadSyntax => "malformed if statement");
                         }
-                        //     emit_loop(Rc::clone(expr), instructions)?;
-                        // }
                         return Ok(());
                     }
 
@@ -555,6 +560,7 @@ fn emit_loop(
                                     instructions,
                                     defining_context,
                                     arity_map,
+                                    constant_map,
                                 )?;
 
                                 // for expr in &list_of_tokens[2..] {
@@ -644,7 +650,7 @@ fn emit_loop(
                         // let mut body_instructions = Vec::new();
 
                         for expr in &list_of_tokens[2..] {
-                            emit_loop(expr, &mut body_instructions, None, arity_map)?;
+                            emit_loop(expr, &mut body_instructions, None, arity_map, constant_map)?;
                         }
 
                         // TODO look out here for the
@@ -700,7 +706,7 @@ fn emit_loop(
                     }) if s == "begin" => {
                         // instructions.push("begin".to_string());
                         for expr in &list_of_tokens[1..] {
-                            emit_loop(expr, instructions, None, arity_map)?;
+                            emit_loop(expr, instructions, None, arity_map, constant_map)?;
                         }
                         return Ok(());
                     }
@@ -792,15 +798,15 @@ fn emit_loop(
                         }
 
                         for expr in &list_of_tokens[1..] {
-                            emit_loop(expr, instructions, None, arity_map)?;
+                            emit_loop(expr, instructions, None, arity_map, constant_map)?;
                         }
 
-                        emit_loop(f, instructions, None, arity_map)?;
+                        emit_loop(f, instructions, None, arity_map, constant_map)?;
 
                         instructions.push(Instruction::new_func(pop_len));
 
                         return Ok(());
-                    } // _ => {}
+                    }
                 }
             } else {
                 stop!(TypeMismatch => "Given empty list")
@@ -830,6 +836,7 @@ pub enum OpCode {
     PASS = 13,
     PUSHCONST = 14,
     NDEFS = 15,
+    EVAL = 16,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -866,6 +873,22 @@ impl Instruction {
             op_code,
             payload_size,
             contents: Some(contents),
+        }
+    }
+
+    pub fn new_push_const(idx: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::PUSHCONST,
+            payload_size: idx,
+            contents: None,
+        }
+    }
+
+    pub fn new_eval() -> Instruction {
+        Instruction {
+            op_code: OpCode::EVAL,
+            payload_size: 0,
+            contents: None,
         }
     }
 
@@ -979,11 +1002,12 @@ impl VirtualMachine {
         }
     }
 
-    pub fn emit_instructions(
+    pub fn emit_instructions<CT: ConstantTable>(
         &self,
         expr_str: &str,
         symbol_map: &mut SymbolMap,
-        constants: &mut Vec<Rc<SteelVal>>,
+        // constants: &mut Vec<Rc<SteelVal>>,
+        constant_map: &mut CT,
         arity_map: &mut ArityMap,
         // global_env: &Rc<RefCell<Env>>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
@@ -1013,18 +1037,18 @@ impl VirtualMachine {
             println!("{}", expr.to_string());
 
             let mut instructions: Vec<Instruction> = Vec::new();
-            emit_loop(&expr, &mut instructions, None, arity_map)?;
+            emit_loop(&expr, &mut instructions, None, arity_map, constant_map)?;
             instructions.push(Instruction::new_pop());
 
             pretty_print_instructions(&instructions);
 
             // let mut stack: Vec<usize> = Vec::new();
 
-            insert_debruijn_indicies(&mut instructions, symbol_map);
+            insert_debruijn_indices(&mut instructions, symbol_map);
 
-            println!("Got after the debruijn indices");
+            println!("------- Debruijn Indices Succeeded -------");
 
-            extract_constants(&mut instructions, constants)?;
+            extract_constants(&mut instructions, constant_map)?;
 
             let dense_instructions = densify(instructions);
 
@@ -1034,10 +1058,10 @@ impl VirtualMachine {
         Ok(results)
     }
 
-    pub fn execute(
+    pub fn execute<CT: ConstantTable>(
         &mut self,
         instructions: &[DenseInstruction],
-        constants: &[Rc<SteelVal>],
+        constants: &CT,
     ) -> Result<Rc<SteelVal>> {
         // execute_vm(instructions)
         let mut stack: Vec<Rc<SteelVal>> = Vec::new();
@@ -1064,7 +1088,7 @@ impl VirtualMachine {
 
 pub fn execute_vm(
     instructions: &[DenseInstruction],
-    constants: &[Rc<SteelVal>],
+    constants: &ConstantMap,
 ) -> Result<Rc<SteelVal>> {
     let mut stack: Vec<Rc<SteelVal>> = Vec::new();
     let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
@@ -1074,16 +1098,18 @@ pub fn execute_vm(
 }
 
 // TODO make this not so garbage but its kind of okay
-pub fn extract_constants(
+pub fn extract_constants<CT: ConstantTable>(
     instructions: &mut [Instruction],
-    constants: &mut Vec<Rc<SteelVal>>,
+    constants: &mut CT,
 ) -> Result<()> {
     for i in 0..instructions.len() {
         let inst = &instructions[i];
         if let OpCode::PUSH = inst.op_code {
-            let idx = constants.len();
+            // let idx = constants.len();
             if inst.contents.is_some() {
-                constants.push(eval_atom(&inst.contents.as_ref().unwrap())?);
+                let value = eval_atom(&inst.contents.as_ref().unwrap())?;
+                let idx = constants.add_or_get(value);
+                // constants.push(eval_atom(&inst.contents.as_ref().unwrap())?);
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = OpCode::PUSHCONST;
                     x.payload_size = idx;
@@ -1091,63 +1117,62 @@ pub fn extract_constants(
                 }
             }
         }
+
+        // else if let OpCode::PUSHQUOTE = inst.op_code {
+        //     let idx = constants.len();
+
+        //     if let Some(syntax) = inst.contents {
+        //         //     check_length("Quote", &list_of_tokens, 2)?;
+        //         let converted = SteelVal::try_from(syntax.ty)?;
+        //         // return Ok(Rc::new(converted));
+
+        //         // let converted = SteelVal::try_from(syntax);
+        //         unimplemented!()
+        //     }
+        // }
     }
 
     Ok(())
 }
 
-pub fn vm(
+pub fn vm<CT: ConstantTable>(
     instructions: &[DenseInstruction],
     stack: &mut Vec<Rc<SteelVal>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
     global_env: Rc<RefCell<Env>>,
-    constants: &[Rc<SteelVal>],
+    constants: &CT,
 ) -> Result<Rc<SteelVal>> {
-    // let mut stack: Vec<Rc<SteelVal>> = Vec::new();
     let mut ip = 0;
 
     if instructions.is_empty() {
         stop!(Generic => "empty stack!");
     }
 
-    let mut cur_inst = &instructions[ip];
+    let mut cur_inst;
 
     while ip < instructions.len() {
-        // println!("{:?}", cur_inst);
-
         cur_inst = &instructions[ip];
-        // println!("instruction #: {}", ip);
 
-        // println!("IP: {}", ip);
         match cur_inst.op_code {
+            OpCode::EVAL => {
+                panic!("eval not yet supported");
+            }
             OpCode::PASS => {
                 ip += 1;
-                // cur_inst = &instructions[ip];
             }
             OpCode::VOID => {
                 stack.push(VOID.with(|f| Rc::clone(f)));
                 ip += 1;
-                // cur_inst = &instructions[ip];
             }
             OpCode::PUSHCONST => {
-                let val = Rc::clone(&constants[cur_inst.payload_size]);
+                let val = constants.get(cur_inst.payload_size);
                 stack.push(val);
                 ip += 1;
-                // unimplemented!();
             }
             OpCode::PUSH => {
-                // if cur_inst.contents.is_some() {
-                //     stack.push(eval_atom(&cur_inst.contents.as_ref().unwrap())?);
-                // } else {
                 let value = global_env.borrow().lookup_idx(cur_inst.payload_size)?;
                 stack.push(value);
-                // stack.push()
-                // Put the lookup of the index here
-                // unimplemented!()
-                // }
-
                 ip += 1;
-                // cur_inst = &instructions[ip];
             }
             OpCode::FUNC => {
                 let stack_func = stack.pop().unwrap();
@@ -1183,29 +1208,7 @@ pub fn vm(
                         let mut args = stack.split_off(stack.len() - cur_inst.payload_size);
 
                         if let Some(parent_env) = closure.parent_env() {
-                            // let offset = parent_env.borrow().len()
-                            //     + parent_env.borrow().local_offset();
-
-                            // println!("Top Level Closure ndefs: {}", closure.ndef_body());
-
                             let offset = closure.offset() + parent_env.borrow().local_offset();
-
-                            // let offset = closure.offset() + global_env.borrow().local_offset();
-
-                            // println!("Closure Offset: {}", closure.offset());
-                            // println!("Parent offset: {}", parent_env.borrow().local_offset());
-
-                            // println!("############ Offset: {} ###############", offset);
-                            // println!("parent_env length: {}", parent_env.borrow().len());
-                            // println!("parent_env offset: {}", parent_env.borrow().local_offset());
-                            // println!("global_env length: {}", global_env.borrow().len());
-                            // println!("Original offset: {}", closure.offset());
-
-                            // println!("############# inside here ############");
-
-                            // if !global_env.borrow().is_root() {
-                            //     offset = offset - 1;
-                            // }
 
                             // let parent_env = lambda.parent_env();
                             let inner_env = Rc::new(RefCell::new(Env::new(&parent_env, offset)));
@@ -1218,14 +1221,6 @@ pub fn vm(
                                     0
                                 });
 
-                            // inner_env.borrow_mut().reserve_defs(closure.arity());
-
-                            // inner_env.borrow_mut().reserve_defs(if closure.arity() > 0 {
-                            //     closure.arity()
-                            // } else {
-                            //     0
-                            // });
-
                             // let params_exp = lambda.params_exp();
                             let result =
                                 vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
@@ -1234,76 +1229,8 @@ pub fn vm(
                         // evaluate(&lambda.body_exp(), &inner_env)
                         } else if let Some(parent_env) = closure.sub_expression_env() {
                             // TODO remove this unwrap
-                            // let offset = parent_env.upgrade().unwrap().borrow().len()
-                            //     + parent_env.upgrade().unwrap().borrow().local_offset(); // TODO
-                            // unimplemented!()
-                            // offset = offset + 1;
-
-                            // println!("Closure Offset: {}", closure.offset());
-                            // println!(
-                            //     "Parent offset: {}",
-                            //     parent_env.upgrade().unwrap().borrow().local_offset()
-                            // );
-
-                            // println!("closure ndef body: {}", closure.ndef_body());
-
-                            // let parent_ndefs =
-                            //     parent_env.upgrade().unwrap().borrow().parent_ndefs();
-
-                            // println!("Parent ndefs: {}", parent_ndefs);
-
-                            // // let offset = closure.offset()
-                            // //     + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                            // let closure_offset = if closure.offset() > 0 && parent_ndefs > 0 {
-                            //     println!("Case 1");
-                            //     parent_ndefs - 1 + closure.offset()
-                            // } else if closure.offset() == 0 && parent_ndefs > 0 {
-                            //     println!("Case 2");
-                            //     parent_ndefs
-                            // } else {
-                            //     println!("Case 3");
-                            //     closure.offset()
-                            // };
-
                             let offset = closure.offset()
                                 + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                            // if closure.arity() == 0 {
-                            //     offset += 1;
-                            // }
-
-                            // offset += closure.arity() + 1;
-
-                            // if parent_env.upgrade().unwrap().borrow().is_binding_context()
-                            //     && closure.ndef_body() == 1
-                            // {
-                            //     offset -= 1
-                            // };
-
-                            // println!("Earlier offset: {}", offset);
-                            // println!("number of defs: {}", closure.ndef_body());
-
-                            // let offset = closure.offset() + global_env.borrow().local_offset();
-                            // + closure.arity();
-
-                            // println!("############ Offset: {} ###############", offset);
-                            // println!(
-                            //     "parent_env length: {}",
-                            //     parent_env.upgrade().unwrap().borrow().len()
-                            // );
-                            // println!(
-                            //     "parent_env offset: {}",
-                            //     c
-                            // );
-                            // println!("global_env length: {}", global_env.borrow().len());
-                            // println!("Original offset: {}", closure.offset());
-                            // if !global_env.borrow().is_root() {
-                            //     println!("############################################## here we are #######");
-                            //     offset = offset + 1;
-                            // }
-
-                            // println!("$$$$$$$$$$$$$$$$$$$ inside second $$$$$$$$$$$$$$$$$");
 
                             let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
                                 parent_env.clone(),
@@ -1317,16 +1244,6 @@ pub fn vm(
                                 } else {
                                     0
                                 });
-
-                            // inner_env.borrow_mut().reserve_defs(if closure.arity() > 0 {
-                            //     closure.arity()
-                            // } else {
-                            //     0
-                            // });
-
-                            // if closure.arity() > 0 {
-                            //     inner_env.borrow_mut().reserve_defs(closure.arity() - 1);
-                            // }
 
                             let result =
                                 vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
@@ -1381,22 +1298,7 @@ pub fn vm(
                     .ok_or_else(|| SteelErr::Generic("stack empty at pop".to_string()));
             }
             OpCode::BIND => {
-                // println!("{}")
                 let offset = global_env.borrow().local_offset();
-
-                // if offset != 0 {
-                //     offset = offset - 1;
-                // }
-
-                // println!(
-                //     "Payload size: {}, Offset: {}",
-                //     cur_inst.payload_size, offset
-                // );
-
-                // Need to reserve the function definition?
-
-                // println!("Stack: {:?}", stack);
-
                 global_env
                     .borrow_mut()
                     .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
@@ -1408,11 +1310,7 @@ pub fn vm(
                 let forward_jump = cur_inst.payload_size - 1;
                 // Snag the number of definitions here
                 let ndefs = instructions[ip].payload_size;
-
-                // println!("Found this many function definitions: {}", ndefs);
-
                 ip += 1;
-
                 // Construct the closure body using the offsets from the payload
                 // used to be - 1, now - 2
                 let closure_body = instructions[ip..(ip + forward_jump - 1)].to_vec();
@@ -1420,37 +1318,7 @@ pub fn vm(
                 // snag the arity from the eclosure instruction
                 let arity = instructions[ip + forward_jump - 1].payload_size;
 
-                // println!(
-                //     "Arity instruction: {:?}",
-                //     instructions[ip + cur_inst.payload_size]
-                // );
-
-                // println!("Closure body:");
-                // pretty_print_dense_instructions(&closure_body);
-
                 let capture_env = Rc::clone(&global_env);
-
-                // let closure_offset = global_env.borrow().len()
-                //     + if global_env.borrow().is_binding_context() {
-                //         1
-                //     } else {
-                //         1
-                //     };
-
-                // let closure_offset = global_env.borrow().len()
-                //     + if global_env.borrow().is_binding_context() {
-                //         1
-                //     } else {
-                //         0
-                //     };
-
-                // if global_env.borrow().is_binding_context() && ndefs > 0 {
-                //     // Reserve the spots
-                //     capture_env.borrow_mut().reserve_defs(ndefs - 1);
-                // } else {
-                //     // Reserve the spots
-                //     capture_env.borrow_mut().reserve_defs(ndefs);
-                // }
 
                 let mut closure_offset = global_env.borrow().len();
 
@@ -1461,31 +1329,8 @@ pub fn vm(
                     closure_offset += 1
                 };
 
-                // Reserve the spots of the definitions that will be made
-                // capture_env.borrow_mut().reserve_defs(ndefs);
-
-                // let closure_offset = global_env.borrow().len();
-
-                // println!("!!!!!!!!!!!! Closure Offset: {}", closure_offset);
-                // println!("!!!!!!!!!!!! Closure Arity: {}", arity);
-                // println!("!!!!!!!!!!!! Closure ndefs: {}", ndefs);
-
                 // Determine the kind of bytecode lambda to construct
                 let constructed_lambda = if capture_env.borrow().is_root() {
-                    // println!("Inside this one");
-
-                    // let closure_offset = global_env.borrow().len()
-                    //     + if global_env.borrow().is_binding_context() {
-                    //         1
-                    //     } else {
-                    //         0
-                    //     };
-
-                    // let closure_offset = global_env.borrow().len();
-
-                    // println!("!!!!!!!!!!!! Closure Offset: {}", closure_offset);
-                    // println!("!!!!!!!!!!!! Closure Arity: {}", arity);
-
                     ByteCodeLambda::new(
                         closure_body,
                         Some(capture_env),
@@ -1497,32 +1342,6 @@ pub fn vm(
                 } else {
                     // set the number of definitions for the environment
                     capture_env.borrow_mut().set_ndefs(ndefs);
-
-                    // let closure_offset = global_env.borrow().len();
-
-                    // if arity > 0 {
-                    //     closure_offset += arity - 1;
-                    // }
-
-                    // let pndefs = capture_env.borrow().parent_ndefs();
-                    // println!("Getting the parent n defs of {}", pndefs);
-
-                    // if pndefs > 0 {
-                    //     closure_offset += pndefs - 1;
-                    // }
-
-                    // println!("Setting the ndefs here!!!!!!!!");
-                    // let closure_offset = arity
-                    //     + if global_env.borrow().is_binding_context() {
-                    //         0
-                    //     } else {
-                    //         0
-                    //     };
-
-                    // println!("!!!!!!!!!!!! Closure Offset: {}", closure_offset);
-                    // println!("!!!!!!!!!!!! Closure Arity: {}", arity);
-
-                    // println!("Inside the second one");
 
                     // TODO look at this heap thing
                     heap.push(Rc::clone(&capture_env));
@@ -1538,12 +1357,7 @@ pub fn vm(
 
                 stack.push(Rc::new(SteelVal::Closure(constructed_lambda)));
 
-                // println!("{:?}", stack);
-
                 ip += forward_jump;
-                // cur_inst = &instructions[ip];
-
-                // let c = ByteCodeLambda::new(closure_body, )
             }
             OpCode::SDEF => {
                 ip += 1;
@@ -1596,6 +1410,20 @@ fn eval_atom(t: &SyntaxObject) -> Result<Rc<SteelVal>> {
             // println!("getting here");
             stop!(UnexpectedToken => what)
         }
+    }
+}
+
+/// returns error if tokens.len() != expected
+fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
+    if tokens.len() == expected {
+        Ok(())
+    } else {
+        Err(SteelErr::ArityMismatch(format!(
+            "{}: expected {} args got {}",
+            what,
+            expected,
+            tokens.len()
+        )))
     }
 }
 
