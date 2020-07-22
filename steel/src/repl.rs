@@ -1,6 +1,6 @@
 use crate::interpreter;
 extern crate rustyline;
-use crate::rvals::SteelVal;
+// use crate::rvals::SteelVal;
 // use crate::stdlib::PRELUDE;
 use colored::*;
 use rustyline::error::ReadlineError;
@@ -21,18 +21,18 @@ use std::borrow::Cow;
 
 // use crate::parser::lexer::TokenStream;
 
-use crate::vm::emit_instructions;
+// use crate::vm::emit_instructions;
 // use crate::vm::execute_vm;
 use crate::vm::pretty_print_dense_instructions;
 use crate::vm::ArityMap;
-use crate::vm::SymbolMap;
+use crate::vm::ConstantMap;
 use crate::vm::VirtualMachine;
 
 use std::time::Instant;
 
 use crate::env::Env;
 
-use std::collections::HashMap;
+// use std::collections::HashMap;
 
 // use crate::vm::flatten_expression_tree;
 
@@ -154,7 +154,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
 
     let mut vm = VirtualMachine::new();
     let mut symbol_map = Env::default_symbol_map();
-    let mut constants = Vec::new();
+    let mut constants = ConstantMap::new();
     let mut arity_map = ArityMap::new();
 
     // let mut rl = Editor::<RustylineHelper>::new();
@@ -195,8 +195,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
 
                                     let now = Instant::now();
 
-                                    let result = vm
-                                        .execute(instruction_vec.as_slice(), constants.as_slice());
+                                    let result = vm.execute(instruction_vec.as_slice(), &constants);
                                     // let result = execute_vm(instruction_vec.as_slice());
                                     println!("{:?}", result);
 

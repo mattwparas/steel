@@ -186,7 +186,6 @@ impl MacroCase {
                 Expr::VectorVal(l) => pattern_vec.push(MacroPattern::Nested(
                     Self::parse_pattern_into_vec(macro_name, special_forms, &l)?,
                 )),
-                _ => stop!(BadSyntax => "syntax-rules requires identifiers in the pattern"),
             }
         }
         Ok(pattern_vec)
