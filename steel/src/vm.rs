@@ -11,6 +11,8 @@ pub use expand::expand;
 pub use expand::extract_macro_definitions;
 pub use map::SymbolMap;
 
+use expand::is_definition;
+
 // pub enum ByteCode {}
 // use std::cell::RefCell;
 // use std::convert::TryFrom;
@@ -156,22 +158,44 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
                     instructions[index - 2] = new_jmp;
                     instructions[index - 1] = Instruction::new_pass();
                     transformed = true;
+                } else {
+                    println!("Found function call in tail position")
                 }
             }
             _ => {}
         }
     }
 
-    // for index in &indices {
-    //     instructions[index - 2] = Instruction::new_pass();
-    // }
-
-    // let rev_iter = indices.iter().rev();
-    // for index in rev_iter {
-    //     instructions.remove(index - 2);
-    // }
-
     return transformed;
+}
+
+// Hopefully this doesn't break anything...
+fn collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) {
+    for expr in exprs {
+        match expr {
+            Expr::Atom(_) => {}
+            Expr::VectorVal(list_of_tokens) => {
+                match (list_of_tokens.get(0), list_of_tokens.get(1)) {
+                    (
+                        Some(Expr::Atom(SyntaxObject {
+                            ty: TokenType::Identifier(def),
+                            ..
+                        })),
+                        Some(Expr::Atom(SyntaxObject {
+                            ty: TokenType::Identifier(name),
+                            ..
+                        })),
+                    ) => {
+                        if def == "define" || def == "defn" {
+                            println!("Found definition: {}", name);
+                            symbol_map.add(name.as_str());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 }
 
 // insert fast path for built in functions
@@ -473,21 +497,25 @@ fn emit_loop<CT: ConstantTable>(
                     Expr::Atom(SyntaxObject {
                         ty: TokenType::Identifier(s),
                         ..
-                    }) if s == "quote" => {
+                    }) if s == "eval" => {
                         check_length("eval", &list_of_tokens, 2)?;
                         instructions.push(Instruction::new_eval());
                         return Ok(());
                     }
 
+                    // Expr::Atom(SyntaxObject {
+                    //     ty: TokenType::Identifier(s),
+                    //     ..
+                    // }) if s == "declare" => {
+                    //     // check_length("eval", &list_of_tokens, 2)?;
+                    //     instructions.push(Instruction::new_eval());
+                    //     return Ok(());
+                    // }
                     Expr::Atom(SyntaxObject {
                         ty: TokenType::Identifier(s),
                         ..
                     }) if s == "if" => {
-                        // instructions.push("if".to_string());
-
                         if let [test_expr, then_expr, else_expr] = &list_of_tokens[1..] {
-                            // unimplemented!()
-
                             // load in the test condition
                             emit_loop(test_expr, instructions, None, arity_map, constant_map)?;
                             // push in If
@@ -563,10 +591,6 @@ fn emit_loop<CT: ConstantTable>(
                                     constant_map,
                                 )?;
 
-                                // for expr in &list_of_tokens[2..] {
-                                //     emit_loop(expr, instructions, None)?;
-                                // }
-
                                 instructions.push(Instruction::new_pop());
                                 let defn_body_size = instructions.len() - sidx;
                                 instructions.push(Instruction::new_edef());
@@ -584,28 +608,10 @@ fn emit_loop<CT: ConstantTable>(
                             }
 
                             // _ => {}
-                            Expr::VectorVal(_l) => {
-                                if list_of_tokens.len() < 3 {
-                                    let e = format!("define expected a function body");
-                                    stop!(ArityMismatch => e)
-                                }
-
-                                // let function_information =
-
+                            Expr::VectorVal(_) => {
                                 panic!("Complex defines not yet supported");
                             }
                         }
-
-                        // if let Expr::Atom(syn) = identifier.as_ref() {
-
-                        // // instructions.push(Instruction::new)
-                        // } else {
-                        //     panic!("Complex defines not yet supported");
-                        // }
-
-                        // instructions.push("define".to_string());
-                        // return Ok(());
-                        // unimplemented!();
                     }
                     // Expr::Atom(SyntaxObject {
                     //     ty: TokenType::Identifier(s),
@@ -989,6 +995,22 @@ impl Instruction {
     }
 }
 
+pub struct Ctx<CT: ConstantTable> {
+    symbol_map: SymbolMap,
+    constant_map: CT,
+    arity_map: ArityMap,
+}
+
+impl<CT: ConstantTable> Ctx<CT> {
+    pub fn new(symbol_map: SymbolMap, constant_map: CT, arity_map: ArityMap) -> Ctx<CT> {
+        Ctx {
+            symbol_map,
+            constant_map,
+            arity_map,
+        }
+    }
+}
+
 pub struct VirtualMachine {
     global_env: Rc<RefCell<Env>>,
     global_heap: Vec<Rc<RefCell<Env>>>,
@@ -1029,9 +1051,10 @@ impl VirtualMachine {
             .map(|x| expand(x, &self.global_env))
             .collect::<Result<Vec<Expr>>>()?;
 
-        // println!("{}", expanded_statements.to_string());
+        // Collect global defines here first
+        // collect_global_defines(&expanded_statements, symbol_map);
 
-        // for expr
+        println!("Symbol Map: {:?}", symbol_map);
 
         for expr in expanded_statements {
             println!("{}", expr.to_string());
@@ -1047,6 +1070,7 @@ impl VirtualMachine {
             insert_debruijn_indices(&mut instructions, symbol_map);
 
             println!("------- Debruijn Indices Succeeded -------");
+            println!("Symbol Map: {:?}", symbol_map);
 
             extract_constants(&mut instructions, constant_map)?;
 
