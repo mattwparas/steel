@@ -170,7 +170,8 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
 }
 
 // Hopefully this doesn't break anything...
-fn collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) {
+fn count_and_collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) -> usize {
+    let mut count = 0;
     for expr in exprs {
         match expr {
             Expr::Atom(_) => {}
@@ -189,6 +190,7 @@ fn collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) {
                         if def == "define" || def == "defn" {
                             println!("Found definition: {}", name);
                             symbol_map.add(name.as_str());
+                            count += 1;
                         }
                     }
                     _ => {}
@@ -196,6 +198,8 @@ fn collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) {
             }
         }
     }
+
+    count
 }
 
 // insert fast path for built in functions
@@ -1025,13 +1029,13 @@ impl VirtualMachine {
     }
 
     pub fn emit_instructions<CT: ConstantTable>(
-        &self,
+        &mut self,
         expr_str: &str,
         symbol_map: &mut SymbolMap,
         // constants: &mut Vec<Rc<SteelVal>>,
         constant_map: &mut CT,
         arity_map: &mut ArityMap,
-        // global_env: &Rc<RefCell<Env>>,
+        // script: bool, // global_env: &Rc<RefCell<Env>>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
         let mut results = Vec::new();
@@ -1052,32 +1056,56 @@ impl VirtualMachine {
             .collect::<Result<Vec<Expr>>>()?;
 
         // Collect global defines here first
-        // collect_global_defines(&expanded_statements, symbol_map);
+        let ndefs = count_and_collect_global_defines(&expanded_statements, symbol_map);
+
+        // Reserve the definitions in the global environment
+        self.global_env
+            .borrow_mut()
+            .reserve_defs(if ndefs > 0 { ndefs - 1 } else { 0 });
 
         println!("Symbol Map: {:?}", symbol_map);
-
+        let mut instruction_buffer = Vec::new();
+        let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            println!("{}", expr.to_string());
-
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(&expr, &mut instructions, None, arity_map, constant_map)?;
+            // if !script {
             instructions.push(Instruction::new_pop());
-
-            pretty_print_instructions(&instructions);
-
-            // let mut stack: Vec<usize> = Vec::new();
-
-            insert_debruijn_indices(&mut instructions, symbol_map);
-
-            println!("------- Debruijn Indices Succeeded -------");
-            println!("Symbol Map: {:?}", symbol_map);
-
-            extract_constants(&mut instructions, constant_map)?;
-
-            let dense_instructions = densify(instructions);
-
-            results.push(dense_instructions);
+            // }
+            index_buffer.push(instructions.len());
+            instruction_buffer.append(&mut instructions);
         }
+
+        insert_debruijn_indices(&mut instruction_buffer, symbol_map);
+        extract_constants(&mut instruction_buffer, constant_map)?;
+
+        for idx in index_buffer {
+            // let extracted = instruction_buffer.drain(0.idx).collect();
+            results.push(densify(instruction_buffer.drain(0..idx).collect()));
+        }
+
+        // for expr in expanded_statements {
+        //     println!("{}", expr.to_string());
+
+        //     let mut instructions: Vec<Instruction> = Vec::new();
+        //     emit_loop(&expr, &mut instructions, None, arity_map, constant_map)?;
+        //     instructions.push(Instruction::new_pop());
+
+        //     pretty_print_instructions(&instructions);
+
+        //     // let mut stack: Vec<usize> = Vec::new();
+
+        //     insert_debruijn_indices(&mut instructions, symbol_map);
+
+        //     println!("------- Debruijn Indices Succeeded -------");
+        //     println!("Symbol Map: {:?}", symbol_map);
+
+        //     extract_constants(&mut instructions, constant_map)?;
+
+        //     let dense_instructions = densify(instructions);
+
+        //     results.push(dense_instructions);
+        // }
 
         Ok(results)
     }
@@ -1323,6 +1351,12 @@ pub fn vm<CT: ConstantTable>(
             }
             OpCode::BIND => {
                 let offset = global_env.borrow().local_offset();
+
+                println!(
+                    "Defining with payload: {} and offset: {}",
+                    cur_inst.payload_size, offset
+                );
+
                 global_env
                     .borrow_mut()
                     .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
