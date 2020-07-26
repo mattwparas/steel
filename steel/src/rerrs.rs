@@ -103,7 +103,7 @@ impl SteelErr {
         match self {
             Self::ArityMismatch(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E01")
                 .with_message("arity mismatch")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m)
@@ -111,7 +111,7 @@ impl SteelErr {
             }
             Self::FreeIdentifier(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E02")
                 .with_message("free identifier")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m)
@@ -119,7 +119,7 @@ impl SteelErr {
             }
             Self::TypeMismatch(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E03")
                 .with_message("type mismatch")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m)
@@ -127,7 +127,7 @@ impl SteelErr {
             }
             Self::UnexpectedToken(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E04")
                 .with_message("unexpected token")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m)
@@ -135,7 +135,7 @@ impl SteelErr {
             }
             Self::ContractViolation(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E05")
                 .with_message("contract violation")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m)
@@ -143,7 +143,7 @@ impl SteelErr {
             }
             Self::BadSyntax(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E06")
                 .with_message("bad syntax")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m)
@@ -151,7 +151,7 @@ impl SteelErr {
             }
             Self::ConversionError(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E07")
                 .with_message("conversion error")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m)
@@ -159,7 +159,7 @@ impl SteelErr {
             }
             Self::Io(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E08")
                 .with_message("io error")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m.to_string())
@@ -167,7 +167,7 @@ impl SteelErr {
             }
             Self::Parse(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E09")
                 .with_message("parse error")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m.to_string())
@@ -175,7 +175,7 @@ impl SteelErr {
             }
             Self::Infallible(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E10")
                 .with_message("infallible")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m.to_string())
@@ -183,7 +183,7 @@ impl SteelErr {
             }
             Self::Generic(m) => {
                 Diagnostic::error()
-                .with_code("E0308")
+                .with_code("E11")
                 .with_message("general")
                 .with_labels(vec![
                     Label::primary((), error_span).with_message(m)
@@ -262,6 +262,9 @@ macro_rules! stop {
         return Err(SteelErr::$type(format!($fmt, $($arg)+)));
     };
     ($type:ident => $thing:expr) => {
+        return Err(SteelErr::$type(($thing).to_string()));
+    };
+    ($type:ident => $thing:expr; $span:expr) => {
         return Err(SteelErr::$type(($thing).to_string()));
     };
 }

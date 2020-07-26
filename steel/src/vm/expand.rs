@@ -25,6 +25,7 @@ fn is_macro_definition(expr: &Expr) -> bool {
                 if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
                     if let TokenType::Identifier(s) = t {
                         if s == "define-syntax" {
+                            // println!("Found macro definition!");
                             return true;
                         }
                     }
@@ -79,6 +80,7 @@ fn construct_macro_def(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Resul
         parsed_macro.name().to_string(),
         Rc::new(SteelVal::MacroV(parsed_macro)),
     );
+    env.borrow().print_bindings();
     Ok(())
 }
 
@@ -92,6 +94,7 @@ pub fn extract_macro_definitions(
     for expr in exprs {
         match expr {
             Expr::VectorVal(list_of_tokens) if is_macro_definition(expr) => {
+                println!("Constructing a macro definition");
                 construct_macro_def(&list_of_tokens[1..], macro_env)?;
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
@@ -112,7 +115,11 @@ pub fn extract_macro_definitions(
 // Syntax of a let -> (let ((a 10) (b 20) (c 25)) (body ...))
 // transformed ((lambda (a b c) (body ...)) 10 20 25)
 // TODO fix this cloning issue
-fn expand_let(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
+fn expand_let(
+    list_of_tokens: &[Expr],
+    env: &Rc<RefCell<Env>>,
+    macro_env: &Rc<RefCell<Env>>,
+) -> Result<Expr> {
     if let [bindings, body] = list_of_tokens {
         let mut bindings_to_check: Vec<Expr> = Vec::new();
         let mut args_to_check: Vec<Expr> = Vec::new();
@@ -137,7 +144,7 @@ fn expand_let(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
         }
 
         // Change the body to contain more than one expression
-        let expanded_body = expand(body.clone(), env)?;
+        let expanded_body = expand(body.clone(), env, macro_env)?;
 
         let mut combined = vec![Expr::VectorVal(vec![
             Expr::Atom(SyntaxObject::default(TokenType::Identifier(
@@ -166,7 +173,11 @@ fn expand_let(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
 // }
 
 // TODO maybe have to evaluate the params but i'm not sure
-fn expand_define(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr> {
+fn expand_define(
+    list_of_tokens: &[Expr],
+    env: &Rc<RefCell<Env>>,
+    macro_env: &Rc<RefCell<Env>>,
+) -> Result<Expr> {
     // env.borrow_mut().set_binding_context(true);
 
     if list_of_tokens.len() > 2 {
@@ -196,7 +207,7 @@ fn expand_define(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr
                                 ];
                                 fake_lambda.append(&mut begin_body);
                                 let constructed_lambda = Expr::VectorVal(fake_lambda);
-                                let expanded_body = expand(constructed_lambda, env)?;
+                                let expanded_body = expand(constructed_lambda, env, macro_env)?;
 
                                 let return_val = Expr::VectorVal(vec![
                                     list_of_tokens[0].clone(),
@@ -237,8 +248,8 @@ fn expand_define(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Expr
 }
 
 // TODO include the intern cache when possible
-pub fn expand(expr: Expr, env: &Rc<RefCell<Env>>) -> Result<Expr> {
-    let env = Rc::clone(env);
+pub fn expand(expr: Expr, env: &Rc<RefCell<Env>>, macro_env: &Rc<RefCell<Env>>) -> Result<Expr> {
+    // let env = Rc::clone(env);
     // let expr = Rc::clone(expr);
 
     match &expr {
@@ -248,15 +259,20 @@ pub fn expand(expr: Expr, env: &Rc<RefCell<Env>>) -> Result<Expr> {
                 if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
                     if let TokenType::Identifier(s) = t {
                         match s.as_str() {
-                            "define" | "defn" => return expand_define(list_of_tokens, &env),
-                            "let" => return expand_let(&list_of_tokens[1..], &env),
+                            "define" | "defn" => {
+                                return expand_define(list_of_tokens, env, macro_env)
+                            }
+                            "let" => return expand_let(&list_of_tokens[1..], env, macro_env),
                             _ => {
-                                let lookup = env.borrow().lookup(&s);
+                                println!("Looking up {}", s);
+                                // println!("")
+                                macro_env.borrow().print_bindings();
+                                let lookup = macro_env.borrow().lookup(&s);
 
                                 if let Ok(v) = lookup {
                                     if let SteelVal::MacroV(steel_macro) = v.as_ref() {
                                         let expanded = steel_macro.expand(&list_of_tokens)?;
-                                        return expand(expanded, &env);
+                                        return expand(expanded, env, macro_env);
                                         // return steel_macro.expand(&list_of_tokens)?;
                                     }
                                 }
@@ -266,7 +282,7 @@ pub fn expand(expr: Expr, env: &Rc<RefCell<Env>>) -> Result<Expr> {
                 }
                 let result: Result<Vec<Expr>> = list_of_tokens
                     .into_iter()
-                    .map(|x| expand(x.clone(), &env))
+                    .map(|x| expand(x.clone(), env, macro_env))
                     .collect();
                 Ok(Expr::VectorVal(result?))
             } else {

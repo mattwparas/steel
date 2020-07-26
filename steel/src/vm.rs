@@ -11,7 +11,7 @@ pub use expand::expand;
 pub use expand::extract_macro_definitions;
 pub use map::SymbolMap;
 
-use expand::is_definition;
+// use expand::is_definition;
 
 // pub enum ByteCode {}
 // use std::cell::RefCell;
@@ -49,6 +49,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use std::convert::TryFrom;
+
+use crate::parser::span::Span;
 
 // use std::collections::HashSet;
 
@@ -853,20 +855,30 @@ pub enum OpCode {
 pub struct DenseInstruction {
     op_code: OpCode,
     payload_size: usize,
+    span: Span,
 }
 
 impl DenseInstruction {
-    pub fn new(op_code: OpCode, payload_size: usize) -> DenseInstruction {
+    pub fn new(op_code: OpCode, payload_size: usize, span: Span) -> DenseInstruction {
         DenseInstruction {
             op_code,
             payload_size,
+            span,
         }
     }
 }
 
 impl From<Instruction> for DenseInstruction {
     fn from(val: Instruction) -> DenseInstruction {
-        DenseInstruction::new(val.op_code, val.payload_size)
+        DenseInstruction::new(
+            val.op_code,
+            val.payload_size,
+            if let Some(syn) = val.contents {
+                syn.span
+            } else {
+                Span::new(0, 0)
+            },
+        )
     }
 }
 
@@ -1000,9 +1012,9 @@ impl Instruction {
 }
 
 pub struct Ctx<CT: ConstantTable> {
-    symbol_map: SymbolMap,
-    constant_map: CT,
-    arity_map: ArityMap,
+    pub(crate) symbol_map: SymbolMap,
+    pub(crate) constant_map: CT,
+    pub(crate) arity_map: ArityMap,
 }
 
 impl<CT: ConstantTable> Ctx<CT> {
@@ -1018,6 +1030,7 @@ impl<CT: ConstantTable> Ctx<CT> {
 pub struct VirtualMachine {
     global_env: Rc<RefCell<Env>>,
     global_heap: Vec<Rc<RefCell<Env>>>,
+    macro_env: Rc<RefCell<Env>>,
 }
 
 impl VirtualMachine {
@@ -1025,6 +1038,7 @@ impl VirtualMachine {
         VirtualMachine {
             global_env: Rc::new(RefCell::new(Env::default_env())),
             global_heap: Vec::new(),
+            macro_env: Rc::new(RefCell::new(Env::root())),
         }
     }
 
@@ -1040,19 +1054,22 @@ impl VirtualMachine {
         let mut intern = HashMap::new();
         let mut results = Vec::new();
 
+        // Parse the input
         let parsed: result::Result<Vec<Expr>, ParseError> =
             Parser::new(expr_str, &mut intern).collect();
         let parsed = parsed?;
 
-        let macro_env = Rc::new(RefCell::new(Env::root()));
-        // let real_env = Rc::new(RefCell::new(Env::default_env()));
-
+        // Yoink the macro definitions
+        // Add them to our macro env
+        // TODO change this to be a unique macro env struct
+        // Just a thin wrapper around a hashmap
         let extracted_statements =
-            extract_macro_definitions(&parsed, &macro_env, &self.global_env, symbol_map)?;
+            extract_macro_definitions(&parsed, &self.macro_env, &self.global_env, symbol_map)?;
 
+        // Walk through and expand all macros, lets, and defines
         let expanded_statements: Vec<Expr> = extracted_statements
             .into_iter()
-            .map(|x| expand(x, &self.global_env))
+            .map(|x| expand(x, &self.global_env, &self.macro_env))
             .collect::<Result<Vec<Expr>>>()?;
 
         // Collect global defines here first
@@ -1067,6 +1084,7 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
+            println!("{}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(&expr, &mut instructions, None, arity_map, constant_map)?;
             // if !script {
