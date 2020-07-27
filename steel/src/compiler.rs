@@ -141,7 +141,7 @@ impl AST {
         }
     }
 
-    pub fn lookup_idx(&self, idx: usize) -> Result<Rc<SteelVal>> {
+    pub fn lookup_idx(&self, _idx: usize) -> Result<Rc<SteelVal>> {
         unimplemented!()
         // if self.exported.contains(name) {
         //     self.env.borrow().lookup_idx(name)

@@ -36,23 +36,23 @@ fn is_macro_definition(expr: &Expr) -> bool {
     false
 }
 
-pub fn is_definition(expr: &Expr) -> bool {
-    match expr {
-        Expr::Atom(_) => return false,
-        Expr::VectorVal(list_of_tokens) => {
-            if let Some(f) = list_of_tokens.first() {
-                if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
-                    if let TokenType::Identifier(s) = t {
-                        if s == "define" || s == "defn" {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    false
-}
+// pub fn is_definition(expr: &Expr) -> bool {
+//     match expr {
+//         Expr::Atom(_) => return false,
+//         Expr::VectorVal(list_of_tokens) => {
+//             if let Some(f) = list_of_tokens.first() {
+//                 if let Expr::Atom(SyntaxObject { ty: t, .. }) = f {
+//                     if let TokenType::Identifier(s) = t {
+//                         if s == "define" || s == "defn" {
+//                             return true;
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
+//     false
+// }
 
 fn is_struct_definition(expr: &Expr) -> bool {
     // let expr = Rc::clone(expr);
@@ -222,8 +222,7 @@ fn expand_define(
                         } else {
                             stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
                         }
-                    }
-                    _ => stop!(TypeMismatch => "Define expects an identifier, got: {}", symbol),
+                    } // _ => stop!(TypeMismatch => "Define expects an identifier, got: {}", symbol),
                 }
             }
             _ => {
