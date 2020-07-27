@@ -6,7 +6,7 @@ use std::result;
 
 use crate::env::{Env, FALSE, TRUE, VOID};
 use crate::parser::span::Span;
-use crate::parser::tokens::{Token, TokenType};
+use crate::parser::tokens::TokenType;
 use crate::parser::{Expr, ParseError, Parser, SyntaxObject};
 use crate::primitives::ListOperations;
 use crate::rerrs::SteelErr;
@@ -415,8 +415,8 @@ fn evaluate<'a, 'global>(
     let mut env = Rc::clone(env);
     let mut expr = expr.clone();
     let mut heap2: Vec<Rc<RefCell<Env>>> = Vec::new();
-    let local_expr_stack: Arena<Expr> = Arena::new();
-    let local_val_stack: Vec<Rc<SteelVal>> = Vec::new();
+    let _local_expr_stack: Arena<Expr> = Arena::new();
+    let _local_val_stack: Vec<Rc<SteelVal>> = Vec::new();
 
     loop {
         // expr_stack.push(expr.clone());
@@ -1410,8 +1410,7 @@ pub fn eval_define(
                         } else {
                             stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
                         }
-                    }
-                    _ => stop!(TypeMismatch => "Define expects an identifier, got: {}", symbol),
+                    } // _ => stop!(TypeMismatch => "Define expects an identifier, got: {}", symbol),
                 }
             }
             _ => {
