@@ -644,7 +644,7 @@ pub fn function(
                                     Ok(Rc::new(SteelVal::try_from(x)?))
                                 }
                                 Err(e) => {
-                                    Err(SteelErr::Generic(e.to_string()))
+                                    Err(SteelErr::Generic(e.to_string(), None))
                                 }
                             }
                         },

@@ -321,7 +321,7 @@ impl ListOperations {
             }
             pairs
                 .pop()
-                .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string()))
+                .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
         }
     }
 }
@@ -354,7 +354,7 @@ mod list_operation_tests {
     fn cons_single_input() {
         let args = vec![SteelVal::NumV(1.0)];
         let res = apply_function(ListOperations::cons(), args);
-        let expected = SteelErr::ArityMismatch("cons takes only two arguments".to_string());
+        let expected = SteelErr::ArityMismatch("cons takes only two arguments".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -362,7 +362,7 @@ mod list_operation_tests {
     fn cons_no_input() {
         let args = vec![];
         let res = apply_function(ListOperations::cons(), args);
-        let expected = SteelErr::ArityMismatch("cons takes only two arguments".to_string());
+        let expected = SteelErr::ArityMismatch("cons takes only two arguments".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -402,7 +402,7 @@ mod list_operation_tests {
     fn car_bad_input() {
         let args = vec![SteelVal::NumV(1.0)];
         let res = apply_function(ListOperations::car(), args);
-        let expected = SteelErr::TypeMismatch("car takes a list, given: 1.0".to_string());
+        let expected = SteelErr::TypeMismatch("car takes a list, given: 1.0".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -410,7 +410,7 @@ mod list_operation_tests {
     fn car_too_many_args() {
         let args = vec![SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
         let res = apply_function(ListOperations::car(), args);
-        let expected = SteelErr::ArityMismatch("car takes one argument".to_string());
+        let expected = SteelErr::ArityMismatch("car takes one argument".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -446,14 +446,14 @@ mod list_operation_tests {
     fn cdr_bad_input() {
         let args = vec![SteelVal::NumV(1.0)];
         let res = apply_function(ListOperations::cdr(), args);
-        let expected = SteelErr::TypeMismatch("cdr takes a list, given: 1.0".to_string());
+        let expected = SteelErr::TypeMismatch("cdr takes a list, given: 1.0".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
     #[test]
     fn cdr_too_many_args() {
         let args = vec![SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
         let res = apply_function(ListOperations::cdr(), args);
-        let expected = SteelErr::ArityMismatch("cdr takes one argument".to_string());
+        let expected = SteelErr::ArityMismatch("cdr takes one argument".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -469,7 +469,7 @@ mod list_operation_tests {
     fn range_tests_arity_too_few() {
         let args = vec![SteelVal::NumV(1.0)];
         let res = apply_function(ListOperations::range(), args);
-        let expected = SteelErr::ArityMismatch("range takes two arguments".to_string());
+        let expected = SteelErr::ArityMismatch("range takes two arguments".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -481,7 +481,7 @@ mod list_operation_tests {
             SteelVal::NumV(3.0),
         ];
         let res = apply_function(ListOperations::range(), args);
-        let expected = SteelErr::ArityMismatch("range takes two arguments".to_string());
+        let expected = SteelErr::ArityMismatch("range takes two arguments".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -503,7 +503,7 @@ mod list_operation_tests {
     fn list_to_vec_arity_too_few() {
         let args = vec![];
         let res = apply_function(ListOperations::list_to_vec(), args);
-        let expected = SteelErr::ArityMismatch("list->vector takes one argument".to_string());
+        let expected = SteelErr::ArityMismatch("list->vector takes one argument".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -511,7 +511,7 @@ mod list_operation_tests {
     fn list_to_vec_arity_too_many() {
         let args = vec![SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
         let res = apply_function(ListOperations::list_to_vec(), args);
-        let expected = SteelErr::ArityMismatch("list->vector takes one argument".to_string());
+        let expected = SteelErr::ArityMismatch("list->vector takes one argument".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -519,7 +519,7 @@ mod list_operation_tests {
     fn list_to_vec_bad_arg() {
         let args = vec![SteelVal::NumV(1.0)];
         let res = apply_function(ListOperations::list_to_vec(), args);
-        let expected = SteelErr::TypeMismatch("list->vector expected list".to_string());
+        let expected = SteelErr::TypeMismatch("list->vector expected list".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 

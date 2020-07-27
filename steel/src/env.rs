@@ -38,6 +38,7 @@ macro_rules! ensure_tonicity {
             let mut args_iter = args_iter.iter();
             let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
                 "expected at least one argument".to_string(),
+                None,
             ))?;
             fn f<'a>(prev: &SteelVal, mut xs: impl Iterator<Item = &'a SteelVal>) -> bool {
                 match xs.next() {
@@ -63,6 +64,7 @@ macro_rules! ensure_tonicity_pointer_equality {
             let mut args_iter = args.iter();
             let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
                 "expected at least one argument".to_string(),
+                None,
             ))?;
             fn f<'a>(prev: &Rc<SteelVal>, mut xs: impl Iterator<Item = &'a Rc<SteelVal>>) -> bool {
                 match xs.next() {
@@ -317,8 +319,8 @@ impl Env {
     }
 
     pub fn define_idx(&mut self, idx: usize, val: Rc<SteelVal>) {
-        println!("Defining value: {:?} at idx: {}", val, idx);
-        println!("Current bindings: {:?}", self.bindings_vec);
+        // println!("Defining value: {:?} at idx: {}", val, idx);
+        // println!("Current bindings: {:?}", self.bindings_vec);
         if idx < self.bindings_vec.len() {
             self.bindings_vec[idx] = val;
         } else if idx == self.bindings_vec.len() {
@@ -388,7 +390,7 @@ impl Env {
 
             self.bindings
                 .insert(key.clone(), val)
-                .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string()))
+                .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string(), None))
         } else {
             if self.parent.is_some() {
                 match &self.parent {
@@ -424,7 +426,7 @@ impl Env {
         if self.bindings.contains_key(key) {
             self.bindings
                 .remove(key)
-                .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string()))
+                .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string(), None))
         } else {
             match &self.parent {
                 Some(par) => par.borrow_mut().remove(key),
@@ -435,8 +437,8 @@ impl Env {
 
     pub fn lookup_idx(&self, idx: usize) -> Result<Rc<SteelVal>> {
         let offset = self.offset;
-        println!("Looking up {}, with offset: {}", idx, offset);
-        println!("{:?}", self.bindings_vec);
+        // println!("Looking up {}, with offset: {}", idx, offset);
+        // println!("{:?}", self.bindings_vec);
 
         // if offset != 0 {
         //     offset = offset - 1;

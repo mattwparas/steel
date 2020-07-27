@@ -1,6 +1,6 @@
 use crate::interpreter;
 extern crate rustyline;
-// use crate::rvals::SteelVal;
+use crate::rvals::SteelVal;
 // use crate::stdlib::PRELUDE;
 use colored::*;
 use rustyline::error::ReadlineError;
@@ -31,6 +31,8 @@ use crate::vm::VirtualMachine;
 use std::time::Instant;
 
 use crate::env::Env;
+
+use crate::parser::span::Span;
 
 // use std::collections::HashMap;
 
@@ -196,15 +198,30 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                                     let now = Instant::now();
 
                                     let result = vm.execute(instruction_vec.as_slice(), &constants);
+
+                                    match result {
+                                        Ok(v) => match v.as_ref() {
+                                            SteelVal::Void => {}
+                                            _ => println!("{} {}", "=>".bright_blue().bold(), v),
+                                        },
+                                        Err(e) => {
+                                            e.emit_result("repl.stl", &line, Span::new(0, 0));
+                                            eprintln!("{}", e.to_string().bright_red());
+                                        }
+                                    }
+
                                     // let result = execute_vm(instruction_vec.as_slice());
-                                    println!("{:?}", result);
+                                    // println!("{:?}", result);
 
                                     // println!("{:?}", symbol_map);
 
                                     println!("{:?}", now.elapsed());
                                 }
                             }
-                            Err(e) => eprintln!("{}", e),
+                            Err(e) => {
+                                e.emit_result("repl.stl", &line, Span::new(0, 0));
+                                eprintln!("{}", e.to_string().bright_red());
+                            }
                         }
 
                         // if let Ok(gen_bytecode) = gen_bytecode {

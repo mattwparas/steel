@@ -18,19 +18,19 @@ use crate::parser::span::Span;
 #[derive(Debug, Error)]
 pub enum SteelErr {
     #[error("Error: Arity Mismatch: {0}")]
-    ArityMismatch(String),
+    ArityMismatch(String, Option<Span>),
     #[error("Error: Free Identifier: {0}")]
-    FreeIdentifier(String),
+    FreeIdentifier(String, Option<Span>),
     #[error("Error: Expected {0}")]
-    TypeMismatch(String),
+    TypeMismatch(String, Option<Span>),
     #[error("Error: Unexpected Token {0}")]
-    UnexpectedToken(String),
+    UnexpectedToken(String, Option<Span>),
     #[error("Error: Contract Violation: {0}")]
-    ContractViolation(String),
+    ContractViolation(String, Option<Span>),
     #[error("Error: Bad Syntax: {0}")]
-    BadSyntax(String),
+    BadSyntax(String, Option<Span>),
     #[error("Error: Conversion Error: {0}")]
-    ConversionError(String),
+    ConversionError(String, Option<Span>),
     #[error("Error: IO error")]
     Io(#[from] std::io::Error),
     #[error("Error: Parse error: {0}")]
@@ -38,21 +38,21 @@ pub enum SteelErr {
     #[error("Error: Infallible")]
     Infallible(#[from] Infallible),
     #[error("Error: Generic Error: {0}")]
-    Generic(String),
+    Generic(String, Option<Span>),
 }
 
 impl PartialEq for SteelErr {
     fn eq(&self, other: &Self) -> bool {
         use SteelErr::*;
         match (self, other) {
-            (ArityMismatch(l), ArityMismatch(r)) => l == r,
-            (FreeIdentifier(l), FreeIdentifier(r)) => l == r,
-            (TypeMismatch(l), TypeMismatch(r)) => l == r,
-            (UnexpectedToken(l), UnexpectedToken(r)) => l == r,
-            (ContractViolation(l), ContractViolation(r)) => l == r,
-            (BadSyntax(l), BadSyntax(r)) => l == r,
-            (ConversionError(l), ConversionError(r)) => l == r,
-            (Generic(l), Generic(r)) => l == r,
+            (ArityMismatch(l, _), ArityMismatch(r, _)) => l == r,
+            (FreeIdentifier(l, _), FreeIdentifier(r, _)) => l == r,
+            (TypeMismatch(l, _), TypeMismatch(r, _)) => l == r,
+            (UnexpectedToken(l, _), UnexpectedToken(r, _)) => l == r,
+            (ContractViolation(l, _), ContractViolation(r, _)) => l == r,
+            (BadSyntax(l, _), BadSyntax(r, _)) => l == r,
+            (ConversionError(l, _), ConversionError(r, _)) => l == r,
+            (Generic(l, _), Generic(r, _)) => l == r,
             _ => false,
         }
     }
@@ -71,6 +71,22 @@ pub struct Opts {
 }
 
 impl SteelErr {
+    pub fn set_span(self, span: Span) -> Self {
+        match self {
+            Self::ArityMismatch(m, _error_span) => Self::ArityMismatch(m, Some(span)),
+            Self::FreeIdentifier(m, _error_span) => Self::FreeIdentifier(m, Some(span)),
+            Self::TypeMismatch(m, _error_span) => Self::TypeMismatch(m, Some(span)),
+            Self::UnexpectedToken(m, _error_span) => Self::UnexpectedToken(m, Some(span)),
+            Self::ContractViolation(m, _error_span) => Self::ContractViolation(m, Some(span)),
+            Self::BadSyntax(m, _error_span) => Self::BadSyntax(m, Some(span)),
+            Self::ConversionError(m, _error_span) => Self::ConversionError(m, Some(span)),
+            Self::Generic(m, _error_span) => Self::Generic(m, Some(span)),
+            Self::Io(m) => Self::Io(m),
+            Self::Parse(m) => Self::Parse(m),
+            Self::Infallible(m) => Self::Infallible(m),
+        }
+    }
+
     pub fn emit_result(&self, file_name: &str, file_content: &str, error_span: Span) {
         let opts = Opts::from_args();
         let writer = StandardStream::stderr(opts.color.into());
@@ -97,64 +113,64 @@ impl SteelErr {
         // }
     }
 
-    fn report(&self, _file_name: &str, file_content: &str, error_span: Span) -> Diagnostic<()> {
-        println!("Error Span: {:?}", error_span);
+    fn report(&self, _file_name: &str, _file_content: &str, _error_span: Span) -> Diagnostic<()> {
+        println!("Generating error report!");
 
         match self {
-            Self::ArityMismatch(m) => {
+            Self::ArityMismatch(m, error_span) => {
                 Diagnostic::error()
                 .with_code("E01")
                 .with_message("arity mismatch")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m)
+                    Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
                 ])
             }
-            Self::FreeIdentifier(m) => {
+            Self::FreeIdentifier(m, error_span) => {
                 Diagnostic::error()
                 .with_code("E02")
                 .with_message("free identifier")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m)
+                    Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
                 ])
             }
-            Self::TypeMismatch(m) => {
+            Self::TypeMismatch(m, error_span) => {
                 Diagnostic::error()
                 .with_code("E03")
                 .with_message("type mismatch")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m)
+                    Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
                 ])
             }
-            Self::UnexpectedToken(m) => {
+            Self::UnexpectedToken(m, error_span) => {
                 Diagnostic::error()
                 .with_code("E04")
                 .with_message("unexpected token")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m)
+                    Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
                 ])
             }
-            Self::ContractViolation(m) => {
+            Self::ContractViolation(m, error_span) => {
                 Diagnostic::error()
                 .with_code("E05")
                 .with_message("contract violation")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m)
+                    Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
                 ])
             }
-            Self::BadSyntax(m) => {
+            Self::BadSyntax(m, error_span) => {
                 Diagnostic::error()
                 .with_code("E06")
                 .with_message("bad syntax")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m)
+                    Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
                 ])
             }
-            Self::ConversionError(m) => {
+            Self::ConversionError(m, error_span) => {
                 Diagnostic::error()
                 .with_code("E07")
                 .with_message("conversion error")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m)
+                    Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
                 ])
             }
             Self::Io(m) => {
@@ -162,7 +178,7 @@ impl SteelErr {
                 .with_code("E08")
                 .with_message("io error")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m.to_string())
+                    Label::primary((), _error_span).with_message(m.to_string())
                 ])
             }
             Self::Parse(m) => {
@@ -170,7 +186,7 @@ impl SteelErr {
                 .with_code("E09")
                 .with_message("parse error")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m.to_string())
+                    Label::primary((), _error_span).with_message(m.to_string())
                 ])
             }
             Self::Infallible(m) => {
@@ -178,15 +194,15 @@ impl SteelErr {
                 .with_code("E10")
                 .with_message("infallible")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m.to_string())
+                    Label::primary((), _error_span).with_message(m.to_string())
                 ])
             }
-            Self::Generic(m) => {
+            Self::Generic(m, error_span) => {
                 Diagnostic::error()
                 .with_code("E11")
                 .with_message("general")
                 .with_labels(vec![
-                    Label::primary((), error_span).with_message(m)
+                    Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
                 ])
             }
             // SteelErr::MismatchType(left, right) => Diagnostic::error()
@@ -256,16 +272,16 @@ impl SteelErr {
 #[macro_export]
 macro_rules! stop {
     ($type:ident) => {
-        return Err(SteelErr::$type);
+        return Err(SteelErr::$type, None);
     };
     ($type:ident => $fmt:expr, $($arg:tt)+) => {
-        return Err(SteelErr::$type(format!($fmt, $($arg)+)));
+        return Err(SteelErr::$type(format!($fmt, $($arg)+), None));
     };
     ($type:ident => $thing:expr) => {
-        return Err(SteelErr::$type(($thing).to_string()));
+        return Err(SteelErr::$type(($thing).to_string(), None));
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        return Err(SteelErr::$type(($thing).to_string()));
+        return Err(SteelErr::$type(($thing).to_string(), Some($span)));
     };
 }
 
@@ -275,9 +291,9 @@ macro_rules! throw {
         || SteelErr::$type
     };
     ($type:ident => $fmt:expr, $($arg:tt)+) => {
-        || SteelErr::$type(format!($fmt, $($arg)+))
+        || SteelErr::$type(format!($fmt, $($arg)+), None)
     };
     ($type:ident => $thing:expr) => {
-        || SteelErr::$type(($thing).to_string())
+        || SteelErr::$type(($thing).to_string(), None)
     };
 }
