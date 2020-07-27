@@ -343,16 +343,21 @@ fn parse_list_of_identifiers(identifiers: &Expr) -> Result<Vec<String>> {
                         TokenType::Identifier(s) => Ok(s.clone()),
                         _ => Err(SteelErr::TypeMismatch(
                             "lambda must have symbols as arguments".to_string(),
+                            Some(identifiers.span()),
                         )),
                     },
                     _ => Err(SteelErr::TypeMismatch(
                         "Lambda must have symbols as arguments".to_string(),
+                        Some(identifiers.span()),
                     )),
                 })
                 .collect();
             res
         }
-        _ => Err(SteelErr::TypeMismatch("List of Identifiers".to_string())),
+        _ => Err(SteelErr::TypeMismatch(
+            "List of Identifiers".to_string(),
+            Some(identifiers.span()),
+        )),
     }
 }
 
@@ -361,12 +366,10 @@ fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
     if tokens.len() == expected {
         Ok(())
     } else {
-        Err(SteelErr::ArityMismatch(format!(
-            "{}: expected {} args got {}",
-            what,
-            expected,
-            tokens.len()
-        )))
+        Err(SteelErr::ArityMismatch(
+            format!("{}: expected {} args got {}", what, expected, tokens.len()),
+            None,
+        ))
     }
 }
 

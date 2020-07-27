@@ -281,7 +281,7 @@ pub fn collect_binds_from_current_scope(
                     // println!("Renaming: {} to index: {}", s, idx);
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = idx;
-                        x.contents = None;
+                        x.constant = false;
                     }
                 }
             }
@@ -331,7 +331,7 @@ pub fn insert_debruijn_indices(instructions: &mut [Instruction], symbol_map: &mu
                 // println!("Renaming: {} to index: {}", s, idx);
                 if let Some(x) = instructions.get_mut(i) {
                     x.payload_size = idx;
-                    x.contents = None;
+                    x.constant = false;
                 }
             }
             // Is this even necessary?
@@ -349,7 +349,7 @@ pub fn insert_debruijn_indices(instructions: &mut [Instruction], symbol_map: &mu
                 // println!("Renaming: {} to index: {}", s, idx);
                 if let Some(x) = instructions.get_mut(i) {
                     x.payload_size = idx;
-                    x.contents = None;
+                    // x.contents = None;
                 }
             }
             Instruction {
@@ -388,8 +388,9 @@ pub fn insert_debruijn_indices(instructions: &mut [Instruction], symbol_map: &mu
             } => {
                 // let idx = symbol_map.add(s);
                 // println!("Renaming: {} to index: {}", s, idx);
+
                 if let Some(x) = instructions.get_mut(i) {
-                    x.contents = None;
+                    x.constant = false;
                 }
             }
             _ => {}
@@ -483,7 +484,7 @@ fn emit_loop<CT: ConstantTable>(
 ) -> Result<()> {
     match expr {
         Expr::Atom(s) => {
-            instructions.push(Instruction::new(OpCode::PUSH, 0, s.clone()));
+            instructions.push(Instruction::new(OpCode::PUSH, 0, s.clone(), true));
         }
         Expr::VectorVal(list_of_tokens) => {
             if let Some(f) = list_of_tokens.first() {
@@ -519,7 +520,7 @@ fn emit_loop<CT: ConstantTable>(
                     // }
                     Expr::Atom(SyntaxObject {
                         ty: TokenType::Identifier(s),
-                        ..
+                        span: sp,
                     }) if s == "if" => {
                         if let [test_expr, then_expr, else_expr] = &list_of_tokens[1..] {
                             // load in the test condition
@@ -552,7 +553,7 @@ fn emit_loop<CT: ConstantTable>(
                                 stop!(Generic => "out of bounds jump");
                             }
                         } else {
-                            stop!(BadSyntax => "malformed if statement");
+                            stop!(BadSyntax => "malformed if statement"; *sp);
                         }
                         return Ok(());
                     }
@@ -586,7 +587,7 @@ fn emit_loop<CT: ConstantTable>(
                                         2,
                                         list_of_tokens.len()
                                     );
-                                    stop!(ArityMismatch => e)
+                                    stop!(ArityMismatch => e; syn.span)
                                 }
 
                                 emit_loop(
@@ -650,13 +651,25 @@ fn emit_loop<CT: ConstantTable>(
                                 let rev_iter = l.into_iter().rev();
                                 for symbol in rev_iter {
                                     if let Expr::Atom(syn) = symbol {
-                                        body_instructions.push(Instruction::new_bind(syn.clone()))
+                                        // println!("{:?}", syn);
+                                        match &syn {
+                                            SyntaxObject {
+                                                ty: TokenType::Identifier(_),
+                                                ..
+                                            } => body_instructions
+                                                .push(Instruction::new_bind(syn.clone())),
+                                            SyntaxObject { ty: _, span: sp } => {
+                                                stop!(Generic => "lambda function requires list of identifiers"; *sp);
+                                            }
+                                        }
                                     } else {
-                                        stop!(Generic => "lambda function requires list of identifiers");
+                                        stop!(Generic => "lambda function requires list of identifiers"; symbol.span());
                                     }
                                 }
                             }
-                            _ => stop!(TypeMismatch => "List of Identifiers"),
+                            _ => {
+                                stop!(TypeMismatch => "List of Identifiers"; list_of_symbols.span())
+                            }
                         }
 
                         // let mut body_instructions = Vec::new();
@@ -815,13 +828,21 @@ fn emit_loop<CT: ConstantTable>(
 
                         emit_loop(f, instructions, None, arity_map, constant_map)?;
 
-                        instructions.push(Instruction::new_func(pop_len));
+                        // TODO fix this noise
+                        instructions.push(Instruction::new_func(
+                            pop_len,
+                            if let Expr::Atom(s) = &list_of_tokens[0] {
+                                s.clone()
+                            } else {
+                                SyntaxObject::default(TokenType::Identifier("lambda".to_string()))
+                            },
+                        ));
 
                         return Ok(());
                     }
                 }
             } else {
-                stop!(TypeMismatch => "Given empty list")
+                stop!(TypeMismatch => "Given empty list"; expr.span())
             }
         }
     }
@@ -887,14 +908,21 @@ pub struct Instruction {
     op_code: OpCode,
     payload_size: usize,
     contents: Option<SyntaxObject>,
+    constant: bool,
 }
 
 impl Instruction {
-    pub fn new(op_code: OpCode, payload_size: usize, contents: SyntaxObject) -> Instruction {
+    pub fn new(
+        op_code: OpCode,
+        payload_size: usize,
+        contents: SyntaxObject,
+        constant: bool,
+    ) -> Instruction {
         Instruction {
             op_code,
             payload_size,
             contents: Some(contents),
+            constant,
         }
     }
 
@@ -903,6 +931,7 @@ impl Instruction {
             op_code: OpCode::PUSHCONST,
             payload_size: idx,
             contents: None,
+            constant: true,
         }
     }
 
@@ -911,6 +940,7 @@ impl Instruction {
             op_code: OpCode::EVAL,
             payload_size: 0,
             contents: None,
+            constant: false,
         }
     }
 
@@ -919,14 +949,16 @@ impl Instruction {
             op_code: OpCode::NDEFS,
             payload_size,
             contents: None,
+            constant: false,
         }
     }
 
-    pub fn new_func(arity: usize) -> Instruction {
+    pub fn new_func(arity: usize, contents: SyntaxObject) -> Instruction {
         Instruction {
             op_code: OpCode::FUNC,
             payload_size: arity,
-            contents: None,
+            contents: Some(contents),
+            constant: false,
         }
     }
 
@@ -935,6 +967,7 @@ impl Instruction {
             op_code: OpCode::POP,
             payload_size: 0,
             contents: None,
+            constant: false,
         }
     }
 
@@ -943,6 +976,7 @@ impl Instruction {
             op_code: OpCode::IF,
             payload_size: true_jump,
             contents: None,
+            constant: false,
         }
     }
 
@@ -951,6 +985,7 @@ impl Instruction {
             op_code: OpCode::JMP,
             payload_size: jump,
             contents: None,
+            constant: false,
         }
     }
 
@@ -959,6 +994,7 @@ impl Instruction {
             op_code: OpCode::SCLOSURE,
             payload_size: 0,
             contents: None,
+            constant: false,
         }
     }
 
@@ -967,6 +1003,7 @@ impl Instruction {
             op_code: OpCode::ECLOSURE,
             payload_size: arity,
             contents: None,
+            constant: false,
         }
     }
 
@@ -975,6 +1012,7 @@ impl Instruction {
             op_code: OpCode::BIND,
             payload_size: 0,
             contents: Some(contents),
+            constant: false,
         }
     }
 
@@ -983,6 +1021,7 @@ impl Instruction {
             op_code: OpCode::SDEF,
             payload_size: 0,
             contents: None,
+            constant: false,
         }
     }
 
@@ -991,6 +1030,7 @@ impl Instruction {
             op_code: OpCode::EDEF,
             payload_size: 0,
             contents: None,
+            constant: false,
         }
     }
 
@@ -999,6 +1039,7 @@ impl Instruction {
             op_code: OpCode::VOID,
             payload_size: 0,
             contents: None,
+            constant: false,
         }
     }
 
@@ -1007,6 +1048,7 @@ impl Instruction {
             op_code: OpCode::PASS,
             payload_size: 0,
             contents: None,
+            constant: false,
         }
     }
 }
@@ -1176,7 +1218,7 @@ pub fn extract_constants<CT: ConstantTable>(
         let inst = &instructions[i];
         if let OpCode::PUSH = inst.op_code {
             // let idx = constants.len();
-            if inst.contents.is_some() {
+            if inst.constant {
                 let value = eval_atom(&inst.contents.as_ref().unwrap())?;
                 let idx = constants.add_or_get(value);
                 // constants.push(eval_atom(&inst.contents.as_ref().unwrap())?);
@@ -1261,13 +1303,15 @@ pub fn vm<CT: ConstantTable>(
                     // }
                     SteelVal::StructClosureV(factory, func) => {
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
-                        stack.push(func(args, factory)?);
+                        let result = func(args, factory).map_err(|x| x.set_span(cur_inst.span))?;
+                        stack.push(result);
                         ip += 1;
                     }
                     SteelVal::FuncV(f) => {
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
-                        // println!("Calling function with args: {:?}", args);
-                        stack.push(f(args)?);
+                        println!("Calling function with args: {:?}", args);
+                        println!("Span found at this instruction: {:?}", cur_inst.span);
+                        stack.push(f(args).map_err(|x| x.set_span(cur_inst.span))?);
                         // println!("{:?}", stack);
                         ip += 1;
                         // cur_inst = &instructions[ip];
@@ -1326,7 +1370,7 @@ pub fn vm<CT: ConstantTable>(
                         // cur_inst = &instructions[ip];
                     }
                     _ => {
-                        stop!(BadSyntax => "Application not a procedure or function type not supported");
+                        stop!(BadSyntax => "Application not a procedure or function type not supported"; cur_inst.span);
                     }
                 }
 
@@ -1363,9 +1407,9 @@ pub fn vm<CT: ConstantTable>(
                 // cur_inst = &instructions[ip];
             }
             OpCode::POP => {
-                return stack
-                    .pop()
-                    .ok_or_else(|| SteelErr::Generic("stack empty at pop".to_string()));
+                return stack.pop().ok_or_else(|| {
+                    SteelErr::Generic("stack empty at pop".to_string(), Some(cur_inst.span))
+                });
             }
             OpCode::BIND => {
                 let offset = global_env.borrow().local_offset();
@@ -1484,7 +1528,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<Rc<SteelVal>> {
         TokenType::IntegerLiteral(n) => Ok(Rc::new(SteelVal::IntV(*n))),
         what => {
             // println!("getting here");
-            stop!(UnexpectedToken => what)
+            stop!(UnexpectedToken => what; t.span)
         }
     }
 }
@@ -1494,12 +1538,22 @@ fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
     if tokens.len() == expected {
         Ok(())
     } else {
-        Err(SteelErr::ArityMismatch(format!(
-            "{}: expected {} args got {}",
-            what,
-            expected,
-            tokens.len()
-        )))
+        if let Some((first, rest)) = tokens.split_first() {
+            let span = rest
+                .into_iter()
+                .map(|x| x.span())
+                .fold(first.span(), |x, y| Span::merge(x, y));
+
+            Err(SteelErr::ArityMismatch(
+                format!("{}: expected {} args got {}", what, expected, tokens.len()),
+                Some(span),
+            ))
+        } else {
+            Err(SteelErr::ArityMismatch(
+                format!("{}: expected {} args got {}", what, expected, tokens.len()),
+                None,
+            ))
+        }
     }
 }
 

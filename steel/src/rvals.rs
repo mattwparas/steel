@@ -87,11 +87,13 @@ macro_rules! unwrap {
             left.map(|x| x.clone()).ok_or_else(|| {
                 crate::rerrs::SteelErr::ConversionError(
                     "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
+                    None,
                 )
             })
         } else {
             Err(crate::rerrs::SteelErr::ConversionError(
                 "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
+                None,
             ))
         }
     }};
@@ -322,19 +324,28 @@ impl Drop for SteelVal {
 impl TryFrom<Expr> for SteelVal {
     type Error = SteelErr;
     fn try_from(e: Expr) -> std::result::Result<Self, Self::Error> {
-        match e {
+        // let span = || {
+        //     e.span()
+        // }
+        match &e {
             Expr::Atom(a) => match &a.ty {
-                OpenParen => Err(SteelErr::UnexpectedToken("(".to_string())),
-                CloseParen => Err(SteelErr::UnexpectedToken(")".to_string())),
-                QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string())),
+                OpenParen => Err(SteelErr::UnexpectedToken("(".to_string(), Some(e.span()))),
+                CloseParen => Err(SteelErr::UnexpectedToken(")".to_string(), Some(e.span()))),
+                QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string(), Some(e.span()))),
                 BooleanLiteral(x) => Ok(BoolV(*x)),
                 Identifier(x) => Ok(SymbolV(x.clone())),
                 NumberLiteral(x) => Ok(NumV(*x)),
                 IntegerLiteral(x) => Ok(IntV(*x)),
                 StringLiteral(x) => Ok(StringV(x.clone())),
                 CharacterLiteral(x) => Ok(CharV(*x)),
-                Error => Err(SteelErr::UnexpectedToken("error".to_string())),
-                Comment => Err(SteelErr::UnexpectedToken("comment".to_string())),
+                Error => Err(SteelErr::UnexpectedToken(
+                    "error".to_string(),
+                    Some(e.span()),
+                )),
+                Comment => Err(SteelErr::UnexpectedToken(
+                    "comment".to_string(),
+                    Some(e.span()),
+                )),
             },
             Expr::VectorVal(lst) => {
                 let items: std::result::Result<Vec<Rc<Self>>, Self::Error> = lst

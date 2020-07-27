@@ -187,7 +187,7 @@ mod string_operation_tests {
                         SteelVal::StringV("BAR".to_string()),
                     ];
                     let res = apply_function($func.clone(), args);
-                    let expected = SteelErr::ArityMismatch(format!("{} takes one argument", $name));
+                    let expected = SteelErr::ArityMismatch(format!("{} takes one argument", $name), None);
                     assert_eq!(res.unwrap_err(), expected);
                 }
             )*
@@ -201,7 +201,7 @@ mod string_operation_tests {
                 pub fn $symbol() {
                     let args = vec![];
                     let res = apply_function($func.clone(), args);
-                    let expected = SteelErr::ArityMismatch(format!("{} takes one argument", $name));
+                    let expected = SteelErr::ArityMismatch(format!("{} takes one argument", $name), None);
                     assert_eq!(res.unwrap_err(), expected);
                 }
             )*
@@ -215,7 +215,7 @@ mod string_operation_tests {
                 pub fn $symbol() {
                     let args = vec![SteelVal::NumV(10.0)];
                     let res = apply_function($func.clone(), args);
-                    let expected = SteelErr::TypeMismatch(format!("{} expected a string", $name));
+                    let expected = SteelErr::TypeMismatch(format!("{} expected a string", $name), None);
                     assert_eq!(res.unwrap_err(), expected);
                 }
             )*
@@ -273,7 +273,8 @@ mod string_operation_tests {
     fn string_append_test_arity_mismatch_too_few() {
         let args = vec![SteelVal::StringV("foo".to_string())];
         let res = apply_function(StringOperations::string_append(), args);
-        let expected = SteelErr::ArityMismatch("string-append takes two arguments".to_string());
+        let expected =
+            SteelErr::ArityMismatch("string-append takes two arguments".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -285,7 +286,8 @@ mod string_operation_tests {
             SteelVal::StringV("baz".to_string()),
         ];
         let res = apply_function(StringOperations::string_append(), args);
-        let expected = SteelErr::ArityMismatch("string-append takes two arguments".to_string());
+        let expected =
+            SteelErr::ArityMismatch("string-append takes two arguments".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
@@ -293,7 +295,8 @@ mod string_operation_tests {
     fn string_append_test_takes_string() {
         let args = vec![SteelVal::CharV('a'), SteelVal::CharV('b')];
         let res = apply_function(StringOperations::string_append(), args);
-        let expected = SteelErr::TypeMismatch("string-append expected two strings".to_string());
+        let expected =
+            SteelErr::TypeMismatch("string-append expected two strings".to_string(), None);
         assert_eq!(res.unwrap_err(), expected);
     }
 
