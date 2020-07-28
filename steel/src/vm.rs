@@ -756,8 +756,8 @@ fn emit_loop<CT: ConstantTable>(
                     Expr::Atom(SyntaxObject {
                         ty: TokenType::Identifier(s),
                         ..
-                    }) if s == "error!" => {
-                        check_length("error!", &list_of_tokens, 2)?;
+                    }) if s == "panic!" => {
+                        check_length("panic!", &list_of_tokens, 2)?;
                         emit_loop(
                             &list_of_tokens[1],
                             instructions,
@@ -767,11 +767,11 @@ fn emit_loop<CT: ConstantTable>(
                         )?;
 
                         // pop is equivalent to the last instruction in the function
-                        instructions.push(Instruction::new_error(
+                        instructions.push(Instruction::new_panic(
                             if let Expr::Atom(s) = &list_of_tokens[0] {
                                 s.clone()
                             } else {
-                                SyntaxObject::default(TokenType::Identifier("error!".to_string()))
+                                SyntaxObject::default(TokenType::Identifier("panic!".to_string()))
                             },
                         ));
                         return Ok(());
@@ -911,7 +911,7 @@ pub enum OpCode {
     PUSHCONST = 14,
     NDEFS = 15,
     EVAL = 16,
-    ERROR = 17,
+    PANIC = 17,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -968,9 +968,9 @@ impl Instruction {
         }
     }
 
-    pub fn new_error(span: SyntaxObject) -> Instruction {
+    pub fn new_panic(span: SyntaxObject) -> Instruction {
         Instruction {
-            op_code: OpCode::ERROR,
+            op_code: OpCode::PANIC,
             payload_size: 0,
             contents: Some(span),
             constant: false,
@@ -1347,7 +1347,7 @@ pub fn vm<CT: ConstantTable>(
         cur_inst = &instructions[ip];
 
         match cur_inst.op_code {
-            OpCode::ERROR => {
+            OpCode::PANIC => {
                 let error_message = stack.pop().unwrap();
                 stop!(Generic => error_message.to_string(); cur_inst.span);
             }
