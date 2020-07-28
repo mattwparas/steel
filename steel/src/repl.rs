@@ -23,13 +23,13 @@ use std::borrow::Cow;
 
 // use crate::vm::emit_instructions;
 // use crate::vm::execute_vm;
-use crate::vm::pretty_print_dense_instructions;
+// use crate::vm::pretty_print_dense_instructions;
 use crate::vm::ArityMap;
 use crate::vm::ConstantMap;
 use crate::vm::Ctx;
 use crate::vm::VirtualMachine;
 
-use std::time::Instant;
+// use std::time::Instant;
 
 use crate::env::Env;
 
