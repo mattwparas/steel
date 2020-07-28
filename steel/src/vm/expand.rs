@@ -263,9 +263,8 @@ pub fn expand(expr: Expr, env: &Rc<RefCell<Env>>, macro_env: &Rc<RefCell<Env>>) 
                             }
                             "let" => return expand_let(&list_of_tokens[1..], env, macro_env),
                             _ => {
-                                println!("Looking up {}", s);
-                                // println!("")
-                                macro_env.borrow().print_bindings();
+                                // println!("Looking up {}", s);
+                                // macro_env.borrow().print_bindings();
                                 let lookup = macro_env.borrow().lookup(&s);
 
                                 if let Ok(v) = lookup {

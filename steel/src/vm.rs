@@ -52,6 +52,8 @@ use std::convert::TryFrom;
 
 use crate::parser::span::Span;
 
+use std::time::Instant;
+
 // use std::collections::HashSet;
 
 // use crate::expander::SteelMacro;
@@ -190,7 +192,7 @@ fn count_and_collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) 
                         })),
                     ) => {
                         if def == "define" || def == "defn" {
-                            println!("Found definition: {}", name);
+                            // println!("Found definition: {}", name);
                             symbol_map.add(name.as_str());
                             count += 1;
                         }
@@ -1084,13 +1086,33 @@ impl VirtualMachine {
         }
     }
 
+    pub fn parse_and_execute<CT: ConstantTable>(
+        &mut self,
+        expr_str: &str,
+        ctx: &mut Ctx<CT>,
+    ) -> Result<Vec<Rc<SteelVal>>> {
+        let now = Instant::now();
+        let gen_bytecode = self.emit_instructions(expr_str, ctx)?;
+        println!("Bytecode generated in: {:?}", now.elapsed());
+        gen_bytecode
+            .into_iter()
+            .map(|x| {
+                let now = Instant::now();
+                let res = self.execute(x.as_slice(), &ctx.constant_map);
+                println!("Time taken: {:?}", now.elapsed());
+                res
+            })
+            .collect::<Result<Vec<Rc<SteelVal>>>>()
+    }
+
     pub fn emit_instructions<CT: ConstantTable>(
         &mut self,
         expr_str: &str,
-        symbol_map: &mut SymbolMap,
+        ctx: &mut Ctx<CT>,
+        // symbol_map: &mut SymbolMap,
         // constants: &mut Vec<Rc<SteelVal>>,
-        constant_map: &mut CT,
-        arity_map: &mut ArityMap,
+        // constant_map: &mut CT,
+        // arity_map: &mut ArityMap,
         // script: bool, // global_env: &Rc<RefCell<Env>>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
@@ -1105,8 +1127,12 @@ impl VirtualMachine {
         // Add them to our macro env
         // TODO change this to be a unique macro env struct
         // Just a thin wrapper around a hashmap
-        let extracted_statements =
-            extract_macro_definitions(&parsed, &self.macro_env, &self.global_env, symbol_map)?;
+        let extracted_statements = extract_macro_definitions(
+            &parsed,
+            &self.macro_env,
+            &self.global_env,
+            &mut ctx.symbol_map,
+        )?;
 
         // Walk through and expand all macros, lets, and defines
         let expanded_statements: Vec<Expr> = extracted_statements
@@ -1115,20 +1141,26 @@ impl VirtualMachine {
             .collect::<Result<Vec<Expr>>>()?;
 
         // Collect global defines here first
-        let ndefs = count_and_collect_global_defines(&expanded_statements, symbol_map);
+        let ndefs = count_and_collect_global_defines(&expanded_statements, &mut ctx.symbol_map);
 
         // Reserve the definitions in the global environment
         self.global_env
             .borrow_mut()
             .reserve_defs(if ndefs > 0 { ndefs - 1 } else { 0 });
 
-        println!("Symbol Map: {:?}", symbol_map);
+        // println!("Symbol Map: {:?}", &ctx.symbol_map);
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            println!("{}", expr.to_string());
+            // println!("{}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
-            emit_loop(&expr, &mut instructions, None, arity_map, constant_map)?;
+            emit_loop(
+                &expr,
+                &mut instructions,
+                None,
+                &mut ctx.arity_map,
+                &mut ctx.constant_map,
+            )?;
             // if !script {
             instructions.push(Instruction::new_pop());
             // }
@@ -1136,8 +1168,8 @@ impl VirtualMachine {
             instruction_buffer.append(&mut instructions);
         }
 
-        insert_debruijn_indices(&mut instruction_buffer, symbol_map);
-        extract_constants(&mut instruction_buffer, constant_map)?;
+        insert_debruijn_indices(&mut instruction_buffer, &mut ctx.symbol_map);
+        extract_constants(&mut instruction_buffer, &mut ctx.constant_map)?;
 
         for idx in index_buffer {
             // let extracted = instruction_buffer.drain(0.idx).collect();
@@ -1309,8 +1341,8 @@ pub fn vm<CT: ConstantTable>(
                     }
                     SteelVal::FuncV(f) => {
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
-                        println!("Calling function with args: {:?}", args);
-                        println!("Span found at this instruction: {:?}", cur_inst.span);
+                        // println!("Calling function with args: {:?}", args);
+                        // println!("Span found at this instruction: {:?}", cur_inst.span);
                         stack.push(f(args).map_err(|x| x.set_span(cur_inst.span))?);
                         // println!("{:?}", stack);
                         ip += 1;
@@ -1414,10 +1446,10 @@ pub fn vm<CT: ConstantTable>(
             OpCode::BIND => {
                 let offset = global_env.borrow().local_offset();
 
-                println!(
-                    "Defining with payload: {} and offset: {}",
-                    cur_inst.payload_size, offset
-                );
+                // println!(
+                //     "Defining with payload: {} and offset: {}",
+                //     cur_inst.payload_size, offset
+                // );
 
                 global_env
                     .borrow_mut()
