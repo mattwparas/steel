@@ -68,7 +68,7 @@ impl SymbolMap {
     }
 
     pub fn roll_back(&mut self, idx: usize) {
-        println!("Rolling back to: {}", idx);
+        // println!("Rolling back to: {}", idx);
         self.0.truncate(idx);
 
         // unimplemented!()

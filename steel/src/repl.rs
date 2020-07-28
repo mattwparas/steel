@@ -26,6 +26,7 @@ use std::borrow::Cow;
 use crate::vm::pretty_print_dense_instructions;
 use crate::vm::ArityMap;
 use crate::vm::ConstantMap;
+use crate::vm::Ctx;
 use crate::vm::VirtualMachine;
 
 use std::time::Instant;
@@ -155,9 +156,14 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
     }));
 
     let mut vm = VirtualMachine::new();
-    let mut symbol_map = Env::default_symbol_map();
-    let mut constants = ConstantMap::new();
-    let mut arity_map = ArityMap::new();
+    let mut ctx = Ctx::new(
+        Env::default_symbol_map(),
+        ConstantMap::new(),
+        ArityMap::new(),
+    );
+    // let mut symbol_map = Env::default_symbol_map();
+    // let mut constants = ConstantMap::new();
+    // let mut arity_map = ArityMap::new();
 
     // let mut rl = Editor::<RustylineHelper>::new();
     // let mut rl = Editor::<MatchingBracketHighlighter>::new();
@@ -179,62 +185,68 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         }
                     }
                     _ => {
-                        let gen_bytecode = vm.emit_instructions(
-                            &line,
-                            &mut symbol_map,
-                            &mut constants,
-                            &mut arity_map,
-                        );
+                        let res = vm.parse_and_execute(&line, &mut ctx);
 
-                        match gen_bytecode {
-                            Ok(gen_bytecode) => {
-                                for instruction_vec in gen_bytecode {
-                                    // println!("{:?}", instruction_vec);
-
-                                    pretty_print_dense_instructions(instruction_vec.as_slice());
-
-                                    println!("Constants: {:?}", constants);
-
-                                    let now = Instant::now();
-
-                                    let result = vm.execute(instruction_vec.as_slice(), &constants);
-
-                                    match result {
-                                        Ok(v) => match v.as_ref() {
-                                            SteelVal::Void => {}
-                                            _ => println!("{} {}", "=>".bright_blue().bold(), v),
-                                        },
-                                        Err(e) => {
-                                            e.emit_result("repl.stl", &line, Span::new(0, 0));
-                                            eprintln!("{}", e.to_string().bright_red());
-                                        }
-                                    }
-
-                                    // let result = execute_vm(instruction_vec.as_slice());
-                                    // println!("{:?}", result);
-
-                                    // println!("{:?}", symbol_map);
-
-                                    println!("{:?}", now.elapsed());
-                                }
-                            }
+                        match res {
+                            Ok(r) => r.iter().for_each(|x| match x.as_ref() {
+                                SteelVal::Void => {}
+                                _ => println!("{} {}", "=>".bright_blue().bold(), x),
+                            }),
                             Err(e) => {
                                 e.emit_result("repl.stl", &line, Span::new(0, 0));
                                 eprintln!("{}", e.to_string().bright_red());
                             }
                         }
 
-                        // if let Ok(gen_bytecode) = gen_bytecode {
+                        // let gen_bytecode = vm.emit_instructions(
+                        //     &line,
+                        //     &mut ctx
+                        //     // &mut symbol_map,
+                        //     // &mut constants,
+                        //     // &mut arity_map,
+                        // );
 
+                        // match gen_bytecode {
+                        //     Ok(gen_bytecode) => {
+                        //         for instruction_vec in gen_bytecode {
+                        //             // println!("{:?}", instruction_vec);
+
+                        //             pretty_print_dense_instructions(instruction_vec.as_slice());
+
+                        //             println!("Constants: {:?}", &ctx.constant_map);
+
+                        //             let now = Instant::now();
+
+                        //             let result =
+                        //                 vm.execute(instruction_vec.as_slice(), &ctx.constant_map);
+
+                        //             match result {
+                        //                 Ok(v) => match v.as_ref() {
+                        //                     SteelVal::Void => {}
+                        //                     _ => println!("{} {}", "=>".bright_blue().bold(), v),
+                        //                 },
+                        //                 Err(e) => {
+                        //                     e.emit_result("repl.stl", &line, Span::new(0, 0));
+                        //                     eprintln!("{}", e.to_string().bright_red());
+                        //                 }
+                        //             }
+
+                        //             // let result = execute_vm(instruction_vec.as_slice());
+                        //             // println!("{:?}", result);
+
+                        //             // println!("{:?}", symbol_map);
+
+                        //             println!("{:?}", now.elapsed());
+                        //         }
+                        //     }
+                        //     Err(e) => {
+                        //         e.emit_result("repl.stl", &line, Span::new(0, 0));
+                        //         eprintln!("{}", e.to_string().bright_red());
+                        //     }
                         // }
 
-                        // let res = interpreter.evaluate(&line);
-                        // match res {
-                        //     Ok(r) => r.iter().for_each(|x| match x {
-                        //         SteelVal::Void => {}
-                        //         _ => println!("{} {}", "=>".bright_blue().bold(), x),
-                        //     }),
-                        //     Err(e) => eprintln!("{}", e.to_string().bright_red()),
+                        // if let Ok(gen_bytecode) = gen_bytecode {
+
                         // }
                     }
                 }

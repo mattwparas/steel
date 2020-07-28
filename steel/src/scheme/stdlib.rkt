@@ -125,6 +125,13 @@
              (cdr lst))))
 
 
+(define (map func lst)
+   (foldl (lambda (ele acc)
+            (cons (func ele) acc))
+          '()
+          lst))
+
+
 (define (map func lst) 
   (if (empty? lst)
       lst
