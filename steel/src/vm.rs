@@ -737,6 +737,45 @@ fn emit_loop<CT: ConstantTable>(
                         }
                         return Ok(());
                     }
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "return" => {
+                        check_length("return", &list_of_tokens, 2)?;
+                        emit_loop(
+                            &list_of_tokens[1],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
+                        // pop is equivalent to the last instruction in the function
+                        instructions.push(Instruction::new_pop());
+                        return Ok(());
+                    }
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "error!" => {
+                        check_length("error!", &list_of_tokens, 2)?;
+                        emit_loop(
+                            &list_of_tokens[1],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
+
+                        // pop is equivalent to the last instruction in the function
+                        instructions.push(Instruction::new_error(
+                            if let Expr::Atom(s) = &list_of_tokens[0] {
+                                s.clone()
+                            } else {
+                                SyntaxObject::default(TokenType::Identifier("error!".to_string()))
+                            },
+                        ));
+                        return Ok(());
+                    }
                     // Expr::Atom(SyntaxObject {
                     //     ty: TokenType::Identifier(s),
                     //     ..
@@ -872,6 +911,7 @@ pub enum OpCode {
     PUSHCONST = 14,
     NDEFS = 15,
     EVAL = 16,
+    ERROR = 17,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -925,6 +965,15 @@ impl Instruction {
             payload_size,
             contents: Some(contents),
             constant,
+        }
+    }
+
+    pub fn new_error(span: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::ERROR,
+            payload_size: 0,
+            contents: Some(span),
+            constant: false,
         }
     }
 
@@ -1298,6 +1347,10 @@ pub fn vm<CT: ConstantTable>(
         cur_inst = &instructions[ip];
 
         match cur_inst.op_code {
+            OpCode::ERROR => {
+                let error_message = stack.pop().unwrap();
+                stop!(Generic => error_message.to_string(); cur_inst.span);
+            }
             OpCode::EVAL => {
                 panic!("eval not yet supported");
             }
