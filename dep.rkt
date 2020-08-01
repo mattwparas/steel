@@ -14,6 +14,21 @@
   (loop n lst (list)))
 
 
+(define (test)
+  (define x (lambda (w) (lambda (x y) (lambda (z) (lambda (a)
+                                                    (display "Last lambda")
+                                                    (newline)
+                                                    (+ w x y z a))))))
+  ((((x 1) 2 3) 4) 5)
+  ((((x 1) 2 3) 4) 5)
+  ((((x 1) 2 3) 4) 5)
+  ((((x 1) 2 3) 4) 5)
+  ((((x 1) 2 3) 4) 5)
+  ((((x 1) 2 3) 4) 5)
+  ((((x 1) 2 3) 4) 5)
+  ((((x 1) 2 3) 4) 5)
+  ((((x 1) 2 3) 4) 5))
+
 (define (take lst n)
   (define (loop x l accum)
     (if (= x 0)
