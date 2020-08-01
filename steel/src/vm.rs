@@ -1473,22 +1473,9 @@ pub fn vm<CT: ConstantTable>(
                         // cur_inst = &instructions[ip];
                     }
                     SteelVal::Closure(closure) => {
-                        // println!("Calling function");
-
                         if stacks.len() == STACK_LIMIT {
                             stop!(Generic => "stack overflowed!"; cur_inst.span);
                         }
-
-                        // let cloned_stack_func = Rc::clone(&stack_func);
-                        // let closure = cloned_stack_func.bytecode_lambda_or_panic();
-                        // closure_stack.push(cloned_stack_func);
-
-                        // let closure = cloned_stack_func.bytecode_lambda_or_panic();
-                        // closure_stack.push(Rc::clone(&cloned_stack_func));
-
-                        // println!("Stack inside closure case: {:?}", stack);
-
-                        // let mut args = stack.split_off(stack.len() - cur_inst.payload_size);
 
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
 
@@ -1561,31 +1548,9 @@ pub fn vm<CT: ConstantTable>(
                             instructions = closure.body_exp();
                             stack = args;
                             ip = 0;
-
-                        // heap.pop();
-
-                        // stack.push(result);
                         } else {
                             stop!(Generic => "Root env is missing!")
                         }
-
-                        // Do lookahead to see if we have exited scope
-                        // match &instructions.get(ip + 1) {
-                        //     Some(DenseInstruction {
-                        //         op_code: OpCode::FUNC,
-                        //         ..
-                        //     }) => {}
-                        //     Some(_) => {
-                        //         println!("CLEARING THE HEAP");
-                        //         println!("Instructions: {}", ip);
-                        //         pretty_print_dense_instructions(&instructions);
-                        //         heap.clear();
-                        //     }
-                        //     _ => {}
-                        // }
-
-                        // ip += 1;
-                        // cur_inst = &instructions[ip];
                     }
                     _ => {
                         stop!(BadSyntax => "Application not a procedure or function type not supported"; cur_inst.span);
@@ -1593,122 +1558,44 @@ pub fn vm<CT: ConstantTable>(
                 }
             }
             OpCode::IF => {
-                // println!("stack at if: {:?}", stack);
-                // stack.pop()
-                // if let Some(SteelVal::BoolV(true)) = stack.pop().as_ref()
                 if let SteelVal::BoolV(true) = stack.pop().unwrap().as_ref() {
                     ip = cur_inst.payload_size; // Jump to payload
                                                 // ip += 2; // Jump to payload
                                                 // cur_inst = &instructions[ip];
                 } else {
                     ip += 1;
-                    // cur_inst = &instructions[ip];
                 }
             }
             OpCode::JMP => {
                 ip = cur_inst.payload_size;
-                // cur_inst = &instructions[ip];
             }
             OpCode::POP => {
                 pop_count -= 1;
                 if pop_count == 0 {
-                    println!("Stack of stack at pop: {:?}", stacks);
-                    println!("Stack at pop: {:?}", stack);
-                    println!("Env stack length: {}", env_stack.len());
-                    println!("instruction stack at pop: {:?}", instruction_stack);
-                    println!("Heap at exit: {}", heap.len());
-
                     env_stack.clear();
                     heap.clear();
 
                     return stack.pop().ok_or_else(|| {
                         SteelErr::Generic("stack empty at pop".to_string(), Some(cur_inst.span))
                     });
-                // if instruction_stack.is_empty() && def_stack > 0
                 } else {
-                    // println!("Getting here with def stack: {}", def_stack);
-
-                    // println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
-                    // println!("depth: {}", instruction_stack.len());
-                    // println!("env stack: ");
-                    // inspect_heap(&env_stack);
-
-                    // let ret_val = stack.pop().unwrap();
-                    // def_stack -= 1;
-                    // stack = stacks.pop().unwrap();
-                    // stack.push(ret_val);
-                    // ip += 1;
-
                     let ret_val = stack.pop().unwrap();
                     let prev_state = instruction_stack.pop().unwrap();
 
                     if prev_state.1.len() != 0 {
                         global_env = env_stack.pop().unwrap();
-                        // println!("Env stack size after popping: {}", env_stack.len());
-                        // println!("Env stack:");
-                        // inspect_heap(&env_stack);
-                        // println!("Instructions -> At instr # : {}", ip);
-                        // pretty_print_dense_instructions(&instructions);
                         ip = prev_state.0;
                         instructions = prev_state.1;
-                    // inspect_heap(&heap);
-                    // heap.remove(0);
-
-                    // heap.pop();
-                    // heap.truncate(heap_stack.pop();
-
-                    // heap_stack.pop().and_then(|x| {
-                    //     println!("Popped off this value {}", x);
-                    //     heap.truncate(x);
-                    //     Some(x)
-                    // });
-
-                    // println!("Heap:");
-                    // inspect_heap(&heap);
-                    // if heap.len() > 2 {
-                    //     heap.remove(0);
-                    // }
-                    // if heap_count > 2 {
-                    //     // heap.pop();
-                    //     heap_count -= 1;
-                    // }
-                    // let _l = heap.pop();
-                    // heap.truncate(heap_stack.pop().unwrap());
-                    // heap.pop();
                     } else {
-                        println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
                         ip += 1;
                     }
 
                     stack = stacks.pop().unwrap();
                     stack.push(ret_val);
-
-                    // unimplemented!();
                 }
-                // else {
-
-                // }
-
-                // instruction_stack.push((ip + 1, instructions));
-                // stacks.push(stack);
-                // instructions = closure.body_exp();
-                // stack = args;
-                // ip = 0;
-
-                // unimplemented!();
-
-                // return stack.pop().ok_or_else(|| {
-                //     SteelErr::Generic("stack empty at pop".to_string(), Some(cur_inst.span))
-                // });
             }
             OpCode::BIND => {
                 let offset = global_env.borrow().local_offset();
-
-                // println!(
-                //     "Defining with payload: {} and offset: {}",
-                //     cur_inst.payload_size, offset
-                // );
-
                 global_env
                     .borrow_mut()
                     .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
@@ -1716,8 +1603,6 @@ pub fn vm<CT: ConstantTable>(
             }
             OpCode::SCLOSURE => {
                 ip += 1;
-                // pop_count += 1;
-
                 let forward_jump = cur_inst.payload_size - 1;
                 // Snag the number of definitions here
                 let ndefs = instructions[ip].payload_size;
@@ -1794,52 +1679,24 @@ pub fn vm<CT: ConstantTable>(
                 ip += forward_jump;
                 println!("Performed forward jump to instruction: {}", ip);
             }
-            OpCode::ECLOSURE => {
-                // println!("Hitting ECLOSURE");
-                // println!("Heap at end of closure: ");
-                // inspect_heap(&heap);
-                // heap.pop();
-                ip += 1;
-            }
+            // OpCode::ECLOSURE => {
+            //     ip += 1;
+            // }
             OpCode::SDEF => {
                 ip += 1;
 
                 global_env.borrow_mut().set_binding_context(true);
                 global_env.borrow_mut().set_binding_offset(false);
 
-                // let defn_body = &instructions[ip..(ip + cur_inst.payload_size - 1)];
-
-                // println!("Instructions for def body: {:?}", defn_body);
-
-                // let temp_stack: Vec<Rc<SteelVal>> = Vec::new();
-
                 stacks.push(stack);
                 stack = Vec::new();
-                // def_stack += 1;
 
                 // placeholder on the instruction_stack
                 instruction_stack.push((0, Rc::new(Box::new([]))));
                 pop_count += 1;
-
-                // println!("Incrementing the def stack with instructions: ");
-                // pretty_print_dense_instructions(&instructions);
-
-                // unimplemented!();
-
-                // let result = vm(
-                //     defn_body,
-                //     &mut temp_stack,
-                //     heap,
-                //     Rc::clone(&global_env),
-                //     constants,
-                // )?;
-
-                // stack.push(result);
-                // ip += cur_inst.payload_size;
-                // cur_inst = &instructions[ip];
             }
             OpCode::EDEF => {
-                println!("Found end definition");
+                // println!("Found end definition");
                 // def_stack -= 1;
                 ip += 1;
                 // unimplemented!();
