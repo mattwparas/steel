@@ -1278,14 +1278,14 @@ impl VirtualMachine {
         constants: &CT,
     ) -> Result<Rc<SteelVal>> {
         // execute_vm(instructions)
-        let mut stack: Vec<Rc<SteelVal>> = Vec::new();
+        // let mut stack: Vec<Rc<SteelVal>> = Vec::new();
         let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
         // let mut constants: Vec<Rc<RefCell<Env>>
 
         // let global_env = Rc::new(RefCell::new(Env::default_env()));
         let result = vm(
             instructions,
-            &mut stack,
+            // &mut stack,
             &mut heap,
             Rc::clone(&self.global_env),
             constants,
@@ -1306,11 +1306,11 @@ pub fn execute_vm(
     instructions: Rc<Box<[DenseInstruction]>>,
     constants: &ConstantMap,
 ) -> Result<Rc<SteelVal>> {
-    let mut stack: Vec<Rc<SteelVal>> = Vec::new();
+    // let mut stack: Vec<Rc<SteelVal>> = Vec::new();
     let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
     // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
     let global_env = Rc::new(RefCell::new(Env::default_env()));
-    vm(instructions, &mut stack, &mut heap, global_env, constants)
+    vm(instructions, &mut heap, global_env, constants)
 }
 
 // TODO make this not so garbage but its kind of okay
@@ -1361,7 +1361,7 @@ pub fn inspect_heap(heap: &Vec<Rc<RefCell<Env>>>) {
 
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<Box<[DenseInstruction]>>,
-    stack: &mut Vec<Rc<SteelVal>>,
+    // stack: &mut Vec<Rc<SteelVal>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
@@ -1393,7 +1393,7 @@ pub fn vm<CT: ConstantTable>(
 
     let mut heap_stack: Vec<usize> = Vec::new();
 
-    let mut heap_count = 0;
+    // let mut heap_count = 0;
 
     // Depth of the nested definition
     // let mut def_stack = 0;
@@ -1429,7 +1429,7 @@ pub fn vm<CT: ConstantTable>(
             OpCode::CLEAR => {
                 println!("%%%%%%%%%%% Hitting clear! %%%%%%%%%%%");
                 println!("length of heap at clear: {}", heap.len());
-                println!("Heap count: {}", heap_count);
+                // println!("Heap count: {}", heap_count);
                 println!("Heap at clear:");
                 inspect_heap(&heap);
                 heap.clear();
