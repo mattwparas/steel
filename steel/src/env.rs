@@ -306,6 +306,10 @@ impl Env {
         println!("{:#?}", self.bindings);
     }
 
+    pub fn string_bindings_vec(&self) -> String {
+        format!("{:?}", self.bindings_vec)
+    }
+
     pub fn bindings(&self) -> &HashMap<String, Rc<SteelVal>> {
         &self.bindings
     }

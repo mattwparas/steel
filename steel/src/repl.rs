@@ -161,6 +161,9 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
         ConstantMap::new(),
         ArityMap::new(),
     );
+
+    let mut buffer = String::new();
+
     // let mut symbol_map = Env::default_symbol_map();
     // let mut constants = ConstantMap::new();
     // let mut arity_map = ArityMap::new();
@@ -186,6 +189,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                     }
                     _ => {
                         let res = vm.parse_and_execute(&line, &mut ctx);
+                        buffer += &line;
 
                         match res {
                             Ok(r) => r.iter().for_each(|x| match x.as_ref() {
@@ -193,7 +197,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
                             }),
                             Err(e) => {
-                                e.emit_result("repl.stl", &line, Span::new(0, 0));
+                                e.emit_result("repl.stl", buffer.as_str(), Span::new(0, 0));
                                 eprintln!("{}", e.to_string().bright_red());
                             }
                         }

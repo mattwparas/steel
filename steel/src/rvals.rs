@@ -151,6 +151,14 @@ impl SteelVal {
     pub fn iter(_self: Rc<SteelVal>) -> Iter {
         Iter(Some(_self))
     }
+
+    // pub(crate) fn bytecode_lambda_or_panic(&self) -> &ByteCodeLambda {
+    //     if let SteelVal::Closure(bytecode_lambda) = self {
+    //         bytecode_lambda
+    //     } else {
+    //         panic!("Attempted to access a bytecode_lambda from the wrong variant");
+    //     }
+    // }
 }
 
 impl Iterator for Iter {
@@ -449,7 +457,7 @@ impl PartialOrd for SteelVal {
 #[derive(Clone)]
 pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
-    body_exp: Vec<DenseInstruction>,
+    body_exp: Rc<Box<[DenseInstruction]>>,
     /// parent environment that created this Lambda.
     /// the actual environment with correct bindings is built at runtime
     /// once the function is called
@@ -474,7 +482,7 @@ impl ByteCodeLambda {
         ndef_body: usize,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
-            body_exp,
+            body_exp: Rc::new(body_exp.into_boxed_slice()),
             parent_env,
             sub_expression_env,
             offset,
@@ -487,8 +495,8 @@ impl ByteCodeLambda {
     //     &self.params_exp
     // }
 
-    pub fn body_exp(&self) -> &[DenseInstruction] {
-        &self.body_exp
+    pub fn body_exp(&self) -> Rc<Box<[DenseInstruction]>> {
+        Rc::clone(&self.body_exp)
     }
 
     pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
