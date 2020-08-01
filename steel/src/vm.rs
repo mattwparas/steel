@@ -133,6 +133,56 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
     return transformed;
 }
 
+// Note, this should be called AFTER `transform_tail_call`
+fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> bool {
+    let last_idx = instructions.len() - 1;
+
+    // could panic
+    let mut indices = vec![last_idx];
+
+    let mut transformed = false;
+
+    for (idx, instruction) in instructions.iter().enumerate() {
+        if instruction.op_code == OpCode::JMP && instruction.payload_size == last_idx {
+            indices.push(idx);
+        }
+    }
+
+    for index in &indices {
+        if *index < 2 {
+            continue;
+        }
+        let prev_instruction = instructions.get(index - 1);
+        let prev_func_push = instructions.get(index - 2);
+
+        match (prev_instruction, prev_func_push) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::FUNC,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(_s),
+                            ..
+                        }),
+                    ..
+                }),
+            ) => {
+                if let Some(x) = instructions.get_mut(index - 1) {
+                    x.op_code = OpCode::TAILCALL;
+                    transformed = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    transformed
+}
+
 // Hopefully this doesn't break anything...
 fn count_and_collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) -> usize {
     let mut count = 0;
@@ -688,6 +738,10 @@ fn emit_loop<CT: ConstantTable>(
 
                         if let Some(ctx) = defining_context {
                             transform_tail_call(&mut body_instructions, ctx);
+                            let b = check_and_transform_mutual_recursion(&mut body_instructions);
+                            if b {
+                                println!("Transformed mutual recursion!");
+                            }
                             arity_map.insert_exact(ctx, arity);
                         }
 
@@ -928,6 +982,7 @@ pub enum OpCode {
     EVAL = 16,
     PANIC = 17,
     CLEAR = 18,
+    TAILCALL = 19,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -1246,29 +1301,6 @@ impl VirtualMachine {
             results.push(densify(extracted));
         }
 
-        // for expr in expanded_statements {
-        //     println!("{}", expr.to_string());
-
-        //     let mut instructions: Vec<Instruction> = Vec::new();
-        //     emit_loop(&expr, &mut instructions, None, arity_map, constant_map)?;
-        //     instructions.push(Instruction::new_pop());
-
-        //     pretty_print_instructions(&instructions);
-
-        //     // let mut stack: Vec<usize> = Vec::new();
-
-        //     insert_debruijn_indices(&mut instructions, symbol_map);
-
-        //     println!("------- Debruijn Indices Succeeded -------");
-        //     println!("Symbol Map: {:?}", symbol_map);
-
-        //     extract_constants(&mut instructions, constant_map)?;
-
-        //     let dense_instructions = densify(instructions);
-
-        //     results.push(dense_instructions);
-        // }
-
         Ok(results)
     }
 
@@ -1427,36 +1459,17 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::CLEAR => {
-                println!("%%%%%%%%%%% Hitting clear! %%%%%%%%%%%");
-                println!("length of heap at clear: {}", heap.len());
-                // println!("Heap count: {}", heap_count);
-                println!("Heap at clear:");
+                // println!("%%%%%%%%%%% Hitting clear! %%%%%%%%%%%");
+                // println!("length of heap at clear: {}", heap.len());
+                // println!("Heap at clear:");
                 inspect_heap(&heap);
                 heap.clear();
-                // heap.remove(0);
-                // heap_count += 1;
                 ip += 1;
             }
             OpCode::FUNC => {
                 let stack_func = stack.pop().unwrap();
-                // closure_stack.push(stack_func);
-
-                // let stack_func = stack.last().unwrap();
-
-                // let match_stack = Rc::clone(&stack_func);
 
                 match stack_func.as_ref() {
-                    // SteelVal::SymbolV(s) => {
-                    //     let func = global_env.borrow().lookup(s.as_str())?;
-                    //     let args = stack.split_off(stack.len() - cur_inst.payload_size);
-                    //     if let SteelVal::FuncV(f) = func.as_ref() {
-                    //         stack.push(f(args)?);
-                    //         ip += 1;
-                    //         cur_inst = &instructions[ip];
-                    //     } else {
-                    //         unimplemented!();
-                    //     }
-                    // }
                     SteelVal::StructClosureV(factory, func) => {
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
                         let result = func(args, factory).map_err(|x| x.set_span(cur_inst.span))?;
@@ -1465,20 +1478,19 @@ pub fn vm<CT: ConstantTable>(
                     }
                     SteelVal::FuncV(f) => {
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
-                        // println!("Calling function with args: {:?}", args);
-                        // println!("Span found at this instruction: {:?}", cur_inst.span);
                         stack.push(f(args).map_err(|x| x.set_span(cur_inst.span))?);
-                        // println!("{:?}", stack);
                         ip += 1;
-                        // cur_inst = &instructions[ip];
                     }
                     SteelVal::Closure(closure) => {
                         if stacks.len() == STACK_LIMIT {
+                            println!("stacks at exit: {:?}", stacks);
+                            println!("stack frame at exit: {:?}", stack);
                             stop!(Generic => "stack overflowed!"; cur_inst.span);
                         }
 
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
 
+                        // TODO fix this
                         if let Some(parent_env) = closure.parent_env() {
                             let offset = closure.offset() + parent_env.borrow().local_offset();
 
@@ -1545,6 +1557,102 @@ pub fn vm<CT: ConstantTable>(
                             instruction_stack.push((ip + 1, instructions));
                             pop_count += 1;
                             stacks.push(stack);
+                            instructions = closure.body_exp();
+                            stack = args;
+                            ip = 0;
+                        } else {
+                            stop!(Generic => "Root env is missing!")
+                        }
+                    }
+                    _ => {
+                        stop!(BadSyntax => "Application not a procedure or function type not supported"; cur_inst.span);
+                    }
+                }
+            }
+            OpCode::TAILCALL => {
+                let stack_func = stack.pop().unwrap();
+
+                match stack_func.as_ref() {
+                    SteelVal::StructClosureV(factory, func) => {
+                        let args = stack.split_off(stack.len() - cur_inst.payload_size);
+                        let result = func(args, factory).map_err(|x| x.set_span(cur_inst.span))?;
+                        stack.push(result);
+                        ip += 1;
+                    }
+                    SteelVal::FuncV(f) => {
+                        let args = stack.split_off(stack.len() - cur_inst.payload_size);
+                        stack.push(f(args).map_err(|x| x.set_span(cur_inst.span))?);
+                        ip += 1;
+                    }
+                    SteelVal::Closure(closure) => {
+                        if stacks.len() == STACK_LIMIT {
+                            println!("stacks at exit: {:?}", stacks);
+                            println!("stack frame at exit: {:?}", stack);
+                            stop!(Generic => "stack overflowed!"; cur_inst.span);
+                        }
+
+                        let args = stack.split_off(stack.len() - cur_inst.payload_size);
+
+                        // TODO fix this
+                        if let Some(parent_env) = closure.parent_env() {
+                            unreachable!();
+
+                        // let offset = closure.offset() + parent_env.borrow().local_offset();
+
+                        // // let parent_env = lambda.parent_env();
+                        // let inner_env = Rc::new(RefCell::new(Env::new(&parent_env, offset)));
+
+                        // inner_env
+                        //     .borrow_mut()
+                        //     .reserve_defs(if closure.ndef_body() > 0 {
+                        //         closure.ndef_body() - 1
+                        //     } else {
+                        //         0
+                        //     });
+
+                        // // let params_exp = lambda.params_exp();
+                        // // let result =
+                        // // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
+
+                        // // println!("Found a closure");
+                        // // instead of the recursive call, update the values and go back through the loop...
+                        // // closure_stack.push(Rc::clone(&stack_func));
+                        // env_stack.push(global_env);
+                        // // println!("Env stack size after pushing up top: {}", env_stack.len());
+                        // // println!("Env stack:");
+                        // // inspect_heap(&env_stack);
+                        // global_env = inner_env;
+                        // instruction_stack.push((ip + 1, instructions));
+                        // pop_count += 1;
+                        // stacks.push(stack);
+                        // instructions = closure.body_exp();
+                        // stack = args;
+                        // ip = 0;
+
+                        // stack.push(result);
+
+                        // evaluate(&lambda.body_exp(), &inner_env)
+                        } else if let Some(parent_env) = closure.sub_expression_env() {
+                            // TODO remove this unwrap
+                            let offset = closure.offset()
+                                + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                                parent_env.clone(),
+                                offset,
+                            )));
+
+                            inner_env
+                                .borrow_mut()
+                                .reserve_defs(if closure.ndef_body() > 0 {
+                                    closure.ndef_body() - 1
+                                } else {
+                                    0
+                                });
+
+                            // env_stack.push(global_env);
+                            // tail_call_env_stack
+                            global_env = inner_env;
                             instructions = closure.body_exp();
                             stack = args;
                             ip = 0;
