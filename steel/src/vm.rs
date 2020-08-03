@@ -1215,6 +1215,8 @@ impl VirtualMachine {
         }
     }
 
+    // pub fn new_with_std
+
     pub fn parse_and_execute<CT: ConstantTable>(
         &mut self,
         expr_str: &str,
@@ -1264,6 +1266,8 @@ impl VirtualMachine {
             .map(|x| expand(x, &self.global_env, &self.macro_env))
             .collect::<Result<Vec<Expr>>>()?;
 
+        // println!()
+
         // Collect global defines here first
         let ndefs = count_and_collect_global_defines(&expanded_statements, &mut ctx.symbol_map);
 
@@ -1275,6 +1279,7 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
+            println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
                 &expr,
@@ -1290,6 +1295,8 @@ impl VirtualMachine {
             index_buffer.push(instructions.len());
             instruction_buffer.append(&mut instructions);
         }
+
+        // println!("Got here!");
 
         insert_debruijn_indices(&mut instruction_buffer, &mut ctx.symbol_map);
         extract_constants(&mut instruction_buffer, &mut ctx.constant_map)?;
@@ -1383,7 +1390,7 @@ pub fn extract_constants<CT: ConstantTable>(
     Ok(())
 }
 
-pub fn inspect_heap(heap: &Vec<Rc<RefCell<Env>>>) {
+fn inspect_heap(heap: &Vec<Rc<RefCell<Env>>>) {
     let hp: Vec<String> = heap
         .into_iter()
         .map(|x| x.borrow().string_bindings_vec())
@@ -1393,7 +1400,6 @@ pub fn inspect_heap(heap: &Vec<Rc<RefCell<Env>>>) {
 
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<Box<[DenseInstruction]>>,
-    // stack: &mut Vec<Rc<SteelVal>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
@@ -1407,28 +1413,18 @@ pub fn vm<CT: ConstantTable>(
 
     // instruction stack for function calls
     let mut instruction_stack: Vec<(usize, Rc<Box<[DenseInstruction]>>)> = Vec::new();
-    // parallel instruction stack
-    // let mut instruction_ptr_stack: Vec<usize> = Vec::new();
     // stacks on stacks baby
     let mut stacks: Vec<Vec<Rc<SteelVal>>> = Vec::new();
-    // initialize the instruction pointer
+    // initialize the instruction number pointer
     let mut cur_inst;
-
+    // Pointer to array of instructions
     let mut instructions = instructions;
+    // Self explanatory
     let mut stack: Vec<Rc<SteelVal>> = Vec::new();
-    // Will only contain Closure values
-    // let mut closure_stack: Vec<Rc<SteelVal>> = Vec::new();
-
+    // Manage current env in its own stack
     let mut env_stack: Vec<Rc<RefCell<Env>>> = Vec::new();
-
+    // Manage the depth of instructions to know when to backtrack
     let mut pop_count = 1;
-
-    let mut heap_stack: Vec<usize> = Vec::new();
-
-    // let mut heap_count = 0;
-
-    // Depth of the nested definition
-    // let mut def_stack = 0;
 
     while ip < instructions.len() {
         cur_inst = &instructions[ip];
@@ -1569,6 +1565,8 @@ pub fn vm<CT: ConstantTable>(
                     }
                 }
             }
+            // Tail call basically says "hey this function is exiting"
+            // In the closure case, transfer ownership of the stack to the called function
             OpCode::TAILCALL => {
                 let stack_func = stack.pop().unwrap();
 
@@ -1594,7 +1592,7 @@ pub fn vm<CT: ConstantTable>(
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
 
                         // TODO fix this
-                        if let Some(parent_env) = closure.parent_env() {
+                        if let Some(_parent_env) = closure.parent_env() {
                             unreachable!();
 
                         // let offset = closure.offset() + parent_env.borrow().local_offset();
@@ -1742,8 +1740,6 @@ pub fn vm<CT: ConstantTable>(
                 println!("Pushing onto the heap!");
 
                 heap.push(Rc::clone(&capture_env));
-                // Set fallback point
-                heap_stack.push(heap.len());
                 inspect_heap(&heap);
                 let constructed_lambda = ByteCodeLambda::new(
                     closure_body,

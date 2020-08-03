@@ -182,11 +182,20 @@ fn expand_define(
 
     if list_of_tokens.len() > 2 {
         match (list_of_tokens.get(1), list_of_tokens.get(2)) {
-            (Some(symbol), Some(_body)) => {
+            (Some(symbol), Some(body)) => {
                 match symbol.deref() {
                     Expr::Atom(SyntaxObject { ty: t, .. }) => {
                         if let TokenType::Identifier(_) = t {
-                            return Ok(Expr::VectorVal(list_of_tokens.to_vec()));
+                            let expanded_body = expand(body.clone(), env, macro_env)?;
+                            let return_val = Expr::VectorVal(vec![
+                                list_of_tokens[0].clone(),
+                                symbol.clone(),
+                                expanded_body,
+                            ]);
+
+                            return Ok(return_val);
+
+                        // return Ok(Expr::VectorVal(list_of_tokens.to_vec()));
                         } else {
                             stop!(TypeMismatch => "Define expected identifier, got: {}", symbol);
                         }
