@@ -1335,7 +1335,7 @@ impl VirtualMachine {
             self.global_env.borrow_mut().set_binding_context(false);
         }
 
-        println!("Global heap length after: {}", self.global_heap.len());
+        // println!("Global heap length after: {}", self.global_heap.len());
 
         result
     }
@@ -1464,6 +1464,8 @@ pub fn vm<CT: ConstantTable>(
             }
             OpCode::FUNC => {
                 let stack_func = stack.pop().unwrap();
+
+                // inspect_heap(&heap);
 
                 match stack_func.as_ref() {
                     SteelVal::StructClosureV(factory, func) => {
@@ -1737,10 +1739,12 @@ pub fn vm<CT: ConstantTable>(
                 // TODO look at this heap thing
                 // Need to clear it pop when the environment exits
                 // GC...
-                println!("Pushing onto the heap!");
+                // println!("Pushing onto the heap!");
 
-                heap.push(Rc::clone(&capture_env));
-                inspect_heap(&heap);
+                if !global_env.borrow().is_root() {
+                    heap.push(Rc::clone(&capture_env));
+                }
+                // inspect_heap(&heap);
                 let constructed_lambda = ByteCodeLambda::new(
                     closure_body,
                     None,
@@ -1781,7 +1785,7 @@ pub fn vm<CT: ConstantTable>(
                 stack.push(Rc::new(SteelVal::Closure(constructed_lambda)));
 
                 ip += forward_jump;
-                println!("Performed forward jump to instruction: {}", ip);
+                // println!("Performed forward jump to instruction: {}", ip);
             }
             // OpCode::ECLOSURE => {
             //     ip += 1;
