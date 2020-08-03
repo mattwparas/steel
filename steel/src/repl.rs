@@ -35,6 +35,8 @@ use crate::env::Env;
 
 use crate::parser::span::Span;
 
+use crate::stdlib::PRELUDE;
+
 // use std::collections::HashMap;
 
 // use crate::vm::flatten_expression_tree;
@@ -163,6 +165,19 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
     );
 
     let mut buffer = String::new();
+
+    let res = vm.parse_and_execute(PRELUDE, &mut ctx);
+
+    match res {
+        Ok(r) => r.iter().for_each(|x| match x.as_ref() {
+            SteelVal::Void => {}
+            _ => println!("{} {}", "=>".bright_blue().bold(), x),
+        }),
+        Err(e) => {
+            e.emit_result("stdlib.stl", buffer.as_str(), Span::new(0, 0));
+            eprintln!("{}", e.to_string().bright_red());
+        }
+    }
 
     // let mut symbol_map = Env::default_symbol_map();
     // let mut constants = ConstantMap::new();
