@@ -275,9 +275,19 @@
 (define assoc (lambda (obj alist)    (fold (mem-helper (curry equal? obj) car) #f alist)))
 
 
-(define filter (lambda (pred lst)   (reverse (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst))))
+; (define filter (lambda (pred lst)   (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst)))
 
 ; (define (filter pred lst) (if (empty? lst) lst (filterR pred lst)))
+
+(define (filter f lst)
+  (define (iter lst result)
+    (cond
+      ((null? lst) result) ;; should reverse here
+      ((f (car lst)) (iter (cdr lst)
+                           (cons (car lst) result)))
+      (else (iter (cdr lst)
+                  result))))
+  (iter lst '()))
 
 (define (fact n)
   (define factorial-tail (lambda (n acc) 
@@ -286,8 +296,9 @@
                                (factorial-tail (- n 1)  (* acc n )))))
   (factorial-tail n 1))
 
-(define even? (lambda (x) (if (= x 0) #t (odd? (- x 1)))))
-(define odd?  (lambda (x) (if (= x 0) #f (even? (- x 1)))))
+(define even-rec? (lambda (x) (if (= x 0) #t (odd-rec? (- x 1)))))
+(define odd-rec?  (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))
+
 (define sum (lambda (x) (reduce + 0 x)))
 ;; (define head car)
 ;; (define tail cdr)

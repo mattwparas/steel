@@ -7,6 +7,8 @@ use std::rc::Rc;
 
 use rand::Rng;
 
+use crate::env::{FALSE, TRUE};
+
 pub struct NumOperations {}
 impl NumOperations {
     pub fn random_int() -> SteelVal {
@@ -24,6 +26,46 @@ impl NumOperations {
                 return Ok(Rc::new(SteelVal::IntV(rng.gen_range(0, upper_bound))));
             } else {
                 stop!(TypeMismatch => "random-int requires an integer upper bound");
+            }
+        })
+    }
+
+    pub fn even() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "even? takes one argument")
+            }
+
+            if let SteelVal::IntV(n) = args[0].as_ref() {
+                // let is_odd = |x: i32| x & 1 == 1;
+                // let is_even = |x: i32| x & 1 == 0;
+                if n & 1 == 0 {
+                    Ok(TRUE.with(|f| Rc::clone(f)))
+                } else {
+                    Ok(FALSE.with(|f| Rc::clone(f)))
+                }
+            } else {
+                stop!(TypeMismatch => "even? requires an integer")
+            }
+        })
+    }
+
+    pub fn odd() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "even? takes one argument")
+            }
+
+            if let SteelVal::IntV(n) = args[0].as_ref() {
+                // let is_odd = |x: i32| x & 1 == 1;
+                // let is_even = |x: i32| x & 1 == 0;
+                if n & 1 == 1 {
+                    Ok(TRUE.with(|f| Rc::clone(f)))
+                } else {
+                    Ok(FALSE.with(|f| Rc::clone(f)))
+                }
+            } else {
+                stop!(TypeMismatch => "odd? requires an integer")
             }
         })
     }

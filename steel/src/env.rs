@@ -669,6 +669,8 @@ impl Env {
             ("random-int", NumOperations::random_int()),
             ("string->int", StringOperations::string_to_int()),
             // ("flatten", ListOperations::flatten()),
+            ("even?", NumOperations::even()),
+            ("odd?", NumOperations::odd()),
         ]
     }
 }
