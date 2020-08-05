@@ -624,6 +624,8 @@ impl Env {
         vec![
             // ("+", SteelVal::FuncV(Adder::new_func())),
             ("+", NumOperations::adder()),
+            ("i+", NumOperations::integer_add()),
+            ("f+", NumOperations::float_add()),
             // ("*", SteelVal::FuncV(Multiplier::new_func())),
             ("*", NumOperations::multiply()),
             // ("/", SteelVal::FuncV(Divider::new_func())),

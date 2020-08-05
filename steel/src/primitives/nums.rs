@@ -70,6 +70,46 @@ impl NumOperations {
         })
     }
 
+    pub fn integer_add() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.is_empty() {
+                stop!(ArityMismatch => "+ requires at least one argument")
+            }
+
+            let mut sum = 0;
+
+            for arg in args {
+                if let SteelVal::IntV(n) = arg.as_ref() {
+                    sum += n;
+                } else {
+                    stop!(TypeMismatch => "+ expected a number, found {:?}", arg);
+                }
+            }
+
+            Ok(Rc::new(SteelVal::IntV(sum)))
+        })
+    }
+
+    pub fn float_add() -> SteelVal {
+        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+            if args.is_empty() {
+                stop!(ArityMismatch => "+ requires at least one argument")
+            }
+
+            let mut sum = 0.0;
+
+            for arg in args {
+                if let SteelVal::NumV(n) = arg.as_ref() {
+                    sum += n;
+                } else {
+                    stop!(TypeMismatch => "+ expected a number, found {:?}", arg);
+                }
+            }
+
+            Ok(Rc::new(SteelVal::NumV(sum)))
+        })
+    }
+
     pub fn adder() -> SteelVal {
         SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
             if args.is_empty() {

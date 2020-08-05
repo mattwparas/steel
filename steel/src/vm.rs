@@ -1260,15 +1260,16 @@ impl VirtualMachine {
         expr_str: &str,
         ctx: &mut Ctx<CT>,
     ) -> Result<Vec<Rc<SteelVal>>> {
-        let now = Instant::now();
+        // let now = Instant::now();
         let gen_bytecode = self.emit_instructions(expr_str, ctx)?;
         // println!("Bytecode generated in: {:?}", now.elapsed());
         gen_bytecode
             .into_iter()
             .map(|x| {
+                let code = Rc::new(x.into_boxed_slice());
                 let now = Instant::now();
-                let res = self.execute(Rc::new(x.into_boxed_slice()), &ctx.constant_map);
-                // println!("Time taken: {:?}", now.elapsed());
+                let res = self.execute(code, &ctx.constant_map);
+                println!("Time taken: {:?}", now.elapsed());
                 res
             })
             .collect::<Result<Vec<Rc<SteelVal>>>>()
