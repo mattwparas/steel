@@ -1,46 +1,96 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
+use steel::env::Env;
 use steel::interpreter::SteelInterpreter;
+use steel::stdlib::PRELUDE;
+use steel::vm::ArityMap;
+use steel::vm::ConstantMap;
+// use steel::vm::ConstantTable;
+use std::rc::Rc;
+use steel::vm::Ctx;
+use steel::vm::VirtualMachine;
 // use steel::PRELUDE;
 
 fn range(c: &mut Criterion) {
-    let mut interpreter = SteelInterpreter::new();
-    // interpreter.require(PRELUDE).unwrap();
-
     let script = "(range 0 50000)";
 
+    let mut vm = VirtualMachine::new();
+    let mut ctx: Ctx<ConstantMap> = Ctx::new(
+        Env::default_symbol_map(),
+        ConstantMap::new(),
+        ArityMap::new(),
+    );
+
+    vm.parse_and_execute(PRELUDE, &mut ctx).unwrap();
+
+    let bytecode = Rc::new(
+        vm.emit_instructions(&script, &mut ctx).unwrap()[0]
+            .clone()
+            .into_boxed_slice(),
+    );
+    // Rc::new(x.into_boxed_slice()), &ctx.constant_map
+
     c.bench_function("range-big", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map()))
     });
 }
 
 fn map(c: &mut Criterion) {
-    let mut interpreter = SteelInterpreter::new();
-    // interpreter.require(PRELUDE).unwrap();
-
-    let warmup = "(define lst (range 0 50000))";
-    interpreter.evaluate(black_box(&warmup)).unwrap();
-
     let script = "(map (lambda (a) 0) lst)";
 
+    let mut vm = VirtualMachine::new();
+    let mut ctx: Ctx<ConstantMap> = Ctx::new(
+        Env::default_symbol_map(),
+        ConstantMap::new(),
+        ArityMap::new(),
+    );
+
+    vm.parse_and_execute(PRELUDE, &mut ctx).unwrap();
+
+    let warmup = "(define lst (range 0 50000))";
+    vm.parse_and_execute(black_box(&warmup), &mut ctx).unwrap();
+
+    let bytecode = Rc::new(
+        vm.emit_instructions(&script, &mut ctx).unwrap()[0]
+            .clone()
+            .into_boxed_slice(),
+    );
+
     c.bench_function("map-big", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map()))
     });
 }
 
 fn filter(c: &mut Criterion) {
-    let mut interpreter = SteelInterpreter::new();
+    // let mut interpreter = SteelInterpreter::new();
     // interpreter.require(PRELUDE).unwrap();
-
-    let warmup = "(define lst (range 0 50000))";
-    interpreter.evaluate(black_box(&warmup)).unwrap();
 
     let script = "(filter number? lst)";
 
+    let mut vm = VirtualMachine::new();
+    let mut ctx: Ctx<ConstantMap> = Ctx::new(
+        Env::default_symbol_map(),
+        ConstantMap::new(),
+        ArityMap::new(),
+    );
+
+    vm.parse_and_execute(PRELUDE, &mut ctx).unwrap();
+
+    let warmup = "(define lst (range 0 50000))";
+    vm.parse_and_execute(black_box(&warmup), &mut ctx).unwrap();
+
+    let bytecode = Rc::new(
+        vm.emit_instructions(&script, &mut ctx).unwrap()[0]
+            .clone()
+            .into_boxed_slice(),
+    );
+
     c.bench_function("filter-big", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map()))
     });
 }
+
+/*
 
 fn trie_sort(c: &mut Criterion) {
     let mut interpreter = SteelInterpreter::new();
@@ -197,17 +247,17 @@ fn struct_set(c: &mut Criterion) {
 //     interpreter.require(PRELUDE).unwrap();
 // }
 
+*/
+
 criterion_group!(
-    benches,
-    range,
-    map,
+    benches, range, map,
     filter,
-    trie_sort,
-    merge_sort,
-    struct_construct,
-    struct_construct_bigger,
-    struct_get,
-    struct_set
+    // trie_sort,
+    // merge_sort,
+    // struct_construct,
+    // struct_construct_bigger,
+    // struct_get,
+    // struct_set
 );
 
 criterion_main!(benches);

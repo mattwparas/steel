@@ -86,7 +86,8 @@ impl ListOperations {
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
                     if let (IntV(lower), IntV(upper)) = (elem, lst) {
-                        let mut res = Vec::new();
+                        let size = (upper - lower) as usize;
+                        let mut res = Vec::with_capacity(size);
                         for i in lower as usize..upper as usize {
                             res.push(Rc::new(SteelVal::IntV(i as isize)));
                         }
