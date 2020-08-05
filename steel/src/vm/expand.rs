@@ -14,7 +14,74 @@ use std::rc::Rc;
 use crate::expander::SteelMacro;
 use crate::structs::SteelStruct;
 
+use crate::env::MacroEnv;
 use crate::vm::SymbolMap;
+
+use std::collections::HashSet;
+
+pub struct MacroSet(HashSet<String>);
+
+impl MacroEnv for MacroSet {
+    fn validate_identifier(&self, name: &str) -> bool {
+        self.0.contains(name)
+    }
+}
+
+impl MacroSet {
+    pub fn new() -> MacroSet {
+        MacroSet(HashSet::new())
+    }
+
+    pub fn insert(&mut self, name: String) {
+        self.0.insert(name);
+    }
+
+    pub fn insert_from_iter(&mut self, vals: impl Iterator<Item = String>) {
+        for val in vals {
+            self.0.insert(val);
+        }
+    }
+}
+
+pub fn get_definition_names(exprs: &[Expr]) -> Vec<String> {
+    exprs.into_iter().filter_map(get_definition_name).collect()
+}
+
+fn get_definition_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Atom(_) => None,
+        Expr::VectorVal(list_of_tokens) => match (list_of_tokens.first(), list_of_tokens.get(1)) {
+            (
+                Some(Expr::Atom(SyntaxObject {
+                    ty: TokenType::Identifier(s),
+                    ..
+                })),
+                Some(Expr::Atom(SyntaxObject {
+                    ty: TokenType::Identifier(n),
+                    ..
+                })),
+            ) if s == "define-syntax" || s == "define" => Some(n.to_string()),
+            (
+                Some(Expr::Atom(SyntaxObject {
+                    ty: TokenType::Identifier(s),
+                    ..
+                })),
+                Some(Expr::VectorVal(l)),
+            ) if s == "define" => {
+                if let Some(Expr::Atom(SyntaxObject {
+                    ty: TokenType::Identifier(n),
+                    ..
+                })) = l.get(0)
+                {
+                    Some(n.to_string())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        },
+    }
+}
 
 fn is_macro_definition(expr: &Expr) -> bool {
     // let expr = Rc::clone(expr);
@@ -73,29 +140,34 @@ fn is_struct_definition(expr: &Expr) -> bool {
     false
 }
 
-fn construct_macro_def(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<()> {
-    let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, &env)?;
+fn construct_macro_def<M: MacroEnv>(
+    list_of_tokens: &[Expr],
+    env: &Rc<RefCell<Env>>,
+    macro_set: &M,
+) -> Result<()> {
+    let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, macro_set)?;
     // println!("{:?}", parsed_macro);
     env.borrow_mut().define(
         parsed_macro.name().to_string(),
         Rc::new(SteelVal::MacroV(parsed_macro)),
     );
-    env.borrow().print_bindings();
+    // env.borrow().print_bindings();
     Ok(())
 }
 
-pub fn extract_macro_definitions(
+pub fn extract_macro_definitions<M: MacroEnv>(
     exprs: &[Expr],
     macro_env: &Rc<RefCell<Env>>,
     struct_env: &Rc<RefCell<Env>>,
     sm: &mut SymbolMap,
+    macro_set: &M,
 ) -> Result<Vec<Expr>> {
     let mut others: Vec<Expr> = Vec::new();
     for expr in exprs {
         match expr {
             Expr::VectorVal(list_of_tokens) if is_macro_definition(expr) => {
                 println!("Constructing a macro definition");
-                construct_macro_def(&list_of_tokens[1..], macro_env)?;
+                construct_macro_def(&list_of_tokens[1..], macro_env, macro_set)?;
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
                 let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
@@ -110,6 +182,8 @@ pub fn extract_macro_definitions(
     }
     Ok(others)
 }
+
+// fn extract_globals_and_macro_names()
 
 // Let is actually just a lambda so update values to be that and loop
 // Syntax of a let -> (let ((a 10) (b 20) (c 25)) (body ...))
