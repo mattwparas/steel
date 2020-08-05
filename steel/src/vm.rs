@@ -57,6 +57,8 @@ use crate::parser::span::Span;
 
 use std::time::Instant;
 
+use crate::primitives::ListOperations;
+
 // use std::collections::HashSet;
 
 // use crate::expander::SteelMacro;
@@ -831,20 +833,62 @@ fn emit_loop<CT: ConstantTable>(
                     //     instructions.push("require".to_string());
                     //     return Ok(());
                     // }
-                    // Expr::Atom(SyntaxObject {
-                    //     ty: TokenType::Identifier(s),
-                    //     ..
-                    // }) if s == "map" => {
-                    //     instructions.push("mapR".to_string());
-                    //     return Ok(());
-                    // }
-                    // Expr::Atom(SyntaxObject {
-                    //     ty: TokenType::Identifier(s),
-                    //     ..
-                    // }) if s == "filterR" => {
-                    //     instructions.push("filterR".to_string());
-                    //     return Ok(());
-                    // }
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "map'" => {
+                        // check_length("map'", tokens, expected)
+                        check_length("map'", &list_of_tokens, 3)?;
+                        // emit_loop(expr, instructions, defining_context, arity_map, constant_map)
+                        // Load in the function
+                        emit_loop(
+                            &list_of_tokens[1],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
+                        // Load in the list
+                        emit_loop(
+                            &list_of_tokens[2],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
+                        // instructions
+                        // emit_loop(expr, instructions, defining_context, arity_map, constant_map)
+                        instructions.push(Instruction::new_map());
+                        return Ok(());
+                    }
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "filter'" => {
+                        // check_length("map'", tokens, expected)
+                        check_length("filter'", &list_of_tokens, 3)?;
+                        // emit_loop(expr, instructions, defining_context, arity_map, constant_map)
+                        // Load in the function
+                        emit_loop(
+                            &list_of_tokens[1],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
+                        // Load in the list
+                        emit_loop(
+                            &list_of_tokens[2],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
+                        // instructions
+                        // emit_loop(expr, instructions, defining_context, arity_map, constant_map)
+                        instructions.push(Instruction::new_filter());
+                        return Ok(());
+                    }
                     // Expr::Atom(SyntaxObject {
                     //     ty: TokenType::Identifier(s),
                     //     ..
@@ -942,6 +986,8 @@ pub enum OpCode {
     PANIC = 17,
     CLEAR = 18,
     TAILCALL = 19,
+    MAP = 20,
+    FILTER = 21,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -995,6 +1041,24 @@ impl Instruction {
             payload_size,
             contents: Some(contents),
             constant,
+        }
+    }
+
+    pub fn new_map() -> Instruction {
+        Instruction {
+            op_code: OpCode::MAP,
+            payload_size: 0,
+            contents: None,
+            constant: false,
+        }
+    }
+
+    pub fn new_filter() -> Instruction {
+        Instruction {
+            op_code: OpCode::FILTER,
+            payload_size: 0,
+            contents: None,
+            constant: false,
         }
     }
 
@@ -1286,14 +1350,14 @@ impl VirtualMachine {
         constants: &CT,
     ) -> Result<Rc<SteelVal>> {
         // execute_vm(instructions)
-        // let mut stack: Vec<Rc<SteelVal>> = Vec::new();
+        let mut stack: Vec<Rc<SteelVal>> = Vec::new();
         let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
         // let mut constants: Vec<Rc<RefCell<Env>>
 
         // let global_env = Rc::new(RefCell::new(Env::default_env()));
         let result = vm(
             instructions,
-            // &mut stack,
+            stack,
             &mut heap,
             Rc::clone(&self.global_env),
             constants,
@@ -1314,11 +1378,11 @@ pub fn execute_vm(
     instructions: Rc<Box<[DenseInstruction]>>,
     constants: &ConstantMap,
 ) -> Result<Rc<SteelVal>> {
-    // let mut stack: Vec<Rc<SteelVal>> = Vec::new();
+    let mut stack: Vec<Rc<SteelVal>> = Vec::new();
     let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
     // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
     let global_env = Rc::new(RefCell::new(Env::default_env()));
-    vm(instructions, &mut heap, global_env, constants)
+    vm(instructions, stack, &mut heap, global_env, constants)
 }
 
 // TODO make this not so garbage but its kind of okay
@@ -1356,6 +1420,7 @@ fn inspect_heap(heap: &Vec<Rc<RefCell<Env>>>) {
 
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<Box<[DenseInstruction]>>,
+    stack: Vec<Rc<SteelVal>>,
     heap: &mut Vec<Rc<RefCell<Env>>>,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
@@ -1376,7 +1441,7 @@ pub fn vm<CT: ConstantTable>(
     // Pointer to array of instructions
     let mut instructions = instructions;
     // Self explanatory
-    let mut stack: Vec<Rc<SteelVal>> = Vec::new();
+    let mut stack = stack;
     // Manage current env in its own stack
     let mut env_stack: Vec<Rc<RefCell<Env>>> = Vec::new();
     // Manage the depth of instructions to know when to backtrack
@@ -1416,6 +1481,145 @@ pub fn vm<CT: ConstantTable>(
                 // println!("Heap at clear:");
                 inspect_heap(&heap);
                 heap.clear();
+                ip += 1;
+            }
+            OpCode::MAP => {
+                let list = stack.pop().unwrap();
+                let stack_func = stack.pop().unwrap();
+
+                match list.as_ref() {
+                    SteelVal::Pair(_, _) => {}
+                    _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
+                }
+
+                let vec_of_vals = SteelVal::iter(list);
+
+                let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
+
+                // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
+                let switch_statement = |arg| match stack_func.as_ref() {
+                    SteelVal::FuncV(func) => func(vec![arg]).map_err(|x| x.set_span(cur_inst.span)),
+                    SteelVal::StructClosureV(factory, func) => {
+                        func(vec![arg], factory).map_err(|x| x.set_span(cur_inst.span))
+                    }
+                    SteelVal::Closure(closure) => {
+                        // ignore the stack limit here
+                        let args = vec![arg];
+                        // if let Some()
+
+                        if let Some(parent_env) = closure.sub_expression_env() {
+                            // TODO remove this unwrap
+                            let offset = closure.offset()
+                                + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                                parent_env.clone(),
+                                offset,
+                            )));
+
+                            inner_env
+                                .borrow_mut()
+                                .reserve_defs(if closure.ndef_body() > 0 {
+                                    closure.ndef_body() - 1
+                                } else {
+                                    0
+                                });
+
+                            let mut local_heap = Vec::new();
+
+                            // TODO
+                            vm(
+                                closure.body_exp(),
+                                args,
+                                &mut local_heap,
+                                inner_env,
+                                constants,
+                            )
+                        } else {
+                            stop!(Generic => "Something went wrong with map");
+                        }
+                    }
+                    _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
+                };
+
+                for val in vec_of_vals {
+                    collected_results.push(switch_statement(val)?);
+                }
+
+                stack.push(ListOperations::built_in_list_func()(collected_results)?);
+
+                ip += 1;
+
+                // todo!();
+            }
+            OpCode::FILTER => {
+                let list = stack.pop().unwrap();
+                let stack_func = stack.pop().unwrap();
+
+                match list.as_ref() {
+                    SteelVal::Pair(_, _) => {}
+                    _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
+                }
+
+                let vec_of_vals = SteelVal::iter(list);
+
+                let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
+
+                // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
+                let switch_statement = |arg| match stack_func.as_ref() {
+                    SteelVal::FuncV(func) => func(vec![arg]).map_err(|x| x.set_span(cur_inst.span)),
+                    SteelVal::StructClosureV(factory, func) => {
+                        func(vec![arg], factory).map_err(|x| x.set_span(cur_inst.span))
+                    }
+                    SteelVal::Closure(closure) => {
+                        // ignore the stack limit here
+                        let args = vec![arg];
+                        // if let Some()
+
+                        if let Some(parent_env) = closure.sub_expression_env() {
+                            // TODO remove this unwrap
+                            let offset = closure.offset()
+                                + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                                parent_env.clone(),
+                                offset,
+                            )));
+
+                            inner_env
+                                .borrow_mut()
+                                .reserve_defs(if closure.ndef_body() > 0 {
+                                    closure.ndef_body() - 1
+                                } else {
+                                    0
+                                });
+
+                            let mut local_heap = Vec::new();
+
+                            // TODO
+                            vm(
+                                closure.body_exp(),
+                                args,
+                                &mut local_heap,
+                                inner_env,
+                                constants,
+                            )
+                        } else {
+                            stop!(Generic => "Something went wrong with map");
+                        }
+                    }
+                    _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
+                };
+
+                for val in vec_of_vals {
+                    let res = switch_statement(val)?;
+                    if let SteelVal::BoolV(true) = res.as_ref() {
+                        collected_results.push(res);
+                    }
+                }
+
+                stack.push(ListOperations::built_in_list_func()(collected_results)?);
+
                 ip += 1;
             }
             OpCode::FUNC => {
