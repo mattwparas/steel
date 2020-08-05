@@ -38,7 +38,7 @@ impl MacroSet {
 
     pub fn insert_from_iter(&mut self, vals: impl Iterator<Item = String>) {
         for val in vals {
-            self.0.insert(val);
+            self.insert(val);
         }
     }
 }
@@ -166,7 +166,7 @@ pub fn extract_macro_definitions<M: MacroEnv>(
     for expr in exprs {
         match expr {
             Expr::VectorVal(list_of_tokens) if is_macro_definition(expr) => {
-                println!("Constructing a macro definition");
+                // println!("Constructing a macro definition");
                 construct_macro_def(&list_of_tokens[1..], macro_env, macro_set)?;
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {

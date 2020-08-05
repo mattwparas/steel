@@ -78,10 +78,10 @@ use crate::primitives::ListOperations;
 const STACK_LIMIT: usize = 1024;
 
 pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &str) -> bool {
-    println!(
-        "Calling transform tail call with function: {}",
-        defining_context
-    );
+    // println!(
+    //     "Calling transform tail call with function: {}",
+    //     defining_context
+    // );
 
     let last_idx = instructions.len() - 1;
 
@@ -120,16 +120,17 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
                 }),
             ) => {
                 if s == defining_context {
-                    println!("Making optimization!");
+                    // println!("Making optimization!");
 
                     let new_jmp = Instruction::new_jmp(0);
                     // inject tail call jump
                     instructions[index - 2] = new_jmp;
                     instructions[index - 1] = Instruction::new_pass();
                     transformed = true;
-                } else {
-                    println!("Found function call in tail position")
                 }
+                // else {
+                //     println!("Found function call in tail position")
+                // }
             }
             _ => {}
         }
@@ -700,9 +701,9 @@ fn emit_loop<CT: ConstantTable>(
                         if let Some(ctx) = defining_context {
                             transform_tail_call(&mut body_instructions, ctx);
                             let b = check_and_transform_mutual_recursion(&mut body_instructions);
-                            if b {
-                                println!("Transformed mutual recursion!");
-                            }
+                            // if b {
+                            //     println!("Transformed mutual recursion!");
+                            // }
                             arity_map.insert_exact(ctx, arity);
                         }
 
@@ -1221,6 +1222,18 @@ impl<CT: ConstantTable> Ctx<CT> {
             arity_map,
         }
     }
+
+    pub fn default() -> Ctx<ConstantMap> {
+        Ctx::new(
+            Env::default_symbol_map(),
+            ConstantMap::new(),
+            ArityMap::new(),
+        )
+    }
+
+    pub fn constant_map(&self) -> &CT {
+        &self.constant_map
+    }
 }
 
 pub struct VirtualMachine {
@@ -1249,13 +1262,13 @@ impl VirtualMachine {
     ) -> Result<Vec<Rc<SteelVal>>> {
         let now = Instant::now();
         let gen_bytecode = self.emit_instructions(expr_str, ctx)?;
-        println!("Bytecode generated in: {:?}", now.elapsed());
+        // println!("Bytecode generated in: {:?}", now.elapsed());
         gen_bytecode
             .into_iter()
             .map(|x| {
                 let now = Instant::now();
                 let res = self.execute(Rc::new(x.into_boxed_slice()), &ctx.constant_map);
-                println!("Time taken: {:?}", now.elapsed());
+                // println!("Time taken: {:?}", now.elapsed());
                 res
             })
             .collect::<Result<Vec<Rc<SteelVal>>>>()
@@ -1312,7 +1325,7 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            println!("{:?}", expr.to_string());
+            // println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
                 &expr,
@@ -1337,7 +1350,7 @@ impl VirtualMachine {
 
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
-            pretty_print_instructions(extracted.as_slice());
+            // pretty_print_instructions(extracted.as_slice());
             results.push(densify(extracted));
         }
 
@@ -1350,7 +1363,7 @@ impl VirtualMachine {
         constants: &CT,
     ) -> Result<Rc<SteelVal>> {
         // execute_vm(instructions)
-        let mut stack: Vec<Rc<SteelVal>> = Vec::new();
+        let stack: Vec<Rc<SteelVal>> = Vec::new();
         let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
         // let mut constants: Vec<Rc<RefCell<Env>>
 
@@ -1378,7 +1391,7 @@ pub fn execute_vm(
     instructions: Rc<Box<[DenseInstruction]>>,
     constants: &ConstantMap,
 ) -> Result<Rc<SteelVal>> {
-    let mut stack: Vec<Rc<SteelVal>> = Vec::new();
+    let stack: Vec<Rc<SteelVal>> = Vec::new();
     let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
     // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
     let global_env = Rc::new(RefCell::new(Env::default_env()));
@@ -1527,7 +1540,8 @@ pub fn vm<CT: ConstantTable>(
 
                             let mut local_heap = Vec::new();
 
-                            // TODO
+                            // TODO make recursive call here with a very small stack
+                            // probably a bit overkill, but not much else I can do here I think
                             vm(
                                 closure.body_exp(),
                                 args,
