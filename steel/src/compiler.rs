@@ -295,7 +295,7 @@ fn extract_and_compile_requires(exprs: &[Expr], env: &Rc<RefCell<Env>>) -> Resul
 }
 
 pub fn construct_macro_def(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<()> {
-    let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, &env)?;
+    let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, env)?;
     // println!("{:?}", parsed_macro);
     env.borrow_mut().define(
         parsed_macro.name().to_string(),

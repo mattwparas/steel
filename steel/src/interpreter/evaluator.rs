@@ -48,38 +48,6 @@ impl Scope {
     }
 }
 
-// let file = SimpleFile::new(
-//     "main.rs",
-//     unindent::unindent(
-//         r#"
-//             fn main() {
-//                 let foo: i32 = "hello, world";
-//                 foo += 1;
-//             }
-//         "#,
-//     ),
-// );
-
-// pub struct GrowableStack {
-//     stack: Vec<Expr>,
-// }
-
-// impl GrowableStack {
-//     pub fn new() -> Self {
-//         GrowableStack { stack: Vec::new() }
-//     }
-
-//     pub fn push<'a>(&'a mut self, expr: Expr) -> usize {
-//         self.stack.push(expr);
-//         self.stack.len() - 1
-//         // self.stack.last().unwrap()
-//     }
-
-//     pub fn get(&self, idx: usize) -> Option<&Expr> {
-//         self.stack.get(idx)
-//     }
-// }
-
 pub struct Evaluator {
     global_env: Rc<RefCell<Env>>,
     intern_cache: HashMap<String, Rc<TokenType>>,

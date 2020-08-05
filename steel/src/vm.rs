@@ -9,7 +9,10 @@ pub use constants::ConstantMap;
 pub use constants::ConstantTable;
 pub use expand::expand;
 pub use expand::extract_macro_definitions;
+use expand::get_definition_names;
 pub use map::SymbolMap;
+
+use expand::MacroSet;
 
 // use expand::is_definition;
 
@@ -408,50 +411,6 @@ pub fn insert_debruijn_indices(instructions: &mut [Instruction], symbol_map: &mu
             _ => {}
         }
     }
-}
-
-pub fn emit_instructions<CT: ConstantTable>(
-    expr_str: &str,
-    symbol_map: &mut SymbolMap,
-    constants: &mut CT,
-    global_env: &Rc<RefCell<Env>>,
-    arity_map: &mut ArityMap,
-) -> Result<Vec<Vec<DenseInstruction>>> {
-    let mut intern = HashMap::new();
-    let mut results = Vec::new();
-
-    let parsed: result::Result<Vec<Expr>, ParseError> =
-        Parser::new(expr_str, &mut intern).collect();
-    let parsed = parsed?;
-
-    let macro_env = Rc::new(RefCell::new(Env::root()));
-    // let real_env = Rc::new(RefCell::new(Env::default_env()));
-
-    let extracted_statements =
-        extract_macro_definitions(&parsed, &macro_env, global_env, symbol_map)?;
-
-    for expr in extracted_statements {
-        let mut instructions: Vec<Instruction> = Vec::new();
-        emit_loop(&expr, &mut instructions, None, arity_map, constants)?;
-        // instructions.push(Instruction::new_clear());
-        instructions.push(Instruction::new_pop());
-
-        pretty_print_instructions(&instructions);
-
-        insert_debruijn_indices(&mut instructions, symbol_map);
-
-        println!("------ DeBruijn Indices succeeded! ------");
-
-        // println!("Got after the debruijn indices");
-
-        extract_constants(&mut instructions, constants)?;
-
-        let dense_instructions = densify(instructions);
-
-        results.push(dense_instructions);
-    }
-
-    Ok(results)
 }
 
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
@@ -875,7 +834,7 @@ fn emit_loop<CT: ConstantTable>(
                     // Expr::Atom(SyntaxObject {
                     //     ty: TokenType::Identifier(s),
                     //     ..
-                    // }) if s == "mapR" => {
+                    // }) if s == "map" => {
                     //     instructions.push("mapR".to_string());
                     //     return Ok(());
                     // }
@@ -1204,6 +1163,7 @@ pub struct VirtualMachine {
     global_env: Rc<RefCell<Env>>,
     global_heap: Vec<Rc<RefCell<Env>>>,
     macro_env: Rc<RefCell<Env>>,
+    idents: MacroSet,
 }
 
 impl VirtualMachine {
@@ -1212,6 +1172,7 @@ impl VirtualMachine {
             global_env: Rc::new(RefCell::new(Env::default_env())),
             global_heap: Vec::new(),
             macro_env: Rc::new(RefCell::new(Env::root())),
+            idents: MacroSet::new(),
         }
     }
 
@@ -1249,6 +1210,13 @@ impl VirtualMachine {
             Parser::new(expr_str, &mut intern).collect();
         let parsed = parsed?;
 
+        // populate MacroSet
+        self.idents.insert_from_iter(
+            get_definition_names(&parsed)
+                .into_iter()
+                .chain(ctx.symbol_map.copy_underlying_vec().into_iter()),
+        );
+
         // Yoink the macro definitions
         // Add them to our macro env
         // TODO change this to be a unique macro env struct
@@ -1258,6 +1226,7 @@ impl VirtualMachine {
             &self.macro_env,
             &self.global_env,
             &mut ctx.symbol_map,
+            &self.idents,
         )?;
 
         // Walk through and expand all macros, lets, and defines
@@ -1372,19 +1341,6 @@ pub fn extract_constants<CT: ConstantTable>(
                 }
             }
         }
-
-        // else if let OpCode::PUSHQUOTE = inst.op_code {
-        //     let idx = constants.len();
-
-        //     if let Some(syntax) = inst.contents {
-        //         //     check_length("Quote", &list_of_tokens, 2)?;
-        //         let converted = SteelVal::try_from(syntax.ty)?;
-        //         // return Ok(Rc::new(converted));
-
-        //         // let converted = SteelVal::try_from(syntax);
-        //         unimplemented!()
-        //     }
-        // }
     }
 
     Ok(())
@@ -1529,6 +1485,8 @@ pub fn vm<CT: ConstantTable>(
                             // TODO remove this unwrap
                             let offset = closure.offset()
                                 + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                            // println!("Setting closure offset to be: {}", offset);
 
                             let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
                                 parent_env.clone(),
@@ -1704,6 +1662,12 @@ pub fn vm<CT: ConstantTable>(
             }
             OpCode::BIND => {
                 let offset = global_env.borrow().local_offset();
+
+                // println!(
+                //     "Binding: payload size: {}, offset: {}",
+                //     cur_inst.payload_size, offset
+                // );
+
                 global_env
                     .borrow_mut()
                     .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
@@ -1730,7 +1694,12 @@ pub fn vm<CT: ConstantTable>(
                     && !global_env.borrow().is_binding_offset()
                 {
                     global_env.borrow_mut().set_binding_offset(true);
-                    closure_offset += 1
+                    // println!("Setting offset to TRUE");
+                    // println!(
+                    //     "Incrementing offset by one for some reason, with ndefs: {}",
+                    //     ndefs
+                    // );
+                    closure_offset += 1;
                 };
 
                 // set the number of definitions for the environment
@@ -1796,6 +1765,8 @@ pub fn vm<CT: ConstantTable>(
                 global_env.borrow_mut().set_binding_context(true);
                 global_env.borrow_mut().set_binding_offset(false);
 
+                // println!("Setting binding context to TRUE, offset to FALSE");
+
                 stacks.push(stack);
                 stack = Vec::new();
 
@@ -1805,6 +1776,7 @@ pub fn vm<CT: ConstantTable>(
             }
             OpCode::EDEF => {
                 // println!("Found end definition");
+                global_env.borrow_mut().set_binding_context(false);
                 // def_stack -= 1;
                 ip += 1;
                 // unimplemented!();

@@ -1,16 +1,18 @@
-use crate::env::Env;
+// use crate::env::Env;
 use crate::parser::tokens::TokenType::*;
 use crate::parser::Expr;
 use crate::parser::SyntaxObject;
 use crate::rerrs::SteelErr;
-use std::cell::RefCell;
+// use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+// use std::rc::Rc;
 
 use crate::parser::span::Span;
 // use crate::parser::SyntaxObject;
 
 use crate::rvals::Result;
+
+use crate::env::MacroEnv;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MacroPattern {
@@ -66,16 +68,16 @@ impl MacroCase {
     // otherwise leave the same
     // TODO
     // fix this kinda junky function
-    pub fn rename_identifiers(expr: Expr, env: &Rc<RefCell<Env>>, args: &[MacroPattern]) -> Expr {
+    pub fn rename_identifiers<M: MacroEnv>(expr: Expr, env: &M, args: &[MacroPattern]) -> Expr {
         // unimplemented!()
-        let env = Rc::clone(env);
+        // let env = Rc::clone(env);
         let args_str: Vec<&str> = args.iter().map(|x| x.deconstruct()).flatten().collect();
         match expr {
             Expr::Atom(ref t) => {
                 if let Identifier(s) = &t.ty {
                     if args_str.contains(&s.as_str()) || SteelMacro::is_reserved_keyword(&s) {
                         return expr;
-                    } else if env.borrow().lookup(&s).is_err() {
+                    } else if !env.validate_identifier(&s) {
                         return Expr::Atom(SyntaxObject::default(Identifier("##".to_string() + s)));
                     }
                 }
@@ -87,7 +89,7 @@ impl MacroCase {
             Expr::VectorVal(vec_exprs) => Expr::VectorVal(
                 vec_exprs
                     .into_iter()
-                    .map(|x| Self::rename_identifiers(x, &env, args))
+                    .map(|x| Self::rename_identifiers(x, env, args))
                     .collect(),
             ),
         }
@@ -191,11 +193,11 @@ impl MacroCase {
         Ok(pattern_vec)
     }
 
-    pub fn parse_from_tokens(
+    pub fn parse_from_tokens<M: MacroEnv>(
         macro_name: &str,
         special_forms: &[String],
         list_of_tokens: &[Expr],
-        env: &Rc<RefCell<Env>>,
+        env: &M,
     ) -> Result<MacroCase> {
         if let [pattern_expr, body_expr] = list_of_tokens {
             let pattern_expr_vec = pattern_expr.vector_val_or_else(
@@ -419,10 +421,10 @@ impl SteelMacro {
         &self.cases
     }
 
-    fn parse_syntax_rules(
+    fn parse_syntax_rules<M: MacroEnv>(
         macro_name: String,
         list_of_tokens: &[Expr],
-        env: &Rc<RefCell<Env>>,
+        env: &M,
     ) -> Result<SteelMacro> {
         // cannot check arity, only minimum
         if list_of_tokens.len() < 2 {
@@ -474,10 +476,7 @@ impl SteelMacro {
     }
 
     // TODO
-    pub fn parse_from_tokens(
-        list_of_tokens: &[Expr],
-        env: &Rc<RefCell<Env>>,
-    ) -> Result<SteelMacro> {
+    pub fn parse_from_tokens<M: MacroEnv>(list_of_tokens: &[Expr], env: &M) -> Result<SteelMacro> {
         if list_of_tokens.len() != 2 {
             stop!(ArityMismatch => "define-syntax takes 2 arguments, the name and the syntax-rules")
         }
@@ -544,6 +543,10 @@ mod parse_macro_tests {
     use crate::parser::Expr::*;
     use crate::parser::ParseError;
     use crate::parser::Parser;
+
+    use crate::env::Env;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[test]
     fn parse_single_syntax_rules() {

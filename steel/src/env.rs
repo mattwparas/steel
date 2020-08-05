@@ -139,6 +139,24 @@ impl Drop for Env {
     }
 }
 
+pub trait MacroEnv {
+    fn validate_identifier(&self, name: &str) -> bool;
+}
+
+// Don't love this one, but for now it'll suffice
+// TODO
+impl MacroEnv for Rc<RefCell<Env>> {
+    fn validate_identifier(&self, name: &str) -> bool {
+        self.borrow().lookup(name).is_ok()
+    }
+}
+
+impl MacroEnv for &Rc<RefCell<Env>> {
+    fn validate_identifier(&self, name: &str) -> bool {
+        self.borrow().lookup(name).is_ok()
+    }
+}
+
 impl Env {
     /// Make a new `Env` from
     /// another parent `Env`.

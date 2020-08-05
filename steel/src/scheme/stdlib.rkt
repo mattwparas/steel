@@ -307,12 +307,12 @@
 (define (zero? n) (= n 0))
 
 
-(define (take lst n)
-  (define (loop x l accum)
-    (if (or (zero? x) (null? l))
-        accum
-        (loop (sub1 x) (cdr l) (append accum (list (car l))))))
-  (loop n lst '()))
+(defn (take lst n)
+  (defn (loop x l acc)
+    (if (= x 0)
+        acc
+        (loop (- x 1) (cdr l) (cons (car l) acc))))
+  (loop n lst (list)))
 
 (define (drop lst n)
   (define (loop x l)
