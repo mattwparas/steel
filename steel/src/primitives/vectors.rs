@@ -37,10 +37,10 @@ impl VectorOperations {
             let mut args = args.into_iter().map(|x| (*x).clone());
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
-                    if let (NumV(lower), NumV(upper)) = (elem, lst) {
+                    if let (IntV(lower), IntV(upper)) = (elem, lst) {
                         let mut res = Vector::new();
                         for i in lower as usize..upper as usize {
-                            res.push_back(SteelVal::NumV(i as f64));
+                            res.push_back(SteelVal::IntV(i as isize));
                         }
                         Ok(Rc::new(SteelVal::VectorV(res)))
                     } else {
