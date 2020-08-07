@@ -59,6 +59,8 @@ use std::time::Instant;
 
 use crate::primitives::ListOperations;
 
+use std::convert::TryInto;
+
 // use std::collections::HashSet;
 
 // use crate::expander::SteelMacro;
@@ -1008,11 +1010,77 @@ impl DenseInstruction {
     }
 }
 
+pub struct ProfilingInformation {
+    counts: HashMap<FunctionCallCtx, usize>,
+    threshold: usize,
+}
+
+/*
+
+Do some magic with the instructions to generate the profile table
+
+Something like a vector -> hashmaps of rooted function contexts
+
+Can run some profile information that way to understand the counts
+
+Once the threshold passes a certain amount, modify the instructions to
+go ahead and change the function to call a more specialized one?
+
+
+
+
+
+*/
+
+impl ProfilingInformation {
+    pub fn new() -> Self {
+        ProfilingInformation {
+            counts: HashMap::new(),
+            threshold: 20,
+        }
+    }
+
+    // Check if this function was considered already for the JIT
+    // add to the profiling information
+    pub fn add_or_increment(&mut self, ctx: FunctionCallCtx) -> bool {
+        // let ctx = FunctionCallCtx::new()
+        let mut t = false;
+        if let Some(x) = self.counts.get_mut(&ctx) {
+            if *x >= self.threshold {
+                t = true;
+            }
+            *x += 1;
+        } else {
+            self.counts.insert(ctx, 0);
+        }
+
+        t
+    }
+}
+
+#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
+pub struct FunctionCallCtx {
+    // Rooted functions are assigned an index
+    // via the symbol map
+    pub(crate) function_id: usize,
+    pub(crate) instruction_id: usize,
+    // pub()
+}
+
+impl FunctionCallCtx {
+    pub fn new(function_id: usize, instruction_id: usize) -> Self {
+        FunctionCallCtx {
+            function_id,
+            instruction_id,
+        }
+    }
+}
+
 impl From<Instruction> for DenseInstruction {
     fn from(val: Instruction) -> DenseInstruction {
         DenseInstruction::new(
             val.op_code,
-            val.payload_size,
+            val.payload_size.try_into().unwrap(),
             if let Some(syn) = val.contents {
                 syn.span
             } else {
@@ -1432,6 +1500,141 @@ fn inspect_heap(heap: &Vec<Rc<RefCell<Env>>>) {
     println!("{:?}", hp);
 }
 
+fn inline_map<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
+    iter: I,
+    stack_func: Rc<SteelVal>,
+    constants: &CT,
+    cur_inst: &DenseInstruction,
+) -> Result<Vec<Rc<SteelVal>>> {
+    // unimplemented!();
+
+    let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
+
+    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
+    let switch_statement = |arg| match stack_func.as_ref() {
+        SteelVal::FuncV(func) => func(vec![arg]).map_err(|x| x.set_span(cur_inst.span)),
+        SteelVal::StructClosureV(factory, func) => {
+            func(vec![arg], factory).map_err(|x| x.set_span(cur_inst.span))
+        }
+        SteelVal::Closure(closure) => {
+            // ignore the stack limit here
+            let args = vec![arg];
+            // if let Some()
+
+            if let Some(parent_env) = closure.sub_expression_env() {
+                // TODO remove this unwrap
+                let offset =
+                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                    parent_env.clone(),
+                    offset,
+                )));
+
+                inner_env
+                    .borrow_mut()
+                    .reserve_defs(if closure.ndef_body() > 0 {
+                        closure.ndef_body() - 1
+                    } else {
+                        0
+                    });
+
+                let mut local_heap = Vec::new();
+
+                // TODO make recursive call here with a very small stack
+                // probably a bit overkill, but not much else I can do here I think
+                vm(
+                    closure.body_exp(),
+                    args,
+                    &mut local_heap,
+                    inner_env,
+                    constants,
+                )
+            } else {
+                stop!(Generic => "Something went wrong with map");
+            }
+        }
+        _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
+    };
+
+    for val in iter {
+        collected_results.push(switch_statement(val)?);
+    }
+
+    Ok(collected_results)
+}
+
+fn inline_filter<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
+    iter: I,
+    stack_func: Rc<SteelVal>,
+    constants: &CT,
+    cur_inst: &DenseInstruction,
+) -> Result<Vec<Rc<SteelVal>>> {
+    // unimplemented!();
+
+    let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
+
+    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
+    let switch_statement = |arg| match stack_func.as_ref() {
+        SteelVal::FuncV(func) => func(vec![arg]).map_err(|x| x.set_span(cur_inst.span)),
+        SteelVal::StructClosureV(factory, func) => {
+            func(vec![arg], factory).map_err(|x| x.set_span(cur_inst.span))
+        }
+        SteelVal::Closure(closure) => {
+            // ignore the stack limit here
+            let args = vec![arg];
+            // if let Some()
+
+            if let Some(parent_env) = closure.sub_expression_env() {
+                // TODO remove this unwrap
+                let offset =
+                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                    parent_env.clone(),
+                    offset,
+                )));
+
+                inner_env
+                    .borrow_mut()
+                    .reserve_defs(if closure.ndef_body() > 0 {
+                        closure.ndef_body() - 1
+                    } else {
+                        0
+                    });
+
+                let mut local_heap = Vec::new();
+
+                // TODO make recursive call here with a very small stack
+                // probably a bit overkill, but not much else I can do here I think
+                vm(
+                    closure.body_exp(),
+                    args,
+                    &mut local_heap,
+                    inner_env,
+                    constants,
+                )
+            } else {
+                stop!(Generic => "Something went wrong with map");
+            }
+        }
+        _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
+    };
+
+    for val in iter {
+        let res = switch_statement(val)?;
+        if let SteelVal::BoolV(true) = res.as_ref() {
+            collected_results.push(res);
+        }
+    }
+
+    Ok(collected_results)
+}
+
+// pub struct FunctionDiagnostics {
+
+// }
+
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<Box<[DenseInstruction]>>,
     stack: Vec<Rc<SteelVal>>,
@@ -1502,138 +1705,52 @@ pub fn vm<CT: ConstantTable>(
                 let stack_func = stack.pop().unwrap();
 
                 match list.as_ref() {
-                    SteelVal::Pair(_, _) => {}
+                    SteelVal::Pair(_, _) => {
+                        let collected_results =
+                            inline_map(SteelVal::iter(list), stack_func, constants, cur_inst)?;
+                        stack.push(ListOperations::built_in_list_func()(collected_results)?);
+                        // stack.push(ListOperation::built_in_list_func()(inline_map
+                    }
+                    SteelVal::VectorV(v) => {
+                        // TODO get rid of the clone here
+                        let collected_results = inline_map(
+                            v.into_iter().map(|x| Rc::new(x.clone())),
+                            stack_func,
+                            constants,
+                            cur_inst,
+                        )?;
+                        stack.push(ListOperations::built_in_list_func()(collected_results)?);
+                        // unimplemented!();
+                    }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
                 }
 
-                let vec_of_vals = SteelVal::iter(list);
-
-                let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
-
-                // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-                let switch_statement = |arg| match stack_func.as_ref() {
-                    SteelVal::FuncV(func) => func(vec![arg]).map_err(|x| x.set_span(cur_inst.span)),
-                    SteelVal::StructClosureV(factory, func) => {
-                        func(vec![arg], factory).map_err(|x| x.set_span(cur_inst.span))
-                    }
-                    SteelVal::Closure(closure) => {
-                        // ignore the stack limit here
-                        let args = vec![arg];
-                        // if let Some()
-
-                        if let Some(parent_env) = closure.sub_expression_env() {
-                            // TODO remove this unwrap
-                            let offset = closure.offset()
-                                + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                                parent_env.clone(),
-                                offset,
-                            )));
-
-                            inner_env
-                                .borrow_mut()
-                                .reserve_defs(if closure.ndef_body() > 0 {
-                                    closure.ndef_body() - 1
-                                } else {
-                                    0
-                                });
-
-                            let mut local_heap = Vec::new();
-
-                            // TODO make recursive call here with a very small stack
-                            // probably a bit overkill, but not much else I can do here I think
-                            vm(
-                                closure.body_exp(),
-                                args,
-                                &mut local_heap,
-                                inner_env,
-                                constants,
-                            )
-                        } else {
-                            stop!(Generic => "Something went wrong with map");
-                        }
-                    }
-                    _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
-                };
-
-                for val in vec_of_vals {
-                    collected_results.push(switch_statement(val)?);
-                }
-
-                stack.push(ListOperations::built_in_list_func()(collected_results)?);
-
                 ip += 1;
-
-                // todo!();
             }
             OpCode::FILTER => {
                 let list = stack.pop().unwrap();
                 let stack_func = stack.pop().unwrap();
 
                 match list.as_ref() {
-                    SteelVal::Pair(_, _) => {}
+                    SteelVal::Pair(_, _) => {
+                        let collected_results =
+                            inline_filter(SteelVal::iter(list), stack_func, constants, cur_inst)?;
+                        stack.push(ListOperations::built_in_list_func()(collected_results)?);
+                        // stack.push(ListOperation::built_in_list_func()(inline_map
+                    }
+                    SteelVal::VectorV(v) => {
+                        // TODO get rid of the clone here
+                        let collected_results = inline_map(
+                            v.into_iter().map(|x| Rc::new(x.clone())),
+                            stack_func,
+                            constants,
+                            cur_inst,
+                        )?;
+                        stack.push(ListOperations::built_in_list_func()(collected_results)?);
+                        // unimplemented!();
+                    }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
                 }
-
-                let vec_of_vals = SteelVal::iter(list);
-
-                let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
-
-                // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-                let switch_statement = |arg| match stack_func.as_ref() {
-                    SteelVal::FuncV(func) => func(vec![arg]).map_err(|x| x.set_span(cur_inst.span)),
-                    SteelVal::StructClosureV(factory, func) => {
-                        func(vec![arg], factory).map_err(|x| x.set_span(cur_inst.span))
-                    }
-                    SteelVal::Closure(closure) => {
-                        // ignore the stack limit here
-                        let args = vec![arg];
-                        // if let Some()
-
-                        if let Some(parent_env) = closure.sub_expression_env() {
-                            // TODO remove this unwrap
-                            let offset = closure.offset()
-                                + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                                parent_env.clone(),
-                                offset,
-                            )));
-
-                            inner_env
-                                .borrow_mut()
-                                .reserve_defs(if closure.ndef_body() > 0 {
-                                    closure.ndef_body() - 1
-                                } else {
-                                    0
-                                });
-
-                            let mut local_heap = Vec::new();
-
-                            // TODO
-                            vm(
-                                closure.body_exp(),
-                                args,
-                                &mut local_heap,
-                                inner_env,
-                                constants,
-                            )
-                        } else {
-                            stop!(Generic => "Something went wrong with map");
-                        }
-                    }
-                    _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
-                };
-
-                for val in vec_of_vals {
-                    let res = switch_statement(val)?;
-                    if let SteelVal::BoolV(true) = res.as_ref() {
-                        collected_results.push(res);
-                    }
-                }
-
-                stack.push(ListOperations::built_in_list_func()(collected_results)?);
 
                 ip += 1;
             }
