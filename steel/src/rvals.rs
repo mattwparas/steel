@@ -35,7 +35,7 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 }
 
 pub type Result<T> = result::Result<T, SteelErr>;
-pub type FunctionSignature = fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>;
+pub type FunctionSignature = fn(&[Rc<SteelVal>]) -> Result<Rc<SteelVal>>;
 pub type StructClosureSignature = fn(Vec<Rc<SteelVal>>, &SteelStruct) -> Result<Rc<SteelVal>>;
 
 // Box<Fn(i32) -> i32>
@@ -114,7 +114,7 @@ pub enum SteelVal {
     Pair(Rc<SteelVal>, Option<Rc<SteelVal>>),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
-    VectorV(Vector<SteelVal>),
+    VectorV(Vector<Rc<SteelVal>>),
     /// Void return value
     Void,
     /// Represents strings
@@ -227,7 +227,7 @@ impl SteelVal {
     pub fn vector_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<Vector<SteelVal>, E> {
+    ) -> std::result::Result<Vector<Rc<SteelVal>>, E> {
         match self {
             Self::VectorV(v) => Ok(v.clone()),
             _ => Err(err()),
@@ -361,7 +361,7 @@ impl TryFrom<Expr> for SteelVal {
                     .map(|x| Self::try_from(x.clone()).map(Rc::new))
                     .collect();
 
-                ListOperations::built_in_list_func()(items?).map(|x| (*x).clone())
+                ListOperations::built_in_list_func()(&items?).map(|x| (*x).clone())
                 // Ok(VectorV(items?))
 
                 // let items: std::result::Result<Vector<Self>, Self::Error> =
@@ -382,8 +382,10 @@ impl TryFrom<&SteelVal> for Expr {
             NumV(x) => Ok(Expr::Atom(SyntaxObject::default(NumberLiteral(*x)))),
             IntV(x) => Ok(Expr::Atom(SyntaxObject::default(IntegerLiteral(*x)))),
             VectorV(lst) => {
-                let items: result::Result<Vec<Self>, Self::Error> =
-                    lst.into_iter().map(Self::try_from).collect();
+                let items: result::Result<Vec<Self>, Self::Error> = lst
+                    .into_iter()
+                    .map(|x| Self::try_from(x.as_ref()))
+                    .collect();
                 Ok(Expr::VectorVal(items?))
             }
             Void => Err("Can't convert from Void to expression!"),
@@ -396,8 +398,10 @@ impl TryFrom<&SteelVal> for Expr {
             // Pair(_, _) => Err("Can't convert from pair"), // TODO
             Pair(_, _) => {
                 if let VectorV(ref lst) = collect_pair_into_vector(r) {
-                    let items: result::Result<Vec<Self>, Self::Error> =
-                        lst.into_iter().map(Self::try_from).collect();
+                    let items: result::Result<Vec<Self>, Self::Error> = lst
+                        .into_iter()
+                        .map(|x| Self::try_from(x.as_ref()))
+                        .collect();
                     Ok(Expr::VectorVal(items?))
                 } else {
                     Err("Couldn't convert from list to expression")
@@ -650,12 +654,12 @@ fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
 
     loop {
         if let Pair(cons, cdr) = p {
-            lst.push_back((**cons).clone());
+            lst.push_back(Rc::clone(cons));
             match cdr.as_ref() {
                 Some(rest) => match rest.as_ref() {
                     Pair(_, _) => p = rest,
                     _ => {
-                        lst.push_back((**rest).clone());
+                        lst.push_back(Rc::clone(rest));
                         return VectorV(lst);
                     }
                 },
@@ -674,7 +678,7 @@ fn display_test() {
     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
     assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
     assert_eq!(
-        SteelVal::FuncV(|_args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|_args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             Ok(Rc::new(SteelVal::VectorV(vector![])))
         })
         .to_string(),
@@ -699,26 +703,54 @@ fn display_list_test() {
     use im_rc::vector;
     assert_eq!(VectorV(vector![]).to_string(), "'#()");
     assert_eq!(
-        VectorV(vector![
-            BoolV(false),
-            NumV(1.0),
-            LambdaV(SteelLambda::new(
-                vec!["arg1".to_owned()],
-                Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
-                Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
-                None
-            ))
-        ])
+        VectorV(
+            vector![
+                BoolV(false),
+                NumV(1.0),
+                LambdaV(SteelLambda::new(
+                    vec!["arg1".to_owned()],
+                    Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
+                    Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
+                    None
+                ))
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect()
+        )
         .to_string(),
         "\'#(#false 1.0 #<(lambda (arg1) 1.0)>)"
     );
     assert_eq!(
-        VectorV(vector![
-            VectorV(vector![NumV(1.0), VectorV(vector!(NumV(2.0), NumV(3.0)))]),
-            VectorV(vector![NumV(4.0), NumV(5.0)]),
-            NumV(6.0),
-            VectorV(vector![NumV(7.0)])
-        ])
+        VectorV(
+            vector![
+                VectorV(
+                    vector![
+                        NumV(1.0),
+                        VectorV(
+                            vector![NumV(2.0), NumV(3.0)]
+                                .into_iter()
+                                .map(Rc::new)
+                                .collect()
+                        )
+                    ]
+                    .into_iter()
+                    .map(Rc::new)
+                    .collect()
+                ),
+                VectorV(
+                    vector![NumV(4.0), NumV(5.0)]
+                        .into_iter()
+                        .map(Rc::new)
+                        .collect()
+                ),
+                NumV(6.0),
+                VectorV(vector![NumV(7.0)].into_iter().map(Rc::new).collect())
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect()
+        )
         .to_string(),
         "'#((1.0 (2.0 3.0)) (4.0 5.0) 6.0 (7.0))"
     );
@@ -768,10 +800,18 @@ mod or_else_tests {
 
     #[test]
     fn vector_or_else_test_good() {
-        let input = SteelVal::VectorV(vector![SteelVal::NumV(1.0)]);
+        let input = SteelVal::VectorV(
+            vector![SteelVal::NumV(1.0)]
+                .into_iter()
+                .map(Rc::new)
+                .collect(),
+        );
         assert_eq!(
             input.vector_or_else(throw!(Generic => "test")).unwrap(),
             vector![SteelVal::NumV(1.0)]
+                .into_iter()
+                .map(Rc::new)
+                .collect()
         );
     }
 

@@ -454,9 +454,9 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 // generate predicate
                 let name = concat!(stringify!(#name), "?").to_string();
                 let func =
-                        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
+                        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>, SteelErr> {
                             if args.len() == 1 {
-                                let mut args_iter = args.into_iter();
+                                let mut args_iter = args.into_iter().map(Rc::clone);
                                 if let Some(first) = args_iter.next() {
                                     return Ok(Rc::new(SteelVal::BoolV(unwrap!((*first).clone(), #name).is_ok())));
                                 }
@@ -469,13 +469,13 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 // generate constructor
                 let name = concat!(stringify!(#name)).to_string();
                 let func =
-                        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
+                        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>, SteelErr> {
 
                             if args.len() != #number_of_fields {
                                 steel::stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", stringify!(#name), #number_of_fields.to_string(), args.len()))
                             }
 
-                            let mut args_iter = args.into_iter();
+                            let mut args_iter = args.into_iter().map(Rc::clone);
 
                             let new_struct = #name {
                                 #(
@@ -499,14 +499,14 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     // generate setters
                     let name = concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!").to_string();
                     let func =
-                            SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
+                            SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>, SteelErr> {
                             let arity = args.len();
 
                             if arity != 2 {
                                 stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!"), 2, arity));
                             }
 
-                            let mut args_iter = args.into_iter();
+                            let mut args_iter = args.into_iter().map(Rc::clone);
                             if let (Some(first), Some(second)) = (args_iter.next(), args_iter.next()) {
                                 let mut my_struct = unwrap!((*first).clone(), #name)?;
                                 my_struct.#field_name = match second.as_ref() {
@@ -527,12 +527,12 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     // generate getters
                     let name = concat!(stringify!(#name), "-", stringify!(#field_name)).to_string();
                     let func =
-                            SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>, SteelErr> {
+                            SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>, SteelErr> {
                                 let arity = args.len();
                                 if arity != 1 {
                                     stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!(stringify!(#name), "-", stringify!(#field_name)), 1, arity));
                                 }
-                                let mut args_iter = args.into_iter();
+                                let mut args_iter = args.into_iter().map(Rc::clone);
                                 if let Some(first) = args_iter.next() {
                                     let my_struct = unwrap!((*first).clone(), #name)?;
                                     let return_val: SteelVal = my_struct.#field_name.try_into()?; // TODO
@@ -691,7 +691,7 @@ pub fn function(
     let function_name = sign.ident;
 
     let output = quote! {
-        pub fn #function_name(args: Vec<Rc<SteelVal>>) -> std::result::Result<Rc<SteelVal>, SteelErr> {
+        pub fn #function_name(args: &[Rc<SteelVal>]) -> std::result::Result<Rc<SteelVal>, SteelErr> {
             #modified_input
 
             if args.len() != #arity_number {

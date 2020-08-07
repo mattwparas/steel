@@ -10,7 +10,7 @@ use std::rc::Rc;
 pub struct SymbolOperations {}
 impl SymbolOperations {
     pub fn concat_symbols() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             let mut new_symbol = String::new();
 
             for arg in args {
@@ -28,7 +28,7 @@ impl SymbolOperations {
     }
 
     pub fn symbol_to_string() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::SymbolV(quoted_value) = args[0].as_ref() {
                     return Ok(Rc::new(SteelVal::SymbolV(quoted_value.clone())));

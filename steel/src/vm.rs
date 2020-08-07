@@ -1511,10 +1511,15 @@ fn inline_map<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
 
     // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
+    // TODO don't allocate this vec for just this
     let switch_statement = |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => func(vec![arg]).map_err(|x| x.set_span(cur_inst.span)),
+        SteelVal::FuncV(func) => {
+            let arg_vec = vec![arg];
+            func(&arg_vec).map_err(|x| x.set_span(cur_inst.span))
+        }
         SteelVal::StructClosureV(factory, func) => {
-            func(vec![arg], factory).map_err(|x| x.set_span(cur_inst.span))
+            let arg_vec = vec![arg];
+            func(arg_vec, factory).map_err(|x| x.set_span(cur_inst.span))
         }
         SteelVal::Closure(closure) => {
             // ignore the stack limit here
@@ -1576,9 +1581,13 @@ fn inline_filter<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
 
     // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
     let switch_statement = |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => func(vec![arg]).map_err(|x| x.set_span(cur_inst.span)),
+        SteelVal::FuncV(func) => {
+            let arg_vec = vec![arg];
+            func(&arg_vec).map_err(|x| x.set_span(cur_inst.span))
+        }
         SteelVal::StructClosureV(factory, func) => {
-            func(vec![arg], factory).map_err(|x| x.set_span(cur_inst.span))
+            let arg_vec = vec![arg];
+            func(arg_vec, factory).map_err(|x| x.set_span(cur_inst.span))
         }
         SteelVal::Closure(closure) => {
             // ignore the stack limit here
@@ -1708,18 +1717,18 @@ pub fn vm<CT: ConstantTable>(
                     SteelVal::Pair(_, _) => {
                         let collected_results =
                             inline_map(SteelVal::iter(list), stack_func, constants, cur_inst)?;
-                        stack.push(ListOperations::built_in_list_func()(collected_results)?);
+                        stack.push(ListOperations::built_in_list_func()(&collected_results)?);
                         // stack.push(ListOperation::built_in_list_func()(inline_map
                     }
                     SteelVal::VectorV(v) => {
                         // TODO get rid of the clone here
                         let collected_results = inline_map(
-                            v.into_iter().map(|x| Rc::new(x.clone())),
+                            v.into_iter().map(Rc::clone),
                             stack_func,
                             constants,
                             cur_inst,
                         )?;
-                        stack.push(ListOperations::built_in_list_func()(collected_results)?);
+                        stack.push(ListOperations::built_in_list_func()(&collected_results)?);
                         // unimplemented!();
                     }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
@@ -1731,22 +1740,23 @@ pub fn vm<CT: ConstantTable>(
                 let list = stack.pop().unwrap();
                 let stack_func = stack.pop().unwrap();
 
+                // Change inline_map and inline_filter to return iterators... now that would be cool
                 match list.as_ref() {
                     SteelVal::Pair(_, _) => {
                         let collected_results =
                             inline_filter(SteelVal::iter(list), stack_func, constants, cur_inst)?;
-                        stack.push(ListOperations::built_in_list_func()(collected_results)?);
+                        stack.push(ListOperations::built_in_list_func()(&collected_results)?);
                         // stack.push(ListOperation::built_in_list_func()(inline_map
                     }
                     SteelVal::VectorV(v) => {
                         // TODO get rid of the clone here
                         let collected_results = inline_map(
-                            v.into_iter().map(|x| Rc::new(x.clone())),
+                            v.into_iter().map(Rc::clone),
                             stack_func,
                             constants,
                             cur_inst,
                         )?;
-                        stack.push(ListOperations::built_in_list_func()(collected_results)?);
+                        stack.push(ListOperations::built_in_list_func()(&collected_results)?);
                         // unimplemented!();
                     }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
@@ -1767,8 +1777,19 @@ pub fn vm<CT: ConstantTable>(
                         ip += 1;
                     }
                     SteelVal::FuncV(f) => {
-                        let args = stack.split_off(stack.len() - cur_inst.payload_size);
-                        stack.push(f(args).map_err(|x| x.set_span(cur_inst.span))?);
+                        // let args = stack.split_off(stack.len() - cur_inst.payload_size);
+                        // let args = &stack[stack.len()]
+
+                        // let args = &stack[stack.len() - cur_inst.payload_size..];
+
+                        // stack.pop();
+
+                        let result = f(&stack[stack.len() - cur_inst.payload_size..])
+                            .map_err(|x| x.set_span(cur_inst.span))?;
+
+                        stack.truncate(stack.len() - cur_inst.payload_size);
+
+                        stack.push(result);
                         ip += 1;
                     }
                     SteelVal::Closure(closure) => {
@@ -1874,8 +1895,18 @@ pub fn vm<CT: ConstantTable>(
                         ip += 1;
                     }
                     SteelVal::FuncV(f) => {
-                        let args = stack.split_off(stack.len() - cur_inst.payload_size);
-                        stack.push(f(args).map_err(|x| x.set_span(cur_inst.span))?);
+                        // let args = stack.split_off(stack.len() - cur_inst.payload_size);
+                        // let args = &stack[stack.len() - cur_inst.payload_size..];
+
+                        let result = f(&stack[stack.len() - cur_inst.payload_size..])
+                            .map_err(|x| x.set_span(cur_inst.span))?;
+
+                        stack.truncate(stack.len() - cur_inst.payload_size);
+
+                        stack.push(result);
+
+                        // println!("{:?}")
+
                         ip += 1;
                     }
                     SteelVal::Closure(closure) => {

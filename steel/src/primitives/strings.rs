@@ -16,7 +16,7 @@ macro_rules! ok_string {
 pub struct StringOperations {}
 impl StringOperations {
     pub fn string_append() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 2 {
                 if let (SteelVal::StringV(l), SteelVal::StringV(r)) =
                     (&args[0].as_ref(), &args[1].as_ref())
@@ -34,7 +34,7 @@ impl StringOperations {
     }
 
     pub fn string_to_int() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let parsed_int = s.parse::<isize>();
@@ -56,12 +56,12 @@ impl StringOperations {
     }
 
     pub fn string_to_list() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let chars: Vec<Rc<SteelVal>> =
                         s.chars().map(|x| Rc::new(SteelVal::CharV(x))).collect();
-                    ListOperations::built_in_list_func()(chars)
+                    ListOperations::built_in_list_func()(&chars)
                 } else {
                     stop!(TypeMismatch => "string->list expected a string")
                 }
@@ -72,7 +72,7 @@ impl StringOperations {
     }
 
     pub fn string_to_upper() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let upper = s.to_uppercase();
@@ -88,7 +88,7 @@ impl StringOperations {
     }
 
     pub fn string_to_lower() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let lower = s.to_lowercase();
@@ -104,7 +104,7 @@ impl StringOperations {
     }
 
     pub fn trim() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let trimmed = s.trim();
@@ -120,7 +120,7 @@ impl StringOperations {
     }
 
     pub fn trim_start() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let trimmed = s.trim_start();
@@ -136,7 +136,7 @@ impl StringOperations {
     }
 
     pub fn trim_end() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let trimmed = s.trim_end();
@@ -152,14 +152,14 @@ impl StringOperations {
     }
 
     pub fn split_whitespace() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let split: Vec<Rc<SteelVal>> = s
                         .split_whitespace()
                         .map(|x| Rc::new(SteelVal::StringV(x.to_string())))
                         .collect();
-                    ListOperations::built_in_list_func()(split)
+                    ListOperations::built_in_list_func()(&split)
                 } else {
                     stop!(TypeMismatch => "split-whitespace expected a string")
                 }
@@ -253,9 +253,9 @@ mod string_operation_tests {
     }
 
     fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Rc<SteelVal>> {
-        let args = args.into_iter().map(|x| Rc::new(x)).collect();
+        let args: Vec<Rc<SteelVal>> = args.into_iter().map(|x| Rc::new(x)).collect();
         func.func_or_else(throw!(BadSyntax => "string tests"))
-            .unwrap()(args)
+            .unwrap()(&args)
     }
 
     #[test]

@@ -33,8 +33,8 @@ thread_local! {
 #[macro_use]
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
-        |args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
-            let args_iter: Vec<SteelVal> = args.into_iter().map(|x| (*x).clone()).collect();
+        |args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+            let args_iter: Vec<SteelVal> = args.into_iter().map(|x| (**x).clone()).collect();
             let mut args_iter = args_iter.iter();
             let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
                 "expected at least one argument".to_string(),
@@ -59,9 +59,9 @@ macro_rules! ensure_tonicity {
 #[macro_use]
 macro_rules! ensure_tonicity_pointer_equality {
     ($check_fn:expr) => {{
-        |args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        |args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             // let args_iter: Vec<Rc<SteelVal>> = args.into_iter();
-            let mut args_iter = args.iter();
+            let mut args_iter = args.into_iter();
             let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
                 "expected at least one argument".to_string(),
                 None,
@@ -85,7 +85,7 @@ macro_rules! ensure_tonicity_pointer_equality {
 #[macro_use]
 macro_rules! gen_pred {
     ($variant:ident) => {{
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if let Some(first) = args.first() {
                 if let SteelVal::$variant(..) = first.as_ref() {
                     return Ok(TRUE.with(|f| Rc::clone(f)));
@@ -96,7 +96,7 @@ macro_rules! gen_pred {
     }};
 
     ($variant1:ident, $variant2:ident) => {{
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if let Some(first) = args.first() {
                 match first.as_ref() {
                     SteelVal::$variant1(..) | SteelVal::$variant2(..) => {

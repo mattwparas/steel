@@ -10,7 +10,7 @@ use std::rc::Rc;
 pub struct IoFunctions {}
 impl IoFunctions {
     pub fn display() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 let print_val = (*args[0]).clone();
                 print!("{:?}", print_val);
@@ -22,7 +22,7 @@ impl IoFunctions {
     }
 
     pub fn newline() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.is_empty() {
                 println!();
                 Ok(VOID.with(|f| Rc::clone(f)))
@@ -33,7 +33,7 @@ impl IoFunctions {
     }
 
     pub fn read_to_string() -> SteelVal {
-        SteelVal::FuncV(|_args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|_args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             let mut input_text = String::new();
             io::stdin().read_line(&mut input_text)?;
             Ok(Rc::new(SteelVal::StringV(

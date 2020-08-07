@@ -10,12 +10,12 @@ use std::rc::Rc;
 pub struct ControlOperations {}
 impl ControlOperations {
     pub fn error() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             let mut error_message = String::new();
 
             if args.len() > 0 {
                 for arg in args {
-                    let error_val = arg.clone().to_string();
+                    let error_val = arg.to_string();
                     error_message.push(' ');
                     error_message.push_str(error_val.trim_matches('\"'));
                 }
