@@ -33,24 +33,24 @@ use std::rc::Rc;
 // Vec<SteelVal> -> your struct -> call the function -> output -> Steelval output
 // maybe TryFrom Error type should be something else?
 
-pub trait SteelFunctor<U, V>
-where
-    U: TryFrom<Vec<SteelVal>, Error = SteelErr>,
-    V: Into<SteelVal>,
-{
-    fn new_func() -> FunctionSignature {
-        |args: Vec<Rc<SteelVal>>| {
-            let args = args.into_iter().map(|x| (*x).clone()).collect();
-            let input = Self::in_convert(args)?;
-            let res = Self::call(input)?;
-            Ok(Rc::new(res.into())) // TODO
-        }
-    }
-    fn call(input: U) -> Result<V, SteelErr>;
-    fn in_convert(input: Vec<SteelVal>) -> Result<U, SteelErr> {
-        U::try_from(input)
-    }
-}
+// pub trait SteelFunctor<U, V>
+// where
+//     U: TryFrom<Vec<SteelVal>, Error = SteelErr>,
+//     V: Into<SteelVal>,
+// {
+//     fn new_func() -> FunctionSignature {
+//         |args: &[Rc<SteelVal>]| {
+//             let args = args.into_iter().map(|x| (*x).clone()).collect();
+//             let input = Self::in_convert(args)?;
+//             let res = Self::call(input)?;
+//             Ok(Rc::new(res.into())) // TODO
+//         }
+//     }
+//     fn call(input: U) -> Result<V, SteelErr>;
+//     fn in_convert(input: Vec<SteelVal>) -> Result<U, SteelErr> {
+//         U::try_from(input)
+//     }
+// }
 
 macro_rules! try_from_impl {
     ($type:ident => $($body:ty),*) => {
@@ -130,7 +130,7 @@ impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
             }
             SteelVal::VectorV(ref v) => {
                 let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    v.iter().map(|x| T::try_from(x.clone())).collect();
+                    v.into_iter().map(|x| T::try_from((**x).clone())).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::ConversionError(
@@ -165,7 +165,7 @@ impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
             }
             SteelVal::VectorV(v) => {
                 let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    v.into_iter().map(|x| T::try_from(x.clone())).collect();
+                    v.into_iter().map(|x| T::try_from((**x).clone())).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::ConversionError(
@@ -284,8 +284,8 @@ impl From<bool> for SteelVal {
     }
 }
 
-impl From<Vector<SteelVal>> for SteelVal {
-    fn from(val: Vector<SteelVal>) -> SteelVal {
+impl From<Vector<Rc<SteelVal>>> for SteelVal {
+    fn from(val: Vector<Rc<SteelVal>>) -> SteelVal {
         SteelVal::VectorV(val)
     }
 }
@@ -302,49 +302,49 @@ impl From<SteelLambda> for SteelVal {
     }
 }
 
-pub struct Adder;
-impl SteelFunctor<VecNumbers, f64> for Adder {
-    fn call(input: VecNumbers) -> Result<f64, SteelErr> {
-        Ok(input.0.iter().fold(0.0, |sum, x| sum + x))
-    }
-}
+// pub struct Adder;
+// impl SteelFunctor<VecNumbers, f64> for Adder {
+//     fn call(input: VecNumbers) -> Result<f64, SteelErr> {
+//         Ok(input.0.iter().fold(0.0, |sum, x| sum + x))
+//     }
+// }
 
-pub struct Multiplier;
-impl SteelFunctor<VecNumbers, f64> for Multiplier {
-    fn call(input: VecNumbers) -> Result<f64, SteelErr> {
-        Ok(input.0.iter().fold(1.0, |sum, x| sum * x))
-    }
-}
+// pub struct Multiplier;
+// impl SteelFunctor<VecNumbers, f64> for Multiplier {
+//     fn call(input: VecNumbers) -> Result<f64, SteelErr> {
+//         Ok(input.0.iter().fold(1.0, |sum, x| sum * x))
+//     }
+// }
 
-pub struct Subtractor;
-impl SteelFunctor<VecNumbers, f64> for Subtractor {
-    fn call(input: VecNumbers) -> Result<f64, SteelErr> {
-        let mut v = input.0.into_iter();
-        if let Some(first) = v.next() {
-            Ok(v.fold(first, |acc, x| acc - x))
-        } else {
-            Err(SteelErr::ArityMismatch(
-                "'-' expects at least one number".to_string(),
-                None,
-            ))
-        }
-    }
-}
+// pub struct Subtractor;
+// impl SteelFunctor<VecNumbers, f64> for Subtractor {
+//     fn call(input: VecNumbers) -> Result<f64, SteelErr> {
+//         let mut v = input.0.into_iter();
+//         if let Some(first) = v.next() {
+//             Ok(v.fold(first, |acc, x| acc - x))
+//         } else {
+//             Err(SteelErr::ArityMismatch(
+//                 "'-' expects at least one number".to_string(),
+//                 None,
+//             ))
+//         }
+//     }
+// }
 
-pub struct Divider;
-impl SteelFunctor<VecNumbers, f64> for Divider {
-    fn call(input: VecNumbers) -> Result<f64, SteelErr> {
-        let mut v = input.0.into_iter();
-        if let Some(first) = v.next() {
-            Ok(v.fold(first, |acc, x| acc / x))
-        } else {
-            Err(SteelErr::ArityMismatch(
-                "'\' expects at least one number".to_string(),
-                None,
-            ))
-        }
-    }
-}
+// pub struct Divider;
+// impl SteelFunctor<VecNumbers, f64> for Divider {
+//     fn call(input: VecNumbers) -> Result<f64, SteelErr> {
+//         let mut v = input.0.into_iter();
+//         if let Some(first) = v.next() {
+//             Ok(v.fold(first, |acc, x| acc / x))
+//         } else {
+//             Err(SteelErr::ArityMismatch(
+//                 "'\' expects at least one number".to_string(),
+//                 None,
+//             ))
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod try_from_tests {
@@ -384,7 +384,12 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_vec_to_vec_usize() {
-        let input = SteelVal::VectorV(vector![SteelVal::IntV(0), SteelVal::IntV(1)]);
+        let input = SteelVal::VectorV(
+            vector![SteelVal::IntV(0), SteelVal::IntV(1)]
+                .into_iter()
+                .map(Rc::new)
+                .collect(),
+        );
         let res = <Vec<usize>>::try_from(input);
         let expected: Vec<usize> = vec![0, 1];
         assert_eq!(res.unwrap(), expected);
@@ -400,7 +405,12 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_ref_vec_to_vec_usize() {
-        let input = SteelVal::VectorV(vector![SteelVal::IntV(0), SteelVal::IntV(1)]);
+        let input = SteelVal::VectorV(
+            vector![SteelVal::IntV(0), SteelVal::IntV(1)]
+                .into_iter()
+                .map(Rc::new)
+                .collect(),
+        );
         let res = <Vec<usize>>::try_from(&input);
         let expected: Vec<usize> = vec![0, 1];
         assert_eq!(res.unwrap(), expected);

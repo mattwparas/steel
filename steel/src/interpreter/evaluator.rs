@@ -817,7 +817,7 @@ fn eval_apply(
 
     match evaluate(func, &env, heap, expr_stack)?.as_ref() {
         SteelVal::FuncV(func) => {
-            func(optional_args)
+            func(&optional_args)
             // return eval_func(*func, &list_of_tokens[1..], &env)
         }
         SteelVal::LambdaV(lambda) => {
@@ -900,7 +900,8 @@ fn eval_filter(
         for val in vec_of_vals {
             match func_res.as_ref() {
                 SteelVal::FuncV(func) => {
-                    let result = func(vec![val.clone()])?;
+                    let built_arg = vec![val.clone()];
+                    let result = func(&built_arg)?;
                     if let SteelVal::BoolV(true) = result.as_ref() {
                         collected_results.push(val);
                     }
@@ -956,7 +957,7 @@ fn eval_filter(
             }
         }
 
-        ListOperations::built_in_list_func()(collected_results)
+        ListOperations::built_in_list_func()(&collected_results)
 
     // unimplemented!();
     } else {
@@ -997,7 +998,8 @@ fn eval_map(
         for val in vec_of_vals {
             match func_res.as_ref() {
                 SteelVal::FuncV(func) => {
-                    collected_results.push(func(vec![val])?);
+                    let built_arg = vec![val];
+                    collected_results.push(func(&built_arg)?);
                 }
                 SteelVal::LambdaV(lambda) => {
                     if let Some(parent_env) = lambda.parent_env() {
@@ -1042,7 +1044,7 @@ fn eval_map(
             }
         }
 
-        ListOperations::built_in_list_func()(collected_results)
+        ListOperations::built_in_list_func()(&collected_results)
 
     // unimplemented!();
     } else {
@@ -1093,7 +1095,7 @@ fn eval_func(
         .collect();
     let args_eval = args_eval?;
     // pure function doesn't need the env
-    func(args_eval)
+    func(&args_eval)
 }
 
 // fn eval_and(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> Result<Rc<SteelVal>> {

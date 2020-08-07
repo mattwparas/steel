@@ -9,7 +9,7 @@ use std::rc::Rc;
 pub struct PortOperations {}
 impl PortOperations {
     pub fn open_input_file() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(path) = &args[0].as_ref() {
                     let new_port = SteelPort::new_textual_file_input(&*path)?;
@@ -24,7 +24,7 @@ impl PortOperations {
     }
 
     pub fn read_port_to_string() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::PortV(port) = &args[0].as_ref() {
                     // let new_port = SteelPort::new_textual_file_input(&*path)?;
@@ -41,7 +41,7 @@ impl PortOperations {
     }
 
     pub fn read_line_to_string() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::PortV(port) = &args[0].as_ref() {
                     // let new_port = SteelPort::new_textual_file_input(&*path)?;

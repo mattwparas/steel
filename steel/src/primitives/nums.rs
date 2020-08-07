@@ -12,7 +12,7 @@ use crate::env::{FALSE, TRUE};
 pub struct NumOperations {}
 impl NumOperations {
     pub fn random_int() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "random-int requires an upper bound");
             }
@@ -31,7 +31,7 @@ impl NumOperations {
     }
 
     pub fn even() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "even? takes one argument")
             }
@@ -51,7 +51,7 @@ impl NumOperations {
     }
 
     pub fn odd() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "even? takes one argument")
             }
@@ -71,7 +71,7 @@ impl NumOperations {
     }
 
     pub fn integer_add() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "+ requires at least one argument")
             }
@@ -91,7 +91,7 @@ impl NumOperations {
     }
 
     pub fn float_add() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "+ requires at least one argument")
             }
@@ -111,7 +111,7 @@ impl NumOperations {
     }
 
     pub fn adder() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "+ requires at least one argument")
             }
@@ -157,7 +157,7 @@ impl NumOperations {
     }
 
     pub fn multiply() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "* requires at least one argument")
             }
@@ -202,7 +202,7 @@ impl NumOperations {
     // TODO implement the full numerical tower
     // For now, only support division into floats
     pub fn divide() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "/ requires at least one argument")
             }
@@ -229,7 +229,7 @@ impl NumOperations {
     }
 
     pub fn subtract() -> SteelVal {
-        SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "- requires at least one argument")
             }
