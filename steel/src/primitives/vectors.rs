@@ -18,6 +18,13 @@ impl VectorOperations {
         })
     }
 
+    pub fn vec_construct_iter<I: Iterator<Item = Result<Rc<SteelVal>>>>(
+        arg: I,
+    ) -> Result<Rc<SteelVal>> {
+        let res: Result<Vector<Rc<SteelVal>>> = arg.collect();
+        Ok(Rc::new(SteelVal::VectorV(res?)))
+    }
+
     pub fn vec_append() -> SteelVal {
         SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             let lsts: Vector<Rc<SteelVal>> =

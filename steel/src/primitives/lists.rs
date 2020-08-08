@@ -6,9 +6,6 @@ use crate::throw;
 use im_rc::Vector;
 use std::rc::Rc;
 
-use std::collections::VecDeque;
-// mod primitives;
-
 pub struct ListOperations {}
 impl ListOperations {
     pub fn cons() -> SteelVal {
@@ -92,11 +89,11 @@ impl ListOperations {
                         // let size = (upper - lower) as usize;
                         // let mut res = Vec::with_capacity(size);
 
-                        Self::built_in_list_func_iter(
+                        Ok(Self::built_in_list_normal_iter_non_result(
                             (lower as usize..upper as usize)
                                 .into_iter()
                                 .map(|x| Rc::new(SteelVal::IntV(x as isize))),
-                        )
+                        ))
 
                     // for i in lower as usize..upper as usize {
                     //     res.push(Rc::new(SteelVal::IntV(i as isize)));
@@ -315,6 +312,69 @@ impl ListOperations {
         Ok(lst)
     }
 
+    pub fn built_in_list_normal_iter_non_result<I>(args: I) -> Rc<SteelVal>
+    where
+        I: Iterator<Item = Rc<SteelVal>>,
+    {
+        let mut pairs: Vec<Rc<SteelVal>> =
+            args.map(|car| Rc::new(SteelVal::Pair(car, None))).collect();
+
+        // let mut rev_iter = pairs.iter_mut().rev().enumerate();
+
+        let mut rev_iter = (0..pairs.len()).into_iter().rev();
+        rev_iter.next();
+
+        for i in rev_iter {
+            let prev = pairs.pop().unwrap();
+            if let Some(SteelVal::Pair(_, cdr)) = pairs.get_mut(i).map(Rc::get_mut).flatten() {
+                *cdr = Some(prev)
+            } else {
+                unreachable!()
+            }
+        }
+
+        pairs.pop().unwrap()
+    }
+
+    pub fn built_in_list_normal_iter<I>(args: I) -> Result<Rc<SteelVal>>
+    where
+        I: Iterator<Item = Result<Rc<SteelVal>>>,
+    {
+        // unimplemented!();
+
+        // let mut pairs = Vec::new();
+
+        let mut pairs: Vec<Rc<SteelVal>> = args
+            .map(|car| Ok(Rc::new(SteelVal::Pair(car?, None))))
+            .collect::<Result<Vec<Rc<SteelVal>>>>()?;
+
+        // let mut rev_iter = pairs.iter_mut().rev().enumerate();
+
+        let mut rev_iter = (0..pairs.len()).into_iter().rev();
+        rev_iter.next();
+
+        for i in rev_iter {
+            let prev = pairs.pop().unwrap();
+            if let Some(SteelVal::Pair(_, cdr)) = pairs.get_mut(i).map(Rc::get_mut).flatten() {
+                *cdr = Some(prev)
+            } else {
+                unreachable!()
+            }
+        }
+
+        pairs
+            .pop()
+            .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
+
+        // rev_iter.next();
+
+        // for (i, val) in rev_iter {
+
+        // }
+
+        // unimplemented!()
+    }
+
     pub fn built_in_list_func_iter<I>(args: I) -> Result<Rc<SteelVal>>
     where
         I: DoubleEndedIterator<Item = Rc<SteelVal>>,
@@ -335,6 +395,34 @@ impl ListOperations {
 
         for (i, val) in args.enumerate() {
             pairs.push(Rc::new(SteelVal::Pair(val, Some(Rc::clone(&pairs[i])))));
+        }
+        pairs
+            .pop()
+            .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
+        // unimplemented!()
+    }
+
+    pub fn built_in_list_func_iter_result<I>(args: I) -> Result<Rc<SteelVal>>
+    where
+        I: DoubleEndedIterator<Item = Result<Rc<SteelVal>>>,
+    {
+        let mut args = args.rev();
+        let mut pairs = Vec::new();
+        match (args.next(), args.next()) {
+            (cdr, Some(car)) => {
+                // let cdr = cdr
+                pairs.push(Rc::new(SteelVal::Pair(car?, cdr.transpose()?)));
+            }
+            (Some(cdr), None) => {
+                pairs.push(Rc::new(SteelVal::Pair(cdr?, None)));
+            }
+            (_, _) => {
+                return Ok(Rc::new(SteelVal::VectorV(Vector::new())));
+            }
+        }
+
+        for (i, val) in args.enumerate() {
+            pairs.push(Rc::new(SteelVal::Pair(val?, Some(Rc::clone(&pairs[i])))));
         }
         pairs
             .pop()
