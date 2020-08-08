@@ -325,7 +325,10 @@ pub fn collect_binds_from_current_scope(
     }
 }
 
-pub fn insert_debruijn_indices(instructions: &mut [Instruction], symbol_map: &mut SymbolMap) {
+pub fn insert_debruijn_indices(
+    instructions: &mut [Instruction],
+    symbol_map: &mut SymbolMap,
+) -> Result<()> {
     let mut stack: Vec<usize> = Vec::new();
     // let mut def_stack: Vec<usize> = Vec::new();
 
@@ -348,7 +351,15 @@ pub fn insert_debruijn_indices(instructions: &mut [Instruction], symbol_map: &mu
                     }),
                 ..
             } => {
-                let idx = symbol_map.get(s);
+                let idx = symbol_map.get(s).map_err(|x| {
+                    let sp = if let Some(syn) = &instructions[i].contents {
+                        syn.span
+                    } else {
+                        Span::new(0, 0)
+                    };
+
+                    x.set_span(sp)
+                })?;
                 // println!("Renaming: {} to index: {}", s, idx);
                 if let Some(x) = instructions.get_mut(i) {
                     x.payload_size = idx;
@@ -417,6 +428,8 @@ pub fn insert_debruijn_indices(instructions: &mut [Instruction], symbol_map: &mu
             _ => {}
         }
     }
+
+    Ok(())
 }
 
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
@@ -1414,13 +1427,13 @@ impl VirtualMachine {
 
         // println!("Got here!");
 
-        insert_debruijn_indices(&mut instruction_buffer, &mut ctx.symbol_map);
+        insert_debruijn_indices(&mut instruction_buffer, &mut ctx.symbol_map)?;
         extract_constants(&mut instruction_buffer, &mut ctx.constant_map)?;
         coalesce_clears(&mut instruction_buffer);
 
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
-            // pretty_print_instructions(extracted.as_slice());
+            pretty_print_instructions(extracted.as_slice());
             results.push(densify(extracted));
         }
 
@@ -1604,16 +1617,33 @@ fn inline_filter_iter<
     // TODO don't allocate this vec for just this
     let switch_statement = move |arg| match stack_func.as_ref() {
         SteelVal::FuncV(func) => {
-            let arg_vec = vec![arg];
-            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+            let arg_vec = vec![Rc::clone(&arg)];
+            let res = func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
+            match res {
+                Ok(k) => match k.as_ref() {
+                    SteelVal::BoolV(true) => Some(Ok(arg)),
+                    SteelVal::BoolV(false) => None,
+                    _ => None,
+                },
+                Err(e) => Some(Err(e)),
+                // _ => None,
+            }
         }
         SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![arg];
-            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+            let arg_vec = vec![Rc::clone(&arg)];
+            let res = func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span));
+            match res {
+                Ok(k) => match k.as_ref() {
+                    SteelVal::BoolV(true) => Some(Ok(arg)),
+                    SteelVal::BoolV(false) => None,
+                    _ => None,
+                },
+                Err(e) => Some(Err(e)),
+            }
         }
         SteelVal::Closure(closure) => {
             // ignore the stack limit here
-            let args = vec![arg];
+            let args = vec![Rc::clone(&arg)];
             // if let Some()
 
             if let Some(parent_env) = closure.sub_expression_env() {
@@ -1638,21 +1668,42 @@ fn inline_filter_iter<
 
                 // TODO make recursive call here with a very small stack
                 // probably a bit overkill, but not much else I can do here I think
-                vm(
+                let res = vm(
                     closure.body_exp(),
                     args,
                     &mut local_heap,
                     inner_env,
                     constants,
-                )
+                );
+
+                match res {
+                    Ok(k) => match k.as_ref() {
+                        SteelVal::BoolV(true) => Some(Ok(arg)),
+                        SteelVal::BoolV(false) => None,
+                        _ => None,
+                    },
+                    Err(e) => Some(Err(e)),
+                }
+
+            // if let SteelVal::BoolV(true) = res {
+            //     Some(Ok(true))
+            // } else {
+            //     None
+            // }
             } else {
-                stop!(Generic => "Something went wrong with map");
+                Some(Err(SteelErr::Generic(
+                    "Something went wrong with map - internal error".to_string(),
+                    Some(*cur_inst_span),
+                )))
             }
         }
-        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
+        _ => Some(Err(SteelErr::TypeMismatch(
+            "map expected a function".to_string(),
+            Some(*cur_inst_span),
+        ))),
     };
 
-    iter.map(switch_statement)
+    iter.filter_map(switch_statement)
 
     // for val in iter {
     //     collected_results.push(switch_statement(val)?);
@@ -1791,9 +1842,9 @@ fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     };
 
     for val in iter {
-        let res = switch_statement(val)?;
+        let res = switch_statement(Rc::clone(&val))?;
         if let SteelVal::BoolV(true) = res.as_ref() {
-            collected_results.push(res);
+            collected_results.push(val);
         }
     }
 
@@ -2380,7 +2431,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<Rc<SteelVal>> {
         TokenType::CharacterLiteral(c) => Ok(Rc::new(SteelVal::CharV(*c))),
         TokenType::IntegerLiteral(n) => Ok(Rc::new(SteelVal::IntV(*n))),
         what => {
-            // println!("getting here");
+            println!("getting here in the eval_atom");
             stop!(UnexpectedToken => what; t.span)
         }
     }

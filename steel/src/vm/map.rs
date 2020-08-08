@@ -1,3 +1,6 @@
+use crate::rerrs::SteelErr;
+use crate::rvals::Result;
+
 #[derive(Debug, PartialEq)]
 pub struct SymbolMap(Vec<String>);
 
@@ -37,7 +40,7 @@ impl SymbolMap {
     }
 
     // fallible
-    pub fn get(&mut self, ident: &str) -> usize {
+    pub fn get(&mut self, ident: &str) -> Result<usize> {
         // if self.seen_set.contains(ident) {
 
         // }
@@ -47,30 +50,15 @@ impl SymbolMap {
         for (idx, val) in rev_iter {
             // println!("{}", idx);
             if val == ident {
-                return idx;
+                return Ok(idx);
             }
         }
 
-        println!("Unable to find {}", ident);
+        println!("Getting here!");
 
-        unreachable!();
+        let e = format!("Free identifier: {}", ident);
 
-        // let idx = self.seen.len();
-        // self.seen.push(ident.to_string());
-        // println!("Adding {} with index {}", ident, idx);
-        // println!("{:?}", self.seen);
-
-        // idx
-
-        // unimplemented!()
-        // if let Some(idx) = self.seen.get(ident) {
-        //     *idx
-        // } else {
-        //     let length = self.seen.len();
-        //     self.seen.insert(ident.to_string(), length);
-        //     println!("Adding {} with index {}", ident, length);
-        //     length
-        // }
+        stop!(FreeIdentifier => e)
     }
 
     pub fn roll_back(&mut self, idx: usize) {
