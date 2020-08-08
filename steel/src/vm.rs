@@ -58,6 +58,7 @@ use crate::parser::span::Span;
 use std::time::Instant;
 
 use crate::primitives::ListOperations;
+use crate::primitives::VectorOperations;
 
 use std::convert::TryInto;
 
@@ -1500,7 +1501,167 @@ fn inspect_heap(heap: &Vec<Rc<RefCell<Env>>>) {
     println!("{:?}", hp);
 }
 
-fn inline_map<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
+fn switch_filter_map<'global, CT: ConstantTable>(
+    stack_func: Rc<SteelVal>,
+    constants: &'global CT,
+    cur_inst_span: &'global Span,
+) {
+    unimplemented!()
+}
+
+fn inline_map_iter<
+    'global,
+    I: Iterator<Item = Rc<SteelVal>> + 'global,
+    // R: Iterator<Item = Result<Rc<SteelVal>>>,
+    CT: ConstantTable,
+>(
+    iter: I,
+    stack_func: Rc<SteelVal>,
+    constants: &'global CT,
+    cur_inst_span: &'global Span,
+) -> impl Iterator<Item = Result<Rc<SteelVal>>> + 'global {
+    // unimplemented!();
+
+    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
+
+    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
+    // TODO don't allocate this vec for just this
+    let switch_statement = move |arg| match stack_func.as_ref() {
+        SteelVal::FuncV(func) => {
+            let arg_vec = vec![arg];
+            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+        }
+        SteelVal::StructClosureV(factory, func) => {
+            let arg_vec = vec![arg];
+            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+        }
+        SteelVal::Closure(closure) => {
+            // ignore the stack limit here
+            let args = vec![arg];
+            // if let Some()
+
+            if let Some(parent_env) = closure.sub_expression_env() {
+                // TODO remove this unwrap
+                let offset =
+                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                    parent_env.clone(),
+                    offset,
+                )));
+
+                inner_env
+                    .borrow_mut()
+                    .reserve_defs(if closure.ndef_body() > 0 {
+                        closure.ndef_body() - 1
+                    } else {
+                        0
+                    });
+
+                let mut local_heap = Vec::new();
+
+                // TODO make recursive call here with a very small stack
+                // probably a bit overkill, but not much else I can do here I think
+                vm(
+                    closure.body_exp(),
+                    args,
+                    &mut local_heap,
+                    inner_env,
+                    constants,
+                )
+            } else {
+                stop!(Generic => "Something went wrong with map");
+            }
+        }
+        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
+    };
+
+    iter.map(switch_statement)
+
+    // for val in iter {
+    //     collected_results.push(switch_statement(val)?);
+    // }
+
+    // Ok(collected_results)
+}
+
+fn inline_filter_iter<
+    'global,
+    I: Iterator<Item = Rc<SteelVal>> + 'global,
+    // R: Iterator<Item = Result<Rc<SteelVal>>>,
+    CT: ConstantTable,
+>(
+    iter: I,
+    stack_func: Rc<SteelVal>,
+    constants: &'global CT,
+    cur_inst_span: &'global Span,
+) -> impl Iterator<Item = Result<Rc<SteelVal>>> + 'global {
+    // unimplemented!();
+
+    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
+
+    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
+    // TODO don't allocate this vec for just this
+    let switch_statement = move |arg| match stack_func.as_ref() {
+        SteelVal::FuncV(func) => {
+            let arg_vec = vec![arg];
+            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+        }
+        SteelVal::StructClosureV(factory, func) => {
+            let arg_vec = vec![arg];
+            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+        }
+        SteelVal::Closure(closure) => {
+            // ignore the stack limit here
+            let args = vec![arg];
+            // if let Some()
+
+            if let Some(parent_env) = closure.sub_expression_env() {
+                // TODO remove this unwrap
+                let offset =
+                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                    parent_env.clone(),
+                    offset,
+                )));
+
+                inner_env
+                    .borrow_mut()
+                    .reserve_defs(if closure.ndef_body() > 0 {
+                        closure.ndef_body() - 1
+                    } else {
+                        0
+                    });
+
+                let mut local_heap = Vec::new();
+
+                // TODO make recursive call here with a very small stack
+                // probably a bit overkill, but not much else I can do here I think
+                vm(
+                    closure.body_exp(),
+                    args,
+                    &mut local_heap,
+                    inner_env,
+                    constants,
+                )
+            } else {
+                stop!(Generic => "Something went wrong with map");
+            }
+        }
+        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
+    };
+
+    iter.map(switch_statement)
+
+    // for val in iter {
+    //     collected_results.push(switch_statement(val)?);
+    // }
+
+    // Ok(collected_results)
+}
+
+fn inline_map_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     iter: I,
     stack_func: Rc<SteelVal>,
     constants: &CT,
@@ -1511,7 +1672,6 @@ fn inline_map<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
 
     // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    // TODO don't allocate this vec for just this
     let switch_statement = |arg| match stack_func.as_ref() {
         SteelVal::FuncV(func) => {
             let arg_vec = vec![arg];
@@ -1569,7 +1729,7 @@ fn inline_map<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     Ok(collected_results)
 }
 
-fn inline_filter<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
+fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     iter: I,
     stack_func: Rc<SteelVal>,
     constants: &CT,
@@ -1715,21 +1875,39 @@ pub fn vm<CT: ConstantTable>(
 
                 match list.as_ref() {
                     SteelVal::Pair(_, _) => {
-                        let collected_results =
-                            inline_map(SteelVal::iter(list), stack_func, constants, cur_inst)?;
+                        let collected_results = inline_map_normal(
+                            SteelVal::iter(list),
+                            stack_func,
+                            constants,
+                            &cur_inst,
+                        )?;
+
+                        // stack.push(ListOperations::built_in_list_normal_iter(inline_map_iter(
+                        //     SteelVal::iter(list),
+                        //     stack_func,
+                        //     constants,
+                        //     &cur_inst.span,
+                        // ))?);
+
                         stack.push(ListOperations::built_in_list_func()(&collected_results)?);
                         // stack.push(ListOperation::built_in_list_func()(inline_map
                     }
                     SteelVal::VectorV(v) => {
                         // TODO get rid of the clone here
-                        let collected_results = inline_map(
+                        // let collected_results = inline_map(
+                        //     v.into_iter().map(Rc::clone),
+                        //     stack_func,
+                        //     constants,
+                        //     cur_inst,
+                        // )?;
+                        // stack.push(ListOperations::built_in_list_func()(&collected_results)?);
+                        // unimplemented!();
+                        stack.push(VectorOperations::vec_construct_iter(inline_map_iter(
                             v.into_iter().map(Rc::clone),
                             stack_func,
                             constants,
-                            cur_inst,
-                        )?;
-                        stack.push(ListOperations::built_in_list_func()(&collected_results)?);
-                        // unimplemented!();
+                            &cur_inst.span,
+                        ))?);
                     }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
                 }
@@ -1743,21 +1921,41 @@ pub fn vm<CT: ConstantTable>(
                 // Change inline_map and inline_filter to return iterators... now that would be cool
                 match list.as_ref() {
                     SteelVal::Pair(_, _) => {
-                        let collected_results =
-                            inline_filter(SteelVal::iter(list), stack_func, constants, cur_inst)?;
-                        stack.push(ListOperations::built_in_list_func()(&collected_results)?);
-                        // stack.push(ListOperation::built_in_list_func()(inline_map
-                    }
-                    SteelVal::VectorV(v) => {
-                        // TODO get rid of the clone here
-                        let collected_results = inline_map(
-                            v.into_iter().map(Rc::clone),
+                        let collected_results = inline_filter_normal(
+                            SteelVal::iter(list),
                             stack_func,
                             constants,
                             cur_inst,
                         )?;
                         stack.push(ListOperations::built_in_list_func()(&collected_results)?);
+                        // stack.push(ListOperation::built_in_list_func()(inline_map
+
+                        // stack.push(ListOperations::built_in_list_normal_iter(
+                        //     inline_filter_iter(
+                        //         SteelVal::iter(list),
+                        //         stack_func,
+                        //         constants,
+                        //         &cur_inst.span,
+                        //     ),
+                        // )?);
+                    }
+                    SteelVal::VectorV(v) => {
+                        // TODO get rid of the clone here
+                        // let collected_results = inline_filter(
+                        //     v.into_iter().map(Rc::clone),
+                        //     stack_func,
+                        //     constants,
+                        //     cur_inst,
+                        // )?;
+                        // stack.push(ListOperations::built_in_list_func()(&collected_results)?);
                         // unimplemented!();
+
+                        stack.push(VectorOperations::vec_construct_iter(inline_filter_iter(
+                            v.into_iter().map(Rc::clone),
+                            stack_func,
+                            constants,
+                            &cur_inst.span,
+                        ))?);
                     }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
                 }
