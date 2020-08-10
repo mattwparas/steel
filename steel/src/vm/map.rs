@@ -32,6 +32,7 @@ impl SymbolMap {
 
         let idx = self.0.len();
         self.0.push(ident.to_string());
+
         // println!("`get_or_add`: {} @ {}", ident, idx);
         // println!("Adding {} with index {}", ident, idx);
         // println!("{:?}", self.0);

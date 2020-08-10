@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use steel::env::Env;
-use steel::interpreter::SteelInterpreter;
+// use steel::interpreter::SteelInterpreter;
 use steel::stdlib::PRELUDE;
 use steel::vm::ArityMap;
 use steel::vm::ConstantMap;

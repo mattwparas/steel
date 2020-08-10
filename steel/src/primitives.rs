@@ -1,4 +1,5 @@
 mod control;
+mod fs;
 mod io;
 mod lists;
 mod nums;
@@ -8,6 +9,7 @@ mod symbols;
 mod vectors;
 
 pub use control::ControlOperations;
+pub use fs::FsFunctions;
 pub use io::IoFunctions;
 pub use lists::ListOperations;
 pub use nums::NumOperations;
