@@ -212,7 +212,7 @@ fn count_and_collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) 
                     ) => {
                         if def == "define" || def == "defn" {
                             // println!("Found definition: {}", name);
-                            symbol_map.add(name.as_str());
+                            let _ = symbol_map.get_or_add(name.as_str());
                             count += 1;
                         }
                     }
@@ -246,7 +246,7 @@ pub fn collect_defines_from_current_scope(
                 ..
             } => {
                 if def_stack == 0 {
-                    let _ = symbol_map.get_or_add(s);
+                    let _idx = symbol_map.get_or_add(s);
                     count += 1;
                     // println!("####### FOUND DEFINE #########");
                     // println!("Renaming: {} to index: {}", s, idx);
@@ -299,7 +299,7 @@ pub fn collect_binds_from_current_scope(
                 if def_stack == 1 {
                     let idx = symbol_map.add(s);
 
-                    // println!("Renaming: {} to index: {}", s, idx);
+                    // println!("Symbol Map -- 302: Renaming: {} to index: {}", s, idx);
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = idx;
                         x.constant = false;
@@ -467,6 +467,9 @@ pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
 }
 
 fn coalesce_clears(instructions: &mut Vec<Instruction>) {
+    if instructions.len() < 2 {
+        return;
+    }
     for i in 0..instructions.len() - 2 {
         match (
             instructions.get(i),
@@ -716,7 +719,7 @@ fn emit_loop<CT: ConstantTable>(
 
                         if let Some(ctx) = defining_context {
                             transform_tail_call(&mut body_instructions, ctx);
-                            let b = check_and_transform_mutual_recursion(&mut body_instructions);
+                            let _b = check_and_transform_mutual_recursion(&mut body_instructions);
                             // if b {
                             //     println!("Transformed mutual recursion!");
                             // }
@@ -1039,7 +1042,6 @@ Can run some profile information that way to understand the counts
 
 Once the threshold passes a certain amount, modify the instructions to
 go ahead and change the function to call a more specialized one?
-
 
 
 

@@ -1,6 +1,7 @@
 // use crate::rvals::Result;
 // #[macro_use]
 use crate::primitives::ControlOperations;
+use crate::primitives::FsFunctions;
 use crate::primitives::IoFunctions;
 use crate::primitives::ListOperations;
 use crate::primitives::NumOperations;
@@ -8,6 +9,7 @@ use crate::primitives::PortOperations;
 use crate::primitives::StringOperations;
 use crate::primitives::SymbolOperations;
 use crate::primitives::VectorOperations;
+
 // use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
@@ -23,6 +25,8 @@ use std::rc::Weak;
 use crate::compiler::AST;
 
 use crate::vm::SymbolMap;
+
+// use std::mem;
 
 thread_local! {
     pub static VOID: Rc<SteelVal> = Rc::new(SteelVal::Void);
@@ -343,7 +347,12 @@ impl Env {
     pub fn define_idx(&mut self, idx: usize, val: Rc<SteelVal>) {
         // println!("Defining value: {:?} at idx: {}", val, idx);
         // println!("Current bindings: {:?}", self.bindings_vec);
+
         if idx < self.bindings_vec.len() {
+            // let e = mem::replace(&mut self.bindings_vec[idx], val);
+            // println!("Strong count: {}", Rc::strong_count(&e));
+            // std::mem::drop(e);
+            // println!("Strong count: {}", Rc::strong_count(&e));
             self.bindings_vec[idx] = val;
         } else if idx == self.bindings_vec.len() {
             self.bindings_vec.push(val);
@@ -691,6 +700,12 @@ impl Env {
             // ("flatten", ListOperations::flatten()),
             ("even?", NumOperations::even()),
             ("odd?", NumOperations::odd()),
+            ("is-dir?", FsFunctions::is_dir()),
+            ("is-file?", FsFunctions::is_file()),
+            ("read-dir", FsFunctions::read_dir()),
+            ("path-exists?", FsFunctions::path_exists()),
+            ("file-name", FsFunctions::file_name()),
+            ("current-directory", FsFunctions::current_dir()),
         ]
     }
 }

@@ -13,7 +13,13 @@ impl IoFunctions {
         SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             if args.len() == 1 {
                 let print_val = (*args[0]).clone();
-                print!("{:?}", print_val);
+
+                match &print_val {
+                    SteelVal::StringV(s) => print!("{}", s),
+                    _ => print!("{}", print_val),
+                }
+
+                // print!("{}", print_val);
                 Ok(VOID.with(|f| Rc::clone(f)))
             } else {
                 stop!(ArityMismatch => "display takes one argument");

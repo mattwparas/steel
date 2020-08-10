@@ -381,14 +381,11 @@ impl ListOperations {
     {
         let mut args = args.rev();
         let mut pairs = Vec::new();
-        match (args.next(), args.next()) {
-            (cdr, Some(car)) => {
-                pairs.push(Rc::new(SteelVal::Pair(car, cdr)));
+        match args.next() {
+            Some(car) => {
+                pairs.push(Rc::new(SteelVal::Pair(car, None)));
             }
-            (Some(cdr), None) => {
-                pairs.push(Rc::new(SteelVal::Pair(cdr, None)));
-            }
-            (_, _) => {
+            _ => {
                 return Ok(Rc::new(SteelVal::VectorV(Vector::new())));
             }
         }
@@ -408,15 +405,11 @@ impl ListOperations {
     {
         let mut args = args.rev();
         let mut pairs = Vec::new();
-        match (args.next(), args.next()) {
-            (cdr, Some(car)) => {
-                // let cdr = cdr
-                pairs.push(Rc::new(SteelVal::Pair(car?, cdr.transpose()?)));
+        match args.next() {
+            Some(car) => {
+                pairs.push(Rc::new(SteelVal::Pair(car?, None)));
             }
-            (Some(cdr), None) => {
-                pairs.push(Rc::new(SteelVal::Pair(cdr?, None)));
-            }
-            (_, _) => {
+            _ => {
                 return Ok(Rc::new(SteelVal::VectorV(Vector::new())));
             }
         }
@@ -466,14 +459,12 @@ impl ListOperations {
         |args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
             let mut args = args.into_iter().rev().map(Rc::clone);
             let mut pairs = Vec::new();
-            match (args.next(), args.next()) {
-                (cdr, Some(car)) => {
-                    pairs.push(Rc::new(SteelVal::Pair(car, cdr)));
+
+            match args.next() {
+                Some(car) => {
+                    pairs.push(Rc::new(SteelVal::Pair(car, None)));
                 }
-                (Some(cdr), None) => {
-                    pairs.push(Rc::new(SteelVal::Pair(cdr, None)));
-                }
-                (_, _) => {
+                _ => {
                     return Ok(Rc::new(SteelVal::VectorV(Vector::new())));
                 }
             }
@@ -481,6 +472,7 @@ impl ListOperations {
             for (i, val) in args.enumerate() {
                 pairs.push(Rc::new(SteelVal::Pair(val, Some(Rc::clone(&pairs[i])))));
             }
+
             pairs
                 .pop()
                 .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))

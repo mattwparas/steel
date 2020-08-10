@@ -34,6 +34,15 @@ impl ConstantTable for ConstantMap {
             self.add(val)
         }
     }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[cfg(test)]
+    fn clear(&mut self) {
+        self.0.clear()
+    }
 }
 
 pub trait ConstantTable {
@@ -41,4 +50,41 @@ pub trait ConstantTable {
     fn get(&self, idx: usize) -> Rc<SteelVal>;
     fn try_get(&self, idx: usize) -> Option<Rc<SteelVal>>;
     fn add_or_get(&mut self, val: Rc<SteelVal>) -> usize;
+    fn len(&self) -> usize;
+
+    #[cfg(test)]
+    fn clear(&mut self);
+}
+
+#[cfg(test)]
+pub mod constant_table_tests {
+    use super::*;
+
+    #[test]
+    fn run_tests_constant_map() {
+        let mut instance = ConstantMap::new();
+        test_add(&mut instance);
+
+        let mut instance = ConstantMap::new();
+        test_get(&mut instance);
+    }
+
+    fn test_add<CT: ConstantTable>(instance: &mut CT) {
+        assert_eq!(instance.len(), 0);
+        let val1 = Rc::new(SteelVal::BoolV(true));
+        let val2 = Rc::new(SteelVal::BoolV(false));
+        assert_eq!(instance.add(val1), 0);
+        assert_eq!(instance.add(val2), 1);
+    }
+
+    fn test_get<CT: ConstantTable>(instance: &mut CT) {
+        assert_eq!(instance.len(), 0);
+        let val1 = Rc::new(SteelVal::BoolV(true));
+        let val2 = Rc::new(SteelVal::BoolV(false));
+        assert_eq!(instance.add(val1), 0);
+        assert_eq!(instance.add(val2), 1);
+
+        assert_eq!(instance.get(0), Rc::new(SteelVal::BoolV(true)));
+        assert_eq!(instance.get(1), Rc::new(SteelVal::BoolV(false)));
+    }
 }
