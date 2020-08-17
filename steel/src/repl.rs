@@ -37,6 +37,8 @@ use crate::parser::span::Span;
 
 use crate::stdlib::PRELUDE;
 
+use std::io::Read;
+
 // use std::collections::HashMap;
 
 // use crate::vm::flatten_expression_tree;
@@ -162,6 +164,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
         Env::default_symbol_map(),
         ConstantMap::new(),
         ArityMap::new(),
+        true,
     );
 
     let mut buffer = String::new();
@@ -198,8 +201,22 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                     line if line.contains(":require") => {
                         let line = line.trim_start_matches(":require").trim();
                         let path = Path::new(line);
-                        if let Err(e) = interpreter.require_path(path) {
-                            eprintln!("Error loading {:?}: {}", path, e)
+
+                        let mut file = std::fs::File::open(path)?;
+                        let mut exprs = String::new();
+                        file.read_to_string(&mut exprs)?;
+
+                        let res = vm.parse_and_execute(exprs.as_str(), &mut ctx);
+
+                        match res {
+                            Ok(r) => r.iter().for_each(|x| match x.as_ref() {
+                                SteelVal::Void => {}
+                                _ => println!("{} {}", "=>".bright_blue().bold(), x),
+                            }),
+                            Err(e) => {
+                                e.emit_result("repl.stl", exprs.as_str(), Span::new(0, 0));
+                                eprintln!("{}", e.to_string().bright_red());
+                            }
                         }
                     }
                     _ => {

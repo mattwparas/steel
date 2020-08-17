@@ -7,7 +7,10 @@
 
 
 
+
 (λ (x y) (+ 1 2 3))
+
+
 
 (defn (take lst n)
   (defn (loop x l acc)
@@ -19,7 +22,11 @@
 ;; TODO
 ;; One problem with the way I label indices is that shadowed values at the top level
 ;; Make the new definitions clobber the old ones, call std::mem::drop on it
-;; 
+;;
+;; also make the new ones clobber the old ones so that basically _everything_ gets moved up?
+;; binds should also just add instead of add_or_get? maybe idk who cares really honestly
+;; oh well this is so stupid hard...
+;; Not sure why i'm not using a hashmap but here we are
 
 (map' (fn (x) ...) lst)
 
@@ -28,7 +35,8 @@
 ;; This is pretty neat
 
 
-(->> (range 0 100))
+
+(-> (range 0 100))
 
 
 ;; (filter-map)
@@ -80,6 +88,9 @@
 
 (define p "/Users/mwparas/Documents/MatSci201")
 
+
+
+
 ;; (define (tree-rec path)
 ;;   (cond [(is-file? path)
 ;;          ;; (display "|----")
@@ -93,27 +104,34 @@
 ;;               (merge-sort (read-dir path)))]
 ;;         [else (displayln "something went wrong!")]))
 
+;; Closure offset is getting calculated incorrectly
+;; This seems to be due to the env getting bloated for some reason
+;; the length just increases endlessly... check the reserve_defs?
 
 
-(define (tree-rec path)
-  (cond [(is-file? path) (file-name path)]
+(define (tree-rec path padding)
+  (cond [(is-file? path)
+         (display padding)
+         (displayln (file-name path))]
         [(is-dir? path)
-         (list (file-name path)
-               (map tree-rec (merge-sort (read-dir path))))]
+         (display padding)
+         (displayln (file-name path))
+         (map (fn (x)
+                (tree-rec x (string-append padding "    ")))
+
+              (merge-sort (read-dir path)))]
         [else void]))
 
-(define (pretty-print lst)
-  (display "|----")
-  (cond [(list? lst)
-         (displayln (car lst))
-         (map (fn (x) (display "|----") (pretty-print x)) (cdr lst))]
-        [else (displayln lst)]))
 
+(tree-rec p "")
 
-(define (tree path)
-  (pretty-print (tree-rec path)))
+(define (tree p)
+  (tree-rec p ""))
 
-(tree p)
+;; (define (tree path)
+;;   (pretty-print (tree-rec path)))
+
+;; (tree p)
 
 
 (define (tree path)
@@ -129,8 +147,6 @@
 
 
       -> lst)
-
-
 
 (defn (take-vec vec n)
   (defn (loop x l acc)
@@ -226,3 +242,66 @@
 
 
 (defn (take lst n))
+
+
+
+("MatSci201"
+ ("Midterm #1"
+  ("Assessment Solutions"
+   "MatSci201-Midterm1-PracticeExam-F19-Sol.pdf"
+   "MatSci201-Midterm1-PracticeExam-F19.pdf"
+   "PSet-R1-Sol.pdf"
+   "PSetD2-F19-Sol.pdf"
+   "PSetD3-F19-Sol.pdf"
+   "PSetD4-F19-Sol.pdf"
+   "PracticeD2_F19-Sol.pdf"
+   "PracticeD3_F19-Sol.pdf"
+   "QuizD2_F19-Sol.pdf")
+  ("Lectures"
+   "L1-1_Introduction_to_Materials-F19.pdf"
+   "L1-2-Bonding-F19.pdf"
+   "L2-1_Crystal Structure I-F19.pdf"
+   "L2-2 Crystal Structure II-F19-Companion.pdf"
+   "L2-2 Crystal Structure II-F19.pdf"
+   "L3-1 Ceramics and Polymer Structures-F19.pdf")
+  "Midterm1_StudyGuide-F19.pdf"))
+
+
+
+(define (pretty-print lst)
+  (cond [(string? lst) lst]
+        [(list? lst)
+
+
+
+         (displayln (car lst))
+         (map pretty-print (cdr lst))]
+        [else void]))
+
+'("MatSci201"
+  (
+   ("Midterm #1"
+    (
+     ("Assessment Solutions"
+      ("MatSci201-Midterm1-PracticeExam-F19-Sol.pdf"
+       "MatSci201-Midterm1-PracticeExam-F19.pdf"
+       "PSet-R1-Sol.pdf"
+       "PSetD2-F19-Sol.pdf"
+       "PSetD3-F19-Sol.pdf"
+       "PSetD4-F19-Sol.pdf"
+       "PracticeD2_F19-Sol.pdf"
+       "PracticeD3_F19-Sol.pdf"
+       "QuizD2_F19-Sol.pdf")
+      )
+     ("Lectures"
+      ("L1-1_Introduction_to_Materials-F19.pdf"
+       "L1-2-Bonding-F19.pdf"
+       "L2-1_Crystal Structure I-F19.pdf"
+       "L2-2 Crystal Structure II-F19-Companion.pdf"
+       "L2-2 Crystal Structure II-F19.pdf"
+       "L3-1 Ceramics and Polymer Structures-F19.pdf")
+      )
+     "Midterm1_StudyGuide-F19.pdf")
+    )
+   )
+  )

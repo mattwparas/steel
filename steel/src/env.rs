@@ -122,6 +122,7 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
 pub struct Env {
     bindings: HashMap<String, Rc<SteelVal>>,
     bindings_vec: Vec<Rc<SteelVal>>,
+    bindings_map: HashMap<usize, Rc<SteelVal>>,
     offset: usize,
     parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
@@ -168,6 +169,7 @@ impl Env {
         Env {
             bindings: HashMap::new(),
             bindings_vec: Vec::new(),
+            bindings_map: HashMap::new(),
             offset,
             parent: Some(Rc::clone(&parent)),
             sub_expression: None,
@@ -235,6 +237,7 @@ impl Env {
         Env {
             bindings: HashMap::new(),
             bindings_vec: Vec::new(),
+            bindings_map: HashMap::new(),
             offset,
             parent: None,
             sub_expression: Some(sub_expression),
@@ -284,6 +287,7 @@ impl Env {
         Env {
             bindings: HashMap::new(),
             bindings_vec: Vec::new(),
+            bindings_map: HashMap::new(),
             offset: 0,
             parent: None,
             sub_expression: None,
@@ -357,7 +361,18 @@ impl Env {
         } else if idx == self.bindings_vec.len() {
             self.bindings_vec.push(val);
         } else {
-            panic!("Out of bounds define statement");
+            // Add void padding so that this doesn't happen
+            // This _should_ be unreachable outside of a repl
+            // This allows for redefinitions and additions into scripts
+            for _ in 0..(idx - self.bindings_vec.len()) {
+                self.bindings_vec.push(VOID.with(|f| Rc::clone(f)))
+            }
+
+            self.bindings_vec.push(val);
+
+            // println!("Length at panic: {}", self.bindings_vec.len());
+            // println!("Attempting to define: {} @ {}", idx, val);
+            // panic!("Out of bounds define statement");
         }
         // println!("{:?}", self.bindings_vec);
         // self.offset += 1;
@@ -367,6 +382,10 @@ impl Env {
         for _ in 0..ndefs {
             self.bindings_vec.push(VOID.with(|f| Rc::clone(f)));
         }
+    }
+
+    pub fn pop_last(&mut self) {
+        self.bindings_vec.pop();
     }
 
     pub fn try_define(&mut self, key: &str, val: Rc<SteelVal>) {
@@ -466,6 +485,62 @@ impl Env {
         }
     }
 
+    pub fn repl_lookup_idx(&self, idx: usize) -> Result<Rc<SteelVal>> {
+        // unimplemented!()
+        // println!("{:?}", self.bindings.keys());
+        if self.bindings_map.contains_key(&idx) {
+            // value needs to be cloned because
+            // user needs to be able to own a persistent value
+            // from Cell that may be modified later
+            Ok(Rc::clone(&self.bindings_map[&idx]))
+        } else {
+            // half assed module approach
+            // if !self.module.is_empty() {
+            //     for module in &self.module {
+            //         let res = module.lookup(idx);
+            //         if res.is_ok() {
+            //             return res;
+            //         }
+            //     }
+            // }
+
+            if self.parent.is_some() {
+                match &self.parent {
+                    Some(par) => par.borrow().repl_lookup_idx(idx),
+                    None => {
+                        println!(
+                            "Keys at lookup: {:?}",
+                            self.bindings_map.keys().collect::<Vec<&usize>>()
+                        );
+                        stop!(FreeIdentifier => idx); // Err(SteelErr::FreeIdentifier(name.to_string())),
+                    }
+                }
+            } else {
+                match &self.sub_expression {
+                    Some(par) => match par.upgrade() {
+                        Some(x) => x.borrow().repl_lookup_idx(idx),
+                        None => {
+                            stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
+                        }
+                    },
+                    None => {
+                        println!(
+                            "Keys at lookup: {:?}",
+                            self.bindings_map.keys().collect::<Vec<&usize>>()
+                        );
+                        stop!(FreeIdentifier => idx);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn repl_define_idx(&mut self, idx: usize, val: Rc<SteelVal>) {
+        self.bindings_map.insert(idx, val);
+
+        // unimplemented!()
+    }
+
     pub fn lookup_idx(&self, idx: usize) -> Result<Rc<SteelVal>> {
         let offset = self.offset;
         // println!("Looking up {}, with offset: {}", idx, offset);
@@ -494,7 +569,13 @@ impl Env {
                 // println!("Found {:?}", v);
                 return Ok(Rc::clone(v));
             } else {
-                stop!(FreeIdentifier => "blagh");
+                println!(
+                    "Looking up idx: {} with length {}",
+                    idx,
+                    self.bindings_vec.len()
+                );
+
+                stop!(FreeIdentifier => "Internal Compiler Error - unable to find idx: {} with length: {}", lookup, self.bindings_vec.len());
             }
         // }
         // if let Some(v) = self.bindings_vec.get(idx - self.offset) {
@@ -592,6 +673,10 @@ impl Env {
             env.define_idx(idx, Rc::new(val.1));
         }
 
+        for (idx, val) in Env::default_bindings().into_iter().enumerate() {
+            env.repl_define_idx(idx, Rc::new(val.1));
+        }
+
         // for (idx, val) in Env::default_bindings().iter().enumerate() {
         //     env.define_idx(val)
         // }
@@ -622,6 +707,17 @@ impl Env {
         zipped.for_each(|(param, arg)| {
             sm.add(param.as_str());
             self.bindings_vec.push(Rc::new(arg));
+        });
+    }
+
+    pub fn repl_define_zipped_rooted(
+        &mut self,
+        sm: &mut SymbolMap,
+        zipped: impl Iterator<Item = (String, SteelVal)>,
+    ) {
+        zipped.for_each(|(param, arg)| {
+            let idx = sm.add(param.as_str());
+            self.bindings_map.insert(idx, Rc::new(arg));
         });
     }
 

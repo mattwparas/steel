@@ -66,6 +66,12 @@ impl From<Box<dyn CustomType>> for SteelVal {
     }
 }
 
+macro_rules! ok_val {
+    ($variant:ty, $value:expr) => {
+        Ok(Rc::new(SteelVal::$variant($value)));
+    };
+}
+
 /// Unwraps the `SteelVal::Custom` with the given type. The type must implement the `CustomType` trait.
 /// If the type does not match, then
 /// the macro returns a `SteelErr::ConverstionError`. If the type does match, return the

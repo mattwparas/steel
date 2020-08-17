@@ -62,6 +62,12 @@ use crate::primitives::VectorOperations;
 
 use std::convert::TryInto;
 
+use std::io::Read;
+
+use std::path::Path;
+
+use std::collections::HashSet;
+
 // use std::collections::HashSet;
 
 // use crate::expander::SteelMacro;
@@ -193,11 +199,17 @@ fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> boo
 }
 
 // Hopefully this doesn't break anything...
-fn count_and_collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) -> usize {
-    let mut count = 0;
+// Definitions
+fn count_and_collect_global_defines(
+    exprs: &[Expr],
+    symbol_map: &mut SymbolMap,
+) -> (usize, usize, usize) {
+    let mut new_count = 0;
+    let mut old_count = 0;
+    let mut non_defines = 0;
     for expr in exprs {
         match expr {
-            Expr::Atom(_) => {}
+            Expr::Atom(_) => non_defines += 1,
             Expr::VectorVal(list_of_tokens) => {
                 match (list_of_tokens.get(0), list_of_tokens.get(1)) {
                     (
@@ -211,18 +223,54 @@ fn count_and_collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) 
                         })),
                     ) => {
                         if def == "define" || def == "defn" {
-                            // println!("Found definition: {}", name);
-                            let _ = symbol_map.get_or_add(name.as_str());
-                            count += 1;
+                            println!(
+                                "Found definition in `count_and_collect_global_defines`: {}",
+                                name
+                            );
+                            let (_, added) = symbol_map.get_or_add(name.as_str());
+                            // count += 1;
+                            if added {
+                                new_count += 1;
+                            } else {
+                                old_count += 1;
+                            }
+                        } else {
+                            non_defines += 1;
                         }
                     }
-                    _ => {}
+                    (
+                        Some(Expr::Atom(SyntaxObject {
+                            ty: TokenType::Identifier(def),
+                            ..
+                        })),
+                        Some(Expr::VectorVal(_)),
+                    ) => {
+                        if def == "begin" {
+                            println!("Making a recursive call here...");
+                            let (res_new, res_old, res_non) =
+                                count_and_collect_global_defines(&list_of_tokens[1..], symbol_map);
+
+                            println!(
+                                "%%%%%%%%%%%%%%%%%%% {}, {}, {} %%%%%%%%%%%%%%%%",
+                                res_new, res_old, res_non
+                            );
+
+                            new_count += res_new;
+                            old_count += res_old;
+                            non_defines += res_non;
+                        } else {
+                            non_defines += 1;
+                        }
+                    }
+                    _ => {
+                        non_defines += 1;
+                    }
                 }
             }
         }
     }
 
-    count
+    (new_count, old_count, non_defines)
 }
 
 // insert fast path for built in functions
@@ -230,9 +278,10 @@ fn count_and_collect_global_defines(exprs: &[Expr], symbol_map: &mut SymbolMap) 
 pub fn collect_defines_from_current_scope(
     instructions: &[Instruction],
     symbol_map: &mut SymbolMap,
-) -> usize {
+) -> Result<usize> {
     let mut def_stack: usize = 0;
     let mut count = 0;
+    let mut bindings: HashSet<&str> = HashSet::new();
 
     for i in 0..instructions.len() {
         match &instructions[i] {
@@ -241,18 +290,22 @@ pub fn collect_defines_from_current_scope(
                 contents:
                     Some(SyntaxObject {
                         ty: TokenType::Identifier(s),
-                        ..
+                        span: sp,
                     }),
                 ..
             } => {
                 if def_stack == 0 {
-                    let _idx = symbol_map.get_or_add(s);
-                    count += 1;
+                    if bindings.insert(s) {
+                        let (_idx, _) = symbol_map.get_or_add(s);
+                        count += 1;
                     // println!("####### FOUND DEFINE #########");
                     // println!("Renaming: {} to index: {}", s, idx);
                     // if let Some(x) = instructions.get_mut(i) {
                     //     x.contents = None;
                     // }
+                    } else {
+                        stop!(Generic => "define-values: duplicate binding name"; *sp)
+                    }
                 }
 
                 // def_stack += 1;
@@ -275,7 +328,7 @@ pub fn collect_defines_from_current_scope(
         }
     }
 
-    count
+    Ok(count)
 }
 
 pub fn collect_binds_from_current_scope(
@@ -333,7 +386,7 @@ pub fn insert_debruijn_indices(
     // let mut def_stack: Vec<usize> = Vec::new();
 
     // Snag the defines that are going to be available from the global scope
-    let _ = collect_defines_from_current_scope(instructions, symbol_map);
+    let _ = collect_defines_from_current_scope(instructions, symbol_map)?;
 
     // Snag the binds before the defines
     // collect_binds_from_current_scope(instructions, symbol_map);
@@ -376,7 +429,7 @@ pub fn insert_debruijn_indices(
                     }),
                 ..
             } => {
-                let idx = symbol_map.get_or_add(s);
+                let (idx, _) = symbol_map.get_or_add(s);
 
                 // println!("Renaming: {} to index: {}", s, idx);
                 if let Some(x) = instructions.get_mut(i) {
@@ -399,7 +452,7 @@ pub fn insert_debruijn_indices(
                 let def_count = collect_defines_from_current_scope(
                     &instructions[i + 1..(i + payload - 1)],
                     symbol_map,
-                );
+                )?;
                 // Set the def count of the NDEFS instruction after the closure
                 if let Some(x) = instructions.get_mut(i + 1) {
                     x.payload_size = def_count;
@@ -1296,14 +1349,21 @@ pub struct Ctx<CT: ConstantTable> {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: CT,
     pub(crate) arity_map: ArityMap,
+    pub(crate) repl: bool,
 }
 
 impl<CT: ConstantTable> Ctx<CT> {
-    pub fn new(symbol_map: SymbolMap, constant_map: CT, arity_map: ArityMap) -> Ctx<CT> {
+    pub fn new(
+        symbol_map: SymbolMap,
+        constant_map: CT,
+        arity_map: ArityMap,
+        repl: bool,
+    ) -> Ctx<CT> {
         Ctx {
             symbol_map,
             constant_map,
             arity_map,
+            repl,
         }
     }
 
@@ -1312,11 +1372,19 @@ impl<CT: ConstantTable> Ctx<CT> {
             Env::default_symbol_map(),
             ConstantMap::new(),
             ArityMap::new(),
+            false,
         )
     }
 
     pub fn constant_map(&self) -> &CT {
         &self.constant_map
+    }
+
+    pub fn roll_back(&mut self, idx: usize) {
+        // unimplemented!()
+        self.symbol_map.roll_back(idx);
+        self.constant_map.roll_back(idx);
+        self.arity_map.roll_back(idx);
     }
 }
 
@@ -1337,6 +1405,23 @@ impl VirtualMachine {
         }
     }
 
+    pub fn roll_back(&mut self, idx: usize) {
+        unimplemented!()
+    }
+
+    // Read in the file from the given path and execute accordingly
+    // Loads all the functions in from the given env
+    pub fn parse_and_execute_from_path<CT: ConstantTable, P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        ctx: &mut Ctx<CT>,
+    ) -> Result<Vec<Rc<SteelVal>>> {
+        let mut file = std::fs::File::open(path)?;
+        let mut exprs = String::new();
+        file.read_to_string(&mut exprs)?;
+        self.parse_and_execute(exprs.as_str(), ctx)
+    }
+
     // pub fn new_with_std
 
     pub fn parse_and_execute<CT: ConstantTable>(
@@ -1346,17 +1431,31 @@ impl VirtualMachine {
     ) -> Result<Vec<Rc<SteelVal>>> {
         // let now = Instant::now();
         let gen_bytecode = self.emit_instructions(expr_str, ctx)?;
+
+        // previous size of the env
+        // let length = self.global_env.borrow().len();
+
         // println!("Bytecode generated in: {:?}", now.elapsed());
         gen_bytecode
             .into_iter()
             .map(|x| {
                 let code = Rc::new(x.into_boxed_slice());
                 let now = Instant::now();
-                let res = self.execute(code, &ctx.constant_map);
+                let res = self.execute(code, &ctx.constant_map, ctx.repl);
                 println!("Time taken: {:?}", now.elapsed());
                 res
             })
             .collect::<Result<Vec<Rc<SteelVal>>>>()
+
+        // .and_then(|x| {
+        //     // self.global_env.borrow_mut().pop_last();
+        //     let new_length = self.global_env.borrow().len();
+        //     println!("New length: {}, Old length: {}", new_length, length);
+        //     // if new_length - length > 1 {
+        //     //     self.global_env.borrow_mut().pop_last();
+        //     // }
+        //     Ok(x)
+        // })
     }
 
     pub fn emit_instructions<CT: ConstantTable>(
@@ -1400,17 +1499,70 @@ impl VirtualMachine {
         // println!()
 
         // Collect global defines here first
-        let ndefs = count_and_collect_global_defines(&expanded_statements, &mut ctx.symbol_map);
+        let (ndefs_new, ndefs_old, _not) =
+            count_and_collect_global_defines(&expanded_statements, &mut ctx.symbol_map);
+
+        // At the global level, let the defines shadow the old ones, but call `drop` on all of the old values
 
         // Reserve the definitions in the global environment
+        println!("########### Found ndefs new: {}", ndefs_new);
+        println!("########### Found ndefs shadowed: {}", ndefs_old);
+        println!("########### not defines: {}", _not);
+
+        // println!(
+        //     "^^^^^^^^^^ Global env length at the start: {}",
+        //     self.global_env.borrow().len()
+        // );
+        // println!(
+        //     "Global env state binding context: {}",
+        //     self.global_env.borrow().is_binding_context()
+        // );
+        // println!(
+        //     "Global env state binding offset: {}",
+        //     self.global_env.borrow().is_binding_offset()
+        // );
+
+        // Reserve the definitions in the global environment
+        // TODO find a better way to make sure that the
         self.global_env
             .borrow_mut()
-            .reserve_defs(if ndefs > 0 { ndefs - 1 } else { 0 });
+            .reserve_defs(if ndefs_new > 0 { ndefs_new - 1 } else { 0 }); // used to be ndefs - 1
+
+        match (ndefs_old, ndefs_new) {
+            (_, _) if ndefs_old > 0 && ndefs_new == 0 => {
+                println!("CASE 1: Popping last!!!!!!!!!");
+                self.global_env.borrow_mut().pop_last();
+            }
+            (_, _) if ndefs_new > 0 && ndefs_old == 0 => {
+                println!("Doing nothing");
+            }
+            (_, _) if ndefs_new > 0 && ndefs_old > 0 => {
+                println!("$$$$$$$$$$ GOT HERE $$$$$$$$");
+                self.global_env.borrow_mut().pop_last();
+            }
+            (_, _) => {}
+        }
+
+        // HACK - make the global definitions line up correctly
+        // This is basically a repl only feature
+        // if ndefs_old > 0 && ndefs_new == 0 {
+        //     // Getting here
+        //     self.global_env.borrow_mut().pop_last();
+        // }
+
+        // if ndefs_old > ndefs_new && ndefs_new == 0 {
+        //     self.global_env.borrow_mut().pop_last();
+        // }
+
+        // println!(
+        //     "^^^^^^^^^^ Global env length after reserving defs: {}",
+        //     self.global_env.borrow().len()
+        // );
 
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            // println!("{:?}", expr.to_string());
+            println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
                 &expr,
@@ -1435,7 +1587,7 @@ impl VirtualMachine {
 
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
-            pretty_print_instructions(extracted.as_slice());
+            // pretty_print_instructions(extracted.as_slice());
             results.push(densify(extracted));
         }
 
@@ -1446,6 +1598,7 @@ impl VirtualMachine {
         &mut self,
         instructions: Rc<Box<[DenseInstruction]>>,
         constants: &CT,
+        repl: bool,
     ) -> Result<Rc<SteelVal>> {
         // execute_vm(instructions)
         let stack: Vec<Rc<SteelVal>> = Vec::new();
@@ -1459,12 +1612,18 @@ impl VirtualMachine {
             &mut heap,
             Rc::clone(&self.global_env),
             constants,
+            repl,
         );
 
         if self.global_env.borrow().is_binding_context() {
             self.global_heap.append(&mut heap);
             self.global_env.borrow_mut().set_binding_context(false);
         }
+
+        // Maybe?????
+        // self.global_env.borrow_mut().pop_last();
+
+        // self.global_env.borrow_mut().set_binding_offset(false);
 
         // println!("Global heap length after: {}", self.global_heap.len());
 
@@ -1480,7 +1639,7 @@ pub fn execute_vm(
     let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
     // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
     let global_env = Rc::new(RefCell::new(Env::default_env()));
-    vm(instructions, stack, &mut heap, global_env, constants)
+    vm(instructions, stack, &mut heap, global_env, constants, false)
 }
 
 // TODO make this not so garbage but its kind of okay
@@ -1534,6 +1693,7 @@ fn inline_map_iter<
     stack_func: Rc<SteelVal>,
     constants: &'global CT,
     cur_inst_span: &'global Span,
+    repl: bool,
 ) -> impl Iterator<Item = Result<Rc<SteelVal>>> + 'global {
     // unimplemented!();
 
@@ -1583,6 +1743,7 @@ fn inline_map_iter<
                     &mut local_heap,
                     inner_env,
                     constants,
+                    repl,
                 )
             } else {
                 stop!(Generic => "Something went wrong with map");
@@ -1610,6 +1771,7 @@ fn inline_filter_iter<
     stack_func: Rc<SteelVal>,
     constants: &'global CT,
     cur_inst_span: &'global Span,
+    repl: bool,
 ) -> impl Iterator<Item = Result<Rc<SteelVal>>> + 'global {
     // unimplemented!();
 
@@ -1676,6 +1838,7 @@ fn inline_filter_iter<
                     &mut local_heap,
                     inner_env,
                     constants,
+                    repl,
                 );
 
                 match res {
@@ -1719,6 +1882,7 @@ fn inline_map_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     stack_func: Rc<SteelVal>,
     constants: &CT,
     cur_inst: &DenseInstruction,
+    repl: bool,
 ) -> Result<Vec<Rc<SteelVal>>> {
     // unimplemented!();
 
@@ -1767,6 +1931,7 @@ fn inline_map_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
                     &mut local_heap,
                     inner_env,
                     constants,
+                    repl,
                 )
             } else {
                 stop!(Generic => "Something went wrong with map");
@@ -1787,6 +1952,7 @@ fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     stack_func: Rc<SteelVal>,
     constants: &CT,
     cur_inst: &DenseInstruction,
+    repl: bool,
 ) -> Result<Vec<Rc<SteelVal>>> {
     // unimplemented!();
 
@@ -1835,6 +2001,7 @@ fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
                     &mut local_heap,
                     inner_env,
                     constants,
+                    repl,
                 )
             } else {
                 stop!(Generic => "Something went wrong with map");
@@ -1863,6 +2030,7 @@ pub fn vm<CT: ConstantTable>(
     heap: &mut Vec<Rc<RefCell<Env>>>,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
+    repl: bool,
 ) -> Result<Rc<SteelVal>> {
     let mut ip = 0;
     let mut global_env = global_env;
@@ -1910,8 +2078,13 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::PUSH => {
-                let value = global_env.borrow().lookup_idx(cur_inst.payload_size)?;
-                stack.push(value);
+                if repl {
+                    let value = global_env.borrow().repl_lookup_idx(cur_inst.payload_size)?;
+                    stack.push(value);
+                } else {
+                    let value = global_env.borrow().lookup_idx(cur_inst.payload_size)?;
+                    stack.push(value);
+                }
                 ip += 1;
             }
             OpCode::CLEAR => {
@@ -1933,6 +2106,7 @@ pub fn vm<CT: ConstantTable>(
                             stack_func,
                             constants,
                             &cur_inst,
+                            repl,
                         )?;
 
                         // stack.push(ListOperations::built_in_list_normal_iter(inline_map_iter(
@@ -1960,6 +2134,7 @@ pub fn vm<CT: ConstantTable>(
                             stack_func,
                             constants,
                             &cur_inst.span,
+                            repl,
                         ))?);
                     }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
@@ -1979,6 +2154,7 @@ pub fn vm<CT: ConstantTable>(
                             stack_func,
                             constants,
                             cur_inst,
+                            repl,
                         )?;
                         stack.push(ListOperations::built_in_list_func()(&collected_results)?);
                         // stack.push(ListOperation::built_in_list_func()(inline_map
@@ -2008,6 +2184,7 @@ pub fn vm<CT: ConstantTable>(
                             stack_func,
                             constants,
                             &cur_inst.span,
+                            repl,
                         ))?);
                     }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
@@ -2258,6 +2435,9 @@ pub fn vm<CT: ConstantTable>(
                 if pop_count == 0 {
                     env_stack.clear();
                     heap.clear();
+                    // Maybe
+                    // global_env.borrow_mut().set_binding_context(false);
+                    global_env.borrow_mut().set_binding_offset(false);
 
                     return stack.pop().ok_or_else(|| {
                         SteelErr::Generic("stack empty at pop".to_string(), Some(cur_inst.span))
@@ -2286,9 +2466,21 @@ pub fn vm<CT: ConstantTable>(
                 //     cur_inst.payload_size, offset
                 // );
 
-                global_env
-                    .borrow_mut()
-                    .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
+                if repl {
+                    global_env
+                        .borrow_mut()
+                        .repl_define_idx(cur_inst.payload_size, stack.pop().unwrap());
+                } else {
+                    global_env
+                        .borrow_mut()
+                        .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
+                }
+
+                // println!(
+                //     "Global eng length after binding: {}",
+                //     global_env.borrow().len()
+                // );
+
                 ip += 1;
             }
             OpCode::SCLOSURE => {
@@ -2307,6 +2499,9 @@ pub fn vm<CT: ConstantTable>(
                 let capture_env = Rc::clone(&global_env);
 
                 let mut closure_offset = global_env.borrow().len();
+                // println!("%%%%%%%%%%% Env length: {} %%%%%%%%%%%", closure_offset);
+
+                // println!("{:?}", global_env.borrow().string_bindings_vec());
 
                 if global_env.borrow().is_binding_context()
                     && !global_env.borrow().is_binding_offset()
@@ -2318,6 +2513,7 @@ pub fn vm<CT: ConstantTable>(
                     //     ndefs
                     // );
                     closure_offset += 1;
+                    // println!("Setting the closure offset here: {}", closure_offset);
                 };
 
                 // set the number of definitions for the environment
