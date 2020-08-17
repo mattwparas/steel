@@ -174,6 +174,12 @@ pub fn extract_macro_definitions<M: MacroEnv>(
                 struct_env
                     .borrow_mut()
                     .define_zipped_rooted(sm, defs.into_iter());
+
+                let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
+                struct_env
+                    .borrow_mut()
+                    .repl_define_zipped_rooted(sm, defs.into_iter());
+
                 // env.borrow_mut()
                 //     .define_zipped(defs.into_iter().map(|x| (x.0, Rc::new(x.1))));
             }

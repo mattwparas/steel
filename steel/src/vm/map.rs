@@ -12,7 +12,7 @@ impl SymbolMap {
     pub fn add(&mut self, ident: &str) -> usize {
         let idx = self.0.len();
         self.0.push(ident.to_string());
-        // println!("`add`: {} @ {}", ident, idx);
+        println!("`add`: {} @ {}", ident, idx);
         idx
     }
 
@@ -20,24 +20,24 @@ impl SymbolMap {
         self.0.clone()
     }
 
-    pub fn get_or_add(&mut self, ident: &str) -> usize {
+    pub fn get_or_add(&mut self, ident: &str) -> (usize, bool) {
         let rev_iter = self.0.iter().enumerate().rev();
 
         for (idx, val) in rev_iter {
             // println!("{}", idx);
             if val == ident {
-                return idx;
+                return (idx, false);
             }
         }
 
         let idx = self.0.len();
         self.0.push(ident.to_string());
 
-        // println!("`get_or_add`: {} @ {}", ident, idx);
+        println!("`get_or_add`: {} @ {}", ident, idx);
         // println!("Adding {} with index {}", ident, idx);
         // println!("{:?}", self.0);
 
-        idx
+        (idx, true)
     }
 
     // fallible
@@ -55,7 +55,7 @@ impl SymbolMap {
             }
         }
 
-        println!("Getting here!");
+        // println!("Getting here!");
 
         let e = format!("Free identifier: {}", ident);
 

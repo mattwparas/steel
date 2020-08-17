@@ -39,6 +39,10 @@ impl ConstantTable for ConstantMap {
         self.0.len()
     }
 
+    fn roll_back(&mut self, idx: usize) {
+        self.0.truncate(idx);
+    }
+
     #[cfg(test)]
     fn clear(&mut self) {
         self.0.clear()
@@ -51,6 +55,7 @@ pub trait ConstantTable {
     fn try_get(&self, idx: usize) -> Option<Rc<SteelVal>>;
     fn add_or_get(&mut self, val: Rc<SteelVal>) -> usize;
     fn len(&self) -> usize;
+    fn roll_back(&mut self, idx: usize);
 
     #[cfg(test)]
     fn clear(&mut self);

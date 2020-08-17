@@ -19,6 +19,7 @@ fn range(c: &mut Criterion) {
         Env::default_symbol_map(),
         ConstantMap::new(),
         ArityMap::new(),
+        false,
     );
 
     vm.parse_and_execute(PRELUDE, &mut ctx).unwrap();
@@ -31,7 +32,7 @@ fn range(c: &mut Criterion) {
     // Rc::new(x.into_boxed_slice()), &ctx.constant_map
 
     c.bench_function("range-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map()))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map(), false))
     });
 }
 
@@ -43,6 +44,7 @@ fn map(c: &mut Criterion) {
         Env::default_symbol_map(),
         ConstantMap::new(),
         ArityMap::new(),
+        false,
     );
 
     vm.parse_and_execute(PRELUDE, &mut ctx).unwrap();
@@ -57,7 +59,7 @@ fn map(c: &mut Criterion) {
     );
 
     c.bench_function("map-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map()))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map(), false))
     });
 }
 
@@ -72,6 +74,7 @@ fn filter(c: &mut Criterion) {
         Env::default_symbol_map(),
         ConstantMap::new(),
         ArityMap::new(),
+        false,
     );
 
     vm.parse_and_execute(PRELUDE, &mut ctx).unwrap();
@@ -86,7 +89,7 @@ fn filter(c: &mut Criterion) {
     );
 
     c.bench_function("filter-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map()))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map(), false))
     });
 }
 

@@ -127,26 +127,31 @@
               (when cond body ... (loop)))
             (loop))]))
 
+;; TODO add the single argument case
 (define-syntax f>
   (syntax-rules ()
     [(f> fun args* ...)
-     (lambda (x) (fun x args* ...))]))
+     (lambda (x) (fun x args* ...))]
+    [(f> fun) fun]))
 
 (define-syntax ->
   (syntax-rules ()
     [(-> a) a]
     [(-> a (b c ...)) ((f> b c ...) a)]
+    [(-> a (b)) ((f> b) a)]
     [(-> a b c ...) (-> (-> a b) c ...)]))
 
 (define-syntax l>
   (syntax-rules ()
     [(l> fun args* ...)
-     (lambda (x) (fun args* ... x))]))
+     (lambda (x) (fun args* ... x))]
+    [(l> fun) fun]))
 
 (define-syntax ->>
   (syntax-rules ()
     [(->> a) a]
     [(->> a (b c ...)) ((l> b c ...) a)]
+    [(->> a (b)) ((l> b) a)]
     [(->> a b c ...) (->> (->> a b) c ...)]))
 
 (define-syntax swap

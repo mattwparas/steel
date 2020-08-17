@@ -103,8 +103,9 @@ impl MacroCase {
     fn match_vec_pattern_to_list_of_tokens(args: &[MacroPattern], list_of_tokens: &[Expr]) -> bool {
         let mut token_iter = list_of_tokens.iter();
         for pat in args {
-            // println!("Matching pattern: {:?}", pat);
             if let Some(val) = token_iter.next() {
+                // println!("")
+                // println!("Matching pattern: {:?} to val: {:?}", pat, val);
                 match pat {
                     MacroPattern::Single(_) | MacroPattern::Many(_) => {
                         continue;
@@ -130,6 +131,29 @@ impl MacroCase {
                             if vec.len() == 0 && !l.is_empty() {
                                 return false;
                             }
+
+                            // println!("Matching on {:?} with val {:?}", pat, val);
+                            // TODO come back here and check this out
+                            // this solves the destructuring test case
+                            if vec.len() < l.len()
+                                && vec
+                                    .iter()
+                                    .find(|x| {
+                                        if let MacroPattern::Many(_) = x {
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                    .is_none()
+                            {
+                                return false;
+                            }
+
+                            // if the vec contains a many
+                            // if
+
+                            // if pat.arity()
                             if Self::match_vec_pattern_to_list_of_tokens(&vec, l) {
                                 continue;
                             } else {
@@ -141,6 +165,11 @@ impl MacroCase {
                     }
                 }
             }
+
+            // TODO maybe this is it???
+            // else {
+            //     return false;
+            // }
         }
         true
     }
@@ -503,6 +532,8 @@ impl SteelMacro {
 
         for case in &self.cases {
             // println!("Case: {:?}", case.args);
+
+            // println!("len: {}", list_of_tokens.len());
 
             // TODO this should actually be `case.arity() - num_ellipses_in_top_level`
             if (case.has_ellipses() && list_of_tokens.len() >= (case.arity() - 1))

@@ -2,7 +2,7 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-use std::io;
+// use std::io;
 use std::rc::Rc;
 
 // mod primitives;
