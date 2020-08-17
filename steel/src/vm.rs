@@ -223,10 +223,10 @@ fn count_and_collect_global_defines(
                         })),
                     ) => {
                         if def == "define" || def == "defn" {
-                            println!(
-                                "Found definition in `count_and_collect_global_defines`: {}",
-                                name
-                            );
+                            // println!(
+                            //     "Found definition in `count_and_collect_global_defines`: {}",
+                            //     name
+                            // );
                             let (_, added) = symbol_map.get_or_add(name.as_str());
                             // count += 1;
                             if added {
@@ -246,14 +246,14 @@ fn count_and_collect_global_defines(
                         Some(Expr::VectorVal(_)),
                     ) => {
                         if def == "begin" {
-                            println!("Making a recursive call here...");
+                            // println!("Making a recursive call here...");
                             let (res_new, res_old, res_non) =
                                 count_and_collect_global_defines(&list_of_tokens[1..], symbol_map);
 
-                            println!(
-                                "%%%%%%%%%%%%%%%%%%% {}, {}, {} %%%%%%%%%%%%%%%%",
-                                res_new, res_old, res_non
-                            );
+                            // println!(
+                            //     "%%%%%%%%%%%%%%%%%%% {}, {}, {} %%%%%%%%%%%%%%%%",
+                            //     res_new, res_old, res_non
+                            // );
 
                             new_count += res_new;
                             old_count += res_old;
@@ -1505,9 +1505,9 @@ impl VirtualMachine {
         // At the global level, let the defines shadow the old ones, but call `drop` on all of the old values
 
         // Reserve the definitions in the global environment
-        println!("########### Found ndefs new: {}", ndefs_new);
-        println!("########### Found ndefs shadowed: {}", ndefs_old);
-        println!("########### not defines: {}", _not);
+        // println!("########### Found ndefs new: {}", ndefs_new);
+        // println!("########### Found ndefs shadowed: {}", ndefs_old);
+        // println!("########### not defines: {}", _not);
 
         // println!(
         //     "^^^^^^^^^^ Global env length at the start: {}",
@@ -1523,7 +1523,8 @@ impl VirtualMachine {
         // );
 
         // Reserve the definitions in the global environment
-        // TODO find a better way to make sure that the
+        // TODO find a better way to make sure that the definitions are reserved
+        // This works for the normal bytecode execution without the repl
         self.global_env
             .borrow_mut()
             .reserve_defs(if ndefs_new > 0 { ndefs_new - 1 } else { 0 }); // used to be ndefs - 1
@@ -1534,10 +1535,10 @@ impl VirtualMachine {
                 self.global_env.borrow_mut().pop_last();
             }
             (_, _) if ndefs_new > 0 && ndefs_old == 0 => {
-                println!("Doing nothing");
+                // println!("Doing nothing");
             }
             (_, _) if ndefs_new > 0 && ndefs_old > 0 => {
-                println!("$$$$$$$$$$ GOT HERE $$$$$$$$");
+                // println!("$$$$$$$$$$ GOT HERE $$$$$$$$");
                 self.global_env.borrow_mut().pop_last();
             }
             (_, _) => {}
@@ -1562,7 +1563,7 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            println!("{:?}", expr.to_string());
+            // println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
                 &expr,
@@ -2091,7 +2092,7 @@ pub fn vm<CT: ConstantTable>(
                 // println!("%%%%%%%%%%% Hitting clear! %%%%%%%%%%%");
                 // println!("length of heap at clear: {}", heap.len());
                 // println!("Heap at clear:");
-                inspect_heap(&heap);
+                // inspect_heap(&heap);
                 heap.clear();
                 ip += 1;
             }

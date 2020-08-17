@@ -66,3 +66,24 @@
 (define p "/Users/mwparas/Documents/MatSci201")
 
 (tree p)
+
+;; MatSci201
+;;     Midterm #1
+;;         Assessment Solutions
+;;             MatSci201-Midterm1-PracticeExam-F19-Sol.pdf
+;;             MatSci201-Midterm1-PracticeExam-F19.pdf
+;;             PSet-R1-Sol.pdf
+;;             PSetD2-F19-Sol.pdf
+;;             PSetD3-F19-Sol.pdf
+;;             PSetD4-F19-Sol.pdf
+;;             PracticeD2_F19-Sol.pdf
+;;             PracticeD3_F19-Sol.pdf
+;;             QuizD2_F19-Sol.pdf
+;;         Lectures
+;;             L1-1_Introduction_to_Materials-F19.pdf
+;;             L1-2-Bonding-F19.pdf
+;;             L2-1_Crystal Structure I-F19.pdf
+;;             L2-2 Crystal Structure II-F19-Companion.pdf
+;;             L2-2 Crystal Structure II-F19.pdf
+;;             L3-1 Ceramics and Polymer Structures-F19.pdf
+;;         Midterm1_StudyGuide-F19.pdf
