@@ -2420,6 +2420,13 @@ pub fn vm<CT: ConstantTable>(
                 }
             }
             OpCode::IF => {
+                // change to truthy
+                // if let SteelVal::BoolV(false) = stack.pop().unwrap().as_ref() {
+                //     ip += 1;
+                // } else {
+                //     ip = cur_inst.payload_size;
+                // }
+
                 if let SteelVal::BoolV(true) = stack.pop().unwrap().as_ref() {
                     ip = cur_inst.payload_size; // Jump to payload
                                                 // ip += 2; // Jump to payload

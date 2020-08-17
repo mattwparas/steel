@@ -13,7 +13,7 @@
 ;; destruct works like so:
 ;; (destruct (a b c) value)
 ;;  ...
-;; (define a (car value))
+;; (define a (car value)
 ;; (define b (car (cdr value)))
 ;; (define c (car (cdr (cdr value))))
 (define-syntax destruct
@@ -34,6 +34,9 @@
 
 ;; impl block asserts that each function contains the struct type given as the first argument
 ;; This is why later down we use the thread first vs. the thread last given above
+;;
+;; However, take note that a recursive call will not work properly in this, best to be used as an interface
+;; since it does not transform the name of the recursive call
 (define-syntax impl
   (syntax-rules ()
     [(impl struct-name (define (a this b ...) body ...) c ...)
