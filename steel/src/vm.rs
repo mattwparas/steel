@@ -1668,11 +1668,11 @@ impl VirtualMachine {
         // TODO figure this noise out
         // might be easier to just... write a GC
         if self.global_env.borrow().is_binding_context() {
-            // println!("Copying over the heap from the run time:");
+            println!("Copying over the heap from the run time:");
 
             self.global_heap.append(&mut heap);
             self.global_env.borrow_mut().set_binding_context(false);
-            // inspect_heap(&self.global_heap);
+            inspect_heap(&self.global_heap);
         }
 
         // Maybe?????
@@ -1950,12 +1950,12 @@ fn trace_envs(leaf: &Rc<RefCell<Env>>) -> Vec<Rc<RefCell<Env>>> {
 
     while let Some(parent_env) = Rc::clone(&env).borrow().sub_expression() {
         let upgraded_env = parent_env.upgrade().unwrap();
-        println!(
-            "Found env inside trace with length: {}",
-            upgraded_env.borrow().bindings_map().len()
-        );
         if !upgraded_env.borrow().is_root() {
             heap.push(Rc::clone(&upgraded_env));
+            println!(
+                "Found env inside trace with length: {}",
+                upgraded_env.borrow().bindings_map().len()
+            );
             env = upgraded_env;
         } else {
             break;
@@ -2112,6 +2112,25 @@ fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
 
 // }
 
+pub struct Gc(Vec<GcEntry>);
+
+impl Gc {
+    pub fn collect(&mut self) {
+        unimplemented!()
+    }
+}
+
+pub struct GcEntry {
+    reachable: bool,
+    entry: Rc<RefCell<Env>>,
+}
+
+impl GcEntry {
+    pub fn visit(&mut self) {
+        unimplemented!()
+    }
+}
+
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<Box<[DenseInstruction]>>,
     stack: Vec<Rc<SteelVal>>,
@@ -2148,7 +2167,7 @@ pub fn vm<CT: ConstantTable>(
     // This could actually just be a single usize based off of the way I use it
     // TODO verify that this actually works, take out the CLEAR op_code because its kinda useless
     // now
-    let mut heap_stack = 0;
+    let mut heap_stack: Vec<usize> = vec![0];
 
     while ip < instructions.len() {
         cur_inst = &instructions[ip];
@@ -2199,12 +2218,35 @@ pub fn vm<CT: ConstantTable>(
                 // }
             }
             OpCode::CLEAR => {
-                println!("%%%%%%%%%%% Hitting clear! %%%%%%%%%%%");
-                println!("length of heap at clear: {}", heap.len());
+                // println!("%%%%%%%%%%% Hitting clear! %%%%%%%%%%%");
+                // println!("length of heap at clear: {}", heap.len());
                 // println!("Heap at clear:");
                 // inspect_heap(&heap);
                 // heap.truncate(heap_stack.pop().unwrap());
                 // heap_stack.push(0);
+
+                // let copied_heap = heap.clone();
+                // let mut new_heap = Vec::new();
+
+                // let copied_stack = stack.clone();
+
+                // for value in copied_stack {
+                //     if let SteelVal::Closure(_) = value.as_ref() {
+                //         println!("Found a closure in the stack!");
+                //     }
+                // }
+
+                // println!("Length of stack: {}", stack.len());
+                // println!("Stack: {:?}", stack);
+
+                // for env in &copied_heap {
+                //     let mut collected_envs = trace_envs(env);
+                //     // println!("Collected envs length: {}", collected_envs.len());
+                //     new_heap.append(&mut collected_envs);
+                // }
+
+                // println!("length of copied over heap at clear: {}", new_heap.len());
+
                 // heap.clear();
                 // heap.truncate(heap.len() - heap_stack.pop().unwrap());
                 // heap_stack.push(0);
@@ -2476,6 +2518,23 @@ pub fn vm<CT: ConstantTable>(
 
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
 
+                        // // Look at what is in the args... if if _needs_ to live longer, copy over
+                        // let copied_args = args.clone();
+
+                        // // println!("@@@@@@@@@@@@@@@ Args: {:?}", copied_args);
+
+                        // for arg in copied_args {
+                        //     if let SteelVal::Closure(closure) = arg.as_ref() {
+                        //         if let Some(parent_env) = closure.sub_expression_env() {
+                        //             let collected_envs = trace_envs(&parent_env.upgrade().unwrap());
+                        //             println!(
+                        //                 "Found this many envs in the collect: {}",
+                        //                 collected_envs.len()
+                        //             );
+                        //         }
+                        //     }
+                        // }
+
                         // TODO fix this
                         if let Some(_parent_env) = closure.parent_env() {
                             unreachable!();
@@ -2538,6 +2597,13 @@ pub fn vm<CT: ConstantTable>(
                             // tail_call_env_stack
 
                             println!("About to truncate the heap with length: {}", heap.len());
+                            println!("Offset: {}", closure.offset());
+                            heap.truncate(closure.offset());
+                            // println!("heap stack: {:?}", heap_stack);
+
+                            // heap.truncate(heap.len() - heap_stack.pop().unwrap());
+                            // heap_stack.push(0);
+
                             // inspect_heap(&heap);
 
                             // let mut copied_heap = trace_envs(&inner_env);
@@ -2545,13 +2611,13 @@ pub fn vm<CT: ConstantTable>(
 
                             // TODO heap truncate stuff
 
-                            // heap.truncate(heap.len() - heap_stack);
+                            // heap.truncate(heap.len() - heap_stack.pop().unwrap());
                             // heap_stack = 0;
 
                             // heap_stack.push(0);
 
-                            // let last = heap.len() - heap_stack;
-                            // heap_stack = 0;
+                            // let last = heap.len() - heap_stack.pop().unwrap();
+                            // heap_stack.push(0);
                             // heap.drain(0..last);
 
                             // if last > 0 {
@@ -2596,9 +2662,12 @@ pub fn vm<CT: ConstantTable>(
             OpCode::JMP => {
                 ip = cur_inst.payload_size;
                 // HACk
-                // if ip == 0 {
-                // heap.clear();
-                // }
+                if ip == 0 {
+                    println!("Jumping back to the start!");
+                    heap.truncate(heap.len() - heap_stack.pop().unwrap());
+                    heap_stack.push(0);
+                    // heap.clear();
+                }
             }
             OpCode::POP => {
                 pop_count -= 1;
@@ -2652,6 +2721,10 @@ pub fn vm<CT: ConstantTable>(
                     } else {
                         ip += 1;
                     }
+
+                    // println!("######## Hitting pop! #########");
+                    // println!("heap length: {}", heap.len());
+                    // println!("")
 
                     stack = stacks.pop().unwrap();
                     stack.push(ret_val);
@@ -2726,11 +2799,15 @@ pub fn vm<CT: ConstantTable>(
                 if !global_env.borrow().is_root() {
                     // println!("Pushing onto the heap!");
                     heap.push(Rc::clone(&capture_env));
-                    heap_stack += 1;
-                    // let hs_len = heap_stack.len() - 1;
-                    // heap_stack[hs_len] += 1;
+                    // heap_stack += 1;
+                    let hs_len = heap_stack.len() - 1;
+                    heap_stack[hs_len] += 1;
                     // inspect_heap(&heap);
                 }
+
+                // if heap_stack.len() > 0 {
+                //     // let last = heap_stack[heap_stack.len() - 1]
+                // }
 
                 // if heap_stack.len() > 0 {
                 //     let last = heap_stack[heap_stack.len() - 1];
