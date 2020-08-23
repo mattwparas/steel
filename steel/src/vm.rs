@@ -2596,9 +2596,9 @@ pub fn vm<CT: ConstantTable>(
             OpCode::JMP => {
                 ip = cur_inst.payload_size;
                 // HACk
-                if ip == 0 {
-                    heap.clear();
-                }
+                // if ip == 0 {
+                // heap.clear();
+                // }
             }
             OpCode::POP => {
                 pop_count -= 1;
