@@ -4,6 +4,7 @@ use crate::primitives::ControlOperations;
 use crate::primitives::FsFunctions;
 use crate::primitives::IoFunctions;
 use crate::primitives::ListOperations;
+use crate::primitives::MetaOperations;
 use crate::primitives::NumOperations;
 use crate::primitives::PortOperations;
 use crate::primitives::StringOperations;
@@ -316,9 +317,13 @@ impl Env {
         &self.module
     }
 
-    // pub fn sub_expression(&self) -> &Option<Rc<RefCell<Env>>> {
-    //     &self.sub_expression
-    // }
+    pub fn sub_expression(&self) -> &Option<Weak<RefCell<Env>>> {
+        &self.sub_expression
+    }
+
+    pub fn bindings_map(&self) -> &HashMap<usize, Rc<SteelVal>> {
+        &self.bindings_map
+    }
 
     pub fn is_one_layer_down(&self) -> bool {
         self.parent.is_some()
@@ -333,7 +338,7 @@ impl Env {
     }
 
     pub fn string_bindings_vec(&self) -> String {
-        format!("{:?}", self.bindings_vec)
+        format!("{:?}", self.bindings_map)
     }
 
     pub fn bindings(&self) -> &HashMap<String, Rc<SteelVal>> {
@@ -802,6 +807,7 @@ impl Env {
             ("path-exists?", FsFunctions::path_exists()),
             ("file-name", FsFunctions::file_name()),
             ("current-directory", FsFunctions::current_dir()),
+            ("inspect-bytecode", MetaOperations::inspect_bytecode()),
         ]
     }
 }

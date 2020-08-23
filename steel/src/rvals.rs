@@ -158,6 +158,20 @@ impl SteelVal {
         Iter(Some(_self))
     }
 
+    pub fn is_truthy(&self) -> bool {
+        match &self {
+            SteelVal::BoolV(false) => false,
+            SteelVal::VectorV(v) => {
+                if v.is_empty() {
+                    false
+                } else {
+                    true
+                }
+            }
+            _ => true,
+        }
+    }
+
     // pub(crate) fn bytecode_lambda_or_panic(&self) -> &ByteCodeLambda {
     //     if let SteelVal::Closure(bytecode_lambda) = self {
     //         bytecode_lambda
