@@ -485,6 +485,29 @@ pub fn insert_debruijn_indices(
     Ok(())
 }
 
+pub fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
+    match instructions {
+        [.., Instruction {
+            op_code: OpCode::EDEF,
+            ..
+        }, Instruction {
+            op_code: OpCode::BIND,
+            ..
+        }, Instruction {
+            op_code: OpCode::VOID,
+            ..
+        }, Instruction {
+            op_code: OpCode::POP,
+            payload_size: x,
+            ..
+        }] => {
+            println!("Injecting Heap Save to Pop!");
+            *x = 1;
+        }
+        _ => {}
+    }
+}
+
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
     instructions.into_iter().map(|x| x.into()).collect()
 }
@@ -831,8 +854,8 @@ fn emit_loop<CT: ConstantTable>(
                     Expr::Atom(SyntaxObject {
                         ty: TokenType::Identifier(s),
                         ..
-                    }) if s == "return" => {
-                        check_length("return", &list_of_tokens, 2)?;
+                    }) if s == "return!" => {
+                        check_length("return!", &list_of_tokens, 2)?;
                         emit_loop(
                             &list_of_tokens[1],
                             instructions,
@@ -867,16 +890,25 @@ fn emit_loop<CT: ConstantTable>(
                         ));
                         return Ok(());
                     }
-                    // Expr::Atom(SyntaxObject {
-                    //     ty: TokenType::Identifier(s),
-                    //     ..
-                    // }) if s == "apply" => {
-                    //     instructions.push("apply".to_string());
-                    //     for expr in &list_of_tokens[1..] {
-                    //         emit_loop(Rc::clone(expr), instructions)?;
-                    //     }
-                    //     return Ok(());
-                    // }
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "apply" => {
+                        // instructions.push("apply".to_string());
+                        check_length("apply", &list_of_tokens, 3)?;
+                        for expr in &list_of_tokens[1..] {
+                            emit_loop(expr, instructions, None, arity_map, constant_map)?;
+                        }
+                        instructions.push(Instruction::new_apply(
+                            if let Expr::Atom(s) = &list_of_tokens[0] {
+                                s.clone()
+                            } else {
+                                SyntaxObject::default(TokenType::Identifier("apply".to_string()))
+                            },
+                        ));
+
+                        return Ok(());
+                    }
                     // Catches errors and captures an Error result from the execution
                     // resumes execution at the other branch of the execution
                     // try! should match the following form:
@@ -1061,6 +1093,7 @@ pub enum OpCode {
     TAILCALL = 19,
     MAP = 20,
     FILTER = 21,
+    APPLY = 22,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -1203,6 +1236,15 @@ impl Instruction {
     pub fn new_panic(span: SyntaxObject) -> Instruction {
         Instruction {
             op_code: OpCode::PANIC,
+            payload_size: 0,
+            contents: Some(span),
+            constant: false,
+        }
+    }
+
+    pub fn new_apply(span: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::APPLY,
             payload_size: 0,
             contents: Some(span),
             constant: false,
@@ -1405,7 +1447,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn roll_back(&mut self, idx: usize) {
+    pub fn roll_back(&mut self, _idx: usize) {
         unimplemented!()
     }
 
@@ -1441,6 +1483,7 @@ impl VirtualMachine {
             .map(|x| {
                 let code = Rc::new(x.into_boxed_slice());
                 let now = Instant::now();
+                // let mut heap = Vec::new();
                 let res = self.execute(code, &ctx.constant_map, ctx.repl);
                 println!("Time taken: {:?}", now.elapsed());
                 res
@@ -1563,7 +1606,7 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            // println!("{:?}", expr.to_string());
+            println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
                 &expr,
@@ -1575,6 +1618,8 @@ impl VirtualMachine {
             // if !script {
             // instructions.push(Instruction::new_clear());
             instructions.push(Instruction::new_pop());
+            // Maybe see if this gets the job done here
+            inject_heap_save_to_pop(&mut instructions);
             // }
             index_buffer.push(instructions.len());
             instruction_buffer.append(&mut instructions);
@@ -1599,6 +1644,7 @@ impl VirtualMachine {
         &mut self,
         instructions: Rc<Box<[DenseInstruction]>>,
         constants: &CT,
+        // heap: &mut Vec<Rc<RefCell<Env>>>,
         repl: bool,
     ) -> Result<Rc<SteelVal>> {
         // execute_vm(instructions)
@@ -1611,14 +1657,22 @@ impl VirtualMachine {
             instructions,
             stack,
             &mut heap,
+            // heap,
             Rc::clone(&self.global_env),
             constants,
             repl,
         );
 
+        // println!("$$$$$$$$$$ GETTING HERE! $$$$$$$$$$$$");
+
+        // TODO figure this noise out
+        // might be easier to just... write a GC
         if self.global_env.borrow().is_binding_context() {
+            // println!("Copying over the heap from the run time:");
+
             self.global_heap.append(&mut heap);
             self.global_env.borrow_mut().set_binding_context(false);
+            // inspect_heap(&self.global_heap);
         }
 
         // Maybe?????
@@ -1669,6 +1723,7 @@ pub fn extract_constants<CT: ConstantTable>(
 }
 
 fn inspect_heap(heap: &Vec<Rc<RefCell<Env>>>) {
+    println!("heap length: {}", heap.len());
     let hp: Vec<String> = heap
         .into_iter()
         .map(|x| x.borrow().string_bindings_vec())
@@ -1878,6 +1933,38 @@ fn inline_filter_iter<
     // Ok(collected_results)
 }
 
+// walk the current env and collect all the necessary environment into its own heap
+// this should save the necessary environments at the end of the lifecycle of an environment
+// tracing garbage collector?
+// Honestly no idea what this entails
+fn trace_envs(leaf: &Rc<RefCell<Env>>) -> Vec<Rc<RefCell<Env>>> {
+    // unimplemented!()
+
+    println!(
+        "Leaf node has length: {}",
+        leaf.borrow().bindings_map().len()
+    );
+
+    let mut env = Rc::clone(leaf);
+    let mut heap = vec![Rc::clone(leaf)];
+
+    while let Some(parent_env) = Rc::clone(&env).borrow().sub_expression() {
+        let upgraded_env = parent_env.upgrade().unwrap();
+        println!(
+            "Found env inside trace with length: {}",
+            upgraded_env.borrow().bindings_map().len()
+        );
+        if !upgraded_env.borrow().is_root() {
+            heap.push(Rc::clone(&upgraded_env));
+            env = upgraded_env;
+        } else {
+            break;
+        }
+    }
+
+    heap
+}
+
 fn inline_map_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     iter: I,
     stack_func: Rc<SteelVal>,
@@ -2054,6 +2141,14 @@ pub fn vm<CT: ConstantTable>(
     let mut env_stack: Vec<Rc<RefCell<Env>>> = Vec::new();
     // Manage the depth of instructions to know when to backtrack
     let mut pop_count = 1;
+    // Setting a stack of roll back points for the heap on function exits
+    // This should actually be a Vec<usize> where the last argument is the amount to remove
+    // So each exiting body should remove the scope of what existed within it
+
+    // This could actually just be a single usize based off of the way I use it
+    // TODO verify that this actually works, take out the CLEAR op_code because its kinda useless
+    // now
+    let mut heap_stack = 0;
 
     while ip < instructions.len() {
         cur_inst = &instructions[ip];
@@ -2079,6 +2174,7 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::PUSH => {
+                // awful awful awful hack to fix the repl environment noise
                 if repl {
                     let value = global_env.borrow().repl_lookup_idx(cur_inst.payload_size)?;
                     stack.push(value);
@@ -2088,12 +2184,30 @@ pub fn vm<CT: ConstantTable>(
                 }
                 ip += 1;
             }
+            OpCode::APPLY => {
+                let _list = stack.pop().unwrap();
+                let _func = stack.pop().unwrap();
+
+                panic!("Apply not implemented - internal compiler error");
+
+                // TODO inline the OpCode::FUNC case here for speedup
+
+                // match list.as_ref() {
+                //     SteelVal::Pair(_, _) => {
+                //         let args = SteelVal::iter(list)
+                //     }
+                // }
+            }
             OpCode::CLEAR => {
-                // println!("%%%%%%%%%%% Hitting clear! %%%%%%%%%%%");
-                // println!("length of heap at clear: {}", heap.len());
+                println!("%%%%%%%%%%% Hitting clear! %%%%%%%%%%%");
+                println!("length of heap at clear: {}", heap.len());
                 // println!("Heap at clear:");
                 // inspect_heap(&heap);
-                heap.clear();
+                // heap.truncate(heap_stack.pop().unwrap());
+                // heap_stack.push(0);
+                // heap.clear();
+                // heap.truncate(heap.len() - heap_stack.pop().unwrap());
+                // heap_stack.push(0);
                 ip += 1;
             }
             OpCode::MAP => {
@@ -2252,7 +2366,10 @@ pub fn vm<CT: ConstantTable>(
                             // println!("Found a closure");
                             // instead of the recursive call, update the values and go back through the loop...
                             // closure_stack.push(Rc::clone(&stack_func));
-                            env_stack.push(global_env);
+                            env_stack.push(Rc::clone(&global_env));
+                            // TODO
+                            // heap_stack.push(heap.len());
+                            // heap.push(Rc::clone(&global_env));
                             // println!("Env stack size after pushing up top: {}", env_stack.len());
                             // println!("Env stack:");
                             // inspect_heap(&env_stack);
@@ -2268,6 +2385,15 @@ pub fn vm<CT: ConstantTable>(
 
                         // evaluate(&lambda.body_exp(), &inner_env)
                         } else if let Some(parent_env) = closure.sub_expression_env() {
+                            // println!("Getting here!");
+
+                            // pretty_print_dense_instructions(&closure.body_exp());
+
+                            // println!(
+                            //     "Parent Env Information: {:?}",
+                            //     closure.body_exp()
+                            // );
+
                             // TODO remove this unwrap
                             let offset = closure.offset()
                                 + parent_env.upgrade().unwrap().borrow().local_offset();
@@ -2291,7 +2417,9 @@ pub fn vm<CT: ConstantTable>(
                             // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
                             // closure_stack.push(Rc::clone(&stack_func));
                             // TODO this is where the memory leak is
-                            env_stack.push(global_env);
+                            env_stack.push(Rc::clone(&global_env));
+                            // heap_stack.push(0);
+                            // heap.push(Rc::clone(&global_env));
                             // println!("Env stack size after pushing below: {}", env_stack.len());
                             // println!("Env stack:");
                             // inspect_heap(&env_stack);
@@ -2313,6 +2441,7 @@ pub fn vm<CT: ConstantTable>(
             }
             // Tail call basically says "hey this function is exiting"
             // In the closure case, transfer ownership of the stack to the called function
+            // heap shouldn't actually clear...?
             OpCode::TAILCALL => {
                 let stack_func = stack.pop().unwrap();
 
@@ -2404,11 +2533,48 @@ pub fn vm<CT: ConstantTable>(
                                     0
                                 });
 
+                            println!("Tail Call!!!!");
                             // env_stack.push(global_env);
                             // tail_call_env_stack
+
+                            println!("About to truncate the heap with length: {}", heap.len());
+                            // inspect_heap(&heap);
+
+                            // let mut copied_heap = trace_envs(&inner_env);
+                            // println!("Copied heap length: {:?}", copied_heap.len());
+
+                            // TODO heap truncate stuff
+
+                            // heap.truncate(heap.len() - heap_stack);
+                            // heap_stack = 0;
+
+                            // heap_stack.push(0);
+
+                            // let last = heap.len() - heap_stack;
+                            // heap_stack = 0;
+                            // heap.drain(0..last);
+
+                            // if last > 0 {
+                            //     heap.drain(0..last);
+                            // }
+
+                            // let last = heap.len();
+                            // let new_heap = heap.split_off(last);
+
+                            // heap = new_heap;
+
+                            // heap.append(&mut copied_heap);
+
                             global_env = inner_env;
                             instructions = closure.body_exp();
                             stack = args;
+
+                            // println!("After truncating:");
+                            // inspect_heap(&heap);
+
+                            // println!("heap_stack: {:?}", heap_stack);
+                            // Not sure if I want to clear here or not?... guess not?
+                            // heap.clear();
                             ip = 0;
                         } else {
                             stop!(Generic => "Root env is missing!")
@@ -2420,42 +2586,67 @@ pub fn vm<CT: ConstantTable>(
                 }
             }
             OpCode::IF => {
-                // change to truthy
-                // if let SteelVal::BoolV(false) = stack.pop().unwrap().as_ref() {
-                //     ip += 1;
-                // } else {
-                //     ip = cur_inst.payload_size;
-                // }
-
-                if let SteelVal::BoolV(true) = stack.pop().unwrap().as_ref() {
-                    ip = cur_inst.payload_size; // Jump to payload
-                                                // ip += 2; // Jump to payload
-                                                // cur_inst = &instructions[ip];
+                // change to truthy...
+                if stack.pop().unwrap().is_truthy() {
+                    ip = cur_inst.payload_size;
                 } else {
                     ip += 1;
                 }
             }
             OpCode::JMP => {
                 ip = cur_inst.payload_size;
+                // HACk
+                if ip == 0 {
+                    heap.clear();
+                }
             }
             OpCode::POP => {
                 pop_count -= 1;
                 if pop_count == 0 {
+                    // println!("Clearing the env stack and the heap");
+                    // println!("Heap at clear:");
+                    // inspect_heap(&heap);
                     env_stack.clear();
-                    heap.clear();
-                    // Maybe
-                    // global_env.borrow_mut().set_binding_context(false);
-                    global_env.borrow_mut().set_binding_offset(false);
 
-                    return stack.pop().ok_or_else(|| {
+                    if cur_inst.payload_size == 1 {
+                        global_env.borrow_mut().set_binding_context(true);
+                    }
+
+                    let ret_val = stack.pop().ok_or_else(|| {
                         SteelErr::Generic("stack empty at pop".to_string(), Some(cur_inst.span))
                     });
+
+                    global_env.borrow_mut().set_binding_offset(false);
+
+                    // if let Ok(SteelVal::Closure(_)) = ret_val.as_ref().map(|x| x.as_ref()) {
+                    //     // Do nothing
+                    // } else {
+                    //     println!("Hitting a clear here %%%%%%%%%%%%%%%%");
+                    //     // heap.clear();
+                    // }
+
+                    return ret_val;
+
+                // heap.clear();
+
+                // Maybe
+                // global_env.borrow_mut().set_binding_context(false);
+
+                // TODO old
+                // global_env.borrow_mut().set_binding_offset(false);
+
+                // return stack.pop().ok_or_else(|| {
+                //     SteelErr::Generic("stack empty at pop".to_string(), Some(cur_inst.span))
+                // });
                 } else {
                     let ret_val = stack.pop().unwrap();
                     let prev_state = instruction_stack.pop().unwrap();
 
                     if prev_state.1.len() != 0 {
                         global_env = env_stack.pop().unwrap();
+                        // TODO
+                        // heap.truncate(heap_stack.pop().unwrap());
+
                         ip = prev_state.0;
                         instructions = prev_state.1;
                     } else {
@@ -2533,8 +2724,26 @@ pub fn vm<CT: ConstantTable>(
                 // println!("Pushing onto the heap!");
 
                 if !global_env.borrow().is_root() {
+                    // println!("Pushing onto the heap!");
                     heap.push(Rc::clone(&capture_env));
+                    heap_stack += 1;
+                    // let hs_len = heap_stack.len() - 1;
+                    // heap_stack[hs_len] += 1;
+                    // inspect_heap(&heap);
                 }
+
+                // if heap_stack.len() > 0 {
+                //     let last = heap_stack[heap_stack.len() - 1];
+                //     // println!("Last: {}, Heap len: {}", last, heap.len());
+                //     if last != heap.len() {
+                //         heap_stack.push(heap.len());
+                //     }
+                // } else {
+                //     heap_stack.push(heap.len());
+                // }
+
+                // heap_stack.push(heap.len());
+
                 // inspect_heap(&heap);
                 let constructed_lambda = ByteCodeLambda::new(
                     closure_body,
