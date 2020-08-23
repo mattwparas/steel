@@ -90,4 +90,9 @@
   (define (bar) (main) (foo))
   (foo))
 
+(define (test-3)
+  (define (foo) (inspect-bytecode bar) (bar))
+  (define (bar) (inspect-bytecode foo) (foo))
+  (foo))
+
 ;; (main)
