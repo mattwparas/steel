@@ -1,31 +1,4 @@
-#lang racket
 ;; implementation of a dfs in steel
-
-;; (define (shortest-path start end net)
-;;   (dfs end (list (list start)) net))
-
-
-;; (defun bfs (end queue net)
-;;   (if (null queue)
-;;       nil
-;;       (let ((path (car queue)))
-;;         (let ((node (car path)))
-;;           (if (eql node end)
-;;               (reverse path)
-;;               (bfs end
-;;                    (append (cdr queue)
-;;                            (new-paths path node net))
-;;                    net))))))
-
-;;
-;; (defun new-paths (path node net)
-;;   (mapcar #'(lambda (n)
-;;               (cons n path))
-;;           (cdr (assoc node net))))
-
-;; (define (longest-path start end graph)
-;;   (bfs ...))
-
 
 ;; Given a node and a graph
 ;; node -> 'a
@@ -41,20 +14,28 @@
       (cdr found-neighbors)
       '()))
 
-;; (get-neighbors 'a '((a b c) (b d) (e f)))
-
-;; (define (loop neighbors my-best-path next-neighbor end new-path graph))
-
-
 (define (longest  lst)
   (foldr (λ (a b) (if (> (length a) (length b)) a b))
          '()
          lst))
 
+(define (reverse ls)
+  (define (my-reverse-2 ls acc)
+    (if (null? ls)
+      acc
+      (my-reverse-2 (cdr ls) (cons (car ls) acc))))
+  (my-reverse-2 ls '()))
+
 (define (first-step curr end graph)
   (define neighbors (get-neighbors curr graph))
   (longest (map (lambda (x) (dfs x end '() '() graph)) neighbors)))
 
+
+(define (member? x los)
+  (cond
+    ((null? los) #f)
+    ((equal? x (car los)) #t)
+    (else (member? x (cdr los)))))
 
 ;; iteratively tries each neighbor
 ;; quits when the length is worse
@@ -72,7 +53,7 @@
   (define new-path (cons curr path))
   (cond ((equal? curr end)
          (cons curr path))
-        ((member curr path)
+        ((member? curr path)
          '())
         (neighbors
          (try-all-neighbors neighbors best-path end (cons curr path) graph))

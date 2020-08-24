@@ -133,6 +133,7 @@ pub struct Env {
     module: Vec<AST>,
     is_module_context: bool,
     ndefs: usize,
+    reachable: bool,
 }
 
 impl Drop for Env {
@@ -180,7 +181,16 @@ impl Env {
             module: Vec::new(),
             is_module_context: false,
             ndefs: 0,
+            reachable: false,
         }
+    }
+
+    pub fn set_reachable(&mut self, b: bool) {
+        self.reachable = b;
+    }
+
+    pub fn is_reachable(&self) -> bool {
+        self.reachable
     }
 
     pub fn add_module(&mut self, new_mod: AST) {
@@ -248,6 +258,7 @@ impl Env {
             module: Vec::new(),
             is_module_context: false,
             ndefs: 0,
+            reachable: false,
         }
     }
 
@@ -298,6 +309,7 @@ impl Env {
             module: Vec::new(),
             is_module_context: false,
             ndefs: 0,
+            reachable: true,
         }
     }
 
@@ -752,7 +764,7 @@ impl Env {
             ("cons", ListOperations::cons()),
             ("append", ListOperations::append()),
             ("push-back", ListOperations::push_back()),
-            ("reverse", ListOperations::reverse()),
+            // ("reverse", ListOperations::reverse()), TODO
             ("range", ListOperations::range()),
             ("list->vector", ListOperations::list_to_vec()),
             ("vector", VectorOperations::vec_construct()),
