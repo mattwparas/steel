@@ -1432,7 +1432,7 @@ impl<CT: ConstantTable> Ctx<CT> {
 
 pub struct VirtualMachine {
     global_env: Rc<RefCell<Env>>,
-    global_heap: Vec<Rc<RefCell<Env>>>,
+    global_heap: Gc,
     macro_env: Rc<RefCell<Env>>,
     idents: MacroSet,
 }
@@ -1441,7 +1441,7 @@ impl VirtualMachine {
     pub fn new() -> VirtualMachine {
         VirtualMachine {
             global_env: Rc::new(RefCell::new(Env::default_env())),
-            global_heap: Vec::new(),
+            global_heap: Gc::new(),
             macro_env: Rc::new(RefCell::new(Env::root())),
             idents: MacroSet::new(),
         }
@@ -1649,7 +1649,7 @@ impl VirtualMachine {
     ) -> Result<Rc<SteelVal>> {
         // execute_vm(instructions)
         let stack: Vec<Rc<SteelVal>> = Vec::new();
-        let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
+        let mut heap = Gc::new();
         // let mut constants: Vec<Rc<RefCell<Env>>
 
         // let global_env = Rc::new(RefCell::new(Env::default_env()));
@@ -1672,7 +1672,8 @@ impl VirtualMachine {
 
             self.global_heap.append(&mut heap);
             self.global_env.borrow_mut().set_binding_context(false);
-            inspect_heap(&self.global_heap);
+            self.global_heap.inspect_heap();
+            // inspect_heap(&self.global_heap);
         }
 
         // Maybe?????
@@ -1691,7 +1692,7 @@ pub fn execute_vm(
     constants: &ConstantMap,
 ) -> Result<Rc<SteelVal>> {
     let stack: Vec<Rc<SteelVal>> = Vec::new();
-    let mut heap: Vec<Rc<RefCell<Env>>> = Vec::new();
+    let mut heap = Gc::new();
     // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
     let global_env = Rc::new(RefCell::new(Env::default_env()));
     vm(instructions, stack, &mut heap, global_env, constants, false)
@@ -1722,22 +1723,13 @@ pub fn extract_constants<CT: ConstantTable>(
     Ok(())
 }
 
-fn inspect_heap(heap: &Vec<Rc<RefCell<Env>>>) {
-    println!("heap length: {}", heap.len());
-    let hp: Vec<String> = heap
-        .into_iter()
-        .map(|x| x.borrow().string_bindings_vec())
-        .collect();
-    println!("{:?}", hp);
-}
-
-fn switch_filter_map<'global, CT: ConstantTable>(
-    stack_func: Rc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-) {
-    unimplemented!()
-}
+// fn switch_filter_map<'global, CT: ConstantTable>(
+//     stack_func: Rc<SteelVal>,
+//     constants: &'global CT,
+//     cur_inst_span: &'global Span,
+// ) {
+//     unimplemented!()
+// }
 
 fn inline_map_iter<
     'global,
@@ -1789,7 +1781,7 @@ fn inline_map_iter<
                         0
                     });
 
-                let mut local_heap = Vec::new();
+                let mut local_heap = Gc::new();
 
                 // TODO make recursive call here with a very small stack
                 // probably a bit overkill, but not much else I can do here I think
@@ -1884,7 +1876,7 @@ fn inline_filter_iter<
                         0
                     });
 
-                let mut local_heap = Vec::new();
+                let mut local_heap = Gc::new();
 
                 // TODO make recursive call here with a very small stack
                 // probably a bit overkill, but not much else I can do here I think
@@ -1933,64 +1925,6 @@ fn inline_filter_iter<
     // Ok(collected_results)
 }
 
-// walk the current env and collect all the necessary environment into its own heap
-// this should save the necessary environments at the end of the lifecycle of an environment
-// tracing garbage collector?
-// Honestly no idea what this entails
-fn trace_envs(leaf: &Rc<RefCell<Env>>, new_heap: &mut Vec<Rc<RefCell<Env>>>) {
-    // unimplemented!()
-
-    // println!(
-    //     "Leaf node has length: {}",
-    //     leaf.borrow().bindings_map().len()
-    // );
-
-    // if leaf.borrow().is_reachable() {
-    //     return;
-    // }
-
-    new_heap.push(Rc::clone(leaf));
-
-    let mut env = Rc::clone(leaf);
-    // let mut heap = vec![Rc::clone(leaf)];
-
-    while let Some(parent_env) = Rc::clone(&env).borrow().sub_expression() {
-        let upgraded_env = parent_env.upgrade().unwrap();
-        if !upgraded_env.borrow().is_root() {
-            let e = Rc::clone(&upgraded_env);
-
-            // See if this works...
-            for (_, value) in e.borrow().bindings_map() {
-                if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
-                    let p_env = bytecode_lambda
-                        .sub_expression_env()
-                        .unwrap()
-                        .upgrade()
-                        .unwrap();
-                    trace_envs(&p_env, new_heap);
-                    // heap.append(&mut found_envs);
-                }
-            }
-
-            // heap.push(Rc::clone(&upgraded_env));
-            // println!(
-            //     "Found env inside trace with length: {}",
-            //     upgraded_env.borrow().bindings_map().len()
-            // );
-
-            // for value in
-
-            env = upgraded_env;
-        } else {
-            break;
-        }
-    }
-
-    // leaf.borrow_mut().set_reachable(true);
-
-    // heap
-}
-
 fn inline_map_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     iter: I,
     stack_func: Rc<SteelVal>,
@@ -2035,7 +1969,7 @@ fn inline_map_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
                         0
                     });
 
-                let mut local_heap = Vec::new();
+                let mut local_heap = Gc::new();
 
                 // TODO make recursive call here with a very small stack
                 // probably a bit overkill, but not much else I can do here I think
@@ -2105,7 +2039,7 @@ fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
                         0
                     });
 
-                let mut local_heap = Vec::new();
+                let mut local_heap = Gc::new();
 
                 // TODO make recursive call here with a very small stack
                 // probably a bit overkill, but not much else I can do here I think
@@ -2157,60 +2091,179 @@ fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
 //     }
 // }
 
-fn walk_down(env: &Rc<RefCell<Env>>) {
-    for (_, value) in env.borrow().bindings_map() {
-        if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
-            let p_env = bytecode_lambda
-                .sub_expression_env()
-                .unwrap()
-                .upgrade()
-                .unwrap();
-            if !p_env.borrow().is_root() {
-                println!("$$$$$$$$$$$$$$$$$$$ Found env! $$$$$$$$$$$$$$$$");
-                walk_down(&p_env);
-                p_env.borrow_mut().set_reachable(true);
+// walk the current env and collect all the necessary environment into its own heap
+// this should save the necessary environments at the end of the lifecycle of an environment
+// tracing garbage collector?
+// Honestly no idea what this entails
+// fn trace_envs(leaf: &Rc<RefCell<Env>>, new_heap: &mut Vec<Rc<RefCell<Env>>>) {
+//     new_heap.push(Rc::clone(leaf));
+
+//     let mut env = Rc::clone(leaf);
+//     // let mut heap = vec![Rc::clone(leaf)];
+
+//     while let Some(parent_env) = Rc::clone(&env).borrow().sub_expression() {
+//         let upgraded_env = parent_env.upgrade().unwrap();
+//         if !upgraded_env.borrow().is_root() {
+//             let e = Rc::clone(&upgraded_env);
+
+//             // See if this works...
+//             for (_, value) in e.borrow().bindings_map() {
+//                 if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
+//                     let p_env = bytecode_lambda
+//                         .sub_expression_env()
+//                         .unwrap()
+//                         .upgrade()
+//                         .unwrap();
+//                     trace_envs(&p_env, new_heap);
+//                     // heap.append(&mut found_envs);
+//                 }
+//             }
+
+//             env = upgraded_env;
+//         } else {
+//             break;
+//         }
+//     }
+// }
+
+pub struct Gc(Vec<Rc<RefCell<Env>>>);
+
+impl Gc {
+    pub fn new() -> Gc {
+        Gc(Vec::new())
+    }
+
+    fn push(&mut self, val: Rc<RefCell<Env>>) {
+        self.0.push(val)
+    }
+
+    fn inspect_heap(&self) {
+        println!("heap length: {}", self.0.len());
+        let hp: Vec<String> = self
+            .0
+            .iter()
+            .map(|x| x.borrow().string_bindings_vec())
+            .collect();
+        println!("{:?}", hp);
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn append(&mut self, other: &mut Gc) {
+        self.0.append(&mut other.0)
+    }
+
+    pub fn gather(&mut self, leaf: &Rc<RefCell<Env>>) {
+        self.push(Rc::clone(leaf));
+
+        let mut env = Rc::clone(leaf);
+        // let mut heap = vec![Rc::clone(leaf)];
+
+        while let Some(parent_env) = Rc::clone(&env).borrow().sub_expression() {
+            let upgraded_env = parent_env.upgrade().unwrap();
+            if !upgraded_env.borrow().is_root() {
+                let e = Rc::clone(&upgraded_env);
+
+                // See if this works...
+                for (_, value) in e.borrow().bindings_map() {
+                    if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
+                        let p_env = bytecode_lambda
+                            .sub_expression_env()
+                            .unwrap()
+                            .upgrade()
+                            .unwrap();
+
+                        self.gather(&p_env);
+                        // trace_envs(&p_env, new_heap);
+                        // heap.append(&mut found_envs);
+                    }
+                }
+
+                env = upgraded_env;
             } else {
-                println!("Captured env is the root!");
+                break;
             }
         }
     }
+
+    pub fn mark(&self) {
+        &self
+            .0
+            .iter()
+            .for_each(|x| x.borrow_mut().set_reachable(true));
+    }
+
+    pub fn sweep(&mut self) {
+        &self.0.retain(|x| x.borrow().is_reachable());
+    }
+
+    pub fn mark_and_sweep(&mut self) {
+        self.mark();
+        self.sweep();
+    }
+
+    pub fn collect_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {
+        self.gather(leaf);
+        self.mark_and_sweep();
+    }
+
+    // pub fn sweep(&mut self, )
 }
 
-fn collect_garbage(root: &Rc<RefCell<Env>>, global_heap: &mut Vec<Rc<RefCell<Env>>>) {
-    // for (_, value) in
-    // for (_, value) in root.borrow().bindings_map() {
-    //     if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
-    //         let p_env = bytecode_lambda
-    //             .sub_expression_env()
-    //             .unwrap()
-    //             .upgrade()
-    //             .unwrap();
-    //     }
-    // }
+// fn walk_down(env: &Rc<RefCell<Env>>) {
+//     for (_, value) in env.borrow().bindings_map() {
+//         if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
+//             let p_env = bytecode_lambda
+//                 .sub_expression_env()
+//                 .unwrap()
+//                 .upgrade()
+//                 .unwrap();
+//             if !p_env.borrow().is_root() {
+//                 println!("$$$$$$$$$$$$$$$$$$$ Found env! $$$$$$$$$$$$$$$$");
+//                 walk_down(&p_env);
+//                 p_env.borrow_mut().set_reachable(true);
+//             } else {
+//                 println!("Captured env is the root!");
+//             }
+//         }
+//     }
+// }
 
-    walk_down(root);
+// fn collect_garbage(root: &Rc<RefCell<Env>>, global_heap: &mut Vec<Rc<RefCell<Env>>>) {
+//     // for (_, value) in
+//     // for (_, value) in root.borrow().bindings_map() {
+//     //     if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
+//     //         let p_env = bytecode_lambda
+//     //             .sub_expression_env()
+//     //             .unwrap()
+//     //             .upgrade()
+//     //             .unwrap();
+//     //     }
+//     // }
 
-    let reached: Vec<bool> = global_heap
-        .iter()
-        .map(|x| x.borrow().is_reachable())
-        .collect();
+//     walk_down(root);
 
-    println!("heap after: envs: {:?}", reached);
+//     let reached: Vec<bool> = global_heap
+//         .iter()
+//         .map(|x| x.borrow().is_reachable())
+//         .collect();
 
-    // unimplemented!()
-}
+//     println!("heap after: envs: {:?}", reached);
+
+//     // unimplemented!()
+// }
 
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<Box<[DenseInstruction]>>,
     stack: Vec<Rc<SteelVal>>,
-    heap: &mut Vec<Rc<RefCell<Env>>>,
+    heap: &mut Gc,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
     repl: bool,
 ) -> Result<Rc<SteelVal>> {
     let mut ip = 0;
-
-    let root = Rc::clone(&global_env);
 
     let mut global_env = global_env;
 
@@ -2595,14 +2648,16 @@ pub fn vm<CT: ConstantTable>(
 
                         println!("@@@@@@@@@@@@@@@ Args: {:?}", copied_args);
 
-                        let mut new_heap = Vec::new();
+                        // let mut new_heap = Vec::new();
+
+                        let mut new_heap = Gc::new();
 
                         for arg in copied_args {
                             if let SteelVal::Closure(closure) = arg.as_ref() {
                                 if let Some(parent_env) = closure.sub_expression_env() {
                                     println!("Found an env to trace backwards in the args!");
 
-                                    trace_envs(&parent_env.upgrade().unwrap(), &mut new_heap);
+                                    new_heap.gather(&parent_env.upgrade().unwrap());
 
                                     println!(
                                         "Found this length after the trace: {}",
@@ -2687,26 +2742,38 @@ pub fn vm<CT: ConstantTable>(
                             println!("Tracing the global environment:");
                             // collect_garbage(&root, heap);
 
-                            trace_envs(&global_env, &mut new_heap);
-                            trace_envs(&inner_env, &mut new_heap);
+                            // new_heap.trace_envs
 
-                            new_heap
-                                .into_iter()
-                                .for_each(|x| x.borrow_mut().set_reachable(true));
+                            new_heap.gather(&global_env);
+                            new_heap.gather(&inner_env);
 
-                            let reached: Vec<bool> =
-                                heap.iter().map(|x| x.borrow().is_reachable()).collect();
+                            new_heap.mark();
+
+                            // trace_envs(&global_env, &mut new_heap);
+                            // trace_envs(&inner_env, &mut new_heap);
+
+                            heap.sweep();
+
+                            // new_heap.mark();
+                            // new_heap.sweep();
+
+                            // new_heap
+                            //     .into_iter()
+                            //     .for_each(|x| x.borrow_mut().set_reachable(true));
+
+                            // let reached: Vec<bool> =
+                            //     heap.iter().map(|x| x.borrow().is_reachable()).collect();
 
                             // heap.retain(|x| !x.borrow().is_reachable());
 
-                            println!("heap after: envs: {:?}", reached);
+                            // println!("heap after: envs: {:?}", reached);
 
-                            heap.retain(|x| x.borrow().is_reachable());
+                            // heap.retain(|x| x.borrow().is_reachable());
 
-                            let after_retain: Vec<bool> =
-                                heap.iter().map(|x| x.borrow().is_reachable()).collect();
+                            // let after_retain: Vec<bool> =
+                            //     heap.iter().map(|x| x.borrow().is_reachable()).collect();
 
-                            println!("heap after retain: {:?}", after_retain);
+                            // println!("heap after retain: {:?}", after_retain);
 
                             // println
 
@@ -2807,17 +2874,30 @@ pub fn vm<CT: ConstantTable>(
                 if ip == 0 {
                     println!("Jumping back to the start!");
                     println!("Heap length: {}", heap.len());
-                    let mut new_heap = Vec::new();
-                    trace_envs(&global_env, &mut new_heap);
+                    let mut new_heap = Gc::new();
 
-                    let reached: Vec<bool> =
-                        heap.iter().map(|x| x.borrow().is_reachable()).collect();
+                    // new_heap
 
-                    // heap.retain(|x| !x.borrow().is_reachable());
+                    new_heap.gather(&global_env);
+                    new_heap.mark();
 
-                    println!("heap after: envs: {:?}", reached);
+                    heap.sweep();
 
-                    heap.retain(|x| x.borrow().is_reachable());
+                    // new_heap.gather(&global_env);
+
+                    // heap.mark_and_sweep()
+                    // heap.mark();
+                    // heap.sweep();
+                    // // trace_envs(&global_env, &mut new_heap);
+
+                    // let reached: Vec<bool> =
+                    //     heap.iter().map(|x| x.borrow().is_reachable()).collect();
+
+                    // // heap.retain(|x| !x.borrow().is_reachable());
+
+                    // println!("heap after: envs: {:?}", reached);
+
+                    // heap.retain(|x| x.borrow().is_reachable());
 
                     // heap.truncate(heap.len() - heap_stack.pop().unwrap());
                     // heap_stack.push(0);
