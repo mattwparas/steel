@@ -120,6 +120,7 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
     Rc::new(RefCell::new(x))
 }
 
+// #[derive(Debug, Hash)]
 pub struct Env {
     bindings: HashMap<String, Rc<SteelVal>>,
     bindings_vec: Vec<Rc<SteelVal>>,
@@ -350,7 +351,14 @@ impl Env {
     }
 
     pub fn string_bindings_vec(&self) -> String {
-        format!("{:?}", self.bindings_map)
+        // format!("{:?}", self.bindings_map)
+        let mut vec_str = self
+            .bindings_map
+            .iter()
+            .map(|x| format!("{:?}", x))
+            .collect::<Vec<String>>();
+        vec_str.sort();
+        format!("{:?}", vec_str)
     }
 
     pub fn bindings(&self) -> &HashMap<String, Rc<SteelVal>> {
@@ -820,6 +828,7 @@ impl Env {
             ("file-name", FsFunctions::file_name()),
             ("current-directory", FsFunctions::current_dir()),
             ("inspect-bytecode", MetaOperations::inspect_bytecode()),
+            ("sizeof", MetaOperations::size_of()),
         ]
     }
 }

@@ -126,12 +126,22 @@
    "van"
    "thirsty"
    "notify"
-   "star"
-   ))
+   "star"))
 
 
-; (define start (current-inexact-milliseconds))
+;; (define start (current-inexact-milliseconds))
+
+;; (define (loop x)
+;;   (if (equal? x 10)
+;;       x
+;;       (begin
+;;         (define trie1 (build-trie-from-list-of-words empty-trie test-list))
+;;         (displayln (trie-sort test-list))
+;;         (loop (+ x 1)))))
+
 (define trie1 (build-trie-from-list-of-words empty-trie test-list))
 (displayln (trie-sort test-list))
+
+;; (loop 0)
 
 ; (displayln (- (current-inexact-milliseconds) start))

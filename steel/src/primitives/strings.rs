@@ -39,9 +39,7 @@ impl StringOperations {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let parsed_int = s.parse::<isize>();
                     match parsed_int {
-                        Ok(n) => {
-                            return Ok(Rc::new(SteelVal::IntV(n)));
-                        }
+                        Ok(n) => Ok(Rc::new(SteelVal::IntV(n))),
                         Err(_) => {
                             stop!(TypeMismatch => "could not convert number to integer");
                         }

@@ -1,7 +1,11 @@
 mod arity;
 mod constants;
 mod expand;
+mod heap;
+mod instructions;
 mod map;
+mod opcode;
+mod stack;
 
 pub use arity::Arity;
 pub use arity::ArityMap;
@@ -10,7 +14,12 @@ pub use constants::ConstantTable;
 pub use expand::expand;
 pub use expand::extract_macro_definitions;
 use expand::get_definition_names;
+pub use heap::Heap;
+pub use instructions::Instruction;
 pub use map::SymbolMap;
+pub use opcode::OpCode;
+
+pub use stack::{CallStack, EnvStack, Stack, StackFrame};
 
 use expand::MacroSet;
 
@@ -485,6 +494,8 @@ pub fn insert_debruijn_indices(
     Ok(())
 }
 
+// Adds a flag to the pop value in order to save the heap to the global heap
+// I should really come up with a better name but for now we'll leave it
 pub fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
     match instructions {
         [.., Instruction {
@@ -1041,7 +1052,7 @@ fn emit_loop<CT: ConstantTable>(
                                 pop_len,
                                 SyntaxObject::default(TokenType::Identifier("lambda".to_string())),
                             ));
-                            instructions.push(Instruction::new_clear());
+                            // instructions.push(Instruction::new_clear());
                         }
 
                         // TODO fix this noise
@@ -1066,34 +1077,6 @@ fn emit_loop<CT: ConstantTable>(
     }
 
     Ok(())
-}
-
-#[repr(u8)]
-#[derive(Copy, Clone, Debug, Hash, PartialEq)]
-pub enum OpCode {
-    VOID = 0,
-    PUSH = 1,
-    LOOKUP = 2,
-    IF = 3,
-    JMP = 4,
-    FUNC = 5,
-    SCLOSURE = 6,
-    ECLOSURE = 7,
-    STRUCT = 8,
-    POP = 9,
-    BIND = 10,
-    SDEF = 11,
-    EDEF = 12,
-    PASS = 13,
-    PUSHCONST = 14,
-    NDEFS = 15,
-    EVAL = 16,
-    PANIC = 17,
-    CLEAR = 18,
-    TAILCALL = 19,
-    MAP = 20,
-    FILTER = 21,
-    APPLY = 22,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -1192,201 +1175,6 @@ impl From<Instruction> for DenseInstruction {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Instruction {
-    op_code: OpCode,
-    payload_size: usize,
-    contents: Option<SyntaxObject>,
-    constant: bool,
-}
-
-impl Instruction {
-    pub fn new(
-        op_code: OpCode,
-        payload_size: usize,
-        contents: SyntaxObject,
-        constant: bool,
-    ) -> Instruction {
-        Instruction {
-            op_code,
-            payload_size,
-            contents: Some(contents),
-            constant,
-        }
-    }
-
-    pub fn new_map() -> Instruction {
-        Instruction {
-            op_code: OpCode::MAP,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_filter() -> Instruction {
-        Instruction {
-            op_code: OpCode::FILTER,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_panic(span: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::PANIC,
-            payload_size: 0,
-            contents: Some(span),
-            constant: false,
-        }
-    }
-
-    pub fn new_apply(span: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::APPLY,
-            payload_size: 0,
-            contents: Some(span),
-            constant: false,
-        }
-    }
-
-    pub fn new_clear() -> Instruction {
-        Instruction {
-            op_code: OpCode::CLEAR,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_push_const(idx: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::PUSHCONST,
-            payload_size: idx,
-            contents: None,
-            constant: true,
-        }
-    }
-
-    pub fn new_eval() -> Instruction {
-        Instruction {
-            op_code: OpCode::EVAL,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_ndef(payload_size: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::NDEFS,
-            payload_size,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_func(arity: usize, contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::FUNC,
-            payload_size: arity,
-            contents: Some(contents),
-            constant: false,
-        }
-    }
-
-    pub fn new_pop() -> Instruction {
-        Instruction {
-            op_code: OpCode::POP,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_if(true_jump: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::IF,
-            payload_size: true_jump,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_jmp(jump: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::JMP,
-            payload_size: jump,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_sclosure() -> Instruction {
-        Instruction {
-            op_code: OpCode::SCLOSURE,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_eclosure(arity: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::ECLOSURE,
-            payload_size: arity,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_bind(contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::BIND,
-            payload_size: 0,
-            contents: Some(contents),
-            constant: false,
-        }
-    }
-
-    pub fn new_sdef() -> Instruction {
-        Instruction {
-            op_code: OpCode::SDEF,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_edef() -> Instruction {
-        Instruction {
-            op_code: OpCode::EDEF,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_void() -> Instruction {
-        Instruction {
-            op_code: OpCode::VOID,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_pass() -> Instruction {
-        Instruction {
-            op_code: OpCode::PASS,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-}
-
 pub struct Ctx<CT: ConstantTable> {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: CT,
@@ -1432,7 +1220,7 @@ impl<CT: ConstantTable> Ctx<CT> {
 
 pub struct VirtualMachine {
     global_env: Rc<RefCell<Env>>,
-    global_heap: Gc,
+    global_heap: Heap,
     macro_env: Rc<RefCell<Env>>,
     idents: MacroSet,
 }
@@ -1441,7 +1229,7 @@ impl VirtualMachine {
     pub fn new() -> VirtualMachine {
         VirtualMachine {
             global_env: Rc::new(RefCell::new(Env::default_env())),
-            global_heap: Gc::new(),
+            global_heap: Heap::new(),
             macro_env: Rc::new(RefCell::new(Env::root())),
             idents: MacroSet::new(),
         }
@@ -1629,7 +1417,7 @@ impl VirtualMachine {
 
         insert_debruijn_indices(&mut instruction_buffer, &mut ctx.symbol_map)?;
         extract_constants(&mut instruction_buffer, &mut ctx.constant_map)?;
-        coalesce_clears(&mut instruction_buffer);
+        // coalesce_clears(&mut instruction_buffer);
 
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
@@ -1648,8 +1436,8 @@ impl VirtualMachine {
         repl: bool,
     ) -> Result<Rc<SteelVal>> {
         // execute_vm(instructions)
-        let stack: Vec<Rc<SteelVal>> = Vec::new();
-        let mut heap = Gc::new();
+        let stack = StackFrame::new();
+        let mut heap = Heap::new();
         // let mut constants: Vec<Rc<RefCell<Env>>
 
         // let global_env = Rc::new(RefCell::new(Env::default_env()));
@@ -1668,7 +1456,7 @@ impl VirtualMachine {
         // TODO figure this noise out
         // might be easier to just... write a GC
         if self.global_env.borrow().is_binding_context() {
-            println!("Copying over the heap from the run time:");
+            // println!("Copying over the heap from the run time:");
 
             self.global_heap.append(&mut heap);
             self.global_env.borrow_mut().set_binding_context(false);
@@ -1691,8 +1479,8 @@ pub fn execute_vm(
     instructions: Rc<Box<[DenseInstruction]>>,
     constants: &ConstantMap,
 ) -> Result<Rc<SteelVal>> {
-    let stack: Vec<Rc<SteelVal>> = Vec::new();
-    let mut heap = Gc::new();
+    let stack = StackFrame::new();
+    let mut heap = Heap::new();
     // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
     let global_env = Rc::new(RefCell::new(Env::default_env()));
     vm(instructions, stack, &mut heap, global_env, constants, false)
@@ -1763,39 +1551,36 @@ fn inline_map_iter<
             let args = vec![arg];
             // if let Some()
 
-            if let Some(parent_env) = closure.sub_expression_env() {
-                // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+            let parent_env = closure.sub_expression_env();
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                    parent_env.clone(),
-                    offset,
-                )));
+            // TODO remove this unwrap
+            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                parent_env.clone(),
+                offset,
+            )));
 
-                let mut local_heap = Gc::new();
+            inner_env
+                .borrow_mut()
+                .reserve_defs(if closure.ndef_body() > 0 {
+                    closure.ndef_body() - 1
+                } else {
+                    0
+                });
 
-                // TODO make recursive call here with a very small stack
-                // probably a bit overkill, but not much else I can do here I think
-                vm(
-                    closure.body_exp(),
-                    args,
-                    &mut local_heap,
-                    inner_env,
-                    constants,
-                    repl,
-                )
-            } else {
-                stop!(Generic => "Something went wrong with map");
-            }
+            let mut local_heap = Heap::new();
+
+            // TODO make recursive call here with a very small stack
+            // probably a bit overkill, but not much else I can do here I think
+            vm(
+                closure.body_exp(),
+                args.into(),
+                &mut local_heap,
+                inner_env,
+                constants,
+                repl,
+            )
         }
         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
     };
@@ -1858,56 +1643,43 @@ fn inline_filter_iter<
             let args = vec![Rc::clone(&arg)];
             // if let Some()
 
-            if let Some(parent_env) = closure.sub_expression_env() {
-                // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+            let parent_env = closure.sub_expression_env();
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                    parent_env.clone(),
-                    offset,
-                )));
+            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                parent_env.clone(),
+                offset,
+            )));
 
-                let mut local_heap = Gc::new();
+            inner_env
+                .borrow_mut()
+                .reserve_defs(if closure.ndef_body() > 0 {
+                    closure.ndef_body() - 1
+                } else {
+                    0
+                });
 
-                // TODO make recursive call here with a very small stack
-                // probably a bit overkill, but not much else I can do here I think
-                let res = vm(
-                    closure.body_exp(),
-                    args,
-                    &mut local_heap,
-                    inner_env,
-                    constants,
-                    repl,
-                );
+            let mut local_heap = Heap::new();
 
-                match res {
-                    Ok(k) => match k.as_ref() {
-                        SteelVal::BoolV(true) => Some(Ok(arg)),
-                        SteelVal::BoolV(false) => None,
-                        _ => None,
-                    },
-                    Err(e) => Some(Err(e)),
-                }
+            // TODO make recursive call here with a very small stack
+            // probably a bit overkill, but not much else I can do here I think
+            let res = vm(
+                closure.body_exp(),
+                args.into(),
+                &mut local_heap,
+                inner_env,
+                constants,
+                repl,
+            );
 
-            // if let SteelVal::BoolV(true) = res {
-            //     Some(Ok(true))
-            // } else {
-            //     None
-            // }
-            } else {
-                Some(Err(SteelErr::Generic(
-                    "Something went wrong with map - internal error".to_string(),
-                    Some(*cur_inst_span),
-                )))
+            match res {
+                Ok(k) => match k.as_ref() {
+                    SteelVal::BoolV(true) => Some(Ok(arg)),
+                    SteelVal::BoolV(false) => None,
+                    _ => None,
+                },
+                Err(e) => Some(Err(e)),
             }
         }
         _ => Some(Err(SteelErr::TypeMismatch(
@@ -1951,39 +1723,35 @@ fn inline_map_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
             let args = vec![arg];
             // if let Some()
 
-            if let Some(parent_env) = closure.sub_expression_env() {
-                // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+            let parent_env = closure.sub_expression_env();
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                    parent_env.clone(),
-                    offset,
-                )));
+            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                parent_env.clone(),
+                offset,
+            )));
 
-                let mut local_heap = Gc::new();
+            inner_env
+                .borrow_mut()
+                .reserve_defs(if closure.ndef_body() > 0 {
+                    closure.ndef_body() - 1
+                } else {
+                    0
+                });
 
-                // TODO make recursive call here with a very small stack
-                // probably a bit overkill, but not much else I can do here I think
-                vm(
-                    closure.body_exp(),
-                    args,
-                    &mut local_heap,
-                    inner_env,
-                    constants,
-                    repl,
-                )
-            } else {
-                stop!(Generic => "Something went wrong with map");
-            }
+            let mut local_heap = Heap::new();
+
+            // TODO make recursive call here with a very small stack
+            // probably a bit overkill, but not much else I can do here I think
+            vm(
+                closure.body_exp(),
+                args.into(),
+                &mut local_heap,
+                inner_env,
+                constants,
+                repl,
+            )
         }
         _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
     };
@@ -2021,39 +1789,36 @@ fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
             let args = vec![arg];
             // if let Some()
 
-            if let Some(parent_env) = closure.sub_expression_env() {
-                // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+            let parent_env = closure.sub_expression_env();
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                    parent_env.clone(),
-                    offset,
-                )));
+            // TODO remove this unwrap
+            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                parent_env.clone(),
+                offset,
+            )));
 
-                let mut local_heap = Gc::new();
+            inner_env
+                .borrow_mut()
+                .reserve_defs(if closure.ndef_body() > 0 {
+                    closure.ndef_body() - 1
+                } else {
+                    0
+                });
 
-                // TODO make recursive call here with a very small stack
-                // probably a bit overkill, but not much else I can do here I think
-                vm(
-                    closure.body_exp(),
-                    args,
-                    &mut local_heap,
-                    inner_env,
-                    constants,
-                    repl,
-                )
-            } else {
-                stop!(Generic => "Something went wrong with map");
-            }
+            let mut local_heap = Heap::new();
+
+            // TODO make recursive call here with a very small stack
+            // probably a bit overkill, but not much else I can do here I think
+            vm(
+                closure.body_exp(),
+                args.into(),
+                &mut local_heap,
+                inner_env,
+                constants,
+                repl,
+            )
         }
         _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
     };
@@ -2068,197 +1833,41 @@ fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     Ok(collected_results)
 }
 
-// pub struct FunctionDiagnostics {
+#[derive(Debug)]
+pub struct InstructionPointer {
+    pub(crate) ip: usize,
+    instrs: Rc<Box<[DenseInstruction]>>,
+}
 
-// }
-
-// pub struct Gc(Vec<GcEntry>);
-
-// impl Gc {
-//     pub fn collect(&mut self) {
-//         unimplemented!()
-//     }
-// }
-
-// pub struct GcEntry {
-//     reachable: bool,
-//     entry: Rc<RefCell<Env>>,
-// }
-
-// impl GcEntry {
-//     pub fn visit(&mut self) {
-//         unimplemented!()
-//     }
-// }
-
-// walk the current env and collect all the necessary environment into its own heap
-// this should save the necessary environments at the end of the lifecycle of an environment
-// tracing garbage collector?
-// Honestly no idea what this entails
-// fn trace_envs(leaf: &Rc<RefCell<Env>>, new_heap: &mut Vec<Rc<RefCell<Env>>>) {
-//     new_heap.push(Rc::clone(leaf));
-
-//     let mut env = Rc::clone(leaf);
-//     // let mut heap = vec![Rc::clone(leaf)];
-
-//     while let Some(parent_env) = Rc::clone(&env).borrow().sub_expression() {
-//         let upgraded_env = parent_env.upgrade().unwrap();
-//         if !upgraded_env.borrow().is_root() {
-//             let e = Rc::clone(&upgraded_env);
-
-//             // See if this works...
-//             for (_, value) in e.borrow().bindings_map() {
-//                 if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
-//                     let p_env = bytecode_lambda
-//                         .sub_expression_env()
-//                         .unwrap()
-//                         .upgrade()
-//                         .unwrap();
-//                     trace_envs(&p_env, new_heap);
-//                     // heap.append(&mut found_envs);
-//                 }
-//             }
-
-//             env = upgraded_env;
-//         } else {
-//             break;
-//         }
-//     }
-// }
-
-pub struct Gc(Vec<Rc<RefCell<Env>>>);
-
-impl Gc {
-    pub fn new() -> Gc {
-        Gc(Vec::new())
-    }
-
-    fn push(&mut self, val: Rc<RefCell<Env>>) {
-        self.0.push(val)
-    }
-
-    fn inspect_heap(&self) {
-        println!("heap length: {}", self.0.len());
-        let hp: Vec<String> = self
-            .0
-            .iter()
-            .map(|x| x.borrow().string_bindings_vec())
-            .collect();
-        println!("{:?}", hp);
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn append(&mut self, other: &mut Gc) {
-        self.0.append(&mut other.0)
-    }
-
-    pub fn gather(&mut self, leaf: &Rc<RefCell<Env>>) {
-        self.push(Rc::clone(leaf));
-
-        let mut env = Rc::clone(leaf);
-        // let mut heap = vec![Rc::clone(leaf)];
-
-        while let Some(parent_env) = Rc::clone(&env).borrow().sub_expression() {
-            let upgraded_env = parent_env.upgrade().unwrap();
-            if !upgraded_env.borrow().is_root() {
-                let e = Rc::clone(&upgraded_env);
-
-                // See if this works...
-                for (_, value) in e.borrow().bindings_map() {
-                    if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
-                        let p_env = bytecode_lambda
-                            .sub_expression_env()
-                            .unwrap()
-                            .upgrade()
-                            .unwrap();
-
-                        self.gather(&p_env);
-                        // trace_envs(&p_env, new_heap);
-                        // heap.append(&mut found_envs);
-                    }
-                }
-
-                env = upgraded_env;
-            } else {
-                break;
-            }
+impl InstructionPointer {
+    pub fn new_raw() -> Self {
+        InstructionPointer {
+            ip: 0,
+            instrs: Rc::new(Box::new([])),
         }
     }
 
-    pub fn mark(&self) {
-        &self
-            .0
-            .iter()
-            .for_each(|x| x.borrow_mut().set_reachable(true));
+    pub fn new(ip: usize, instrs: Rc<Box<[DenseInstruction]>>) -> Self {
+        InstructionPointer { ip, instrs }
     }
 
-    pub fn sweep(&mut self) {
-        &self.0.retain(|x| x.borrow().is_reachable());
+    pub fn instrs_ref(&self) -> &Rc<Box<[DenseInstruction]>> {
+        &self.instrs
     }
 
-    pub fn mark_and_sweep(&mut self) {
-        self.mark();
-        self.sweep();
+    pub fn instrs(self) -> Rc<Box<[DenseInstruction]>> {
+        self.instrs
     }
-
-    pub fn collect_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {
-        self.gather(leaf);
-        self.mark_and_sweep();
-    }
-
-    // pub fn sweep(&mut self, )
 }
 
-// fn walk_down(env: &Rc<RefCell<Env>>) {
-//     for (_, value) in env.borrow().bindings_map() {
-//         if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
-//             let p_env = bytecode_lambda
-//                 .sub_expression_env()
-//                 .unwrap()
-//                 .upgrade()
-//                 .unwrap();
-//             if !p_env.borrow().is_root() {
-//                 println!("$$$$$$$$$$$$$$$$$$$ Found env! $$$$$$$$$$$$$$$$");
-//                 walk_down(&p_env);
-//                 p_env.borrow_mut().set_reachable(true);
-//             } else {
-//                 println!("Captured env is the root!");
-//             }
-//         }
-//     }
-// }
+// static const HEAP_LIMIT: usize =
 
-// fn collect_garbage(root: &Rc<RefCell<Env>>, global_heap: &mut Vec<Rc<RefCell<Env>>>) {
-//     // for (_, value) in
-//     // for (_, value) in root.borrow().bindings_map() {
-//     //     if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
-//     //         let p_env = bytecode_lambda
-//     //             .sub_expression_env()
-//     //             .unwrap()
-//     //             .upgrade()
-//     //             .unwrap();
-//     //     }
-//     // }
-
-//     walk_down(root);
-
-//     let reached: Vec<bool> = global_heap
-//         .iter()
-//         .map(|x| x.borrow().is_reachable())
-//         .collect();
-
-//     println!("heap after: envs: {:?}", reached);
-
-//     // unimplemented!()
-// }
+static HEAP_LIMIT: usize = 5000;
 
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<Box<[DenseInstruction]>>,
-    stack: Vec<Rc<SteelVal>>,
-    heap: &mut Gc,
+    stack: StackFrame,
+    heap: &mut Heap,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
     repl: bool,
@@ -2272,9 +1881,9 @@ pub fn vm<CT: ConstantTable>(
     }
 
     // instruction stack for function calls
-    let mut instruction_stack: Vec<(usize, Rc<Box<[DenseInstruction]>>)> = Vec::new();
+    let mut instruction_stack: Stack<InstructionPointer> = Stack::new();
     // stacks on stacks baby
-    let mut stacks: Vec<Vec<Rc<SteelVal>>> = Vec::new();
+    let mut stacks: CallStack = Stack::new();
     // initialize the instruction number pointer
     let mut cur_inst;
     // Pointer to array of instructions
@@ -2282,7 +1891,7 @@ pub fn vm<CT: ConstantTable>(
     // Self explanatory
     let mut stack = stack;
     // Manage current env in its own stack
-    let mut env_stack: Vec<Rc<RefCell<Env>>> = Vec::new();
+    let mut env_stack: EnvStack = Stack::new();
     // Manage the depth of instructions to know when to backtrack
     let mut pop_count = 1;
     // Setting a stack of roll back points for the heap on function exits
@@ -2292,18 +1901,18 @@ pub fn vm<CT: ConstantTable>(
     // This could actually just be a single usize based off of the way I use it
     // TODO verify that this actually works, take out the CLEAR op_code because its kinda useless
     // now
-    let mut heap_stack: Vec<usize> = vec![0];
+    // let mut heap_stack: Vec<usize> = vec![0];
 
     while ip < instructions.len() {
         cur_inst = &instructions[ip];
 
         match cur_inst.op_code {
             OpCode::PANIC => {
-                let error_message = stack.pop().unwrap();
+                let error_message = stack.pop();
                 stop!(Generic => error_message.to_string(); cur_inst.span);
             }
             OpCode::EVAL => {
-                panic!("eval not yet supported");
+                panic!("eval not yet supported - internal compiler error");
             }
             OpCode::PASS => {
                 ip += 1;
@@ -2329,8 +1938,8 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::APPLY => {
-                let _list = stack.pop().unwrap();
-                let _func = stack.pop().unwrap();
+                let _list = stack.pop();
+                let _func = stack.pop();
 
                 panic!("Apply not implemented - internal compiler error");
 
@@ -2343,43 +1952,11 @@ pub fn vm<CT: ConstantTable>(
                 // }
             }
             OpCode::CLEAR => {
-                // println!("%%%%%%%%%%% Hitting clear! %%%%%%%%%%%");
-                // println!("length of heap at clear: {}", heap.len());
-                // println!("Heap at clear:");
-                // inspect_heap(&heap);
-                // heap.truncate(heap_stack.pop().unwrap());
-                // heap_stack.push(0);
-
-                // let copied_heap = heap.clone();
-                // let mut new_heap = Vec::new();
-
-                // let copied_stack = stack.clone();
-
-                // for value in copied_stack {
-                //     if let SteelVal::Closure(_) = value.as_ref() {
-                //         println!("Found a closure in the stack!");
-                //     }
-                // }
-
-                // println!("Length of stack: {}", stack.len());
-                // println!("Stack: {:?}", stack);
-
-                // for env in &copied_heap {
-                //     let mut collected_envs = trace_envs(env);
-                //     // println!("Collected envs length: {}", collected_envs.len());
-                //     new_heap.append(&mut collected_envs);
-                // }
-
-                // println!("length of copied over heap at clear: {}", new_heap.len());
-
-                // heap.clear();
-                // heap.truncate(heap.len() - heap_stack.pop().unwrap());
-                // heap_stack.push(0);
                 ip += 1;
             }
             OpCode::MAP => {
-                let list = stack.pop().unwrap();
-                let stack_func = stack.pop().unwrap();
+                let list = stack.pop();
+                let stack_func = stack.pop();
 
                 match list.as_ref() {
                     SteelVal::Pair(_, _) => {
@@ -2391,26 +1968,10 @@ pub fn vm<CT: ConstantTable>(
                             repl,
                         )?;
 
-                        // stack.push(ListOperations::built_in_list_normal_iter(inline_map_iter(
-                        //     SteelVal::iter(list),
-                        //     stack_func,
-                        //     constants,
-                        //     &cur_inst.span,
-                        // ))?);
-
                         stack.push(ListOperations::built_in_list_func()(&collected_results)?);
-                        // stack.push(ListOperation::built_in_list_func()(inline_map
                     }
                     SteelVal::VectorV(v) => {
                         // TODO get rid of the clone here
-                        // let collected_results = inline_map(
-                        //     v.into_iter().map(Rc::clone),
-                        //     stack_func,
-                        //     constants,
-                        //     cur_inst,
-                        // )?;
-                        // stack.push(ListOperations::built_in_list_func()(&collected_results)?);
-                        // unimplemented!();
                         stack.push(VectorOperations::vec_construct_iter(inline_map_iter(
                             v.into_iter().map(Rc::clone),
                             stack_func,
@@ -2425,8 +1986,8 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::FILTER => {
-                let list = stack.pop().unwrap();
-                let stack_func = stack.pop().unwrap();
+                let list = stack.pop();
+                let stack_func = stack.pop();
 
                 // Change inline_map and inline_filter to return iterators... now that would be cool
                 match list.as_ref() {
@@ -2439,27 +2000,9 @@ pub fn vm<CT: ConstantTable>(
                             repl,
                         )?;
                         stack.push(ListOperations::built_in_list_func()(&collected_results)?);
-                        // stack.push(ListOperation::built_in_list_func()(inline_map
-
-                        // stack.push(ListOperations::built_in_list_normal_iter(
-                        //     inline_filter_iter(
-                        //         SteelVal::iter(list),
-                        //         stack_func,
-                        //         constants,
-                        //         &cur_inst.span,
-                        //     ),
-                        // )?);
                     }
                     SteelVal::VectorV(v) => {
                         // TODO get rid of the clone here
-                        // let collected_results = inline_filter(
-                        //     v.into_iter().map(Rc::clone),
-                        //     stack_func,
-                        //     constants,
-                        //     cur_inst,
-                        // )?;
-                        // stack.push(ListOperations::built_in_list_func()(&collected_results)?);
-                        // unimplemented!();
 
                         stack.push(VectorOperations::vec_construct_iter(inline_filter_iter(
                             v.into_iter().map(Rc::clone),
@@ -2475,7 +2018,7 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::FUNC => {
-                let stack_func = stack.pop().unwrap();
+                let stack_func = stack.pop();
 
                 // inspect_heap(&heap);
 
@@ -2487,14 +2030,7 @@ pub fn vm<CT: ConstantTable>(
                         ip += 1;
                     }
                     SteelVal::FuncV(f) => {
-                        // let args = stack.split_off(stack.len() - cur_inst.payload_size);
-                        // let args = &stack[stack.len()]
-
-                        // let args = &stack[stack.len() - cur_inst.payload_size..];
-
-                        // stack.pop();
-
-                        let result = f(&stack[stack.len() - cur_inst.payload_size..])
+                        let result = f(stack.peek_range(stack.len() - cur_inst.payload_size..))
                             .map_err(|x| x.set_span(cur_inst.span))?;
 
                         stack.truncate(stack.len() - cur_inst.payload_size);
@@ -2511,95 +2047,38 @@ pub fn vm<CT: ConstantTable>(
 
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
 
-                        // TODO fix this
-                        if let Some(parent_env) = closure.parent_env() {
-                            let offset = closure.offset() + parent_env.borrow().local_offset();
+                        let parent_env = closure.sub_expression_env();
 
-                            // let parent_env = lambda.parent_env();
-                            let inner_env = Rc::new(RefCell::new(Env::new(&parent_env, offset)));
+                        // TODO remove this unwrap
+                        let offset = closure.offset()
+                            + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                            inner_env
-                                .borrow_mut()
-                                .reserve_defs(if closure.ndef_body() > 0 {
-                                    closure.ndef_body() - 1
-                                } else {
-                                    0
-                                });
+                        let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                            parent_env.clone(),
+                            offset,
+                        )));
 
-                            // let params_exp = lambda.params_exp();
-                            // let result =
-                            // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
+                        inner_env
+                            .borrow_mut()
+                            .reserve_defs(if closure.ndef_body() > 0 {
+                                closure.ndef_body() - 1
+                            } else {
+                                0
+                            });
 
-                            // println!("Found a closure");
-                            // instead of the recursive call, update the values and go back through the loop...
-                            // closure_stack.push(Rc::clone(&stack_func));
-                            env_stack.push(Rc::clone(&global_env));
-                            // TODO
-                            // heap_stack.push(heap.len());
-                            // heap.push(Rc::clone(&global_env));
-                            // println!("Env stack size after pushing up top: {}", env_stack.len());
-                            // println!("Env stack:");
-                            // inspect_heap(&env_stack);
-                            global_env = inner_env;
-                            instruction_stack.push((ip + 1, instructions));
-                            pop_count += 1;
-                            stacks.push(stack);
-                            instructions = closure.body_exp();
-                            stack = args;
-                            ip = 0;
+                        // let result =
+                        // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
+                        // closure_stack.push(Rc::clone(&stack_func));
+                        // TODO this is where the memory leak is
+                        env_stack.push(Rc::clone(&global_env));
 
-                        // stack.push(result);
-
-                        // evaluate(&lambda.body_exp(), &inner_env)
-                        } else if let Some(parent_env) = closure.sub_expression_env() {
-                            // println!("Getting here!");
-
-                            // pretty_print_dense_instructions(&closure.body_exp());
-
-                            // println!(
-                            //     "Parent Env Information: {:?}",
-                            //     closure.body_exp()
-                            // );
-
-                            // TODO remove this unwrap
-                            let offset = closure.offset()
-                                + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                            // println!("Setting closure offset to be: {}", offset);
-
-                            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                                parent_env.clone(),
-                                offset,
-                            )));
-
-                            inner_env
-                                .borrow_mut()
-                                .reserve_defs(if closure.ndef_body() > 0 {
-                                    closure.ndef_body() - 1
-                                } else {
-                                    0
-                                });
-
-                            // let result =
-                            // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
-                            // closure_stack.push(Rc::clone(&stack_func));
-                            // TODO this is where the memory leak is
-                            env_stack.push(Rc::clone(&global_env));
-                            // heap_stack.push(0);
-                            // heap.push(Rc::clone(&global_env));
-                            // println!("Env stack size after pushing below: {}", env_stack.len());
-                            // println!("Env stack:");
-                            // inspect_heap(&env_stack);
-                            global_env = inner_env;
-                            instruction_stack.push((ip + 1, instructions));
-                            pop_count += 1;
-                            stacks.push(stack);
-                            instructions = closure.body_exp();
-                            stack = args;
-                            ip = 0;
-                        } else {
-                            stop!(Generic => "Root env is missing!")
-                        }
+                        global_env = inner_env;
+                        instruction_stack.push(InstructionPointer::new(ip + 1, instructions));
+                        pop_count += 1;
+                        stacks.push(stack);
+                        instructions = closure.body_exp();
+                        stack = args.into(); // TODO
+                        ip = 0;
                     }
                     _ => {
                         stop!(BadSyntax => "Application not a procedure or function type not supported"; cur_inst.span);
@@ -2610,7 +2089,7 @@ pub fn vm<CT: ConstantTable>(
             // In the closure case, transfer ownership of the stack to the called function
             // heap shouldn't actually clear...?
             OpCode::TAILCALL => {
-                let stack_func = stack.pop().unwrap();
+                let stack_func = stack.pop();
 
                 match stack_func.as_ref() {
                     SteelVal::StructClosureV(factory, func) => {
@@ -2623,7 +2102,7 @@ pub fn vm<CT: ConstantTable>(
                         // let args = stack.split_off(stack.len() - cur_inst.payload_size);
                         // let args = &stack[stack.len() - cur_inst.payload_size..];
 
-                        let result = f(&stack[stack.len() - cur_inst.payload_size..])
+                        let result = f(stack.peek_range(stack.len() - cur_inst.payload_size..))
                             .map_err(|x| x.set_span(cur_inst.span))?;
 
                         stack.truncate(stack.len() - cur_inst.payload_size);
@@ -2643,217 +2122,41 @@ pub fn vm<CT: ConstantTable>(
 
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
 
-                        // // Look at what is in the args... if if _needs_ to live longer, copy over
-                        let copied_args = args.clone();
-
-                        println!("@@@@@@@@@@@@@@@ Args: {:?}", copied_args);
-
-                        // let mut new_heap = Vec::new();
-
-                        let mut new_heap = Gc::new();
-
-                        for arg in copied_args {
-                            if let SteelVal::Closure(closure) = arg.as_ref() {
-                                if let Some(parent_env) = closure.sub_expression_env() {
-                                    println!("Found an env to trace backwards in the args!");
-
-                                    new_heap.gather(&parent_env.upgrade().unwrap());
-
-                                    println!(
-                                        "Found this length after the trace: {}",
-                                        new_heap.len()
-                                    );
-
-                                    heap.append(&mut new_heap);
-
-                                    // let collected_envs = trace_envs(&parent_env.upgrade().unwrap());
-                                    // println!(
-                                    //     "Found this many envs in the collect: {}",
-                                    //     collected_envs.len()
-                                    // );
-                                }
-                            }
+                        if global_env.borrow().is_root() {
+                            heap.gather_from_slice(&args);
                         }
-
-                        // TODO fix this
-                        if let Some(_parent_env) = closure.parent_env() {
-                            unreachable!();
-
-                        // let offset = closure.offset() + parent_env.borrow().local_offset();
-
-                        // // let parent_env = lambda.parent_env();
-                        // let inner_env = Rc::new(RefCell::new(Env::new(&parent_env, offset)));
-
-                        // inner_env
-                        //     .borrow_mut()
-                        //     .reserve_defs(if closure.ndef_body() > 0 {
-                        //         closure.ndef_body() - 1
-                        //     } else {
-                        //         0
-                        //     });
-
-                        // // let params_exp = lambda.params_exp();
-                        // // let result =
-                        // // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
-
-                        // // println!("Found a closure");
-                        // // instead of the recursive call, update the values and go back through the loop...
-                        // // closure_stack.push(Rc::clone(&stack_func));
-                        // env_stack.push(global_env);
-                        // // println!("Env stack size after pushing up top: {}", env_stack.len());
-                        // // println!("Env stack:");
-                        // // inspect_heap(&env_stack);
-                        // global_env = inner_env;
-                        // instruction_stack.push((ip + 1, instructions));
-                        // pop_count += 1;
-                        // stacks.push(stack);
-                        // instructions = closure.body_exp();
-                        // stack = args;
-                        // ip = 0;
-
-                        // stack.push(result);
 
                         // evaluate(&lambda.body_exp(), &inner_env)
-                        } else if let Some(parent_env) = closure.sub_expression_env() {
-                            // TODO remove this unwrap
-                            let offset = closure.offset()
-                                + parent_env.upgrade().unwrap().borrow().local_offset();
+                        let parent_env = closure.sub_expression_env();
+                        // TODO remove this unwrap
+                        let offset = closure.offset()
+                            + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                                parent_env.clone(),
-                                offset,
-                            )));
+                        let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                            parent_env.clone(),
+                            offset,
+                        )));
 
-                            inner_env
-                                .borrow_mut()
-                                .reserve_defs(if closure.ndef_body() > 0 {
-                                    closure.ndef_body() - 1
-                                } else {
-                                    0
-                                });
+                        inner_env
+                            .borrow_mut()
+                            .reserve_defs(if closure.ndef_body() > 0 {
+                                closure.ndef_body() - 1
+                            } else {
+                                0
+                            });
 
-                            println!("Tail Call!!!!");
-                            // env_stack.push(global_env);
-                            // tail_call_env_stack
-
-                            println!("About to truncate the heap with length: {}", heap.len());
-                            println!("Offset: {}", closure.offset());
-
-                            println!("Tracing the global environment:");
-                            // collect_garbage(&root, heap);
-
-                            // new_heap.trace_envs
-
-                            new_heap.gather(&global_env);
-                            new_heap.gather(&inner_env);
-
-                            new_heap.mark();
-
-                            // trace_envs(&global_env, &mut new_heap);
-                            // trace_envs(&inner_env, &mut new_heap);
-
-                            heap.sweep();
-
-                            // new_heap.mark();
-                            // new_heap.sweep();
-
-                            // new_heap
-                            //     .into_iter()
-                            //     .for_each(|x| x.borrow_mut().set_reachable(true));
-
-                            // let reached: Vec<bool> =
-                            //     heap.iter().map(|x| x.borrow().is_reachable()).collect();
-
-                            // heap.retain(|x| !x.borrow().is_reachable());
-
-                            // println!("heap after: envs: {:?}", reached);
-
-                            // heap.retain(|x| x.borrow().is_reachable());
-
-                            // let after_retain: Vec<bool> =
-                            //     heap.iter().map(|x| x.borrow().is_reachable()).collect();
-
-                            // println!("heap after retain: {:?}", after_retain);
-
-                            // println
-
-                            // trace the environments that are still alive
-                            // let mut traced = trace_envs(&global_env);
-                            // let mut local_trace = trace_envs(&inner_env);
-
-                            // for (_, value) in leaf.borrow().bindings_map() {
-                            //     if let SteelVal::Closure(bytecode_lambda) = value.as_ref() {
-                            //         let p_env = bytecode_lambda
-                            //             .sub_expression_env()
-                            //             .unwrap()
-                            //             .upgrade()
-                            //             .unwrap();
-                            //         let mut found_envs = trace_envs(&p_env);
-                            //         heap.append(&mut found_envs);
-                            //     }
-                            // }
-
-                            // println!("Traced:");
-                            // inspect_heap(&traced);
-                            // println!("Local Trace:");
-                            // inspect_heap(&local_trace);
-                            // println!("Heap:");
-                            // inspect_heap(&heap);
-
-                            // heap.clear();
-                            // heap.append(&mut traced);
-                            // heap.append(&mut local_trace);
-
-                            // println!("length of traced envs: {}", traced.len());
-
-                            // heap.truncate(closure.offset());
-
-                            // println!("heap stack: {:?}", heap_stack);
-
-                            // heap.truncate(heap.len() - heap_stack.pop().unwrap());
-                            // heap_stack.push(0);
-
-                            // inspect_heap(&heap);
-
-                            // let mut copied_heap = trace_envs(&inner_env);
-                            // println!("Copied heap length: {:?}", copied_heap.len());
-
-                            // TODO heap truncate stuff
-
-                            // heap.truncate(heap.len() - heap_stack.pop().unwrap());
-                            // heap_stack = 0;
-
-                            // heap_stack.push(0);
-
-                            // let last = heap.len() - heap_stack.pop().unwrap();
-                            // heap_stack.push(0);
-                            // heap.drain(0..last);
-
-                            // if last > 0 {
-                            //     heap.drain(0..last);
-                            // }
-
-                            // let last = heap.len();
-                            // let new_heap = heap.split_off(last);
-
-                            // heap = new_heap;
-
-                            // heap.append(&mut copied_heap);
-
-                            global_env = inner_env;
-                            instructions = closure.body_exp();
-                            stack = args;
-
-                            // println!("After truncating:");
-                            // inspect_heap(&heap);
-
-                            // println!("heap_stack: {:?}", heap_stack);
-                            // Not sure if I want to clear here or not?... guess not?
-                            // heap.clear();
-                            ip = 0;
-                        } else {
-                            stop!(Generic => "Root env is missing!")
+                        if heap.len() > HEAP_LIMIT {
+                            println!("Heap length before mark and sweep: {}", heap.len());
+                            heap.gather_mark_and_sweep_2(&global_env, &inner_env);
+                            println!("Heap length after mark and sweep: {}", heap.len());
                         }
+                        // heap.gather_mark_and_sweep_2(&global_env, &inner_env);
+                        // println!("Heap length after mark and sweep: {}", heap.len());
+
+                        global_env = inner_env;
+                        instructions = closure.body_exp();
+                        stack = args.into();
+                        ip = 0;
                     }
                     _ => {
                         stop!(BadSyntax => "Application not a procedure or function type not supported"; cur_inst.span);
@@ -2862,7 +2165,7 @@ pub fn vm<CT: ConstantTable>(
             }
             OpCode::IF => {
                 // change to truthy...
-                if stack.pop().unwrap().is_truthy() {
+                if stack.pop().is_truthy() {
                     ip = cur_inst.payload_size;
                 } else {
                     ip += 1;
@@ -2871,97 +2174,44 @@ pub fn vm<CT: ConstantTable>(
             OpCode::JMP => {
                 ip = cur_inst.payload_size;
                 // HACk
-                if ip == 0 {
+                if ip == 0 && heap.len() > HEAP_LIMIT {
                     println!("Jumping back to the start!");
                     println!("Heap length: {}", heap.len());
-                    let mut new_heap = Gc::new();
-
-                    // new_heap
-
-                    new_heap.gather(&global_env);
-                    new_heap.mark();
-
-                    heap.sweep();
-
-                    // new_heap.gather(&global_env);
-
-                    // heap.mark_and_sweep()
-                    // heap.mark();
-                    // heap.sweep();
-                    // // trace_envs(&global_env, &mut new_heap);
-
-                    // let reached: Vec<bool> =
-                    //     heap.iter().map(|x| x.borrow().is_reachable()).collect();
-
-                    // // heap.retain(|x| !x.borrow().is_reachable());
-
-                    // println!("heap after: envs: {:?}", reached);
-
-                    // heap.retain(|x| x.borrow().is_reachable());
-
-                    // heap.truncate(heap.len() - heap_stack.pop().unwrap());
-                    // heap_stack.push(0);
-                    // heap.clear();
+                    heap.gather_mark_and_sweep(&global_env);
                 }
             }
             OpCode::POP => {
                 pop_count -= 1;
                 if pop_count == 0 {
-                    // println!("Clearing the env stack and the heap");
-                    // println!("Heap at clear:");
-                    // inspect_heap(&heap);
                     env_stack.clear();
 
                     if cur_inst.payload_size == 1 {
                         global_env.borrow_mut().set_binding_context(true);
                     }
 
-                    let ret_val = stack.pop().ok_or_else(|| {
+                    let ret_val = stack.try_pop().ok_or_else(|| {
                         SteelErr::Generic("stack empty at pop".to_string(), Some(cur_inst.span))
                     });
 
                     global_env.borrow_mut().set_binding_offset(false);
 
-                    // if let Ok(SteelVal::Closure(_)) = ret_val.as_ref().map(|x| x.as_ref()) {
-                    //     // Do nothing
-                    // } else {
-                    //     println!("Hitting a clear here %%%%%%%%%%%%%%%%");
-                    //     // heap.clear();
-                    // }
-
                     return ret_val;
-
-                // heap.clear();
-
-                // Maybe
-                // global_env.borrow_mut().set_binding_context(false);
-
-                // TODO old
-                // global_env.borrow_mut().set_binding_offset(false);
-
-                // return stack.pop().ok_or_else(|| {
-                //     SteelErr::Generic("stack empty at pop".to_string(), Some(cur_inst.span))
-                // });
                 } else {
-                    let ret_val = stack.pop().unwrap();
-                    let prev_state = instruction_stack.pop().unwrap();
+                    let ret_val = stack.pop();
+                    let prev_state = instruction_stack.pop();
 
-                    if prev_state.1.len() != 0 {
-                        global_env = env_stack.pop().unwrap();
+                    if prev_state.instrs_ref().len() != 0 {
+                        global_env = env_stack.pop();
                         // TODO
                         // heap.truncate(heap_stack.pop().unwrap());
 
-                        ip = prev_state.0;
-                        instructions = prev_state.1;
+                        ip = prev_state.ip;
+                        instructions = prev_state.instrs();
                     } else {
                         ip += 1;
                     }
 
-                    // println!("######## Hitting pop! #########");
-                    // println!("heap length: {}", heap.len());
-                    // println!("")
-
-                    stack = stacks.pop().unwrap();
+                    stack = stacks.pop();
                     stack.push(ret_val);
                 }
             }
@@ -2976,11 +2226,11 @@ pub fn vm<CT: ConstantTable>(
                 if repl {
                     global_env
                         .borrow_mut()
-                        .repl_define_idx(cur_inst.payload_size, stack.pop().unwrap());
+                        .repl_define_idx(cur_inst.payload_size, stack.pop());
                 } else {
                     global_env
                         .borrow_mut()
-                        .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
+                        .define_idx(cur_inst.payload_size - offset, stack.pop());
                 }
 
                 // println!(
@@ -3031,68 +2281,23 @@ pub fn vm<CT: ConstantTable>(
                 // GC...
                 // println!("Pushing onto the heap!");
 
-                if !global_env.borrow().is_root() {
+                if !global_env.borrow().is_root() && !global_env.borrow().is_reachable() {
                     // println!("Pushing onto the heap!");
-                    heap.push(Rc::clone(&capture_env));
+                    heap.add(Rc::clone(&capture_env));
                     // heap_stack += 1;
-                    let hs_len = heap_stack.len() - 1;
-                    heap_stack[hs_len] += 1;
+                    // let hs_len = heap_stack.len() - 1;
+                    // heap_stack[hs_len] += 1;
                     // inspect_heap(&heap);
                 }
-
-                // if heap_stack.len() > 0 {
-                //     // let last = heap_stack[heap_stack.len() - 1]
-                // }
-
-                // if heap_stack.len() > 0 {
-                //     let last = heap_stack[heap_stack.len() - 1];
-                //     // println!("Last: {}, Heap len: {}", last, heap.len());
-                //     if last != heap.len() {
-                //         heap_stack.push(heap.len());
-                //     }
-                // } else {
-                //     heap_stack.push(heap.len());
-                // }
-
-                // heap_stack.push(heap.len());
 
                 // inspect_heap(&heap);
                 let constructed_lambda = ByteCodeLambda::new(
                     closure_body,
-                    None,
-                    Some(Rc::downgrade(&capture_env)),
+                    Rc::downgrade(&capture_env),
                     closure_offset,
                     arity,
                     ndefs,
                 );
-
-                // Determine the kind of bytecode lambda to construct
-                // let constructed_lambda = if capture_env.borrow().is_root() {
-                //     ByteCodeLambda::new(
-                //         closure_body,
-                //         Some(capture_env),
-                //         None,
-                //         closure_offset,
-                //         arity,
-                //         ndefs,
-                //     )
-                // } else {
-                //     // set the number of definitions for the environment
-                //     capture_env.borrow_mut().set_ndefs(ndefs);
-
-                //     // TODO look at this heap thing
-                //     // Need to clear it pop when the environment exits
-                //     // GC...
-                //     heap.push(Rc::clone(&capture_env));
-                //     ByteCodeLambda::new(
-                //         closure_body,
-                //         None,
-                //         Some(Rc::downgrade(&capture_env)),
-                //         closure_offset,
-                //         arity,
-                //         ndefs,
-                //     )
-                // };
 
                 stack.push(Rc::new(SteelVal::Closure(constructed_lambda)));
 
@@ -3111,10 +2316,10 @@ pub fn vm<CT: ConstantTable>(
                 // println!("Setting binding context to TRUE, offset to FALSE");
 
                 stacks.push(stack);
-                stack = Vec::new();
+                stack = Stack::new();
 
                 // placeholder on the instruction_stack
-                instruction_stack.push((0, Rc::new(Box::new([]))));
+                instruction_stack.push(InstructionPointer::new_raw());
                 pop_count += 1;
             }
             OpCode::EDEF => {
@@ -3187,43 +2392,3 @@ fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
         }
     }
 }
-
-/*
-(+ 1 2 (+ 3 4 (+ 5 6)))
-
-push 1
-push 2
-push 3
-push 4
-push 5
-push 6
-push (BUILT_IN_FUNCTION + (pop 2))
-push (BUILT_IN_FUNCTION + (pop 3))
-push BUILT_IN_FUNCTION + (pop 3)
-END -> pop last result
-
-
-(if (= 1 2) (+ 1 2 3) (+ 4 5 6))
-
-
-push 1
-push 2
-push (BUILT_IN_FUNCTION) (pop 2)
-IF - pop last
-JMP payload: 1
-JMP payload: 2
-
-JMP - 1
-push 1
-push 2
-push 3
-push (BUILT_IN_FUNCTION) (pop 3)
-END
-
-JMP - 2
-push 4
-push 5
-push 6
-push (BUILT_IN_FUNCTION) (pop 3)
-END
-*/
