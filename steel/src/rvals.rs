@@ -22,6 +22,8 @@ use crate::structs::SteelStruct;
 
 use crate::vm::DenseInstruction;
 
+use std::mem;
+
 // use std::collections::HashMap;
 
 // use std::io::Read;
@@ -103,6 +105,57 @@ macro_rules! unwrap {
             ))
         }
     }};
+}
+
+pub trait MemSize {
+    fn get_size(&self) -> usize;
+    // fn rc_get_size()
+}
+
+pub fn rc_get_size<M: MemSize>(_self: Rc<M>) -> usize {
+    std::mem::size_of::<Rc<M>>() + _self.as_ref().get_size()
+}
+
+// This isn't quite right
+// This will double count allocated space
+// I think I should look into allocating some sort of counter
+// using the new type stuff
+// This _should_ give a rough cut estimate though
+// which I could use for sandboxing like a lower bound?
+impl MemSize for SteelVal {
+    fn get_size(&self) -> usize {
+        match self {
+            Pair(_, _) => {
+                std::mem::size_of::<SteelVal>()
+                    + SteelVal::iter(Rc::new(self.clone()))
+                        .map(|x| rc_get_size(x))
+                        .sum::<usize>()
+            }
+            VectorV(v) => {
+                std::mem::size_of::<SteelVal>()
+                    + v.iter().map(|x| rc_get_size(Rc::clone(x))).sum::<usize>()
+            }
+            Custom(c) => std::mem::size_of_val(c),
+            _ => std::mem::size_of::<SteelVal>(),
+            // BoolV(b) => {}
+            // NumV(n) => {}
+            // IntV(i) => {}
+            // CharV(_) => {}
+            // Pair(_, _) => {}
+            // VectorV(_) => {}
+            // Void => {}
+            // StringV(_) => {}
+            // FuncV(_) => {}
+            // LambdaV(_) => {}
+            // MacroV(_) => {}
+            // SymbolV(_) => {}
+            // Custom(_) => {}
+            // StructV(_) => {}
+            // StructClosureV(_, _) => {}
+            // PortV(_) => {}
+            // Closure(_) => {}
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -485,10 +538,10 @@ pub struct ByteCodeLambda {
     /// parent environment that created this Lambda.
     /// the actual environment with correct bindings is built at runtime
     /// once the function is called
-    parent_env: Option<Rc<RefCell<Env>>>,
+    // parent_env: Option<Rc<RefCell<Env>>>,
     /// parent subenvironment that created this lambda.
     /// the actual environment gets upgraded at runtime if needed
-    sub_expression_env: Option<Weak<RefCell<Env>>>,
+    sub_expression_env: Weak<RefCell<Env>>,
     // bytecode instruction body
     // body_byte: Vec<Instruction>,
     offset: usize,
@@ -499,15 +552,15 @@ pub struct ByteCodeLambda {
 impl ByteCodeLambda {
     pub fn new(
         body_exp: Vec<DenseInstruction>,
-        parent_env: Option<Rc<RefCell<Env>>>,
-        sub_expression_env: Option<Weak<RefCell<Env>>>,
+        // parent_env: Option<Rc<RefCell<Env>>>,
+        sub_expression_env: Weak<RefCell<Env>>,
         offset: usize,
         arity: usize,
         ndef_body: usize,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::new(body_exp.into_boxed_slice()),
-            parent_env,
+            // parent_env,
             sub_expression_env,
             offset,
             arity,
@@ -523,12 +576,12 @@ impl ByteCodeLambda {
         Rc::clone(&self.body_exp)
     }
 
-    pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
-        self.parent_env.as_ref()
-    }
+    // pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
+    //     self.parent_env.as_ref()
+    // }
 
-    pub fn sub_expression_env(&self) -> Option<&Weak<RefCell<Env>>> {
-        self.sub_expression_env.as_ref()
+    pub fn sub_expression_env(&self) -> &Weak<RefCell<Env>> {
+        &self.sub_expression_env
     }
 
     pub fn offset(&self) -> usize {
