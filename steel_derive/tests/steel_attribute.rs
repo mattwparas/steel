@@ -17,7 +17,10 @@ use steel::build_interpreter;
 use steel_derive::function;
 
 // use std::process;
-use std::rc::Rc;
+// use std::rc::Rc;
+
+// use steel::gc::Gc;
+use steel::Gc;
 
 use steel::SteelErr;
 

@@ -26,6 +26,7 @@ pub mod structs;
 pub mod vm;
 
 pub use self::{
+    gc::Gc,
     interpreter::SteelInterpreter,
     // primitives::SteelFunctor,
     rerrs::SteelErr,

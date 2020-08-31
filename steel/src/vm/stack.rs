@@ -4,8 +4,10 @@ use std::cell::RefCell;
 use std::ops::RangeFrom;
 use std::rc::Rc;
 
-pub type CallStack = Stack<Stack<Rc<SteelVal>>>;
-pub type StackFrame = Stack<Rc<SteelVal>>;
+use crate::gc::Gc;
+
+pub type CallStack = Stack<Stack<Gc<SteelVal>>>;
+pub type StackFrame = Stack<Gc<SteelVal>>;
 pub type EnvStack = Stack<Rc<RefCell<Env>>>;
 
 #[derive(Debug)]

@@ -77,6 +77,8 @@ use std::path::Path;
 
 use std::collections::HashSet;
 
+use crate::gc::{Gc, OBJECT_COUNT};
+
 // use std::collections::HashSet;
 
 // use crate::expander::SteelMacro;
@@ -617,7 +619,7 @@ fn emit_loop<CT: ConstantTable>(
                     }) if s == "quote" => {
                         check_length("quote", &list_of_tokens, 2)?;
                         let converted = SteelVal::try_from(list_of_tokens[1].clone())?;
-                        let idx = constant_map.add_or_get(Rc::new(converted));
+                        let idx = constant_map.add_or_get(Gc::new(converted));
                         instructions.push(Instruction::new_push_const(idx));
                         // instructions.push(Instruction::new_quote());
                         return Ok(());
@@ -1245,7 +1247,7 @@ impl VirtualMachine {
         &mut self,
         path: P,
         ctx: &mut Ctx<CT>,
-    ) -> Result<Vec<Rc<SteelVal>>> {
+    ) -> Result<Vec<Gc<SteelVal>>> {
         let mut file = std::fs::File::open(path)?;
         let mut exprs = String::new();
         file.read_to_string(&mut exprs)?;
@@ -1258,7 +1260,7 @@ impl VirtualMachine {
         &mut self,
         expr_str: &str,
         ctx: &mut Ctx<CT>,
-    ) -> Result<Vec<Rc<SteelVal>>> {
+    ) -> Result<Vec<Gc<SteelVal>>> {
         // let now = Instant::now();
         let gen_bytecode = self.emit_instructions(expr_str, ctx)?;
 
@@ -1276,7 +1278,7 @@ impl VirtualMachine {
                 println!("Time taken: {:?}", now.elapsed());
                 res
             })
-            .collect::<Result<Vec<Rc<SteelVal>>>>()
+            .collect::<Result<Vec<Gc<SteelVal>>>>()
 
         // .and_then(|x| {
         //     // self.global_env.borrow_mut().pop_last();
@@ -1434,8 +1436,11 @@ impl VirtualMachine {
         constants: &CT,
         // heap: &mut Vec<Rc<RefCell<Env>>>,
         repl: bool,
-    ) -> Result<Rc<SteelVal>> {
+    ) -> Result<Gc<SteelVal>> {
         // execute_vm(instructions)
+
+        // println!("Active Object Count: {:?}", OBJECT_COUNT);
+
         let stack = StackFrame::new();
         let mut heap = Heap::new();
         // let mut constants: Vec<Rc<RefCell<Env>>
@@ -1471,6 +1476,12 @@ impl VirtualMachine {
 
         // println!("Global heap length after: {}", self.global_heap.len());
 
+        heap.clear();
+
+        // println!("Active Object Count: {:?}", OBJECT_COUNT);
+        // println!("Heap length: {}", self.global_heap.len());
+        // println!("local heap length: {}", heap.len());
+
         result
     }
 }
@@ -1478,7 +1489,7 @@ impl VirtualMachine {
 pub fn execute_vm(
     instructions: Rc<Box<[DenseInstruction]>>,
     constants: &ConstantMap,
-) -> Result<Rc<SteelVal>> {
+) -> Result<Gc<SteelVal>> {
     let stack = StackFrame::new();
     let mut heap = Heap::new();
     // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
@@ -1521,16 +1532,16 @@ pub fn extract_constants<CT: ConstantTable>(
 
 fn inline_map_iter<
     'global,
-    I: Iterator<Item = Rc<SteelVal>> + 'global,
+    I: Iterator<Item = Gc<SteelVal>> + 'global,
     // R: Iterator<Item = Result<Rc<SteelVal>>>,
     CT: ConstantTable,
 >(
     iter: I,
-    stack_func: Rc<SteelVal>,
+    stack_func: Gc<SteelVal>,
     constants: &'global CT,
     cur_inst_span: &'global Span,
     repl: bool,
-) -> impl Iterator<Item = Result<Rc<SteelVal>>> + 'global {
+) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
     // unimplemented!();
 
     // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
@@ -1596,16 +1607,16 @@ fn inline_map_iter<
 
 fn inline_filter_iter<
     'global,
-    I: Iterator<Item = Rc<SteelVal>> + 'global,
+    I: Iterator<Item = Gc<SteelVal>> + 'global,
     // R: Iterator<Item = Result<Rc<SteelVal>>>,
     CT: ConstantTable,
 >(
     iter: I,
-    stack_func: Rc<SteelVal>,
+    stack_func: Gc<SteelVal>,
     constants: &'global CT,
     cur_inst_span: &'global Span,
     repl: bool,
-) -> impl Iterator<Item = Result<Rc<SteelVal>>> + 'global {
+) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
     // unimplemented!();
 
     // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
@@ -1614,7 +1625,7 @@ fn inline_filter_iter<
     // TODO don't allocate this vec for just this
     let switch_statement = move |arg| match stack_func.as_ref() {
         SteelVal::FuncV(func) => {
-            let arg_vec = vec![Rc::clone(&arg)];
+            let arg_vec = vec![Gc::clone(&arg)];
             let res = func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
             match res {
                 Ok(k) => match k.as_ref() {
@@ -1627,7 +1638,7 @@ fn inline_filter_iter<
             }
         }
         SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![Rc::clone(&arg)];
+            let arg_vec = vec![Gc::clone(&arg)];
             let res = func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span));
             match res {
                 Ok(k) => match k.as_ref() {
@@ -1640,7 +1651,7 @@ fn inline_filter_iter<
         }
         SteelVal::Closure(closure) => {
             // ignore the stack limit here
-            let args = vec![Rc::clone(&arg)];
+            let args = vec![Gc::clone(&arg)];
             // if let Some()
 
             let parent_env = closure.sub_expression_env();
@@ -1697,16 +1708,16 @@ fn inline_filter_iter<
     // Ok(collected_results)
 }
 
-fn inline_map_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
+fn inline_map_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTable>(
     iter: I,
-    stack_func: Rc<SteelVal>,
+    stack_func: Gc<SteelVal>,
     constants: &CT,
     cur_inst: &DenseInstruction,
     repl: bool,
-) -> Result<Vec<Rc<SteelVal>>> {
+) -> Result<Vec<Gc<SteelVal>>> {
     // unimplemented!();
 
-    let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
+    let mut collected_results: Vec<Gc<SteelVal>> = Vec::new();
 
     // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
     let switch_statement = |arg| match stack_func.as_ref() {
@@ -1763,16 +1774,16 @@ fn inline_map_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     Ok(collected_results)
 }
 
-fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
+fn inline_filter_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTable>(
     iter: I,
-    stack_func: Rc<SteelVal>,
+    stack_func: Gc<SteelVal>,
     constants: &CT,
     cur_inst: &DenseInstruction,
     repl: bool,
-) -> Result<Vec<Rc<SteelVal>>> {
+) -> Result<Vec<Gc<SteelVal>>> {
     // unimplemented!();
 
-    let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
+    let mut collected_results: Vec<Gc<SteelVal>> = Vec::new();
 
     // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
     let switch_statement = |arg| match stack_func.as_ref() {
@@ -1824,7 +1835,7 @@ fn inline_filter_normal<I: Iterator<Item = Rc<SteelVal>>, CT: ConstantTable>(
     };
 
     for val in iter {
-        let res = switch_statement(Rc::clone(&val))?;
+        let res = switch_statement(Gc::clone(&val))?;
         if let SteelVal::BoolV(true) = res.as_ref() {
             collected_results.push(val);
         }
@@ -1871,7 +1882,7 @@ pub fn vm<CT: ConstantTable>(
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
     repl: bool,
-) -> Result<Rc<SteelVal>> {
+) -> Result<Gc<SteelVal>> {
     let mut ip = 0;
 
     let mut global_env = global_env;
@@ -1918,7 +1929,7 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::VOID => {
-                stack.push(VOID.with(|f| Rc::clone(f)));
+                stack.push(VOID.with(|f| Gc::clone(f)));
                 ip += 1;
             }
             OpCode::PUSHCONST => {
@@ -1973,7 +1984,7 @@ pub fn vm<CT: ConstantTable>(
                     SteelVal::VectorV(v) => {
                         // TODO get rid of the clone here
                         stack.push(VectorOperations::vec_construct_iter(inline_map_iter(
-                            v.into_iter().map(Rc::clone),
+                            v.into_iter().map(Gc::clone),
                             stack_func,
                             constants,
                             &cur_inst.span,
@@ -2005,7 +2016,7 @@ pub fn vm<CT: ConstantTable>(
                         // TODO get rid of the clone here
 
                         stack.push(VectorOperations::vec_construct_iter(inline_filter_iter(
-                            v.into_iter().map(Rc::clone),
+                            v.into_iter().map(Gc::clone),
                             stack_func,
                             constants,
                             &cur_inst.span,
@@ -2147,8 +2158,10 @@ pub fn vm<CT: ConstantTable>(
 
                         if heap.len() > HEAP_LIMIT {
                             println!("Heap length before mark and sweep: {}", heap.len());
+                            println!("Active Object Count: {:?}", OBJECT_COUNT);
                             heap.gather_mark_and_sweep_2(&global_env, &inner_env);
                             println!("Heap length after mark and sweep: {}", heap.len());
+                            println!("Active Object Count: {:?}", OBJECT_COUNT);
                         }
                         // heap.gather_mark_and_sweep_2(&global_env, &inner_env);
                         // println!("Heap length after mark and sweep: {}", heap.len());
@@ -2299,7 +2312,7 @@ pub fn vm<CT: ConstantTable>(
                     ndefs,
                 );
 
-                stack.push(Rc::new(SteelVal::Closure(constructed_lambda)));
+                stack.push(Gc::new(SteelVal::Closure(constructed_lambda)));
 
                 ip += forward_jump;
                 // println!("Performed forward jump to instruction: {}", ip);
@@ -2348,20 +2361,20 @@ pub fn vm<CT: ConstantTable>(
 }
 
 /// evaluates an atom expression in given environment
-fn eval_atom(t: &SyntaxObject) -> Result<Rc<SteelVal>> {
+fn eval_atom(t: &SyntaxObject) -> Result<Gc<SteelVal>> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => {
             if *b {
-                Ok(TRUE.with(|f| Rc::clone(f)))
+                Ok(TRUE.with(|f| Gc::clone(f)))
             } else {
-                Ok(FALSE.with(|f| Rc::clone(f)))
+                Ok(FALSE.with(|f| Gc::clone(f)))
             }
         }
         // TokenType::Identifier(s) => env.borrow().lookup(&s),
-        TokenType::NumberLiteral(n) => Ok(Rc::new(SteelVal::NumV(*n))),
-        TokenType::StringLiteral(s) => Ok(Rc::new(SteelVal::StringV(s.clone()))),
-        TokenType::CharacterLiteral(c) => Ok(Rc::new(SteelVal::CharV(*c))),
-        TokenType::IntegerLiteral(n) => Ok(Rc::new(SteelVal::IntV(*n))),
+        TokenType::NumberLiteral(n) => Ok(Gc::new(SteelVal::NumV(*n))),
+        TokenType::StringLiteral(s) => Ok(Gc::new(SteelVal::StringV(s.clone()))),
+        TokenType::CharacterLiteral(c) => Ok(Gc::new(SteelVal::CharV(*c))),
+        TokenType::IntegerLiteral(n) => Ok(Gc::new(SteelVal::IntV(*n))),
         what => {
             println!("getting here in the eval_atom");
             stop!(UnexpectedToken => what; t.span)

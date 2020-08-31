@@ -220,6 +220,8 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         }
                     }
                     _ => {
+                        println!("Active Object Count: {:?}", crate::gc::OBJECT_COUNT);
+
                         let res = vm.parse_and_execute(&line, &mut ctx);
                         buffer += &line;
 
@@ -233,6 +235,8 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                                 eprintln!("{}", e.to_string().bright_red());
                             }
                         }
+
+                        println!("Active Object Count: {:?}", crate::gc::OBJECT_COUNT);
                     }
                 }
             }
