@@ -22,7 +22,9 @@ use crate::structs::SteelStruct;
 
 use crate::vm::DenseInstruction;
 
-use std::mem;
+// use std::mem;
+
+use crate::gc::Gc;
 
 // use std::collections::HashMap;
 
@@ -37,8 +39,8 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 }
 
 pub type Result<T> = result::Result<T, SteelErr>;
-pub type FunctionSignature = fn(&[Rc<SteelVal>]) -> Result<Rc<SteelVal>>;
-pub type StructClosureSignature = fn(Vec<Rc<SteelVal>>, &SteelStruct) -> Result<Rc<SteelVal>>;
+pub type FunctionSignature = fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>;
+pub type StructClosureSignature = fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<Gc<SteelVal>>;
 
 // Box<Fn(i32) -> i32>
 
@@ -112,8 +114,8 @@ pub trait MemSize {
     // fn rc_get_size()
 }
 
-pub fn rc_get_size<M: MemSize>(_self: Rc<M>) -> usize {
-    std::mem::size_of::<Rc<M>>() + _self.as_ref().get_size()
+pub fn gc_get_size<M: MemSize>(_self: Gc<M>) -> usize {
+    std::mem::size_of::<Gc<M>>() + _self.as_ref().get_size()
 }
 
 // This isn't quite right
@@ -127,13 +129,13 @@ impl MemSize for SteelVal {
         match self {
             Pair(_, _) => {
                 std::mem::size_of::<SteelVal>()
-                    + SteelVal::iter(Rc::new(self.clone()))
-                        .map(|x| rc_get_size(x))
+                    + SteelVal::iter(Gc::new(self.clone()))
+                        .map(|x| gc_get_size(x))
                         .sum::<usize>()
             }
             VectorV(v) => {
                 std::mem::size_of::<SteelVal>()
-                    + v.iter().map(|x| rc_get_size(Rc::clone(x))).sum::<usize>()
+                    + v.iter().map(|x| gc_get_size(Gc::clone(x))).sum::<usize>()
             }
             Custom(c) => std::mem::size_of_val(c),
             _ => std::mem::size_of::<SteelVal>(),
@@ -170,10 +172,10 @@ pub enum SteelVal {
     CharV(char),
     /// Represents a cons cell
     /// cons, cdr, optional parent pointer
-    Pair(Rc<SteelVal>, Option<Rc<SteelVal>>),
+    Pair(Gc<SteelVal>, Option<Gc<SteelVal>>),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
-    VectorV(Vector<Rc<SteelVal>>),
+    VectorV(Vector<Gc<SteelVal>>),
     /// Void return value
     Void,
     /// Represents strings
@@ -200,14 +202,14 @@ pub enum SteelVal {
     Closure(ByteCodeLambda),
 }
 
-pub struct Iter(Option<Rc<SteelVal>>);
+pub struct Iter(Option<Gc<SteelVal>>);
 
 impl SteelVal {
     // pub fn iter(self) -> Iter {
-    //     Iter(Rc::new(self))
+    //     Iter(Gc::new(self))
     // }
 
-    pub fn iter(_self: Rc<SteelVal>) -> Iter {
+    pub fn iter(_self: Gc<SteelVal>) -> Iter {
         Iter(Some(_self))
     }
 
@@ -235,19 +237,19 @@ impl SteelVal {
 }
 
 impl Iterator for Iter {
-    type Item = Rc<SteelVal>;
+    type Item = Gc<SteelVal>;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(_self) = &self.0 {
             match _self.as_ref() {
                 SteelVal::Pair(car, cdr) => {
                     match (car, cdr) {
                         (first, Some(rest)) => {
-                            let ret_val = Some(Rc::clone(&first));
-                            self.0 = Some(Rc::clone(&rest));
+                            let ret_val = Some(Gc::clone(&first));
+                            self.0 = Some(Gc::clone(&rest));
                             ret_val
                         }
                         (first, None) => {
-                            let ret_val = Some(Rc::clone(&first));
+                            let ret_val = Some(Gc::clone(&first));
                             self.0 = None;
                             ret_val
                         } // _ => None,
@@ -257,13 +259,13 @@ impl Iterator for Iter {
                     if v.is_empty() {
                         None
                     } else {
-                        let ret_val = Some(Rc::clone(&_self));
+                        let ret_val = Some(Gc::clone(&_self));
                         self.0 = None;
                         ret_val
                     }
                 }
                 _ => {
-                    let ret_val = Some(Rc::clone(&_self));
+                    let ret_val = Some(Gc::clone(&_self));
                     self.0 = None;
                     ret_val
                 }
@@ -300,7 +302,7 @@ impl SteelVal {
     pub fn vector_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<Vector<Rc<SteelVal>>, E> {
+    ) -> std::result::Result<Vector<Gc<SteelVal>>, E> {
         match self {
             Self::VectorV(v) => Ok(v.clone()),
             _ => Err(err()),
@@ -390,7 +392,7 @@ impl Drop for SteelVal {
         };
         loop {
             match curr {
-                Some(r) => match Rc::try_unwrap(r) {
+                Some(r) => match Gc::try_unwrap(r) {
                     Ok(Pair(_, ref mut next)) => curr = next.take(),
                     _ => return,
                 },
@@ -429,9 +431,9 @@ impl TryFrom<Expr> for SteelVal {
                 )),
             },
             Expr::VectorVal(lst) => {
-                let items: std::result::Result<Vec<Rc<Self>>, Self::Error> = lst
+                let items: std::result::Result<Vec<Gc<Self>>, Self::Error> = lst
                     .iter()
-                    .map(|x| Self::try_from(x.clone()).map(Rc::new))
+                    .map(|x| Self::try_from(x.clone()).map(Gc::new))
                     .collect();
 
                 ListOperations::built_in_list_func()(&items?).map(|x| (*x).clone())
@@ -727,12 +729,12 @@ fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
 
     loop {
         if let Pair(cons, cdr) = p {
-            lst.push_back(Rc::clone(cons));
+            lst.push_back(Gc::clone(cons));
             match cdr.as_ref() {
                 Some(rest) => match rest.as_ref() {
                     Pair(_, _) => p = rest,
                     _ => {
-                        lst.push_back(Rc::clone(rest));
+                        lst.push_back(Gc::clone(rest));
                         return VectorV(lst);
                     }
                 },
@@ -751,8 +753,8 @@ fn display_test() {
     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
     assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
     assert_eq!(
-        SteelVal::FuncV(|_args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
-            Ok(Rc::new(SteelVal::VectorV(vector![])))
+        SteelVal::FuncV(|_args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            Ok(Gc::new(SteelVal::VectorV(vector![])))
         })
         .to_string(),
         "#<function>"
@@ -788,7 +790,7 @@ fn display_list_test() {
                 ))
             ]
             .into_iter()
-            .map(Rc::new)
+            .map(Gc::new)
             .collect()
         )
         .to_string(),
@@ -803,25 +805,25 @@ fn display_list_test() {
                         VectorV(
                             vector![NumV(2.0), NumV(3.0)]
                                 .into_iter()
-                                .map(Rc::new)
+                                .map(Gc::new)
                                 .collect()
                         )
                     ]
                     .into_iter()
-                    .map(Rc::new)
+                    .map(Gc::new)
                     .collect()
                 ),
                 VectorV(
                     vector![NumV(4.0), NumV(5.0)]
                         .into_iter()
-                        .map(Rc::new)
+                        .map(Gc::new)
                         .collect()
                 ),
                 NumV(6.0),
-                VectorV(vector![NumV(7.0)].into_iter().map(Rc::new).collect())
+                VectorV(vector![NumV(7.0)].into_iter().map(Gc::new).collect())
             ]
             .into_iter()
-            .map(Rc::new)
+            .map(Gc::new)
             .collect()
         )
         .to_string(),
@@ -876,14 +878,14 @@ mod or_else_tests {
         let input = SteelVal::VectorV(
             vector![SteelVal::NumV(1.0)]
                 .into_iter()
-                .map(Rc::new)
+                .map(Gc::new)
                 .collect(),
         );
         assert_eq!(
             input.vector_or_else(throw!(Generic => "test")).unwrap(),
             vector![SteelVal::NumV(1.0)]
                 .into_iter()
-                .map(Rc::new)
+                .map(Gc::new)
                 .collect()
         );
     }

@@ -5,25 +5,27 @@ use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use std::rc::Rc;
 
+use crate::gc::Gc;
+
 use crate::primitives::lists::ListOperations;
 
 macro_rules! ok_string {
     ($string:expr) => {
-        Ok(Rc::new(SteelVal::StringV($string)))
+        Ok(Gc::new(SteelVal::StringV($string)))
     };
 }
 
 pub struct StringOperations {}
 impl StringOperations {
     pub fn string_append() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 2 {
                 if let (SteelVal::StringV(l), SteelVal::StringV(r)) =
                     (&args[0].as_ref(), &args[1].as_ref())
                 {
                     let new_string = l.clone() + &r.clone();
                     ok_string!(new_string)
-                // Ok(Rc::new(SteelVal::StringV(new_string)))
+                // Ok(Gc::new(SteelVal::StringV(new_string)))
                 } else {
                     stop!(TypeMismatch => "string-append expected two strings")
                 }
@@ -34,12 +36,12 @@ impl StringOperations {
     }
 
     pub fn string_to_int() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let parsed_int = s.parse::<isize>();
                     match parsed_int {
-                        Ok(n) => Ok(Rc::new(SteelVal::IntV(n))),
+                        Ok(n) => Ok(Gc::new(SteelVal::IntV(n))),
                         Err(_) => {
                             stop!(TypeMismatch => "could not convert number to integer");
                         }
@@ -54,11 +56,11 @@ impl StringOperations {
     }
 
     pub fn string_to_list() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
-                    let chars: Vec<Rc<SteelVal>> =
-                        s.chars().map(|x| Rc::new(SteelVal::CharV(x))).collect();
+                    let chars: Vec<Gc<SteelVal>> =
+                        s.chars().map(|x| Gc::new(SteelVal::CharV(x))).collect();
                     ListOperations::built_in_list_func()(&chars)
                 } else {
                     stop!(TypeMismatch => "string->list expected a string")
@@ -70,12 +72,12 @@ impl StringOperations {
     }
 
     pub fn string_to_upper() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let upper = s.to_uppercase();
                     ok_string!(upper)
-                // Ok(Rc::new(SteelVal::StringV(upper)))
+                // Ok(Gc::new(SteelVal::StringV(upper)))
                 } else {
                     stop!(TypeMismatch => "string-upcase expected a string")
                 }
@@ -86,28 +88,28 @@ impl StringOperations {
     }
 
     pub fn string_to_lower() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let lower = s.to_lowercase();
                     ok_string!(lower.to_string())
-                // Ok(Rc::new(SteelVal::StringV(lower)))
+                // Ok(Gc::new(SteelVal::StringV(lower)))
                 } else {
-                    stop!(TypeMismatch => "string-lowercase expected a string")
+                    stop!(TypeMismatch => "string-loweGcase expected a string")
                 }
             } else {
-                stop!(ArityMismatch => "string-lowercase takes one argument")
+                stop!(ArityMismatch => "string-loweGcase takes one argument")
             }
         })
     }
 
     pub fn trim() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let trimmed = s.trim();
                     ok_string!(trimmed.to_string())
-                // Ok(Rc::new(SteelVal::StringV(trimmed.to_string())))
+                // Ok(Gc::new(SteelVal::StringV(trimmed.to_string())))
                 } else {
                     stop!(TypeMismatch => "trim expected a string")
                 }
@@ -118,12 +120,12 @@ impl StringOperations {
     }
 
     pub fn trim_start() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let trimmed = s.trim_start();
                     ok_string!(trimmed.to_string())
-                // Ok(Rc::new(SteelVal::StringV(trimmed.to_string())))
+                // Ok(Gc::new(SteelVal::StringV(trimmed.to_string())))
                 } else {
                     stop!(TypeMismatch => "trim-start expected a string")
                 }
@@ -134,12 +136,12 @@ impl StringOperations {
     }
 
     pub fn trim_end() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
                     let trimmed = s.trim_end();
                     ok_string!(trimmed.to_string())
-                // Ok(Rc::new(SteelVal::StringV(trimmed.to_string())))
+                // Ok(Gc::new(SteelVal::StringV(trimmed.to_string())))
                 } else {
                     stop!(TypeMismatch => "trim-end expected a string")
                 }
@@ -150,12 +152,12 @@ impl StringOperations {
     }
 
     pub fn split_whitespace() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0].as_ref() {
-                    let split: Vec<Rc<SteelVal>> = s
+                    let split: Vec<Gc<SteelVal>> = s
                         .split_whitespace()
-                        .map(|x| Rc::new(SteelVal::StringV(x.to_string())))
+                        .map(|x| Gc::new(SteelVal::StringV(x.to_string())))
                         .collect();
                     ListOperations::built_in_list_func()(&split)
                 } else {
@@ -250,8 +252,8 @@ mod string_operation_tests {
         ("split-whitespace", split_whitespace_arity_takes_string, StringOperations::split_whitespace())
     }
 
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Rc<SteelVal>> {
-        let args: Vec<Rc<SteelVal>> = args.into_iter().map(|x| Rc::new(x)).collect();
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
+        let args: Vec<Gc<SteelVal>> = args.into_iter().map(|x| Gc::new(x)).collect();
         func.func_or_else(throw!(BadSyntax => "string tests"))
             .unwrap()(&args)
     }
@@ -263,7 +265,7 @@ mod string_operation_tests {
             SteelVal::StringV("bar".to_string()),
         ];
         let res = apply_function(StringOperations::string_append(), args);
-        let expected = Rc::new(SteelVal::StringV("foobar".to_string()));
+        let expected = Gc::new(SteelVal::StringV("foobar".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -302,7 +304,7 @@ mod string_operation_tests {
     fn string_to_upper_normal() {
         let args = vec![SteelVal::StringV("foobarbaz".to_string())];
         let res = apply_function(StringOperations::string_to_upper(), args);
-        let expected = Rc::new(SteelVal::StringV("FOOBARBAZ".to_string()));
+        let expected = Gc::new(SteelVal::StringV("FOOBARBAZ".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -310,7 +312,7 @@ mod string_operation_tests {
     fn string_to_upper_spaces() {
         let args = vec![SteelVal::StringV("foo bar baz qux".to_string())];
         let res = apply_function(StringOperations::string_to_upper(), args);
-        let expected = Rc::new(SteelVal::StringV("FOO BAR BAZ QUX".to_string()));
+        let expected = Gc::new(SteelVal::StringV("FOO BAR BAZ QUX".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -318,7 +320,7 @@ mod string_operation_tests {
     fn string_to_lower_normal() {
         let args = vec![SteelVal::StringV("FOOBARBAZ".to_string())];
         let res = apply_function(StringOperations::string_to_lower(), args);
-        let expected = Rc::new(SteelVal::StringV("foobarbaz".to_string()));
+        let expected = Gc::new(SteelVal::StringV("foobarbaz".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -326,7 +328,7 @@ mod string_operation_tests {
     fn string_to_lower_spaces() {
         let args = vec![SteelVal::StringV("FOO BAR BAZ QUX".to_string())];
         let res = apply_function(StringOperations::string_to_lower(), args);
-        let expected = Rc::new(SteelVal::StringV("foo bar baz qux".to_string()));
+        let expected = Gc::new(SteelVal::StringV("foo bar baz qux".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -335,11 +337,11 @@ mod string_operation_tests {
     fn string_to_list_normal() {
         let args = vec![SteelVal::StringV("foo".to_string())];
         let res = apply_function(StringOperations::string_to_list(), args);
-        let expected = Rc::new(SteelVal::Pair(
-            Rc::new(SteelVal::CharV('f')),
-            Some(Rc::new(SteelVal::Pair(
-                Rc::new(SteelVal::CharV('o')),
-                Some(Rc::new(SteelVal::CharV('o'))),
+        let expected = Gc::new(SteelVal::Pair(
+            Gc::new(SteelVal::CharV('f')),
+            Some(Gc::new(SteelVal::Pair(
+                Gc::new(SteelVal::CharV('o')),
+                Some(Gc::new(SteelVal::CharV('o'))),
             ))),
         ));
         assert_eq!(res.unwrap(), expected);
@@ -349,7 +351,7 @@ mod string_operation_tests {
     fn string_to_list_empty() {
         let args = vec![SteelVal::StringV("".to_string())];
         let res = apply_function(StringOperations::string_to_list(), args);
-        let expected = Rc::new(SteelVal::VectorV(Vector::new()));
+        let expected = Gc::new(SteelVal::VectorV(Vector::new()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -357,7 +359,7 @@ mod string_operation_tests {
     fn trim_normal_no_changes() {
         let args = vec![SteelVal::StringV("foo".to_string())];
         let res = apply_function(StringOperations::trim(), args);
-        let expected = Rc::new(SteelVal::StringV("foo".to_string()));
+        let expected = Gc::new(SteelVal::StringV("foo".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -365,7 +367,7 @@ mod string_operation_tests {
     fn trim_normal_trims_both_sides() {
         let args = vec![SteelVal::StringV("      foo  ".to_string())];
         let res = apply_function(StringOperations::trim(), args);
-        let expected = Rc::new(SteelVal::StringV("foo".to_string()));
+        let expected = Gc::new(SteelVal::StringV("foo".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -373,7 +375,7 @@ mod string_operation_tests {
     fn trim_start_no_changes() {
         let args = vec![SteelVal::StringV("foo".to_string())];
         let res = apply_function(StringOperations::trim_start(), args);
-        let expected = Rc::new(SteelVal::StringV("foo".to_string()));
+        let expected = Gc::new(SteelVal::StringV("foo".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -381,7 +383,7 @@ mod string_operation_tests {
     fn trim_end_no_changes() {
         let args = vec![SteelVal::StringV("foo".to_string())];
         let res = apply_function(StringOperations::trim_end(), args);
-        let expected = Rc::new(SteelVal::StringV("foo".to_string()));
+        let expected = Gc::new(SteelVal::StringV("foo".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -389,7 +391,7 @@ mod string_operation_tests {
     fn trim_start_normal_trims_left_side() {
         let args = vec![SteelVal::StringV("      foo  ".to_string())];
         let res = apply_function(StringOperations::trim_start(), args);
-        let expected = Rc::new(SteelVal::StringV("foo  ".to_string()));
+        let expected = Gc::new(SteelVal::StringV("foo  ".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -397,7 +399,7 @@ mod string_operation_tests {
     fn trim_end_normal_trims_right_side() {
         let args = vec![SteelVal::StringV("      foo  ".to_string())];
         let res = apply_function(StringOperations::trim_end(), args);
-        let expected = Rc::new(SteelVal::StringV("      foo".to_string()));
+        let expected = Gc::new(SteelVal::StringV("      foo".to_string()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -406,8 +408,8 @@ mod string_operation_tests {
     fn split_whitespace_no_whitespace() {
         let args = vec![SteelVal::StringV("foo".to_string())];
         let res = apply_function(StringOperations::split_whitespace(), args);
-        let expected = Rc::new(SteelVal::Pair(
-            Rc::new(SteelVal::StringV("foo".to_string())),
+        let expected = Gc::new(SteelVal::Pair(
+            Gc::new(SteelVal::StringV("foo".to_string())),
             None,
         ));
         assert_eq!(res.unwrap(), expected);
@@ -417,11 +419,11 @@ mod string_operation_tests {
     fn split_whitespace_some_whitespace() {
         let args = vec![SteelVal::StringV("foo bar baz".to_string())];
         let res = apply_function(StringOperations::split_whitespace(), args);
-        let expected = Rc::new(SteelVal::Pair(
-            Rc::new(SteelVal::StringV("foo".to_string())),
-            Some(Rc::new(SteelVal::Pair(
-                Rc::new(SteelVal::StringV("bar".to_string())),
-                Some(Rc::new(SteelVal::StringV("baz".to_string()))),
+        let expected = Gc::new(SteelVal::Pair(
+            Gc::new(SteelVal::StringV("foo".to_string())),
+            Some(Gc::new(SteelVal::Pair(
+                Gc::new(SteelVal::StringV("bar".to_string())),
+                Some(Gc::new(SteelVal::StringV("baz".to_string()))),
             ))),
         ));
         assert_eq!(res.unwrap(), expected);

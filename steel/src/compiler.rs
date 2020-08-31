@@ -26,10 +26,11 @@ use std::collections::HashSet;
 
 use crate::stop;
 
-use crate::interpreter::evaluator::eval_define;
 use crate::interpreter::evaluator::eval_require;
 use crate::interpreter::evaluator::Evaluator;
 use std::io::Read;
+
+use crate::gc::Gc;
 
 pub struct AST {
     source: String,
@@ -133,7 +134,7 @@ impl AST {
 
     // pub fn compile_from_require()
 
-    pub fn lookup(&self, name: &str) -> Result<Rc<SteelVal>> {
+    pub fn lookup(&self, name: &str) -> Result<Gc<SteelVal>> {
         if self.exported.contains(name) {
             self.env.borrow().lookup(name)
         } else {
@@ -233,7 +234,7 @@ fn extract_macro_definitions(exprs: &[Expr], env: &Rc<RefCell<Env>>) -> Result<V
 fn identify_function_definitions(
     exprs: &[Expr],
     env: &Rc<RefCell<Env>>,
-    heap: &mut Vec<Rc<RefCell<Env>>>,
+    heap: &mut Vec<Gc<RefCell<Env>>>,
     expr_stack: &mut Vec<Expr>,
     // last_macro: &mut Option<Rc<Expr>>,
 ) -> Result<()> {
@@ -241,12 +242,13 @@ fn identify_function_definitions(
     for expr in exprs {
         match expr {
             Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
-                eval_define(&list_of_tokens[1..], env, heap, expr_stack)?;
+                // eval_define(&list_of_tokens[1..], env, heap, expr_stack)?;
+                unimplemented!();
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
                 let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
                 env.borrow_mut()
-                    .define_zipped(defs.into_iter().map(|x| (x.0, Rc::new(x.1))));
+                    .define_zipped(defs.into_iter().map(|x| (x.0, Gc::new(x.1))));
             }
             _ => {}
         }
@@ -258,7 +260,7 @@ fn identify_function_definitions(
 fn extract_and_expand_function_definitions(
     exprs: &[Expr],
     env: &Rc<RefCell<Env>>,
-    heap: &mut Vec<Rc<RefCell<Env>>>,
+    heap: &mut Vec<Gc<RefCell<Env>>>,
     expr_stack: &mut Vec<Expr>,
     // last_macro: &mut Option<Rc<Expr>>,
 ) -> Result<Vec<Expr>> {
@@ -266,12 +268,13 @@ fn extract_and_expand_function_definitions(
     for expr in exprs {
         match expr {
             Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
-                eval_define(&list_of_tokens[1..], env, heap, expr_stack)?;
+                // eval_define(&list_of_tokens[1..], env, heap, expr_stack)?;
+                unimplemented!();
             }
             Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
                 let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
                 env.borrow_mut()
-                    .define_zipped(defs.into_iter().map(|x| (x.0, Rc::new(x.1))));
+                    .define_zipped(defs.into_iter().map(|x| (x.0, Gc::new(x.1))));
             }
             _ => others.push(expr.clone()),
         }
@@ -299,7 +302,7 @@ pub fn construct_macro_def(list_of_tokens: &[Expr], env: &Rc<RefCell<Env>>) -> R
     // println!("{:?}", parsed_macro);
     env.borrow_mut().define(
         parsed_macro.name().to_string(),
-        Rc::new(SteelVal::MacroV(parsed_macro)),
+        Gc::new(SteelVal::MacroV(parsed_macro)),
     );
     Ok(())
 }

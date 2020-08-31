@@ -31,6 +31,8 @@ use std::result;
 
 use std::rc::Rc;
 
+use crate::gc::Gc;
+
 // pub struct List(pub Vec<T>);
 
 // the conversion layer works like
@@ -210,10 +212,10 @@ fn vec_to_list(args: Vec<SteelVal>) -> SteelVal {
     let mut pairs = Vec::new();
     match (args.next(), args.next()) {
         (cdr, Some(car)) => {
-            pairs.push(Rc::new(SteelVal::Pair(Rc::new(car), cdr.map(Rc::new))));
+            pairs.push(Gc::new(SteelVal::Pair(Gc::new(car), cdr.map(Gc::new))));
         }
         (Some(cdr), None) => {
-            pairs.push(Rc::new(SteelVal::Pair(Rc::new(cdr), None)));
+            pairs.push(Gc::new(SteelVal::Pair(Gc::new(cdr), None)));
         }
         (_, _) => {
             return SteelVal::VectorV(Vector::new());
@@ -221,9 +223,9 @@ fn vec_to_list(args: Vec<SteelVal>) -> SteelVal {
     }
 
     for (i, val) in args.enumerate() {
-        pairs.push(Rc::new(SteelVal::Pair(
-            Rc::new(val),
-            Some(Rc::clone(&pairs[i])),
+        pairs.push(Gc::new(SteelVal::Pair(
+            Gc::new(val),
+            Some(Gc::clone(&pairs[i])),
         )));
     }
     (*pairs.pop().unwrap()).clone()
@@ -288,8 +290,8 @@ impl From<bool> for SteelVal {
     }
 }
 
-impl From<Vector<Rc<SteelVal>>> for SteelVal {
-    fn from(val: Vector<Rc<SteelVal>>) -> SteelVal {
+impl From<Vector<Gc<SteelVal>>> for SteelVal {
+    fn from(val: Vector<Gc<SteelVal>>) -> SteelVal {
         SteelVal::VectorV(val)
     }
 }
@@ -360,13 +362,13 @@ mod try_from_tests {
     fn try_from_vec_usize() {
         let input: Vec<usize> = vec![0, 1];
         let res = SteelVal::try_from(input);
-        let expected = SteelVal::Pair(Rc::new(SteelVal::IntV(0)), Some(Rc::new(SteelVal::IntV(1))));
+        let expected = SteelVal::Pair(Gc::new(SteelVal::IntV(0)), Some(Gc::new(SteelVal::IntV(1))));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn try_from_steelval_list_to_vec_usize() {
-        let input = SteelVal::Pair(Rc::new(SteelVal::IntV(0)), Some(Rc::new(SteelVal::IntV(1))));
+        let input = SteelVal::Pair(Gc::new(SteelVal::IntV(0)), Some(Gc::new(SteelVal::IntV(1))));
         let res = <Vec<usize>>::try_from(input);
         let expected: Vec<usize> = vec![0, 1];
         assert_eq!(res.unwrap(), expected);
@@ -391,7 +393,7 @@ mod try_from_tests {
         let input = SteelVal::VectorV(
             vector![SteelVal::IntV(0), SteelVal::IntV(1)]
                 .into_iter()
-                .map(Rc::new)
+                .map(Gc::new)
                 .collect(),
         );
         let res = <Vec<usize>>::try_from(input);
@@ -401,7 +403,7 @@ mod try_from_tests {
 
     #[test]
     fn try_from_ref_steelval_list_to_vec_usize() {
-        let input = SteelVal::Pair(Rc::new(SteelVal::IntV(0)), Some(Rc::new(SteelVal::IntV(1))));
+        let input = SteelVal::Pair(Gc::new(SteelVal::IntV(0)), Some(Gc::new(SteelVal::IntV(1))));
         let res = <Vec<usize>>::try_from(&input);
         let expected: Vec<usize> = vec![0, 1];
         assert_eq!(res.unwrap(), expected);
@@ -412,7 +414,7 @@ mod try_from_tests {
         let input = SteelVal::VectorV(
             vector![SteelVal::IntV(0), SteelVal::IntV(1)]
                 .into_iter()
-                .map(Rc::new)
+                .map(Gc::new)
                 .collect(),
         );
         let res = <Vec<usize>>::try_from(&input);

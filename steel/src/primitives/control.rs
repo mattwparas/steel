@@ -5,12 +5,14 @@ use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use std::rc::Rc;
 
+use crate::gc::Gc;
+
 // use crate::primitives::lists::ListOperations;
 
 pub struct ControlOperations {}
 impl ControlOperations {
     pub fn error() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             let mut error_message = String::new();
 
             if args.len() > 0 {

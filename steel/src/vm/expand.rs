@@ -19,6 +19,8 @@ use crate::vm::SymbolMap;
 
 use std::collections::HashSet;
 
+use crate::gc::Gc;
+
 pub struct MacroSet(HashSet<String>);
 
 impl MacroEnv for MacroSet {
@@ -149,7 +151,7 @@ fn construct_macro_def<M: MacroEnv>(
     // println!("{:?}", parsed_macro);
     env.borrow_mut().define(
         parsed_macro.name().to_string(),
-        Rc::new(SteelVal::MacroV(parsed_macro)),
+        Gc::new(SteelVal::MacroV(parsed_macro)),
     );
     // env.borrow().print_bindings();
     Ok(())

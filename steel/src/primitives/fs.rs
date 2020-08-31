@@ -3,7 +3,9 @@ use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 // use std::io;
-use std::rc::Rc;
+// use std::rc::Rc;
+
+use crate::gc::Gc;
 
 // mod primitives;
 
@@ -20,10 +22,10 @@ use std::env::current_dir;
 pub struct FsFunctions {}
 impl FsFunctions {
     pub fn path_exists() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = args[0].as_ref() {
-                    Ok(Rc::new(SteelVal::BoolV(Path::new(s).exists())))
+                    Ok(Gc::new(SteelVal::BoolV(Path::new(s).exists())))
                 } else {
                     stop!(TypeMismatch => "path-exists? expects a string")
                 }
@@ -34,12 +36,12 @@ impl FsFunctions {
     }
 
     pub fn is_file() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 // let path =
 
                 if let SteelVal::StringV(s) = args[0].as_ref() {
-                    Ok(Rc::new(SteelVal::BoolV(Path::new(s).is_file())))
+                    Ok(Gc::new(SteelVal::BoolV(Path::new(s).is_file())))
                 } else {
                     stop!(TypeMismatch => "is-file? expects a string")
                 }
@@ -50,12 +52,12 @@ impl FsFunctions {
     }
 
     pub fn is_dir() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 // let path =
 
                 if let SteelVal::StringV(s) = args[0].as_ref() {
-                    Ok(Rc::new(SteelVal::BoolV(Path::new(s).is_dir())))
+                    Ok(Gc::new(SteelVal::BoolV(Path::new(s).is_dir())))
                 } else {
                     stop!(TypeMismatch => "is-dir? expects a string")
                 }
@@ -66,10 +68,10 @@ impl FsFunctions {
     }
 
     pub fn file_name() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = args[0].as_ref() {
-                    Ok(Rc::new(SteelVal::StringV(
+                    Ok(Gc::new(SteelVal::StringV(
                         Path::new(s)
                             .file_name()
                             .map(|x| x.to_str())
@@ -87,7 +89,7 @@ impl FsFunctions {
     }
 
     pub fn read_dir() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 // let path =
 
@@ -99,8 +101,8 @@ impl FsFunctions {
                             Ok(i) => {
                                 ListOperations::built_in_list_normal_iter(i.into_iter().map(|x| {
                                     match x?.path().to_str() {
-                                        Some(s) => Ok(Rc::new(SteelVal::StringV(s.to_string()))),
-                                        None => Ok(Rc::new(SteelVal::BoolV(false))),
+                                        Some(s) => Ok(Gc::new(SteelVal::StringV(s.to_string()))),
+                                        None => Ok(Gc::new(SteelVal::BoolV(false))),
                                     }
                                 }))
                             }
@@ -119,10 +121,10 @@ impl FsFunctions {
     }
 
     pub fn current_dir() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 0 {
                 let path = current_dir()?;
-                Ok(Rc::new(SteelVal::StringV(
+                Ok(Gc::new(SteelVal::StringV(
                     path.to_str().unwrap_or("").to_string(),
                 )))
             // println!("The current directory is {}", path.display());

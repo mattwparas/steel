@@ -9,10 +9,12 @@ use rand::Rng;
 
 use crate::env::{FALSE, TRUE};
 
+use crate::gc::Gc;
+
 pub struct NumOperations {}
 impl NumOperations {
     pub fn random_int() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "random-int requires an upper bound");
             }
@@ -23,7 +25,7 @@ impl NumOperations {
 
             if let SteelVal::IntV(upper_bound) = args[0].as_ref() {
                 let mut rng = rand::thread_rng();
-                return Ok(Rc::new(SteelVal::IntV(rng.gen_range(0, upper_bound))));
+                return Ok(Gc::new(SteelVal::IntV(rng.gen_range(0, upper_bound))));
             } else {
                 stop!(TypeMismatch => "random-int requires an integer upper bound");
             }
@@ -31,7 +33,7 @@ impl NumOperations {
     }
 
     pub fn even() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "even? takes one argument")
             }
@@ -40,9 +42,9 @@ impl NumOperations {
                 // let is_odd = |x: i32| x & 1 == 1;
                 // let is_even = |x: i32| x & 1 == 0;
                 if n & 1 == 0 {
-                    Ok(TRUE.with(|f| Rc::clone(f)))
+                    Ok(TRUE.with(|f| Gc::clone(f)))
                 } else {
-                    Ok(FALSE.with(|f| Rc::clone(f)))
+                    Ok(FALSE.with(|f| Gc::clone(f)))
                 }
             } else {
                 stop!(TypeMismatch => "even? requires an integer")
@@ -51,7 +53,7 @@ impl NumOperations {
     }
 
     pub fn odd() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "even? takes one argument")
             }
@@ -60,9 +62,9 @@ impl NumOperations {
                 // let is_odd = |x: i32| x & 1 == 1;
                 // let is_even = |x: i32| x & 1 == 0;
                 if n & 1 == 1 {
-                    Ok(TRUE.with(|f| Rc::clone(f)))
+                    Ok(TRUE.with(|f| Gc::clone(f)))
                 } else {
-                    Ok(FALSE.with(|f| Rc::clone(f)))
+                    Ok(FALSE.with(|f| Gc::clone(f)))
                 }
             } else {
                 stop!(TypeMismatch => "odd? requires an integer")
@@ -71,7 +73,7 @@ impl NumOperations {
     }
 
     pub fn integer_add() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "+ requires at least one argument")
             }
@@ -86,12 +88,12 @@ impl NumOperations {
                 }
             }
 
-            Ok(Rc::new(SteelVal::IntV(sum)))
+            Ok(Gc::new(SteelVal::IntV(sum)))
         })
     }
 
     pub fn float_add() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "+ requires at least one argument")
             }
@@ -106,12 +108,12 @@ impl NumOperations {
                 }
             }
 
-            Ok(Rc::new(SteelVal::NumV(sum)))
+            Ok(Gc::new(SteelVal::NumV(sum)))
         })
     }
 
     pub fn adder() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "+ requires at least one argument")
             }
@@ -149,15 +151,15 @@ impl NumOperations {
             }
 
             if found_float {
-                Ok(Rc::new(SteelVal::NumV(sum_float)))
+                Ok(Gc::new(SteelVal::NumV(sum_float)))
             } else {
-                Ok(Rc::new(SteelVal::IntV(sum_int)))
+                Ok(Gc::new(SteelVal::IntV(sum_int)))
             }
         })
     }
 
     pub fn multiply() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "* requires at least one argument")
             }
@@ -192,9 +194,9 @@ impl NumOperations {
             }
 
             if found_float {
-                Ok(Rc::new(SteelVal::NumV(sum_float)))
+                Ok(Gc::new(SteelVal::NumV(sum_float)))
             } else {
-                Ok(Rc::new(SteelVal::IntV(sum_int)))
+                Ok(Gc::new(SteelVal::IntV(sum_int)))
             }
         })
     }
@@ -202,7 +204,7 @@ impl NumOperations {
     // TODO implement the full numerical tower
     // For now, only support division into floats
     pub fn divide() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "/ requires at least one argument")
             }
@@ -219,7 +221,7 @@ impl NumOperations {
             let mut floats = floats?.into_iter();
 
             if let Some(first) = floats.next() {
-                Ok(Rc::new(SteelVal::NumV(
+                Ok(Gc::new(SteelVal::NumV(
                     floats.fold(first, |acc, x| acc / x),
                 )))
             } else {
@@ -229,7 +231,7 @@ impl NumOperations {
     }
 
     pub fn subtract() -> SteelVal {
-        SteelVal::FuncV(|args: &[Rc<SteelVal>]| -> Result<Rc<SteelVal>> {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.is_empty() {
                 stop!(ArityMismatch => "- requires at least one argument")
             }
@@ -280,9 +282,9 @@ impl NumOperations {
             }
 
             if found_float {
-                Ok(Rc::new(SteelVal::NumV(sum_float)))
+                Ok(Gc::new(SteelVal::NumV(sum_float)))
             } else {
-                Ok(Rc::new(SteelVal::IntV(sum_int)))
+                Ok(Gc::new(SteelVal::IntV(sum_int)))
             }
         })
     }

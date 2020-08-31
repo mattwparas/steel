@@ -1,4 +1,5 @@
 use crate::env::Env;
+use crate::gc::{Gc, OBJECT_COUNT};
 use crate::rvals::SteelVal;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -15,6 +16,10 @@ impl Heap {
         if !val.borrow().is_root() {
             self.0.push(val)
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.0.clear()
     }
 
     pub fn inspect_heap(&self) {
@@ -129,7 +134,7 @@ impl Heap {
         self.sweep();
     }
 
-    pub fn gather_from_slice(&mut self, args: &[Rc<SteelVal>]) {
+    pub fn gather_from_slice(&mut self, args: &[Gc<SteelVal>]) {
         for arg in args {
             if let SteelVal::Closure(closure) = arg.as_ref() {
                 let parent_env = closure.sub_expression_env().upgrade().unwrap();

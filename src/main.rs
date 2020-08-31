@@ -16,9 +16,11 @@ use steel::repl::repl_base;
 use steel_derive::function;
 use steel_derive::steel;
 
+use steel::Gc;
+
 use std::process;
 
-use std::rc::Rc;
+// use std::rc::Rc;
 
 use steel::SteelErr;
 
