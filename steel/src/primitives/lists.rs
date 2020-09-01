@@ -4,7 +4,6 @@ use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
 use im_rc::Vector;
-use std::rc::Rc;
 
 use crate::gc::Gc;
 

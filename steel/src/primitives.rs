@@ -29,8 +29,6 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::result;
 
-use std::rc::Rc;
-
 use crate::gc::Gc;
 
 // pub struct List(pub Vec<T>);

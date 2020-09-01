@@ -3,8 +3,6 @@ use crate::rerrs::SteelErr;
 // use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-use std::rc::Rc;
-
 use rand::Rng;
 
 use crate::env::{FALSE, TRUE};
