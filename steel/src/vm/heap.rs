@@ -1,5 +1,5 @@
 use crate::env::Env;
-use crate::gc::{Gc, OBJECT_COUNT};
+use crate::gc::Gc;
 use crate::rvals::SteelVal;
 use std::cell::RefCell;
 use std::rc::Rc;

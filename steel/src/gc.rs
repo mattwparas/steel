@@ -7,6 +7,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(crate) static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 
+/// This is simply a newtype around the `Rc` type
+/// When enabled, this allows for complete sandboxing of data types
+/// It does not expose the full functionality of the `Rc` type
+/// but it does allow for some
 #[derive(PartialEq, Eq, Debug)]
 pub struct Gc<T>(Rc<T>);
 

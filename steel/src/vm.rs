@@ -555,7 +555,7 @@ pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
     }
 }
 
-fn coalesce_clears(instructions: &mut Vec<Instruction>) {
+fn _coalesce_clears(instructions: &mut Vec<Instruction>) {
     if instructions.len() < 2 {
         return;
     }

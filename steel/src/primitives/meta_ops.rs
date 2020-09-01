@@ -2,13 +2,10 @@
 use crate::rerrs::SteelErr;
 // use crate::rvals::SteelVal::*;
 use crate::env::VOID;
+use crate::gc::Gc;
+use crate::rvals::gc_get_size;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-use std::rc::Rc;
-
-use crate::gc::Gc;
-
-use crate::rvals::gc_get_size;
 // use crate::rvals::MemSize;
 
 // use crate::primitives::lists::ListOperations;

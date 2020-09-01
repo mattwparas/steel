@@ -1,12 +1,10 @@
 use crate::env::{FALSE, TRUE};
+use crate::gc::Gc;
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use im_rc::Vector;
-use std::rc::Rc;
-
-use crate::gc::Gc;
 
 // mod primitives;
 
