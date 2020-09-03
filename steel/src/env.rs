@@ -851,6 +851,12 @@ impl Env {
             ("hash", HashMapOperations::hm_construct()),
             ("hash-insert", HashMapOperations::hm_insert()),
             ("hash-get", HashMapOperations::hm_get()),
+            ("hash-contains?", HashMapOperations::hm_contains()),
+            ("hash-keys->list", HashMapOperations::keys_to_list()),
+            ("hash-keys->vector", HashMapOperations::keys_to_vector()),
+            ("hash-values->list", HashMapOperations::values_to_list()),
+            ("hash-values->vector", HashMapOperations::values_to_vector()),
+            ("hash-clear", HashMapOperations::clear()),
             // ("sizeof", MetaOperations::size_of()),
         ]
     }

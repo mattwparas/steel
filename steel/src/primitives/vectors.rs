@@ -25,6 +25,14 @@ impl VectorOperations {
         Ok(Gc::new(SteelVal::VectorV(res?)))
     }
 
+    pub fn vec_construct_iter_normal<I: Iterator<Item = Gc<SteelVal>>>(
+        arg: I,
+    ) -> Result<Gc<SteelVal>> {
+        Ok(Gc::new(SteelVal::VectorV(
+            arg.collect::<Vector<Gc<SteelVal>>>(),
+        )))
+    }
+
     // TODO
     // mutation semantics are much more difficult than functional ones?
     // maybe for vectors use Rc<RefCell<SteelVal>> insides?
