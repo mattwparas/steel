@@ -25,6 +25,36 @@ impl VectorOperations {
         Ok(Gc::new(SteelVal::VectorV(res?)))
     }
 
+    // TODO
+    // mutation semantics are much more difficult than functional ones?
+    // maybe for vectors use Rc<RefCell<SteelVal>> insides?
+    // this would ensure that the insides can get mutated safely
+    // COW would be cool though, because then I can ensure that if more than one
+    // variable points to a location, then it changes only the reference that I want
+    // to be changed
+    //
+    // Mutation functions have to have a different signature and run time
+    // behavior, otherwise things don't work properly
+    pub fn vec_set_bang() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 3 {
+                stop!(ArityMismatch => "vector-set! takes 3 arguments");
+            } else {
+                // unimplemented!();
+                // let vec_to_be_mut = Gc::clone(&args[0]);
+
+                // let vec_to_be_mut = Gc::make_mut(&args[0]);
+
+                let _idx = Gc::clone(&args[1]);
+                let _new_value = Gc::clone(&args[2]);
+
+                panic!("Internal Compiler Error - vector-set! not implemented")
+
+                // unimplemented!()
+            }
+        })
+    }
+
     pub fn vec_append() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             let lsts: Vector<Gc<SteelVal>> =

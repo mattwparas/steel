@@ -11,8 +11,8 @@ pub(crate) static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// When enabled, this allows for complete sandboxing of data types
 /// It does not expose the full functionality of the `Rc` type
 /// but it does allow for some
-#[derive(PartialEq, Eq, Debug)]
-pub struct Gc<T>(Rc<T>);
+#[derive(PartialEq, Eq, Debug, Hash)]
+pub struct Gc<T: Clone>(Rc<T>);
 
 impl fmt::Display for Gc<SteelVal> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -20,7 +20,7 @@ impl fmt::Display for Gc<SteelVal> {
     }
 }
 
-impl<T> Gc<T> {
+impl<T: Clone> Gc<T> {
     pub fn new(val: T) -> Gc<T> {
         OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
         Gc(Rc::new(val))
@@ -28,6 +28,10 @@ impl<T> Gc<T> {
 
     pub fn get_mut(&mut self) -> Option<&mut T> {
         Rc::get_mut(&mut self.0)
+    }
+
+    pub fn make_mut(&mut self) -> &mut T {
+        Rc::make_mut(&mut self.0)
     }
 
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
@@ -51,20 +55,20 @@ impl<T> Gc<T> {
     }
 }
 
-impl<T> AsRef<T> for Gc<T> {
+impl<T: Clone> AsRef<T> for Gc<T> {
     fn as_ref(&self) -> &T {
         self.0.as_ref()
     }
 }
 
-impl<T> Deref for Gc<T> {
+impl<T: Clone> Deref for Gc<T> {
     type Target = T;
     fn deref(&self) -> &T {
         self.0.deref()
     }
 }
 
-impl<T> Drop for Gc<T> {
+impl<T: Clone> Drop for Gc<T> {
     fn drop(&mut self) {
         if Rc::strong_count(&self.0) == 1 {
             OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
@@ -72,7 +76,7 @@ impl<T> Drop for Gc<T> {
     }
 }
 
-impl<T> Clone for Gc<T> {
+impl<T: Clone> Clone for Gc<T> {
     fn clone(&self) -> Self {
         Gc(Rc::clone(&self.0))
     }

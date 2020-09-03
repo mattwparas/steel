@@ -3,7 +3,7 @@ use crate::rerrs::SteelErr;
 // use crate::rvals::SteelVal::*;
 use crate::env::VOID;
 use crate::gc::Gc;
-use crate::rvals::gc_get_size;
+// use crate::rvals::gc_get_size;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 // use crate::rvals::MemSize;
@@ -29,23 +29,23 @@ impl MetaOperations {
         })
     }
 
-    pub fn size_of() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            // let mut error_message = String::new();
-            if args.len() == 1 {
-                Ok(Gc::new(SteelVal::IntV(
-                    gc_get_size(Gc::clone(&args[0])) as isize
-                )))
+    // pub fn size_of() -> SteelVal {
+    //     SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+    //         // let mut error_message = String::new();
+    //         if args.len() == 1 {
+    //             Ok(Gc::new(SteelVal::IntV(
+    //                 gc_get_size(Gc::clone(&args[0])) as isize
+    //             )))
 
-            // if let SteelVal::Closure(bytecode_lambda) = args[0].as_ref() {
-            //     crate::vm::pretty_print_dense_instructions(&bytecode_lambda.body_exp());
-            //     Ok(VOID.with(|f| Rc::clone(f)))
-            // } else {
-            //     stop!(TypeMismatch => "inspect-bytecode expects a closure object");
-            // }
-            } else {
-                stop!(ArityMismatch => "sizeof takes only one argument");
-            }
-        })
-    }
+    //         // if let SteelVal::Closure(bytecode_lambda) = args[0].as_ref() {
+    //         //     crate::vm::pretty_print_dense_instructions(&bytecode_lambda.body_exp());
+    //         //     Ok(VOID.with(|f| Rc::clone(f)))
+    //         // } else {
+    //         //     stop!(TypeMismatch => "inspect-bytecode expects a closure object");
+    //         // }
+    //         } else {
+    //             stop!(ArityMismatch => "sizeof takes only one argument");
+    //         }
+    //     })
+    // }
 }

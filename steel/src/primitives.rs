@@ -1,5 +1,6 @@
 mod control;
 mod fs;
+mod hashmaps;
 mod io;
 mod lists;
 mod meta_ops;
@@ -11,6 +12,7 @@ mod vectors;
 
 pub use control::ControlOperations;
 pub use fs::FsFunctions;
+pub use hashmaps::HashMapOperations;
 pub use io::IoFunctions;
 pub use lists::ListOperations;
 pub use meta_ops::MetaOperations;

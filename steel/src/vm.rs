@@ -414,6 +414,15 @@ pub fn insert_debruijn_indices(
                         ..
                     }),
                 ..
+            }
+            | Instruction {
+                op_code: OpCode::SET,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }),
+                ..
             } => {
                 let idx = symbol_map.get(s).map_err(|x| {
                     let sp = if let Some(syn) = &instructions[i].contents {
@@ -839,13 +848,45 @@ fn emit_loop<CT: ConstantTable>(
                     //     return Ok(());
                     // }
                     // set! expression
-                    // Expr::Atom(SyntaxObject {
-                    //     ty: TokenType::Identifier(s),
-                    //     ..
-                    // }) if s == "set!" => {
-                    //     instructions.push("set!".to_string());
-                    //     return Ok(());
-                    // }
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "set!" => {
+                        // instructions.push()
+                        // check_length("map'", tokens, expected)
+                        check_length("set", &list_of_tokens, 3)?;
+                        // Load in the variable
+                        // emit_loop(
+                        //     &list_of_tokens[1],
+                        //     instructions,
+                        //     None,
+                        //     arity_map,
+                        //     constant_map,
+                        // )?;
+                        // Load in the expression to reassign
+                        emit_loop(
+                            &list_of_tokens[2],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
+
+                        let identifier = &list_of_tokens[1];
+
+                        if let Expr::Atom(syn) = identifier {
+                            instructions.push(Instruction::new(OpCode::SET, 0, syn.clone(), false));
+                        } else {
+                            stop!(Generic => "set! takes an identifier")
+                        }
+
+                        // match i
+
+                        // instructions.push(Instruction::new_set());
+                        // instructions.push(Instruction::new_pop());
+
+                        return Ok(());
+                    }
                     // (let (var binding)* (body))
                     // Expr::Atom(SyntaxObject {
                     //     ty: TokenType::Identifier(s),
@@ -1081,7 +1122,7 @@ fn emit_loop<CT: ConstantTable>(
     Ok(())
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Hash)]
 pub struct DenseInstruction {
     op_code: OpCode,
     payload_size: usize,
@@ -1931,6 +1972,28 @@ pub fn vm<CT: ConstantTable>(
             OpCode::VOID => {
                 stack.push(VOID.with(|f| Gc::clone(f)));
                 ip += 1;
+            }
+            OpCode::SET => {
+                let value_to_assign = stack.pop();
+                // let variable = stack.pop();
+
+                println!("index: {}", cur_inst.payload_size);
+
+                if repl {
+                    let value = global_env
+                        .borrow_mut()
+                        .repl_set_idx(cur_inst.payload_size, value_to_assign)?;
+
+                    println!("Old value: {}", value);
+                    stack.push(value);
+                } else {
+                    unimplemented!();
+                    // let value = global_env.borrow().lookup_idx(cur_inst.payload_size)?;
+                    // stack.push(value);
+                }
+                ip += 1;
+
+                // global_env.borrow_mut().defin
             }
             OpCode::PUSHCONST => {
                 let val = constants.get(cur_inst.payload_size);

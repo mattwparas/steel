@@ -32,6 +32,7 @@ use std::io::Read;
 
 use crate::gc::Gc;
 
+#[derive(Debug)]
 pub struct AST {
     source: String,
     expr: Vec<Expr>,
@@ -234,14 +235,14 @@ fn extract_macro_definitions(exprs: &[Expr], env: &Rc<RefCell<Env>>) -> Result<V
 fn identify_function_definitions(
     exprs: &[Expr],
     env: &Rc<RefCell<Env>>,
-    heap: &mut Vec<Gc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Expr>,
+    _heap: &mut Vec<Rc<RefCell<Env>>>,
+    _expr_stack: &mut Vec<Expr>,
     // last_macro: &mut Option<Rc<Expr>>,
 ) -> Result<()> {
     // let mut others: Vec<Rc<Expr>> = Vec::new();
     for expr in exprs {
         match expr {
-            Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
+            Expr::VectorVal(_list_of_tokens) if is_function_definition(expr) => {
                 // eval_define(&list_of_tokens[1..], env, heap, expr_stack)?;
                 unimplemented!();
             }
@@ -260,14 +261,14 @@ fn identify_function_definitions(
 fn extract_and_expand_function_definitions(
     exprs: &[Expr],
     env: &Rc<RefCell<Env>>,
-    heap: &mut Vec<Gc<RefCell<Env>>>,
-    expr_stack: &mut Vec<Expr>,
+    _heap: &mut Vec<Rc<RefCell<Env>>>,
+    _expr_stack: &mut Vec<Expr>,
     // last_macro: &mut Option<Rc<Expr>>,
 ) -> Result<Vec<Expr>> {
     let mut others: Vec<Expr> = Vec::new();
     for expr in exprs {
         match expr {
-            Expr::VectorVal(list_of_tokens) if is_function_definition(expr) => {
+            Expr::VectorVal(_list_of_tokens) if is_function_definition(expr) => {
                 // eval_define(&list_of_tokens[1..], env, heap, expr_stack)?;
                 unimplemented!();
             }
