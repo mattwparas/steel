@@ -194,4 +194,13 @@ impl Instruction {
             constant: false,
         }
     }
+
+    pub fn new_set() -> Instruction {
+        Instruction {
+            op_code: OpCode::SET,
+            payload_size: 0,
+            contents: None,
+            constant: false,
+        }
+    }
 }

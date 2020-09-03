@@ -2,6 +2,7 @@
 // #[macro_use]
 use crate::primitives::ControlOperations;
 use crate::primitives::FsFunctions;
+use crate::primitives::HashMapOperations;
 use crate::primitives::IoFunctions;
 use crate::primitives::ListOperations;
 use crate::primitives::MetaOperations;
@@ -18,6 +19,8 @@ use crate::stop;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+
+// use im_rc::HashMap;
 
 use std::rc::Rc;
 use std::rc::Weak;
@@ -122,7 +125,7 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
     Rc::new(RefCell::new(x))
 }
 
-// #[derive(Debug, Hash)]
+#[derive(Debug)]
 pub struct Env {
     bindings: HashMap<String, Gc<SteelVal>>,
     bindings_vec: Vec<Gc<SteelVal>>,
@@ -564,8 +567,23 @@ impl Env {
 
     pub fn repl_define_idx(&mut self, idx: usize, val: Gc<SteelVal>) {
         self.bindings_map.insert(idx, val);
-
         // unimplemented!()
+    }
+
+    pub fn repl_set_idx(&mut self, idx: usize, val: Gc<SteelVal>) -> Result<Gc<SteelVal>> {
+        if self.bindings_map.contains_key(&idx) {
+            Ok(self.bindings_map.insert(idx, val).unwrap())
+        } else {
+            match &self.sub_expression {
+                Some(par) => match par.upgrade() {
+                    Some(x) => x.borrow_mut().repl_set_idx(idx, val),
+                    None => {
+                        stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
+                    }
+                },
+                None => stop!(FreeIdentifier => idx),
+            }
+        }
     }
 
     pub fn lookup_idx(&self, idx: usize) -> Result<Gc<SteelVal>> {
@@ -830,7 +848,10 @@ impl Env {
             ("file-name", FsFunctions::file_name()),
             ("current-directory", FsFunctions::current_dir()),
             ("inspect-bytecode", MetaOperations::inspect_bytecode()),
-            ("sizeof", MetaOperations::size_of()),
+            ("hash", HashMapOperations::hm_construct()),
+            ("hash-insert", HashMapOperations::hm_insert()),
+            ("hash-get", HashMapOperations::hm_get()),
+            // ("sizeof", MetaOperations::size_of()),
         ]
     }
 }

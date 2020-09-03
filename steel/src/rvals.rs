@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::rc::Weak;
 use SteelVal::*;
 
-use im_rc::Vector;
+use im_rc::{HashMap, Vector};
 use std::convert::TryFrom;
 use std::result;
 
@@ -25,6 +25,8 @@ use crate::vm::DenseInstruction;
 // use std::mem;
 
 use crate::gc::Gc;
+
+use std::hash::{Hash, Hasher};
 
 // use std::collections::HashMap;
 
@@ -70,11 +72,11 @@ impl From<Box<dyn CustomType>> for SteelVal {
     }
 }
 
-macro_rules! ok_val {
-    ($variant:ty, $value:expr) => {
-        Ok(Rc::new(SteelVal::$variant($value)));
-    };
-}
+// macro_rules! ok_val {
+//     ($variant:ty, $value:expr) => {
+//         Ok(Rc::new(SteelVal::$variant($value)));
+//     };
+// }
 
 /// Unwraps the `SteelVal::Custom` with the given type. The type must implement the `CustomType` trait.
 /// If the type does not match, then
@@ -109,14 +111,14 @@ macro_rules! unwrap {
     }};
 }
 
-pub trait MemSize {
-    fn get_size(&self) -> usize;
-    // fn rc_get_size()
-}
+// pub trait MemSize {
+//     fn get_size(&self) -> usize;
+//     // fn rc_get_size()
+// }
 
-pub fn gc_get_size<M: MemSize>(_self: Gc<M>) -> usize {
-    std::mem::size_of::<Gc<M>>() + _self.as_ref().get_size()
-}
+// pub fn gc_get_size<M: MemSize>(_self: Gc<M>) -> usize {
+//     std::mem::size_of::<Gc<M>>() + _self.as_ref().get_size()
+// }
 
 // This isn't quite right
 // This will double count allocated space
@@ -124,41 +126,41 @@ pub fn gc_get_size<M: MemSize>(_self: Gc<M>) -> usize {
 // using the new type stuff
 // This _should_ give a rough cut estimate though
 // which I could use for sandboxing like a lower bound?
-impl MemSize for SteelVal {
-    fn get_size(&self) -> usize {
-        match self {
-            Pair(_, _) => {
-                std::mem::size_of::<SteelVal>()
-                    + SteelVal::iter(Gc::new(self.clone()))
-                        .map(|x| gc_get_size(x))
-                        .sum::<usize>()
-            }
-            VectorV(v) => {
-                std::mem::size_of::<SteelVal>()
-                    + v.iter().map(|x| gc_get_size(Gc::clone(x))).sum::<usize>()
-            }
-            Custom(c) => std::mem::size_of_val(c),
-            _ => std::mem::size_of::<SteelVal>(),
-            // BoolV(b) => {}
-            // NumV(n) => {}
-            // IntV(i) => {}
-            // CharV(_) => {}
-            // Pair(_, _) => {}
-            // VectorV(_) => {}
-            // Void => {}
-            // StringV(_) => {}
-            // FuncV(_) => {}
-            // LambdaV(_) => {}
-            // MacroV(_) => {}
-            // SymbolV(_) => {}
-            // Custom(_) => {}
-            // StructV(_) => {}
-            // StructClosureV(_, _) => {}
-            // PortV(_) => {}
-            // Closure(_) => {}
-        }
-    }
-}
+// impl MemSize for SteelVal {
+//     fn get_size(&self) -> usize {
+//         match self {
+//             Pair(_, _) => {
+//                 std::mem::size_of::<SteelVal>()
+//                     + SteelVal::iter(Gc::new(self.clone()))
+//                         .map(|x| gc_get_size(x))
+//                         .sum::<usize>()
+//             }
+//             VectorV(v) => {
+//                 std::mem::size_of::<SteelVal>()
+//                     + v.iter().map(|x| gc_get_size(Gc::clone(x))).sum::<usize>()
+//             }
+//             Custom(c) => std::mem::size_of_val(c),
+//             _ => std::mem::size_of::<SteelVal>(),
+//             // BoolV(b) => {}
+//             // NumV(n) => {}
+//             // IntV(i) => {}
+//             // CharV(_) => {}
+//             // Pair(_, _) => {}
+//             // VectorV(_) => {}
+//             // Void => {}
+//             // StringV(_) => {}
+//             // FuncV(_) => {}
+//             // LambdaV(_) => {}
+//             // MacroV(_) => {}
+//             // SymbolV(_) => {}
+//             // Custom(_) => {}
+//             // StructV(_) => {}
+//             // StructClosureV(_, _) => {}
+//             // PortV(_) => {}
+//             // Closure(_) => {}
+//         }
+//     }
+// }
 
 #[derive(Clone)]
 pub enum SteelVal {
@@ -191,7 +193,7 @@ pub enum SteelVal {
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Box<dyn CustomType>),
     // Embedded HashMap
-    // HashMapV(HashMap<SteelVal, SteelVal>),
+    HashMapV(HashMap<Gc<SteelVal>, Gc<SteelVal>>),
     /// Represents a scheme-only struct
     StructV(SteelStruct),
     /// Represents a special rust closure
@@ -200,6 +202,46 @@ pub enum SteelVal {
     PortV(SteelPort),
     /// Represents a bytecode closure
     Closure(ByteCodeLambda),
+}
+
+impl Hash for SteelVal {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // self.id.hash(state);
+        // self.phone.hash(state);
+        match self {
+            BoolV(b) => b.hash(state),
+            NumV(_) => {
+                unimplemented!();
+            }
+            IntV(i) => i.hash(state),
+            CharV(c) => c.hash(state),
+            Pair(car, cdr) => {
+                car.hash(state);
+                cdr.hash(state);
+            }
+            VectorV(v) => v.hash(state),
+            Void => {
+                unimplemented!();
+            }
+            StringV(s) => s.hash(state),
+            FuncV(_) => {
+                unimplemented!();
+            }
+            LambdaV(_) => unimplemented!(),
+            MacroV(_) => unimplemented!(),
+            SymbolV(sym) => {
+                "symbol".hash(state);
+                sym.hash(state);
+                // format!("symbol: {}")
+            }
+            Custom(_) => unimplemented!(),
+            StructV(_) => unimplemented!(),
+            StructClosureV(_, _) => unimplemented!(),
+            PortV(_) => unimplemented!(),
+            Closure(_) => unimplemented!(),
+            HashMapV(hm) => hm.hash(state),
+        }
+    }
 }
 
 pub struct Iter(Option<Gc<SteelVal>>);
@@ -487,19 +529,22 @@ impl TryFrom<&SteelVal> for Expr {
             StructClosureV(_, _) => Err("Can't convert from struct-function to expression!"),
             PortV(_) => Err("Can't convert from port to expression!"),
             Closure(_) => Err("Can't convert from bytecode closure to expression"),
+            HashMapV(_) => Err("Can't convert from hashmap to expression!"),
         }
     }
 }
+
+impl Eq for SteelVal {}
 
 // TODO add tests
 impl PartialEq for SteelVal {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (BoolV(l), BoolV(r)) => l == r,
-            (NumV(l), NumV(r)) => l == r,
+            // (NumV(l), NumV(r)) => l == r,
             (IntV(l), IntV(r)) => l == r,
-            (NumV(l), IntV(r)) => *l == *r as f64,
-            (IntV(l), NumV(r)) => *l as f64 == *r,
+            // (NumV(l), IntV(r)) => *l == *r as f64,
+            // (IntV(l), NumV(r)) => *l as f64 == *r,
             (StringV(l), StringV(r)) => l == r,
             (VectorV(l), VectorV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
@@ -721,6 +766,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         StructClosureV(_, _) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
+        HashMapV(hm) => write!(f, "<HashMap {:?}>", hm),
     }
 }
 

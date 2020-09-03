@@ -24,4 +24,5 @@ pub enum OpCode {
     MAP = 20,
     FILTER = 21,
     APPLY = 22,
+    SET = 23,
 }
