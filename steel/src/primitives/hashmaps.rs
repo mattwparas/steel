@@ -1,7 +1,7 @@
 use crate::env::{FALSE, TRUE};
 use crate::gc::Gc;
 use crate::rerrs::SteelErr;
-use crate::rvals::SteelVal::*;
+// use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use im_rc::HashMap;
@@ -21,7 +21,11 @@ impl HashMapOperations {
             loop {
                 match (arg_iter.next(), arg_iter.next()) {
                     (Some(key), Some(value)) => {
-                        hm.insert(key, value);
+                        if key.is_hashable() {
+                            hm.insert(key, value);
+                        } else {
+                            stop!(TypeMismatch => "hash key not hashable!");
+                        }
                     }
                     (None, None) => break,
                     _ => {
@@ -46,7 +50,11 @@ impl HashMapOperations {
 
             if let SteelVal::HashMapV(hm) = hashmap.as_ref() {
                 let mut hm = hm.clone();
-                hm.insert(key, value);
+                if key.is_hashable() {
+                    hm.insert(key, value);
+                } else {
+                    stop!(TypeMismatch => "hash key not hashable!");
+                }
                 Ok(Gc::new(SteelVal::HashMapV(hm)))
             } else {
                 stop!(TypeMismatch => "hm insert takes a hashmap")
@@ -84,10 +92,14 @@ impl HashMapOperations {
             let key = &args[1];
 
             if let SteelVal::HashMapV(hm) = hashmap.as_ref() {
-                if hm.contains_key(key) {
-                    Ok(TRUE.with(|x| Gc::clone(x)))
+                if key.is_hashable() {
+                    if hm.contains_key(key) {
+                        Ok(TRUE.with(|x| Gc::clone(x)))
+                    } else {
+                        Ok(FALSE.with(|x| Gc::clone(x)))
+                    }
                 } else {
-                    Ok(FALSE.with(|x| Gc::clone(x)))
+                    stop!(TypeMismatch => "hash key not hashable!");
                 }
             } else {
                 stop!(TypeMismatch => "hm-contains? takes a hashmap")

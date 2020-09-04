@@ -25,4 +25,6 @@ pub enum OpCode {
     FILTER = 21,
     APPLY = 22,
     SET = 23,
+    COLLECT = 24,
+    TRANSDUCE = 25,
 }

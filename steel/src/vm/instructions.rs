@@ -203,4 +203,22 @@ impl Instruction {
             constant: false,
         }
     }
+
+    pub fn new_collect() -> Instruction {
+        Instruction {
+            op_code: OpCode::COLLECT,
+            payload_size: 0,
+            contents: None,
+            constant: false,
+        }
+    }
+
+    pub fn new_transduce() -> Instruction {
+        Instruction {
+            op_code: OpCode::TRANSDUCE,
+            payload_size: 0,
+            contents: None,
+            constant: false,
+        }
+    }
 }

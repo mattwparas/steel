@@ -216,7 +216,7 @@
 (define flip (lambda (func) (lambda (arg1 arg2) (func arg2 arg1))))
 (define curry (lambda (func arg1) (lambda (arg) (func arg1 arg))))
 (define curry2 (lambda (func arg1) (lambda (arg2 arg3) (func arg1 arg2 arg3))))
-(define compose (lambda (f g) (lambda (arg) (f (g arg)))))
+; (define compose (lambda (f g) (lambda (arg) (f (g arg)))))
 
 
 (define (not a)

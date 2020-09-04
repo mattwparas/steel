@@ -28,6 +28,14 @@ use crate::gc::Gc;
 
 use std::hash::{Hash, Hasher};
 
+// use std::ops::Deref;
+
+use crate::parser::span::Span;
+use crate::vm::ConstantTable;
+
+use crate::vm::{inline_filter_result_iter, inline_map_result_iter, inline_reduce_iter};
+// pub use constants::ConstantTable;
+
 // use std::collections::HashMap;
 
 // use std::io::Read;
@@ -202,6 +210,168 @@ pub enum SteelVal {
     PortV(SteelPort),
     /// Represents a bytecode closure
     Closure(ByteCodeLambda),
+    /// Generic iterator wrapper?
+    IterV(Transducer),
+}
+
+// pub trait Transduce {
+//     fn run() -> Gc<SteelVal>;
+// }
+
+// Make a transducer actually contain an option to a rooted value, otherwise
+// it is a source agnostic transformer on the (eventual) input
+#[derive(Clone)]
+pub struct Transducer {
+    // root: Gc<SteelVal>,
+    pub(crate) ops: Vector<Transducers>,
+}
+
+impl Transducer {
+    pub fn new() -> Self {
+        Transducer { ops: Vector::new() }
+    }
+
+    pub fn append(&mut self, other: Self) {
+        self.ops.append(other.ops)
+    }
+
+    pub fn push(&mut self, t: Transducers) {
+        self.ops.push_back(t);
+    }
+
+    // This runs through the iterators  in sequence in the transducer
+    // we want to then finish with a reducer
+    // TODO see transduce vs educe
+    pub fn run<CT: ConstantTable>(
+        &self,
+        root: Gc<SteelVal>,
+        constants: &CT,
+        cur_inst_span: &Span,
+        repl: bool,
+    ) -> Result<Gc<SteelVal>> {
+        match root.as_ref() {
+            SteelVal::VectorV(v) => {
+                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
+                    Box::new(v.into_iter().map(|x| Ok(Gc::clone(x))));
+                for t in &self.ops {
+                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+                }
+
+                crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+            }
+            SteelVal::Pair(_, _) => {
+                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
+                    Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x)));
+                for t in &self.ops {
+                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+                }
+
+                crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+            }
+            _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
+        }
+    }
+
+    pub fn transduce<CT: ConstantTable>(
+        &self,
+        root: Gc<SteelVal>,
+        initial_value: Gc<SteelVal>,
+        reducer: Gc<SteelVal>,
+        constants: &CT,
+        cur_inst_span: &Span,
+        repl: bool,
+    ) -> Result<Gc<SteelVal>> {
+        match root.as_ref() {
+            SteelVal::VectorV(v) => {
+                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
+                    Box::new(v.into_iter().map(|x| Ok(Gc::clone(x))));
+                for t in &self.ops {
+                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+                }
+
+                inline_reduce_iter(
+                    my_iter,
+                    initial_value,
+                    reducer,
+                    constants,
+                    cur_inst_span,
+                    repl,
+                )
+
+                // crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+            }
+            SteelVal::Pair(_, _) => {
+                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
+                    Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x)));
+                for t in &self.ops {
+                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+                }
+
+                inline_reduce_iter(
+                    my_iter,
+                    initial_value,
+                    reducer,
+                    constants,
+                    cur_inst_span,
+                    repl,
+                )
+
+                // crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+            }
+            _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum Transducers {
+    Map(Gc<SteelVal>),    // function
+    Filter(Gc<SteelVal>), // function
+    Take(Gc<SteelVal>),   // integer
+}
+
+impl Transducers {
+    pub fn into_transducer<
+        'global,
+        I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
+        CT: ConstantTable,
+    >(
+        &self,
+        iter: I,
+        // stack_func: Gc<SteelVal>,
+        constants: &'global CT,
+        cur_inst_span: &'global Span,
+        repl: bool,
+    ) -> Result<Box<dyn Iterator<Item = Result<Gc<SteelVal>>> + 'global>> {
+        // unimplemented!();
+
+        match self {
+            Transducers::Map(func) => Ok(Box::new(inline_map_result_iter(
+                iter,
+                Gc::clone(func),
+                constants,
+                cur_inst_span,
+                repl,
+            ))),
+            Transducers::Filter(func) => Ok(Box::new(inline_filter_result_iter(
+                iter,
+                Gc::clone(func),
+                constants,
+                cur_inst_span,
+                repl,
+            ))),
+            Transducers::Take(num) => {
+                if let SteelVal::IntV(num) = num.as_ref() {
+                    if *num < 0 {
+                        stop!(ContractViolation => "take transducer must have a position number"; *cur_inst_span)
+                    }
+                    Ok(Box::new(iter.take(*num as usize)))
+                } else {
+                    stop!(TypeMismatch => "take transducer takes an integer"; *cur_inst_span)
+                }
+            }
+        }
+    }
 }
 
 impl Hash for SteelVal {
@@ -240,11 +410,29 @@ impl Hash for SteelVal {
             PortV(_) => unimplemented!(),
             Closure(_) => unimplemented!(),
             HashMapV(hm) => hm.hash(state),
+            IterV(_) => unimplemented!(),
         }
     }
 }
 
 pub struct Iter(Option<Gc<SteelVal>>);
+
+// trait Container {
+//     fn items(&self) -> Box<dyn Iterator<Item = Gc<SteelVal>>>;
+// }
+
+// impl Container for Iter {
+//     fn items(&self) -> Box<dyn Iterator<Item = Gc<SteelVal>>> {
+//         Box::new(self.into_iter())
+//     }
+// }
+
+// impl Container for crate::im_rc::vector::Iter<'_, Gc<SteelVal>> {
+//     fn items(&self) -> Box<dyn Iterator<Item = Gc<SteelVal>>> {
+//         // Box::new(self.into_iter().map(|x| Gc::clone(x)))
+//         Box::new(self)
+//     }
+// }
 
 impl SteelVal {
     // pub fn iter(self) -> Iter {
@@ -254,6 +442,16 @@ impl SteelVal {
     pub fn iter(_self: Gc<SteelVal>) -> Iter {
         Iter(Some(_self))
     }
+
+    // pub fn as_iter(&self) -> Result<impl Iterator<Item = Result<Gc<SteelVal>>>> {
+    //     match self {
+    //         VectorV(v) => Ok(v.into_iter()),
+    //         Pair(_, _) => Ok(SteelVal::iter(Gc::clone(&self)).into_iter()),
+    //         _ => stop!(Generic => "this type does not produce an iterator"),
+    //     }
+
+    //     // unimplemented!()
+    // }
 
     pub fn is_truthy(&self) -> bool {
         match &self {
@@ -266,6 +464,20 @@ impl SteelVal {
                 }
             }
             _ => true,
+        }
+    }
+
+    pub fn is_hashable(&self) -> bool {
+        match self {
+            BoolV(_)
+            | IntV(_)
+            | CharV(_)
+            | Pair(_, _)
+            | VectorV(_)
+            | StringV(_)
+            | SymbolV(_)
+            | HashMapV(_) => true,
+            _ => false,
         }
     }
 
@@ -530,6 +742,7 @@ impl TryFrom<&SteelVal> for Expr {
             PortV(_) => Err("Can't convert from port to expression!"),
             Closure(_) => Err("Can't convert from bytecode closure to expression"),
             HashMapV(_) => Err("Can't convert from hashmap to expression!"),
+            IterV(_) => Err("Can't convert from iterator to expression!"),
         }
     }
 }
@@ -766,7 +979,8 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         StructClosureV(_, _) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
-        HashMapV(hm) => write!(f, "<HashMap {:?}>", hm),
+        HashMapV(hm) => write!(f, "#<HashMap {:?}>", hm),
+        IterV(_) => write!(f, "#<iterator>"),
     }
 }
 

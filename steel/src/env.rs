@@ -10,6 +10,7 @@ use crate::primitives::NumOperations;
 use crate::primitives::PortOperations;
 use crate::primitives::StringOperations;
 use crate::primitives::SymbolOperations;
+use crate::primitives::TransducerOperations;
 use crate::primitives::VectorOperations;
 
 // use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
@@ -857,6 +858,10 @@ impl Env {
             ("hash-values->list", HashMapOperations::values_to_list()),
             ("hash-values->vector", HashMapOperations::values_to_vector()),
             ("hash-clear", HashMapOperations::clear()),
+            ("compose", TransducerOperations::compose()),
+            ("mapping", TransducerOperations::map()),
+            ("filtering", TransducerOperations::filter()),
+            ("taking", TransducerOperations::take()),
             // ("sizeof", MetaOperations::size_of()),
         ]
     }

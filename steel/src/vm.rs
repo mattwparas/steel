@@ -643,6 +643,51 @@ fn emit_loop<CT: ConstantTable>(
                         return Ok(());
                     }
 
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "execute" => {
+                        check_length("execute", &list_of_tokens, 3)?;
+
+                        // emit_loop
+
+                        // load in the transducer
+                        emit_loop(
+                            &list_of_tokens[1],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
+
+                        // load in the collection
+                        emit_loop(
+                            &list_of_tokens[2],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
+
+                        instructions.push(Instruction::new_collect());
+                        return Ok(());
+                    }
+
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "transduce" => {
+                        // (transduce transducer func initial_value iterable)
+                        check_length("transduce", &list_of_tokens, 5)?;
+
+                        for expr in &list_of_tokens[1..] {
+                            emit_loop(expr, instructions, None, arity_map, constant_map)?;
+                        }
+
+                        instructions.push(Instruction::new_transduce());
+                        return Ok(());
+                    }
+
                     // Expr::Atom(SyntaxObject {
                     //     ty: TokenType::Identifier(s),
                     //     ..
@@ -1571,7 +1616,148 @@ pub fn extract_constants<CT: ConstantTable>(
 //     unimplemented!()
 // }
 
-fn inline_map_iter<
+pub(crate) fn inline_reduce_iter<
+    'global,
+    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
+    CT: ConstantTable,
+>(
+    iter: I,
+    initial_value: Gc<SteelVal>,
+    reducer: Gc<SteelVal>,
+    constants: &'global CT,
+    cur_inst_span: &'global Span,
+    repl: bool,
+) -> Result<Gc<SteelVal>> {
+    // unimplemented!();
+
+    let switch_statement = move |acc, x| match reducer.as_ref() {
+        SteelVal::FuncV(func) => {
+            let arg_vec = vec![acc?, x?];
+            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+        }
+        SteelVal::StructClosureV(factory, func) => {
+            let arg_vec = vec![acc?, x?];
+            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+        }
+        SteelVal::Closure(closure) => {
+            // ignore the stack limit here
+            let args = vec![acc?, x?];
+            // if let Some()
+
+            let parent_env = closure.sub_expression_env();
+
+            // TODO remove this unwrap
+            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+
+            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                parent_env.clone(),
+                offset,
+            )));
+
+            inner_env
+                .borrow_mut()
+                .reserve_defs(if closure.ndef_body() > 0 {
+                    closure.ndef_body() - 1
+                } else {
+                    0
+                });
+
+            let mut local_heap = Heap::new();
+
+            // TODO make recursive call here with a very small stack
+            // probably a bit overkill, but not much else I can do here I think
+            vm(
+                closure.body_exp(),
+                args.into(),
+                &mut local_heap,
+                inner_env,
+                constants,
+                repl,
+            )
+        }
+
+        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
+    };
+
+    iter.fold(Ok(initial_value), switch_statement)
+}
+
+pub(crate) fn inline_map_result_iter<
+    'global,
+    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
+    // R: Iterator<Item = Result<Rc<SteelVal>>>,
+    CT: ConstantTable,
+>(
+    iter: I,
+    stack_func: Gc<SteelVal>,
+    constants: &'global CT,
+    cur_inst_span: &'global Span,
+    repl: bool,
+) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
+    // unimplemented!();
+
+    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
+
+    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
+    // TODO don't allocate this vec for just this
+    let switch_statement = move |arg| match stack_func.as_ref() {
+        SteelVal::FuncV(func) => {
+            let arg_vec = vec![arg?];
+            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+        }
+        SteelVal::StructClosureV(factory, func) => {
+            let arg_vec = vec![arg?];
+            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+        }
+        SteelVal::Closure(closure) => {
+            // ignore the stack limit here
+            let args = vec![arg?];
+            // if let Some()
+
+            let parent_env = closure.sub_expression_env();
+
+            // TODO remove this unwrap
+            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+
+            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                parent_env.clone(),
+                offset,
+            )));
+
+            inner_env
+                .borrow_mut()
+                .reserve_defs(if closure.ndef_body() > 0 {
+                    closure.ndef_body() - 1
+                } else {
+                    0
+                });
+
+            let mut local_heap = Heap::new();
+
+            // TODO make recursive call here with a very small stack
+            // probably a bit overkill, but not much else I can do here I think
+            vm(
+                closure.body_exp(),
+                args.into(),
+                &mut local_heap,
+                inner_env,
+                constants,
+                repl,
+            )
+        }
+        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
+    };
+
+    iter.map(switch_statement)
+
+    // for val in iter {
+    //     collected_results.push(switch_statement(val)?);
+    // }
+
+    // Ok(collected_results)
+}
+
+pub(crate) fn inline_map_iter<
     'global,
     I: Iterator<Item = Gc<SteelVal>> + 'global,
     // R: Iterator<Item = Result<Rc<SteelVal>>>,
@@ -1646,7 +1832,117 @@ fn inline_map_iter<
     // Ok(collected_results)
 }
 
-fn inline_filter_iter<
+pub(crate) fn inline_filter_result_iter<
+    'global,
+    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
+    // R: Iterator<Item = Result<Rc<SteelVal>>>,
+    CT: ConstantTable,
+>(
+    iter: I,
+    stack_func: Gc<SteelVal>,
+    constants: &'global CT,
+    cur_inst_span: &'global Span,
+    repl: bool,
+) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
+    // unimplemented!();
+
+    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
+
+    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
+    // TODO don't allocate this vec for just this
+    let switch_statement = move |arg: Result<Gc<SteelVal>>| match arg {
+        Ok(arg) => {
+            match stack_func.as_ref() {
+                SteelVal::FuncV(func) => {
+                    let arg_vec = vec![Gc::clone(&arg)];
+                    let res = func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
+                    match res {
+                        Ok(k) => match k.as_ref() {
+                            SteelVal::BoolV(true) => Some(Ok(arg)),
+                            SteelVal::BoolV(false) => None,
+                            _ => None,
+                        },
+                        Err(e) => Some(Err(e)),
+                        // _ => None,
+                    }
+                }
+                SteelVal::StructClosureV(factory, func) => {
+                    let arg_vec = vec![Gc::clone(&arg)];
+                    let res = func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span));
+                    match res {
+                        Ok(k) => match k.as_ref() {
+                            SteelVal::BoolV(true) => Some(Ok(arg)),
+                            SteelVal::BoolV(false) => None,
+                            _ => None,
+                        },
+                        Err(e) => Some(Err(e)),
+                    }
+                }
+                SteelVal::Closure(closure) => {
+                    // ignore the stack limit here
+                    let args = vec![Gc::clone(&arg)];
+                    // if let Some()
+
+                    let parent_env = closure.sub_expression_env();
+
+                    let offset =
+                        closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                    let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                        parent_env.clone(),
+                        offset,
+                    )));
+
+                    inner_env
+                        .borrow_mut()
+                        .reserve_defs(if closure.ndef_body() > 0 {
+                            closure.ndef_body() - 1
+                        } else {
+                            0
+                        });
+
+                    let mut local_heap = Heap::new();
+
+                    // TODO make recursive call here with a very small stack
+                    // probably a bit overkill, but not much else I can do here I think
+                    let res = vm(
+                        closure.body_exp(),
+                        args.into(),
+                        &mut local_heap,
+                        inner_env,
+                        constants,
+                        repl,
+                    );
+
+                    match res {
+                        Ok(k) => match k.as_ref() {
+                            SteelVal::BoolV(true) => Some(Ok(arg)),
+                            SteelVal::BoolV(false) => None,
+                            _ => None,
+                        },
+                        Err(e) => Some(Err(e)),
+                    }
+                }
+                _ => Some(Err(SteelErr::TypeMismatch(
+                    "map expected a function".to_string(),
+                    Some(*cur_inst_span),
+                ))),
+            }
+        }
+
+        _ => Some(arg),
+    };
+
+    iter.filter_map(switch_statement)
+
+    // for val in iter {
+    //     collected_results.push(switch_statement(val)?);
+    // }
+
+    // Ok(collected_results)
+}
+
+pub(crate) fn inline_filter_iter<
     'global,
     I: Iterator<Item = Gc<SteelVal>> + 'global,
     // R: Iterator<Item = Result<Rc<SteelVal>>>,
@@ -1749,7 +2045,7 @@ fn inline_filter_iter<
     // Ok(collected_results)
 }
 
-fn inline_map_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTable>(
+pub fn inline_map_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTable>(
     iter: I,
     stack_func: Gc<SteelVal>,
     constants: &CT,
@@ -1872,7 +2168,7 @@ fn inline_filter_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTable>(
                 repl,
             )
         }
-        _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
+        _ => stop!(TypeMismatch => "filter expected a function"; cur_inst.span),
     };
 
     for val in iter {
@@ -1960,7 +2256,7 @@ pub fn vm<CT: ConstantTable>(
 
         match cur_inst.op_code {
             OpCode::PANIC => {
-                let error_message = stack.pop();
+                let error_message = stack.pop().unwrap();
                 stop!(Generic => error_message.to_string(); cur_inst.span);
             }
             OpCode::EVAL => {
@@ -1973,9 +2269,44 @@ pub fn vm<CT: ConstantTable>(
                 stack.push(VOID.with(|f| Gc::clone(f)));
                 ip += 1;
             }
+            OpCode::COLLECT => {
+                let list = stack.pop().unwrap();
+                let transducer = stack.pop().unwrap();
+
+                println!("getting here!");
+
+                if let SteelVal::IterV(transducer) = transducer.as_ref() {
+                    let ret_val = transducer.run(list, constants, &cur_inst.span, repl);
+                    stack.push(ret_val?);
+                } else {
+                    stop!(Generic => "Transducer execute takes a list"; cur_inst.span);
+                }
+                ip += 1;
+            }
+            OpCode::TRANSDUCE => {
+                let list = stack.pop().unwrap();
+                let initial_value = stack.pop().unwrap();
+                let reducer = stack.pop().unwrap();
+                let transducer = stack.pop().unwrap();
+
+                if let SteelVal::IterV(transducer) = transducer.as_ref() {
+                    let ret_val = transducer.transduce(
+                        list,
+                        initial_value,
+                        reducer,
+                        constants,
+                        &cur_inst.span,
+                        repl,
+                    );
+                    stack.push(ret_val?);
+                } else {
+                    stop!(Generic => "Transduce must take an iterable");
+                }
+                ip += 1;
+            }
             OpCode::SET => {
-                let value_to_assign = stack.pop();
-                // let variable = stack.pop();
+                let value_to_assign = stack.pop().unwrap();
+                // let variable = stack.pop().unwrap();
 
                 println!("index: {}", cur_inst.payload_size);
 
@@ -2012,8 +2343,8 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::APPLY => {
-                let _list = stack.pop();
-                let _func = stack.pop();
+                let _list = stack.pop().unwrap();
+                let _func = stack.pop().unwrap();
 
                 panic!("Apply not implemented - internal compiler error");
 
@@ -2029,8 +2360,8 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::MAP => {
-                let list = stack.pop();
-                let stack_func = stack.pop();
+                let list = stack.pop().unwrap();
+                let stack_func = stack.pop().unwrap();
 
                 match list.as_ref() {
                     SteelVal::Pair(_, _) => {
@@ -2060,8 +2391,8 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::FILTER => {
-                let list = stack.pop();
-                let stack_func = stack.pop();
+                let list = stack.pop().unwrap();
+                let stack_func = stack.pop().unwrap();
 
                 // Change inline_map and inline_filter to return iterators... now that would be cool
                 match list.as_ref() {
@@ -2092,7 +2423,7 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::FUNC => {
-                let stack_func = stack.pop();
+                let stack_func = stack.pop().unwrap();
 
                 // inspect_heap(&heap);
 
@@ -2163,7 +2494,7 @@ pub fn vm<CT: ConstantTable>(
             // In the closure case, transfer ownership of the stack to the called function
             // heap shouldn't actually clear...?
             OpCode::TAILCALL => {
-                let stack_func = stack.pop();
+                let stack_func = stack.pop().unwrap();
 
                 match stack_func.as_ref() {
                     SteelVal::StructClosureV(factory, func) => {
@@ -2241,7 +2572,7 @@ pub fn vm<CT: ConstantTable>(
             }
             OpCode::IF => {
                 // change to truthy...
-                if stack.pop().is_truthy() {
+                if stack.pop().unwrap().is_truthy() {
                     ip = cur_inst.payload_size;
                 } else {
                     ip += 1;
@@ -2273,13 +2604,13 @@ pub fn vm<CT: ConstantTable>(
 
                     return ret_val;
                 } else {
-                    let ret_val = stack.pop();
-                    let prev_state = instruction_stack.pop();
+                    let ret_val = stack.pop().unwrap();
+                    let prev_state = instruction_stack.pop().unwrap();
 
                     if prev_state.instrs_ref().len() != 0 {
-                        global_env = env_stack.pop();
+                        global_env = env_stack.pop().unwrap();
                         // TODO
-                        // heap.truncate(heap_stack.pop().unwrap());
+                        // heap.truncate(heap_stack.pop().unwrap().unwrap());
 
                         ip = prev_state.ip;
                         instructions = prev_state.instrs();
@@ -2287,7 +2618,7 @@ pub fn vm<CT: ConstantTable>(
                         ip += 1;
                     }
 
-                    stack = stacks.pop();
+                    stack = stacks.pop().unwrap();
                     stack.push(ret_val);
                 }
             }
@@ -2302,11 +2633,11 @@ pub fn vm<CT: ConstantTable>(
                 if repl {
                     global_env
                         .borrow_mut()
-                        .repl_define_idx(cur_inst.payload_size, stack.pop());
+                        .repl_define_idx(cur_inst.payload_size, stack.pop().unwrap());
                 } else {
                     global_env
                         .borrow_mut()
-                        .define_idx(cur_inst.payload_size - offset, stack.pop());
+                        .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
                 }
 
                 // println!(

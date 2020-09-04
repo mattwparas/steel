@@ -18,8 +18,8 @@ impl<T> Stack<T> {
         Stack(Vec::new())
     }
 
-    pub fn pop(&mut self) -> T {
-        self.0.pop().unwrap()
+    pub fn pop(&mut self) -> Option<T> {
+        self.0.pop()
     }
 
     pub fn try_pop(&mut self) -> Option<T> {
