@@ -39,7 +39,14 @@
 (define xf (compose x y z))
 (transduce xf + 0 (range 0 100)) ;; => 120
 
-
+(transduce
+ (mapping (fn (x) x))
+ vec-append
+ (vector)
+ (vector
+  (vector 1 2 3 4)
+  (vector 5 6 7 8)
+  (vector 9 10 11 12)))
 
 
 (define-syntax cond
