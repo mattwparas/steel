@@ -8,6 +8,7 @@ mod nums;
 mod ports;
 mod strings;
 mod symbols;
+mod transducers;
 mod vectors;
 
 pub use control::ControlOperations;
@@ -20,6 +21,7 @@ pub use nums::NumOperations;
 pub use ports::PortOperations;
 pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
+pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
 
 // use crate::converter::SteelFunctor;
