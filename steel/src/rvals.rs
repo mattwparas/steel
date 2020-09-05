@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::rc::Weak;
 use SteelVal::*;
 
-use im_rc::{HashMap, Vector};
+use im_rc::{HashMap, HashSet, Vector};
 use std::convert::TryFrom;
 use std::result;
 
@@ -34,6 +34,7 @@ use crate::parser::span::Span;
 use crate::vm::ConstantTable;
 
 use crate::vm::{inline_filter_result_iter, inline_map_result_iter, inline_reduce_iter};
+// use itertools::Itertools;
 // pub use constants::ConstantTable;
 
 // use std::collections::HashMap;
@@ -202,6 +203,8 @@ pub enum SteelVal {
     Custom(Box<dyn CustomType>),
     // Embedded HashMap
     HashMapV(HashMap<Gc<SteelVal>, Gc<SteelVal>>),
+    // Embedded HashSet
+    HashSetV(HashSet<Gc<SteelVal>>),
     /// Represents a scheme-only struct
     StructV(SteelStruct),
     /// Represents a special rust closure
@@ -281,45 +284,24 @@ impl Transducer {
         cur_inst_span: &Span,
         repl: bool,
     ) -> Result<Gc<SteelVal>> {
-        match root.as_ref() {
-            SteelVal::VectorV(v) => {
-                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-                    Box::new(v.into_iter().map(|x| Ok(Gc::clone(x))));
-                for t in &self.ops {
-                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
-                }
-
-                inline_reduce_iter(
-                    my_iter,
-                    initial_value,
-                    reducer,
-                    constants,
-                    cur_inst_span,
-                    repl,
-                )
-
-                // crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-            }
-            SteelVal::Pair(_, _) => {
-                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-                    Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x)));
-                for t in &self.ops {
-                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
-                }
-
-                inline_reduce_iter(
-                    my_iter,
-                    initial_value,
-                    reducer,
-                    constants,
-                    cur_inst_span,
-                    repl,
-                )
-
-                // crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-            }
+        let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
+            SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
+            SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
+        };
+
+        for t in &self.ops {
+            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
         }
+
+        inline_reduce_iter(
+            my_iter,
+            initial_value,
+            reducer,
+            constants,
+            cur_inst_span,
+            repl,
+        )
     }
 }
 
@@ -411,6 +393,7 @@ impl Hash for SteelVal {
             Closure(_) => unimplemented!(),
             HashMapV(hm) => hm.hash(state),
             IterV(_) => unimplemented!(),
+            HashSetV(hs) => hs.hash(state),
         }
     }
 }
@@ -742,6 +725,7 @@ impl TryFrom<&SteelVal> for Expr {
             PortV(_) => Err("Can't convert from port to expression!"),
             Closure(_) => Err("Can't convert from bytecode closure to expression"),
             HashMapV(_) => Err("Can't convert from hashmap to expression!"),
+            HashSetV(_) => Err("Can't convert from hashset to expression!"),
             IterV(_) => Err("Can't convert from iterator to expression!"),
         }
     }
@@ -979,8 +963,9 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         StructClosureV(_, _) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
-        HashMapV(hm) => write!(f, "#<HashMap {:?}>", hm),
+        HashMapV(hm) => write!(f, "#<hashmap {:?}>", hm),
         IterV(_) => write!(f, "#<iterator>"),
+        HashSetV(hs) => write!(f, "<hashset {:?}>", hs),
     }
 }
 

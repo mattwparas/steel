@@ -37,7 +37,7 @@
 (define y (filtering even?)) ;; get only even ones
 (define z (taking 15)) ;; take the first 15 from the range
 (define xf (compose x y z))
-(transduce xf + 0 (range 0 100)) ;; => 120
+(transduce xf + 0 (range 0 100)) ;; => 210
 
 (transduce
  (mapping (fn (x) x))
