@@ -1748,6 +1748,12 @@ pub(crate) fn inline_map_result_iter<
         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
     };
 
+    // Map<
+
+    // Map::new()
+
+    // std::iter::Map
+
     iter.map(switch_statement)
 
     // for val in iter {

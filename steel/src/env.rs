@@ -3,6 +3,7 @@
 use crate::primitives::ControlOperations;
 use crate::primitives::FsFunctions;
 use crate::primitives::HashMapOperations;
+use crate::primitives::HashSetOperations;
 use crate::primitives::IoFunctions;
 use crate::primitives::ListOperations;
 use crate::primitives::MetaOperations;
@@ -858,6 +859,11 @@ impl Env {
             ("hash-keys->vector", HashMapOperations::keys_to_vector()),
             ("hash-values->list", HashMapOperations::values_to_list()),
             ("hash-values->vector", HashMapOperations::values_to_vector()),
+            ("hashset", HashSetOperations::hs_construct()),
+            ("hashset-contains?", HashSetOperations::hs_contains()),
+            ("hashset-insert", HashSetOperations::hs_insert()),
+            ("hashset->list", HashSetOperations::keys_to_list()),
+            ("hashset->vector", HashSetOperations::keys_to_vector()),
             ("hash-clear", HashMapOperations::clear()),
             ("compose", TransducerOperations::compose()),
             ("mapping", TransducerOperations::map()),
