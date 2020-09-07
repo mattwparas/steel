@@ -864,6 +864,8 @@ impl Env {
             ("hashset-insert", HashSetOperations::hs_insert()),
             ("hashset->list", HashSetOperations::keys_to_list()),
             ("hashset->vector", HashSetOperations::keys_to_vector()),
+            ("hashset-clear", HashSetOperations::clear()),
+            ("list->hashset", HashSetOperations::list_to_hashset()),
             ("hash-clear", HashMapOperations::clear()),
             ("compose", TransducerOperations::compose()),
             ("mapping", TransducerOperations::map()),

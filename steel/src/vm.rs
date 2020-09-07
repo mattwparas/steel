@@ -23,61 +23,28 @@ pub use stack::{CallStack, EnvStack, Stack, StackFrame};
 
 use expand::MacroSet;
 
-// use expand::is_definition;
+use log::{debug, error, info, trace, warn};
 
-// pub enum ByteCode {}
-// use std::cell::RefCell;
-// use std::convert::TryFrom;
+use crate::parser::{tokens::TokenType, Expr, ParseError, Parser, SyntaxObject};
 use std::iter::Iterator;
-// use std::rc::Rc;
 use std::result;
-
-// use crate::env::{Env, FALSE, TRUE, VOID};
-// use crate::parser::lexer::Tokenizer;
-// use crate::parser::lexer::TokenStream;
-// use crate::parser::tokens::Token;
-// use crate::parser::tokens::TokenError;
-use crate::parser::tokens::TokenType;
-use crate::parser::SyntaxObject;
-use crate::parser::{Expr, ParseError, Parser};
 // use crate::primitives::ListOperations;
+use crate::env::{Env, FALSE, TRUE, VOID};
+use crate::gc::{Gc, OBJECT_COUNT};
+use crate::parser::span::Span;
+use crate::primitives::{ListOperations, VectorOperations};
 use crate::rerrs::SteelErr;
 use crate::rvals::{ByteCodeLambda, Result, SteelVal};
-// use crate::stop;
-// use crate::structs::SteelStruct;
-// use crate::throw;
-use std::collections::HashMap;
-// use std::ops::Deref;
-
-// use crate::interpreter::evaluator::Evaluator;
-
-use std::ops::Deref;
-
-use crate::env::Env;
-use crate::env::FALSE;
-use crate::env::TRUE;
-use crate::env::VOID;
 use std::cell::RefCell;
-use std::rc::Rc;
-
-use std::convert::TryFrom;
-
-use crate::parser::span::Span;
-
-use std::time::Instant;
-
-use crate::primitives::ListOperations;
-use crate::primitives::VectorOperations;
-
-use std::convert::TryInto;
-
-use std::io::Read;
-
-use std::path::Path;
-
+use std::collections::HashMap;
 use std::collections::HashSet;
-
-use crate::gc::{Gc, OBJECT_COUNT};
+use std::convert::TryFrom;
+use std::convert::TryInto;
+use std::io::Read;
+use std::ops::Deref;
+use std::path::Path;
+use std::rc::Rc;
+use std::time::Instant;
 
 // use std::collections::HashSet;
 
@@ -740,6 +707,8 @@ fn emit_loop<CT: ConstantTable>(
                         ty: TokenType::Identifier(s),
                         ..
                     }) if s == "define" || s == "defn" => {
+                        check_length("define", &list_of_tokens, 3)?;
+
                         let sidx = instructions.len();
                         instructions.push(Instruction::new_sdef());
 
@@ -1482,7 +1451,7 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            println!("{:?}", expr.to_string());
+            // println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
                 &expr,
@@ -2314,14 +2283,14 @@ pub fn vm<CT: ConstantTable>(
                 let value_to_assign = stack.pop().unwrap();
                 // let variable = stack.pop().unwrap();
 
-                println!("index: {}", cur_inst.payload_size);
+                // println!("index: {}", cur_inst.payload_size);
 
                 if repl {
                     let value = global_env
                         .borrow_mut()
                         .repl_set_idx(cur_inst.payload_size, value_to_assign)?;
 
-                    println!("Old value: {}", value);
+                    // println!("Old value: {}", value);
                     stack.push(value);
                 } else {
                     unimplemented!();
@@ -2498,7 +2467,6 @@ pub fn vm<CT: ConstantTable>(
             }
             // Tail call basically says "hey this function is exiting"
             // In the closure case, transfer ownership of the stack to the called function
-            // heap shouldn't actually clear...?
             OpCode::TAILCALL => {
                 let stack_func = stack.pop().unwrap();
 
@@ -2746,6 +2714,8 @@ pub fn vm<CT: ConstantTable>(
                 unimplemented!();
             }
         }
+
+        // ip += 1;
     }
 
     // unimplemented!()

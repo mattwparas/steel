@@ -267,6 +267,9 @@ fn expand_define(
             (Some(symbol), Some(body)) => {
                 match symbol.deref() {
                     Expr::Atom(SyntaxObject { ty: t, .. }) => {
+                        if list_of_tokens.len() != 3 {
+                            stop!(ArityMismatch => "define statement expects an identifier and an expression")
+                        }
                         if let TokenType::Identifier(_) = t {
                             let expanded_body = expand(body.clone(), env, macro_env)?;
                             let return_val = Expr::VectorVal(vec![

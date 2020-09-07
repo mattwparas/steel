@@ -20,6 +20,7 @@ pub mod stdlib;
 pub mod expander;
 // #[macro_use]
 pub mod compiler;
+pub mod engine;
 pub mod gc;
 pub mod port;
 pub mod structs;

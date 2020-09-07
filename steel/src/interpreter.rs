@@ -43,11 +43,6 @@ macro_rules! build_interpreter {
     };
 }
 
-pub trait Engine {
-    fn evaluate(&mut self, expr: &str) -> Result<Vec<SteelVal>, SteelErr>;
-    fn register(&mut self, name: &str, value: SteelVal);
-}
-
 #[derive(Default)]
 pub struct SteelInterpreter {
     evaluator: Evaluator,

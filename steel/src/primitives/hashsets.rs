@@ -114,17 +114,32 @@ impl HashSetOperations {
     pub fn clear() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() != 1 {
-                stop!(ArityMismatch => "hm-clear takes 1 argument")
+                stop!(ArityMismatch => "hs-clear takes 1 argument")
             }
 
-            let hashmap = Gc::clone(&args[0]);
+            let hashset = Gc::clone(&args[0]);
 
-            if let SteelVal::HashMapV(hm) = hashmap.as_ref() {
-                let mut hm = hm.clone();
-                hm.clear();
-                Ok(Gc::new(SteelVal::HashMapV(hm)))
+            if let SteelVal::HashSetV(hs) = hashset.as_ref() {
+                let mut hs = hs.clone();
+                hs.clear();
+                Ok(Gc::new(SteelVal::HashSetV(hs)))
             } else {
-                stop!(TypeMismatch => "hm-clear takes a hashmap")
+                stop!(TypeMismatch => "hs-clear takes a hashmap")
+            }
+        })
+    }
+
+    pub fn list_to_hashset() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "list->hashset takes one argument")
+            }
+            if let SteelVal::Pair(_, _) = &args[0].as_ref() {
+                let root = Gc::clone(&args[0]);
+                let hashset: HashSet<Gc<SteelVal>> = SteelVal::iter(root).collect();
+                Ok(Gc::new(SteelVal::HashSetV(hashset)))
+            } else {
+                stop!(TypeMismatch => "list->hashset takes a hashset");
             }
         })
     }
