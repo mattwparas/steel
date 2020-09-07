@@ -24,19 +24,19 @@ impl Heap {
 
     pub fn inspect_heap(&self) {
         println!("heap length: {}", self.0.len());
-        let mut hp: Vec<String> = self
+        let hp: Vec<String> = self
             .0
             .iter()
             .map(|x| x.borrow().string_bindings_vec())
             .collect();
         println!("{:?}", hp);
 
-        println!("Length of the heap: {}", hp.len());
+        // println!("Length of the heap: {}", hp.len());
 
-        hp.sort();
-        hp.dedup();
+        // hp.sort();
+        // hp.dedup();
 
-        println!("Length of the heap after removing duplicates: {}", hp.len());
+        // println!("Length of the heap after removing duplicates: {}", hp.len());
     }
 
     pub fn len(&self) -> usize {

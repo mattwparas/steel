@@ -400,41 +400,10 @@ impl Hash for SteelVal {
 
 pub struct Iter(Option<Gc<SteelVal>>);
 
-// trait Container {
-//     fn items(&self) -> Box<dyn Iterator<Item = Gc<SteelVal>>>;
-// }
-
-// impl Container for Iter {
-//     fn items(&self) -> Box<dyn Iterator<Item = Gc<SteelVal>>> {
-//         Box::new(self.into_iter())
-//     }
-// }
-
-// impl Container for crate::im_rc::vector::Iter<'_, Gc<SteelVal>> {
-//     fn items(&self) -> Box<dyn Iterator<Item = Gc<SteelVal>>> {
-//         // Box::new(self.into_iter().map(|x| Gc::clone(x)))
-//         Box::new(self)
-//     }
-// }
-
 impl SteelVal {
-    // pub fn iter(self) -> Iter {
-    //     Iter(Gc::new(self))
-    // }
-
     pub fn iter(_self: Gc<SteelVal>) -> Iter {
         Iter(Some(_self))
     }
-
-    // pub fn as_iter(&self) -> Result<impl Iterator<Item = Result<Gc<SteelVal>>>> {
-    //     match self {
-    //         VectorV(v) => Ok(v.into_iter()),
-    //         Pair(_, _) => Ok(SteelVal::iter(Gc::clone(&self)).into_iter()),
-    //         _ => stop!(Generic => "this type does not produce an iterator"),
-    //     }
-
-    //     // unimplemented!()
-    // }
 
     pub fn is_truthy(&self) -> bool {
         match &self {

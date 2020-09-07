@@ -49,10 +49,4 @@ impl IoFunctions {
             )))
         })
     }
-
-    // pub fn read_file_to_string() -> SteelVal {
-    //     SteelVal::FuncV(|args: Vec<Rc<SteelVal>>| -> Result<Rc<SteelVal>> {
-    //         let mut
-    //     })
-    // }
 }
