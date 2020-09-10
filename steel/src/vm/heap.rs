@@ -86,7 +86,7 @@ impl Heap {
             .iter()
             .map(|x| x.borrow().string_bindings_vec())
             .collect();
-        // println!("{:?}", hp);
+        println!("{:?}", hp);
 
         // println!("Length of the heap: {}", hp.len());
 
