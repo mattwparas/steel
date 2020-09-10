@@ -1,5 +1,6 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
+use crate::stop;
 use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -21,9 +22,26 @@ impl fmt::Display for Gc<SteelVal> {
 }
 
 impl<T: Clone> Gc<T> {
+    // in order to fully sandbox, I have to check the memory limit
     pub fn new(val: T) -> Gc<T> {
         OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
         Gc(Rc::new(val))
+    }
+
+    pub fn try_new(val: T) -> Result<Gc<T>, SteelErr> {
+        let mem: usize = OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
+        if mem > crate::vm::MAXIMUM_OBJECTS {
+            stop!(Generic => "ran out of memory!")
+        }
+        Ok(Gc(Rc::new(val)))
+    }
+
+    pub fn checked_allocate(allocations: usize) -> Result<(), SteelErr> {
+        let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
+        if mem + allocations > crate::vm::MAXIMUM_OBJECTS {
+            stop!(Generic => "allocation would exceed maximum allowed memory")
+        }
+        Ok(())
     }
 
     pub fn get_mut(&mut self) -> Option<&mut T> {
@@ -36,6 +54,11 @@ impl<T: Clone> Gc<T> {
 
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
         Rc::ptr_eq(&this.0, &other.0)
+    }
+
+    /// Deep clone the object to remove it from the GC
+    pub fn unwrap(&self) -> T {
+        (*self.0).clone()
     }
 
     // this does not match the original semantics of Rc::try_unwrap
@@ -52,6 +75,14 @@ impl<T: Clone> Gc<T> {
                 OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
                 Ok(x)
             })
+    }
+
+    pub fn check_memory() -> Result<usize, SteelErr> {
+        let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
+        if mem > crate::vm::MAXIMUM_OBJECTS {
+            stop!(Generic => "ran out of memory!")
+        }
+        Ok(mem)
     }
 }
 

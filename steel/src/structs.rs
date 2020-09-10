@@ -12,7 +12,7 @@ use crate::rvals::SteelVal;
 // use im_rc::HashMap;
 use crate::parser::Expr;
 use crate::rerrs::SteelErr;
-use std::collections::HashMap;
+use im_rc::HashMap;
 // use crate::rvals::FunctionSignature;
 use crate::rvals::Result;
 use crate::stop;

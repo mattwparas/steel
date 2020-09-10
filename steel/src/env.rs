@@ -135,6 +135,7 @@ pub struct Env {
     offset: usize,
     parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
+    children: Vec<Weak<RefCell<Env>>>,
     heap: Vec<Rc<RefCell<Env>>>,
     is_binding_context: bool,
     is_binding_offset: bool,
@@ -183,6 +184,7 @@ impl Env {
             offset,
             parent: Some(Rc::clone(&parent)),
             sub_expression: None,
+            children: Vec::new(),
             heap: Vec::new(),
             is_binding_context: false,
             is_binding_offset: false,
@@ -260,6 +262,7 @@ impl Env {
             offset,
             parent: None,
             sub_expression: Some(sub_expression),
+            children: Vec::new(),
             heap: Vec::new(),
             is_binding_context: false,
             is_binding_offset: false,
@@ -302,6 +305,14 @@ impl Env {
         self.parent.is_none() && self.sub_expression.is_none()
     }
 
+    pub fn add_child(&mut self, child: Weak<RefCell<Env>>) {
+        self.children.push(child)
+    }
+
+    pub fn children(&self) -> &[Weak<RefCell<Env>>] {
+        &self.children
+    }
+
     /// top level global env has no parent
     pub fn root() -> Self {
         Env {
@@ -311,6 +322,7 @@ impl Env {
             offset: 0,
             parent: None,
             sub_expression: None,
+            children: Vec::new(),
             heap: Vec::new(),
             is_binding_context: false,
             is_binding_offset: false,
@@ -552,7 +564,8 @@ impl Env {
                     Some(par) => match par.upgrade() {
                         Some(x) => x.borrow().repl_lookup_idx(idx),
                         None => {
-                            stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
+                            println!("Bindings at quit: {:?}", self.bindings_map());
+                            stop!(Generic => "Parent subexpression was dropped looking for {} repl_lookup_idx", idx)
                         }
                     },
                     None => {
@@ -789,8 +802,8 @@ impl Env {
             ("cdr", ListOperations::cdr()),
             ("first", ListOperations::car()),
             ("rest", ListOperations::cdr()),
-            ("head", ListOperations::car()),
-            ("tail", ListOperations::cdr()),
+            // ("head", ListOperations::car()),
+            // ("tail", ListOperations::cdr()),
             ("cons", ListOperations::cons()),
             ("append", ListOperations::append()),
             ("push-back", ListOperations::push_back()),

@@ -44,6 +44,9 @@ use crate::vm::{inline_filter_result_iter, inline_map_result_iter, inline_reduce
 
 use crate::primitives::ListOperations;
 
+// use std::future::Future;
+// use std::pin::Pin;
+
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
     Rc::new(RefCell::new(x))
@@ -52,6 +55,45 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>;
 pub type StructClosureSignature = fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<Gc<SteelVal>>;
+
+// Do something like this:
+// vector of async functions
+// then for a wait group, make a closure that looks something like this:
+// async move vec<functioncalls> |_| {
+//    let values = Vec::new();
+//    for func in vec {
+//         values.push(func(args).await)
+//    }
+//    values
+// }
+
+// pub type AsyncSignature =
+//     fn(&[Gc<SteelVal>]) -> Pin<Box<dyn Future<Output = Result<Gc<SteelVal>>>>>;
+
+// async fn join_futures(args: &[AsyncSignature]) -> Vec<Result<Gc<SteelVal>>> {
+//     futures::future::join_all(args.into_iter().map(|x| x(&[])))
+// }
+
+/*
+The alternative is providing some way to just throw an entire process onto another thread via deep cloning...
+This might be slower ultimately but it might make sense for some shallow functions
+
+especially since creating the root is honestly pretty cheap... function pointers are not terribly expensive
+
+create a temporary sendable env that can be moved across to another thread
+this just spawns a new instance of the VM by duplicating it, moving it to the transient thread, and then rebuilds the instance
+to continue operation
+
+there is some overhead here but I think it might be worth it?
+*/
+
+// async fn embedded_nonblocking() -> SteelVal {
+//     unimplemented!()
+// }
+
+// fn embedded_nonblocking_2() -> impl Future<Output = SteelVal> {
+//     unimplemented!();
+// }
 
 // Box<Fn(i32) -> i32>
 
@@ -215,7 +257,11 @@ pub enum SteelVal {
     Closure(ByteCodeLambda),
     /// Generic iterator wrapper?
     IterV(Transducer),
+    // Generic IntoIter wrapper?
+    // Promise(Gc<SteelVal>),
 }
+
+pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
 
 // pub trait Transduce {
 //     fn run() -> Gc<SteelVal>;
@@ -394,16 +440,23 @@ impl Hash for SteelVal {
             HashMapV(hm) => hm.hash(state),
             IterV(_) => unimplemented!(),
             HashSetV(hs) => hs.hash(state),
+            // Promise(_) => unimplemented!(),
         }
     }
 }
 
 pub struct Iter(Option<Gc<SteelVal>>);
 
+// pub struct IntoIter(Option<Gc<SteelVal>>);
+
 impl SteelVal {
     pub fn iter(_self: Gc<SteelVal>) -> Iter {
         Iter(Some(_self))
     }
+
+    // pub fn into_iter(_self: Gc<SteelVal>) -> Iter {
+    //     IntoIter(Some(_self))
+    // }
 
     pub fn is_truthy(&self) -> bool {
         match &self {
@@ -696,6 +749,7 @@ impl TryFrom<&SteelVal> for Expr {
             HashMapV(_) => Err("Can't convert from hashmap to expression!"),
             HashSetV(_) => Err("Can't convert from hashset to expression!"),
             IterV(_) => Err("Can't convert from iterator to expression!"),
+            // Promise(_) => Err("Can't convert from promise to expression!"),
         }
     }
 }
@@ -934,7 +988,8 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         Closure(_) => write!(f, "#<bytecode-closure>"),
         HashMapV(hm) => write!(f, "#<hashmap {:?}>", hm),
         IterV(_) => write!(f, "#<iterator>"),
-        HashSetV(hs) => write!(f, "<hashset {:?}>", hs),
+        HashSetV(hs) => write!(f, "#<hashset {:?}>", hs),
+        // Promise(_) => write!(f, "#<promise>"),
     }
 }
 
