@@ -112,6 +112,10 @@ impl Heap {
         self.heap.len()
     }
 
+    pub fn reset_limit(&mut self) {
+        self.limit = 5000;
+    }
+
     pub fn append(&mut self, other: &mut Self) {
         self.heap.append(&mut other.heap)
     }
@@ -130,10 +134,10 @@ impl Heap {
             // self.inspect_heap();
             self.profile_heap();
             self.drop_large_refs();
-            // if self.current_double < self.max_double {
-            //     self.limit *= 2;
-            //     self.current_double += 1;
-            // }
+            if self.current_double < self.max_double {
+                self.limit *= 2;
+                self.current_double += 1;
+            }
             self.profile_heap();
             // self.inspect_heap();
             println!("Heap length after mark and sweep: {}", self.len());
