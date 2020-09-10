@@ -167,7 +167,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
         true,
     );
 
-    let mut buffer = String::new();
+    let buffer = String::new();
 
     let res = vm.parse_and_execute(PRELUDE, &mut ctx);
 
@@ -196,7 +196,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                 match line.as_str() {
                     ":quit" => return Ok(()),
                     ":reset" => interpreter.reset(),
-                    ":env" => interpreter.print_bindings(),
+                    ":env" => vm.print_bindings(),
                     ":?" => display_help(),
                     line if line.contains(":require") => {
                         let line = line.trim_start_matches(":require").trim();
@@ -223,7 +223,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         println!("Active Object Count: {:?}", crate::gc::OBJECT_COUNT);
 
                         let res = vm.parse_and_execute(&line, &mut ctx);
-                        buffer += &line;
+                        // buffer += &line;
 
                         match res {
                             Ok(r) => r.iter().for_each(|x| match x.as_ref() {
@@ -231,7 +231,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
                             }),
                             Err(e) => {
-                                e.emit_result("repl.stl", buffer.as_str(), Span::new(0, 0));
+                                e.emit_result("repl.stl", line.as_str(), Span::new(0, 0));
                                 eprintln!("{}", e.to_string().bright_red());
                             }
                         }

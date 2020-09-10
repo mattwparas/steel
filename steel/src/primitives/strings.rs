@@ -13,6 +13,13 @@ macro_rules! ok_string {
     };
 }
 
+// make this macro to generate functions with some sanity
+// macro_rules! new_function_fixed_arity {
+//     ($name) => {
+
+//     };
+// }
+
 pub struct StringOperations {}
 impl StringOperations {
     pub fn string_append() -> SteelVal {

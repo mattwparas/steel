@@ -49,6 +49,10 @@ impl<T> Stack<T> {
     pub fn clear(&mut self) {
         self.0.clear();
     }
+
+    pub fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
 }
 
 impl<T> From<Vec<T>> for Stack<T> {
