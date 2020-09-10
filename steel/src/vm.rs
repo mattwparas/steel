@@ -1534,6 +1534,7 @@ impl VirtualMachine {
         // println!("Global heap length after: {}", self.global_heap.len());
 
         heap.clear();
+        heap.reset_limit();
 
         // println!("Active Object Count: {:?}", OBJECT_COUNT);
         // println!("Heap length: {}", self.global_heap.len());

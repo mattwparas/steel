@@ -60,4 +60,4 @@
     (cons-stream 1
       (add-streams (tail fibs) fibs))))
 
-(stream-section 10 fibs)
+(stream-section 15 fibs)
