@@ -29,6 +29,18 @@ impl MetaOperations {
         })
     }
 
+    pub fn memory_address() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "memory address takes one address")
+            }
+
+            let memory_address = format!("{:p}", &args[0].as_ptr());
+
+            Ok(Gc::new(SteelVal::StringV(memory_address)))
+        })
+    }
+
     // pub fn size_of() -> SteelVal {
     //     SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
     //         // let mut error_message = String::new();

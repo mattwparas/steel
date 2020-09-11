@@ -61,6 +61,10 @@ impl<T: Clone> Gc<T> {
         (*self.0).clone()
     }
 
+    pub fn as_ptr(&self) -> *const T {
+        Rc::as_ptr(&self.0)
+    }
+
     // this does not match the original semantics of Rc::try_unwrap
     // in order to match this, we would need some unsafe rust
     // instead, I take a _slight_ performance hit in order to

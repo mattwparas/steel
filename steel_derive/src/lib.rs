@@ -3,7 +3,7 @@ extern crate proc_macro2;
 #[macro_use]
 extern crate syn;
 extern crate quote;
-extern crate steel;
+// extern crate steel;
 use proc_macro::TokenStream;
 use quote::quote;
 use quote::ToTokens;
@@ -12,7 +12,7 @@ use syn::ItemFn;
 use syn::ReturnType;
 use syn::Signature;
 use syn::Type;
-use syn::{Data, DataStruct, DeriveInput, Fields};
+use syn::{Data, DataStruct, DeriveInput, Fields, Pat};
 
 /*
 
@@ -709,6 +709,61 @@ pub fn function(
     };
 
     // eprintln!("{}", output.to_string());
+
+    output.into()
+}
+
+#[proc_macro]
+pub fn embedded_function(input: TokenStream) -> TokenStream {
+    // "5".parse().unwrap()
+
+    let input = parse_macro_input!(input as ItemFn);
+
+    let body = input.clone().block;
+
+    // This snags the `Signature` from the function definition
+    let sign: Signature = input.clone().sig;
+
+    let mut type_vec: Vec<Box<Type>> = Vec::new();
+    let mut arg_names: Vec<Box<Pat>> = Vec::new();
+
+    for arg in sign.inputs {
+        if let FnArg::Typed(pat_ty) = arg.clone() {
+            type_vec.push(pat_ty.ty);
+            arg_names.push(pat_ty.pat);
+        }
+    }
+
+    let arity_number = type_vec.len();
+
+    let mut arg_enumerate = type_vec.into_iter().enumerate();
+    arg_enumerate.next();
+    let arg_type = arg_enumerate.clone().map(|(_, x)| x);
+    let arg_index = arg_enumerate.clone().map(|(i, _)| i);
+    // let function_name = sign.ident;
+
+    let mut arg_names = arg_names.into_iter();
+    let function_name = arg_names.next().unwrap();
+
+    let output = quote! {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> std::result::Result<Gc<SteelVal>, SteelErr> {
+
+            if args.len() != #arity_number {
+                stop!(TypeMismatch => format!("{} expected takes {} arguments, found {}", args.len(), arity))
+            }
+
+            #(
+                let #arg_names = if let Some(SteelVal::#arg_type(inner_value)) = &args[#arg_index].as_ref() {
+                    Ok(inner_value)
+                } else {
+                    stop!(TypeMismatch => format!("{} type mismatch", #function_name))
+                }?;
+            )*
+
+            #body
+
+        })
+    };
 
     output.into()
 }

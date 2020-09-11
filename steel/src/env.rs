@@ -884,6 +884,7 @@ impl Env {
             ("mapping", TransducerOperations::map()),
             ("filtering", TransducerOperations::filter()),
             ("taking", TransducerOperations::take()),
+            ("memory-address", MetaOperations::memory_address()),
             // ("sizeof", MetaOperations::size_of()),
         ]
     }
