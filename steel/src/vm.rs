@@ -2323,24 +2323,6 @@ pub fn vm<CT: ConstantTable>(
             OpCode::PUSH => {
                 // awful awful awful hack to fix the repl environment noise
                 if repl {
-                    // if cur_inst.payload_size == 151 {
-                    //     println!("Looking up 151 here:");
-                    //     global_env.borrow().print_bindings();
-
-                    //     let mut cur = Rc::clone(&global_env);
-
-                    //     loop {
-                    //         let parent = cur.borrow().sub_expression().clone();
-                    //         if let Some(parent) = parent {
-                    //             parent.upgrade().unwrap().borrow().print_bindings();
-                    //             let parent = parent.upgrade().unwrap();
-                    //             cur = parent;
-                    //         } else {
-                    //             break;
-                    //         }
-                    //     }
-                    // }
-
                     let value = global_env.borrow().repl_lookup_idx(cur_inst.payload_size)?;
                     stack.push(value);
                 } else {
