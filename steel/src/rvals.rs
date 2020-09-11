@@ -422,9 +422,7 @@ impl Hash for SteelVal {
                 unimplemented!();
             }
             StringV(s) => s.hash(state),
-            FuncV(_) => {
-                unimplemented!();
-            }
+            FuncV(_) => unimplemented!(),
             LambdaV(_) => unimplemented!(),
             MacroV(_) => unimplemented!(),
             SymbolV(sym) => {
@@ -436,7 +434,7 @@ impl Hash for SteelVal {
             StructV(_) => unimplemented!(),
             StructClosureV(_, _) => unimplemented!(),
             PortV(_) => unimplemented!(),
-            Closure(_) => unimplemented!(),
+            Closure(b) => b.hash(state),
             HashMapV(hm) => hm.hash(state),
             IterV(_) => unimplemented!(),
             HashSetV(hs) => hs.hash(state),
@@ -481,7 +479,8 @@ impl SteelVal {
             | VectorV(_)
             | StringV(_)
             | SymbolV(_)
-            | HashMapV(_) => true,
+            | HashMapV(_)
+            | Closure(_) => true,
             _ => false,
         }
     }
@@ -814,6 +813,13 @@ pub struct ByteCodeLambda {
     offset: usize,
     arity: usize,
     ndef_body: usize,
+}
+
+impl Hash for ByteCodeLambda {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        &self.body_exp.as_ptr().hash(state);
+        &self.sub_expression_env.as_ptr().hash(state);
+    }
 }
 
 impl ByteCodeLambda {
