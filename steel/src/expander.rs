@@ -191,24 +191,36 @@ impl MacroCase {
                         if t == macro_name || special_forms.contains(t) {
                             pattern_vec.push(MacroPattern::Syntax(t.clone()))
                         } else {
-                            if let Some(nxt) = peek_token_iter.peek() {
-                                if let Expr::Atom(SyntaxObject { ty: tt, .. }) = nxt {
-                                    if let Identifier(n) = tt {
-                                        if n == "..." {
-                                            peek_token_iter.next();
-                                            pattern_vec.push(MacroPattern::Many(t.clone()))
-                                        } else {
-                                            pattern_vec.push(MacroPattern::Single(t.clone()))
-                                        }
-                                    } else {
-                                        pattern_vec.push(MacroPattern::Single(t.clone()));
-                                    }
-                                } else {
+                            match peek_token_iter.peek() {
+                                Some(Expr::Atom(SyntaxObject {
+                                    ty: Identifier(n), ..
+                                })) if n == "..." => {
+                                    peek_token_iter.next();
+                                    pattern_vec.push(MacroPattern::Many(t.clone()));
+                                }
+                                _ => {
                                     pattern_vec.push(MacroPattern::Single(t.clone()));
                                 }
-                            } else {
-                                pattern_vec.push(MacroPattern::Single(t.clone()));
                             }
+
+                            // if let Some(nxt) = peek_token_iter.peek() {
+                            //     if let Expr::Atom(SyntaxObject { ty: tt, .. }) = nxt {
+                            //         if let Identifier(n) = tt {
+                            //             if n == "..." {
+                            //                 peek_token_iter.next();
+                            //                 pattern_vec.push(MacroPattern::Many(t.clone()))
+                            //             } else {
+                            //                 pattern_vec.push(MacroPattern::Single(t.clone()))
+                            //             }
+                            //         } else {
+                            //             pattern_vec.push(MacroPattern::Single(t.clone()));
+                            //         }
+                            //     } else {
+                            //         pattern_vec.push(MacroPattern::Single(t.clone()));
+                            //     }
+                            // } else {
+                            //     pattern_vec.push(MacroPattern::Single(t.clone()));
+                            // }
                         }
                     } else {
                         stop!(BadSyntax => "syntax-rules requires identifiers in the pattern")

@@ -12,7 +12,9 @@ use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
 use steel::build_interpreter;
 use steel::build_repl;
+use steel::build_vm;
 use steel::repl::repl_base;
+use steel::vm::VirtualMachine;
 use steel_derive::function;
 use steel_derive::steel;
 
@@ -58,6 +60,24 @@ use std::sync::{Arc, Mutex};
 // const fn foo() -> &'static str {
 //     "hello world"
 // }
+
+// use once_cell::sync::Lazy; // 1.3.1
+
+// static ARRAY: Lazy<Mutex<Vec<u8>>> = Lazy::new(|| Mutex::new(vec![]));
+
+// fn do_a_call() {
+//     ARRAY.lock().unwrap().push(1);
+// }
+
+use once_cell::sync::Lazy; // 1.3.1
+
+static ARRAY: Lazy<Mutex<Vec<u8>>> = Lazy::new(|| Mutex::new(vec![]));
+
+#[function]
+fn do_a_call() {
+    ARRAY.lock().unwrap().push(1);
+    println!("{:?}", ARRAY.lock().unwrap());
+}
 
 fn main() {
     let args = args().collect::<Vec<_>>();
@@ -218,7 +238,7 @@ pub fn mutation_test(arg: CoolTest) -> CoolTest {
 }
 
 pub fn test_repl() -> std::io::Result<()> {
-    repl_base(build_interpreter! {
+    repl_base(build_vm! {
         Structs => {
             MyStruct,
             CoolTest,
@@ -234,6 +254,7 @@ pub fn test_repl() -> std::io::Result<()> {
             "test-result" => test_result,
             "test-option" => test_option,
             "panic-time" => panic_time,
+            "do-a-call" => do_a_call,
         }
     })
 }
@@ -280,6 +301,7 @@ fn embed_functions_and_verify_results() {
             "new-mutex-wrapper" => new_mutex_wrapper,
             "test-result" => test_result,
             "test-option" => test_option,
+            "do-a-call" => do_a_call,
         }
     };
 
