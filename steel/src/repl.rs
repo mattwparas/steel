@@ -1,4 +1,4 @@
-use crate::interpreter;
+// use crate::interpreter;
 extern crate rustyline;
 use crate::rvals::SteelVal;
 // use crate::stdlib::PRELUDE;
@@ -24,14 +24,14 @@ use std::borrow::Cow;
 // use crate::vm::emit_instructions;
 // use crate::vm::execute_vm;
 // use crate::vm::pretty_print_dense_instructions;
-use crate::vm::ArityMap;
-use crate::vm::ConstantMap;
-use crate::vm::Ctx;
+// use crate::vm::ArityMap;
+// use crate::vm::ConstantMap;
+// use crate::vm::Ctx;
 use crate::vm::VirtualMachine;
 
 // use std::time::Instant;
 
-use crate::env::Env;
+// use crate::env::Env;
 
 use crate::parser::span::Span;
 
@@ -47,8 +47,8 @@ use std::io::Read;
 macro_rules! build_repl {
     ($($type:ty),*) => {
         {
-            use crate::build_interpreter;
-            let mut interpreter = build_interpreter!{
+            use crate::build_vm;
+            let mut interpreter = build_vm!{
                 $(
                     $type
                 ),*
@@ -130,7 +130,7 @@ fn display_help() {
 }
 
 // Found on Hoth...
-pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Result<()> {
+pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
     // let now = Instant::now();
     // if let Err(e) = interpreter.require(PRELUDE) {
     //     eprintln!("Error loading prelude: {}", e)
@@ -159,17 +159,17 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
         validator: MatchingBracketValidator::default(),
     }));
 
-    let mut vm = VirtualMachine::new();
-    let mut ctx = Ctx::new(
-        Env::default_symbol_map(),
-        ConstantMap::new(),
-        ArityMap::new(),
-        true,
-    );
+    // let mut vm = VirtualMachine::new();
+    // let mut ctx = Ctx::new(
+    //     Env::default_symbol_map(),
+    //     ConstantMap::new(),
+    //     ArityMap::new(),
+    //     true,
+    // );
 
     let buffer = String::new();
 
-    let res = vm.parse_and_execute(PRELUDE, &mut ctx);
+    let res = vm.parse_and_execute(PRELUDE);
 
     match res {
         Ok(r) => r.iter().for_each(|x| match x.as_ref() {
@@ -195,7 +195,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                 rl.add_history_entry(line.as_str());
                 match line.as_str() {
                     ":quit" => return Ok(()),
-                    ":reset" => interpreter.reset(),
+                    // ":reset" => interpreter.reset(),
                     ":env" => vm.print_bindings(),
                     ":?" => display_help(),
                     line if line.contains(":require") => {
@@ -206,7 +206,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                         let mut exprs = String::new();
                         file.read_to_string(&mut exprs)?;
 
-                        let res = vm.parse_and_execute(exprs.as_str(), &mut ctx);
+                        let res = vm.parse_and_execute(exprs.as_str());
 
                         match res {
                             Ok(r) => r.iter().for_each(|x| match x.as_ref() {
@@ -222,7 +222,7 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
                     _ => {
                         println!("Active Object Count: {:?}", crate::gc::OBJECT_COUNT);
 
-                        let res = vm.parse_and_execute(&line, &mut ctx);
+                        let res = vm.parse_and_execute(&line);
                         // buffer += &line;
 
                         match res {
@@ -259,5 +259,6 @@ pub fn repl_base(mut interpreter: interpreter::SteelInterpreter) -> std::io::Res
 }
 
 pub fn repl() -> std::io::Result<()> {
-    repl_base(interpreter::SteelInterpreter::new())
+    unimplemented!()
+    // repl_base(interpreter::SteelInterpreter::new())
 }

@@ -214,7 +214,7 @@ fn expand_let(
                         Expr::VectorVal(p) => match p.as_slice() {
                             [binding, expression] => {
                                 bindings_to_check.push(binding.clone());
-                                args_to_check.push(expression.clone());
+                                args_to_check.push(expand(expression.clone(), env, macro_env)?);
                             }
                             _ => stop!(BadSyntax => "Let requires pairs for binding"),
                         },
@@ -355,7 +355,14 @@ pub fn expand(expr: Expr, env: &Rc<RefCell<Env>>, macro_env: &Rc<RefCell<Env>>) 
                             "define" | "defn" => {
                                 return expand_define(list_of_tokens, env, macro_env)
                             }
-                            "let" => return expand_let(&list_of_tokens[1..], env, macro_env),
+                            "let" => {
+                                // not exactly sure why this is happening but wrapping this in the expand works well
+                                // return expand(
+                                return expand_let(&list_of_tokens[1..], env, macro_env);
+                                // env,
+                                // macro_env,
+                                // );
+                            }
                             _ => {
                                 // println!("Looking up {}", s);
                                 // macro_env.borrow().print_bindings();

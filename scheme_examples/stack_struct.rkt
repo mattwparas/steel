@@ -24,6 +24,23 @@
      (begin (define var1 (car ret-value))
             (destruct (var2 ...) (cdr ret-value)))]))
 
+;; destruct a list
+;; maybe write a generic match library?
+(define-syntax let-destruct
+  (syntax-rules ()
+    ;; [(let-destruct ((var) ret-value) body ...)
+    ;;  (let ((var (car ret-value)))
+    ;;    (begin body ...))]
+    [(let-destruct ((var) ret-value) body ...)
+     (let ((var (if (null? (cdr ret-value))
+                    (car ret-value)
+                    ret-value)))
+       (begin body ...))]
+    [(let-destruct ((var1 var2 ...) ret-value) body ...)
+     (let ((var1 (car ret-value)))
+       (let-destruct ((var2 ...) (cdr ret-value))
+                     body ...))]))
+
 (define-syntax def-method
   (syntax-rules ()
     [(def-method struct-name (define (a this b ...) body ...))
@@ -74,3 +91,23 @@
 
 pop-val-test ;; => 4
 new-stack-test ;; => '(3 2 1)
+
+
+(let-destruct ((pop-val new-stack)
+               (-> test-stack
+                   (Stack.push 1)
+                   (Stack.push 2)
+                   (Stack.push 3)
+                   (Stack.push 4)
+                   (Stack.pop)))
+
+              (displayln "Hello world")
+              (displayln pop-val)
+              (displayln new-stack))
+
+(let-destruct
+ ((a b c)
+  (list 1 2 3 4 5 6 7 8 9 10))
+ (displayln a)
+ (displayln b)
+ (displayln c))

@@ -15,24 +15,24 @@ fn range(c: &mut Criterion) {
     let script = "(range 0 50000)";
 
     let mut vm = VirtualMachine::new();
-    let mut ctx: Ctx<ConstantMap> = Ctx::new(
-        Env::default_symbol_map(),
-        ConstantMap::new(),
-        ArityMap::new(),
-        false,
-    );
+    // let mut ctx: Ctx<ConstantMap> = Ctx::new(
+    //     Env::default_symbol_map(),
+    //     ConstantMap::new(),
+    //     ArityMap::new(),
+    //     false,
+    // );
 
-    vm.parse_and_execute(PRELUDE, &mut ctx).unwrap();
+    vm.parse_and_execute(PRELUDE).unwrap();
 
     let bytecode = Rc::new(
-        vm.emit_instructions(&script, &mut ctx).unwrap()[0]
+        vm.emit_instructions(&script).unwrap()[0]
             .clone()
             .into_boxed_slice(),
     );
     // Rc::new(x.into_boxed_slice()), &ctx.constant_map
 
     c.bench_function("range-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map(), false))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), false))
     });
 }
 
@@ -40,26 +40,26 @@ fn map(c: &mut Criterion) {
     let script = "(map (lambda (a) 0) lst)";
 
     let mut vm = VirtualMachine::new();
-    let mut ctx: Ctx<ConstantMap> = Ctx::new(
-        Env::default_symbol_map(),
-        ConstantMap::new(),
-        ArityMap::new(),
-        false,
-    );
+    // let mut ctx: Ctx<ConstantMap> = Ctx::new(
+    //     Env::default_symbol_map(),
+    //     ConstantMap::new(),
+    //     ArityMap::new(),
+    //     false,
+    // );
 
-    vm.parse_and_execute(PRELUDE, &mut ctx).unwrap();
+    vm.parse_and_execute(PRELUDE).unwrap();
 
     let warmup = "(define lst (range 0 50000))";
-    vm.parse_and_execute(black_box(&warmup), &mut ctx).unwrap();
+    vm.parse_and_execute(black_box(&warmup)).unwrap();
 
     let bytecode = Rc::new(
-        vm.emit_instructions(&script, &mut ctx).unwrap()[0]
+        vm.emit_instructions(&script).unwrap()[0]
             .clone()
             .into_boxed_slice(),
     );
 
     c.bench_function("map-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map(), false))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), false))
     });
 }
 
@@ -70,26 +70,26 @@ fn filter(c: &mut Criterion) {
     let script = "(filter number? lst)";
 
     let mut vm = VirtualMachine::new();
-    let mut ctx: Ctx<ConstantMap> = Ctx::new(
-        Env::default_symbol_map(),
-        ConstantMap::new(),
-        ArityMap::new(),
-        false,
-    );
+    // let mut ctx: Ctx<ConstantMap> = Ctx::new(
+    //     Env::default_symbol_map(),
+    //     ConstantMap::new(),
+    //     ArityMap::new(),
+    //     false,
+    // );
 
-    vm.parse_and_execute(PRELUDE, &mut ctx).unwrap();
+    vm.parse_and_execute(PRELUDE).unwrap();
 
     let warmup = "(define lst (range 0 50000))";
-    vm.parse_and_execute(black_box(&warmup), &mut ctx).unwrap();
+    vm.parse_and_execute(black_box(&warmup)).unwrap();
 
     let bytecode = Rc::new(
-        vm.emit_instructions(&script, &mut ctx).unwrap()[0]
+        vm.emit_instructions(&script).unwrap()[0]
             .clone()
             .into_boxed_slice(),
     );
 
     c.bench_function("filter-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), ctx.constant_map(), false))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), false))
     });
 }
 

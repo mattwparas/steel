@@ -23,14 +23,14 @@ pub use stack::{CallStack, EnvStack, Stack, StackFrame};
 
 use expand::MacroSet;
 
-use log::{debug, error, info, trace, warn};
+// use log::{debug, error, info, trace, warn};
 
 use crate::parser::{tokens::TokenType, Expr, ParseError, Parser, SyntaxObject};
 use std::iter::Iterator;
 use std::result;
 // use crate::primitives::ListOperations;
 use crate::env::{Env, FALSE, TRUE, VOID};
-use crate::gc::{Gc, OBJECT_COUNT};
+use crate::gc::Gc;
 use crate::parser::span::Span;
 use crate::primitives::{ListOperations, VectorOperations};
 use crate::rerrs::SteelErr;
@@ -1239,6 +1239,36 @@ pub struct Ctx<CT: ConstantTable> {
     pub(crate) repl: bool,
 }
 
+#[derive(Copy, Clone)]
+pub struct EvaluationProgress {
+    instruction_count: usize,
+    callback: Option<Callback>,
+}
+
+impl EvaluationProgress {
+    pub fn new() -> Self {
+        EvaluationProgress {
+            instruction_count: 0,
+            callback: None,
+        }
+    }
+
+    pub fn with_callback(mut self, callback: Callback) -> Self {
+        self.callback.replace(callback);
+        self
+    }
+
+    pub fn callback(&self) {
+        if let Some(callback) = &self.callback {
+            callback(&self.instruction_count);
+        }
+    }
+
+    pub fn increment(&mut self) {
+        self.instruction_count += 1;
+    }
+}
+
 impl<CT: ConstantTable> Ctx<CT> {
     pub fn new(
         symbol_map: SymbolMap,
@@ -1275,11 +1305,46 @@ impl<CT: ConstantTable> Ctx<CT> {
     }
 }
 
+pub type Callback = fn(&usize) -> bool;
+
+// pub type FunctionSignature = fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>;
+
+#[macro_export]
+macro_rules! build_vm {
+
+    ($($type:ty),* $(,)?) => {
+        {
+            let mut interpreter = VirtualMachine::new();
+            $ (
+                interpreter.insert_bindings(<$type>::generate_bindings());
+            ) *
+            interpreter
+        }
+    };
+
+    (Structs => {$($type:ty),* $(,)?} Functions => {$($binding:expr => $func:ident),* $(,)?}) => {
+        {
+            let mut interpreter = VirtualMachine::new();
+            $ (
+                interpreter.insert_bindings(<$type>::generate_bindings());
+            ) *
+
+            $ (
+                interpreter.insert_binding($binding.to_string(), SteelVal::FuncV($func));
+            ) *
+
+            interpreter
+        }
+    };
+}
+
 pub struct VirtualMachine {
     global_env: Rc<RefCell<Env>>,
     global_heap: Heap,
     macro_env: Rc<RefCell<Env>>,
     idents: MacroSet,
+    callback: Option<Callback>,
+    ctx: Ctx<ConstantMap>,
 }
 
 impl VirtualMachine {
@@ -1289,7 +1354,30 @@ impl VirtualMachine {
             global_heap: Heap::new(),
             macro_env: Rc::new(RefCell::new(Env::root())),
             idents: MacroSet::new(),
+            callback: None,
+            ctx: Ctx::new(
+                Env::default_symbol_map(),
+                ConstantMap::new(),
+                ArityMap::new(),
+                true,
+            ),
         }
+    }
+
+    pub fn insert_binding(&mut self, name: String, value: SteelVal) {
+        self.global_env
+            .borrow_mut()
+            .add_rooted_value(&mut self.ctx.symbol_map, (name.as_str(), value));
+    }
+
+    pub fn insert_bindings(&mut self, vals: Vec<(String, SteelVal)>) {
+        self.global_env
+            .borrow_mut()
+            .repl_define_zipped_rooted(&mut self.ctx.symbol_map, vals.into_iter());
+    }
+
+    pub fn on_progress(&mut self, callback: Callback) {
+        self.callback.replace(callback);
     }
 
     pub fn print_bindings(&self) {
@@ -1306,26 +1394,26 @@ impl VirtualMachine {
 
     // Read in the file from the given path and execute accordingly
     // Loads all the functions in from the given env
-    pub fn parse_and_execute_from_path<CT: ConstantTable, P: AsRef<Path>>(
+    pub fn parse_and_execute_from_path<P: AsRef<Path>>(
         &mut self,
         path: P,
-        ctx: &mut Ctx<CT>,
+        // ctx: &mut Ctx<ConstantMap>,
     ) -> Result<Vec<Gc<SteelVal>>> {
         let mut file = std::fs::File::open(path)?;
         let mut exprs = String::new();
         file.read_to_string(&mut exprs)?;
-        self.parse_and_execute(exprs.as_str(), ctx)
+        self.parse_and_execute(exprs.as_str())
     }
 
     // pub fn new_with_std
 
-    pub fn parse_and_execute<CT: ConstantTable>(
+    pub fn parse_and_execute(
         &mut self,
         expr_str: &str,
-        ctx: &mut Ctx<CT>,
+        // ctx: &mut Ctx<ConstantMap>,
     ) -> Result<Vec<Gc<SteelVal>>> {
         // let now = Instant::now();
-        let gen_bytecode = self.emit_instructions(expr_str, ctx)?;
+        let gen_bytecode = self.emit_instructions(expr_str)?;
 
         // previous size of the env
         // let length = self.global_env.borrow().len();
@@ -1336,18 +1424,20 @@ impl VirtualMachine {
             .map(|x| {
                 let code = Rc::new(x.into_boxed_slice());
                 let now = Instant::now();
+                // let constant_map = &self.ctx.constant_map;
+                // let repl = self.ctx.repl;
                 // let mut heap = Vec::new();
-                let res = self.execute(code, &ctx.constant_map, ctx.repl);
+                let res = self.execute(code, self.ctx.repl);
                 println!("Time taken: {:?}", now.elapsed());
                 res
             })
             .collect::<Result<Vec<Gc<SteelVal>>>>()
     }
 
-    pub fn emit_instructions<CT: ConstantTable>(
+    pub fn emit_instructions(
         &mut self,
         expr_str: &str,
-        ctx: &mut Ctx<CT>,
+        // ctx: &mut Ctx<ConstantMap>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
         let mut results = Vec::new();
@@ -1361,7 +1451,7 @@ impl VirtualMachine {
         self.idents.insert_from_iter(
             get_definition_names(&parsed)
                 .into_iter()
-                .chain(ctx.symbol_map.copy_underlying_vec().into_iter()),
+                .chain(self.ctx.symbol_map.copy_underlying_vec().into_iter()),
         );
 
         // Yoink the macro definitions
@@ -1372,7 +1462,7 @@ impl VirtualMachine {
             &parsed,
             &self.macro_env,
             &self.global_env,
-            &mut ctx.symbol_map,
+            &mut self.ctx.symbol_map,
             &self.idents,
         )?;
 
@@ -1386,7 +1476,7 @@ impl VirtualMachine {
 
         // Collect global defines here first
         let (ndefs_new, ndefs_old, _not) =
-            count_and_collect_global_defines(&expanded_statements, &mut ctx.symbol_map);
+            count_and_collect_global_defines(&expanded_statements, &mut self.ctx.symbol_map);
 
         // At the global level, let the defines shadow the old ones, but call `drop` on all of the old values
 
@@ -1455,8 +1545,8 @@ impl VirtualMachine {
                 &expr,
                 &mut instructions,
                 None,
-                &mut ctx.arity_map,
-                &mut ctx.constant_map,
+                &mut self.ctx.arity_map,
+                &mut self.ctx.constant_map,
             )?;
             // if !script {
             // instructions.push(Instruction::new_clear());
@@ -1470,8 +1560,8 @@ impl VirtualMachine {
 
         // println!("Got here!");
 
-        insert_debruijn_indices(&mut instruction_buffer, &mut ctx.symbol_map)?;
-        extract_constants(&mut instruction_buffer, &mut ctx.constant_map)?;
+        insert_debruijn_indices(&mut instruction_buffer, &mut self.ctx.symbol_map)?;
+        extract_constants(&mut instruction_buffer, &mut self.ctx.constant_map)?;
         // coalesce_clears(&mut instruction_buffer);
 
         for idx in index_buffer {
@@ -1483,10 +1573,10 @@ impl VirtualMachine {
         Ok(results)
     }
 
-    pub fn execute<CT: ConstantTable>(
+    pub fn execute(
         &mut self,
         instructions: Rc<Box<[DenseInstruction]>>,
-        constants: &CT,
+        // constants: &CT,
         // heap: &mut Vec<Rc<RefCell<Env>>>,
         repl: bool,
     ) -> Result<Gc<SteelVal>> {
@@ -1509,7 +1599,7 @@ impl VirtualMachine {
             &mut heap,
             // heap,
             Rc::clone(&self.global_env),
-            constants,
+            &self.ctx.constant_map,
             repl,
         );
 
@@ -1552,7 +1642,15 @@ pub fn execute_vm(
     let mut heap = Heap::new();
     // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
     let global_env = Rc::new(RefCell::new(Env::default_env()));
-    vm(instructions, stack, &mut heap, global_env, constants, false)
+    vm(
+        instructions,
+        stack,
+        &mut heap,
+        global_env,
+        constants,
+        false,
+        // None,
+    )
 }
 
 // TODO make this not so garbage but its kind of okay
@@ -2198,9 +2296,9 @@ pub fn vm<CT: ConstantTable>(
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
     repl: bool,
+    // callback: Option<Callback>,
 ) -> Result<Gc<SteelVal>> {
     let mut ip = 0;
-
     let mut global_env = global_env;
 
     if instructions.is_empty() {
@@ -2221,14 +2319,8 @@ pub fn vm<CT: ConstantTable>(
     let mut env_stack: EnvStack = Stack::new();
     // Manage the depth of instructions to know when to backtrack
     let mut pop_count = 1;
-    // Setting a stack of roll back points for the heap on function exits
-    // This should actually be a Vec<usize> where the last argument is the amount to remove
-    // So each exiting body should remove the scope of what existed within it
-
-    // This could actually just be a single usize based off of the way I use it
-    // TODO verify that this actually works, take out the CLEAR op_code because its kinda useless
-    // now
-    // let mut heap_stack: Vec<usize> = vec![0];
+    // Manage the instruction count
+    let mut instruction_count = 0;
 
     while ip < instructions.len() {
         // let object_count: usize = Gc::<()>::object_count();
@@ -2818,6 +2910,13 @@ pub fn vm<CT: ConstantTable>(
                 unimplemented!();
             }
         }
+
+        // Check the evaluation progress in some capacity
+        // if let Some(callback) = callback {
+        //     callback(&instruction_count);
+        // }
+
+        instruction_count += 1;
 
         // ip += 1;
     }
