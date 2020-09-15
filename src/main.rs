@@ -34,6 +34,9 @@ use std::convert::TryFrom;
 
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
+
+use std::cell::RefCell;
+use std::rc::Rc;
 // extern crate reqwest;
 
 // use std::io::Read;
@@ -166,6 +169,11 @@ impl CoolTest {
     pub fn thing(&self) {
         println!("Inside a method of CoolTest!");
     }
+
+    #[function]
+    pub fn blargh() {
+        println!("do some stuff");
+    }
 }
 
 #[steel]
@@ -176,6 +184,19 @@ pub struct UnnamedFields(pub usize);
 #[derive(PartialEq)]
 pub struct Foo {
     pub f: UnnamedFields,
+}
+
+#[steel]
+pub struct Mutation(pub Rc<RefCell<usize>>);
+
+#[function]
+pub fn new_mutation() -> Mutation {
+    Mutation(Rc::new(RefCell::new(0)))
+}
+
+#[function]
+pub fn mutation_inner(value: Mutation) {
+    *value.0.borrow_mut() += 1;
 }
 
 // By design, tuple structs with unnamed fields are not given constructors or accessors
@@ -255,6 +276,9 @@ pub fn test_repl() -> std::io::Result<()> {
             "test-option" => test_option,
             "panic-time" => panic_time,
             "do-a-call" => do_a_call,
+            "blargh" => CoolTest::blargh,
+            "new-mutation" => new_mutation,
+            "mutation-inner!" => mutation_inner,
         }
     })
 }

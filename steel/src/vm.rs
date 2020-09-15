@@ -1289,7 +1289,7 @@ impl<CT: ConstantTable> Ctx<CT> {
             Env::default_symbol_map(),
             ConstantMap::new(),
             ArityMap::new(),
-            false,
+            true,
         )
     }
 
@@ -1322,7 +1322,7 @@ macro_rules! build_vm {
         }
     };
 
-    (Structs => {$($type:ty),* $(,)?} Functions => {$($binding:expr => $func:ident),* $(,)?}) => {
+    (Structs => {$($type:ty),* $(,)?} Functions => {$($binding:expr => $func:expr),* $(,)?}) => {
         {
             let mut interpreter = VirtualMachine::new();
             $ (
@@ -1355,12 +1355,7 @@ impl VirtualMachine {
             macro_env: Rc::new(RefCell::new(Env::root())),
             idents: MacroSet::new(),
             callback: None,
-            ctx: Ctx::new(
-                Env::default_symbol_map(),
-                ConstantMap::new(),
-                ArityMap::new(),
-                true,
-            ),
+            ctx: Ctx::<ConstantMap>::default(),
         }
     }
 
