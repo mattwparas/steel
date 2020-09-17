@@ -241,21 +241,13 @@ mod vector_prim_tests {
 
     #[test]
     fn vec_construct_test() {
-        let args = vec![
-            SteelVal::NumV(1.0),
-            SteelVal::NumV(2.0),
-            SteelVal::NumV(3.0),
-        ];
+        let args = vec![SteelVal::IntV(1), SteelVal::IntV(2), SteelVal::IntV(3)];
         let res = apply_function(VectorOperations::vec_construct(), args);
         let expected = Gc::new(SteelVal::VectorV(
-            vector![
-                SteelVal::NumV(1.0),
-                SteelVal::NumV(2.0),
-                SteelVal::NumV(3.0)
-            ]
-            .into_iter()
-            .map(Gc::new)
-            .collect(),
+            vector![SteelVal::IntV(1), SteelVal::IntV(2), SteelVal::IntV(3)]
+                .into_iter()
+                .map(Gc::new)
+                .collect(),
         ));
         assert_eq!(res.unwrap(), expected);
     }
@@ -264,49 +256,37 @@ mod vector_prim_tests {
     fn vec_append_test_good_inputs() {
         let args = vec![
             SteelVal::VectorV(
-                vector![
-                    SteelVal::NumV(1.0),
-                    SteelVal::NumV(2.0),
-                    SteelVal::NumV(3.0)
-                ]
-                .into_iter()
-                .map(Gc::new)
-                .collect(),
+                vector![SteelVal::IntV(1), SteelVal::IntV(2), SteelVal::IntV(3)]
+                    .into_iter()
+                    .map(Gc::new)
+                    .collect(),
             ),
             SteelVal::VectorV(
-                vector![
-                    SteelVal::NumV(1.0),
-                    SteelVal::NumV(2.0),
-                    SteelVal::NumV(3.0)
-                ]
-                .into_iter()
-                .map(Gc::new)
-                .collect(),
+                vector![SteelVal::IntV(1), SteelVal::IntV(2), SteelVal::IntV(3)]
+                    .into_iter()
+                    .map(Gc::new)
+                    .collect(),
             ),
             SteelVal::VectorV(
-                vector![
-                    SteelVal::NumV(1.0),
-                    SteelVal::NumV(2.0),
-                    SteelVal::NumV(3.0)
-                ]
-                .into_iter()
-                .map(Gc::new)
-                .collect(),
+                vector![SteelVal::IntV(1), SteelVal::IntV(2), SteelVal::IntV(3)]
+                    .into_iter()
+                    .map(Gc::new)
+                    .collect(),
             ),
         ];
 
         let res = apply_function(VectorOperations::vec_append(), args);
         let expected = Gc::new(SteelVal::VectorV(
             vector![
-                SteelVal::NumV(1.0),
-                SteelVal::NumV(2.0),
-                SteelVal::NumV(3.0),
-                SteelVal::NumV(1.0),
-                SteelVal::NumV(2.0),
-                SteelVal::NumV(3.0),
-                SteelVal::NumV(1.0),
-                SteelVal::NumV(2.0),
-                SteelVal::NumV(3.0)
+                SteelVal::IntV(1),
+                SteelVal::IntV(2),
+                SteelVal::IntV(3),
+                SteelVal::IntV(1),
+                SteelVal::IntV(2),
+                SteelVal::IntV(3),
+                SteelVal::IntV(1),
+                SteelVal::IntV(2),
+                SteelVal::IntV(3)
             ]
             .into_iter()
             .map(Gc::new)
@@ -319,25 +299,17 @@ mod vector_prim_tests {
     fn vec_append_test_bad_inputs() {
         let args = vec![
             SteelVal::VectorV(
-                vector![
-                    SteelVal::NumV(1.0),
-                    SteelVal::NumV(2.0),
-                    SteelVal::NumV(3.0)
-                ]
-                .into_iter()
-                .map(Gc::new)
-                .collect(),
+                vector![SteelVal::IntV(1), SteelVal::IntV(2), SteelVal::IntV(3)]
+                    .into_iter()
+                    .map(Gc::new)
+                    .collect(),
             ),
             SteelVal::StringV("foo".to_string()),
             SteelVal::VectorV(
-                vector![
-                    SteelVal::NumV(1.0),
-                    SteelVal::NumV(2.0),
-                    SteelVal::NumV(3.0)
-                ]
-                .into_iter()
-                .map(Gc::new)
-                .collect(),
+                vector![SteelVal::IntV(1), SteelVal::IntV(2), SteelVal::IntV(3)]
+                    .into_iter()
+                    .map(Gc::new)
+                    .collect(),
             ),
         ];
         let res = apply_function(VectorOperations::vec_append(), args);
@@ -354,11 +326,7 @@ mod vector_prim_tests {
 
     #[test]
     fn vec_range_test_arity_too_many() {
-        let args = vec![
-            SteelVal::NumV(1.0),
-            SteelVal::NumV(1.0),
-            SteelVal::NumV(1.0),
-        ];
+        let args = vec![SteelVal::IntV(1), SteelVal::IntV(1), SteelVal::IntV(1)];
 
         let res = apply_function(VectorOperations::vec_range(), args);
         assert!(res.is_err());
@@ -374,15 +342,15 @@ mod vector_prim_tests {
 
     #[test]
     fn vec_range_test_normal() {
-        let args = vec![SteelVal::NumV(0.0), SteelVal::NumV(4.0)];
+        let args = vec![SteelVal::IntV(0), SteelVal::IntV(4)];
 
         let res = apply_function(VectorOperations::vec_range(), args);
         let expected = Gc::new(SteelVal::VectorV(
             vector![
-                SteelVal::NumV(0.0),
-                SteelVal::NumV(1.0),
-                SteelVal::NumV(2.0),
-                SteelVal::NumV(3.0)
+                SteelVal::IntV(0),
+                SteelVal::IntV(1),
+                SteelVal::IntV(2),
+                SteelVal::IntV(3)
             ]
             .into_iter()
             .map(Gc::new)

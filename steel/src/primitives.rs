@@ -100,6 +100,30 @@ macro_rules! from_f64 {
     };
 }
 
+macro_rules! from_for_isize {
+    ($($body:ty),*) => {
+        $(
+            impl From<$body> for SteelVal {
+                fn from(val: $body) -> SteelVal {
+                    SteelVal::IntV(val as isize)
+                }
+            }
+        )*
+    };
+}
+
+// macro_rules! from_usize {
+//     ($($body:ty),*) => {
+//         $(
+//             impl From<$body> for SteelVal {
+//                 fn from(val: $body) -> SteelVal {
+//                     SteelVal::IntV(val as isize)
+//                 }
+//             }
+//         )*
+//     };
+// }
+
 impl From<char> for SteelVal {
     fn from(val: char) -> SteelVal {
         SteelVal::CharV(val)
@@ -235,7 +259,15 @@ fn vec_to_list(args: Vec<SteelVal>) -> SteelVal {
     (*pairs.pop().unwrap()).clone()
 }
 
-from_f64!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+// from_f64!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+
+from_f64!(f64, f32);
+
+from_for_isize!(i32, i16, i8, u8, u16, u32, u64, usize, isize);
+
+// from_usize!(u64, u32);
+
+// from_f64!(f64, f32);
 try_from_impl!(NumV => f64, f32);
 try_from_impl!(IntV => i64, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 
