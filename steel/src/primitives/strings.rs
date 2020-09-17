@@ -192,10 +192,10 @@ impl StringOperations {
                     ok_string!(lower.to_string())
                 // Ok(Gc::new(SteelVal::StringV(lower)))
                 } else {
-                    stop!(TypeMismatch => "string-loweGcase expected a string")
+                    stop!(TypeMismatch => "string-lowercase expected a string")
                 }
             } else {
-                stop!(ArityMismatch => "string-loweGcase takes one argument")
+                stop!(ArityMismatch => "string-lowercase takes one argument")
             }
         })
     }

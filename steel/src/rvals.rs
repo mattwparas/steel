@@ -1156,14 +1156,14 @@ mod or_else_tests {
     #[test]
     fn vector_or_else_test_good() {
         let input = SteelVal::VectorV(
-            vector![SteelVal::NumV(1.0)]
+            vector![SteelVal::IntV(1)]
                 .into_iter()
                 .map(Gc::new)
                 .collect(),
         );
         assert_eq!(
             input.vector_or_else(throw!(Generic => "test")).unwrap(),
-            vector![SteelVal::NumV(1.0)]
+            vector![SteelVal::IntV(1)]
                 .into_iter()
                 .map(Gc::new)
                 .collect()
