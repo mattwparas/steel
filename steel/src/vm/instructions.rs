@@ -221,4 +221,13 @@ impl Instruction {
             constant: false,
         }
     }
+
+    pub fn new_read() -> Instruction {
+        Instruction {
+            op_code: OpCode::READ,
+            payload_size: 0,
+            contents: None,
+            constant: false,
+        }
+    }
 }
