@@ -44,8 +44,8 @@ use crate::vm::{inline_filter_result_iter, inline_map_result_iter, inline_reduce
 
 use crate::primitives::ListOperations;
 
-// use std::future::Future;
-// use std::pin::Pin;
+use std::future::Future;
+use std::pin::Pin;
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
@@ -67,8 +67,8 @@ pub type StructClosureSignature = fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<
 //    values
 // }
 
-// pub type AsyncSignature =
-//     fn(&[Gc<SteelVal>]) -> Pin<Box<dyn Future<Output = Result<Gc<SteelVal>>>>>;
+pub type AsyncSignature =
+    fn(&[Gc<SteelVal>]) -> Pin<Box<dyn Future<Output = Result<Gc<SteelVal>>>>>;
 
 // async fn join_futures(args: &[AsyncSignature]) -> Vec<Result<Gc<SteelVal>>> {
 //     futures::future::join_all(args.into_iter().map(|x| x(&[])))
@@ -259,6 +259,8 @@ pub enum SteelVal {
     IterV(Transducer),
     // Generic IntoIter wrapper?
     // Promise(Gc<SteelVal>),
+    /// Async Function wrapper
+    FutureFunc(AsyncSignature),
 }
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
@@ -438,6 +440,7 @@ impl Hash for SteelVal {
             HashMapV(hm) => hm.hash(state),
             IterV(_) => unimplemented!(),
             HashSetV(hs) => hs.hash(state),
+            _ => unimplemented!(),
             // Promise(_) => unimplemented!(),
         }
     }
@@ -748,6 +751,7 @@ impl TryFrom<&SteelVal> for Expr {
             HashMapV(_) => Err("Can't convert from hashmap to expression!"),
             HashSetV(_) => Err("Can't convert from hashset to expression!"),
             IterV(_) => Err("Can't convert from iterator to expression!"),
+            FutureFunc(_) => Err("Can't convert from future function to expression!"),
             // Promise(_) => Err("Can't convert from promise to expression!"),
         }
     }
@@ -995,6 +999,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         HashMapV(hm) => write!(f, "#<hashmap {:?}>", hm),
         IterV(_) => write!(f, "#<iterator>"),
         HashSetV(hs) => write!(f, "#<hashset {:?}>", hs),
+        FutureFunc(_) => write!(f, "#<future-func>"),
         // Promise(_) => write!(f, "#<promise>"),
     }
 }
