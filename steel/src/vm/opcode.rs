@@ -27,4 +27,5 @@ pub enum OpCode {
     SET = 23,
     COLLECT = 24,
     TRANSDUCE = 25,
+    READ = 26,
 }

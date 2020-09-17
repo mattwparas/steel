@@ -501,6 +501,28 @@ impl ListOperations {
             .pop()
             .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
     }
+
+    pub fn built_in_list_func_flat_non_gc(args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
+        let mut args = args.into_iter().rev().map(Gc::new);
+        let mut pairs = Vec::new();
+
+        match args.next() {
+            Some(car) => {
+                pairs.push(Gc::new(SteelVal::Pair(car, None)));
+            }
+            _ => {
+                return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+            }
+        }
+
+        for (i, val) in args.enumerate() {
+            pairs.push(Gc::new(SteelVal::Pair(val, Some(Gc::clone(&pairs[i])))));
+        }
+
+        pairs
+            .pop()
+            .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
+    }
 }
 
 #[cfg(test)]

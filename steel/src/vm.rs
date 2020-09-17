@@ -606,7 +606,32 @@ fn emit_loop<CT: ConstantTable>(
                         ..
                     }) if s == "eval" => {
                         check_length("eval", &list_of_tokens, 2)?;
+                        // load in the expression to be evaluated
+                        emit_loop(
+                            &list_of_tokens[1],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
                         instructions.push(Instruction::new_eval());
+                        return Ok(());
+                    }
+
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    }) if s == "read" => {
+                        check_length("read", &list_of_tokens, 2)?;
+                        // load in the string to be read
+                        emit_loop(
+                            &list_of_tokens[1],
+                            instructions,
+                            None,
+                            arity_map,
+                            constant_map,
+                        )?;
+                        instructions.push(Instruction::new_read());
                         return Ok(());
                     }
 
@@ -615,8 +640,6 @@ fn emit_loop<CT: ConstantTable>(
                         ..
                     }) if s == "execute" => {
                         check_length("execute", &list_of_tokens, 3)?;
-
-                        // emit_loop
 
                         // load in the transducer
                         emit_loop(
@@ -1429,22 +1452,14 @@ impl VirtualMachine {
             .collect::<Result<Vec<Gc<SteelVal>>>>()
     }
 
-    pub fn emit_instructions(
+    fn emit_instructions_from_exprs(
         &mut self,
-        expr_str: &str,
-        // ctx: &mut Ctx<ConstantMap>,
+        exprs: Vec<Expr>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
-        let mut intern = HashMap::new();
         let mut results = Vec::new();
-
-        // Parse the input
-        let parsed: result::Result<Vec<Expr>, ParseError> =
-            Parser::new(expr_str, &mut intern).collect();
-        let parsed = parsed?;
-
         // populate MacroSet
         self.idents.insert_from_iter(
-            get_definition_names(&parsed)
+            get_definition_names(&exprs)
                 .into_iter()
                 .chain(self.ctx.symbol_map.copy_underlying_vec().into_iter()),
         );
@@ -1454,7 +1469,7 @@ impl VirtualMachine {
         // TODO change this to be a unique macro env struct
         // Just a thin wrapper around a hashmap
         let extracted_statements = extract_macro_definitions(
-            &parsed,
+            &exprs,
             &self.macro_env,
             &self.global_env,
             &mut self.ctx.symbol_map,
@@ -1566,6 +1581,23 @@ impl VirtualMachine {
         }
 
         Ok(results)
+    }
+
+    pub fn emit_instructions(
+        &mut self,
+        expr_str: &str,
+        // ctx: &mut Ctx<ConstantMap>,
+    ) -> Result<Vec<Vec<DenseInstruction>>> {
+        // the interner needs to be fixed but for now it just is here for legacy reasons
+        // it currently does no allocation
+        let mut intern = HashMap::new();
+
+        // Parse the input
+        let parsed: result::Result<Vec<Expr>, ParseError> =
+            Parser::new(expr_str, &mut intern).collect();
+        let parsed = parsed?;
+
+        self.emit_instructions_from_exprs(parsed)
     }
 
     pub fn execute(
@@ -2344,6 +2376,42 @@ pub fn vm<CT: ConstantTable>(
             OpCode::VOID => {
                 stack.push(VOID.with(|f| Gc::clone(f)));
                 ip += 1;
+            }
+            OpCode::READ => {
+                // this needs to be a string
+                let expression_to_parse = stack.pop().unwrap();
+
+                if let SteelVal::StringV(expr) = expression_to_parse.as_ref() {
+                    // dummy interning hashmap because the parser is bad
+                    // please don't judge I'm working on fixing it
+                    // TODO
+                    let mut intern = HashMap::new();
+
+                    let parsed: result::Result<Vec<Expr>, ParseError> =
+                        Parser::new(expr.as_str(), &mut intern).collect();
+
+                    match parsed {
+                        Ok(v) => {
+                            // for now, only support one expression
+                            // otherwise parse into a list of things
+                            // if v.len() != 1 {
+                            //     stop!(ArityMismatch => "read only supports one expression")
+                            // }
+
+                            let converted: Result<Vec<SteelVal>> = v
+                                .into_iter()
+                                .map(|x| SteelVal::try_from(x.clone()))
+                                .collect();
+
+                            // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
+                            stack.push(ListOperations::built_in_list_func_flat_non_gc(converted?)?);
+                            ip += 1;
+                        }
+                        Err(e) => stop!(Generic => format!("{}", e); cur_inst.span),
+                    }
+                } else {
+                    stop!(TypeMismatch => "read expects a string"; cur_inst.span)
+                }
             }
             OpCode::COLLECT => {
                 let list = stack.pop().unwrap();
