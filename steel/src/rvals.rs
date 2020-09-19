@@ -67,8 +67,7 @@ pub type StructClosureSignature = fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<
 //    values
 // }
 
-pub type AsyncSignature =
-    fn(&[Gc<SteelVal>]) -> Pin<Box<dyn Future<Output = Result<Gc<SteelVal>>>>>;
+pub type AsyncSignature = fn(&[Gc<SteelVal>]) -> Box<dyn Future<Output = Result<Gc<SteelVal>>>>;
 
 // async fn join_futures(args: &[AsyncSignature]) -> Vec<Result<Gc<SteelVal>>> {
 //     futures::future::join_all(args.into_iter().map(|x| x(&[])))
@@ -775,6 +774,7 @@ impl PartialEq for SteelVal {
             (Pair(_, _), Pair(_, _)) => {
                 collect_pair_into_vector(self) == collect_pair_into_vector(other)
             }
+            (HashSetV(l), HashSetV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);

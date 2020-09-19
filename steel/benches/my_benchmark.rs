@@ -1,13 +1,13 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use steel::env::Env;
+// use steel::env::Env;
 // use steel::interpreter::SteelInterpreter;
 use steel::stdlib::PRELUDE;
-use steel::vm::ArityMap;
-use steel::vm::ConstantMap;
+// use steel::vm::ArityMap;
+// use steel::vm::ConstantMap;
 // use steel::vm::ConstantTable;
 use std::rc::Rc;
-use steel::vm::Ctx;
+// use steel::vm::Ctx;
 use steel::vm::VirtualMachine;
 // use steel::PRELUDE;
 
