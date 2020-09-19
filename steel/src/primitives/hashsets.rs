@@ -143,6 +143,83 @@ impl HashSetOperations {
             }
         })
     }
+}
 
-    // pub fn
+#[cfg(test)]
+mod hashset_tests {
+    use super::*;
+    use crate::throw;
+    // use im_rc::hashset;
+
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
+        let args: Vec<Gc<SteelVal>> = args.into_iter().map(|x| Gc::new(x)).collect();
+        func.func_or_else(throw!(BadSyntax => "hash tests"))
+            .unwrap()(&args)
+    }
+
+    #[test]
+    fn hs_construct_normal() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("foo2".to_string()),
+            SteelVal::StringV("bar2".to_string()),
+        ];
+        let res = apply_function(HashSetOperations::hs_construct(), args);
+        let expected = Gc::new(SteelVal::HashSetV(
+            vec![
+                SteelVal::StringV("foo".to_string()),
+                SteelVal::StringV("bar".to_string()),
+                SteelVal::StringV("foo2".to_string()),
+                SteelVal::StringV("bar2".to_string()),
+            ]
+            .into_iter()
+            .map(Gc::new)
+            .collect(),
+        ));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn hs_construct_with_duplicates() {
+        let args = vec![
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("foo2".to_string()),
+            SteelVal::StringV("bar2".to_string()),
+            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("foo2".to_string()),
+            SteelVal::StringV("bar2".to_string()),
+        ];
+        let res = apply_function(HashSetOperations::hs_construct(), args);
+        let expected = Gc::new(SteelVal::HashSetV(
+            vec![
+                SteelVal::StringV("foo".to_string()),
+                SteelVal::StringV("bar".to_string()),
+                SteelVal::StringV("foo2".to_string()),
+                SteelVal::StringV("bar2".to_string()),
+            ]
+            .into_iter()
+            .map(Gc::new)
+            .collect(),
+        ));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn hs_insert_from_empty() {
+        let args = vec![
+            SteelVal::HashSetV(vec![].into()),
+            SteelVal::StringV("foo".to_string()),
+        ];
+        let res = apply_function(HashSetOperations::hs_insert(), args);
+        let expected = Gc::new(SteelVal::HashSetV(
+            vec![SteelVal::StringV("foo".to_string())]
+                .into_iter()
+                .map(Gc::new)
+                .collect(),
+        ));
+        assert_eq!(res.unwrap(), expected);
+    }
 }

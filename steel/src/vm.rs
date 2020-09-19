@@ -1549,7 +1549,7 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            // println!("{:?}", expr.to_string());
+            println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
                 &expr,
@@ -2487,18 +2487,78 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::APPLY => {
-                let _list = stack.pop().unwrap();
-                let _func = stack.pop().unwrap();
+                let list = stack.pop().unwrap();
+                let func = stack.pop().unwrap();
 
-                panic!("Apply not implemented - internal compiler error");
+                let args = match ListOperations::collect_into_vec(&list) {
+                    Ok(args) => args,
+                    Err(_) => stop!(TypeMismatch => "apply expected a list"; cur_inst.span),
+                };
 
-                // TODO inline the OpCode::FUNC case here for speedup
+                match func.as_ref() {
+                    SteelVal::StructClosureV(factory, func) => {
+                        let result = func(args, factory).map_err(|x| x.set_span(cur_inst.span))?;
+                        stack.push(result);
+                        ip += 1;
+                    }
+                    SteelVal::FuncV(f) => {
+                        let result = f(&args).map_err(|x| x.set_span(cur_inst.span))?;
+                        stack.push(result);
+                        ip += 1;
+                    }
+                    SteelVal::Closure(closure) => {
+                        if stacks.len() == STACK_LIMIT {
+                            println!("stacks at exit: {:?}", stacks);
+                            println!("stack frame at exit: {:?}", stack);
+                            stop!(Generic => "stack overflowed!"; cur_inst.span);
+                        }
 
-                // match list.as_ref() {
-                //     SteelVal::Pair(_, _) => {
-                //         let args = SteelVal::iter(list)
-                //     }
-                // }
+                        // let args = stack.split_off(stack.len() - cur_inst.payload_size);
+
+                        let parent_env = closure.sub_expression_env();
+
+                        // TODO remove this unwrap
+                        let offset = closure.offset()
+                            + parent_env.upgrade().unwrap().borrow().local_offset();
+
+                        let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                            parent_env.clone(),
+                            offset,
+                        )));
+
+                        // add this closure to the list of children
+                        parent_env
+                            .upgrade()
+                            .unwrap()
+                            .borrow_mut()
+                            .add_child(Rc::downgrade(&inner_env));
+
+                        inner_env
+                            .borrow_mut()
+                            .reserve_defs(if closure.ndef_body() > 0 {
+                                closure.ndef_body() - 1
+                            } else {
+                                0
+                            });
+
+                        // let result =
+                        // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
+                        // closure_stack.push(Rc::clone(&stack_func));
+                        // TODO this is where the memory leak is
+                        env_stack.push(Rc::clone(&global_env));
+
+                        global_env = inner_env;
+                        instruction_stack.push(InstructionPointer::new(ip + 1, instructions));
+                        pop_count += 1;
+                        stacks.push(stack);
+                        instructions = closure.body_exp();
+                        stack = args.into(); // TODO
+                        ip = 0;
+                    }
+                    _ => {
+                        stop!(BadSyntax => "Application not a procedure or function type not supported"; cur_inst.span);
+                    }
+                }
             }
             OpCode::CLEAR => {
                 ip += 1;
