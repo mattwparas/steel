@@ -28,7 +28,7 @@ use std::rc::Rc;
 use std::rc::Weak;
 // use std::convert::AsRef;
 // use std::borrow::BorrowMut;
-use crate::compiler::AST;
+// use crate::compiler::AST;
 
 use crate::vm::SymbolMap;
 
@@ -139,7 +139,7 @@ pub struct Env {
     heap: Vec<Rc<RefCell<Env>>>,
     is_binding_context: bool,
     is_binding_offset: bool,
-    module: Vec<AST>,
+    // module: Vec<AST>,
     is_module_context: bool,
     ndefs: usize,
     reachable: bool,
@@ -150,7 +150,7 @@ impl Drop for Env {
         self.heap.clear();
         self.clear_bindings();
         self.heap.clear();
-        self.module.clear();
+        // self.module.clear();
         self.bindings_vec.clear();
     }
 }
@@ -188,7 +188,7 @@ impl Env {
             heap: Vec::new(),
             is_binding_context: false,
             is_binding_offset: false,
-            module: Vec::new(),
+            // module: Vec::new(),
             is_module_context: false,
             ndefs: 0,
             reachable: false,
@@ -203,9 +203,9 @@ impl Env {
         self.reachable
     }
 
-    pub fn add_module(&mut self, new_mod: AST) {
-        self.module.push(new_mod)
-    }
+    // pub fn add_module(&mut self, new_mod: AST) {
+    //     self.module.push(new_mod)
+    // }
 
     pub fn len(&self) -> usize {
         self.bindings_vec.len()
@@ -266,7 +266,7 @@ impl Env {
             heap: Vec::new(),
             is_binding_context: false,
             is_binding_offset: false,
-            module: Vec::new(),
+            // module: Vec::new(),
             is_module_context: false,
             ndefs: 0,
             reachable: false,
@@ -326,7 +326,7 @@ impl Env {
             heap: Vec::new(),
             is_binding_context: false,
             is_binding_offset: false,
-            module: Vec::new(),
+            // module: Vec::new(),
             is_module_context: false,
             ndefs: 0,
             reachable: true,
@@ -345,9 +345,9 @@ impl Env {
         self.heap.push(val);
     }
 
-    pub fn get_modules(&self) -> &[AST] {
-        &self.module
-    }
+    // pub fn get_modules(&self) -> &[AST] {
+    //     &self.module
+    // }
 
     pub fn sub_expression(&self) -> &Option<Weak<RefCell<Env>>> {
         &self.sub_expression

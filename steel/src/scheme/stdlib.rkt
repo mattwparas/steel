@@ -333,7 +333,7 @@
 (define (sub1 n) (- n 1))
 (define (zero? n) (= n 0))
 
-
+;; currently broken, doesn't work properly
 (defn (take lst n)
   (defn (loop x l acc)
     (if (= x 0)

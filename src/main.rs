@@ -2,7 +2,7 @@ extern crate steel;
 #[macro_use]
 extern crate steel_derive;
 
-use steel::SteelInterpreter;
+// use steel::SteelInterpreter;
 
 use steel::unwrap;
 
@@ -10,7 +10,7 @@ use std::any::Any;
 use steel::rerrs;
 use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
-use steel::build_interpreter;
+// use steel::build_interpreter;
 use steel::build_repl;
 use steel::build_vm;
 use steel::repl::repl_base;
@@ -113,14 +113,14 @@ fn main() {
         finish(test_repl());
     } else if args.len() == 2 {
         let path = &args[1];
-        let mut interpreter = build_interpreter! {};
-        if let Err(e) = interpreter.require(PRELUDE) {
-            eprintln!("Error loading prelude: {}", e)
-        }
+        let mut interpreter = build_vm! {};
+        // if let Err(e) = interpreter.require(PRELUDE) {
+        //     eprintln!("Error loading prelude: {}", e)
+        // }
 
         let contents = fs::read_to_string(path).expect("Something went wrong reading the file");
         // let now = Instant::now();
-        let res = interpreter.evaluate(&contents);
+        let res = interpreter.parse_and_execute(&contents);
 
         // println!("{:?}", now.elapsed());
 
@@ -311,7 +311,7 @@ pub fn test_result2(input: usize) -> std::result::Result<usize, String> {
 // TODO come back and flesh this out
 #[test]
 fn embed_functions_and_verify_results() {
-    let mut interp = build_interpreter! {
+    let mut interp = build_vm! {
         Structs => {
             MyStruct,
             CoolTest,
@@ -334,22 +334,24 @@ fn embed_functions_and_verify_results() {
     (define result-res-false (test-result 2))
     ";
 
-    assert!(interp.evaluate(&script).is_err());
+    assert!(interp.parse_and_execute(&script).is_err());
 
     let script = "
     (define option-res-good (test-option 1))
     (define option-res-bad (test-option 2))
     ";
-    assert!(interp.evaluate(&script).is_ok());
+    assert!(interp.parse_and_execute(&script).is_ok());
 
     // let bad_val: bool = bool::try_from(interp.extract_value("option-res-bad").unwrap()).unwrap();
 }
+
+/*
 
 #[test]
 fn build_interpreter_and_modify() {
     // Construct interpreter with 3 custom structs
     // each has now getters, setters, a predicate and constructor
-    let mut interpreter = build_interpreter! {
+    let mut interpreter = build_vm! {
         MyStruct,
         CoolTest,
         Foo
@@ -360,9 +362,15 @@ fn build_interpreter_and_modify() {
     // define value outside of interpreter to embed
     let test = UnnamedFields(100);
     // embed the value
-    interpreter.insert_binding("unnamed", test.new_steel_val());
-    interpreter.insert_binding("add_cool_tests", SteelVal::FuncV(add_cool_tests));
-    interpreter.insert_binding("multiple_types", SteelVal::FuncV(multiple_types));
+    interpreter.insert_binding("unnamed".to_string(), test.new_steel_val());
+    interpreter.insert_binding(
+        "add_cool_tests".to_string(),
+        SteelVal::FuncV(add_cool_tests),
+    );
+    interpreter.insert_binding(
+        "multiple_types".to_string(),
+        SteelVal::FuncV(multiple_types),
+    );
 
     // write a quick script
     let script = "
@@ -399,3 +407,4 @@ fn build_interpreter_and_modify() {
         }
     }
 }
+*/
