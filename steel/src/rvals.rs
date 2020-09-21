@@ -45,7 +45,7 @@ use crate::vm::{inline_filter_result_iter, inline_map_result_iter, inline_reduce
 use crate::primitives::ListOperations;
 
 use std::future::Future;
-use std::pin::Pin;
+// use std::pin::Pin;
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
@@ -260,6 +260,10 @@ pub enum SteelVal {
     // Promise(Gc<SteelVal>),
     /// Async Function wrapper
     FutureFunc(AsyncSignature),
+    // Mutable Box
+    // Functions that want to operate by reference must move the value into a mutable box
+    // This deep clones the value but then the value can be mutably snatched
+    // MutableBox(Gc<RefCell<SteelVal>>),
 }
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);

@@ -222,4 +222,99 @@ mod hashset_tests {
         ));
         assert_eq!(res.unwrap(), expected);
     }
+
+    #[test]
+    fn hs_contains_true() {
+        let args = vec![
+            SteelVal::HashSetV(
+                vec![SteelVal::StringV("foo".to_string())]
+                    .into_iter()
+                    .map(Gc::new)
+                    .collect(),
+            ),
+            SteelVal::StringV("foo".to_string()),
+        ];
+        let res = apply_function(HashSetOperations::hs_contains(), args);
+        let expected = Gc::new(SteelVal::BoolV(true));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn hs_contains_false() {
+        let args = vec![
+            SteelVal::HashSetV(
+                vec![SteelVal::StringV("foo".to_string())]
+                    .into_iter()
+                    .map(Gc::new)
+                    .collect(),
+            ),
+            SteelVal::StringV("bar".to_string()),
+        ];
+        let res = apply_function(HashSetOperations::hs_contains(), args);
+        let expected = Gc::new(SteelVal::BoolV(false));
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn hs_keys_to_vector_normal() {
+        let args = vec![SteelVal::HashSetV(
+            vec![
+                SteelVal::StringV("foo".to_string()),
+                SteelVal::StringV("bar".to_string()),
+                SteelVal::StringV("baz".to_string()),
+            ]
+            .into_iter()
+            .map(Gc::new)
+            .collect(),
+        )];
+        let res = apply_function(HashSetOperations::keys_to_vector(), args);
+        let expected = Gc::new(SteelVal::VectorV(
+            vec![
+                SteelVal::StringV("foo".to_string()),
+                SteelVal::StringV("bar".to_string()),
+                SteelVal::StringV("baz".to_string()),
+            ]
+            .into_iter()
+            .map(Gc::new)
+            .collect(),
+        ));
+
+        // pull out the vectors and sort them
+        let unwrapped_res: SteelVal = (*res.unwrap()).clone();
+        let unwrapped_expected: SteelVal = (*expected).clone();
+
+        let mut res_vec_string: Vec<String> = if let SteelVal::VectorV(v) = &unwrapped_res {
+            v.into_iter()
+                .map(|x| {
+                    if let SteelVal::StringV(s) = (*x).clone().as_ref() {
+                        s.clone()
+                    } else {
+                        panic!("test failed")
+                    }
+                })
+                .collect()
+        } else {
+            panic!("test failed")
+        };
+
+        let mut expected_vec_string: Vec<String> = if let SteelVal::VectorV(v) = &unwrapped_expected
+        {
+            v.into_iter()
+                .map(|x| {
+                    if let SteelVal::StringV(s) = (*x).clone().as_ref() {
+                        s.clone()
+                    } else {
+                        panic!("test failed")
+                    }
+                })
+                .collect()
+        } else {
+            panic!("test failed")
+        };
+
+        res_vec_string.sort();
+        expected_vec_string.sort();
+
+        assert_eq!(res_vec_string, expected_vec_string);
+    }
 }
