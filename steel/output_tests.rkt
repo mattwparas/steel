@@ -1,7 +1,7 @@
 1
 2
 #false
-Parse: Unexpected token: CloseParen
+Error: Parse error: Parse: Unexpected token: CloseParen
 #<void>
 120
 #<void>
@@ -13,12 +13,6 @@ Parse: Unexpected token: CloseParen
 6
 #<void>
 10
-10
-10
-'(1 2 3)
-10
-#<(lambda () (begin "test"))>
-"test"
 #true
 #false
 #true

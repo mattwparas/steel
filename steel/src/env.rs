@@ -754,7 +754,7 @@ impl Env {
 
     pub fn add_rooted_value(&mut self, sm: &mut SymbolMap, val: (&str, SteelVal)) {
         let idx = sm.add(val.0);
-        println!("Adding {}", val.0);
+        // println!("Adding {}", val.0);
         self.bindings_map.insert(idx, Gc::new(val.1));
         // self.bindings_vec.push(Gc::new(val.1));
     }

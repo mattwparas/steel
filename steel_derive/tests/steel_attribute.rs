@@ -11,7 +11,7 @@ use steel::unwrap;
 
 use std::any::Any;
 use steel::rerrs;
-use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
+use steel::rvals::{self, CustomType, SteelVal};
 
 // use steel::build_interpreter;
 use steel_derive::function;
