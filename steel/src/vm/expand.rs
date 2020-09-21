@@ -324,7 +324,7 @@ fn expand_define(
                     "{}: expected at least {} args got {}",
                     "Define",
                     2,
-                    list_of_tokens.len()
+                    &list_of_tokens[1..].len()
                 );
                 stop!(ArityMismatch => e)
             }
@@ -334,7 +334,7 @@ fn expand_define(
             "{}: expected at least {} args got {}",
             "Define",
             2,
-            list_of_tokens.len()
+            &list_of_tokens[1..].len()
         );
         stop!(ArityMismatch => e)
     }

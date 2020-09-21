@@ -114,7 +114,7 @@ impl SteelErr {
     }
 
     fn report(&self, _file_name: &str, _file_content: &str, _error_span: Span) -> Diagnostic<()> {
-        println!("Generating error report!");
+        // println!("Generating error report!");
 
         match self {
             Self::ArityMismatch(m, error_span) => {

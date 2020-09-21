@@ -18,7 +18,11 @@ fn if_test() {
     evaluator.parse_and_execute(PRELUDE).unwrap();
     test_line("(if #t 'a 2)", &["'a"], &mut evaluator);
     test_line("(if 'a 'b 1)", &["'b"], &mut evaluator);
-    test_line("(if (= 1 2) a 2)", &["2"], &mut evaluator);
+    test_line(
+        "(if (= 1 2) a 2)",
+        &["Error: Free Identifier: a"],
+        &mut evaluator,
+    );
     test_line(
         "(if (= 1 1) a 2)",
         &["Error: Free Identifier: a"],
@@ -26,12 +30,12 @@ fn if_test() {
     );
     test_line(
         "(if (= 1 1))",
-        &["Error: Arity Mismatch: If: expected 3 args got 1"],
+        &["Error: Arity Mismatch: if: expected 3 args got 1"],
         &mut evaluator,
     );
     test_line(
         "(if 1 2 3 4)",
-        &["Error: Arity Mismatch: If: expected 3 args got 4"],
+        &["Error: Arity Mismatch: if: expected 3 args got 4"],
         &mut evaluator,
     );
 }
@@ -44,7 +48,7 @@ fn define_test() {
     test_line("a", &["Error: Free Identifier: a"], e);
     test_line(
         "(define a (lambda (x) (+ x 1)) wat)",
-        &["Error: Arity Mismatch: Define: multiple expressions after the identifier, expected 2 args got 3"],
+        &["Error: Arity Mismatch: define statement expects an identifier and an expression"],
         e,
     );
     test_line(
@@ -53,7 +57,7 @@ fn define_test() {
         e,
     );
     test_line("(define a (lambda (x) (+ x 1)))", &["#<void>"], e);
-    test_line("a", &["#<(lambda (x) (begin (+ x 1)))>"], e);
+    test_line("a", &["#<bytecode-closure>"], e);
     test_line("(a 2)", &["3"], e);
     test_line("(define (b a1 a2 a3) (+ a1 a2 a3))", &["#<void>"], e);
     test_line("(b 10 20 30)", &["60"], e);
@@ -67,12 +71,12 @@ fn lambda_test() {
     let mut evaluator = VirtualMachine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("(lambda (x) 1 2)", &["#<(lambda (x) (begin 1 2))>"], e);
+    test_line("(lambda (x) 1 2)", &["#<bytecode-closure>"], e);
     test_line("(lambda x 1)", &["Error: Expected List of Identifiers"], e);
     test_line("(lambda () 1)", &["#<bytecode-closure>"], e);
     test_line(
         "(lambda () (lambda () (lambda () (lambda () 1))))",
-        &["#<(lambda () (begin (lambda () (lambda () (lambda () 1)))))>"],
+        &["#<bytecode-closure>"],
         e,
     );
     test_line(
@@ -91,12 +95,12 @@ fn set_test() {
     test_line("(set! x 10)", &["Error: Free Identifier: x"], e);
     test_line(
         "(set! x)",
-        &["Error: Arity Mismatch: Set: expected 2 args got 1"],
+        &["Error: Arity Mismatch: set: expected 2 args got 1"],
         e,
     );
     test_line(
         "(set! x 1 2)",
-        &["Error: Arity Mismatch: Set: expected 2 args got 3"],
+        &["Error: Arity Mismatch: set: expected 2 args got 3"],
         e,
     );
     test_line(
@@ -109,16 +113,6 @@ fn set_test() {
         &["#<void>", "20"],
         e,
     );
-    test_line(
-        "(define x (lambda () (begin (set! a 20) (define a 10) a))) (x)",
-        &["#<void>", "Error: Free Identifier: a"],
-        e,
-    );
-    // test_line(
-    //     "(define a 1000) (define x (lambda () (begin (set! a 20) (define a 10) a))) (x)",
-    //     &["#<void>", "#<void>", "10"],
-    //     e,
-    // );
     test_line(
         "(define a 1000) (define x (lambda () (begin (set! a 20)  a))) (x)",
         &["#<void>", "#<void>", "20"],
@@ -165,8 +159,12 @@ fn and_test() {
     test_line("(and #t #f)", &["#false"], e);
     test_line("(and #t #t)", &["#true"], e);
     test_line("(and a #t)", &["Error: Free Identifier: a"], e);
-    test_line("(and #f a)", &["#false"], e);
-    test_line("(and (= 1 1) (= 1 2) who are you)", &["#false"], e);
+    test_line("(and #f a)", &["Error: Free Identifier: a"], e);
+    test_line(
+        "(and (= 1 1) (= 1 2) who are you)",
+        &["Error: Free Identifier: who"],
+        e,
+    );
     test_line("(and (= 1 1) (= (+ 1 1) 2) (< 3 4))", &["#true"], e);
 }
 
@@ -180,8 +178,12 @@ fn or_test() {
     test_line("(or #t #t)", &["#true"], e);
     test_line("(or #f #t)", &["#true"], e);
     test_line("(or #f a)", &["Error: Free Identifier: a"], e);
-    test_line("(or #t a)", &["#true"], e);
-    test_line("(or #t whatever you want idk)", &["#true"], e);
+    test_line("(or #t a)", &["Error: Free Identifier: a"], e);
+    test_line(
+        "(or #t whatever you want idk)",
+        &["Error: Free Identifier: whatever"],
+        e,
+    );
     test_line("(or (> 3 4) (> 4 5) (> 5 6) (= 1 1))", &["#true"], e);
 }
 

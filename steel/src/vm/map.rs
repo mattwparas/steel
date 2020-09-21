@@ -42,10 +42,6 @@ impl SymbolMap {
 
     // fallible
     pub fn get(&mut self, ident: &str) -> Result<usize> {
-        // if self.seen_set.contains(ident) {
-
-        // }
-
         let rev_iter = self.0.iter().enumerate().rev();
 
         for (idx, val) in rev_iter {
@@ -54,11 +50,7 @@ impl SymbolMap {
                 return Ok(idx);
             }
         }
-
-        // println!("Getting here!");
-
-        let e = format!("Free identifier: {}", ident);
-
+        let e = format!("{}", ident);
         stop!(FreeIdentifier => e)
     }
 
