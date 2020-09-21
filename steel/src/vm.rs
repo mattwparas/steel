@@ -1446,7 +1446,7 @@ impl VirtualMachine {
                 // let repl = self.ctx.repl;
                 // let mut heap = Vec::new();
                 let res = self.execute(code, self.ctx.repl);
-                println!("Time taken: {:?}", now.elapsed());
+                // println!("Time taken: {:?}", now.elapsed());
                 res
             })
             .collect::<Result<Vec<Gc<SteelVal>>>>()
@@ -1549,7 +1549,7 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            println!("{:?}", expr.to_string());
+            // println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
                 &expr,

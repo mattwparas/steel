@@ -7,7 +7,7 @@ extern crate im_rc;
 pub mod env;
 // pub mod evaluator;
 #[macro_use]
-pub mod interpreter;
+// pub mod interpreter;
 pub mod parser;
 pub mod primitives;
 #[macro_use]
@@ -19,7 +19,7 @@ pub mod stdlib;
 #[macro_use]
 pub mod expander;
 // #[macro_use]
-pub mod compiler;
+// pub mod compiler;
 pub mod engine;
 pub mod gc;
 pub mod port;
@@ -28,7 +28,7 @@ pub mod vm;
 
 pub use self::{
     gc::Gc,
-    interpreter::SteelInterpreter,
+    // interpreter::SteelInterpreter,
     // primitives::SteelFunctor,
     rerrs::SteelErr,
     rvals::{CustomType, SteelVal, StructFunctions},

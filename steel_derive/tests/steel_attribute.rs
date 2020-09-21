@@ -5,7 +5,7 @@ extern crate steel_derive;
 use crate::steel::*;
 use crate::steel_derive::steel;
 
-use steel::SteelInterpreter;
+// use steel::SteelInterpreter;
 
 use steel::unwrap;
 
@@ -13,7 +13,7 @@ use std::any::Any;
 use steel::rerrs;
 use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
-use steel::build_interpreter;
+// use steel::build_interpreter;
 use steel_derive::function;
 
 // use std::process;
@@ -107,6 +107,8 @@ pub fn test_result(input: usize) -> std::result::Result<usize, String> {
     }
 }
 
+/*
+
 // TODO come back and flesh this out
 #[test]
 fn embed_functions_and_verify_results() {
@@ -198,3 +200,4 @@ pub fn build_interpreter_and_modify() {
         }
     }
 }
+*/

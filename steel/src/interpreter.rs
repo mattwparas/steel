@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
-pub mod evaluator;
+// pub mod evaluator;
 
 // pub use evaluator::Evaluator;
 
-use crate::compiler::AST;
+// use crate::compiler::AST;
 // use crate::env::Env;
-use crate::interpreter::evaluator::Evaluator;
+// use crate::interpreter::evaluator::Evaluator;
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 // use std::cell::RefCell;
@@ -78,14 +78,14 @@ impl SteelInterpreter {
         self.evaluator.parse_and_eval(expr_str)
     }
 
-    pub fn compile(&mut self, expr_str: &str) -> Result<AST, SteelErr> {
-        self.evaluator
-            .parse_and_compile_with_env(expr_str, Rc::clone(self.evaluator.get_env()))
-    }
+    // pub fn compile(&mut self, expr_str: &str) -> Result<AST, SteelErr> {
+    //     self.evaluator
+    //         .parse_and_compile_with_env(expr_str, Rc::clone(self.evaluator.get_env()))
+    // }
 
-    pub fn evaluate_from_ast(ast: &AST) -> Result<Vec<SteelVal>, SteelErr> {
-        Evaluator::eval_with_env_from_ast(ast)
-    }
+    // pub fn evaluate_from_ast(ast: &AST) -> Result<Vec<SteelVal>, SteelErr> {
+    //     Evaluator::eval_with_env_from_ast(ast)
+    // }
 
     /// Clears the environment for the interpreter
     /// # Examples
