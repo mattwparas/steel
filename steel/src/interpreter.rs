@@ -1,18 +1,12 @@
 #![allow(dead_code)]
 
-// pub mod evaluator;
+pub mod evaluator;
 
-// pub use evaluator::Evaluator;
-
-// use crate::compiler::AST;
-// use crate::env::Env;
-// use crate::interpreter::evaluator::Evaluator;
+use crate::interpreter::evaluator::Evaluator;
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
-// use std::cell::RefCell;
 use std::io::Read;
 use std::path::Path;
-use std::rc::Rc;
 
 #[macro_export]
 macro_rules! build_interpreter {
@@ -78,15 +72,6 @@ impl SteelInterpreter {
         self.evaluator.parse_and_eval(expr_str)
     }
 
-    // pub fn compile(&mut self, expr_str: &str) -> Result<AST, SteelErr> {
-    //     self.evaluator
-    //         .parse_and_compile_with_env(expr_str, Rc::clone(self.evaluator.get_env()))
-    // }
-
-    // pub fn evaluate_from_ast(ast: &AST) -> Result<Vec<SteelVal>, SteelErr> {
-    //     Evaluator::eval_with_env_from_ast(ast)
-    // }
-
     /// Clears the environment for the interpreter
     /// # Examples
     /// ```rust
@@ -111,10 +96,6 @@ impl SteelInterpreter {
         self.evaluator = Evaluator::new();
     }
 
-    pub fn print_bindings(&self) {
-        self.evaluator.print_bindings();
-    }
-
     /// Evaluates from a reader
     pub fn evaluate_from_reader(
         &mut self,
@@ -129,13 +110,6 @@ impl SteelInterpreter {
     /// ignoring the output
     pub fn require(&mut self, exprs: &str) -> Result<(), SteelErr> {
         self.evaluate(exprs).map(|_| ())
-    }
-
-    /// Evaluate bodies from path
-    pub fn require_path<P: AsRef<Path>>(&mut self, path: P) -> Result<(), SteelErr> {
-        let file = std::fs::File::open(path)?;
-        let _ = self.evaluate_from_reader(file)?;
-        Ok(())
     }
 
     /// Evaluate statements from paths, ignoring output
@@ -197,7 +171,7 @@ mod interpreter_tests {
         let mut interpreter = SteelInterpreter::new();
         let stmt = "(+ 1 2 3) (+ 4 5 6)";
         let results = interpreter.evaluate(stmt);
-        let expected = vec![SteelVal::IntV(6), SteelVal::IntV(15)];
+        let expected = vec![SteelVal::NumV(6.0), SteelVal::NumV(15.0)];
         assert_eq!(results.unwrap(), expected);
     }
 
@@ -241,7 +215,7 @@ mod interpreter_tests {
         let b = "(+ 1 2 3)".as_bytes();
         assert_eq!(
             interpreter.evaluate_from_reader(b).unwrap(),
-            vec![SteelVal::IntV(6)]
+            vec![SteelVal::NumV(6.0)]
         );
     }
 }
