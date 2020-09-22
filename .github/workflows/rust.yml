@@ -17,11 +17,10 @@ jobs:
       - name: Run tests
         run: cd steel; cargo test --verbose --features colors_off
       - name: rust-tarpaulin
-        uses: actions-rs/tarpaulin@v0.1.0
+        uses: actions-rs/tarpaulin@v0.1
         with:
-          command: test
           args: --all
-          out-type: "lcov"
+          out-type: "Lcov"
       - name: Coveralls GitHub Action
         uses: coverallsapp/github-action@v1.1.2
         with:
