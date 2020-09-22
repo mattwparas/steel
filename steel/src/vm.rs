@@ -488,22 +488,6 @@ pub struct ProfilingInformation {
     threshold: usize,
 }
 
-/*
-
-Do some magic with the instructions to generate the profile table
-
-Something like a vector -> hashmaps of rooted function contexts
-
-Can run some profile information that way to understand the counts
-
-Once the threshold passes a certain amount, modify the instructions to
-go ahead and change the function to call a more specialized one?
-
-
-
-
-*/
-
 impl ProfilingInformation {
     pub fn new() -> Self {
         ProfilingInformation {
