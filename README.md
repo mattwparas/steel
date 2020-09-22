@@ -1,6 +1,6 @@
 # steel
 
-![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) [![codecov](https://codecov.io/gh/mattwparas/steel/branch/master/graph/badge.svg)](https://codecov.io/gh/mattwparas/steel)
+![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) [![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
 
 An embedded scheme interpreter in Rust.
 
@@ -22,17 +22,17 @@ This will launch a REPL instance that looks something like this:
 
 ## Features
 
-* Scheme! If you like scheme (and Rust) you'll like this
+* Scheme!
 * Limited `syntax-rules` style macros are supported
 * Easy integration with Rust functions and structs
 * Easily call a script from rust or via a separate file
 * Few dependencies
-* Printable closures
-* Higher order Macros - macros exist both as syntax transformers values that can be passed as arguments
 * Efficient - common functions and data structures are optimized for performance (`map`, `filter`, etc)
-* Built in data structures include:
-  * lists (linked list)
-  * vectors (immutable data structures)
+* Built in immutable data structures include:
+  * lists
+  * vectors
+  * hashmaps
+  * hashsets
 
 ## Examples
 
@@ -128,7 +128,7 @@ Example usage:
 The `#[function]` attribute macro operates on functions. It _transforms_ the function from a normal rust function into a function that matches the form used inside the `Steel` interpreter. Functions inside the `Steel` interpreter have the following signature:
 
 ```rust
-fn(Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>>
+fn(Vec<Gc<SteelVal>>) -> Result<Gc<SteelVal>>
 ```
 
 This macro attempts to remove a great deal of the boilerplate with respect to transferring values in and out of the semantics of the interpreter. However, this means that a function tagged with the `#[function]` attribute **_cannot_** be used as a standard Rust function with the original signature. For a rough idea of what this function does, let's look at a function and its resultant expansion:
@@ -145,7 +145,7 @@ pub fn multiple_types(val: u64) -> u64 {
 Expands to:
 
 ```rust
-pub fn multiple_types(args: Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>
+pub fn multiple_types(args: Vec<Gc<SteelVal>>) -> Result<Gc<SteelVal>, SteelErr>
 {
     pub fn multiple_types(val: u64) -> u64 { val + 25 }
     if args.len () != 1usize {
@@ -158,12 +158,12 @@ pub fn multiple_types(args: Vec<Rc<SteelVal>>) -> Result<Rc<SteelVal>, SteelErr>
 
 The macro operates by defining a wrapper function arounds the original definition. The original definition shadows the wrapper, which allows us to call the original function with some boilerplate for going in and out of `SteelVals`.
 
-## Interpreter Macro
+## VM Macro
 
 So now that we've defined some structs and functions, how do we get them into the interpreter? There is a helpful interpreter macro that is given to build and embed the functions into the interpreter (to then pass into the repl). Here is an example of the macro usage:
 
 ```rust
-build_interpreter! {
+build_vm! {
     Structs => {
         MyStruct,
         CoolTest,
@@ -180,10 +180,10 @@ build_interpreter! {
 
 This builds a mutable interpreter with all of the relevant bindings for the structs (getters, setters, constructors and predicates), and all of the functions that are given with the relevant bindings.
 
-You can launch a repl by passing the result of `build_interpreter!` into `repl_base`, as follows:
+You can launch a repl by passing the result of `build_vm!` into `repl_base`, as follows:
 
 ```rust
-repl_base(build_interpreter!{...})
+repl_base(build_vm!{...})
 ```
 
 From here, these would be valid calls:
