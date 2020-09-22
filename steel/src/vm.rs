@@ -1012,14 +1012,6 @@ pub fn extract_constants<CT: ConstantTable>(
     Ok(())
 }
 
-// fn switch_filter_map<'global, CT: ConstantTable>(
-//     stack_func: Rc<SteelVal>,
-//     constants: &'global CT,
-//     cur_inst_span: &'global Span,
-// ) {
-//     unimplemented!()
-// }
-
 pub(crate) fn inline_reduce_iter<
     'global,
     I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
@@ -1447,12 +1439,6 @@ pub(crate) fn inline_filter_iter<
     };
 
     iter.filter_map(switch_statement)
-
-    // for val in iter {
-    //     collected_results.push(switch_statement(val)?);
-    // }
-
-    // Ok(collected_results)
 }
 
 pub fn inline_map_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTable>(
@@ -2021,9 +2007,6 @@ pub fn vm<CT: ConstantTable>(
                         ip += 1;
                     }
                     SteelVal::FuncV(f) => {
-                        // let args = stack.split_off(stack.len() - cur_inst.payload_size);
-                        // let args = &stack[stack.len() - cur_inst.payload_size..];
-
                         let result = f(stack.peek_range(stack.len() - cur_inst.payload_size..))
                             .map_err(|x| x.set_span(cur_inst.span))?;
 
@@ -2044,26 +2027,6 @@ pub fn vm<CT: ConstantTable>(
 
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);
 
-                        // if !global_env.borrow().is_root() {
-                        //     heap.gather_from_slice(&args);
-                        //     println!("Gathering from the stack!");
-                        //     println!("Stack at this point: {:?}", stack);
-                        //     heap.gather_from_slice(stack.as_slice());
-                        // }
-
-                        // TODO maybe make this happen from inside that check? not sure
-                        // set up test suite for garbage collection...
-
-                        // TODO
-                        // heap.gather_from_slice(&args);
-
-                        // heap.gather_from_global_root();
-                        // heap.mark();
-                        // println!("Gathering from the stack!");
-                        // println!("Stack at this point: {:?}", stack);
-                        // heap.gather_from_slice(stack.as_slice());
-
-                        // evaluate(&lambda.body_exp(), &inner_env)
                         let parent_env = closure.sub_expression_env();
                         // TODO remove this unwrap
                         let offset = closure.offset()
@@ -2088,52 +2051,8 @@ pub fn vm<CT: ConstantTable>(
                                 0
                             });
 
-                        // if heap.len() > HEAP_LIMIT && !args.is_empty() {
-                        //     println!("Args at exit: {:?}", args);
-                        //     println!("Heap length before mark and sweep: {}", heap.len());
-                        //     println!("Active Object Count: {:?}", OBJECT_COUNT);
-                        //     // heap.gather_mark_and_sweep(&parent_env.upgrade().unwrap());
-                        //     // println!("Heap length before extra step:, {}", heap.len());
-                        //     // heap.gather(&parent_env.upgrade().unwrap());
-                        //     // println!("Heap length after extra step: {}", heap.len());
-
-                        //     heap.gather_mark_and_sweep_2(&global_env, &inner_env);
-
-                        // heap.gather(&global_env)
-
-                        //     // heap.gather_from_global_root();
-                        //     // heap.mark();
-                        //     // heap.sweep();
-
-                        //     println!("Heap length after mark and sweep: {}", heap.len());
-                        //     println!("Active Object Count: {:?}", OBJECT_COUNT);
-                        //     // heap.add(val)
-                        // }
-
-                        // println!("Args at exit: {:?}", args);
-                        // println!("Heap length before mark and sweep: {}", heap.len());
-                        // println!("Active Object Count: {:?}", OBJECT_COUNT);
-
                         heap.gather_mark_and_sweep_2(&global_env, &inner_env);
                         heap.collect_garbage();
-
-                        // if heap.len() > HEAP_LIMIT {
-                        //     println!("Args at exit: {:?}", args);
-                        //     println!("Heap length before mark and sweep: {}", heap.len());
-                        //     println!("Active Object Count: {:?}", OBJECT_COUNT);
-                        //     // heap.inspect_heap();
-                        //     // TODO should GC here but for some reason... not working...
-                        //     // heap.gather_mark_and_sweep_2(&global_env, &inner_env);
-                        //     // heap.drop_large_refs();
-                        //     heap.collect_garbage();
-
-                        //     // heap.inspect_heap();
-                        //     println!("Heap length after mark and sweep: {}", heap.len());
-                        //     println!("Active Object Count: {:?}", OBJECT_COUNT);
-                        // }
-
-                        // println!("Heap length after mark and sweep: {}", heap.len());
-                        // println!("Active Object Count: {:?}", OBJECT_COUNT);
 
                         global_env = inner_env;
                         instructions = closure.body_exp();
@@ -2185,25 +2104,8 @@ pub fn vm<CT: ConstantTable>(
                     let ret_val = stack.pop().unwrap();
                     let prev_state = instruction_stack.pop().unwrap();
 
-                    // Heap::gather_and_mark(&global_env);
-
-                    // heap.gather_mark_and_sweep(&global_env);
-
-                    // heap.gather(&global_env);
-
                     if prev_state.instrs_ref().len() != 0 {
-                        // println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
-                        // println!("Heap length before mark and sweep: {}", heap.len());
-                        // println!("Active Object Count: {:?}", OBJECT_COUNT);
-                        // heap.gather_mark_and_sweep(&global_env);
-                        // println!("Heap length after mark and sweep: {}", heap.len());
-                        // println!("Active Object Count: {:?}", OBJECT_COUNT);
-                        // println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
-
                         global_env = env_stack.pop().unwrap();
-                        // TODO
-                        // heap.truncate(heap_stack.pop().unwrap().unwrap());
-
                         ip = prev_state.ip;
                         instructions = prev_state.instrs();
                     } else {
@@ -2217,15 +2119,6 @@ pub fn vm<CT: ConstantTable>(
             OpCode::BIND => {
                 let offset = global_env.borrow().local_offset();
 
-                // if cur_inst.payload_size == 151 {
-                //     println!("Env at this binding:");
-                //     global_env.borrow().print_bindings();
-                //     println!(
-                //         "Binding: payload size: {}, offset: {}",
-                //         cur_inst.payload_size, offset
-                //     );
-                // }
-
                 if repl {
                     global_env
                         .borrow_mut()
@@ -2235,11 +2128,6 @@ pub fn vm<CT: ConstantTable>(
                         .borrow_mut()
                         .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
                 }
-
-                // println!(
-                //     "Global eng length after binding: {}",
-                //     global_env.borrow().len()
-                // );
 
                 ip += 1;
             }
@@ -2267,36 +2155,13 @@ pub fn vm<CT: ConstantTable>(
                     && !global_env.borrow().is_binding_offset()
                 {
                     global_env.borrow_mut().set_binding_offset(true);
-                    // println!("Setting offset to TRUE");
-                    // println!(
-                    //     "Incrementing offset by one for some reason, with ndefs: {}",
-                    //     ndefs
-                    // );
                     closure_offset += 1;
-                    // println!("Setting the closure offset here: {}", closure_offset);
                 };
 
                 // set the number of definitions for the environment
                 capture_env.borrow_mut().set_ndefs(ndefs);
 
-                // TODO look at this heap thing
-                // Need to clear it pop when the environment exits
-                // GC...
-                // println!("Pushing onto the heap!");
-
-                // if !global_env.borrow().is_reachable() {
                 heap.add(Rc::clone(&capture_env));
-                // }
-
-                // if !global_env.borrow().is_root() && !global_env.borrow().is_reachable() {
-                //     // println!("Pushing onto the heap!");
-                //     heap.add(Rc::clone(&capture_env));
-                //     // heap_stack += 1;
-                //     // let hs_len = heap_stack.len() - 1;
-                //     // heap_stack[hs_len] += 1;
-                //     // inspect_heap(&heap);
-                // }
-
                 // inspect_heap(&heap);
                 let constructed_lambda = ByteCodeLambda::new(
                     closure_body,
