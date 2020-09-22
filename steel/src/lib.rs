@@ -28,8 +28,6 @@ pub mod vm;
 
 pub use self::{
     gc::Gc,
-    // interpreter::SteelInterpreter,
-    // primitives::SteelFunctor,
     rerrs::SteelErr,
     rvals::{CustomType, SteelVal, StructFunctions},
     stdlib::PRELUDE,
