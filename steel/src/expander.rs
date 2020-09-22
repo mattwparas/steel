@@ -202,25 +202,6 @@ impl MacroCase {
                                     pattern_vec.push(MacroPattern::Single(t.clone()));
                                 }
                             }
-
-                            // if let Some(nxt) = peek_token_iter.peek() {
-                            //     if let Expr::Atom(SyntaxObject { ty: tt, .. }) = nxt {
-                            //         if let Identifier(n) = tt {
-                            //             if n == "..." {
-                            //                 peek_token_iter.next();
-                            //                 pattern_vec.push(MacroPattern::Many(t.clone()))
-                            //             } else {
-                            //                 pattern_vec.push(MacroPattern::Single(t.clone()))
-                            //             }
-                            //         } else {
-                            //             pattern_vec.push(MacroPattern::Single(t.clone()));
-                            //         }
-                            //     } else {
-                            //         pattern_vec.push(MacroPattern::Single(t.clone()));
-                            //     }
-                            // } else {
-                            //     pattern_vec.push(MacroPattern::Single(t.clone()));
-                            // }
                         }
                     } else {
                         stop!(BadSyntax => "syntax-rules requires identifiers in the pattern")
@@ -321,7 +302,6 @@ impl MacroCase {
             .iter()
             .map(|x| if let MacroPattern::Many(_) = x { 2 } else { 1 })
             .sum()
-        // self.args.len()
     }
 
     // TODO also fix this
@@ -371,8 +351,6 @@ impl MacroCase {
                                 let mut buffer = String::new();
                                 if let Some((_, rest)) = vec_exprs.split_first() {
                                     for syntax in rest {
-                                        // println!("{}", syntax);
-
                                         let transformer = syntax.atom_identifier_or_else(
                                             throw!(BadSyntax => "datum->syntax requires an identifier"),
                                         )?;
@@ -393,11 +371,8 @@ impl MacroCase {
                                         buffer,
                                     ))));
                                 }
-
-                                // println!("Found a datum->syntax!");
                             }
                         }
-                        // println!("{}", check);
                     }
                 }
 
