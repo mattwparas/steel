@@ -24,51 +24,28 @@ use codegen::emit_loop;
 
 pub use stack::{CallStack, EnvStack, Stack, StackFrame};
 
-use expand::MacroSet;
-
-// use log::{debug, error, info, trace, warn};
-
-use crate::parser::{tokens::TokenType, Expr, ParseError, Parser, SyntaxObject};
-use std::iter::Iterator;
-use std::result;
-// use crate::primitives::ListOperations;
 use crate::env::{Env, FALSE, TRUE, VOID};
 use crate::gc::Gc;
 use crate::parser::span::Span;
+use crate::parser::{tokens::TokenType, Expr, ParseError, Parser, SyntaxObject};
 use crate::primitives::{ListOperations, VectorOperations};
 use crate::rerrs::SteelErr;
 use crate::rvals::{ByteCodeLambda, Result, SteelVal};
+use expand::MacroSet;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::io::Read;
-// use std::ops::Deref;
+use std::iter::Iterator;
 use std::path::Path;
 use std::rc::Rc;
+use std::result;
 use std::time::Instant;
-
-// use std::collections::HashSet;
-
-// use crate::expander::SteelMacro;
-// use crate::structs::SteelStruct;
-
-// fn recursive_expand(expr: Expr, )
-
-// use crate::interpreter::evaluator::emit_instructions;
-
-// pass define statement
-// identify the handle for the function call
-// traverse idenitifying function calls
-// if the function call is in the tail position of any of the body, then transform that to be an explicit jump -> __JUMP__
-// only need to check the last thing in the body
-// pub fn identify_tail_call(expr: &Expr) {}
 
 const STACK_LIMIT: usize = 1024;
 
-// Hopefully this doesn't break anything...
-// Definitions
 fn count_and_collect_global_defines(
     exprs: &[Expr],
     symbol_map: &mut SymbolMap,
@@ -115,14 +92,8 @@ fn count_and_collect_global_defines(
                         Some(Expr::VectorVal(_)),
                     ) => {
                         if def == "begin" {
-                            // println!("Making a recursive call here...");
                             let (res_new, res_old, res_non) =
                                 count_and_collect_global_defines(&list_of_tokens[1..], symbol_map);
-
-                            // println!(
-                            //     "%%%%%%%%%%%%%%%%%%% {}, {}, {} %%%%%%%%%%%%%%%%",
-                            //     res_new, res_old, res_non
-                            // );
 
                             new_count += res_new;
                             old_count += res_old;
