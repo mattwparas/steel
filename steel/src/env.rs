@@ -759,10 +759,6 @@ impl Env {
         // self.bindings_vec.push(Gc::new(val.1));
     }
 
-    // pub fn add_rooted_value
-
-    // pub fn add_rooted_values()
-
     pub fn define_zipped_rooted(
         &mut self,
         sm: &mut SymbolMap,

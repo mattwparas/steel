@@ -161,57 +161,6 @@ macro_rules! unwrap {
     }};
 }
 
-// pub trait MemSize {
-//     fn get_size(&self) -> usize;
-//     // fn rc_get_size()
-// }
-
-// pub fn gc_get_size<M: MemSize>(_self: Gc<M>) -> usize {
-//     std::mem::size_of::<Gc<M>>() + _self.as_ref().get_size()
-// }
-
-// This isn't quite right
-// This will double count allocated space
-// I think I should look into allocating some sort of counter
-// using the new type stuff
-// This _should_ give a rough cut estimate though
-// which I could use for sandboxing like a lower bound?
-// impl MemSize for SteelVal {
-//     fn get_size(&self) -> usize {
-//         match self {
-//             Pair(_, _) => {
-//                 std::mem::size_of::<SteelVal>()
-//                     + SteelVal::iter(Gc::new(self.clone()))
-//                         .map(|x| gc_get_size(x))
-//                         .sum::<usize>()
-//             }
-//             VectorV(v) => {
-//                 std::mem::size_of::<SteelVal>()
-//                     + v.iter().map(|x| gc_get_size(Gc::clone(x))).sum::<usize>()
-//             }
-//             Custom(c) => std::mem::size_of_val(c),
-//             _ => std::mem::size_of::<SteelVal>(),
-//             // BoolV(b) => {}
-//             // NumV(n) => {}
-//             // IntV(i) => {}
-//             // CharV(_) => {}
-//             // Pair(_, _) => {}
-//             // VectorV(_) => {}
-//             // Void => {}
-//             // StringV(_) => {}
-//             // FuncV(_) => {}
-//             // LambdaV(_) => {}
-//             // MacroV(_) => {}
-//             // SymbolV(_) => {}
-//             // Custom(_) => {}
-//             // StructV(_) => {}
-//             // StructClosureV(_, _) => {}
-//             // PortV(_) => {}
-//             // Closure(_) => {}
-//         }
-//     }
-// }
-
 #[derive(Clone)]
 pub enum SteelVal {
     /// Represents a boolean value
