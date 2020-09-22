@@ -69,12 +69,7 @@ fn count_and_collect_global_defines(
                         })),
                     ) => {
                         if def == "define" || def == "defn" {
-                            // println!(
-                            //     "Found definition in `count_and_collect_global_defines`: {}",
-                            //     name
-                            // );
                             let (_, added) = symbol_map.get_or_add(name.as_str());
-                            // count += 1;
                             if added {
                                 new_count += 1;
                             } else {
@@ -138,17 +133,10 @@ pub fn collect_defines_from_current_scope(
                     if bindings.insert(s) {
                         let (_idx, _) = symbol_map.get_or_add(s);
                         count += 1;
-                    // println!("####### FOUND DEFINE #########");
-                    // println!("Renaming: {} to index: {}", s, idx);
-                    // if let Some(x) = instructions.get_mut(i) {
-                    //     x.contents = None;
-                    // }
                     } else {
                         stop!(Generic => "define-values: duplicate binding name"; *sp)
                     }
                 }
-
-                // def_stack += 1;
             }
             Instruction {
                 op_code: OpCode::SCLOSURE,
@@ -191,8 +179,6 @@ pub fn collect_binds_from_current_scope(
             } => {
                 if def_stack == 1 {
                     let idx = symbol_map.add(s);
-
-                    // println!("Symbol Map -- 302: Renaming: {} to index: {}", s, idx);
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = idx;
                         x.constant = false;
@@ -223,8 +209,6 @@ pub fn insert_debruijn_indices(
     symbol_map: &mut SymbolMap,
 ) -> Result<()> {
     let mut stack: Vec<usize> = Vec::new();
-    // let mut def_stack: Vec<usize> = Vec::new();
-
     // Snag the defines that are going to be available from the global scope
     let _ = collect_defines_from_current_scope(instructions, symbol_map)?;
 
@@ -280,7 +264,6 @@ pub fn insert_debruijn_indices(
             } => {
                 let (idx, _) = symbol_map.get_or_add(s);
 
-                // println!("Renaming: {} to index: {}", s, idx);
                 if let Some(x) = instructions.get_mut(i) {
                     x.payload_size = idx;
                     // x.contents = None;
@@ -313,16 +296,8 @@ pub fn insert_debruijn_indices(
             } => symbol_map.roll_back(stack.pop().unwrap()),
             Instruction {
                 op_code: OpCode::SDEF,
-                // contents:
-                //     Some(SyntaxObject {
-                //         ty: TokenType::Identifier(s),
-                //         ..
-                //     }),
                 ..
             } => {
-                // let idx = symbol_map.add(s);
-                // println!("Renaming: {} to index: {}", s, idx);
-
                 if let Some(x) = instructions.get_mut(i) {
                     x.constant = false;
                 }
@@ -352,7 +327,6 @@ pub fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
             payload_size: x,
             ..
         }] => {
-            // println!("Injecting Heap Save to Pop!");
             *x = 1;
         }
         _ => {}
@@ -364,7 +338,6 @@ pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
 }
 
 pub fn pretty_print_instructions(instrs: &[Instruction]) {
-    // for (i, item) in foo.iter().enumerate()
     for (i, instruction) in instrs.iter().enumerate() {
         if instruction.contents.is_some() {
             println!(
@@ -384,7 +357,6 @@ pub fn pretty_print_instructions(instrs: &[Instruction]) {
 }
 
 pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
-    // for (i, item) in foo.iter().enumerate()
     for (i, instruction) in instrs.iter().enumerate() {
         println!(
             "{}    {:?} : {}",
