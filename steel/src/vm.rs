@@ -461,6 +461,9 @@ impl ProfilingInformation {
 pub struct FunctionCallCtx {
     // Rooted functions are assigned an index
     // via the symbol map
+    // I should instead use the function pointer as the hash
+    // Would probably make a lot more sense given that it is rooted and hopefully won't move
+    // I could pin them in place
     pub(crate) function_id: usize,
     pub(crate) instruction_id: usize,
     // pub()
