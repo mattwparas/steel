@@ -1,14 +1,3 @@
-; (require "struct.rkt")
-
-
-
-; (define (test) (error! "one two three"))
-
-
-(()))
-
-; (define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))
-; (fib 40)
 
 (define-syntax define/contract-helper
   (syntax-rules (->)
