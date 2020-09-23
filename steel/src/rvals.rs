@@ -728,6 +728,7 @@ impl PartialEq for SteelVal {
                 collect_pair_into_vector(self) == collect_pair_into_vector(other)
             }
             (HashSetV(l), HashSetV(r)) => l == r,
+            (HashMapV(l), HashMapV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
