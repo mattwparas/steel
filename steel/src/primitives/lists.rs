@@ -153,6 +153,7 @@ impl ListOperations {
 
                         // Ok(Gc::clone(car))
                     }
+                    VectorV(v) if v.len() == 0 => Ok(Gc::new(SteelVal::StringV("".to_string()))),
                     e => {
                         stop!(TypeMismatch => "list->string takes a list, given: {}", e);
                     }

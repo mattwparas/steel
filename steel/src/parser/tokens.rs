@@ -31,6 +31,7 @@ fn gen_bool(lex: &mut Lexer<TokenType>) -> Option<bool> {
 fn parse_char(lex: &mut Lexer<TokenType>) -> Option<char> {
     let slice = lex.slice();
     match slice {
+        "#\\SPACE" => Some(' '),
         character if character.starts_with("#\\") => match slice.len() {
             3 | 4 | 5 => slice.chars().last(),
             _ => None,
@@ -45,7 +46,8 @@ fn parse_str(lex: &mut Lexer<TokenType>) -> Option<String> {
     let new = end.trim_start_matches("\"");
     Some(new.to_string())
 }
-
+// TODO the character parsing is not quite right
+// need to make sure that we can handle cases like "#\SPACE" or "#\a" but not "#\applesauce"
 #[derive(Logos, Clone, Debug, PartialEq)]
 pub enum TokenType {
     #[token("(")]
@@ -58,6 +60,7 @@ pub enum TokenType {
     CloseParen,
     #[token(r"'")]
     QuoteTick,
+    #[token("#\\SPACE", |_| Some(' '))]
     #[regex(r"#\\\p{L}", parse_char)]
     CharacterLiteral(char),
 
