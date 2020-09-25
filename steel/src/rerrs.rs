@@ -41,6 +41,26 @@ pub enum SteelErr {
     Generic(String, Option<Span>),
 }
 
+impl Clone for SteelErr {
+    fn clone(&self) -> SteelErr {
+        match self {
+            SteelErr::ArityMismatch(l, r) => SteelErr::ArityMismatch(l.clone(), r.clone()),
+            SteelErr::FreeIdentifier(l, r) => SteelErr::FreeIdentifier(l.clone(), r.clone()),
+            SteelErr::TypeMismatch(l, r) => SteelErr::TypeMismatch(l.clone(), r.clone()),
+            SteelErr::UnexpectedToken(l, r) => SteelErr::UnexpectedToken(l.clone(), r.clone()),
+            SteelErr::ContractViolation(l, r) => SteelErr::ContractViolation(l.clone(), r.clone()),
+            SteelErr::BadSyntax(l, r) => SteelErr::BadSyntax(l.clone(), r.clone()),
+            SteelErr::ConversionError(l, r) => SteelErr::ConversionError(l.clone(), r.clone()),
+            SteelErr::Io(_) => {
+                SteelErr::Io(std::io::Error::new(std::io::ErrorKind::Other, "io error"))
+            }
+            SteelErr::Parse(p) => SteelErr::Parse(p.clone()),
+            SteelErr::Infallible(l) => SteelErr::Infallible(l.clone()),
+            SteelErr::Generic(l, r) => SteelErr::Generic(l.clone(), r.clone()),
+        }
+    }
+}
+
 impl PartialEq for SteelErr {
     fn eq(&self, other: &Self) -> bool {
         use SteelErr::*;

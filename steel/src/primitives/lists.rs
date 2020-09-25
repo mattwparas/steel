@@ -141,17 +141,7 @@ impl ListOperations {
                         })
                         .collect::<Result<String>>()?;
 
-                        // let lst = Self::collect_into_vec(&first)?;
-                        // let collected_string = lst
-                        //     .into_iter()
-                        // .map(|x| {
-                        //     x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
-                        // })
-                        // .collect::<Result<String>>()?;
-
                         Ok(Gc::new(SteelVal::StringV(collected_string)))
-
-                        // Ok(Gc::clone(car))
                     }
                     VectorV(v) if v.len() == 0 => Ok(Gc::new(SteelVal::StringV("".to_string()))),
                     e => {

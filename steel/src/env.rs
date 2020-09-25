@@ -34,6 +34,8 @@ use crate::vm::SymbolMap;
 
 use crate::gc::Gc;
 
+use crate::rvals::FutureResult;
+
 // use std::mem;
 
 thread_local! {
@@ -885,9 +887,18 @@ impl Env {
             ("filtering", TransducerOperations::filter()),
             ("taking", TransducerOperations::take()),
             ("memory-address", MetaOperations::memory_address()),
+            ("async-test-func", SteelVal::FutureFunc(test_function)),
             // ("sizeof", MetaOperations::size_of()),
         ]
     }
+}
+
+// embed an async function into steel
+// lets... see how this goes
+fn test_function(args: &[Gc<SteelVal>]) -> FutureResult {
+    FutureResult::new(Box::pin(async {
+        Ok(Gc::new(SteelVal::StringV("hello-world".to_string())))
+    }))
 }
 
 #[cfg(test)]
