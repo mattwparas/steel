@@ -888,6 +888,7 @@ impl Env {
             ("taking", TransducerOperations::take()),
             ("memory-address", MetaOperations::memory_address()),
             ("async-test-func", SteelVal::FutureFunc(test_function)),
+            ("async-exec", MetaOperations::exec_async()),
             // ("sizeof", MetaOperations::size_of()),
         ]
     }
