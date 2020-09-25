@@ -85,8 +85,8 @@ impl MetaOperations {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             // let mut executor = LocalPool::new();
 
-            let mut threaded_rt = runtime::Builder::new()
-                .threaded_scheduler()
+            let mut basic_rt = runtime::Builder::new()
+                .basic_scheduler()
                 .enable_all()
                 .build()
                 .unwrap();
@@ -112,7 +112,7 @@ impl MetaOperations {
             // spawner.spawn_local_obj(future);
             // executor.run_until(future);
             Ok(Gc::new(SteelVal::VectorV(
-                threaded_rt
+                basic_rt
                     .block_on(futures)
                     .into_iter()
                     .collect::<Result<_>>()?,
