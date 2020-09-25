@@ -889,15 +889,29 @@ impl Env {
             ("memory-address", MetaOperations::memory_address()),
             ("async-test-func", SteelVal::FutureFunc(test_function)),
             ("async-exec", MetaOperations::exec_async()),
-            // ("sizeof", MetaOperations::size_of()),
+            ("async-get", SteelVal::FutureFunc(get)), // ("sizeof", MetaOperations::size_of()),
+            ("tokio-exec", MetaOperations::tokio_exec()),
         ]
     }
 }
 
 // embed an async function into steel
 // lets... see how this goes
-fn test_function(args: &[Gc<SteelVal>]) -> FutureResult {
+fn test_function(_args: &[Gc<SteelVal>]) -> FutureResult {
     FutureResult::new(Box::pin(async {
+        Ok(Gc::new(SteelVal::StringV("hello-world".to_string())))
+    }))
+}
+
+fn get(_args: &[Gc<SteelVal>]) -> FutureResult {
+    FutureResult::new(Box::pin(async {
+        let resp = reqwest::get("https://httpbin.org/ip")
+            .await
+            .unwrap()
+            .json::<HashMap<String, String>>()
+            .await
+            .unwrap();
+        println!("{:#?}", resp);
         Ok(Gc::new(SteelVal::StringV("hello-world".to_string())))
     }))
 }
