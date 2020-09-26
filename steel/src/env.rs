@@ -890,7 +890,7 @@ impl Env {
             ("async-test-func", SteelVal::FutureFunc(test_function)),
             ("async-exec", MetaOperations::exec_async()),
             ("async-get", SteelVal::FutureFunc(get)), // ("sizeof", MetaOperations::size_of()),
-            ("tokio-exec", MetaOperations::tokio_exec()),
+                                                      // ("tokio-exec", MetaOperations::tokio_exec()),
         ]
     }
 }

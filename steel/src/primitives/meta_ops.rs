@@ -15,7 +15,9 @@ use futures::future::join_all;
 use futures::future::LocalFutureObj;
 use futures::task::LocalSpawn;
 
-use tokio::runtime;
+// use tokio::runtime;
+
+use async_compat::{Compat, CompatExt};
 
 pub struct MetaOperations {}
 impl MetaOperations {
@@ -72,7 +74,7 @@ impl MetaOperations {
             // executor.run_until(future);
             Ok(Gc::new(SteelVal::VectorV(
                 executor
-                    .run_until(futures)
+                    .run_until(Compat::new(futures))
                     .into_iter()
                     .collect::<Result<_>>()?,
             )))
@@ -81,46 +83,46 @@ impl MetaOperations {
         })
     }
 
-    pub fn tokio_exec() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            // let mut executor = LocalPool::new();
+    // pub fn tokio_exec() -> SteelVal {
+    //     SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+    //         // let mut executor = LocalPool::new();
 
-            let mut basic_rt = runtime::Builder::new()
-                .basic_scheduler()
-                .enable_all()
-                .build()
-                .unwrap();
+    //         let mut basic_rt = runtime::Builder::new()
+    //             .basic_scheduler()
+    //             .enable_all()
+    //             .build()
+    //             .unwrap();
 
-            // let ret = Builder::new().threaded_scheduler().enable_all().build();
+    //         // let ret = Builder::new().threaded_scheduler().enable_all().build();
 
-            let joined_futures: Vec<_> = args
-                .into_iter()
-                .map(|x| {
-                    if let SteelVal::FutureV(f) = x.as_ref() {
-                        Ok(f.clone().into_shared())
-                    } else {
-                        stop!(TypeMismatch => "exec-async given non future")
-                    }
-                })
-                .collect::<Result<Vec<_>>>()?;
+    //         let joined_futures: Vec<_> = args
+    //             .into_iter()
+    //             .map(|x| {
+    //                 if let SteelVal::FutureV(f) = x.as_ref() {
+    //                     Ok(f.clone().into_shared())
+    //                 } else {
+    //                     stop!(TypeMismatch => "exec-async given non future")
+    //                 }
+    //             })
+    //             .collect::<Result<Vec<_>>>()?;
 
-            let futures = join_all(joined_futures);
+    //         let futures = join_all(joined_futures);
 
-            // spawner.spawn_local_obj(joined_futures);
+    //         // spawner.spawn_local_obj(joined_futures);
 
-            // let future = LocalFutureObj::new(Box::pin(async {}));
-            // spawner.spawn_local_obj(future);
-            // executor.run_until(future);
-            Ok(Gc::new(SteelVal::VectorV(
-                basic_rt
-                    .block_on(futures)
-                    .into_iter()
-                    .collect::<Result<_>>()?,
-            )))
+    //         // let future = LocalFutureObj::new(Box::pin(async {}));
+    //         // spawner.spawn_local_obj(future);
+    //         // executor.run_until(future);
+    //         Ok(Gc::new(SteelVal::VectorV(
+    //             basic_rt
+    //                 .block_on(futures)
+    //                 .into_iter()
+    //                 .collect::<Result<_>>()?,
+    //         )))
 
-            // unimplemented!()
-        })
-    }
+    //         // unimplemented!()
+    //     })
+    // }
 
     // pub fn size_of() -> SteelVal {
     //     SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {

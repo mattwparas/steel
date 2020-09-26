@@ -11,14 +11,19 @@
 
  ;; => '(list-of whatever get returns)
 
-
+;; super duper basic executor
 (async-exec
  (async-test-func)
  (async-test-func)
  (async-test-func))
 
-
-(tokio-exec
+;; executors are the only way to run futures to completion
+;; Right now, async-exec is simply a wait group
+(async-exec
+ (async-get)
+ (async-get)
+ (async-get)
+ (async-get)
  (async-get)
  (async-get)
  (async-get)
