@@ -1275,6 +1275,7 @@ dependencies = [
  "once_cell 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "steel 0.1.0",
  "steel_derive 0.1.0",
+ "steel_repl 0.1.0",
 ]
 
 [[package]]
@@ -1285,6 +1286,16 @@ dependencies = [
  "quote 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "steel 0.1.0",
  "syn 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "steel_repl"
+version = "0.1.0"
+dependencies = [
+ "colored 1.9.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustyline 6.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustyline-derive 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "steel 0.1.0",
 ]
 
 [[package]]

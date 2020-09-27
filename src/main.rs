@@ -1,6 +1,7 @@
 extern crate steel;
 #[macro_use]
 extern crate steel_derive;
+extern crate steel_repl;
 
 // use steel::SteelInterpreter;
 
@@ -11,12 +12,12 @@ use steel::rerrs;
 use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
 // use steel::build_interpreter;
-use steel::build_repl;
 use steel::build_vm;
-use steel::repl::repl_base;
 use steel::vm::VirtualMachine;
 use steel_derive::function;
 use steel_derive::steel;
+use steel_repl::build_repl;
+use steel_repl::repl::repl_base;
 
 use steel::Gc;
 
