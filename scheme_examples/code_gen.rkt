@@ -99,3 +99,26 @@
      (if e1
          (begin e2 ...)
          (cond c1 ...))]))
+
+
+
+
+
+(get "www.google.com") ;; blocking
+(async-get "www.google.com") ;; non-blocking, within an async block
+
+(get "blargh") ;; Returns a Future
+
+
+;; Futures in Rust are stores as Future Trait Object
+;; Delay creates a future
+;; Force executes the future (applies the function)
+;;
+;; Async-Block executes async functions concurrently
+;; Can I merge these two in some capacity?
+;;
+;;
+;;
+;;
+;; So it should look like this:
+;; (touch)

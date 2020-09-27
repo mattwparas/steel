@@ -905,14 +905,23 @@ fn test_function(_args: &[Gc<SteelVal>]) -> FutureResult {
 
 fn get(_args: &[Gc<SteelVal>]) -> FutureResult {
     FutureResult::new(Box::pin(async {
-        let resp = reqwest::get("https://httpbin.org/ip")
-            .await
-            .unwrap()
-            .json::<HashMap<String, String>>()
-            .await
-            .unwrap();
-        println!("{:#?}", resp);
-        Ok(Gc::new(SteelVal::StringV("hello-world".to_string())))
+        // let resp = reqwest::get("https://httpbin.org/ip")
+        //     .await
+        //     .unwrap()
+        //     .json::<HashMap<String, String>>()
+        //     .await
+        //     .unwrap();
+        // println!("{:#?}", resp);
+
+        // println!("Status: {}", res.status());
+        // println!("Headers:\n{:#?}", res.headers());
+
+        let res = reqwest::get("http://httpbin.org/get").await.unwrap();
+
+        let body = res.text().await.unwrap();
+        println!("Body:\n{}", body);
+
+        Ok(Gc::new(SteelVal::StringV(body)))
     }))
 }
 

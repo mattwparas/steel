@@ -10,14 +10,14 @@ use crate::stop;
 
 // use crate::primitives::lists::ListOperations;
 
-use futures::executor::{LocalPool, LocalSpawner};
+use futures::executor::LocalPool;
 use futures::future::join_all;
-use futures::future::LocalFutureObj;
-use futures::task::LocalSpawn;
+// use futures::future::LocalFutureObj;
+// use futures::task::LocalSpawn;
 
 // use tokio::runtime;
 
-use async_compat::{Compat, CompatExt};
+use async_compat::Compat;
 
 pub struct MetaOperations {}
 impl MetaOperations {
@@ -50,6 +50,8 @@ impl MetaOperations {
         })
     }
 
+    // Uses a generic executor w/ the compat struct in order to allow tokio ecosystem functions inside
+    // the interpreter
     pub fn exec_async() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             let mut executor = LocalPool::new();
