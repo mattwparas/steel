@@ -573,6 +573,18 @@ impl SteelVal {
         }
     }
 
+    pub fn struct_func_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<(&SteelStruct, &StructClosureSignature), E> {
+        match self {
+            Self::StructClosureV(steel_struct, struct_closure) => {
+                Ok((steel_struct, struct_closure))
+            }
+            _ => Err(err()),
+        }
+    }
+
     pub fn lambda_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
