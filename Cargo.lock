@@ -1261,8 +1261,6 @@ dependencies = [
  "logos 0.11.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.10.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "rustyline 6.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "rustyline-derive 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "structopt 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 1.0.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "unindent 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",

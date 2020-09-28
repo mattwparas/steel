@@ -242,6 +242,8 @@ pub enum SteelVal {
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
 
+// pub struct
+
 // pub trait Transduce {
 //     fn run() -> Gc<SteelVal>;
 // }
