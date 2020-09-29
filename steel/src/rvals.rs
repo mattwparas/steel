@@ -769,6 +769,7 @@ impl PartialEq for SteelVal {
             }
             (HashSetV(l), HashSetV(r)) => l == r,
             (HashMapV(l), HashMapV(r)) => l == r,
+            (StructV(l), StructV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
