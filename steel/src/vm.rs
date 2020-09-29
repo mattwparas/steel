@@ -1870,6 +1870,16 @@ pub fn vm<CT: ConstantTable>(
                         stack.push(result);
                         ip += 1;
                     }
+                    SteelVal::FutureFunc(f) => {
+                        let result = Gc::new(SteelVal::FutureV(f(
+                            stack.peek_range(stack.len() - cur_inst.payload_size..)
+                        )));
+                        // .map_err(|x| x.set_span(cur_inst.span))?;
+
+                        stack.truncate(stack.len() - cur_inst.payload_size);
+                        stack.push(result);
+                        ip += 1;
+                    }
                     SteelVal::Closure(closure) => {
                         if stacks.len() == STACK_LIMIT {
                             println!("stacks at exit: {:?}", stacks);

@@ -34,6 +34,8 @@ use crate::vm::SymbolMap;
 
 use crate::gc::Gc;
 
+use crate::rvals::FutureResult;
+
 // use std::mem;
 
 thread_local! {
@@ -885,9 +887,42 @@ impl Env {
             ("filtering", TransducerOperations::filter()),
             ("taking", TransducerOperations::take()),
             ("memory-address", MetaOperations::memory_address()),
-            // ("sizeof", MetaOperations::size_of()),
+            ("async-test-func", SteelVal::FutureFunc(test_function)),
+            ("async-exec", MetaOperations::exec_async()),
+            ("async-get", SteelVal::FutureFunc(get)), // ("sizeof", MetaOperations::size_of()),
+                                                      // ("tokio-exec", MetaOperations::tokio_exec()),
         ]
     }
+}
+
+// embed an async function into steel
+// lets... see how this goes
+fn test_function(_args: &[Gc<SteelVal>]) -> FutureResult {
+    FutureResult::new(Box::pin(async {
+        Ok(Gc::new(SteelVal::StringV("hello-world".to_string())))
+    }))
+}
+
+fn get(_args: &[Gc<SteelVal>]) -> FutureResult {
+    FutureResult::new(Box::pin(async {
+        // let resp = reqwest::get("https://httpbin.org/ip")
+        //     .await
+        //     .unwrap()
+        //     .json::<HashMap<String, String>>()
+        //     .await
+        //     .unwrap();
+        // println!("{:#?}", resp);
+
+        // println!("Status: {}", res.status());
+        // println!("Headers:\n{:#?}", res.headers());
+
+        let res = reqwest::get("http://httpbin.org/get").await.unwrap();
+
+        let body = res.text().await.unwrap();
+        println!("Body:\n{}", body);
+
+        Ok(Gc::new(SteelVal::StringV(body)))
+    }))
 }
 
 #[cfg(test)]

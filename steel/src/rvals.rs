@@ -44,8 +44,12 @@ use crate::vm::{inline_filter_result_iter, inline_map_result_iter, inline_reduce
 
 use crate::primitives::ListOperations;
 
+// use futures::future::FutureExt;
+use futures::FutureExt;
+// use futures::Sha
+use futures::future::Shared;
 use std::future::Future;
-// use std::pin::Pin;
+use std::pin::Pin;
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
@@ -67,7 +71,26 @@ pub type StructClosureSignature = fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<
 //    values
 // }
 
-pub type AsyncSignature = fn(&[Gc<SteelVal>]) -> Box<dyn Future<Output = Result<Gc<SteelVal>>>>;
+// pub type BoxedFutureResult = Shared<Output = Result<Gc<SteelVal>>>;
+pub type AsyncSignature = fn(&[Gc<SteelVal>]) -> FutureResult;
+
+pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<Gc<SteelVal>>>>>;
+
+// Pin<Box<dyn Future<Output = T> + 'a + Send>>;
+
+#[derive(Clone)]
+pub struct FutureResult(Shared<BoxedFutureResult>);
+
+impl FutureResult {
+    pub fn new(fut: BoxedFutureResult) -> Self {
+        // FutureResult()
+        FutureResult(fut.shared())
+    }
+
+    pub fn into_shared(self) -> Shared<BoxedFutureResult> {
+        self.0
+    }
+}
 
 // async fn join_futures(args: &[AsyncSignature]) -> Vec<Result<Gc<SteelVal>>> {
 //     futures::future::join_all(args.into_iter().map(|x| x(&[])))
@@ -209,6 +232,8 @@ pub enum SteelVal {
     // Promise(Gc<SteelVal>),
     /// Async Function wrapper
     FutureFunc(AsyncSignature),
+    // Boxed Future Result
+    FutureV(FutureResult),
     // Mutable Box
     // Functions that want to operate by reference must move the value into a mutable box
     // This deep clones the value but then the value can be mutably snatched
@@ -216,6 +241,8 @@ pub enum SteelVal {
 }
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
+
+// pub struct
 
 // pub trait Transduce {
 //     fn run() -> Gc<SteelVal>;
@@ -546,6 +573,18 @@ impl SteelVal {
         }
     }
 
+    pub fn struct_func_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<(&SteelStruct, &StructClosureSignature), E> {
+        match self {
+            Self::StructClosureV(steel_struct, struct_closure) => {
+                Ok((steel_struct, struct_closure))
+            }
+            _ => Err(err()),
+        }
+    }
+
     pub fn lambda_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
@@ -704,6 +743,7 @@ impl TryFrom<&SteelVal> for Expr {
             HashSetV(_) => Err("Can't convert from hashset to expression!"),
             IterV(_) => Err("Can't convert from iterator to expression!"),
             FutureFunc(_) => Err("Can't convert from future function to expression!"),
+            FutureV(_) => Err("Can't convert future to expression!"),
             // Promise(_) => Err("Can't convert from promise to expression!"),
         }
     }
@@ -729,6 +769,7 @@ impl PartialEq for SteelVal {
             }
             (HashSetV(l), HashSetV(r)) => l == r,
             (HashMapV(l), HashMapV(r)) => l == r,
+            (StructV(l), StructV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
@@ -954,6 +995,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         IterV(_) => write!(f, "#<iterator>"),
         HashSetV(hs) => write!(f, "#<hashset {:?}>", hs),
         FutureFunc(_) => write!(f, "#<future-func>"),
+        FutureV(_) => write!(f, "#<future>"),
         // Promise(_) => write!(f, "#<promise>"),
     }
 }

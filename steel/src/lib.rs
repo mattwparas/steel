@@ -10,8 +10,8 @@ pub mod env;
 // pub mod interpreter;
 pub mod parser;
 pub mod primitives;
-#[macro_use]
-pub mod repl;
+// #[macro_use]
+// pub mod repl;
 #[macro_use]
 pub mod rerrs;
 pub mod rvals;

@@ -11,9 +11,11 @@ license = "MIT OR Apache-2.0"
 once_cell = "1.4.1"
 steel = { path = "./steel" }
 steel_derive = { path = "./steel_derive"}
+steel_repl = { path = "./steel_repl" }
 
 [workspace]
 members = [
     "steel",
     "steel_derive",
+    "steel_repl",
 ]
