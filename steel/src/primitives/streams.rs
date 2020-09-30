@@ -28,4 +28,9 @@ impl StreamOperations {
             }
         })
     }
+
+    #[inline(always)]
+    pub fn empty_stream() -> SteelVal {
+        SteelVal::StreamV(LazyStream::new_empty_stream())
+    }
 }

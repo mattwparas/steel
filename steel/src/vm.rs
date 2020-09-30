@@ -887,6 +887,7 @@ impl VirtualMachine {
 
         // println!("Global heap length after: {}", self.global_heap.len());
 
+        // heap.inspect_heap();
         heap.clear();
         heap.reset_limit();
 
@@ -1640,8 +1641,6 @@ pub fn vm<CT: ConstantTable>(
                 let list = stack.pop().unwrap();
                 let transducer = stack.pop().unwrap();
 
-                println!("getting here!");
-
                 if let SteelVal::IterV(transducer) = transducer.as_ref() {
                     let ret_val = transducer.run(list, constants, &cur_inst.span, repl);
                     stack.push(ret_val?);
@@ -1991,6 +1990,7 @@ pub fn vm<CT: ConstantTable>(
                                 0
                             });
 
+                        println!("Collecting garbage");
                         heap.gather_mark_and_sweep_2(&global_env, &inner_env);
                         heap.collect_garbage();
 
@@ -2101,6 +2101,7 @@ pub fn vm<CT: ConstantTable>(
                 // set the number of definitions for the environment
                 capture_env.borrow_mut().set_ndefs(ndefs);
 
+                // println!("Adding the capture_env to the heap!");
                 heap.add(Rc::clone(&capture_env));
                 // inspect_heap(&heap);
                 let constructed_lambda = ByteCodeLambda::new(

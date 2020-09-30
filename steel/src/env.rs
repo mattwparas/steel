@@ -892,6 +892,7 @@ impl Env {
             ("async-exec", MetaOperations::exec_async()),
             ("async-get", SteelVal::FutureFunc(get)),
             ("stream-cons", StreamOperations::stream_cons()),
+            ("empty-stream", StreamOperations::empty_stream()),
         ]
     }
 }

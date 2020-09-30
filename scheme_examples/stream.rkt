@@ -20,6 +20,9 @@
 (define empty-stream? null?)
 (define the-empty-stream '())
 
+(define (integers n)
+  (cons-stream n (integers (+ 1 n))))
+
 (define (stream-section n stream)
   (cond ((= n 0) '())
         (else
@@ -40,6 +43,17 @@
   (cons-stream 0
     (cons-stream 1
       (add-streams (tail fibs) fibs))))
+
+(define (integers n)
+  (stream-cons n (lambda () (integers (+ 1 n)))))
+
+(define (in-range-stream n m)
+  (if (= n m)
+      empty-stream
+      (stream-cons n (lambda () (in-range-stream (add1 n) m)))))
+
+
+
 
 ; (stream-section 15 fibs)
 
