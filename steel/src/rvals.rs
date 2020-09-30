@@ -51,6 +51,9 @@ use futures::future::Shared;
 use std::future::Future;
 use std::pin::Pin;
 
+use crate::lazy_stream::LazyStream;
+use crate::lazy_stream::LazyStreamIter;
+
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
     Rc::new(RefCell::new(x))
@@ -238,6 +241,7 @@ pub enum SteelVal {
     // Functions that want to operate by reference must move the value into a mutable box
     // This deep clones the value but then the value can be mutably snatched
     // MutableBox(Gc<RefCell<SteelVal>>),
+    StreamV(LazyStream),
 }
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
@@ -298,6 +302,17 @@ impl Transducer {
 
                 crate::primitives::VectorOperations::vec_construct_iter(my_iter)
             }
+            SteelVal::StreamV(lazy_stream) => {
+                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = Box::new(
+                    LazyStreamIter::new(lazy_stream.clone(), constants, cur_inst_span, repl),
+                );
+
+                for t in &self.ops {
+                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+                }
+
+                crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+            }
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         }
     }
@@ -314,6 +329,12 @@ impl Transducer {
         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
             SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
             SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
+            SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
+                lazy_stream.clone(),
+                constants,
+                cur_inst_span,
+                repl,
+            )),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
@@ -352,8 +373,6 @@ impl Transducers {
         cur_inst_span: &'global Span,
         repl: bool,
     ) -> Result<Box<dyn Iterator<Item = Result<Gc<SteelVal>>> + 'global>> {
-        // unimplemented!();
-
         match self {
             Transducers::Map(func) => Ok(Box::new(inline_map_result_iter(
                 iter,
@@ -745,6 +764,7 @@ impl TryFrom<&SteelVal> for Expr {
             FutureFunc(_) => Err("Can't convert from future function to expression!"),
             FutureV(_) => Err("Can't convert future to expression!"),
             // Promise(_) => Err("Can't convert from promise to expression!"),
+            StreamV(_) => Err("Can't convert from stream to expression!"),
         }
     }
 }
@@ -997,6 +1017,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         FutureFunc(_) => write!(f, "#<future-func>"),
         FutureV(_) => write!(f, "#<future>"),
         // Promise(_) => write!(f, "#<promise>"),
+        StreamV(_) => write!(f, "#<stream>"),
     }
 }
 

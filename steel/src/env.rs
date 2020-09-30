@@ -9,6 +9,7 @@ use crate::primitives::ListOperations;
 use crate::primitives::MetaOperations;
 use crate::primitives::NumOperations;
 use crate::primitives::PortOperations;
+use crate::primitives::StreamOperations;
 use crate::primitives::StringOperations;
 use crate::primitives::SymbolOperations;
 use crate::primitives::TransducerOperations;
@@ -889,8 +890,8 @@ impl Env {
             ("memory-address", MetaOperations::memory_address()),
             ("async-test-func", SteelVal::FutureFunc(test_function)),
             ("async-exec", MetaOperations::exec_async()),
-            ("async-get", SteelVal::FutureFunc(get)), // ("sizeof", MetaOperations::size_of()),
-                                                      // ("tokio-exec", MetaOperations::tokio_exec()),
+            ("async-get", SteelVal::FutureFunc(get)),
+            ("stream-cons", StreamOperations::stream_cons()),
         ]
     }
 }

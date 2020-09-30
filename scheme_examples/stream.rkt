@@ -36,28 +36,11 @@
      (+ h1 h2)
      (add-streams (tail s1) (tail s2)))))
 
-;; (define ones (cons-stream 1 ones))
-
-;; (stream-section 7 ones)
-
-;; (define (integers-starting-from n)
-;;  (cons-stream n
-;;   (integers-starting-from (+ n 1))))
-
-;; (define nat-nums
-;;   (integers-starting-from 1))
-
-;; (stream-section 10 nat-nums)
-
-;; (define nat-nums
-;;  (cons-stream 1
-;;   (add-streams ones nat-nums)))
-
-;; (stream-section 10 nat-nums)
-
 (define fibs
   (cons-stream 0
     (cons-stream 1
       (add-streams (tail fibs) fibs))))
 
-(stream-section 15 fibs)
+; (stream-section 15 fibs)
+
+;; TODO add macro to assist in the wrapping of stream-cons similar to how cons-stream functions
