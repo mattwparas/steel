@@ -276,6 +276,8 @@ impl Transducer {
     // This runs through the iterators  in sequence in the transducer
     // we want to then finish with a reducer
     // TODO see transduce vs educe
+    // TODO change the return type to match the given input type
+    // optionally add an argument to select the return type manually
     pub fn run<CT: ConstantTable>(
         &self,
         root: Gc<SteelVal>,
@@ -404,8 +406,6 @@ impl Transducers {
 
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // self.id.hash(state);
-        // self.phone.hash(state);
         match self {
             BoolV(b) => b.hash(state),
             NumV(_) => {
@@ -485,14 +485,6 @@ impl SteelVal {
             _ => false,
         }
     }
-
-    // pub(crate) fn bytecode_lambda_or_panic(&self) -> &ByteCodeLambda {
-    //     if let SteelVal::Closure(bytecode_lambda) = self {
-    //         bytecode_lambda
-    //     } else {
-    //         panic!("Attempted to access a bytecode_lambda from the wrong variant");
-    //     }
-    // }
 }
 
 impl Iterator for Iter {

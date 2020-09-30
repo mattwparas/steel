@@ -678,12 +678,12 @@ impl VirtualMachine {
             .into_iter()
             .map(|x| {
                 let code = Rc::new(x.into_boxed_slice());
-                let _now = Instant::now();
+                let now = Instant::now();
                 // let constant_map = &self.ctx.constant_map;
                 // let repl = self.ctx.repl;
                 // let mut heap = Vec::new();
                 let res = self.execute(code, self.ctx.repl);
-                // println!("Time taken: {:?}", now.elapsed());
+                println!("Time taken: {:?}", now.elapsed());
                 res
             })
             .collect::<Result<Vec<Gc<SteelVal>>>>()
@@ -1990,7 +1990,6 @@ pub fn vm<CT: ConstantTable>(
                                 0
                             });
 
-                        println!("Collecting garbage");
                         heap.gather_mark_and_sweep_2(&global_env, &inner_env);
                         heap.collect_garbage();
 
