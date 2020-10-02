@@ -678,12 +678,12 @@ impl VirtualMachine {
             .into_iter()
             .map(|x| {
                 let code = Rc::new(x.into_boxed_slice());
-                let now = Instant::now();
+                // let now = Instant::now();
                 // let constant_map = &self.ctx.constant_map;
                 // let repl = self.ctx.repl;
                 // let mut heap = Vec::new();
                 let res = self.execute(code, self.ctx.repl);
-                println!("Time taken: {:?}", now.elapsed());
+                // println!("Time taken: {:?}", now.elapsed());
                 res
             })
             .collect::<Result<Vec<Gc<SteelVal>>>>()

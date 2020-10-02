@@ -52,7 +52,13 @@
       empty-stream
       (stream-cons n (lambda () (in-range-stream (add1 n) m)))))
 
-
+(define (append-streams s1 s2)
+  (cond
+    [(empty-stream? s1) s2]
+    [(empty-stream? s2) s1]
+    [else
+     (stream-cons (stream-car s1)
+                  (lambda () (append-streams (stream-cdr s1) s2)))]))
 
 
 ; (stream-section 15 fibs)

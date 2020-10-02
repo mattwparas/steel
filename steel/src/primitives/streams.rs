@@ -33,4 +33,43 @@ impl StreamOperations {
     pub fn empty_stream() -> SteelVal {
         SteelVal::StreamV(LazyStream::new_empty_stream())
     }
+
+    pub fn stream_empty_huh() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "stream-empty takes 1 argument")
+            }
+            if let SteelVal::StreamV(s) = &args[0].as_ref() {
+                Ok(s.empty_stream())
+            } else {
+                stop!(TypeMismatch => "stream-empty? takes a stream")
+            }
+        })
+    }
+
+    pub fn stream_car() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "stream-car takes 1 argument")
+            }
+            if let SteelVal::StreamV(s) = &args[0].as_ref() {
+                Ok(s.stream_first())
+            } else {
+                stop!(TypeMismatch => "stream-car takes a stream")
+            }
+        })
+    }
+
+    pub fn stream_cdr() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "stream-cdr takes 1 argument")
+            }
+            if let SteelVal::StreamV(s) = &args[0].as_ref() {
+                Ok(s.stream_thunk())
+            } else {
+                stop!(TypeMismatch => "stream-cdr takes a stream")
+            }
+        })
+    }
 }

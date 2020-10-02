@@ -48,6 +48,10 @@ impl LazyStream {
     pub fn stream_thunk(&self) -> Gc<SteelVal> {
         Gc::clone(&self.stream_thunk)
     }
+
+    pub fn empty_stream(&self) -> Gc<SteelVal> {
+        Gc::new(SteelVal::BoolV(self.empty_stream))
+    }
 }
 
 pub struct LazyStreamIter<'global, CT: ConstantTable> {

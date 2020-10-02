@@ -893,6 +893,9 @@ impl Env {
             ("async-get", SteelVal::FutureFunc(get)),
             ("stream-cons", StreamOperations::stream_cons()),
             ("empty-stream", StreamOperations::empty_stream()),
+            ("stream-empty?", StreamOperations::stream_empty_huh()),
+            ("stream-car", StreamOperations::stream_car()),
+            ("stream-cdr'", StreamOperations::stream_cdr()),
         ]
     }
 }
