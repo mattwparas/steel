@@ -46,10 +46,83 @@
                                           (merge-streams (stream-cdr s1)
                                                          (stream-cdr s2)))))))]))
 
+(define (map-stream func s)
+  (cond
+    [(stream-empty? s) s]
+    [else
+     (stream-cons (func (stream-car s))
+                  (lambda ()
+                    (map-stream func (stream-cdr s))))]))
 
+
+(define (list->stream lst)
+  (if (null? lst)
+      empty-stream
+      (stream-cons (car lst)
+                   (lambda ()
+                     (list->stream (cdr lst))))))
+
+
+(define (stream->list s)
+  (define (*stream->list s lst)
+    (if (stream-empty? s)
+        lst
+        (*stream->list (stream-cdr s) (cons (stream-car s) lst))))
+  (*stream->list s '()))
+
+
+;; (define (stream-section n stream)
+;;   (cond ((= n 0) '())
+;;         (else
+;;          (cons
+;;           (head stream)
+;;           (stream-section
+;;            (- n 1)
+;;            (tail stream))))))
+
+;; execute / transducer work with transducers
+;; these are like source agnostic
 
 (execute (taking 15)
          (add-streams (integers 0) (integers 0)))
 
 (execute (taking 15)
          (merge-streams (integers 0) (integers 0)))
+
+
+(execute (taking 15)
+         (merge-streams
+          (merge-streams (integers 0) (integers 0))
+          (add-streams (integers 0) (integers 0))))
+
+
+
+(execute (taking 15)
+         (map-stream (lambda (x) 10) (integers 0)))
+
+
+(stream->list (in-range-stream 0 10))
+
+
+;; make a stream out of a port
+(define my-port (open-input-file "scheme_examples/dfs.rkt"))
+
+(define (port-stream)
+  (let ((head (read-line-from-port my-port)))
+    (if (equal? 'eof head)
+        empty-stream
+        (stream-cons head (lambda () (port-stream))))))
+
+;; Make a stream out of a port
+;; Access the port using the given func
+;; Stop reading w/ the given end-sym
+(define (port->stream p func end-sym)
+  (let ((head (func p)))
+    (if (equal? end-sym head)
+        empty-stream
+        (stream-cons head (lambda () (port->stream p func end-sym))))))
+
+
+
+
+(execute (taking 15) (port-stream my-port read-line-from-port 'eof))

@@ -46,13 +46,24 @@ impl PortOperations {
                 if let SteelVal::PortV(port) = &args[0].as_ref() {
                     // let new_port = SteelPort::new_textual_file_input(&*path)?;
                     // Ok(Gc::new(SteelVal::PortV(new_port)))
-                    let (_, result) = port.read_line()?;
-                    Ok(Gc::new(SteelVal::StringV(result)))
+
+                    let res = port.read_line();
+
+                    if let Ok((size, result)) = res {
+                        if size == 0 {
+                            Ok(Gc::new(SteelVal::SymbolV("eof".to_string())))
+                        } else {
+                            Ok(Gc::new(SteelVal::StringV(result)))
+                        }
+                    } else {
+                        // bit of a hack for now we'll see
+                        res.map(|_| unreachable!())
+                    }
                 } else {
-                    stop!(TypeMismatch => "read-port-to-string expected a port")
+                    stop!(TypeMismatch => "read-line-to-string expected a port")
                 }
             } else {
-                stop!(ArityMismatch => "read-port-to-string expected one argument")
+                stop!(ArityMismatch => "read-line-to-string expected one argument")
             }
         })
     }

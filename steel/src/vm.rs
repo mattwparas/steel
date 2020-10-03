@@ -42,7 +42,6 @@ use std::iter::Iterator;
 use std::path::Path;
 use std::rc::Rc;
 use std::result;
-use std::time::Instant;
 
 const STACK_LIMIT: usize = 1024;
 
