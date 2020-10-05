@@ -58,8 +58,14 @@ pub enum TokenType {
     #[token("]")]
     #[token("}")]
     CloseParen,
-    #[token(r"'")]
+    #[token("'")]
     QuoteTick,
+    #[token("`")]
+    QuasiQuote,
+    #[token(",")]
+    Unquote,
+    #[token(",@")]
+    UnquoteSplice,
     #[token("#\\SPACE", |_| Some(' '))]
     #[regex(r"#\\\p{L}", parse_char)]
     CharacterLiteral(char),
@@ -114,6 +120,9 @@ impl fmt::Display for TokenType {
             IntegerLiteral(x) => write!(f, "{}", x),
             StringLiteral(x) => write!(f, "\"{}\"", x),
             QuoteTick => write!(f, "'"),
+            Unquote => write!(f, ","),
+            QuasiQuote => write!(f, "`"),
+            UnquoteSplice => write!(f, ",@"),
             Error => write!(f, "error"),
             Comment => write!(f, ""),
         }

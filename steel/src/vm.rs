@@ -477,6 +477,9 @@ impl FunctionCallCtx {
     }
 }
 
+// TODO don't actually pass around the span w/ the instruction
+// pass around an index into the span to reduce the size of the instructions
+// generate an equivalent
 impl From<Instruction> for DenseInstruction {
     fn from(val: Instruction) -> DenseInstruction {
         DenseInstruction::new(
@@ -785,7 +788,7 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            // println!("{:?}", expr.to_string());
+            println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
                 &expr,
@@ -1538,6 +1541,41 @@ impl InstructionPointer {
 
 static HEAP_LIMIT: usize = 5000;
 pub static MAXIMUM_OBJECTS: usize = 50000;
+
+// This is just... easier than passing all of the args into the VM every single time
+// This should work out better I hope
+// Especially with the callbacks and all that jazz
+pub struct VmArgs<'a> {
+    pub(crate) instructions: Rc<Box<[DenseInstruction]>>,
+    pub(crate) stack: StackFrame,
+    pub(crate) heap: &'a mut Heap,
+    pub(crate) global_env: Rc<RefCell<Env>>,
+    pub(crate) constants: &'a ConstantMap,
+    pub(crate) repl: bool,
+    pub(crate) evaluation_progress: &'a mut EvaluationProgress,
+}
+
+impl<'a> VmArgs<'a> {
+    pub fn new(
+        instructions: Rc<Box<[DenseInstruction]>>,
+        stack: StackFrame,
+        heap: &'a mut Heap,
+        global_env: Rc<RefCell<Env>>,
+        constants: &'a ConstantMap,
+        repl: bool,
+        evaluation_progress: &'a mut EvaluationProgress,
+    ) -> Self {
+        VmArgs {
+            instructions,
+            stack,
+            heap,
+            global_env,
+            constants,
+            repl,
+            evaluation_progress,
+        }
+    }
+}
 
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<Box<[DenseInstruction]>>,

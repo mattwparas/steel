@@ -220,6 +220,39 @@ impl<'a> Parser<'a> {
         Expr::VectorVal(vec![q, val])
     }
 
+    // Reader macro for `
+    fn construct_quasiquote(&mut self, val: Expr, span: Span) -> Expr {
+        let q = {
+            let rc_val = TokenType::Identifier("quasiquote".to_string());
+            let val = Expr::Atom(SyntaxObject::new(rc_val, span));
+            val
+        };
+
+        Expr::VectorVal(vec![q, val])
+    }
+
+    // Reader macro for ,
+    fn construct_unquote(&mut self, val: Expr, span: Span) -> Expr {
+        let q = {
+            let rc_val = TokenType::Identifier("unquote".to_string());
+            let val = Expr::Atom(SyntaxObject::new(rc_val, span));
+            val
+        };
+
+        Expr::VectorVal(vec![q, val])
+    }
+
+    // Reader macro for ,@
+    fn construct_unquote_splicing(&mut self, val: Expr, span: Span) -> Expr {
+        let q = {
+            let rc_val = TokenType::Identifier("unquote-splicing".to_string());
+            let val = Expr::Atom(SyntaxObject::new(rc_val, span));
+            val
+        };
+
+        Expr::VectorVal(vec![q, val])
+    }
+
     // Jason's attempt
     fn read_from_tokens(&mut self) -> Result<Expr> {
         let mut stack: Vec<Vec<Expr>> = Vec::new();
@@ -235,6 +268,37 @@ impl<'a> Parser<'a> {
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF))
                                 .map(|x| self.construct_quote(x, token.span));
+                            match quote_inner {
+                                Ok(expr) => current_frame.push(expr),
+                                Err(e) => return Err(e),
+                            }
+                        }
+                        TokenType::Unquote => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                                .map(|x| self.construct_unquote(x, token.span));
+                            match quote_inner {
+                                Ok(expr) => current_frame.push(expr),
+                                Err(e) => return Err(e),
+                            }
+                        }
+                        TokenType::QuasiQuote => {
+                            println!("getting to here!");
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                                .map(|x| self.construct_quasiquote(x, token.span));
+                            match quote_inner {
+                                Ok(expr) => current_frame.push(expr),
+                                Err(e) => return Err(e),
+                            }
+                        }
+                        TokenType::UnquoteSplice => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                                .map(|x| self.construct_unquote_splicing(x, token.span));
                             match quote_inner {
                                 Ok(expr) => current_frame.push(expr),
                                 Err(e) => return Err(e),
@@ -327,6 +391,18 @@ impl<'a> Iterator for Parser<'a> {
                 .next()
                 .unwrap_or(Err(ParseError::UnexpectedEOF))
                 .map(|x| self.construct_quote(x, res.span)),
+            TokenType::Unquote => self
+                .next()
+                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                .map(|x| self.construct_unquote(x, res.span)),
+            TokenType::UnquoteSplice => self
+                .next()
+                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                .map(|x| self.construct_unquote_splicing(x, res.span)),
+            TokenType::QuasiQuote => self
+                .next()
+                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                .map(|x| self.construct_quasiquote(x, res.span)),
             TokenType::OpenParen => self.read_from_tokens(),
             TokenType::CloseParen => Err(ParseError::Unexpected(TokenType::CloseParen)),
             TokenType::Error => Err(tokentype_error_to_parse_error(&res)),

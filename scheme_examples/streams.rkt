@@ -126,3 +126,98 @@
 
 
 (execute (taking 15) (port-stream my-port read-line-from-port 'eof))
+
+
+;; (define-syntax unquote
+;;   (syntax-rules ()
+;;     ((unquote datum) datum)))
+
+;; This is close to what I need, but not quite exactly what I need
+;; Look into this more later tonight
+(define-syntax quasiquote
+  (syntax-rules (unquote unquote-splicing)
+    ((quasiquote (unquote datum))
+     datum)
+    ((quasiquote ((unquote-splicing datum) next))
+     (append datum (quasiquote next)))
+    ((quasiquote (datum next ...))
+     (cons (quasiquote datum) (quasiquote next ...)))
+    ((quasiquote datum)
+     (quote datum))))
+
+
+
+(define-syntax quasiquote
+  (syntax-rules (unquote unquote-splicing)
+    ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote xs ...)))
+    ((quasiquote ((unquote-splicing x)))        (append (list x) (quote ())))
+    ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
+    ((quasiquote (unquote x))                 x)
+    ((quasiquote (x))                          (quote (x)))
+    ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
+    ((quasiquote x)                           (quote x))))
+
+;; (define-syntax quasiquote
+;;   (syntax-rules (unquote unquote-splicing)
+;;     ((quasiquote ((unquote x) . xs))          (cons x (quasiquote xs)))
+;;     ((quasiquote ((unquote-splicing x) . xs)) (append x (quasiquote xs)))
+;;     ((quasiquote (unquote x))                 x)
+;;     ((quasiquote (x  . xs))                   (cons (quasiquote x) (quasiquote xs)))
+;;     ((quasiquote x)                           (quote x))))
+
+;; (define-syntax quasiquote
+;;   (syntax-rules (unquote unquote-splicing)
+;;     ((quasiquote (unquote datum))
+;;      datum)
+;;     ((quasiquote ((unquote-splicing datum) . next))
+;;      (append datum (quasiquote next)))
+;;     ((quasiquote (datum . next))
+;;      (cons (quasiquote datum) (quasiquote next)))
+;;     ((quasiquote datum)
+;;      (quote datum))))
+
+
+(quasiquote (0 1 2)) ;; => '(0 1 2)
+(quasiquote (0 (unquote (+ 1 2)) 4)) ;; => '(0 3 4)
+(quasiquote (0 (unquote-splicing (list 1 2)) 4)) ;; '(0 1 2 4)
+(quasiquote (0 (unquote-splicing 1) 4)) ;; error
+(quasiquote (0 (unquote-splicing 1))) ;; '(0 1)
+
+
+;; (define-syntax infix
+;;    (syntax-rules (plus times stack input eof)
+;;      ((infix (stack 1) (input (stack <stack> ...) (input <input> ...)))
+;;        'error) ;; rule 15, runaway stopper for rule 1
+;;      ((infix (stack 1) (input <expr> <input> ...))
+;;        (infix (stack 2 <expr> 1) (input <input> ...))) ;; rule 2
+;;      ((infix (stack 2 <morestack> ...) (input plus <input> ...))
+;;        (infix (stack 3 plus 2 <morestack> ...) (input <input> ...))) ;; rule 3
+;;      ((infix (stack 2 <morestack> ...) (input times <input> ...))
+;;        (infix (stack 4 times 2 <morestack> ...) (input <input> ...))) ;; rule 4
+;;      ((infix (stack 3 <morestack> ...) (input <expr> <input> ...))
+;;        (infix (stack 5 <expr> 3 <morestack> ...) (input <input> ...))) ;; rule 5
+;;      ((infix (stack 4 <morestack> ...) (input <expr> <input> ...))
+;;        (infix (stack 6 <expr> 4 <morestack> ...) (input <input> ...))) ;; rule 6
+;;      ((infix (stack 5 <morestack> ...) (input times <input> ...))
+;;        (infix (stack 4 times 5 <morestack> ...) (input <input> ...))) ;; rule 7
+;;      ((infix (stack 5 <expr1> <s1> plus <s2> <expr2> 1) (input plus <input> ...))
+;;        (infix (stack 2 (+ <expr1> <expr2>) 1) (input plus <input> ...))) ;; rule 8
+;;      ((infix (stack 5 <expr1> <s1> plus <s2> <expr2> 1) (input eof))
+;;        (infix (stack 2 (+ <expr1> <expr2>) 1) (input eof))) ;; rule 9
+;;      ((infix (stack 6 <expr1> <s1> times <s2> <expr2> 1) (input times <input> ...))
+;;        (infix (stack 2 (* <expr1> <expr2>) 1) (input times <input> ...))) ;; rule 10
+;;      ((infix (stack 6 <expr1> <s1> times <s2> <expr2> 1) (input plus <input> ...))
+;;        (infix (stack 2 (* <expr1> <expr2>) 1) (input plus <input> ...))) ;; rule 11
+;;      ((infix (stack 6 <expr1> <s1> times <s2> <expr2> 1) (input eof))
+;;        (infix (stack 2 (* <expr1> <expr2>) 1) (input eof))) ;; rule 12
+;;      ((infix (stack 6 <expr1> <s1> times <s2> <expr2> 3 <morestack> ...) (input eof))
+;;        (infix (stack 5 (* <expr1> <expr2>) 3 <morestack> ...) (input eof))) ;; rule 14
+;;      ((infix (stack 6 <expr1> <s1> times <s2> <expr2> 3 <morestack> ...) (input times <input> ...))
+;;        (infix (stack 5 (* <expr1> <expr2>) 3 <morestack> ...) (input times <input> ...))) ;; rule 16
+;;      ((infix (stack 6 <expr1> <s1> times <s2> <expr2> 3 <morestack> ...) (input plus <input> ...))
+;;        (infix (stack 5 (* <expr1> <expr2>) 3 <morestack> ...) (input plus <input> ...))) ;; rule 17
+;;      ((infix (stack 2 <expr> 1) (input eof))
+;;        <expr>) ;; rule 13
+;;      ((infix <input> ...)
+;;        (infix (stack 1) (input <input> ... eof))) ;; rule 1
+;;      ))

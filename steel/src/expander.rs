@@ -515,7 +515,13 @@ impl SteelMacro {
     // TODO
     // its worth a shot
     fn match_case(&self, list_of_tokens: &[Expr]) -> Result<&MacroCase> {
-        // println!("{:?}", list_of_tokens);
+        // println!(
+        //     "{:?}",
+        //     list_of_tokens
+        //         .iter()
+        //         .map(|x| x.to_string())
+        //         .collect::<Vec<_>>()
+        // );
 
         for case in &self.cases {
             // println!("Case: {:?}", case.args);
@@ -528,6 +534,7 @@ impl SteelMacro {
             {
                 // println!("got inside the if");
                 if case.recursive_match(list_of_tokens) {
+                    // println!("Matched case!");
                     return Ok(case);
                 }
             }
