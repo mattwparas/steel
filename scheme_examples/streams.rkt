@@ -157,6 +157,44 @@
     ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
     ((quasiquote x)                           (quote x))))
 
+
+(define-syntax map-test
+    (syntax-rules ()
+        [(map-test (x ...) lst)
+            (map (lambda (v) (x ... v)) lst)]))
+
+(displayln (map-test (* 2) (list 1 2 3 4)))
+
+;; short hand for currying lambda expressions with implicit last argument
+(define-syntax lambda-hash
+  (syntax-rules ()
+    [(lambda-hash (x ...)) (lambda (v) (x ... v))]))
+
+;; binary expressions can be used as infix!
+;; this is kind of yoinked from racket
+;; perhaps... add this to all function applications
+;; just exactly like racket does
+(define-syntax &
+  (syntax-rules ()
+    [(& (a x b)) (x a b)]))
+
+;; TODO do not clobber span information on macros
+;; The span on macros should actually be preserved and passed in on the original source code
+;; add it as an argument to all of the expands and just pass it in nicely
+;; Add some tests for it
+;; For instance
+;;
+;; Take a macro that just simply expands into an error
+;; Even though not useful in any capacity, we should preserve the span information so that the error
+;; points to the call site and _not_ to the macro
+;; (define-syntax blagh ... (error "blargh"))
+;;
+;; (blagh "blargh") => should throw an error and point to `(blagh "blargh")` as the location of the error
+;;
+
+
+;; (mapping %(+ 1 2)
+
 ;; (define-syntax quasiquote
 ;;   (syntax-rules (unquote unquote-splicing)
 ;;     ((quasiquote ((unquote x) . xs))          (cons x (quasiquote xs)))

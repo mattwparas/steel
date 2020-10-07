@@ -1577,6 +1577,30 @@ impl<'a> VmArgs<'a> {
     }
 }
 
+// fn eval_eval_expr(
+//     list_of_tokens: &[Expr],
+//     env: &Rc<RefCell<Env>>,
+//     heap: &mut Vec<Rc<RefCell<Env>>>,
+//     expr_stack: &mut Vec<Expr>,
+//     // last_macro: &mut Option<&Expr>,
+// ) -> Result<Gc<SteelVal>> {
+//     if let [e] = list_of_tokens {
+//         let res_expr = evaluate(e, env, heap, expr_stack)?;
+//         match <Expr>::try_from(&(*res_expr).clone()) {
+//             Ok(e) => evaluate(&e, env, heap, expr_stack),
+//             Err(_) => stop!(ContractViolation => "Eval not given an expression"),
+//         }
+//     } else {
+//         let e = format!(
+//             "{}: expected {} args got {}",
+//             "Eval",
+//             1,
+//             list_of_tokens.len()
+//         );
+//         stop!(ArityMismatch => e)
+//     }
+// }
+
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<Box<[DenseInstruction]>>,
     stack: StackFrame,
@@ -1629,6 +1653,8 @@ pub fn vm<CT: ConstantTable>(
                 stop!(Generic => error_message.to_string(); cur_inst.span);
             }
             OpCode::EVAL => {
+                let _expr_to_eval = stack.pop().unwrap();
+
                 panic!("eval not yet supported - internal compiler error");
             }
             OpCode::PASS => {

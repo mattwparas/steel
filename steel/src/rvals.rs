@@ -242,6 +242,8 @@ pub enum SteelVal {
     // This deep clones the value but then the value can be mutably snatched
     // MutableBox(Gc<RefCell<SteelVal>>),
     StreamV(LazyStream),
+    // Break the cycle somehow
+    // EvaluationEnv(Weak<RefCell<Env>>),
 }
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
@@ -681,6 +683,7 @@ impl TryFrom<Expr> for SteelVal {
                 Unquote => Err(SteelErr::UnexpectedToken(",".to_string(), Some(e.span()))),
                 UnquoteSplice => Err(SteelErr::UnexpectedToken(",@".to_string(), Some(e.span()))),
                 QuasiQuote => Err(SteelErr::UnexpectedToken("`".to_string(), Some(e.span()))),
+                Hash => Err(SteelErr::UnexpectedToken("#".to_string(), Some(e.span()))),
                 BooleanLiteral(x) => Ok(BoolV(*x)),
                 Identifier(x) => Ok(SymbolV(x.clone())),
                 NumberLiteral(x) => Ok(NumV(*x)),

@@ -553,9 +553,16 @@ impl SteelMacro {
         }
     }
 
+    // TODO
+    // Stop clobbering the span information
+    // Set the span of the resulting expr to be the original span passed in!
+    // For now do an extra walk
     pub fn expand(&self, list_of_tokens: &[Expr]) -> Result<Expr> {
         let case_to_expand = self.match_case(list_of_tokens)?;
-        case_to_expand.expand(list_of_tokens)
+        let original_spans: Vec<Span> = list_of_tokens.iter().map(|x| x.span()).collect();
+        let coalesced_span = Expr::coalesce_span(original_spans);
+        let expanded_expr = case_to_expand.expand(list_of_tokens)?;
+        Ok(Expr::rewrite_span(expanded_expr, coalesced_span))
     }
 }
 

@@ -66,6 +66,8 @@ pub enum TokenType {
     Unquote,
     #[token(",@")]
     UnquoteSplice,
+    #[token("#")]
+    Hash,
     #[token("#\\SPACE", |_| Some(' '))]
     #[regex(r"#\\\p{L}", parse_char)]
     CharacterLiteral(char),
@@ -125,6 +127,7 @@ impl fmt::Display for TokenType {
             UnquoteSplice => write!(f, ",@"),
             Error => write!(f, "error"),
             Comment => write!(f, ""),
+            Hash => write!(f, "#"),
         }
     }
 }

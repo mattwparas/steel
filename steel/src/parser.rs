@@ -86,6 +86,37 @@ impl Expr {
         }
     }
 
+    pub fn rewrite_span(expr: Expr, span: Span) -> Self {
+        match expr {
+            Expr::Atom(SyntaxObject { ty: t, ..}) => {
+                Expr::Atom(SyntaxObject::new(t, span.clone()))
+            }
+            Expr::VectorVal(vec_exprs) => {
+                Expr::VectorVal(
+                    vec_exprs.into_iter().map(|x| Self::rewrite_span(x, span.clone())).collect()
+                )
+            }
+        }
+    }
+
+    pub fn coalesce_span(spans: Vec<Span>) -> Span {
+        let span = spans.get(0);
+        if let Some(span) = span {
+            let mut span = span.clone();
+            for s in spans {
+                if s.start() < span.start() {
+                    span = Span::new(s.start(), span.end());
+                }
+                if s.end() > span.end() {
+                    span = Span::new(s.start(), s.end());
+                }
+            }
+            return span
+        } else {
+            Span::new(0, 0)
+        }
+    }
+
     pub fn span(&self) -> Span {
         // let mut span = Span::new(0, 0);
 
@@ -111,16 +142,21 @@ impl Expr {
             }
             Self::VectorVal(vec_exprs) => {
                 let spans = collect_span(vec_exprs.clone());
-                let mut span = Span::new(0, 0);
-                for s in spans {
-                    if s.start() < span.start() {
-                        span = Span::new(s.start(), span.end());
+                let span = spans.get(0);
+                if let Some(span) = span {
+                    let mut span = span.clone();
+                    for s in spans {
+                        if s.start() < span.start() {
+                            span = Span::new(s.start(), span.end());
+                        }
+                        if s.end() > span.end() {
+                            span = Span::new(span.start(), s.end());
+                        }
                     }
-                    if s.end() > span.end() {
-                        span = Span::new(s.start(), s.end());
-                    }
+                    return span
+                } else {
+                    Span::new(0, 0)
                 }
-                return span
             }
         }
 
@@ -253,6 +289,17 @@ impl<'a> Parser<'a> {
         Expr::VectorVal(vec![q, val])
     }
 
+    // Reader macro for #
+    fn construct_lambda_shorthand(&mut self, val: Expr, span: Span) -> Expr {
+        let q = {
+            let rc_val = TokenType::Identifier("lambda-hash".to_string());
+            let val = Expr::Atom(SyntaxObject::new(rc_val, span));
+            val
+        };
+
+        Expr::VectorVal(vec![q, val])
+    }
+
     // Jason's attempt
     fn read_from_tokens(&mut self) -> Result<Expr> {
         let mut stack: Vec<Vec<Expr>> = Vec::new();
@@ -284,7 +331,6 @@ impl<'a> Parser<'a> {
                             }
                         }
                         TokenType::QuasiQuote => {
-                            println!("getting to here!");
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF))
@@ -303,6 +349,16 @@ impl<'a> Parser<'a> {
                                 Ok(expr) => current_frame.push(expr),
                                 Err(e) => return Err(e),
                             }
+                        }
+                        TokenType::Hash => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                                .map(|x| self.construct_lambda_shorthand(x, token.span));
+                            match quote_inner {
+                                Ok(expr) => current_frame.push(expr),
+                                Err(e) => return Err(e),
+                            } 
                         }
                         TokenType::OpenParen => {
                             stack.push(current_frame);
@@ -403,6 +459,10 @@ impl<'a> Iterator for Parser<'a> {
                 .next()
                 .unwrap_or(Err(ParseError::UnexpectedEOF))
                 .map(|x| self.construct_quasiquote(x, res.span)),
+            TokenType::Hash => self
+                .next()
+                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                .map(|x| self.construct_lambda_shorthand(x, res.span)),
             TokenType::OpenParen => self.read_from_tokens(),
             TokenType::CloseParen => Err(ParseError::Unexpected(TokenType::CloseParen)),
             TokenType::Error => Err(tokentype_error_to_parse_error(&res)),
