@@ -42,10 +42,17 @@ fn parse_char(lex: &mut Lexer<TokenType>) -> Option<char> {
 
 fn parse_str(lex: &mut Lexer<TokenType>) -> Option<String> {
     let slice = lex.slice();
+    // println!("Slice: {:?}", slice);
+
+    // Trim off the start and end of the string
+    // We don't need that inside the lexer at all
     let end = slice.trim_end_matches("\"");
     let new = end.trim_start_matches("\"");
+
+    // Some(unescape(slice))
     Some(new.to_string())
 }
+
 // TODO the character parsing is not quite right
 // need to make sure that we can handle cases like "#\SPACE" or "#\a" but not "#\applesauce"
 #[derive(Logos, Clone, Debug, PartialEq)]
@@ -102,7 +109,9 @@ pub enum TokenType {
     #[regex("[+-]?0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| lex.slice().parse())] // "
     IntegerLiteral(isize),
 
-    #[regex(r#"b?"(\\.|[^\\"])*""#, parse_str)] // "
+    // #[regex(r#"b?"(\\.|[^\\"])*""#, parse_str)] // "
+    // #[regex(r#"(?:[^"]|\\")*", parse_str)] // "
+    #[regex(r#""([^"\\]|\\t|\\u|\\n|\\")*""#, parse_str)]
     StringLiteral(String),
 
     #[error]

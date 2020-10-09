@@ -896,6 +896,7 @@ impl Env {
             ("stream-empty?", StreamOperations::stream_empty_huh()),
             ("stream-car", StreamOperations::stream_car()),
             ("stream-cdr'", StreamOperations::stream_cdr()),
+            ("string->jsexpr", crate::json_vals::string_to_jsexpr()),
         ]
     }
 }

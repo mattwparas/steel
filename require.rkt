@@ -41,7 +41,7 @@
 
 (define/contract (test arg1 arg2 arg3 arg4)
   (-> even? odd? even? odd? number?)
-  (+ arg1 arg2 arg3 arg4))
+  "hello world")
 
 
 

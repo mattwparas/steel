@@ -30,6 +30,8 @@ Closure body:
 
 (define test1 (lambda (x) (if (= x 1000000) x (test1 (+ x 1)))))
 
+(define (test x) (if (= x 0) x (test (- x 1))))
+
 (define test2 (lambda (x) (if (= x 1000000) x (test2 (i+ x 1)))))
 
 

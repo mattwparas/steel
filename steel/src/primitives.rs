@@ -322,6 +322,12 @@ impl From<String> for SteelVal {
     }
 }
 
+impl From<String> for Gc<SteelVal> {
+    fn from(val: String) -> Gc<SteelVal> {
+        Gc::new(val.into())
+    }
+}
+
 impl From<bool> for SteelVal {
     fn from(val: bool) -> SteelVal {
         SteelVal::BoolV(val)

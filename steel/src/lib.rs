@@ -22,6 +22,7 @@ pub mod expander;
 // pub mod compiler;
 pub mod engine;
 pub mod gc;
+pub mod json_vals;
 pub mod lazy_stream;
 pub mod port;
 pub mod structs;

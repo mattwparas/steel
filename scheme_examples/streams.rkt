@@ -259,3 +259,36 @@
 ;;      ((infix <input> ...)
 ;;        (infix (stack 1) (input <input> ... eof))) ;; rule 1
 ;;      ))
+
+
+
+(define test
+  (lambda (arg1 arg2 arg3 arg4)
+    (begin (if (even? arg1)
+               void
+               (begin
+                 (error! (symbol->string (quote test))
+                         \":\" \"contract violation:\" arg1 \"violated the contract:\"
+                         (symbol->string (quote even?)))))
+           (begin
+             (if (odd? arg2)
+                 void
+                 (begin (error! (symbol->string (quote test))
+                                \":\" \"contract violation:\" arg2 \"violated the contract:\"
+                                (symbol->string (quote odd?)))))
+             (begin (if (even? arg3)
+                        void
+                        (begin (error! (symbol->string (quote test))
+                                       \":\" \"contract violation:\" arg3 \"violated the contract:\"
+                                       (symbol->string (quote even?)))))
+                    (begin (if (odd? arg4)
+                               void
+                               (begin (error! (symbol->string (quote test))
+                                              \":\" \"contract violation:\" arg4 \"violated the contract:\"
+                                              (symbol->string (quote odd?)))))
+                           (begin (define ##res ((lambda () (+ arg1 arg2 arg3 arg4))))
+                                  (if (number? ##res)
+                                      void
+                                      (begin (error! (symbol->string (quote test))
+                                                     \":\" \"contract violation on result:\" ##res \"violated the contract:\"
+                                                     (symbol->string (quote number?))))) ##res)))))))
