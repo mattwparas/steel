@@ -266,7 +266,7 @@ pub fn emit_loop<CT: ConstantTable>(
                         match list_of_symbols {
                             Expr::VectorVal(l) => {
                                 arity = l.len();
-                                let rev_iter = l.into_iter().rev();
+                                let rev_iter = l.iter().rev();
                                 for symbol in rev_iter {
                                     if let Expr::Atom(syn) = symbol {
                                         // println!("{:?}", syn);
@@ -666,7 +666,7 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
         }
     }
 
-    return transformed;
+    transformed
 }
 
 // Note, this should be called AFTER `transform_tail_call`
@@ -728,7 +728,7 @@ fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
             let span = rest
                 .into_iter()
                 .map(|x| x.span())
-                .fold(first.span(), |x, y| Span::merge(x, y));
+                .fold(first.span(), Span::merge);
 
             Err(SteelErr::ArityMismatch(
                 format!("{}: expected {} args got {}", what, expected, tokens.len()),

@@ -3,6 +3,7 @@ mod codegen;
 mod constants;
 mod expand;
 mod heap;
+pub mod inline_iter;
 mod instructions;
 mod map;
 mod opcode;
@@ -31,6 +32,7 @@ use crate::parser::{tokens::TokenType, Expr, ParseError, Parser, SyntaxObject};
 use crate::primitives::{ListOperations, VectorOperations};
 use crate::rerrs::SteelErr;
 use crate::rvals::{ByteCodeLambda, Result, SteelVal};
+use crate::vm::inline_iter::*;
 use expand::MacroSet;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -109,7 +111,7 @@ fn count_and_collect_global_defines(
 
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?
-pub fn collect_defines_from_current_scope(
+fn collect_defines_from_current_scope(
     instructions: &[Instruction],
     symbol_map: &mut SymbolMap,
 ) -> Result<usize> {
@@ -158,7 +160,7 @@ pub fn collect_defines_from_current_scope(
     Ok(count)
 }
 
-pub fn collect_binds_from_current_scope(
+fn collect_binds_from_current_scope(
     instructions: &mut [Instruction],
     symbol_map: &mut SymbolMap,
     start: usize,
@@ -203,7 +205,7 @@ pub fn collect_binds_from_current_scope(
     }
 }
 
-pub fn insert_debruijn_indices(
+fn insert_debruijn_indices(
     instructions: &mut [Instruction],
     symbol_map: &mut SymbolMap,
 ) -> Result<()> {
@@ -310,7 +312,7 @@ pub fn insert_debruijn_indices(
 
 // Adds a flag to the pop value in order to save the heap to the global heap
 // I should really come up with a better name but for now we'll leave it
-pub fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
+fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
     match instructions {
         [.., Instruction {
             op_code: OpCode::EDEF,
@@ -679,7 +681,7 @@ impl VirtualMachine {
         gen_bytecode
             .into_iter()
             .map(|x| {
-                let code = Rc::new(x.into_boxed_slice());
+                let code = Rc::from(x.into_boxed_slice());
                 // let now = Instant::now();
                 // let constant_map = &self.ctx.constant_map;
                 // let repl = self.ctx.repl;
@@ -788,7 +790,8 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
-            println!("{:?}", expr.to_string());
+            // TODO add printing out the expression as its own special function
+            // println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
                 &expr,
@@ -841,7 +844,7 @@ impl VirtualMachine {
 
     pub fn execute(
         &mut self,
-        instructions: Rc<Box<[DenseInstruction]>>,
+        instructions: Rc<[DenseInstruction]>,
         // constants: &CT,
         // heap: &mut Vec<Rc<RefCell<Env>>>,
         repl: bool,
@@ -902,7 +905,7 @@ impl VirtualMachine {
 }
 
 pub fn execute_vm(
-    instructions: Rc<Box<[DenseInstruction]>>,
+    instructions: Rc<[DenseInstruction]>,
     constants: &ConstantMap,
 ) -> Result<Gc<SteelVal>> {
     let stack = StackFrame::new();
@@ -945,594 +948,29 @@ pub fn extract_constants<CT: ConstantTable>(
     Ok(())
 }
 
-pub(crate) fn inline_reduce_iter<
-    'global,
-    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
-    CT: ConstantTable,
->(
-    iter: I,
-    initial_value: Gc<SteelVal>,
-    reducer: Gc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-    repl: bool,
-) -> Result<Gc<SteelVal>> {
-    // unimplemented!();
-
-    let switch_statement = move |acc, x| match reducer.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![acc?, x?];
-            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![acc?, x?];
-            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![acc?, x?];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            // TODO remove this unwrap
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            )
-        }
-
-        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
-    };
-
-    iter.fold(Ok(initial_value), switch_statement)
-}
-
-pub(crate) fn inline_map_result_iter<
-    'global,
-    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
-    // R: Iterator<Item = Result<Rc<SteelVal>>>,
-    CT: ConstantTable,
->(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-    repl: bool,
-) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
-    // unimplemented!();
-
-    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    // TODO don't allocate this vec for just this
-    let switch_statement = move |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![arg?];
-            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![arg?];
-            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![arg?];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            // TODO remove this unwrap
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            )
-        }
-        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
-    };
-
-    // Map<
-
-    // Map::new()
-
-    // std::iter::Map
-
-    iter.map(switch_statement)
-
-    // for val in iter {
-    //     collected_results.push(switch_statement(val)?);
-    // }
-
-    // Ok(collected_results)
-}
-
-pub(crate) fn inline_map_iter<
-    'global,
-    I: Iterator<Item = Gc<SteelVal>> + 'global,
-    // R: Iterator<Item = Result<Rc<SteelVal>>>,
-    CT: ConstantTable,
->(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-    repl: bool,
-) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
-    // unimplemented!();
-
-    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    // TODO don't allocate this vec for just this
-    let switch_statement = move |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![arg];
-            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![arg];
-            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![arg];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            // TODO remove this unwrap
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            )
-        }
-        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
-    };
-
-    iter.map(switch_statement)
-
-    // for val in iter {
-    //     collected_results.push(switch_statement(val)?);
-    // }
-
-    // Ok(collected_results)
-}
-
-pub(crate) fn inline_filter_result_iter<
-    'global,
-    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
-    // R: Iterator<Item = Result<Rc<SteelVal>>>,
-    CT: ConstantTable,
->(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-    repl: bool,
-) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
-    // unimplemented!();
-
-    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    // TODO don't allocate this vec for just this
-    let switch_statement = move |arg: Result<Gc<SteelVal>>| match arg {
-        Ok(arg) => {
-            match stack_func.as_ref() {
-                SteelVal::FuncV(func) => {
-                    let arg_vec = vec![Gc::clone(&arg)];
-                    let res = func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
-                    match res {
-                        Ok(k) => match k.as_ref() {
-                            SteelVal::BoolV(true) => Some(Ok(arg)),
-                            SteelVal::BoolV(false) => None,
-                            _ => None,
-                        },
-                        Err(e) => Some(Err(e)),
-                        // _ => None,
-                    }
-                }
-                SteelVal::StructClosureV(factory, func) => {
-                    let arg_vec = vec![Gc::clone(&arg)];
-                    let res = func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span));
-                    match res {
-                        Ok(k) => match k.as_ref() {
-                            SteelVal::BoolV(true) => Some(Ok(arg)),
-                            SteelVal::BoolV(false) => None,
-                            _ => None,
-                        },
-                        Err(e) => Some(Err(e)),
-                    }
-                }
-                SteelVal::Closure(closure) => {
-                    // ignore the stack limit here
-                    let args = vec![Gc::clone(&arg)];
-                    // if let Some()
-
-                    let parent_env = closure.sub_expression_env();
-
-                    let offset =
-                        closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                    let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                        parent_env.clone(),
-                        offset,
-                    )));
-
-                    inner_env
-                        .borrow_mut()
-                        .reserve_defs(if closure.ndef_body() > 0 {
-                            closure.ndef_body() - 1
-                        } else {
-                            0
-                        });
-
-                    let mut local_heap = Heap::new();
-
-                    // TODO make recursive call here with a very small stack
-                    // probably a bit overkill, but not much else I can do here I think
-                    let res = vm(
-                        closure.body_exp(),
-                        args.into(),
-                        &mut local_heap,
-                        inner_env,
-                        constants,
-                        repl,
-                    );
-
-                    match res {
-                        Ok(k) => match k.as_ref() {
-                            SteelVal::BoolV(true) => Some(Ok(arg)),
-                            SteelVal::BoolV(false) => None,
-                            _ => None,
-                        },
-                        Err(e) => Some(Err(e)),
-                    }
-                }
-                _ => Some(Err(SteelErr::TypeMismatch(
-                    "map expected a function".to_string(),
-                    Some(*cur_inst_span),
-                ))),
-            }
-        }
-
-        _ => Some(arg),
-    };
-
-    iter.filter_map(switch_statement)
-
-    // for val in iter {
-    //     collected_results.push(switch_statement(val)?);
-    // }
-
-    // Ok(collected_results)
-}
-
-pub(crate) fn inline_filter_iter<
-    'global,
-    I: Iterator<Item = Gc<SteelVal>> + 'global,
-    // R: Iterator<Item = Result<Rc<SteelVal>>>,
-    CT: ConstantTable,
->(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-    repl: bool,
-) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
-    // unimplemented!();
-
-    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    // TODO don't allocate this vec for just this
-    let switch_statement = move |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![Gc::clone(&arg)];
-            let res = func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
-            match res {
-                Ok(k) => match k.as_ref() {
-                    SteelVal::BoolV(true) => Some(Ok(arg)),
-                    SteelVal::BoolV(false) => None,
-                    _ => None,
-                },
-                Err(e) => Some(Err(e)),
-                // _ => None,
-            }
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![Gc::clone(&arg)];
-            let res = func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span));
-            match res {
-                Ok(k) => match k.as_ref() {
-                    SteelVal::BoolV(true) => Some(Ok(arg)),
-                    SteelVal::BoolV(false) => None,
-                    _ => None,
-                },
-                Err(e) => Some(Err(e)),
-            }
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![Gc::clone(&arg)];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            let res = vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            );
-
-            match res {
-                Ok(k) => match k.as_ref() {
-                    SteelVal::BoolV(true) => Some(Ok(arg)),
-                    SteelVal::BoolV(false) => None,
-                    _ => None,
-                },
-                Err(e) => Some(Err(e)),
-            }
-        }
-        _ => Some(Err(SteelErr::TypeMismatch(
-            "map expected a function".to_string(),
-            Some(*cur_inst_span),
-        ))),
-    };
-
-    iter.filter_map(switch_statement)
-}
-
-pub fn inline_map_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTable>(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &CT,
-    cur_inst: &DenseInstruction,
-    repl: bool,
-) -> Result<Vec<Gc<SteelVal>>> {
-    // unimplemented!();
-
-    let mut collected_results: Vec<Gc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    let switch_statement = |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![arg];
-            func(&arg_vec).map_err(|x| x.set_span(cur_inst.span))
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![arg];
-            func(arg_vec, factory).map_err(|x| x.set_span(cur_inst.span))
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![arg];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            )
-        }
-        _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
-    };
-
-    for val in iter {
-        collected_results.push(switch_statement(val)?);
-    }
-
-    Ok(collected_results)
-}
-
-fn inline_filter_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTable>(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &CT,
-    cur_inst: &DenseInstruction,
-    repl: bool,
-) -> Result<Vec<Gc<SteelVal>>> {
-    // unimplemented!();
-
-    let mut collected_results: Vec<Gc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    let switch_statement = |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![arg];
-            func(&arg_vec).map_err(|x| x.set_span(cur_inst.span))
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![arg];
-            func(arg_vec, factory).map_err(|x| x.set_span(cur_inst.span))
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![arg];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            // TODO remove this unwrap
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            )
-        }
-        _ => stop!(TypeMismatch => "filter expected a function"; cur_inst.span),
-    };
-
-    for val in iter {
-        let res = switch_statement(Gc::clone(&val))?;
-        if let SteelVal::BoolV(true) = res.as_ref() {
-            collected_results.push(val);
-        }
-    }
-
-    Ok(collected_results)
-}
-
 #[derive(Debug)]
 pub struct InstructionPointer {
     pub(crate) ip: usize,
-    instrs: Rc<Box<[DenseInstruction]>>,
+    instrs: Rc<[DenseInstruction]>,
 }
 
 impl InstructionPointer {
     pub fn new_raw() -> Self {
         InstructionPointer {
             ip: 0,
-            instrs: Rc::new(Box::new([])),
+            instrs: Rc::from(Vec::new().into_boxed_slice()),
         }
     }
 
-    pub fn new(ip: usize, instrs: Rc<Box<[DenseInstruction]>>) -> Self {
+    pub fn new(ip: usize, instrs: Rc<[DenseInstruction]>) -> Self {
         InstructionPointer { ip, instrs }
     }
 
-    pub fn instrs_ref(&self) -> &Rc<Box<[DenseInstruction]>> {
+    pub fn instrs_ref(&self) -> &Rc<[DenseInstruction]> {
         &self.instrs
     }
 
-    pub fn instrs(self) -> Rc<Box<[DenseInstruction]>> {
+    pub fn instrs(self) -> Rc<[DenseInstruction]> {
         self.instrs
     }
 }
@@ -1546,7 +984,7 @@ pub static MAXIMUM_OBJECTS: usize = 50000;
 // This should work out better I hope
 // Especially with the callbacks and all that jazz
 pub struct VmArgs<'a> {
-    pub(crate) instructions: Rc<Box<[DenseInstruction]>>,
+    pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: StackFrame,
     pub(crate) heap: &'a mut Heap,
     pub(crate) global_env: Rc<RefCell<Env>>,
@@ -1557,7 +995,7 @@ pub struct VmArgs<'a> {
 
 impl<'a> VmArgs<'a> {
     pub fn new(
-        instructions: Rc<Box<[DenseInstruction]>>,
+        instructions: Rc<[DenseInstruction]>,
         stack: StackFrame,
         heap: &'a mut Heap,
         global_env: Rc<RefCell<Env>>,
@@ -1602,7 +1040,7 @@ impl<'a> VmArgs<'a> {
 // }
 
 pub fn vm<CT: ConstantTable>(
-    instructions: Rc<Box<[DenseInstruction]>>,
+    instructions: Rc<[DenseInstruction]>,
     stack: StackFrame,
     heap: &mut Heap,
     global_env: Rc<RefCell<Env>>,

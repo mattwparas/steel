@@ -33,7 +33,9 @@ use std::hash::{Hash, Hasher};
 use crate::parser::span::Span;
 use crate::vm::ConstantTable;
 
-use crate::vm::{inline_filter_result_iter, inline_map_result_iter, inline_reduce_iter};
+use crate::vm::inline_iter::{
+    inline_filter_result_iter, inline_map_result_iter, inline_reduce_iter,
+};
 // use itertools::Itertools;
 // pub use constants::ConstantTable;
 
@@ -817,7 +819,7 @@ impl PartialOrd for SteelVal {
 #[derive(Clone)]
 pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
-    body_exp: Rc<Box<[DenseInstruction]>>,
+    body_exp: Rc<[DenseInstruction]>,
     /// parent environment that created this Lambda.
     /// the actual environment with correct bindings is built at runtime
     /// once the function is called
@@ -849,7 +851,7 @@ impl ByteCodeLambda {
         ndef_body: usize,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
-            body_exp: Rc::new(body_exp.into_boxed_slice()),
+            body_exp: Rc::from(body_exp.into_boxed_slice()),
             // parent_env,
             sub_expression_env,
             offset,
@@ -862,7 +864,7 @@ impl ByteCodeLambda {
     //     &self.params_exp
     // }
 
-    pub fn body_exp(&self) -> Rc<Box<[DenseInstruction]>> {
+    pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
         Rc::clone(&self.body_exp)
     }
 

@@ -278,6 +278,21 @@ impl TryFrom<SteelVal> for String {
     fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
         match value {
             SteelVal::StringV(ref x) => Ok(x.clone()),
+            SteelVal::SymbolV(ref x) => Ok(x.clone()),
+            _ => Err(SteelErr::ConversionError(
+                "Expected string".to_string(),
+                None,
+            )),
+        }
+    }
+}
+
+impl TryFrom<&Gc<SteelVal>> for String {
+    type Error = SteelErr;
+    fn try_from(value: &Gc<SteelVal>) -> result::Result<Self, Self::Error> {
+        match value.as_ref() {
+            SteelVal::StringV(x) => Ok(x.clone()),
+            SteelVal::SymbolV(x) => Ok(x.clone()),
             _ => Err(SteelErr::ConversionError(
                 "Expected string".to_string(),
                 None,
@@ -291,6 +306,7 @@ impl TryFrom<&SteelVal> for String {
     fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
         match value {
             SteelVal::StringV(x) => Ok(x.clone()),
+            SteelVal::SymbolV(x) => Ok(x.clone()),
             _ => Err(SteelErr::ConversionError(
                 "Expected string".to_string(),
                 None,

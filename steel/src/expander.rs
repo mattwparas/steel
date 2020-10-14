@@ -128,7 +128,7 @@ impl MacroCase {
                     MacroPattern::Nested(vec) => {
                         if let Expr::VectorVal(l) = val {
                             // TODO more elegant let* case
-                            if vec.len() == 0 && !l.is_empty() {
+                            if vec.is_empty() && !l.is_empty() {
                                 return false;
                             }
 
@@ -269,7 +269,7 @@ impl MacroCase {
                 // TODO
                 // bind the ellipses to the rest of the statement
                 MacroPattern::Many(ident) => {
-                    let rest: Vec<Expr> = token_iter.map(|x| x.clone()).collect();
+                    let rest: Vec<Expr> = token_iter.cloned().collect();
                     bindings.insert(ident.to_string(), Expr::VectorVal(rest));
                     break;
                 }
@@ -306,13 +306,7 @@ impl MacroCase {
 
     // TODO also fix this
     pub fn has_ellipses(&self) -> bool {
-        self.args.iter().any(|x| {
-            if let MacroPattern::Many(_) = x {
-                true
-            } else {
-                false
-            }
-        })
+        self.args.iter().any(|x| matches!(x, MacroPattern::Many(_)))
     }
 
     fn check_ellipses(expr: &Expr) -> bool {

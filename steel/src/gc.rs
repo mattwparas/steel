@@ -75,9 +75,9 @@ impl<T: Clone> Gc<T> {
         drop(this);
         Rc::try_unwrap(inner)
             .map_err(|_| SteelErr::Generic("value still has reference".to_string(), None))
-            .and_then(|x| {
+            .map(|x| {
                 OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
-                Ok(x)
+                x
             })
     }
 
