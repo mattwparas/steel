@@ -5,6 +5,7 @@ use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::vm::vm;
 use crate::vm::ConstantTable;
+use crate::vm::EvaluationProgress;
 use crate::vm::Heap;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -60,6 +61,7 @@ pub struct LazyStreamIter<'global, CT: ConstantTable> {
     cur_inst_span: &'global Span,
     repl: bool,
     local_heap: Heap,
+    callback: &'global EvaluationProgress,
 }
 
 impl<'global, CT: ConstantTable> LazyStreamIter<'global, CT> {
@@ -68,6 +70,7 @@ impl<'global, CT: ConstantTable> LazyStreamIter<'global, CT> {
         constants: &'global CT,
         cur_inst_span: &'global Span,
         repl: bool,
+        callback: &'global EvaluationProgress,
     ) -> Self {
         Self {
             stream,
@@ -75,6 +78,7 @@ impl<'global, CT: ConstantTable> LazyStreamIter<'global, CT> {
             cur_inst_span,
             repl,
             local_heap: Heap::new(),
+            callback,
         }
     }
 }
@@ -95,6 +99,7 @@ impl<'global, CT: ConstantTable> Iterator for LazyStreamIter<'global, CT> {
             self.cur_inst_span,
             self.repl,
             &mut self.local_heap,
+            self.callback,
         );
 
         if let Ok(next_value) = next_value {
@@ -120,6 +125,7 @@ fn exec_func<CT: ConstantTable>(
     cur_inst_span: &Span,
     repl: bool,
     local_heap: &mut Heap,
+    callback: &EvaluationProgress,
 ) -> Result<Gc<SteelVal>> {
     match stack_func.as_ref() {
         SteelVal::FuncV(func) => {
@@ -160,6 +166,7 @@ fn exec_func<CT: ConstantTable>(
                 inner_env,
                 constants,
                 repl,
+                callback,
             )
         }
         _ => stop!(TypeMismatch => "stream expected a function"; *cur_inst_span),

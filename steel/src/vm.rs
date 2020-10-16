@@ -45,6 +45,8 @@ use std::path::Path;
 use std::rc::Rc;
 use std::result;
 
+use std::cell::Cell;
+
 const STACK_LIMIT: usize = 1024;
 
 fn count_and_collect_global_defines(
@@ -503,33 +505,39 @@ pub struct Ctx<CT: ConstantTable> {
     pub(crate) repl: bool,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct EvaluationProgress {
-    instruction_count: usize,
+    instruction_count: Cell<usize>,
     callback: Option<Callback>,
 }
 
 impl EvaluationProgress {
     pub fn new() -> Self {
         EvaluationProgress {
-            instruction_count: 0,
+            instruction_count: Cell::new(1),
             callback: None,
         }
     }
 
-    pub fn with_callback(mut self, callback: Callback) -> Self {
+    pub fn with_callback(&mut self, callback: Callback) {
         self.callback.replace(callback);
-        self
     }
 
-    pub fn callback(&self) {
+    pub fn callback(&self) -> Option<bool> {
         if let Some(callback) = &self.callback {
-            callback(&self.instruction_count);
+            return Some(callback(self.instruction_count.get()));
         }
+        None
     }
 
-    pub fn increment(&mut self) {
-        self.instruction_count += 1;
+    pub fn increment(&self) {
+        self.instruction_count.set(self.instruction_count.get() + 1);
+    }
+
+    pub fn call_and_increment(&self) -> Option<bool> {
+        let b = self.callback();
+        self.increment();
+        b
     }
 }
 
@@ -569,7 +577,7 @@ impl<CT: ConstantTable> Ctx<CT> {
     }
 }
 
-pub type Callback = fn(&usize) -> bool;
+pub type Callback = fn(usize) -> bool;
 
 // pub type FunctionSignature = fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>;
 
@@ -607,7 +615,7 @@ pub struct VirtualMachine {
     global_heap: Heap,
     macro_env: Rc<RefCell<Env>>,
     idents: MacroSet,
-    callback: Option<Callback>,
+    callback: EvaluationProgress,
     ctx: Ctx<ConstantMap>,
 }
 
@@ -618,7 +626,7 @@ impl VirtualMachine {
             global_heap: Heap::new(),
             macro_env: Rc::new(RefCell::new(Env::root())),
             idents: MacroSet::new(),
-            callback: None,
+            callback: EvaluationProgress::new(),
             ctx: Ctx::<ConstantMap>::default(),
         }
     }
@@ -636,7 +644,7 @@ impl VirtualMachine {
     }
 
     pub fn on_progress(&mut self, callback: Callback) {
-        self.callback.replace(callback);
+        &self.callback.with_callback(callback);
     }
 
     pub fn print_bindings(&self) {
@@ -870,9 +878,8 @@ impl VirtualMachine {
             Rc::clone(&self.global_env),
             &self.ctx.constant_map,
             repl,
+            &self.callback,
         );
-
-        // println!("$$$$$$$$$$ GETTING HERE! $$$$$$$$$$$$");
 
         // TODO figure this noise out
         // might be easier to just... write a GC
@@ -912,6 +919,7 @@ pub fn execute_vm(
     let mut heap = Heap::new();
     // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
     let global_env = Rc::new(RefCell::new(Env::default_env()));
+    let evaluation_progress = EvaluationProgress::new();
     vm(
         instructions,
         stack,
@@ -919,6 +927,7 @@ pub fn execute_vm(
         global_env,
         constants,
         false,
+        &evaluation_progress,
         // None,
     )
 }
@@ -990,7 +999,7 @@ pub struct VmArgs<'a> {
     pub(crate) global_env: Rc<RefCell<Env>>,
     pub(crate) constants: &'a ConstantMap,
     pub(crate) repl: bool,
-    pub(crate) evaluation_progress: &'a mut EvaluationProgress,
+    pub(crate) evaluation_progress: &'a EvaluationProgress,
 }
 
 impl<'a> VmArgs<'a> {
@@ -1001,7 +1010,7 @@ impl<'a> VmArgs<'a> {
         global_env: Rc<RefCell<Env>>,
         constants: &'a ConstantMap,
         repl: bool,
-        evaluation_progress: &'a mut EvaluationProgress,
+        evaluation_progress: &'a EvaluationProgress,
     ) -> Self {
         VmArgs {
             instructions,
@@ -1012,6 +1021,18 @@ impl<'a> VmArgs<'a> {
             repl,
             evaluation_progress,
         }
+    }
+
+    pub fn call(self) -> Result<Gc<SteelVal>> {
+        vm(
+            self.instructions,
+            self.stack,
+            self.heap,
+            self.global_env,
+            self.constants,
+            self.repl,
+            self.evaluation_progress,
+        )
     }
 }
 
@@ -1046,7 +1067,7 @@ pub fn vm<CT: ConstantTable>(
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
     repl: bool,
-    // callback: Option<Callback>,
+    callback: &EvaluationProgress,
 ) -> Result<Gc<SteelVal>> {
     let mut ip = 0;
     let mut global_env = global_env;
@@ -1070,7 +1091,7 @@ pub fn vm<CT: ConstantTable>(
     // Manage the depth of instructions to know when to backtrack
     let mut pop_count = 1;
     // Manage the instruction count
-    let mut _instruction_count = 0;
+    // let mut _instruction_count = 0;
 
     while ip < instructions.len() {
         // let object_count: usize = Gc::<()>::object_count();
@@ -1143,7 +1164,7 @@ pub fn vm<CT: ConstantTable>(
                 let transducer = stack.pop().unwrap();
 
                 if let SteelVal::IterV(transducer) = transducer.as_ref() {
-                    let ret_val = transducer.run(list, constants, &cur_inst.span, repl);
+                    let ret_val = transducer.run(list, constants, &cur_inst.span, repl, callback);
                     stack.push(ret_val?);
                 } else {
                     stop!(Generic => "Transducer execute takes a list"; cur_inst.span);
@@ -1164,6 +1185,7 @@ pub fn vm<CT: ConstantTable>(
                         constants,
                         &cur_inst.span,
                         repl,
+                        callback,
                     );
                     stack.push(ret_val?);
                 } else {
@@ -1298,6 +1320,7 @@ pub fn vm<CT: ConstantTable>(
                             constants,
                             &cur_inst,
                             repl,
+                            callback,
                         )?;
 
                         stack.push(ListOperations::built_in_list_func()(&collected_results)?);
@@ -1310,6 +1333,7 @@ pub fn vm<CT: ConstantTable>(
                             constants,
                             &cur_inst.span,
                             repl,
+                            callback,
                         ))?);
                     }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
@@ -1330,6 +1354,7 @@ pub fn vm<CT: ConstantTable>(
                             constants,
                             cur_inst,
                             repl,
+                            callback,
                         )?;
                         stack.push(ListOperations::built_in_list_func()(&collected_results)?);
                     }
@@ -1342,6 +1367,7 @@ pub fn vm<CT: ConstantTable>(
                             constants,
                             &cur_inst.span,
                             repl,
+                            callback,
                         ))?);
                     }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
@@ -1652,7 +1678,12 @@ pub fn vm<CT: ConstantTable>(
         //     callback(&instruction_count);
         // }
 
-        _instruction_count += 1;
+        // _instruction_count += 1;
+
+        match callback.call_and_increment() {
+            Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
+            _ => {}
+        }
 
         // ip += 1;
     }

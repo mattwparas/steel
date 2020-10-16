@@ -6,6 +6,7 @@ use crate::rvals::{Result, SteelVal};
 use crate::vm::vm;
 use crate::vm::ConstantTable;
 use crate::vm::DenseInstruction;
+use crate::vm::EvaluationProgress;
 use crate::vm::Heap;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -21,6 +22,7 @@ pub(crate) fn inline_reduce_iter<
     constants: &'global CT,
     cur_inst_span: &'global Span,
     repl: bool,
+    callback: &'global EvaluationProgress,
 ) -> Result<Gc<SteelVal>> {
     // unimplemented!();
 
@@ -67,6 +69,7 @@ pub(crate) fn inline_reduce_iter<
                 inner_env,
                 constants,
                 repl,
+                callback,
             )
         }
 
@@ -87,6 +90,7 @@ pub(crate) fn inline_map_result_iter<
     constants: &'global CT,
     cur_inst_span: &'global Span,
     repl: bool,
+    callback: &'global EvaluationProgress,
 ) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
     // unimplemented!();
 
@@ -137,6 +141,7 @@ pub(crate) fn inline_map_result_iter<
                 inner_env,
                 constants,
                 repl,
+                callback,
             )
         }
         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
@@ -156,6 +161,7 @@ pub(crate) fn inline_map_iter<
     constants: &'global CT,
     cur_inst_span: &'global Span,
     repl: bool,
+    callback: &'global EvaluationProgress,
 ) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
     // unimplemented!();
 
@@ -206,6 +212,7 @@ pub(crate) fn inline_map_iter<
                 inner_env,
                 constants,
                 repl,
+                callback,
             )
         }
         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
@@ -231,6 +238,7 @@ pub(crate) fn inline_filter_result_iter<
     constants: &'global CT,
     cur_inst_span: &'global Span,
     repl: bool,
+    callback: &'global EvaluationProgress,
 ) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
     // unimplemented!();
 
@@ -300,6 +308,7 @@ pub(crate) fn inline_filter_result_iter<
                         inner_env,
                         constants,
                         repl,
+                        callback,
                     );
 
                     match res {
@@ -341,6 +350,7 @@ pub(crate) fn inline_filter_iter<
     constants: &'global CT,
     cur_inst_span: &'global Span,
     repl: bool,
+    callback: &'global EvaluationProgress,
 ) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
     // unimplemented!();
 
@@ -407,6 +417,7 @@ pub(crate) fn inline_filter_iter<
                 inner_env,
                 constants,
                 repl,
+                callback,
             );
 
             match res {
@@ -433,6 +444,7 @@ pub(crate) fn inline_map_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTa
     constants: &CT,
     cur_inst: &DenseInstruction,
     repl: bool,
+    callback: &EvaluationProgress,
 ) -> Result<Vec<Gc<SteelVal>>> {
     // unimplemented!();
 
@@ -481,6 +493,7 @@ pub(crate) fn inline_map_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTa
                 inner_env,
                 constants,
                 repl,
+                callback,
             )
         }
         _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
@@ -499,6 +512,7 @@ pub(crate) fn inline_filter_normal<I: Iterator<Item = Gc<SteelVal>>, CT: Constan
     constants: &CT,
     cur_inst: &DenseInstruction,
     repl: bool,
+    callback: &EvaluationProgress,
 ) -> Result<Vec<Gc<SteelVal>>> {
     // unimplemented!();
 
@@ -548,6 +562,7 @@ pub(crate) fn inline_filter_normal<I: Iterator<Item = Gc<SteelVal>>, CT: Constan
                 inner_env,
                 constants,
                 repl,
+                callback,
             )
         }
         _ => stop!(TypeMismatch => "filter expected a function"; cur_inst.span),

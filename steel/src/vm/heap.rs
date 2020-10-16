@@ -15,6 +15,18 @@ pub struct Heap {
     current_double: usize,
 }
 
+impl Default for Heap {
+    fn default() -> Self {
+        Heap {
+            heap: Vec::new(),
+            root: None,
+            limit: 5000,
+            max_double: 4,
+            current_double: 0,
+        }
+    }
+}
+
 impl Heap {
     pub fn new() -> Self {
         Heap {
@@ -110,6 +122,10 @@ impl Heap {
 
     pub fn len(&self) -> usize {
         self.heap.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.heap.is_empty()
     }
 
     pub fn reset_limit(&mut self) {
@@ -257,7 +273,7 @@ impl Heap {
                 let e = Rc::clone(&upgraded_env);
                 self.add(Rc::clone(&e));
                 // See if this works...
-                for (_, value) in e.borrow().bindings_map() {
+                for value in e.borrow().bindings_map().values() {
                     self.match_closure(value);
                 }
 
@@ -269,8 +285,7 @@ impl Heap {
     }
 
     pub fn mark(&self) {
-        &self
-            .heap
+        self.heap
             .iter()
             .for_each(|x| x.borrow_mut().set_reachable(true));
     }

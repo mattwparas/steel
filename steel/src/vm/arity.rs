@@ -12,6 +12,7 @@ impl Arity {
     }
 }
 
+#[derive(Default)]
 pub struct ArityMap(Vec<(String, Arity)>);
 
 impl ArityMap {

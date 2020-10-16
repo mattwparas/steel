@@ -17,7 +17,7 @@ pub enum StructFunctionType {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SteelStruct {
-    name: Rc<String>,
+    name: Rc<str>,
     fields: Vec<Gc<SteelVal>>,
     function_purpose: StructFunctionType,
 }
@@ -31,7 +31,7 @@ impl Drop for SteelStruct {
 
 impl SteelStruct {
     pub fn new(
-        name: Rc<String>,
+        name: Rc<str>,
         fields: Vec<Gc<SteelVal>>,
         function_purpose: StructFunctionType,
     ) -> Self {
@@ -75,7 +75,7 @@ impl SteelStruct {
         // add 2 for the constructor and the predicate
         let mut funcs = Vec::with_capacity(field_names_as_strs.len() * 2 + 2);
         // generate constructor
-        let cons = constructor(name.to_string(), field_names_as_strs.len());
+        let cons = constructor(name, field_names_as_strs.len());
         // generate predicate
         funcs.push((format!("{}?", name), predicate(&name)));
         // generate getters and setters
@@ -91,9 +91,9 @@ impl SteelStruct {
 // initialize hashmap to be field_names -> void
 // just do arity check before inserting to make sure things check out
 // that way field names as a vec are no longer necessary
-fn constructor(name: String, len: usize) -> SteelVal {
+fn constructor(name: &str, len: usize) -> SteelVal {
     let factory: SteelStruct = SteelStruct::new(
-        Rc::new(name),
+        Rc::from(name),
         vec![VOID.with(|f| Gc::clone(f)); len],
         StructFunctionType::Constructor,
     );
@@ -127,7 +127,7 @@ fn constructor(name: String, len: usize) -> SteelVal {
 
 fn predicate(name: &str) -> SteelVal {
     let factory = SteelStruct::new(
-        Rc::new(name.to_string()),
+        Rc::from(name),
         Vec::new(),
         StructFunctionType::Predicate(name.to_string()),
     );
@@ -162,11 +162,7 @@ fn predicate(name: &str) -> SteelVal {
 }
 
 fn getter(name: &str, idx: usize) -> SteelVal {
-    let factory = SteelStruct::new(
-        Rc::new(name.to_string()),
-        Vec::new(),
-        StructFunctionType::Getter(idx),
-    );
+    let factory = SteelStruct::new(Rc::from(name), Vec::new(), StructFunctionType::Getter(idx));
     SteelVal::StructClosureV(
         factory,
         |args: Vec<Gc<SteelVal>>, factory: &SteelStruct| -> Result<Gc<SteelVal>> {
@@ -195,11 +191,7 @@ fn getter(name: &str, idx: usize) -> SteelVal {
 }
 
 fn setter(name: &str, idx: usize) -> SteelVal {
-    let factory = SteelStruct::new(
-        Rc::new(name.to_string()),
-        Vec::new(),
-        StructFunctionType::Setter(idx),
-    );
+    let factory = SteelStruct::new(Rc::from(name), Vec::new(), StructFunctionType::Setter(idx));
     SteelVal::StructClosureV(
         factory,
         |args: Vec<Gc<SteelVal>>, factory: &SteelStruct| -> Result<Gc<SteelVal>> {
@@ -247,9 +239,9 @@ mod struct_tests {
     #[test]
     fn constructor_normal() {
         let args = vec![SteelVal::IntV(1), SteelVal::IntV(2)];
-        let res = apply_function(constructor("Promise".to_string(), 2), args);
+        let res = apply_function(constructor("Promise", 2), args);
         let expected = Gc::new(SteelVal::StructV(SteelStruct {
-            name: Rc::new("Promise".to_string()),
+            name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
             function_purpose: StructFunctionType::Constructor,
         }));
@@ -260,7 +252,7 @@ mod struct_tests {
     fn setter_position_0() {
         let args = vec![
             SteelVal::StructV(SteelStruct {
-                name: Rc::new("Promise".to_string()),
+                name: Rc::from("Promise"),
                 fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
                 function_purpose: StructFunctionType::Constructor,
             }),
@@ -269,7 +261,7 @@ mod struct_tests {
 
         let res = apply_function(setter("Promise", 0), args);
         let expected = Gc::new(SteelVal::StructV(SteelStruct {
-            name: Rc::new("Promise".to_string()),
+            name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(100)), Gc::new(SteelVal::IntV(2))],
             function_purpose: StructFunctionType::Constructor,
         }));
@@ -280,7 +272,7 @@ mod struct_tests {
     fn setter_position_1() {
         let args = vec![
             SteelVal::StructV(SteelStruct {
-                name: Rc::new("Promise".to_string()),
+                name: Rc::from("Promise"),
                 fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
                 function_purpose: StructFunctionType::Constructor,
             }),
@@ -289,7 +281,7 @@ mod struct_tests {
 
         let res = apply_function(setter("Promise", 1), args);
         let expected = Gc::new(SteelVal::StructV(SteelStruct {
-            name: Rc::new("Promise".to_string()),
+            name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(100))],
             function_purpose: StructFunctionType::Constructor,
         }));
@@ -299,7 +291,7 @@ mod struct_tests {
     #[test]
     fn getter_position_0() {
         let args = vec![SteelVal::StructV(SteelStruct {
-            name: Rc::new("Promise".to_string()),
+            name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
             function_purpose: StructFunctionType::Constructor,
         })];

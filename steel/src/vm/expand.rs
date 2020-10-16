@@ -46,7 +46,7 @@ impl MacroSet {
 }
 
 pub fn get_definition_names(exprs: &[Expr]) -> Vec<String> {
-    exprs.into_iter().filter_map(get_definition_name).collect()
+    exprs.iter().filter_map(get_definition_name).collect()
 }
 
 fn get_definition_name(expr: &Expr) -> Option<String> {
@@ -278,7 +278,7 @@ fn expand_define(
                                 expanded_body,
                             ]);
 
-                            return Ok(return_val);
+                            Ok(return_val)
 
                         // return Ok(Expr::VectorVal(list_of_tokens.to_vec()));
                         } else {
@@ -380,7 +380,7 @@ pub fn expand(expr: Expr, env: &Rc<RefCell<Env>>, macro_env: &Rc<RefCell<Env>>) 
                     }
                 }
                 let result: Result<Vec<Expr>> = list_of_tokens
-                    .into_iter()
+                    .iter()
                     .map(|x| expand(x.clone(), env, macro_env))
                     .collect();
                 Ok(Expr::VectorVal(result?))

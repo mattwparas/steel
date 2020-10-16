@@ -260,6 +260,11 @@
 ;;        (infix (stack 1) (input <input> ... eof))) ;; rule 1
 ;;      ))
 
+;; Implement a system to perform eager evaluation of constant functions in place
+;; This would simply look at existing functions and replace them with the constant version of that function
+;; This can only work if we can prove that the function is pure
+;; I would need an intermediate representation to do transformations on before the bytecode phase most likely
+;; This would be super annoying otherwise
 
 
 (define test
@@ -292,3 +297,10 @@
                                       (begin (error! (symbol->string (quote test))
                                                      \":\" \"contract violation on result:\" ##res \"violated the contract:\"
                                                      (symbol->string (quote number?))))) ##res)))))))
+
+
+
+
+
+
+"{\"name\": \"John Doe\", \"age\": 43, \"phones\": [\"+44 1234567\", \"+44 2345678\"]}"

@@ -726,7 +726,7 @@ fn check_length(what: &str, tokens: &[Expr], expected: usize) -> Result<()> {
     } else {
         if let Some((first, rest)) = tokens.split_first() {
             let span = rest
-                .into_iter()
+                .iter()
                 .map(|x| x.span())
                 .fold(first.span(), Span::merge);
 

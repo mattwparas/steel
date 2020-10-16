@@ -21,6 +21,7 @@ use std::result;
 use crate::structs::SteelStruct;
 
 use crate::vm::DenseInstruction;
+use crate::vm::EvaluationProgress;
 
 // use std::mem;
 
@@ -288,13 +289,15 @@ impl Transducer {
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
+        callback: &EvaluationProgress,
     ) -> Result<Gc<SteelVal>> {
         match root.as_ref() {
             SteelVal::VectorV(v) => {
                 let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
                     Box::new(v.into_iter().map(|x| Ok(Gc::clone(x))));
                 for t in &self.ops {
-                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+                    my_iter =
+                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
                 }
 
                 crate::primitives::VectorOperations::vec_construct_iter(my_iter)
@@ -303,18 +306,25 @@ impl Transducer {
                 let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
                     Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x)));
                 for t in &self.ops {
-                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+                    my_iter =
+                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
                 }
 
                 crate::primitives::VectorOperations::vec_construct_iter(my_iter)
             }
             SteelVal::StreamV(lazy_stream) => {
-                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = Box::new(
-                    LazyStreamIter::new(lazy_stream.clone(), constants, cur_inst_span, repl),
-                );
+                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
+                    Box::new(LazyStreamIter::new(
+                        lazy_stream.clone(),
+                        constants,
+                        cur_inst_span,
+                        repl,
+                        callback,
+                    ));
 
                 for t in &self.ops {
-                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+                    my_iter =
+                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
                 }
 
                 crate::primitives::VectorOperations::vec_construct_iter(my_iter)
@@ -331,6 +341,7 @@ impl Transducer {
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
+        callback: &EvaluationProgress,
     ) -> Result<Gc<SteelVal>> {
         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
             SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
@@ -340,12 +351,13 @@ impl Transducer {
                 constants,
                 cur_inst_span,
                 repl,
+                callback,
             )),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
         for t in &self.ops {
-            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
         }
 
         inline_reduce_iter(
@@ -355,6 +367,7 @@ impl Transducer {
             constants,
             cur_inst_span,
             repl,
+            callback,
         )
     }
 }
@@ -378,6 +391,7 @@ impl Transducers {
         constants: &'global CT,
         cur_inst_span: &'global Span,
         repl: bool,
+        callback: &'global EvaluationProgress,
     ) -> Result<Box<dyn Iterator<Item = Result<Gc<SteelVal>>> + 'global>> {
         match self {
             Transducers::Map(func) => Ok(Box::new(inline_map_result_iter(
@@ -386,6 +400,7 @@ impl Transducers {
                 constants,
                 cur_inst_span,
                 repl,
+                callback,
             ))),
             Transducers::Filter(func) => Ok(Box::new(inline_filter_result_iter(
                 iter,
@@ -393,6 +408,7 @@ impl Transducers {
                 constants,
                 cur_inst_span,
                 repl,
+                callback,
             ))),
             Transducers::Take(num) => {
                 if let SteelVal::IntV(num) = num.as_ref() {
