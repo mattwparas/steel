@@ -283,14 +283,14 @@ pub fn test_repl() -> std::io::Result<()> {
         }
     };
 
-    vm.on_progress(|count| {
-        // parameter is 'u64' - number of operations already performed
-        if count % 1000 == 0 {
-            println!("Number of instructions up to this point: {}", count); // print out a progress log every 1,000 operations
-            return false;
-        }
-        true
-    });
+    // vm.on_progress(|count| {
+    //     // parameter is 'u64' - number of operations already performed
+    //     if count % 1000 == 0 {
+    //         println!("Number of instructions up to this point: {}", count); // print out a progress log every 1,000 operations
+    //         return false;
+    //     }
+    //     true
+    // });
 
     repl_base(vm)
 }

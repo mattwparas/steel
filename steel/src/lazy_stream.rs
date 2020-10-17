@@ -247,8 +247,7 @@ mod stream_tests {
 
         (assert! 
             (equal? (list 10 10 10 10 10)
-                    (stream-section 5 (map-stream (lambda (x) 10) (integers 0)))
-        ))
+                    (stream-section 5 (map-stream (lambda (x) 10) (integers 0)))))
         "#;
         assert_script(script);
     }
