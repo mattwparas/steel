@@ -260,7 +260,7 @@ pub fn mutation_test(arg: CoolTest) -> CoolTest {
 }
 
 pub fn test_repl() -> std::io::Result<()> {
-    let mut vm = build_vm! {
+    let vm = build_vm! {
         Structs => {
             MyStruct,
             CoolTest,
