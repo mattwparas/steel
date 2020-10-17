@@ -40,6 +40,10 @@ impl ConstantTable for ConstantMap {
         self.0.len()
     }
 
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     fn roll_back(&mut self, idx: usize) {
         self.0.truncate(idx);
     }
@@ -57,6 +61,7 @@ pub trait ConstantTable {
     fn add_or_get(&mut self, val: Gc<SteelVal>) -> usize;
     fn len(&self) -> usize;
     fn roll_back(&mut self, idx: usize);
+    fn is_empty(&self) -> bool;
 
     #[cfg(test)]
     fn clear(&mut self);

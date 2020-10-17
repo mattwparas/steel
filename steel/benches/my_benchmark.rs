@@ -17,7 +17,7 @@ fn range(c: &mut Criterion) {
 
     vm.parse_and_execute(PRELUDE).unwrap();
 
-    let bytecode = Rc::new(
+    let bytecode = Rc::from(
         vm.emit_instructions(&script).unwrap()[0]
             .clone()
             .into_boxed_slice(),
@@ -45,7 +45,7 @@ fn map(c: &mut Criterion) {
     let warmup = "(define lst (range 0 50000))";
     vm.parse_and_execute(black_box(&warmup)).unwrap();
 
-    let bytecode = Rc::new(
+    let bytecode = Rc::from(
         vm.emit_instructions(&script).unwrap()[0]
             .clone()
             .into_boxed_slice(),
@@ -75,7 +75,7 @@ fn filter(c: &mut Criterion) {
     let warmup = "(define lst (range 0 50000))";
     vm.parse_and_execute(black_box(&warmup)).unwrap();
 
-    let bytecode = Rc::new(
+    let bytecode = Rc::from(
         vm.emit_instructions(&script).unwrap()[0]
             .clone()
             .into_boxed_slice(),

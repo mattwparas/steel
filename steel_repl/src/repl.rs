@@ -21,6 +21,8 @@ use std::io::Read;
 use steel::parser::span::Span;
 use steel::stdlib::PRELUDE;
 
+use std::time::Instant;
+
 #[macro_export]
 macro_rules! build_repl {
     ($($type:ty),*) => {
@@ -131,6 +133,8 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
         }
     }
 
+    let mut print_time = false;
+
     loop {
         let readline = rl.readline(&prompt);
         match readline {
@@ -139,6 +143,7 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
                 match line.as_str() {
                     ":quit" => return Ok(()),
                     // ":reset" => interpreter.reset(),
+                    ":time" => print_time = !print_time,
                     ":env" => vm.print_bindings(),
                     ":?" => display_help(),
                     line if line.contains(":require") => {
@@ -165,6 +170,8 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
                     _ => {
                         // println!("Active Object Count: {:?}", steel::gc::OBJECT_COUNT);
 
+                        let now = Instant::now();
+
                         let res = vm.parse_and_execute(&line);
 
                         match res {
@@ -176,6 +183,10 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
                                 e.emit_result("repl.stl", line.as_str(), Span::new(0, 0));
                                 eprintln!("{}", e.to_string().bright_red());
                             }
+                        }
+
+                        if print_time {
+                            println!("Time taken: {:?}", now.elapsed());
                         }
 
                         // println!("Active Object Count: {:?}", steel::gc::OBJECT_COUNT);

@@ -260,7 +260,7 @@ pub fn mutation_test(arg: CoolTest) -> CoolTest {
 }
 
 pub fn test_repl() -> std::io::Result<()> {
-    repl_base(build_vm! {
+    let mut vm = build_vm! {
         Structs => {
             MyStruct,
             CoolTest,
@@ -281,7 +281,18 @@ pub fn test_repl() -> std::io::Result<()> {
             "new-mutation" => new_mutation,
             "mutation-inner!" => mutation_inner,
         }
-    })
+    };
+
+    // vm.on_progress(|count| {
+    //     // parameter is 'u64' - number of operations already performed
+    //     if count % 1000 == 0 {
+    //         println!("Number of instructions up to this point: {}", count); // print out a progress log every 1,000 operations
+    //         return false;
+    //     }
+    //     true
+    // });
+
+    repl_base(vm)
 }
 
 pub fn my_repl() -> std::io::Result<()> {

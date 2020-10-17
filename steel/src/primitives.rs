@@ -7,6 +7,7 @@ mod lists;
 mod meta_ops;
 mod nums;
 mod ports;
+mod streams;
 mod strings;
 mod symbols;
 mod transducers;
@@ -21,6 +22,7 @@ pub use lists::ListOperations;
 pub use meta_ops::MetaOperations;
 pub use nums::NumOperations;
 pub use ports::PortOperations;
+pub use streams::StreamOperations;
 pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
 pub use transducers::TransducerOperations;
@@ -276,6 +278,21 @@ impl TryFrom<SteelVal> for String {
     fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
         match value {
             SteelVal::StringV(ref x) => Ok(x.clone()),
+            SteelVal::SymbolV(ref x) => Ok(x.clone()),
+            _ => Err(SteelErr::ConversionError(
+                "Expected string".to_string(),
+                None,
+            )),
+        }
+    }
+}
+
+impl TryFrom<&Gc<SteelVal>> for String {
+    type Error = SteelErr;
+    fn try_from(value: &Gc<SteelVal>) -> result::Result<Self, Self::Error> {
+        match value.as_ref() {
+            SteelVal::StringV(x) => Ok(x.clone()),
+            SteelVal::SymbolV(x) => Ok(x.clone()),
             _ => Err(SteelErr::ConversionError(
                 "Expected string".to_string(),
                 None,
@@ -289,6 +306,7 @@ impl TryFrom<&SteelVal> for String {
     fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
         match value {
             SteelVal::StringV(x) => Ok(x.clone()),
+            SteelVal::SymbolV(x) => Ok(x.clone()),
             _ => Err(SteelErr::ConversionError(
                 "Expected string".to_string(),
                 None,
@@ -317,6 +335,12 @@ impl TryFrom<Vec<SteelVal>> for VecNumbers {
 impl From<String> for SteelVal {
     fn from(val: String) -> SteelVal {
         SteelVal::StringV(val)
+    }
+}
+
+impl From<String> for Gc<SteelVal> {
+    fn from(val: String) -> Gc<SteelVal> {
+        Gc::new(val.into())
     }
 }
 

@@ -20,6 +20,9 @@
 (define empty-stream? null?)
 (define the-empty-stream '())
 
+(define (integers n)
+  (cons-stream n (integers (+ 1 n))))
+
 (define (stream-section n stream)
   (cond ((= n 0) '())
         (else
@@ -36,28 +39,28 @@
      (+ h1 h2)
      (add-streams (tail s1) (tail s2)))))
 
-;; (define ones (cons-stream 1 ones))
-
-;; (stream-section 7 ones)
-
-;; (define (integers-starting-from n)
-;;  (cons-stream n
-;;   (integers-starting-from (+ n 1))))
-
-;; (define nat-nums
-;;   (integers-starting-from 1))
-
-;; (stream-section 10 nat-nums)
-
-;; (define nat-nums
-;;  (cons-stream 1
-;;   (add-streams ones nat-nums)))
-
-;; (stream-section 10 nat-nums)
-
 (define fibs
   (cons-stream 0
     (cons-stream 1
       (add-streams (tail fibs) fibs))))
 
-(stream-section 15 fibs)
+(define (integers n)
+  (stream-cons n (lambda () (integers (+ 1 n)))))
+
+(define (in-range-stream n m)
+  (if (= n m)
+      empty-stream
+      (stream-cons n (lambda () (in-range-stream (add1 n) m)))))
+
+(define (append-streams s1 s2)
+  (cond
+    [(empty-stream? s1) s2]
+    [(empty-stream? s2) s1]
+    [else
+     (stream-cons (stream-car s1)
+                  (lambda () (append-streams (stream-cdr s1) s2)))]))
+
+
+; (stream-section 15 fibs)
+
+;; TODO add macro to assist in the wrapping of stream-cons similar to how cons-stream functions

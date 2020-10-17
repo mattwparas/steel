@@ -128,7 +128,7 @@ impl MacroCase {
                     MacroPattern::Nested(vec) => {
                         if let Expr::VectorVal(l) = val {
                             // TODO more elegant let* case
-                            if vec.len() == 0 && !l.is_empty() {
+                            if vec.is_empty() && !l.is_empty() {
                                 return false;
                             }
 
@@ -269,7 +269,7 @@ impl MacroCase {
                 // TODO
                 // bind the ellipses to the rest of the statement
                 MacroPattern::Many(ident) => {
-                    let rest: Vec<Expr> = token_iter.map(|x| x.clone()).collect();
+                    let rest: Vec<Expr> = token_iter.cloned().collect();
                     bindings.insert(ident.to_string(), Expr::VectorVal(rest));
                     break;
                 }
@@ -306,13 +306,7 @@ impl MacroCase {
 
     // TODO also fix this
     pub fn has_ellipses(&self) -> bool {
-        self.args.iter().any(|x| {
-            if let MacroPattern::Many(_) = x {
-                true
-            } else {
-                false
-            }
-        })
+        self.args.iter().any(|x| matches!(x, MacroPattern::Many(_)))
     }
 
     fn check_ellipses(expr: &Expr) -> bool {
@@ -515,7 +509,13 @@ impl SteelMacro {
     // TODO
     // its worth a shot
     fn match_case(&self, list_of_tokens: &[Expr]) -> Result<&MacroCase> {
-        // println!("{:?}", list_of_tokens);
+        // println!(
+        //     "{:?}",
+        //     list_of_tokens
+        //         .iter()
+        //         .map(|x| x.to_string())
+        //         .collect::<Vec<_>>()
+        // );
 
         for case in &self.cases {
             // println!("Case: {:?}", case.args);
@@ -528,6 +528,7 @@ impl SteelMacro {
             {
                 // println!("got inside the if");
                 if case.recursive_match(list_of_tokens) {
+                    // println!("Matched case!");
                     return Ok(case);
                 }
             }
@@ -546,9 +547,16 @@ impl SteelMacro {
         }
     }
 
+    // TODO
+    // Stop clobbering the span information
+    // Set the span of the resulting expr to be the original span passed in!
+    // For now do an extra walk
     pub fn expand(&self, list_of_tokens: &[Expr]) -> Result<Expr> {
         let case_to_expand = self.match_case(list_of_tokens)?;
-        case_to_expand.expand(list_of_tokens)
+        let original_spans: Vec<Span> = list_of_tokens.iter().map(|x| x.span()).collect();
+        let coalesced_span = Expr::coalesce_span(original_spans);
+        let expanded_expr = case_to_expand.expand(list_of_tokens)?;
+        Ok(Expr::rewrite_span(expanded_expr, coalesced_span))
     }
 }
 

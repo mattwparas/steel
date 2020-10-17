@@ -3,6 +3,7 @@ mod codegen;
 mod constants;
 mod expand;
 mod heap;
+pub mod inline_iter;
 mod instructions;
 mod map;
 mod opcode;
@@ -31,6 +32,7 @@ use crate::parser::{tokens::TokenType, Expr, ParseError, Parser, SyntaxObject};
 use crate::primitives::{ListOperations, VectorOperations};
 use crate::rerrs::SteelErr;
 use crate::rvals::{ByteCodeLambda, Result, SteelVal};
+use crate::vm::inline_iter::*;
 use expand::MacroSet;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -42,7 +44,8 @@ use std::iter::Iterator;
 use std::path::Path;
 use std::rc::Rc;
 use std::result;
-use std::time::Instant;
+
+use std::cell::Cell;
 
 const STACK_LIMIT: usize = 1024;
 
@@ -110,7 +113,7 @@ fn count_and_collect_global_defines(
 
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?
-pub fn collect_defines_from_current_scope(
+fn collect_defines_from_current_scope(
     instructions: &[Instruction],
     symbol_map: &mut SymbolMap,
 ) -> Result<usize> {
@@ -159,7 +162,7 @@ pub fn collect_defines_from_current_scope(
     Ok(count)
 }
 
-pub fn collect_binds_from_current_scope(
+fn collect_binds_from_current_scope(
     instructions: &mut [Instruction],
     symbol_map: &mut SymbolMap,
     start: usize,
@@ -204,7 +207,7 @@ pub fn collect_binds_from_current_scope(
     }
 }
 
-pub fn insert_debruijn_indices(
+fn insert_debruijn_indices(
     instructions: &mut [Instruction],
     symbol_map: &mut SymbolMap,
 ) -> Result<()> {
@@ -311,7 +314,7 @@ pub fn insert_debruijn_indices(
 
 // Adds a flag to the pop value in order to save the heap to the global heap
 // I should really come up with a better name but for now we'll leave it
-pub fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
+fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
     match instructions {
         [.., Instruction {
             op_code: OpCode::EDEF,
@@ -478,6 +481,9 @@ impl FunctionCallCtx {
     }
 }
 
+// TODO don't actually pass around the span w/ the instruction
+// pass around an index into the span to reduce the size of the instructions
+// generate an equivalent
 impl From<Instruction> for DenseInstruction {
     fn from(val: Instruction) -> DenseInstruction {
         DenseInstruction::new(
@@ -499,33 +505,39 @@ pub struct Ctx<CT: ConstantTable> {
     pub(crate) repl: bool,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct EvaluationProgress {
-    instruction_count: usize,
+    instruction_count: Cell<usize>,
     callback: Option<Callback>,
 }
 
 impl EvaluationProgress {
     pub fn new() -> Self {
         EvaluationProgress {
-            instruction_count: 0,
+            instruction_count: Cell::new(1),
             callback: None,
         }
     }
 
-    pub fn with_callback(mut self, callback: Callback) -> Self {
+    pub fn with_callback(&mut self, callback: Callback) {
         self.callback.replace(callback);
-        self
     }
 
-    pub fn callback(&self) {
+    pub fn callback(&self) -> Option<bool> {
         if let Some(callback) = &self.callback {
-            callback(&self.instruction_count);
+            return Some(callback(self.instruction_count.get()));
         }
+        None
     }
 
-    pub fn increment(&mut self) {
-        self.instruction_count += 1;
+    pub fn increment(&self) {
+        self.instruction_count.set(self.instruction_count.get() + 1);
+    }
+
+    pub fn call_and_increment(&self) -> Option<bool> {
+        let b = self.callback();
+        self.increment();
+        b
     }
 }
 
@@ -565,7 +577,7 @@ impl<CT: ConstantTable> Ctx<CT> {
     }
 }
 
-pub type Callback = fn(&usize) -> bool;
+pub type Callback = fn(usize) -> bool;
 
 // pub type FunctionSignature = fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>;
 
@@ -603,7 +615,7 @@ pub struct VirtualMachine {
     global_heap: Heap,
     macro_env: Rc<RefCell<Env>>,
     idents: MacroSet,
-    callback: Option<Callback>,
+    callback: EvaluationProgress,
     ctx: Ctx<ConstantMap>,
 }
 
@@ -614,7 +626,7 @@ impl VirtualMachine {
             global_heap: Heap::new(),
             macro_env: Rc::new(RefCell::new(Env::root())),
             idents: MacroSet::new(),
-            callback: None,
+            callback: EvaluationProgress::new(),
             ctx: Ctx::<ConstantMap>::default(),
         }
     }
@@ -632,7 +644,7 @@ impl VirtualMachine {
     }
 
     pub fn on_progress(&mut self, callback: Callback) {
-        self.callback.replace(callback);
+        &self.callback.with_callback(callback);
     }
 
     pub fn print_bindings(&self) {
@@ -677,8 +689,8 @@ impl VirtualMachine {
         gen_bytecode
             .into_iter()
             .map(|x| {
-                let code = Rc::new(x.into_boxed_slice());
-                let _now = Instant::now();
+                let code = Rc::from(x.into_boxed_slice());
+                // let now = Instant::now();
                 // let constant_map = &self.ctx.constant_map;
                 // let repl = self.ctx.repl;
                 // let mut heap = Vec::new();
@@ -786,6 +798,7 @@ impl VirtualMachine {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
+            // TODO add printing out the expression as its own special function
             // println!("{:?}", expr.to_string());
             let mut instructions: Vec<Instruction> = Vec::new();
             emit_loop(
@@ -839,7 +852,7 @@ impl VirtualMachine {
 
     pub fn execute(
         &mut self,
-        instructions: Rc<Box<[DenseInstruction]>>,
+        instructions: Rc<[DenseInstruction]>,
         // constants: &CT,
         // heap: &mut Vec<Rc<RefCell<Env>>>,
         repl: bool,
@@ -865,9 +878,8 @@ impl VirtualMachine {
             Rc::clone(&self.global_env),
             &self.ctx.constant_map,
             repl,
+            &self.callback,
         );
-
-        // println!("$$$$$$$$$$ GETTING HERE! $$$$$$$$$$$$");
 
         // TODO figure this noise out
         // might be easier to just... write a GC
@@ -887,6 +899,7 @@ impl VirtualMachine {
 
         // println!("Global heap length after: {}", self.global_heap.len());
 
+        // heap.inspect_heap();
         heap.clear();
         heap.reset_limit();
 
@@ -899,13 +912,14 @@ impl VirtualMachine {
 }
 
 pub fn execute_vm(
-    instructions: Rc<Box<[DenseInstruction]>>,
+    instructions: Rc<[DenseInstruction]>,
     constants: &ConstantMap,
 ) -> Result<Gc<SteelVal>> {
     let stack = StackFrame::new();
     let mut heap = Heap::new();
     // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
     let global_env = Rc::new(RefCell::new(Env::default_env()));
+    let evaluation_progress = EvaluationProgress::new();
     vm(
         instructions,
         stack,
@@ -913,6 +927,7 @@ pub fn execute_vm(
         global_env,
         constants,
         false,
+        &evaluation_progress,
         // None,
     )
 }
@@ -942,594 +957,29 @@ pub fn extract_constants<CT: ConstantTable>(
     Ok(())
 }
 
-pub(crate) fn inline_reduce_iter<
-    'global,
-    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
-    CT: ConstantTable,
->(
-    iter: I,
-    initial_value: Gc<SteelVal>,
-    reducer: Gc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-    repl: bool,
-) -> Result<Gc<SteelVal>> {
-    // unimplemented!();
-
-    let switch_statement = move |acc, x| match reducer.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![acc?, x?];
-            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![acc?, x?];
-            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![acc?, x?];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            // TODO remove this unwrap
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            )
-        }
-
-        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
-    };
-
-    iter.fold(Ok(initial_value), switch_statement)
-}
-
-pub(crate) fn inline_map_result_iter<
-    'global,
-    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
-    // R: Iterator<Item = Result<Rc<SteelVal>>>,
-    CT: ConstantTable,
->(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-    repl: bool,
-) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
-    // unimplemented!();
-
-    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    // TODO don't allocate this vec for just this
-    let switch_statement = move |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![arg?];
-            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![arg?];
-            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![arg?];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            // TODO remove this unwrap
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            )
-        }
-        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
-    };
-
-    // Map<
-
-    // Map::new()
-
-    // std::iter::Map
-
-    iter.map(switch_statement)
-
-    // for val in iter {
-    //     collected_results.push(switch_statement(val)?);
-    // }
-
-    // Ok(collected_results)
-}
-
-pub(crate) fn inline_map_iter<
-    'global,
-    I: Iterator<Item = Gc<SteelVal>> + 'global,
-    // R: Iterator<Item = Result<Rc<SteelVal>>>,
-    CT: ConstantTable,
->(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-    repl: bool,
-) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
-    // unimplemented!();
-
-    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    // TODO don't allocate this vec for just this
-    let switch_statement = move |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![arg];
-            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![arg];
-            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![arg];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            // TODO remove this unwrap
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            )
-        }
-        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
-    };
-
-    iter.map(switch_statement)
-
-    // for val in iter {
-    //     collected_results.push(switch_statement(val)?);
-    // }
-
-    // Ok(collected_results)
-}
-
-pub(crate) fn inline_filter_result_iter<
-    'global,
-    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
-    // R: Iterator<Item = Result<Rc<SteelVal>>>,
-    CT: ConstantTable,
->(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-    repl: bool,
-) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
-    // unimplemented!();
-
-    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    // TODO don't allocate this vec for just this
-    let switch_statement = move |arg: Result<Gc<SteelVal>>| match arg {
-        Ok(arg) => {
-            match stack_func.as_ref() {
-                SteelVal::FuncV(func) => {
-                    let arg_vec = vec![Gc::clone(&arg)];
-                    let res = func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
-                    match res {
-                        Ok(k) => match k.as_ref() {
-                            SteelVal::BoolV(true) => Some(Ok(arg)),
-                            SteelVal::BoolV(false) => None,
-                            _ => None,
-                        },
-                        Err(e) => Some(Err(e)),
-                        // _ => None,
-                    }
-                }
-                SteelVal::StructClosureV(factory, func) => {
-                    let arg_vec = vec![Gc::clone(&arg)];
-                    let res = func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span));
-                    match res {
-                        Ok(k) => match k.as_ref() {
-                            SteelVal::BoolV(true) => Some(Ok(arg)),
-                            SteelVal::BoolV(false) => None,
-                            _ => None,
-                        },
-                        Err(e) => Some(Err(e)),
-                    }
-                }
-                SteelVal::Closure(closure) => {
-                    // ignore the stack limit here
-                    let args = vec![Gc::clone(&arg)];
-                    // if let Some()
-
-                    let parent_env = closure.sub_expression_env();
-
-                    let offset =
-                        closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                    let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                        parent_env.clone(),
-                        offset,
-                    )));
-
-                    inner_env
-                        .borrow_mut()
-                        .reserve_defs(if closure.ndef_body() > 0 {
-                            closure.ndef_body() - 1
-                        } else {
-                            0
-                        });
-
-                    let mut local_heap = Heap::new();
-
-                    // TODO make recursive call here with a very small stack
-                    // probably a bit overkill, but not much else I can do here I think
-                    let res = vm(
-                        closure.body_exp(),
-                        args.into(),
-                        &mut local_heap,
-                        inner_env,
-                        constants,
-                        repl,
-                    );
-
-                    match res {
-                        Ok(k) => match k.as_ref() {
-                            SteelVal::BoolV(true) => Some(Ok(arg)),
-                            SteelVal::BoolV(false) => None,
-                            _ => None,
-                        },
-                        Err(e) => Some(Err(e)),
-                    }
-                }
-                _ => Some(Err(SteelErr::TypeMismatch(
-                    "map expected a function".to_string(),
-                    Some(*cur_inst_span),
-                ))),
-            }
-        }
-
-        _ => Some(arg),
-    };
-
-    iter.filter_map(switch_statement)
-
-    // for val in iter {
-    //     collected_results.push(switch_statement(val)?);
-    // }
-
-    // Ok(collected_results)
-}
-
-pub(crate) fn inline_filter_iter<
-    'global,
-    I: Iterator<Item = Gc<SteelVal>> + 'global,
-    // R: Iterator<Item = Result<Rc<SteelVal>>>,
-    CT: ConstantTable,
->(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &'global CT,
-    cur_inst_span: &'global Span,
-    repl: bool,
-) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
-    // unimplemented!();
-
-    // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    // TODO don't allocate this vec for just this
-    let switch_statement = move |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![Gc::clone(&arg)];
-            let res = func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
-            match res {
-                Ok(k) => match k.as_ref() {
-                    SteelVal::BoolV(true) => Some(Ok(arg)),
-                    SteelVal::BoolV(false) => None,
-                    _ => None,
-                },
-                Err(e) => Some(Err(e)),
-                // _ => None,
-            }
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![Gc::clone(&arg)];
-            let res = func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span));
-            match res {
-                Ok(k) => match k.as_ref() {
-                    SteelVal::BoolV(true) => Some(Ok(arg)),
-                    SteelVal::BoolV(false) => None,
-                    _ => None,
-                },
-                Err(e) => Some(Err(e)),
-            }
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![Gc::clone(&arg)];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            let res = vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            );
-
-            match res {
-                Ok(k) => match k.as_ref() {
-                    SteelVal::BoolV(true) => Some(Ok(arg)),
-                    SteelVal::BoolV(false) => None,
-                    _ => None,
-                },
-                Err(e) => Some(Err(e)),
-            }
-        }
-        _ => Some(Err(SteelErr::TypeMismatch(
-            "map expected a function".to_string(),
-            Some(*cur_inst_span),
-        ))),
-    };
-
-    iter.filter_map(switch_statement)
-}
-
-pub fn inline_map_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTable>(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &CT,
-    cur_inst: &DenseInstruction,
-    repl: bool,
-) -> Result<Vec<Gc<SteelVal>>> {
-    // unimplemented!();
-
-    let mut collected_results: Vec<Gc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    let switch_statement = |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![arg];
-            func(&arg_vec).map_err(|x| x.set_span(cur_inst.span))
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![arg];
-            func(arg_vec, factory).map_err(|x| x.set_span(cur_inst.span))
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![arg];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            )
-        }
-        _ => stop!(TypeMismatch => "map expected a function"; cur_inst.span),
-    };
-
-    for val in iter {
-        collected_results.push(switch_statement(val)?);
-    }
-
-    Ok(collected_results)
-}
-
-fn inline_filter_normal<I: Iterator<Item = Gc<SteelVal>>, CT: ConstantTable>(
-    iter: I,
-    stack_func: Gc<SteelVal>,
-    constants: &CT,
-    cur_inst: &DenseInstruction,
-    repl: bool,
-) -> Result<Vec<Gc<SteelVal>>> {
-    // unimplemented!();
-
-    let mut collected_results: Vec<Gc<SteelVal>> = Vec::new();
-
-    // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
-    let switch_statement = |arg| match stack_func.as_ref() {
-        SteelVal::FuncV(func) => {
-            let arg_vec = vec![arg];
-            func(&arg_vec).map_err(|x| x.set_span(cur_inst.span))
-        }
-        SteelVal::StructClosureV(factory, func) => {
-            let arg_vec = vec![arg];
-            func(arg_vec, factory).map_err(|x| x.set_span(cur_inst.span))
-        }
-        SteelVal::Closure(closure) => {
-            // ignore the stack limit here
-            let args = vec![arg];
-            // if let Some()
-
-            let parent_env = closure.sub_expression_env();
-
-            // TODO remove this unwrap
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
-
-            let mut local_heap = Heap::new();
-
-            // TODO make recursive call here with a very small stack
-            // probably a bit overkill, but not much else I can do here I think
-            vm(
-                closure.body_exp(),
-                args.into(),
-                &mut local_heap,
-                inner_env,
-                constants,
-                repl,
-            )
-        }
-        _ => stop!(TypeMismatch => "filter expected a function"; cur_inst.span),
-    };
-
-    for val in iter {
-        let res = switch_statement(Gc::clone(&val))?;
-        if let SteelVal::BoolV(true) = res.as_ref() {
-            collected_results.push(val);
-        }
-    }
-
-    Ok(collected_results)
-}
-
 #[derive(Debug)]
 pub struct InstructionPointer {
     pub(crate) ip: usize,
-    instrs: Rc<Box<[DenseInstruction]>>,
+    instrs: Rc<[DenseInstruction]>,
 }
 
 impl InstructionPointer {
     pub fn new_raw() -> Self {
         InstructionPointer {
             ip: 0,
-            instrs: Rc::new(Box::new([])),
+            instrs: Rc::from(Vec::new().into_boxed_slice()),
         }
     }
 
-    pub fn new(ip: usize, instrs: Rc<Box<[DenseInstruction]>>) -> Self {
+    pub fn new(ip: usize, instrs: Rc<[DenseInstruction]>) -> Self {
         InstructionPointer { ip, instrs }
     }
 
-    pub fn instrs_ref(&self) -> &Rc<Box<[DenseInstruction]>> {
+    pub fn instrs_ref(&self) -> &Rc<[DenseInstruction]> {
         &self.instrs
     }
 
-    pub fn instrs(self) -> Rc<Box<[DenseInstruction]>> {
+    pub fn instrs(self) -> Rc<[DenseInstruction]> {
         self.instrs
     }
 }
@@ -1539,14 +989,85 @@ impl InstructionPointer {
 static HEAP_LIMIT: usize = 5000;
 pub static MAXIMUM_OBJECTS: usize = 50000;
 
+// This is just... easier than passing all of the args into the VM every single time
+// This should work out better I hope
+// Especially with the callbacks and all that jazz
+pub struct VmArgs<'a> {
+    pub(crate) instructions: Rc<[DenseInstruction]>,
+    pub(crate) stack: StackFrame,
+    pub(crate) heap: &'a mut Heap,
+    pub(crate) global_env: Rc<RefCell<Env>>,
+    pub(crate) constants: &'a ConstantMap,
+    pub(crate) repl: bool,
+    pub(crate) evaluation_progress: &'a EvaluationProgress,
+}
+
+impl<'a> VmArgs<'a> {
+    pub fn new(
+        instructions: Rc<[DenseInstruction]>,
+        stack: StackFrame,
+        heap: &'a mut Heap,
+        global_env: Rc<RefCell<Env>>,
+        constants: &'a ConstantMap,
+        repl: bool,
+        evaluation_progress: &'a EvaluationProgress,
+    ) -> Self {
+        VmArgs {
+            instructions,
+            stack,
+            heap,
+            global_env,
+            constants,
+            repl,
+            evaluation_progress,
+        }
+    }
+
+    pub fn call(self) -> Result<Gc<SteelVal>> {
+        vm(
+            self.instructions,
+            self.stack,
+            self.heap,
+            self.global_env,
+            self.constants,
+            self.repl,
+            self.evaluation_progress,
+        )
+    }
+}
+
+// fn eval_eval_expr(
+//     list_of_tokens: &[Expr],
+//     env: &Rc<RefCell<Env>>,
+//     heap: &mut Vec<Rc<RefCell<Env>>>,
+//     expr_stack: &mut Vec<Expr>,
+//     // last_macro: &mut Option<&Expr>,
+// ) -> Result<Gc<SteelVal>> {
+//     if let [e] = list_of_tokens {
+//         let res_expr = evaluate(e, env, heap, expr_stack)?;
+//         match <Expr>::try_from(&(*res_expr).clone()) {
+//             Ok(e) => evaluate(&e, env, heap, expr_stack),
+//             Err(_) => stop!(ContractViolation => "Eval not given an expression"),
+//         }
+//     } else {
+//         let e = format!(
+//             "{}: expected {} args got {}",
+//             "Eval",
+//             1,
+//             list_of_tokens.len()
+//         );
+//         stop!(ArityMismatch => e)
+//     }
+// }
+
 pub fn vm<CT: ConstantTable>(
-    instructions: Rc<Box<[DenseInstruction]>>,
+    instructions: Rc<[DenseInstruction]>,
     stack: StackFrame,
     heap: &mut Heap,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
     repl: bool,
-    // callback: Option<Callback>,
+    callback: &EvaluationProgress,
 ) -> Result<Gc<SteelVal>> {
     let mut ip = 0;
     let mut global_env = global_env;
@@ -1570,7 +1091,7 @@ pub fn vm<CT: ConstantTable>(
     // Manage the depth of instructions to know when to backtrack
     let mut pop_count = 1;
     // Manage the instruction count
-    let mut _instruction_count = 0;
+    // let mut _instruction_count = 0;
 
     while ip < instructions.len() {
         // let object_count: usize = Gc::<()>::object_count();
@@ -1591,6 +1112,8 @@ pub fn vm<CT: ConstantTable>(
                 stop!(Generic => error_message.to_string(); cur_inst.span);
             }
             OpCode::EVAL => {
+                let _expr_to_eval = stack.pop().unwrap();
+
                 panic!("eval not yet supported - internal compiler error");
             }
             OpCode::PASS => {
@@ -1640,10 +1163,8 @@ pub fn vm<CT: ConstantTable>(
                 let list = stack.pop().unwrap();
                 let transducer = stack.pop().unwrap();
 
-                println!("getting here!");
-
                 if let SteelVal::IterV(transducer) = transducer.as_ref() {
-                    let ret_val = transducer.run(list, constants, &cur_inst.span, repl);
+                    let ret_val = transducer.run(list, constants, &cur_inst.span, repl, callback);
                     stack.push(ret_val?);
                 } else {
                     stop!(Generic => "Transducer execute takes a list"; cur_inst.span);
@@ -1664,6 +1185,7 @@ pub fn vm<CT: ConstantTable>(
                         constants,
                         &cur_inst.span,
                         repl,
+                        callback,
                     );
                     stack.push(ret_val?);
                 } else {
@@ -1798,6 +1320,7 @@ pub fn vm<CT: ConstantTable>(
                             constants,
                             &cur_inst,
                             repl,
+                            callback,
                         )?;
 
                         stack.push(ListOperations::built_in_list_func()(&collected_results)?);
@@ -1810,6 +1333,7 @@ pub fn vm<CT: ConstantTable>(
                             constants,
                             &cur_inst.span,
                             repl,
+                            callback,
                         ))?);
                     }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
@@ -1830,6 +1354,7 @@ pub fn vm<CT: ConstantTable>(
                             constants,
                             cur_inst,
                             repl,
+                            callback,
                         )?;
                         stack.push(ListOperations::built_in_list_func()(&collected_results)?);
                     }
@@ -1842,6 +1367,7 @@ pub fn vm<CT: ConstantTable>(
                             constants,
                             &cur_inst.span,
                             repl,
+                            callback,
                         ))?);
                     }
                     _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
@@ -2101,6 +1627,7 @@ pub fn vm<CT: ConstantTable>(
                 // set the number of definitions for the environment
                 capture_env.borrow_mut().set_ndefs(ndefs);
 
+                // println!("Adding the capture_env to the heap!");
                 heap.add(Rc::clone(&capture_env));
                 // inspect_heap(&heap);
                 let constructed_lambda = ByteCodeLambda::new(
@@ -2151,7 +1678,12 @@ pub fn vm<CT: ConstantTable>(
         //     callback(&instruction_count);
         // }
 
-        _instruction_count += 1;
+        // _instruction_count += 1;
+
+        match callback.call_and_increment() {
+            Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
+            _ => {}
+        }
 
         // ip += 1;
     }

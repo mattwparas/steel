@@ -9,6 +9,7 @@ use crate::primitives::ListOperations;
 use crate::primitives::MetaOperations;
 use crate::primitives::NumOperations;
 use crate::primitives::PortOperations;
+use crate::primitives::StreamOperations;
 use crate::primitives::StringOperations;
 use crate::primitives::SymbolOperations;
 use crate::primitives::TransducerOperations;
@@ -34,7 +35,7 @@ use crate::vm::SymbolMap;
 
 use crate::gc::Gc;
 
-use crate::rvals::FutureResult;
+// use crate::rvals::FutureResult;
 
 // use std::mem;
 
@@ -887,43 +888,53 @@ impl Env {
             ("filtering", TransducerOperations::filter()),
             ("taking", TransducerOperations::take()),
             ("memory-address", MetaOperations::memory_address()),
-            ("async-test-func", SteelVal::FutureFunc(test_function)),
+            // ("async-test-func", SteelVal::FutureFunc(test_function)),
             ("async-exec", MetaOperations::exec_async()),
-            ("async-get", SteelVal::FutureFunc(get)), // ("sizeof", MetaOperations::size_of()),
-                                                      // ("tokio-exec", MetaOperations::tokio_exec()),
+            // ("async-get", SteelVal::FutureFunc(get)),
+            ("stream-cons", StreamOperations::stream_cons()),
+            ("empty-stream", StreamOperations::empty_stream()),
+            ("stream-empty?", StreamOperations::stream_empty_huh()),
+            ("stream-car", StreamOperations::stream_car()),
+            ("stream-cdr'", StreamOperations::stream_cdr()),
+            ("string->jsexpr", crate::json_vals::string_to_jsexpr()),
+            (
+                "value->jsexpr-string",
+                crate::json_vals::serialize_val_to_string(),
+            ),
+            ("assert!", MetaOperations::assert_truthy()),
         ]
     }
 }
 
-// embed an async function into steel
-// lets... see how this goes
-fn test_function(_args: &[Gc<SteelVal>]) -> FutureResult {
-    FutureResult::new(Box::pin(async {
-        Ok(Gc::new(SteelVal::StringV("hello-world".to_string())))
-    }))
-}
+// // embed an async function into steel
+// // lets... see how this goes
+// fn test_function(_args: &[Gc<SteelVal>]) -> FutureResult {
+//     FutureResult::new(Box::pin(async {
+//         Ok(Gc::new(SteelVal::StringV("hello-world".to_string())))
+//     }))
+// }
 
-fn get(_args: &[Gc<SteelVal>]) -> FutureResult {
-    FutureResult::new(Box::pin(async {
-        // let resp = reqwest::get("https://httpbin.org/ip")
-        //     .await
-        //     .unwrap()
-        //     .json::<HashMap<String, String>>()
-        //     .await
-        //     .unwrap();
-        // println!("{:#?}", resp);
+// fn get(_args: &[Gc<SteelVal>]) -> FutureResult {
+//     FutureResult::new(Box::pin(async {
+//         // let resp = reqwest::get("https://httpbin.org/ip")
+//         //     .await
+//         //     .unwrap()
+//         //     .json::<HashMap<String, String>>()
+//         //     .await
+//         //     .unwrap();
+//         // println!("{:#?}", resp);
 
-        // println!("Status: {}", res.status());
-        // println!("Headers:\n{:#?}", res.headers());
+//         // println!("Status: {}", res.status());
+//         // println!("Headers:\n{:#?}", res.headers());
 
-        let res = reqwest::get("http://httpbin.org/get").await.unwrap();
+//         let res = reqwest::get("http://httpbin.org/get").await.unwrap();
 
-        let body = res.text().await.unwrap();
-        println!("Body:\n{}", body);
+//         let body = res.text().await.unwrap();
+//         println!("Body:\n{}", body);
 
-        Ok(Gc::new(SteelVal::StringV(body)))
-    }))
-}
+//         Ok(Gc::new(SteelVal::StringV(body)))
+//     }))
+// }
 
 #[cfg(test)]
 mod env_tests {

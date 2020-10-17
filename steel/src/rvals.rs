@@ -21,6 +21,7 @@ use std::result;
 use crate::structs::SteelStruct;
 
 use crate::vm::DenseInstruction;
+use crate::vm::EvaluationProgress;
 
 // use std::mem;
 
@@ -33,7 +34,9 @@ use std::hash::{Hash, Hasher};
 use crate::parser::span::Span;
 use crate::vm::ConstantTable;
 
-use crate::vm::{inline_filter_result_iter, inline_map_result_iter, inline_reduce_iter};
+use crate::vm::inline_iter::{
+    inline_filter_result_iter, inline_map_result_iter, inline_reduce_iter,
+};
 // use itertools::Itertools;
 // pub use constants::ConstantTable;
 
@@ -50,6 +53,9 @@ use futures::FutureExt;
 use futures::future::Shared;
 use std::future::Future;
 use std::pin::Pin;
+
+use crate::lazy_stream::LazyStream;
+use crate::lazy_stream::LazyStreamIter;
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
@@ -238,6 +244,9 @@ pub enum SteelVal {
     // Functions that want to operate by reference must move the value into a mutable box
     // This deep clones the value but then the value can be mutably snatched
     // MutableBox(Gc<RefCell<SteelVal>>),
+    StreamV(LazyStream),
+    // Break the cycle somehow
+    // EvaluationEnv(Weak<RefCell<Env>>),
 }
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
@@ -272,19 +281,23 @@ impl Transducer {
     // This runs through the iterators  in sequence in the transducer
     // we want to then finish with a reducer
     // TODO see transduce vs educe
+    // TODO change the return type to match the given input type
+    // optionally add an argument to select the return type manually
     pub fn run<CT: ConstantTable>(
         &self,
         root: Gc<SteelVal>,
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
+        callback: &EvaluationProgress,
     ) -> Result<Gc<SteelVal>> {
         match root.as_ref() {
             SteelVal::VectorV(v) => {
                 let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
                     Box::new(v.into_iter().map(|x| Ok(Gc::clone(x))));
                 for t in &self.ops {
-                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+                    my_iter =
+                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
                 }
 
                 crate::primitives::VectorOperations::vec_construct_iter(my_iter)
@@ -293,7 +306,25 @@ impl Transducer {
                 let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
                     Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x)));
                 for t in &self.ops {
-                    my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+                    my_iter =
+                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
+                }
+
+                crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+            }
+            SteelVal::StreamV(lazy_stream) => {
+                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
+                    Box::new(LazyStreamIter::new(
+                        lazy_stream.clone(),
+                        constants,
+                        cur_inst_span,
+                        repl,
+                        callback,
+                    ));
+
+                for t in &self.ops {
+                    my_iter =
+                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
                 }
 
                 crate::primitives::VectorOperations::vec_construct_iter(my_iter)
@@ -310,15 +341,23 @@ impl Transducer {
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
+        callback: &EvaluationProgress,
     ) -> Result<Gc<SteelVal>> {
         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
             SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
             SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
+            SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
+                lazy_stream.clone(),
+                constants,
+                cur_inst_span,
+                repl,
+                callback,
+            )),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
         for t in &self.ops {
-            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl)?;
+            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
         }
 
         inline_reduce_iter(
@@ -328,6 +367,7 @@ impl Transducer {
             constants,
             cur_inst_span,
             repl,
+            callback,
         )
     }
 }
@@ -351,9 +391,8 @@ impl Transducers {
         constants: &'global CT,
         cur_inst_span: &'global Span,
         repl: bool,
+        callback: &'global EvaluationProgress,
     ) -> Result<Box<dyn Iterator<Item = Result<Gc<SteelVal>>> + 'global>> {
-        // unimplemented!();
-
         match self {
             Transducers::Map(func) => Ok(Box::new(inline_map_result_iter(
                 iter,
@@ -361,6 +400,7 @@ impl Transducers {
                 constants,
                 cur_inst_span,
                 repl,
+                callback,
             ))),
             Transducers::Filter(func) => Ok(Box::new(inline_filter_result_iter(
                 iter,
@@ -368,6 +408,7 @@ impl Transducers {
                 constants,
                 cur_inst_span,
                 repl,
+                callback,
             ))),
             Transducers::Take(num) => {
                 if let SteelVal::IntV(num) = num.as_ref() {
@@ -385,8 +426,6 @@ impl Transducers {
 
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // self.id.hash(state);
-        // self.phone.hash(state);
         match self {
             BoolV(b) => b.hash(state),
             NumV(_) => {
@@ -466,14 +505,6 @@ impl SteelVal {
             _ => false,
         }
     }
-
-    // pub(crate) fn bytecode_lambda_or_panic(&self) -> &ByteCodeLambda {
-    //     if let SteelVal::Closure(bytecode_lambda) = self {
-    //         bytecode_lambda
-    //     } else {
-    //         panic!("Attempted to access a bytecode_lambda from the wrong variant");
-    //     }
-    // }
 }
 
 impl Iterator for Iter {
@@ -667,6 +698,10 @@ impl TryFrom<Expr> for SteelVal {
                 OpenParen => Err(SteelErr::UnexpectedToken("(".to_string(), Some(e.span()))),
                 CloseParen => Err(SteelErr::UnexpectedToken(")".to_string(), Some(e.span()))),
                 QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string(), Some(e.span()))),
+                Unquote => Err(SteelErr::UnexpectedToken(",".to_string(), Some(e.span()))),
+                UnquoteSplice => Err(SteelErr::UnexpectedToken(",@".to_string(), Some(e.span()))),
+                QuasiQuote => Err(SteelErr::UnexpectedToken("`".to_string(), Some(e.span()))),
+                Hash => Err(SteelErr::UnexpectedToken("#".to_string(), Some(e.span()))),
                 BooleanLiteral(x) => Ok(BoolV(*x)),
                 Identifier(x) => Ok(SymbolV(x.clone())),
                 NumberLiteral(x) => Ok(NumV(*x)),
@@ -745,6 +780,7 @@ impl TryFrom<&SteelVal> for Expr {
             FutureFunc(_) => Err("Can't convert from future function to expression!"),
             FutureV(_) => Err("Can't convert future to expression!"),
             // Promise(_) => Err("Can't convert from promise to expression!"),
+            StreamV(_) => Err("Can't convert from stream to expression!"),
         }
     }
 }
@@ -799,7 +835,7 @@ impl PartialOrd for SteelVal {
 #[derive(Clone)]
 pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
-    body_exp: Rc<Box<[DenseInstruction]>>,
+    body_exp: Rc<[DenseInstruction]>,
     /// parent environment that created this Lambda.
     /// the actual environment with correct bindings is built at runtime
     /// once the function is called
@@ -831,7 +867,7 @@ impl ByteCodeLambda {
         ndef_body: usize,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
-            body_exp: Rc::new(body_exp.into_boxed_slice()),
+            body_exp: Rc::from(body_exp.into_boxed_slice()),
             // parent_env,
             sub_expression_env,
             offset,
@@ -844,7 +880,7 @@ impl ByteCodeLambda {
     //     &self.params_exp
     // }
 
-    pub fn body_exp(&self) -> Rc<Box<[DenseInstruction]>> {
+    pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
         Rc::clone(&self.body_exp)
     }
 
@@ -997,6 +1033,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         FutureFunc(_) => write!(f, "#<future-func>"),
         FutureV(_) => write!(f, "#<future>"),
         // Promise(_) => write!(f, "#<promise>"),
+        StreamV(_) => write!(f, "#<stream>"),
     }
 }
 
