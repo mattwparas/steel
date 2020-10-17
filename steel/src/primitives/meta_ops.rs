@@ -50,6 +50,22 @@ impl MetaOperations {
         })
     }
 
+    pub fn assert_truthy() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "assert takes one argument")
+            }
+            // println!("Arg here: {}")
+            if let SteelVal::BoolV(true) = &args[0].as_ref() {
+                Ok(Gc::new(SteelVal::Void))
+            } else {
+                panic!("Value given not true!")
+            }
+            // assert!(&args[0].is_truthy());
+            // Ok(Gc::new(SteelVal::Void))
+        })
+    }
+
     // Uses a generic executor w/ the compat struct in order to allow tokio ecosystem functions inside
     // the interpreter
     pub fn exec_async() -> SteelVal {

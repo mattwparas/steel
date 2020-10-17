@@ -901,6 +901,7 @@ impl Env {
                 "value->jsexpr-string",
                 crate::json_vals::serialize_val_to_string(),
             ),
+            ("assert!", MetaOperations::assert_truthy()),
         ]
     }
 }

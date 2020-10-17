@@ -28,6 +28,9 @@ pub mod port;
 pub mod structs;
 pub mod vm;
 
+#[cfg(test)]
+mod test_util;
+
 pub use self::{
     gc::Gc,
     rerrs::SteelErr,

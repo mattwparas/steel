@@ -172,3 +172,100 @@ fn exec_func<CT: ConstantTable>(
         _ => stop!(TypeMismatch => "stream expected a function"; *cur_inst_span),
     }
 }
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+    use crate::test_util::assert_script;
+    use crate::vm::ConstantMap;
+
+    #[test]
+    fn test_empty_stream_creates_no_iter() {
+        let constants = ConstantMap::new();
+        let cur_inst_span = Span::new(0, 0);
+        let repl = true;
+        let callback = EvaluationProgress::new();
+        let lazy_iter = LazyStreamIter::new(
+            LazyStream::new_empty_stream(),
+            &constants,
+            &cur_inst_span,
+            repl,
+            &callback,
+        );
+
+        assert!(lazy_iter.into_iter().next().is_none());
+    }
+
+    #[test]
+    fn simple_stream() {
+        let script = r#"
+        (define (stream-cdr stream)
+            ((stream-cdr' stream)))
+
+        (define (integers n)
+            (stream-cons n (lambda () (integers (+ 1 n)))))
+
+        (define (stream-section n stream)
+            (cond ((= n 0) '())
+                  (else
+                   (cons
+                    (stream-car stream)
+                    (stream-section
+                     (- n 1)
+                     (stream-cdr stream))))))
+
+        (assert! (equal? (list 0 1 2 3 4) (stream-section 5 (integers 0))))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn simple_stream_with_map() {
+        let script = r#"
+        (define (stream-cdr stream)
+            ((stream-cdr' stream)))
+
+        (define (integers n)
+            (stream-cons n (lambda () (integers (+ 1 n)))))
+
+        (define (stream-section n stream)
+            (cond ((= n 0) '())
+                  (else
+                   (cons
+                    (stream-car stream)
+                    (stream-section
+                     (- n 1)
+                     (stream-cdr stream))))))
+
+        (define (map-stream func s)
+            (cond
+                [(stream-empty? s) s]
+                [else
+                    (stream-cons (func (stream-car s))
+                                    (lambda ()
+                                    (map-stream func (stream-cdr s))))]))
+
+        (assert! 
+            (equal? (list 10 10 10 10 10)
+                    (stream-section 5 (map-stream (lambda (x) 10) (integers 0)))
+        ))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn simple_stream_with_transducer() {
+        let script = r#"
+        (define (stream-cdr stream)
+            ((stream-cdr' stream)))
+
+        (define (integers n)
+            (stream-cons n (lambda () (integers (+ 1 n)))))
+
+        (assert! 
+            (equal? (vector 0 1 2 3 4)
+                    (execute (taking 5) (integers 0))))
+        "#;
+        assert_script(script);
+    }
+}
