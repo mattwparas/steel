@@ -176,16 +176,18 @@ macro_rules! unwrap {
             let left_type = (*v).as_any();
             let left = left_type.downcast_ref::<$body>();
             left.map(|x| x.clone()).ok_or_else(|| {
-                crate::rerrs::SteelErr::ConversionError(
-                    "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
-                    None,
-                )
+                let error_message = format!(
+                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                    stringify!($body)
+                );
+                crate::rerrs::SteelErr::ConversionError(error_message, None)
             })
         } else {
-            Err(crate::rerrs::SteelErr::ConversionError(
-                "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
-                None,
-            ))
+            let error_message = format!(
+                "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                stringify!($body)
+            );
+            Err(crate::rerrs::SteelErr::ConversionError(error_message, None))
         }
     }};
 }
@@ -247,6 +249,8 @@ pub enum SteelVal {
     StreamV(LazyStream),
     // Break the cycle somehow
     // EvaluationEnv(Weak<RefCell<Env>>),
+    /// Mutable box - lets you put a value in there and change what it points to
+    BoxV(RefCell<Gc<SteelVal>>),
 }
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
@@ -256,6 +260,11 @@ pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<Stee
 // pub trait Transduce {
 //     fn run() -> Gc<SteelVal>;
 // }
+
+enum CollectionType {
+    List,
+    Vector,
+}
 
 // Make a transducer actually contain an option to a rooted value, otherwise
 // it is a source agnostic transformer on the (eventual) input
@@ -290,47 +299,95 @@ impl Transducer {
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
+        collection_type: Option<Gc<SteelVal>>,
     ) -> Result<Gc<SteelVal>> {
-        match root.as_ref() {
-            SteelVal::VectorV(v) => {
-                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-                    Box::new(v.into_iter().map(|x| Ok(Gc::clone(x))));
-                for t in &self.ops {
-                    my_iter =
-                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-                }
+        // if let Some(collection_type) = collection_type {
+        //     match collection_type.as_ref() {}
+        // }
 
-                crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-            }
-            SteelVal::Pair(_, _) => {
-                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-                    Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x)));
-                for t in &self.ops {
-                    my_iter =
-                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-                }
+        let output_type = match root.as_ref() {
+            SteelVal::VectorV(_) => CollectionType::Vector,
+            _ => CollectionType::List,
+        };
 
-                crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-            }
-            SteelVal::StreamV(lazy_stream) => {
-                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-                    Box::new(LazyStreamIter::new(
-                        lazy_stream.clone(),
-                        constants,
-                        cur_inst_span,
-                        repl,
-                        callback,
-                    ));
-
-                for t in &self.ops {
-                    my_iter =
-                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-                }
-
-                crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-            }
+        let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
+            SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
+            SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
+            SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
+                lazy_stream.clone(),
+                constants,
+                cur_inst_span,
+                repl,
+                callback,
+            )),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
+        };
+
+        for t in &self.ops {
+            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
         }
+
+        if let Some(collection_type) = collection_type {
+            if let SteelVal::SymbolV(n) = collection_type.as_ref() {
+                match n.as_ref() {
+                    "list" => ListOperations::built_in_list_normal_iter(my_iter),
+                    "vector" => crate::primitives::VectorOperations::vec_construct_iter(my_iter),
+                    _ => stop!(Generic => "Cannot collect into an undefined type"),
+                }
+            } else {
+                stop!(Generic => "execute takes a symbol")
+            }
+        } else {
+            match output_type {
+                CollectionType::List => ListOperations::built_in_list_normal_iter(my_iter),
+                CollectionType::Vector => {
+                    crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+                }
+            }
+            // match root.as_ref()
+            // unimplemented!()
+        }
+
+        // match root.as_ref() {
+        //     SteelVal::VectorV(v) => {
+        //         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
+        //             Box::new(v.into_iter().map(|x| Ok(Gc::clone(x))));
+        //         for t in &self.ops {
+        //             my_iter =
+        //                 t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
+        //         }
+
+        //         crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+        //     }
+        //     SteelVal::Pair(_, _) => {
+        //         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
+        //             Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x)));
+        //         for t in &self.ops {
+        //             my_iter =
+        //                 t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
+        //         }
+
+        //         crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+        //     }
+        //     SteelVal::StreamV(lazy_stream) => {
+        //         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
+        //             Box::new(LazyStreamIter::new(
+        //                 lazy_stream.clone(),
+        //                 constants,
+        //                 cur_inst_span,
+        //                 repl,
+        //                 callback,
+        //             ));
+
+        //         for t in &self.ops {
+        //             my_iter =
+        //                 t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
+        //         }
+
+        //         crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+        //     }
+        //     _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
+        // }
     }
 
     pub fn transduce<CT: ConstantTable>(
@@ -781,6 +838,7 @@ impl TryFrom<&SteelVal> for Expr {
             FutureV(_) => Err("Can't convert future to expression!"),
             // Promise(_) => Err("Can't convert from promise to expression!"),
             StreamV(_) => Err("Can't convert from stream to expression!"),
+            BoxV(_) => Err("Can't convert from box to expression!"),
         }
     }
 }
@@ -1034,6 +1092,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         FutureV(_) => write!(f, "#<future>"),
         // Promise(_) => write!(f, "#<promise>"),
         StreamV(_) => write!(f, "#<stream>"),
+        BoxV(b) => write!(f, "#<box {:?}>", b.borrow()),
     }
 }
 
@@ -1249,5 +1308,58 @@ mod or_else_tests {
     fn symbol_or_else_test_bad() {
         let input = SteelVal::Void;
         assert!(input.symbol_or_else(throw!(Generic => "test")).is_err())
+    }
+}
+
+#[cfg(test)]
+mod transducer_tests {
+    // use super::*;
+    use crate::test_util::assert_script;
+
+    #[test]
+    fn generic_transducer() {
+        let script = r#"
+            (define x (mapping (fn (x) x))) ;; identity
+            (define y (filtering even?)) ;; get only even ones
+            (define z (taking 15)) ;; take the first 15 from the range
+            (define xf (compose x y z))
+            (assert! 
+                (equal? 
+                    (transduce xf + 0 (range 0 100)) ;; => 210
+                    210))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn generic_execution() {
+        let script = r#"
+        (define x (mapping (fn (x) x))) ;; identity
+        (define y (filtering even?)) ;; get only even ones
+        (define z (taking 15)) ;; take the first 15 from the range
+        (define xf (compose x y z))
+        (define result
+            (execute xf (range 0 100)))
+        
+        (define expected '(0 2 4 6 8 10 12 14 16 18 20 22 24 26 28))
+        (assert! (equal? result expected))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn generic_exeuction_output_different_type() {
+        let script = r#"
+        (define x (mapping (fn (x) x))) ;; identity
+        (define y (filtering even?)) ;; get only even ones
+        (define z (taking 15)) ;; take the first 15 from the range
+        (define xf (compose x y z))
+        (define result
+            (execute xf (range 0 100) 'vector))
+        
+        (define expected (vector 0 2 4 6 8 10 12 14 16 18 20 22 24 26 28))
+        (assert! (equal? result expected))
+        "#;
+        assert_script(script);
     }
 }

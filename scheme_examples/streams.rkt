@@ -134,28 +134,28 @@
 
 ;; This is close to what I need, but not quite exactly what I need
 ;; Look into this more later tonight
-(define-syntax quasiquote
-  (syntax-rules (unquote unquote-splicing)
-    ((quasiquote (unquote datum))
-     datum)
-    ((quasiquote ((unquote-splicing datum) next))
-     (append datum (quasiquote next)))
-    ((quasiquote (datum next ...))
-     (cons (quasiquote datum) (quasiquote next ...)))
-    ((quasiquote datum)
-     (quote datum))))
+;; (define-syntax quasiquote
+;;   (syntax-rules (unquote unquote-splicing)
+;;     ((quasiquote (unquote datum))
+;;      datum)
+;;     ((quasiquote ((unquote-splicing datum) next))
+;;      (append datum (quasiquote next)))
+;;     ((quasiquote (datum next ...))
+;;      (cons (quasiquote datum) (quasiquote next ...)))
+;;     ((quasiquote datum)
+;;      (quote datum))))
 
 
 
-(define-syntax quasiquote
-  (syntax-rules (unquote unquote-splicing)
-    ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote xs ...)))
-    ((quasiquote ((unquote-splicing x)))        (append (list x) (quote ())))
-    ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
-    ((quasiquote (unquote x))                 x)
-    ((quasiquote (x))                          (quote (x)))
-    ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
-    ((quasiquote x)                           (quote x))))
+;; (define-syntax quasiquote
+;;   (syntax-rules (unquote unquote-splicing)
+;;     ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote xs ...)))
+;;     ((quasiquote ((unquote-splicing x)))        (append (list x) (quote ())))
+;;     ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
+;;     ((quasiquote (unquote x))                 x)
+;;     ((quasiquote (x))                          (quote (x)))
+;;     ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
+;;     ((quasiquote x)                           (quote x))))
 
 
 (define-syntax map-test
@@ -195,32 +195,25 @@
 
 ;; (mapping %(+ 1 2)
 
-;; (define-syntax quasiquote
-;;   (syntax-rules (unquote unquote-splicing)
-;;     ((quasiquote ((unquote x) . xs))          (cons x (quasiquote xs)))
-;;     ((quasiquote ((unquote-splicing x) . xs)) (append x (quasiquote xs)))
-;;     ((quasiquote (unquote x))                 x)
-;;     ((quasiquote (x  . xs))                   (cons (quasiquote x) (quasiquote xs)))
-;;     ((quasiquote x)                           (quote x))))
 
-;; (define-syntax quasiquote
-;;   (syntax-rules (unquote unquote-splicing)
-;;     ((quasiquote (unquote datum))
-;;      datum)
-;;     ((quasiquote ((unquote-splicing datum) . next))
-;;      (append datum (quasiquote next)))
-;;     ((quasiquote (datum . next))
-;;      (cons (quasiquote datum) (quasiquote next)))
-;;     ((quasiquote datum)
-;;      (quote datum))))
+(define-syntax quasiquote
+  (syntax-rules (unquote unquote-splicing)
+    ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+    ((quasiquote ((unquote-splicing x)))        (append (list x) (quote ())))
+    ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
+    ((quasiquote (unquote x))                 x)
+    ((quasiquote (x))                          (quote (x)))
+    ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
+    ((quasiquote x)                           (quote x))))
 
 
 ;; TODO good tests here
-;; (quasiquote (0 1 2)) ;; => '(0 1 2)
-;; (quasiquote (0 (unquote (+ 1 2)) 4)) ;; => '(0 3 4)
-;; (quasiquote (0 (unquote-splicing (list 1 2)) 4)) ;; '(0 1 2 4)
+(quasiquote (0 1 2)) ;; => '(0 1 2)
+(quasiquote (0 (unquote (+ 1 2)) 4)) ;; => '(0 3 4)
+(quasiquote (0 (unquote (+ 1 2)) (+ 4 5)))
+(quasiquote (0 (unquote-splicing (list 1 2)) 4)) ;; '(0 1 2 4)
 ;; (quasiquote (0 (unquote-splicing 1) 4)) ;; error
-;; (quasiquote (0 (unquote-splicing 1))) ;; '(0 1)
+(quasiquote (0 (unquote-splicing 1))) ;; '(0 1)
 
 
 ;; (define-syntax infix
@@ -305,3 +298,83 @@
 
 
 ;; "{\"name\": \"John Doe\", \"age\": 43, \"phones\": [\"+44 1234567\", \"+44 2345678\"]}"
+
+;; kick off this optimization when you profile and know for sure that its an int
+;; get_raw_pointer
+;; unsafe {
+;;      yoink the pointer to the value inside the enum
+;; }
+
+;; (i+ 1 2)
+;; check if 1 is a int
+;; check if 2 is a int
+;; get the inner value of both objects
+;; Gc<SteelVal::IntV(n)>
+;; Gc::new(SteelVal::IntV(1 + 2))
+;;
+;;
+;; unsafe {
+;;     inline_asm! {
+;;
+;;     }
+;; }
+
+
+;; (define-syntax (store stx)
+;;   (syntax-parse stx
+;;     [(_store id ...)
+;;      (syntax/loc stx
+;;        (make-hasheq (list (cons 'id id) ...)))]))
+;; ; SYNTAX  (load ht (id ...))
+;; ;   Define the ids use initial values stored in the hash table.
+;; (define-syntax (load stx)
+;;   (syntax-parse stx
+;;     [(_store the-ht (id ...))
+;;      (syntax/loc stx
+;;        (begin
+;;          (define ht the-ht)
+;;          (define id (hash-ref ht 'id))
+;;          ...))]))
+
+
+;; (define-syntax st-help
+;;   (syntax-rules ()
+;;     [(st-help lst ...)]
+
+;;     )
+
+;;   )
+
+
+(define-syntax store
+  (syntax-rules ()
+    [(store id ...)
+     (store-h (hash) id ...)]))
+
+(define-syntax store-h
+  (syntax-rules ()
+    [(store-h h id)
+     (hash-insert h 'id id)]
+    [(store-h h id rest ...)
+     (hash-insert (store-h h rest ...) 'id id)]))
+
+
+(define-syntax load
+  (syntax-rules ()
+    [(load the-ht id)
+     (begin
+       (define ht the-ht)
+       (define id (hash-get ht 'id)))]
+    [(load the-ht id rest ...)
+     (begin
+       (define ht the-ht)
+       (define id (hash-get ht 'id))
+       (load ht rest ...))]))
+
+
+(define x 10)
+(define y 20)
+(define info (store x y))
+((lambda ()
+   (load info x y)
+   (list x y)))

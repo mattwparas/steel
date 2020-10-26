@@ -28,4 +28,6 @@ pub enum OpCode {
     COLLECT = 24,
     TRANSDUCE = 25,
     READ = 26,
+    COLLECTTO = 27,
+    METALOOKUP = 28,
 }

@@ -399,7 +399,7 @@ mod struct_integration_tests {
         (define (pre-order trie-node)
             (if (trie-end-word? trie-node)
                 (cons (list->string (trie-word-up-to trie-node))
-                (flatten (map pre-order (trie-children trie-node))))
+                      (flatten (map pre-order (trie-children trie-node))))
                 (flatten (map pre-order (trie-children trie-node)))))
 
         (define test-list

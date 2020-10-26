@@ -5,7 +5,7 @@ use steel::stdlib::PRELUDE;
 use steel::vm::VirtualMachine;
 
 fn range(c: &mut Criterion) {
-    let script = "(range 0 50000)";
+    let script = "(range 0 5000)";
 
     let mut vm = VirtualMachine::new();
     // let mut ctx: Ctx<ConstantMap> = Ctx::new(
@@ -25,12 +25,12 @@ fn range(c: &mut Criterion) {
     // Rc::new(x.into_boxed_slice()), &ctx.constant_map
 
     c.bench_function("range-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), false))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
     });
 }
 
 fn map(c: &mut Criterion) {
-    let script = "(map (lambda (a) 0) lst)";
+    let script = "(map a lst)";
 
     let mut vm = VirtualMachine::new();
     // let mut ctx: Ctx<ConstantMap> = Ctx::new(
@@ -42,7 +42,7 @@ fn map(c: &mut Criterion) {
 
     vm.parse_and_execute(PRELUDE).unwrap();
 
-    let warmup = "(define lst (range 0 50000))";
+    let warmup = "(define lst (range 0 5000)) (define a (lambda (a) 0))";
     vm.parse_and_execute(black_box(&warmup)).unwrap();
 
     let bytecode = Rc::from(
@@ -52,7 +52,34 @@ fn map(c: &mut Criterion) {
     );
 
     c.bench_function("map-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), false))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
+    });
+}
+
+fn transducer_map(c: &mut Criterion) {
+    let script = "(execute a lst)";
+
+    let mut vm = VirtualMachine::new();
+    // let mut ctx: Ctx<ConstantMap> = Ctx::new(
+    //     Env::default_symbol_map(),
+    //     ConstantMap::new(),
+    //     ArityMap::new(),
+    //     false,
+    // );
+
+    vm.parse_and_execute(PRELUDE).unwrap();
+
+    let warmup = "(define lst (range 0 5000)) (define a (mapping (lambda (a) 0)))";
+    vm.parse_and_execute(black_box(&warmup)).unwrap();
+
+    let bytecode = Rc::from(
+        vm.emit_instructions(&script).unwrap()[0]
+            .clone()
+            .into_boxed_slice(),
+    );
+
+    c.bench_function("transducer-map", |b| {
+        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
     });
 }
 
@@ -72,7 +99,7 @@ fn filter(c: &mut Criterion) {
 
     vm.parse_and_execute(PRELUDE).unwrap();
 
-    let warmup = "(define lst (range 0 50000))";
+    let warmup = "(define lst (range 0 5000))";
     vm.parse_and_execute(black_box(&warmup)).unwrap();
 
     let bytecode = Rc::from(
@@ -82,7 +109,26 @@ fn filter(c: &mut Criterion) {
     );
 
     c.bench_function("filter-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), false))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
+    });
+}
+
+fn million_iterations(c: &mut Criterion) {
+    let script = "(test 0)";
+    let mut vm = VirtualMachine::new();
+
+    let warmup = "(define test (lambda (x) (if (= x 1000000) x (test (+ x 1)))))";
+    vm.parse_and_execute(black_box(&warmup)).unwrap();
+    vm.parse_and_execute(PRELUDE).unwrap();
+
+    let bytecode = Rc::from(
+        vm.emit_instructions(&script).unwrap()[0]
+            .clone()
+            .into_boxed_slice(),
+    );
+
+    c.bench_function("million-iterations", |b| {
+        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
     });
 }
 
@@ -246,8 +292,12 @@ fn struct_set(c: &mut Criterion) {
 */
 
 criterion_group!(
-    benches, range, map,
+    benches,
+    range,
+    map,
+    transducer_map,
     filter,
+    million_iterations,
     // trie_sort,
     // merge_sort,
     // struct_construct,

@@ -158,7 +158,7 @@ fn construct_macro_def<M: MacroEnv>(
 }
 
 pub fn extract_macro_definitions<M: MacroEnv>(
-    exprs: &[Expr],
+    exprs: Vec<Expr>,
     macro_env: &Rc<RefCell<Env>>,
     struct_env: &Rc<RefCell<Env>>,
     sm: &mut SymbolMap,
@@ -167,11 +167,11 @@ pub fn extract_macro_definitions<M: MacroEnv>(
     let mut others: Vec<Expr> = Vec::new();
     for expr in exprs {
         match expr {
-            Expr::VectorVal(list_of_tokens) if is_macro_definition(expr) => {
+            Expr::VectorVal(list_of_tokens) if is_macro_definition(&expr) => {
                 // println!("Constructing a macro definition");
                 construct_macro_def(&list_of_tokens[1..], macro_env, macro_set)?;
             }
-            Expr::VectorVal(list_of_tokens) if is_struct_definition(expr) => {
+            Expr::VectorVal(list_of_tokens) if is_struct_definition(&expr) => {
                 let defs = SteelStruct::generate_from_tokens(&list_of_tokens[1..])?;
                 struct_env
                     .borrow_mut()
@@ -185,10 +185,21 @@ pub fn extract_macro_definitions<M: MacroEnv>(
                 // env.borrow_mut()
                 //     .define_zipped(defs.into_iter().map(|x| (x.0, Rc::new(x.1))));
             }
-            _ => others.push(expr.clone()),
+            _ => others.push(expr),
         }
     }
     Ok(others)
+}
+
+pub fn expand_statements(
+    exprs: Vec<Expr>,
+    env: &Rc<RefCell<Env>>,
+    macro_env: &Rc<RefCell<Env>>,
+) -> Result<Vec<Expr>> {
+    exprs
+        .into_iter()
+        .map(|x| expand(x, env, macro_env))
+        .collect()
 }
 
 // fn extract_globals_and_macro_names()

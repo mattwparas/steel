@@ -35,6 +35,8 @@ use crate::vm::SymbolMap;
 
 use crate::gc::Gc;
 
+use std::collections::HashSet;
+
 // use crate::rvals::FutureResult;
 
 // use std::mem;
@@ -126,8 +128,66 @@ macro_rules! gen_pred {
 }
 
 pub type RcRefCell<T> = Rc<RefCell<T>>;
-pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
-    Rc::new(RefCell::new(x))
+// pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
+//     Rc::new(RefCell::new(x))
+// }
+
+#[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
+enum CoreModules {
+    Core,
+    Network,
+    FileSystem,
+}
+
+impl CoreModules {
+    pub fn to_functions(self) -> Vec<(&'static str, SteelVal)> {
+        match self {
+            Self::Core => unimplemented!(),
+            Self::Network => unimplemented!(),
+            Self::FileSystem => unimplemented!(),
+        }
+    }
+}
+
+pub struct CoreModuleConfig {
+    modules: HashSet<CoreModules>,
+}
+
+impl CoreModuleConfig {
+    pub fn new() -> Self {
+        CoreModuleConfig {
+            modules: HashSet::new(),
+        }
+    }
+
+    pub fn new_core() -> Self {
+        let mut m = HashSet::new();
+        m.insert(CoreModules::Core);
+        CoreModuleConfig { modules: m }
+    }
+
+    pub fn with_network(mut self) -> Self {
+        &self.modules.insert(CoreModules::Network);
+        self
+    }
+
+    pub fn with_file_system(mut self) -> Self {
+        &self.modules.insert(CoreModules::FileSystem);
+        self
+    }
+
+    pub fn new_full() -> Self {
+        CoreModuleConfig::new_core()
+            .with_file_system()
+            .with_network()
+    }
+
+    pub fn to_functions(self) -> Vec<(&'static str, SteelVal)> {
+        self.modules
+            .into_iter()
+            .flat_map(|x| x.to_functions())
+            .collect()
+    }
 }
 
 #[derive(Debug)]
@@ -360,9 +420,9 @@ impl Env {
         &self.bindings_map
     }
 
-    pub fn is_one_layer_down(&self) -> bool {
-        self.parent.is_some()
-    }
+    // pub fn is_one_layer_down(&self) -> bool {
+    //     self.parent.is_some()
+    // }
 
     pub fn clear_bindings(&mut self) {
         self.bindings.clear();
@@ -632,11 +692,11 @@ impl Env {
                 // println!("Found {:?}", v);
                 return Ok(Gc::clone(v));
             } else {
-                println!(
-                    "Looking up idx: {} with length {}",
-                    idx,
-                    self.bindings_vec.len()
-                );
+                // println!(
+                //     "Looking up idx: {} with length {}",
+                //     idx,
+                //     self.bindings_vec.len()
+                // );
 
                 stop!(FreeIdentifier => "Internal Compiler Error - unable to find idx: {} with length: {}", lookup, self.bindings_vec.len());
             }
@@ -784,33 +844,25 @@ impl Env {
         });
     }
 
-    // pub fn gen_rooted_sym_table() -> SymbolMap {
-    //     let mut env = Env::root();
-    // }
-
-    fn default_bindings() -> Vec<(&'static str, SteelVal)> {
+    // Constitutes the core of the language
+    // These constructs are all that are required to generate the standard library
+    // excludes the macros
+    fn _steel_core() -> Vec<(&'static str, SteelVal)> {
         vec![
-            // ("+", SteelVal::FuncV(Adder::new_func())),
             ("+", NumOperations::adder()),
             ("i+", NumOperations::integer_add()),
             ("f+", NumOperations::float_add()),
-            // ("*", SteelVal::FuncV(Multiplier::new_func())),
             ("*", NumOperations::multiply()),
-            // ("/", SteelVal::FuncV(Divider::new_func())),
             ("/", NumOperations::divide()),
-            // ("-", SteelVal::FuncV(Subtractor::new_func())),
             ("-", NumOperations::subtract()),
             ("list", ListOperations::list()),
             ("car", ListOperations::car()),
             ("cdr", ListOperations::cdr()),
             ("first", ListOperations::car()),
             ("rest", ListOperations::cdr()),
-            // ("head", ListOperations::car()),
-            // ("tail", ListOperations::cdr()),
             ("cons", ListOperations::cons()),
             ("append", ListOperations::append()),
             ("push-back", ListOperations::push_back()),
-            // ("reverse", ListOperations::reverse()), TODO
             ("range", ListOperations::range()),
             ("list->vector", ListOperations::list_to_vec()),
             ("vector", VectorOperations::vec_construct()),
@@ -826,6 +878,133 @@ impl Env {
             ("symbol?", gen_pred!(SymbolV)),
             ("vector?", gen_pred!(VectorV)),
             ("list?", gen_pred!(Pair)),
+            ("=", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
+            ("equal?", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
+            (
+                "eq?",
+                SteelVal::FuncV(ensure_tonicity_pointer_equality!(|a, b| Gc::ptr_eq(a, b))),
+            ),
+            (">", SteelVal::FuncV(ensure_tonicity!(|a, b| a > b))),
+            (">=", SteelVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
+            ("<", SteelVal::FuncV(ensure_tonicity!(|a, b| a < b))),
+            ("<=", SteelVal::FuncV(ensure_tonicity!(|a, b| a <= b))),
+            // ("display", IoFunctions::display()),
+            // ("newline", IoFunctions::newline()),
+            // ("read-to-string", IoFunctions::read_to_string()),
+            ("string-append", StringOperations::string_append()),
+            ("string->list", StringOperations::string_to_list()),
+            ("string-upcase", StringOperations::string_to_upper()),
+            ("string-lowercase", StringOperations::string_to_lower()),
+            ("trim", StringOperations::trim()),
+            ("trim-start", StringOperations::trim_start()),
+            ("trim-end", StringOperations::trim_end()),
+            ("split-whitespace", StringOperations::split_whitespace()),
+            ("void", SteelVal::Void),
+            ("list->string", ListOperations::list_to_string()),
+            // ("open-input-file", PortOperations::open_input_file()),
+            // ("read-port-to-string", PortOperations::read_port_to_string()),
+            // ("read-line-from-port", PortOperations::read_line_to_string()),
+            ("concat-symbols", SymbolOperations::concat_symbols()),
+            ("error!", ControlOperations::error()),
+            ("symbol->string", SymbolOperations::symbol_to_string()),
+            ("random-int", NumOperations::random_int()),
+            ("string->int", StringOperations::string_to_int()),
+            // ("flatten", ListOperations::flatten()),
+            ("even?", NumOperations::even()),
+            ("odd?", NumOperations::odd()),
+            // ("is-dir?", FsFunctions::is_dir()),
+            // ("is-file?", FsFunctions::is_file()),
+            // ("read-dir", FsFunctions::read_dir()),
+            // ("path-exists?", FsFunctions::path_exists()),
+            // ("file-name", FsFunctions::file_name()),
+            // ("current-directory", FsFunctions::current_dir()),
+            // ("inspect-bytecode", MetaOperations::inspect_bytecode()),
+            ("hash", HashMapOperations::hm_construct()),
+            ("hash-insert", HashMapOperations::hm_insert()),
+            ("hash-get", HashMapOperations::hm_get()),
+            ("hash-contains?", HashMapOperations::hm_contains()),
+            ("hash-keys->list", HashMapOperations::keys_to_list()),
+            ("hash-keys->vector", HashMapOperations::keys_to_vector()),
+            ("hash-values->list", HashMapOperations::values_to_list()),
+            ("hash-values->vector", HashMapOperations::values_to_vector()),
+            ("hashset", HashSetOperations::hs_construct()),
+            ("hashset-contains?", HashSetOperations::hs_contains()),
+            ("hashset-insert", HashSetOperations::hs_insert()),
+            ("hashset->list", HashSetOperations::keys_to_list()),
+            ("hashset->vector", HashSetOperations::keys_to_vector()),
+            ("hashset-clear", HashSetOperations::clear()),
+            ("list->hashset", HashSetOperations::list_to_hashset()),
+            ("hash-clear", HashMapOperations::clear()),
+            ("compose", TransducerOperations::compose()),
+            ("mapping", TransducerOperations::map()),
+            ("filtering", TransducerOperations::filter()),
+            ("taking", TransducerOperations::take()),
+            ("memory-address", MetaOperations::memory_address()),
+            // ("async-test-func", SteelVal::FutureFunc(test_function)),
+            // ("async-exec", MetaOperations::exec_async()),
+            // ("async-get", SteelVal::FutureFunc(get)),
+            ("stream-cons", StreamOperations::stream_cons()),
+            ("empty-stream", StreamOperations::empty_stream()),
+            ("stream-empty?", StreamOperations::stream_empty_huh()),
+            ("stream-car", StreamOperations::stream_car()),
+            ("stream-cdr'", StreamOperations::stream_cdr()),
+            // ("string->jsexpr", crate::json_vals::string_to_jsexpr()),
+            // (
+            //     "value->jsexpr-string",
+            //     crate::json_vals::serialize_val_to_string(),
+            // ),
+            // ("assert!", MetaOperations::assert_truthy()),
+        ]
+    }
+
+    fn _io_core() -> Vec<(&'static str, SteelVal)> {
+        vec![
+            ("display", IoFunctions::display()),
+            ("newline", IoFunctions::newline()),
+            ("read-to-string", IoFunctions::read_to_string()),
+            ("is-dir?", FsFunctions::is_dir()),
+            ("is-file?", FsFunctions::is_file()),
+            ("read-dir", FsFunctions::read_dir()),
+            ("path-exists?", FsFunctions::path_exists()),
+            ("file-name", FsFunctions::file_name()),
+            ("current-directory", FsFunctions::current_dir()),
+        ]
+    }
+
+    fn default_bindings() -> Vec<(&'static str, SteelVal)> {
+        vec![
+            ("+", NumOperations::adder()),
+            ("i+", NumOperations::integer_add()),
+            ("f+", NumOperations::float_add()),
+            ("*", NumOperations::multiply()),
+            ("/", NumOperations::divide()),
+            ("-", NumOperations::subtract()),
+            ("list", ListOperations::list()),
+            ("car", ListOperations::car()),
+            ("cdr", ListOperations::cdr()),
+            ("first", ListOperations::car()),
+            ("rest", ListOperations::cdr()),
+            ("cons", ListOperations::cons()),
+            ("append", ListOperations::append()),
+            ("push-back", ListOperations::push_back()),
+            ("range", ListOperations::range()),
+            ("list->vector", ListOperations::list_to_vec()),
+            ("vector", VectorOperations::vec_construct()),
+            ("push-front", VectorOperations::vec_cons()),
+            ("pop-front", VectorOperations::vec_car()),
+            ("vec-rest", VectorOperations::vec_cdr()),
+            ("null?", VectorOperations::list_vec_null()),
+            ("push", VectorOperations::vec_push()),
+            ("range-vec", VectorOperations::vec_range()),
+            ("vec-append", VectorOperations::vec_append()),
+            ("number?", gen_pred!(NumV, IntV)),
+            ("string?", gen_pred!(StringV)),
+            ("symbol?", gen_pred!(SymbolV)),
+            ("vector?", gen_pred!(VectorV)),
+            ("list?", gen_pred!(Pair)),
+            ("integer?", gen_pred!(IntV)),
+            ("boolean?", gen_pred!(BoolV)),
+            ("function?", gen_pred!(Closure, FuncV)),
             ("=", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             ("equal?", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             (
@@ -902,6 +1081,9 @@ impl Env {
                 crate::json_vals::serialize_val_to_string(),
             ),
             ("assert!", MetaOperations::assert_truthy()),
+            ("box", MetaOperations::new_box()),
+            ("unbox", MetaOperations::unbox()),
+            ("set-box!", MetaOperations::set_box()),
         ]
     }
 }

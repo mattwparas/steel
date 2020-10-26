@@ -19,6 +19,8 @@ use futures::future::join_all;
 
 use async_compat::Compat;
 
+use std::cell::RefCell;
+
 pub struct MetaOperations {}
 impl MetaOperations {
     pub fn inspect_bytecode() -> SteelVal {
@@ -63,6 +65,52 @@ impl MetaOperations {
             }
             // assert!(&args[0].is_truthy());
             // Ok(Gc::new(SteelVal::Void))
+        })
+    }
+
+    // TODO
+    pub fn new_box() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "box takes one argument")
+            }
+
+            Ok(Gc::new(SteelVal::BoxV(RefCell::new(Gc::clone(&args[0])))))
+
+            // println!("Arg here: {}")
+            // if let SteelVal::BoolV(true) = &args[0].as_ref() {
+            //     Ok(Gc::new(SteelVal::Void))
+            // } else {
+            //     panic!("Value given not true!")
+            // }
+        })
+    }
+
+    // TODO
+    pub fn unbox() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "unbox takes one argument")
+            }
+            if let SteelVal::BoxV(inner) = &args[0].as_ref() {
+                Ok(inner.clone().into_inner())
+            } else {
+                stop!(TypeMismatch => "unbox takes a box")
+            }
+        })
+    }
+
+    // TODO
+    pub fn set_box() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "setbox! takes two arguments")
+            }
+            if let SteelVal::BoxV(inner) = &args[0].as_ref() {
+                Ok(inner.replace(Gc::clone(&args[1])))
+            } else {
+                stop!(TypeMismatch => "setbox! takes a box")
+            }
         })
     }
 

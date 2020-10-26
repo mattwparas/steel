@@ -14,8 +14,8 @@ pub use arity::ArityMap;
 pub use constants::ConstantMap;
 pub use constants::ConstantTable;
 pub use expand::expand;
-pub use expand::extract_macro_definitions;
-use expand::get_definition_names;
+pub use expand::get_definition_names;
+pub use expand::{expand_statements, extract_macro_definitions};
 pub use heap::Heap;
 pub use instructions::Instruction;
 pub use map::SymbolMap;
@@ -45,6 +45,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::result;
 
+use crate::env::CoreModuleConfig;
 use std::cell::Cell;
 
 const STACK_LIMIT: usize = 1024;
@@ -128,7 +129,7 @@ fn collect_defines_from_current_scope(
                 contents:
                     Some(SyntaxObject {
                         ty: TokenType::Identifier(s),
-                        span: sp,
+                        span: _sp,
                     }),
                 ..
             } => {
@@ -136,21 +137,25 @@ fn collect_defines_from_current_scope(
                     if bindings.insert(s) {
                         let (_idx, _) = symbol_map.get_or_add(s);
                         count += 1;
-                    } else {
-                        stop!(Generic => "define-values: duplicate binding name"; *sp)
                     }
+                    // TODO this needs to get fixed
+                    // else {
+                    //     stop!(Generic => "define-values: duplicate binding name"; *sp)
+                    // }
                 }
             }
             Instruction {
                 op_code: OpCode::SCLOSURE,
                 ..
             } => {
+                // println!("Entering closure scope!");
                 def_stack += 1;
             }
             Instruction {
                 op_code: OpCode::ECLOSURE,
                 ..
             } => {
+                // println!("Exiting closure scope!");
                 if def_stack > 0 {
                     def_stack -= 1;
                 }
@@ -556,7 +561,18 @@ impl<CT: ConstantTable> Ctx<CT> {
         }
     }
 
+    // This isn't great - default_symbol_map generates some extra code that we do not need
+    // also, generating a default environment is not _that_ expensive
     pub fn default() -> Ctx<ConstantMap> {
+        Ctx::new(
+            Env::default_symbol_map(),
+            ConstantMap::new(),
+            ArityMap::new(),
+            false,
+        )
+    }
+
+    pub fn default_repl() -> Ctx<ConstantMap> {
         Ctx::new(
             Env::default_symbol_map(),
             ConstantMap::new(),
@@ -610,6 +626,51 @@ macro_rules! build_vm {
     };
 }
 
+pub struct VirtualMachineBuilder {
+    modules: CoreModuleConfig,
+    callback: EvaluationProgress,
+    stack_limit: usize,
+}
+
+impl VirtualMachineBuilder {
+    pub fn new() -> Self {
+        VirtualMachineBuilder {
+            modules: CoreModuleConfig::new_core(),
+            callback: EvaluationProgress::new(),
+            stack_limit: 128,
+        }
+    }
+
+    pub fn with_network(mut self) -> Self {
+        self.modules = self.modules.with_network();
+        self
+    }
+
+    pub fn with_file_system(mut self) -> Self {
+        self.modules = self.modules.with_file_system();
+        self
+    }
+
+    pub fn with_callback(mut self, callback: Callback) -> Self {
+        self.callback.with_callback(callback);
+        self
+    }
+
+    pub fn with_stack_limit(mut self, stack_limit: usize) -> Self {
+        self.stack_limit = stack_limit;
+        self
+    }
+}
+
+/*
+VirtualMachineBuilder::new()
+    .with_network()
+    .with_file_system()
+    .with_stack_limit(128)
+    .with_callback(|_| true)
+    .into() -> Virtual Machine
+*/
+
 pub struct VirtualMachine {
     global_env: Rc<RefCell<Env>>,
     global_heap: Heap,
@@ -627,7 +688,7 @@ impl VirtualMachine {
             macro_env: Rc::new(RefCell::new(Env::root())),
             idents: MacroSet::new(),
             callback: EvaluationProgress::new(),
-            ctx: Ctx::<ConstantMap>::default(),
+            ctx: Ctx::<ConstantMap>::default_repl(),
         }
     }
 
@@ -718,7 +779,7 @@ impl VirtualMachine {
         // TODO change this to be a unique macro env struct
         // Just a thin wrapper around a hashmap
         let extracted_statements = extract_macro_definitions(
-            &exprs,
+            exprs,
             &self.macro_env,
             &self.global_env,
             &mut self.ctx.symbol_map,
@@ -726,36 +787,14 @@ impl VirtualMachine {
         )?;
 
         // Walk through and expand all macros, lets, and defines
-        let expanded_statements: Vec<Expr> = extracted_statements
-            .into_iter()
-            .map(|x| expand(x, &self.global_env, &self.macro_env))
-            .collect::<Result<Vec<Expr>>>()?;
-
-        // println!()
+        let expanded_statements =
+            expand_statements(extracted_statements, &self.global_env, &self.macro_env)?;
 
         // Collect global defines here first
         let (ndefs_new, ndefs_old, _not) =
             count_and_collect_global_defines(&expanded_statements, &mut self.ctx.symbol_map);
 
         // At the global level, let the defines shadow the old ones, but call `drop` on all of the old values
-
-        // Reserve the definitions in the global environment
-        // println!("########### Found ndefs new: {}", ndefs_new);
-        // println!("########### Found ndefs shadowed: {}", ndefs_old);
-        // println!("########### not defines: {}", _not);
-
-        // println!(
-        //     "^^^^^^^^^^ Global env length at the start: {}",
-        //     self.global_env.borrow().len()
-        // );
-        // println!(
-        //     "Global env state binding context: {}",
-        //     self.global_env.borrow().is_binding_context()
-        // );
-        // println!(
-        //     "Global env state binding offset: {}",
-        //     self.global_env.borrow().is_binding_offset()
-        // );
 
         // Reserve the definitions in the global environment
         // TODO find a better way to make sure that the definitions are reserved
@@ -795,6 +834,9 @@ impl VirtualMachine {
         //     self.global_env.borrow().len()
         // );
 
+        // TODO move this out into its thing
+        // fairly certain this isn't necessary to do this batching
+        // but it does work for now and I'll take it for now
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
         for expr in expanded_statements {
@@ -1164,7 +1206,28 @@ pub fn vm<CT: ConstantTable>(
                 let transducer = stack.pop().unwrap();
 
                 if let SteelVal::IterV(transducer) = transducer.as_ref() {
-                    let ret_val = transducer.run(list, constants, &cur_inst.span, repl, callback);
+                    let ret_val =
+                        transducer.run(list, constants, &cur_inst.span, repl, callback, None);
+                    stack.push(ret_val?);
+                } else {
+                    stop!(Generic => "Transducer execute takes a list"; cur_inst.span);
+                }
+                ip += 1;
+            }
+            OpCode::COLLECTTO => {
+                let output_type = stack.pop().unwrap();
+                let list = stack.pop().unwrap();
+                let transducer = stack.pop().unwrap();
+
+                if let SteelVal::IterV(transducer) = transducer.as_ref() {
+                    let ret_val = transducer.run(
+                        list,
+                        constants,
+                        &cur_inst.span,
+                        repl,
+                        callback,
+                        Some(output_type),
+                    );
                     stack.push(ret_val?);
                 } else {
                     stop!(Generic => "Transducer execute takes a list"; cur_inst.span);

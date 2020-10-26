@@ -85,6 +85,38 @@ pub fn emit_loop<CT: ConstantTable>(
                         ty: TokenType::Identifier(s),
                         ..
                     }) if s == "execute" => {
+                        if list_of_tokens.len() == 4 {
+                            // load in the transducer
+                            emit_loop(
+                                &list_of_tokens[1],
+                                instructions,
+                                None,
+                                arity_map,
+                                constant_map,
+                            )?;
+
+                            // load in the collection
+                            emit_loop(
+                                &list_of_tokens[2],
+                                instructions,
+                                None,
+                                arity_map,
+                                constant_map,
+                            )?;
+
+                            // load in the output_type
+                            emit_loop(
+                                &list_of_tokens[3],
+                                instructions,
+                                None,
+                                arity_map,
+                                constant_map,
+                            )?;
+
+                            instructions.push(Instruction::new_collect_to());
+                            return Ok(());
+                        }
+
                         check_length("execute", &list_of_tokens, 3)?;
 
                         // load in the transducer

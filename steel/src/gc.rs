@@ -36,6 +36,10 @@ impl<T: Clone> Gc<T> {
         Ok(Gc(Rc::new(val)))
     }
 
+    pub fn get_object_count() -> usize {
+        OBJECT_COUNT.fetch_add(0, Ordering::SeqCst)
+    }
+
     pub fn checked_allocate(allocations: usize) -> Result<(), SteelErr> {
         let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
         if mem + allocations > crate::vm::MAXIMUM_OBJECTS {
@@ -116,3 +120,51 @@ impl<T: Clone> Clone for Gc<T> {
         Gc(Rc::clone(&self.0))
     }
 }
+
+// #[cfg(test)]
+// mod gc_tests {
+//     use super::*;
+
+//     // Use at the start of every test function
+//     fn reset_gc_state() {
+//         OBJECT_COUNT.store(0, Ordering::SeqCst)
+//     }
+
+//     fn alloc_one_value() {
+//         let count: usize = Gc::<()>::get_object_count();
+//         let a = Gc::new(10);
+//         assert_eq!(Gc::<()>::get_object_count(), count + 1);
+//         drop(a)
+//     }
+
+//     fn gc_alloc_increments_counts() {
+//         reset_gc_state();
+//         let a = Gc::new(10);
+//         let count: usize = Gc::<()>::get_object_count();
+//         assert_eq!(count, 1);
+//         drop(a)
+//     }
+
+//     fn gc_alloc_increments_multiple_values() {
+//         reset_gc_state();
+//         let v = vec![Gc::new(1), Gc::new(2), Gc::new(3)];
+//         let wrapper = Gc::new(v);
+//         let count: usize = Gc::<()>::get_object_count();
+//         assert_eq!(count, 4);
+//         drop(wrapper)
+//     }
+
+//     fn gc_alloc_decrements_out_of_scope() {
+//         reset_gc_state();
+//         let count = Gc::<()>::get_object_count();
+//         alloc_one_value();
+//         assert_eq!(Gc::<()>::get_object_count(), count);
+//     }
+
+//     #[test]
+//     fn test_suite() {
+//         gc_alloc_increments_counts();
+//         gc_alloc_increments_multiple_values();
+//         gc_alloc_decrements_out_of_scope();
+//     }
+// }

@@ -78,14 +78,13 @@
 
 (define-syntax quasiquote
   (syntax-rules (unquote unquote-splicing)
-    ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote xs ...)))
+    ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
     ((quasiquote ((unquote-splicing x)))        (append (list x) (quote ())))
     ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
     ((quasiquote (unquote x))                 x)
     ((quasiquote (x))                          (quote (x)))
     ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
     ((quasiquote x)                           (quote x))))
-
 
 (define-syntax lambda-hash
   (syntax-rules ()

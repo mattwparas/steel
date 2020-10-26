@@ -262,7 +262,7 @@ mod stream_tests {
             (stream-cons n (lambda () (integers (+ 1 n)))))
 
         (assert! 
-            (equal? (vector 0 1 2 3 4)
+            (equal? (list 0 1 2 3 4)
                     (execute (taking 5) (integers 0))))
         "#;
         assert_script(script);

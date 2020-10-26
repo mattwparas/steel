@@ -700,7 +700,7 @@ pub fn function(
 
             let res = #function_name(
                 #(
-                    #arg_type::try_from((*(args[#arg_index])).clone())?,
+                    <#arg_type>::try_from((*(args[#arg_index])).clone())?,
                 )*
             );
 
@@ -739,7 +739,6 @@ pub fn embedded_function(input: TokenStream) -> TokenStream {
     let mut arg_enumerate = type_vec.into_iter().enumerate();
     arg_enumerate.next();
 
-    
     let arg_type = arg_enumerate.clone().map(|(_, x)| x);
     let arg_index = arg_enumerate.clone().map(|(i, _)| i);
     // let function_name = sign.ident;
