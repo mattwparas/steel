@@ -602,7 +602,7 @@ macro_rules! build_vm {
 
     ($($type:ty),* $(,)?) => {
         {
-            let mut interpreter = VirtualMachine::new();
+            let mut interpreter = VirtualMachine::new_with_meta();
             $ (
                 interpreter.insert_bindings(<$type>::generate_bindings());
             ) *
@@ -612,7 +612,7 @@ macro_rules! build_vm {
 
     (Structs => {$($type:ty),* $(,)?} Functions => {$($binding:expr => $func:expr),* $(,)?}) => {
         {
-            let mut interpreter = VirtualMachine::new();
+            let mut interpreter = VirtualMachine::new_with_meta();
             $ (
                 interpreter.insert_bindings(<$type>::generate_bindings());
             ) *
@@ -690,6 +690,12 @@ impl VirtualMachine {
             callback: EvaluationProgress::new(),
             ctx: Ctx::<ConstantMap>::default_repl(),
         }
+    }
+
+    pub fn new_with_meta() -> VirtualMachine {
+        let mut vm = VirtualMachine::new();
+        vm.insert_binding("*env*".to_string(), Env::constant_env_to_hashmap());
+        vm
     }
 
     pub fn insert_binding(&mut self, name: String, value: SteelVal) {
@@ -1375,6 +1381,13 @@ pub fn vm<CT: ConstantTable>(
                 let list = stack.pop().unwrap();
                 let stack_func = stack.pop().unwrap();
 
+                match stack_func.closure_arity() {
+                    Some(s) if s != 1 => {
+                        stop!(ArityMismatch => format!("map expected a function that takes 1 arguments, found {}", s));
+                    }
+                    _ => {}
+                }
+
                 match list.as_ref() {
                     SteelVal::Pair(_, _) => {
                         let collected_results = inline_map_normal(
@@ -1407,6 +1420,13 @@ pub fn vm<CT: ConstantTable>(
             OpCode::FILTER => {
                 let list = stack.pop().unwrap();
                 let stack_func = stack.pop().unwrap();
+
+                match stack_func.closure_arity() {
+                    Some(s) if s != 1 => {
+                        stop!(ArityMismatch => format!("filter expected a function that takes 1 arguments, found {}", s));
+                    }
+                    _ => {}
+                }
 
                 // Change inline_map and inline_filter to return iterators... now that would be cool
                 match list.as_ref() {
@@ -1470,6 +1490,10 @@ pub fn vm<CT: ConstantTable>(
                         ip += 1;
                     }
                     SteelVal::Closure(closure) => {
+                        if closure.arity() != cur_inst.payload_size {
+                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), cur_inst.payload_size); cur_inst.span);
+                        }
+
                         if stacks.len() == STACK_LIMIT {
                             println!("stacks at exit: {:?}", stacks);
                             println!("stack frame at exit: {:?}", stack);
@@ -1552,6 +1576,10 @@ pub fn vm<CT: ConstantTable>(
                             println!("stacks at exit: {:?}", stacks);
                             println!("stack frame at exit: {:?}", stack);
                             stop!(Generic => "stack overflowed!"; cur_inst.span);
+                        }
+
+                        if closure.arity() != cur_inst.payload_size {
+                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), cur_inst.payload_size); cur_inst.span);
                         }
 
                         let args = stack.split_off(stack.len() - cur_inst.payload_size);

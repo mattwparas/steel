@@ -599,10 +599,12 @@ pub fn emit_loop<CT: ConstantTable>(
                             // }
                         }
 
+                        // emit instructions for the args
                         for expr in &list_of_tokens[1..] {
                             emit_loop(expr, instructions, None, arity_map, constant_map)?;
                         }
 
+                        // emit instructions for the func
                         emit_loop(f, instructions, None, arity_map, constant_map)?;
 
                         if let Expr::Atom(s) = &list_of_tokens[0] {

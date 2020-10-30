@@ -719,6 +719,14 @@ impl SteelVal {
             _ => Err(err()),
         }
     }
+
+    pub fn closure_arity(&self) -> Option<usize> {
+        if let SteelVal::Closure(c) = self {
+            Some(c.arity())
+        } else {
+            None
+        }
+    }
 }
 
 impl Drop for SteelVal {

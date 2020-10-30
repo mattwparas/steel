@@ -410,6 +410,28 @@
 
 *box*
 
+;; default arguments need to get handled internally?
+;; replace all callsites with these
+;; (define (test-function  a (b 10) (c 25))
+;;   (+ a b c))
+
+;; -> have to figure out the aliasing rules to see if we can always do this
+;; this could also be handled fundamentally - the optional arguments always get
+;; put in on the lambda and could be handled that way
+;; (define (test func arg1)
+;;   (func arg1))
+
+;; ;; default values are going to be handled earlier
+;; (test-function)
+
+;; (test-function 10)
+
+;; (test-function 10 20)
+
+;; optional arguments to function
+
+
+
 
 ;; (define-pass)
 ;; pass -> takes an expr, returns an expr
