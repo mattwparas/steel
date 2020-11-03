@@ -120,7 +120,7 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
 
     let buffer = String::new();
 
-    let res = vm.parse_and_execute(PRELUDE);
+    let res = vm.parse_and_execute_without_optimizations(PRELUDE);
 
     match res {
         Ok(r) => r.iter().for_each(|x| match x.as_ref() {
@@ -134,6 +134,7 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
     }
 
     let mut print_time = false;
+    let mut optimizations = false;
 
     loop {
         let readline = rl.readline(&prompt);
@@ -144,6 +145,7 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
                     ":quit" => return Ok(()),
                     // ":reset" => interpreter.reset(),
                     ":time" => print_time = !print_time,
+                    ":o" => optimizations = !optimizations,
                     ":env" => vm.print_bindings(),
                     ":?" => display_help(),
                     line if line.contains(":require") => {
@@ -154,7 +156,11 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
                         let mut exprs = String::new();
                         file.read_to_string(&mut exprs)?;
 
-                        let res = vm.parse_and_execute(exprs.as_str());
+                        let res = if optimizations {
+                            vm.parse_and_execute(exprs.as_str())
+                        } else {
+                            vm.parse_and_execute_without_optimizations(exprs.as_str())
+                        };
 
                         match res {
                             Ok(r) => r.iter().for_each(|x| match x.as_ref() {
@@ -172,7 +178,11 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
 
                         let now = Instant::now();
 
-                        let res = vm.parse_and_execute(&line);
+                        let res = if optimizations {
+                            vm.parse_and_execute(&line)
+                        } else {
+                            vm.parse_and_execute_without_optimizations(&line)
+                        };
 
                         match res {
                             Ok(r) => r.iter().for_each(|x| match x.as_ref() {

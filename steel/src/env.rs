@@ -817,9 +817,12 @@ impl Env {
 
     pub fn add_rooted_value(&mut self, sm: &mut SymbolMap, val: (&str, SteelVal)) {
         let idx = sm.add(val.0);
-        // println!("Adding {}", val.0);
         self.bindings_map.insert(idx, Gc::new(val.1));
-        // self.bindings_vec.push(Gc::new(val.1));
+    }
+
+    pub fn add_rooted_gc_value(&mut self, sm: &mut SymbolMap, val: (&str, Gc<SteelVal>)) {
+        let idx = sm.add(val.0);
+        self.bindings_map.insert(idx, val.1);
     }
 
     pub fn define_zipped_rooted(
@@ -1087,6 +1090,7 @@ impl Env {
             ("string->list", StringOperations::string_to_list()),
             ("string-upcase", StringOperations::string_to_upper()),
             ("string-lowercase", StringOperations::string_to_lower()),
+            ("string-length", StringOperations::string_length()),
             ("trim", StringOperations::trim()),
             ("trim-start", StringOperations::trim_start()),
             ("trim-end", StringOperations::trim_end()),
@@ -1114,6 +1118,8 @@ impl Env {
             ("hash", HashMapOperations::hm_construct()),
             ("hash-insert", HashMapOperations::hm_insert()),
             ("hash-get", HashMapOperations::hm_get()),
+            ("hash-try-get", HashMapOperations::hm_try_get()),
+            ("hash-length", HashMapOperations::hm_length()),
             ("hash-contains?", HashMapOperations::hm_contains()),
             ("hash-keys->list", HashMapOperations::keys_to_list()),
             ("hash-keys->vector", HashMapOperations::keys_to_vector()),

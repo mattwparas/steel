@@ -704,6 +704,12 @@ impl VirtualMachine {
             .add_rooted_value(&mut self.ctx.symbol_map, (name.as_str(), value));
     }
 
+    pub fn insert_gc_binding(&mut self, name: String, value: Gc<SteelVal>) {
+        self.global_env
+            .borrow_mut()
+            .add_rooted_gc_value(&mut self.ctx.symbol_map, (name.as_str(), value));
+    }
+
     pub fn insert_bindings(&mut self, vals: Vec<(String, SteelVal)>) {
         self.global_env
             .borrow_mut()
@@ -739,6 +745,24 @@ impl VirtualMachine {
         self.parse_and_execute(exprs.as_str())
     }
 
+    pub fn parse_and_execute_without_optimizations(
+        &mut self,
+        expr_str: &str,
+        // ctx: &mut Ctx<ConstantMap>,
+    ) -> Result<Vec<Gc<SteelVal>>> {
+        // let now = Instant::now();
+        let gen_bytecode = self.emit_instructions(expr_str, false)?;
+
+        gen_bytecode
+            .into_iter()
+            .map(|x| {
+                let code = Rc::from(x.into_boxed_slice());
+                let res = self.execute(code, self.ctx.repl);
+                res
+            })
+            .collect::<Result<Vec<Gc<SteelVal>>>>()
+    }
+
     // pub fn new_with_std
 
     pub fn parse_and_execute(
@@ -747,7 +771,7 @@ impl VirtualMachine {
         // ctx: &mut Ctx<ConstantMap>,
     ) -> Result<Vec<Gc<SteelVal>>> {
         // let now = Instant::now();
-        let gen_bytecode = self.emit_instructions(expr_str)?;
+        let gen_bytecode = self.emit_instructions(expr_str, true)?;
 
         // previous size of the env
         // let length = self.global_env.borrow().len();
@@ -768,9 +792,46 @@ impl VirtualMachine {
             .collect::<Result<Vec<Gc<SteelVal>>>>()
     }
 
+    pub fn optimize_exprs(
+        exprs: Vec<Expr>,
+        // ctx: &mut Ctx<ConstantMap>,
+    ) -> Result<Vec<Expr>> {
+        // println!("About to optimize the input program");
+
+        let converted: Result<Vec<_>> = exprs
+            .into_iter()
+            .map(|x| SteelVal::try_from(x.clone()))
+            .collect();
+
+        // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
+        let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
+
+        let mut vm = VirtualMachine::new_with_meta();
+        vm.parse_and_execute_without_optimizations(crate::stdlib::PRELUDE)?;
+        vm.insert_gc_binding("*program*".to_string(), exprs);
+        let output = vm.parse_and_execute_without_optimizations(crate::stdlib::COMPILER)?;
+
+        // println!("{:?}", output.last().unwrap());
+
+        // if output.len()  1 {
+        //     stop!(Generic => "panic! internal compiler error: output did not return a valid program");
+        // }
+
+        // TODO
+        SteelVal::iter(Gc::clone(output.last().unwrap()))
+            .into_iter()
+            .map(|x| Expr::try_from(x.as_ref()).map_err(|x| SteelErr::Generic(x.to_string(), None)))
+            .collect::<Result<Vec<Expr>>>()
+
+        // unimplemented!()
+
+        // self.emit_instructions_from_exprs(parsed)
+    }
+
     fn emit_instructions_from_exprs(
         &mut self,
         exprs: Vec<Expr>,
+        optimizations: bool,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
         // populate MacroSet
@@ -795,6 +856,13 @@ impl VirtualMachine {
         // Walk through and expand all macros, lets, and defines
         let expanded_statements =
             expand_statements(extracted_statements, &self.global_env, &self.macro_env)?;
+
+        // Mild hack...
+        let expanded_statements = if optimizations {
+            VirtualMachine::optimize_exprs(expanded_statements)?
+        } else {
+            expanded_statements
+        };
 
         // Collect global defines here first
         let (ndefs_new, ndefs_old, _not) =
@@ -884,6 +952,7 @@ impl VirtualMachine {
     pub fn emit_instructions(
         &mut self,
         expr_str: &str,
+        optimizations: bool,
         // ctx: &mut Ctx<ConstantMap>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         // the interner needs to be fixed but for now it just is here for legacy reasons
@@ -895,7 +964,7 @@ impl VirtualMachine {
             Parser::new(expr_str, &mut intern).collect();
         let parsed = parsed?;
 
-        self.emit_instructions_from_exprs(parsed)
+        self.emit_instructions_from_exprs(parsed, optimizations)
     }
 
     pub fn execute(
@@ -1322,7 +1391,7 @@ pub fn vm<CT: ConstantTable>(
                     }
                     SteelVal::Closure(closure) => {
                         if stacks.len() == STACK_LIMIT {
-                            println!("stacks at exit: {:?}", stacks);
+                            // println!("stacks at exit: {:?}", stacks);
                             println!("stack frame at exit: {:?}", stack);
                             stop!(Generic => "stack overflowed!"; cur_inst.span);
                         }
@@ -1495,7 +1564,7 @@ pub fn vm<CT: ConstantTable>(
                         }
 
                         if stacks.len() == STACK_LIMIT {
-                            println!("stacks at exit: {:?}", stacks);
+                            // println!("stacks at exit: {:?}", stacks);
                             println!("stack frame at exit: {:?}", stack);
                             stop!(Generic => "stack overflowed!"; cur_inst.span);
                         }

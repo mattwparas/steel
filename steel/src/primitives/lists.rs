@@ -78,6 +78,7 @@ impl ListOperations {
     }
 
     // TODO fix this
+    // This panics on non positive values
     pub fn range() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() != 2 {
@@ -89,6 +90,8 @@ impl ListOperations {
                     if let (IntV(lower), IntV(upper)) = (elem, lst) {
                         // let size = (upper - lower) as usize;
                         // let mut res = Vec::with_capacity(size);
+
+                        // println!("{} {}", lower, upper);
 
                         Ok(Self::built_in_list_normal_iter_non_result(
                             (lower as usize..upper as usize)

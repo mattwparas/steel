@@ -265,6 +265,20 @@ impl StringOperations {
             }
         })
     }
+
+    pub fn string_length() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() == 1 {
+                if let SteelVal::StringV(s) = &args[0].as_ref() {
+                    Ok(Gc::new(SteelVal::IntV(s.len() as isize)))
+                } else {
+                    stop!(TypeMismatch => "string-length expected a string")
+                }
+            } else {
+                stop!(ArityMismatch => "string-length takes one argument")
+            }
+        })
+    }
 }
 
 #[cfg(test)]

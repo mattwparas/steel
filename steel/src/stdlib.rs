@@ -11,6 +11,8 @@ pub const TYPES: &str = include_str!("scheme/types.rkt");
 pub const METHODS: &str = include_str!("scheme/methods.rkt");
 #[cfg(not(target_os = "windows"))]
 pub const MERGE: &str = include_str!("scheme/merge.rkt");
+#[cfg(not(target_os = "windows"))]
+pub const COMPILER: &str = include_str!("scheme/nanopass.rkt");
 
 #[cfg(target_os = "windows")]
 pub const PRELUDE: &str = include_str!(r#"scheme\stdlib.rkt"#);
@@ -22,3 +24,5 @@ pub const CONTRACTS: &str = include_str!(r#"scheme\contract.rkt"#);
 pub const TYPES: &str = include_str!(r#"scheme\types.rkt"#);
 #[cfg(target_os = "windows")]
 pub const MERGE: &str = include_str!(r#"scheme\merge.rkt"#);
+#[cfg(target_os = "windows")]
+pub const COMPILER: &str = include_str!("scheme\nanopass.rkt");

@@ -12,7 +12,7 @@ pub(crate) static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// When enabled, this allows for complete sandboxing of data types
 /// It does not expose the full functionality of the `Rc` type
 /// but it does allow for some
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct Gc<T: Clone>(Rc<T>);
 
 impl fmt::Display for Gc<SteelVal> {
@@ -118,6 +118,12 @@ impl<T: Clone> Drop for Gc<T> {
 impl<T: Clone> Clone for Gc<T> {
     fn clone(&self) -> Self {
         Gc(Rc::clone(&self.0))
+    }
+}
+
+impl fmt::Debug for Gc<SteelVal> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

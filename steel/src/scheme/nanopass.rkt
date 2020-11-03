@@ -143,11 +143,6 @@
            (car (constant-fold (caddr expr) bound-vars))
            (car (constant-fold (cadddr expr) bound-vars))))
       bound-vars)]
-    ;; [(match-define expr)
-    ;;  (displayln expr)
-    ;;  (list
-    ;;   (list 'define (cadr expr) (car (constant-fold (caadr expr) bound-vars)))
-    ;;   bound-vars)]
 
     ;; now if it actually is a function application
     ;; get the constants associated with the
@@ -420,7 +415,6 @@
 
 
 (define (optimize! expr)
-  ;; (displayln "looping")
   (init-changed)
   (define output
     (-> expr
@@ -434,11 +428,22 @@
       output))
 
 
+(define (pprint lst)
+  (if (null? lst)
+      '()
+      (begin
+        (displayln (car lst))
+        (pprint (cdr lst)))))
+
+; (map optimize! *flattened-program*)
+
 (displayln "-------------- BEFORE --------------")
-(displayln *flattened-program*)
+; (displayln *flattened-program*)
+(pprint *flattened-program*)
 (define *result* (map optimize! *flattened-program*))
 (displayln "-------------- AFTER ---------------")
-(displayln *result*)
+; (displayln *result*)
+(pprint *result*)
 *result*
 
 ;; ----------------------------
