@@ -31,7 +31,9 @@ pub use vectors::VectorOperations;
 // use crate::converter::SteelFunctor;
 use crate::rerrs::SteelErr;
 use crate::rvals::{FunctionSignature, SteelLambda, SteelVal};
+use im_rc::HashMap;
 use im_rc::Vector;
+
 // use std::collections::Vector;
 use std::convert::TryFrom;
 use std::convert::TryInto;
@@ -131,6 +133,33 @@ impl From<char> for SteelVal {
         SteelVal::CharV(val)
     }
 }
+
+// impl<T: TryInto<SteelVal>> TryFrom<HashMap<T, T>> for SteelVal {
+//     type Error = SteelErr;
+//     fn try_from(val: HashMap<T, T>) -> result::Result<Self, Self::Error> {
+//         let pairs: Vec<(_, _)> = val
+//             .iter()
+//             .map(|x| (x.0.try_into(), x.1.try_into()))
+//             .collect();
+
+//         let mut hm = HashMap::new();
+//         for pair in pairs {
+//             match pair {
+//                 (Ok(k), Ok(v)) => {
+//                     hm.insert(k, v);
+//                 }
+//                 (_l, _r) => {
+//                     return Err(SteelErr::ConversionError(
+//                         format!("Could not convert hash map to SteelVal"),
+//                         None,
+//                     ));
+//                 }
+//             }
+//         }
+
+//         Ok(SteelVal::HashMapV(hm))
+//     }
+// }
 
 impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
     type Error = SteelErr;
@@ -284,6 +313,25 @@ impl TryFrom<SteelVal> for String {
                 None,
             )),
         }
+    }
+}
+
+// impl TryFrom<Gc<SteelVal>> for Gc<SteelVal> {
+//     type Error = SteelErr;
+//     fn try_from(value: Gc<SteelVal>) -> result::Result<Self, Self::Error> {
+//         Ok(value)
+//     }
+// }
+
+impl From<SteelVal> for Gc<SteelVal> {
+    fn from(val: SteelVal) -> Self {
+        Gc::new(val)
+    }
+}
+
+impl From<Gc<SteelVal>> for SteelVal {
+    fn from(val: Gc<SteelVal>) -> Self {
+        (*val).clone()
     }
 }
 

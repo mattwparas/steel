@@ -328,7 +328,7 @@ impl ListOperations {
             }
         }
 
-        pairs.pop().unwrap()
+        pairs.pop().unwrap_or(Gc::new(VectorV(Vector::new())))
     }
 
     pub fn built_in_list_normal_iter<I>(args: I) -> Result<Gc<SteelVal>>

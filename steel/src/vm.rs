@@ -48,7 +48,7 @@ use std::result;
 use crate::env::CoreModuleConfig;
 use std::cell::Cell;
 
-const STACK_LIMIT: usize = 1024;
+const STACK_LIMIT: usize = 100000;
 
 fn count_and_collect_global_defines(
     exprs: &[Expr],
@@ -1701,7 +1701,7 @@ pub fn vm<CT: ConstantTable>(
             OpCode::JMP => {
                 ip = cur_inst.payload_size;
                 // HACk
-                if ip == 0 && heap.len() > HEAP_LIMIT {
+                if ip == 0 && heap.len() > heap.limit() {
                     println!("Jumping back to the start!");
                     println!("Heap length: {}", heap.len());
                     println!("############################");

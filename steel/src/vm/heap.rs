@@ -56,6 +56,10 @@ impl Heap {
         &self.root
     }
 
+    pub fn limit(&self) -> usize {
+        self.limit
+    }
+
     fn walk(&mut self, node: &Weak<RefCell<Env>>) {
         // let reachable = p_env.borrow().is_reachable();
         if let Some(upgraded) = node.upgrade() {
@@ -179,7 +183,9 @@ impl Heap {
         // self.heap.reverse();
 
         self.heap
-            .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) == 1);
+            .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) > 1);
+
+        // self.heap.retain(|x| Rc::strong_count(x) == 1);
 
         // let mut count = self.heap.len();
 
