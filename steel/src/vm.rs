@@ -1103,9 +1103,6 @@ impl InstructionPointer {
 
 // static const HEAP_LIMIT: usize =
 
-static HEAP_LIMIT: usize = 5000;
-pub static MAXIMUM_OBJECTS: usize = 50000;
-
 // This is just... easier than passing all of the args into the VM every single time
 // This should work out better I hope
 // Especially with the callbacks and all that jazz

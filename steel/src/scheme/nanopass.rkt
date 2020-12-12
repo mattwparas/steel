@@ -128,8 +128,9 @@
      ;; HACK / TODO
      ;; Find how to differentiate something like a constant expression '(1 2 3 4) which
      ;; evaluates to a list, versus something like '(lambda (x) 10)
+     ;; TODO double check that this check is correct - constant? vs constant-not-symbols?
      (list
-      (if (constant? condition)
+      (if (constant-not-symbols? condition)
           (cond
             [condition
              (mark-changed)

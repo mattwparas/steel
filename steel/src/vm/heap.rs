@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::rc::Weak;
 
 use std::collections::HashMap;
+pub(crate) static HEAP_LIMIT: usize = 5000;
 
 pub struct Heap {
     heap: Vec<Rc<RefCell<Env>>>,
@@ -20,7 +21,7 @@ impl Default for Heap {
         Heap {
             heap: Vec::new(),
             root: None,
-            limit: 5000,
+            limit: HEAP_LIMIT,
             max_double: 4,
             current_double: 0,
         }
@@ -32,7 +33,7 @@ impl Heap {
         Heap {
             heap: Vec::new(),
             root: None,
-            limit: 5000,
+            limit: HEAP_LIMIT,
             max_double: 4,
             current_double: 0,
         }

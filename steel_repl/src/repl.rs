@@ -144,8 +144,22 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
                 match line.as_str() {
                     ":quit" => return Ok(()),
                     // ":reset" => interpreter.reset(),
-                    ":time" => print_time = !print_time,
-                    ":o" => optimizations = !optimizations,
+                    ":time" => {
+                        print_time = !print_time;
+                        println!(
+                            "{} {}",
+                            "Expression timer set to:".bright_purple(),
+                            print_time.to_string().bright_green()
+                        );
+                    }
+                    ":o" => {
+                        optimizations = !optimizations;
+                        println!(
+                            "{} {}",
+                            "Optimizations set to:".bright_purple(),
+                            optimizations.to_string().bright_green()
+                        );
+                    }
                     ":env" => vm.print_bindings(),
                     ":?" => display_help(),
                     line if line.contains(":require") => {

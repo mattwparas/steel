@@ -7,6 +7,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(crate) static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
 /// This is simply a newtype around the `Rc` type
 /// When enabled, this allows for complete sandboxing of data types
@@ -30,7 +31,7 @@ impl<T: Clone> Gc<T> {
 
     pub fn try_new(val: T) -> Result<Gc<T>, SteelErr> {
         let mem: usize = OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
-        if mem > crate::vm::MAXIMUM_OBJECTS {
+        if mem > MAXIMUM_OBJECTS {
             stop!(Generic => "ran out of memory!")
         }
         Ok(Gc(Rc::new(val)))
@@ -42,7 +43,7 @@ impl<T: Clone> Gc<T> {
 
     pub fn checked_allocate(allocations: usize) -> Result<(), SteelErr> {
         let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
-        if mem + allocations > crate::vm::MAXIMUM_OBJECTS {
+        if mem + allocations > MAXIMUM_OBJECTS {
             stop!(Generic => "allocation would exceed maximum allowed memory")
         }
         Ok(())
@@ -87,7 +88,7 @@ impl<T: Clone> Gc<T> {
 
     pub fn check_memory() -> Result<usize, SteelErr> {
         let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
-        if mem > crate::vm::MAXIMUM_OBJECTS {
+        if mem > MAXIMUM_OBJECTS {
             stop!(Generic => "ran out of memory!")
         }
         Ok(mem)

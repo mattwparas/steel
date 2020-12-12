@@ -31,7 +31,7 @@ pub use vectors::VectorOperations;
 // use crate::converter::SteelFunctor;
 use crate::rerrs::SteelErr;
 use crate::rvals::{FunctionSignature, SteelLambda, SteelVal};
-use im_rc::HashMap;
+// use im_rc::HashMap;
 use im_rc::Vector;
 
 // use std::collections::Vector;
