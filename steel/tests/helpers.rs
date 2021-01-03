@@ -29,7 +29,7 @@ pub fn test_lines(input: impl BufRead, output: impl BufRead) {
 }
 
 pub fn test_line(input: &str, output: &[&str], evaluator: &mut VirtualMachine) {
-    let result = evaluator.parse_and_execute(input);
+    let result = evaluator.parse_and_execute_without_optimizations(input);
     match result {
         Ok(vals) => {
             assert_eq!(output.len(), vals.len());

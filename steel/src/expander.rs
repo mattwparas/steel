@@ -331,36 +331,35 @@ impl MacroCase {
             }
             Expr::VectorVal(vec_exprs) => {
                 let mut vec_exprs = vec_exprs.clone();
-                if let Some(checkdatum) = vec_exprs.get(0) {
-                    if let Expr::Atom(SyntaxObject { ty: t, .. }) = checkdatum {
-                        if let Identifier(check) = t {
-                            if check == "datum->syntax" {
-                                let mut buffer = String::new();
-                                if let Some((_, rest)) = vec_exprs.split_first() {
-                                    for syntax in rest {
-                                        let transformer = syntax.atom_identifier_or_else(
-                                            throw!(BadSyntax => "datum->syntax requires an identifier"),
-                                        )?;
 
-                                        if transformer.starts_with("##") {
-                                            let (_, cdr) = transformer.split_at(2);
-                                            buffer.push_str(cdr);
-                                        } else {
-                                            if let Some(body) = bindings.get(transformer) {
-                                                // println!("{}", body.to_string());
+                match vec_exprs.get(0) {
+                    Some(Expr::Atom(SyntaxObject {
+                        ty: Identifier(check),
+                        ..
+                    })) => {
+                        if check == "datum->syntax" {
+                            let mut buffer = String::new();
+                            if let Some((_, rest)) = vec_exprs.split_first() {
+                                for syntax in rest {
+                                    let transformer = syntax.atom_identifier_or_else(
+                                        throw!(BadSyntax => "datum->syntax requires an identifier"),
+                                    )?;
 
-                                                buffer.push_str(body.to_string().as_str());
-                                            }
+                                    if transformer.starts_with("##") {
+                                        let (_, cdr) = transformer.split_at(2);
+                                        buffer.push_str(cdr);
+                                    } else {
+                                        if let Some(body) = bindings.get(transformer) {
+                                            buffer.push_str(body.to_string().as_str());
                                         }
                                     }
-
-                                    return Ok(Expr::Atom(SyntaxObject::default(Identifier(
-                                        buffer,
-                                    ))));
                                 }
+
+                                return Ok(Expr::Atom(SyntaxObject::default(Identifier(buffer))));
                             }
                         }
                     }
+                    _ => {}
                 }
 
                 // TODO find this issue

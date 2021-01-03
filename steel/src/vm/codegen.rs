@@ -19,6 +19,8 @@ use crate::rvals::SteelVal;
 
 use crate::gc::Gc;
 use std::convert::TryFrom;
+
+use log::info;
 // use std::convert::TryInto;s
 
 pub fn emit_loop<CT: ConstantTable>(
@@ -334,10 +336,10 @@ pub fn emit_loop<CT: ConstantTable>(
 
                         if let Some(ctx) = defining_context {
                             transform_tail_call(&mut body_instructions, ctx);
-                            let _b = check_and_transform_mutual_recursion(&mut body_instructions);
-                            // if b {
-                            //     println!("Transformed mutual recursion!");
-                            // }
+                            let b = check_and_transform_mutual_recursion(&mut body_instructions);
+                            if b {
+                                info!("Transformed mutual recursion for: {}", ctx);
+                            }
                             arity_map.insert_exact(ctx, arity);
                         }
 
@@ -642,14 +644,8 @@ pub fn emit_loop<CT: ConstantTable>(
 }
 
 pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &str) -> bool {
-    // println!(
-    //     "Calling transform tail call with function: {}",
-    //     defining_context
-    // );
-
     let last_idx = instructions.len() - 1;
 
-    // could panic
     let mut indices = vec![last_idx];
 
     let mut transformed = false;
@@ -684,17 +680,14 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
                 }),
             ) => {
                 if s == defining_context {
-                    // println!("Making optimization!");
-
                     let new_jmp = Instruction::new_jmp(0);
                     // inject tail call jump
                     instructions[index - 2] = new_jmp;
                     instructions[index - 1] = Instruction::new_pass();
                     transformed = true;
+
+                    info!("Tail call optimization performed for: {}", defining_context);
                 }
-                // else {
-                //     println!("Found function call in tail position")
-                // }
             }
             _ => {}
         }

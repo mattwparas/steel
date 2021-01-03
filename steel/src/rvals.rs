@@ -1356,7 +1356,7 @@ mod transducer_tests {
     }
 
     #[test]
-    fn generic_exeuction_output_different_type() {
+    fn generic_execuction_output_different_type() {
         let script = r#"
         (define x (mapping (fn (x) x))) ;; identity
         (define y (filtering even?)) ;; get only even ones
