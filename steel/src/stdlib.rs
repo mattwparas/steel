@@ -25,4 +25,4 @@ pub const TYPES: &str = include_str!(r#"scheme\types.rkt"#);
 #[cfg(target_os = "windows")]
 pub const MERGE: &str = include_str!(r#"scheme\merge.rkt"#);
 #[cfg(target_os = "windows")]
-pub const COMPILER: &str = include_str!("scheme\nanopass.rkt");
+pub const COMPILER: &str = include_str!(r#"scheme\nanopass.rkt"#);

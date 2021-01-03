@@ -12,6 +12,8 @@ once_cell = "1.4.1"
 steel = { path = "./steel" }
 steel_derive = { path = "./steel_derive"}
 steel_repl = { path = "./steel_repl" }
+env_logger = "0.8.2"
+log = "0.4"
 
 [workspace]
 members = [

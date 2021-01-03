@@ -14,6 +14,8 @@ use crate::rvals::Result;
 
 use crate::env::MacroEnv;
 
+use log::{debug, error, info, warn};
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum MacroPattern {
     Single(String),
@@ -52,15 +54,6 @@ impl MacroCase {
     pub fn clobber_span_information(t: &SyntaxObject) -> SyntaxObject {
         SyntaxObject::new(t.ty.clone(), Span::new(0, 0))
     }
-
-    // pub fn clobber_span_information(expr: Rc<Expr>) -> Rc<Expr> {
-    //     let expr = (*expr).clone();
-    //     if let Expr::Atom(syn) = expr {
-
-    //     } else {
-    //         unreachable!();
-    //     }
-    // }
 
     // this is a half-baked attempt to avoid namespace clashing inside of a macro body
     // not particularly sure if this is the answer, but recursively explore the body of the macro
@@ -533,6 +526,10 @@ impl SteelMacro {
                 }
             }
         }
+        error!(
+            "Macro expansion unable to match case with: {}",
+            Expr::VectorVal(list_of_tokens.to_vec())
+        );
         // println!("getting to here...");
         stop!(ArityMismatch => "macro expansion could not match case")
     }
@@ -552,10 +549,19 @@ impl SteelMacro {
     // Set the span of the resulting expr to be the original span passed in!
     // For now do an extra walk
     pub fn expand(&self, list_of_tokens: &[Expr]) -> Result<Expr> {
+        debug!(
+            "Expanding macro with tokens: {:?}",
+            Expr::VectorVal(list_of_tokens.to_vec()).to_string()
+        );
         let case_to_expand = self.match_case(list_of_tokens)?;
         let original_spans: Vec<Span> = list_of_tokens.iter().map(|x| x.span()).collect();
         let coalesced_span = Expr::coalesce_span(original_spans);
         let expanded_expr = case_to_expand.expand(list_of_tokens)?;
+        info!(
+            "Macro Expansion: {} -> {}",
+            Expr::VectorVal(list_of_tokens.to_vec()).to_string(),
+            expanded_expr.to_string()
+        );
         Ok(Expr::rewrite_span(expanded_expr, coalesced_span))
     }
 }

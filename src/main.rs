@@ -42,6 +42,10 @@ use std::rc::Rc;
 use std::collections::HashMap;
 
 use std::cmp::{max, min};
+
+use env_logger::{Builder, WriteStyle};
+use log::LevelFilter;
+
 // extern crate reqwest;
 
 // use std::io::Read;
@@ -88,6 +92,18 @@ fn do_a_call() {
 }
 
 fn main() {
+    // env_logger::init();
+
+    let mut builder = Builder::new();
+
+    builder
+        .filter(Some("steel"), LevelFilter::Trace)
+        // .filter(None, LevelFilter::Error)
+        // .filter(None, LevelFilter::Warn)
+        // .filter(None, LevelFilter)
+        .write_style(WriteStyle::Always)
+        .init();
+
     let args = args().collect::<Vec<_>>();
 
     if args.len() == 1 {

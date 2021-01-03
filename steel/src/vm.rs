@@ -48,6 +48,8 @@ use std::result;
 use crate::env::CoreModuleConfig;
 use std::cell::Cell;
 
+use log::{debug, error, info};
+
 const STACK_LIMIT: usize = 100000;
 
 fn count_and_collect_global_defines(
@@ -1674,7 +1676,12 @@ pub fn vm<CT: ConstantTable>(
                                 0
                             });
 
+                        // info!("Calling mark and sweep");
                         heap.gather_mark_and_sweep_2(&global_env, &inner_env);
+                        // info!(
+                        //     "Collecting garbage on TAILCALL with heap length: {}",
+                        //     heap.len()
+                        // );
                         heap.collect_garbage();
 
                         global_env = inner_env;
@@ -1699,6 +1706,8 @@ pub fn vm<CT: ConstantTable>(
                 ip = cur_inst.payload_size;
                 // HACk
                 if ip == 0 && heap.len() > heap.limit() {
+                    // info!("Collecting garbage on JMP with heap length: {}", heap.len());
+
                     println!("Jumping back to the start!");
                     println!("Heap length: {}", heap.len());
                     println!("############################");
@@ -1826,7 +1835,8 @@ pub fn vm<CT: ConstantTable>(
                 // unimplemented!();
             }
             _ => {
-                unimplemented!();
+                error!("Unimplemented instruction!");
+                unimplemented!("Unimplemented instruction cannot be handled properly");
             }
         }
 
@@ -1845,14 +1855,20 @@ pub fn vm<CT: ConstantTable>(
         // ip += 1;
     }
 
-    // unimplemented!()
-    println!("###### Out of bounds instruction ######");
-    println!(
-        "Instruction pointer: {}, instructions length: {}",
+    error!(
+        "Out of bounds instruction!: instruction pointer: {}, instruction length: {}",
         ip,
         instructions.len()
     );
-    println!("Instructions at time:");
+    // error!("Instructions at out of bounds!: {}", pretty_print_dense_instructions(&instructions));
+    // unimplemented!()
+    // println!("###### Out of bounds instruction ######");
+    // println!(
+    //     "Instruction pointer: {}, instructions length: {}",
+    //     ip,
+    //     instructions.len()
+    // );
+    // println!("Instructions at time:");
     pretty_print_dense_instructions(&instructions);
     panic!("Out of bounds instruction")
 }

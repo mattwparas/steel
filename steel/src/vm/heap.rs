@@ -8,6 +8,8 @@ use std::rc::Weak;
 use std::collections::HashMap;
 pub(crate) static HEAP_LIMIT: usize = 5000;
 
+use log::{debug, info};
+
 pub struct Heap {
     heap: Vec<Rc<RefCell<Env>>>,
     root: Option<Weak<RefCell<Env>>>,
@@ -150,8 +152,13 @@ impl Heap {
         // heap.inspect_heap();
 
         if self.len() > self.limit {
-            println!("Heap length before mark and sweep: {}", self.len());
-            println!("Active Object Count: {:?}", OBJECT_COUNT);
+            debug!(
+                "Before mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
+                self.len(),
+                OBJECT_COUNT
+            );
+            // println!("Heap length before mark and sweep: {}", self.len());
+            // println!("Active Object Count: {:?}", OBJECT_COUNT);
             // self.inspect_heap();
             self.profile_heap();
             self.drop_large_refs();
@@ -161,9 +168,18 @@ impl Heap {
             }
             self.profile_heap();
             // self.inspect_heap();
-            println!("Heap length after mark and sweep: {}", self.len());
-            println!("Active Object Count: {:?}", OBJECT_COUNT);
-            println!("Limit doubled to: {}", self.limit);
+
+            debug!(
+                "After mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
+                self.len(),
+                OBJECT_COUNT
+            );
+
+            debug!("Heap limit doubled to: {}", self.limit);
+
+            // println!("Heap length after mark and sweep: {}", self.len());
+            // println!("Active Object Count: {:?}", OBJECT_COUNT);
+            // println!("Limit doubled to: {}", self.limit);
         }
     }
 
@@ -175,32 +191,17 @@ impl Heap {
             let count = hm.entry(key).or_insert(0);
             *count += 1;
         }
-        println!("{:?}", hm);
+
+        debug!("Heap profile: {:?}", hm);
+
+        // println!("{:?}", hm);
     }
 
     pub fn drop_large_refs(&mut self) {
-        // let mut new_vec = Vec::new();
-
-        // self.heap.reverse();
+        debug!("Dropping envs with a weak count of 0 and a strong count more than 1");
 
         self.heap
             .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) > 1);
-
-        // self.heap.retain(|x| Rc::strong_count(x) == 1);
-
-        // let mut count = self.heap.len();
-
-        // loop {
-        //     self.heap
-        //         .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) == 1);
-        //     let new_length = self.heap.len();
-
-        //     if new_length == count {
-        //         break;
-        //     } else {
-        //         count = new_length;
-        //     }
-        // }
     }
 
     // #[inline]

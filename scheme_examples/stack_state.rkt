@@ -91,8 +91,8 @@
   (foo))
 
 (define (test-3)
-  (define (foo) (inspect-bytecode bar) (bar))
-  (define (bar) (inspect-bytecode foo) (foo))
+  (define (foo) (bar))
+  (define (bar) (foo))
   (foo))
 
 ;; (main)
