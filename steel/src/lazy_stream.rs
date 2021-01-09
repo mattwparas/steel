@@ -106,7 +106,7 @@ impl<'global, CT: ConstantTable> Iterator for LazyStreamIter<'global, CT> {
             if let SteelVal::StreamV(lazy_stream) = next_value.as_ref() {
                 self.stream = lazy_stream.clone();
             } else {
-                panic!("Lazy stream not implemented");
+                panic!("Lazy stream not implemented for the given type");
             }
         }
 

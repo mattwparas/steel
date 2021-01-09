@@ -14,7 +14,7 @@ use crate::rvals::Result;
 
 use crate::env::MacroEnv;
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MacroPattern {

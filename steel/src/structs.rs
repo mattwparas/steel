@@ -7,6 +7,8 @@ use crate::stop;
 use crate::throw;
 use std::rc::Rc;
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum StructFunctionType {
     Constructor,
@@ -20,6 +22,22 @@ pub struct SteelStruct {
     name: Rc<str>,
     fields: Vec<Gc<SteelVal>>,
     function_purpose: StructFunctionType,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StructFuncBuilder<'a> {
+    name: &'a str,
+    fields: Vec<&'a str>,
+}
+
+impl StructFuncBuilder<'a> {
+    pub fn new(name: &'a str, fields: Vec<&'a str>) {
+        StructFuncBuilder { name, fields }
+    }
+
+    pub fn to_func_vec(self) -> Result<Vec<(String, SteelVal)>> {
+        SteelStruct::generate_from_name_fields(self.name, self.fields)
+    }
 }
 
 // Housekeeping (just in case there are cyclical references)
@@ -50,6 +68,15 @@ impl SteelStruct {
 
 impl SteelStruct {
     pub fn generate_from_tokens(list_of_tokens: &[Expr]) -> Result<Vec<(String, SteelVal)>> {
+        let StructFuncBuilder {
+            name,
+            fields: field_names_as_strs,
+        } = Self::generate_builder_from_tokens(list_of_tokens)?;
+
+        Self::generate_from_name_fields(name, field_names_as_strs)
+    }
+
+    pub fn generate_builder_from_tokens(list_of_tokens: &[Expr]) -> Result<StructFuncBuilder> {
         let (name, list_of_tokens) = list_of_tokens.split_first().ok_or_else(
             throw!(ArityMismatch => "struct definition requires a name and a list of field names"),
         )?;
@@ -70,6 +97,13 @@ impl SteelStruct {
             })
             .collect::<Result<_>>()?;
 
+        Ok(StructFuncBuilder::new(name, field_names_as_strs))
+    }
+
+    pub fn generate_from_name_fields(
+        name: &str,
+        field_names_as_strs: Vec<&str>,
+    ) -> Result<Vec<(String, SteelVal)>> {
         // collect the functions
         // for each field there are going to be 2 functions
         // add 2 for the constructor and the predicate

@@ -825,6 +825,7 @@ impl Env {
         self.bindings_map.insert(idx, val.1);
     }
 
+    // Have this return the indices of the defined values
     pub fn define_zipped_rooted(
         &mut self,
         sm: &mut SymbolMap,

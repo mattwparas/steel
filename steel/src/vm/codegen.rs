@@ -1,4 +1,3 @@
-use crate::vm::arity::ArityMap;
 use crate::vm::constants::ConstantTable;
 use crate::vm::instructions::Instruction;
 
@@ -27,7 +26,6 @@ pub fn emit_loop<CT: ConstantTable>(
     expr: &Expr,
     instructions: &mut Vec<Instruction>,
     defining_context: Option<&str>,
-    arity_map: &mut ArityMap,
     constant_map: &mut CT,
 ) -> Result<()> {
     match expr {
@@ -55,13 +53,7 @@ pub fn emit_loop<CT: ConstantTable>(
                     }) if s == "eval" => {
                         check_length("eval", &list_of_tokens, 2)?;
                         // load in the expression to be evaluated
-                        emit_loop(
-                            &list_of_tokens[1],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[1], instructions, None, constant_map)?;
                         instructions.push(Instruction::new_eval());
                         return Ok(());
                     }
@@ -72,13 +64,7 @@ pub fn emit_loop<CT: ConstantTable>(
                     }) if s == "read" => {
                         check_length("read", &list_of_tokens, 2)?;
                         // load in the string to be read
-                        emit_loop(
-                            &list_of_tokens[1],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[1], instructions, None, constant_map)?;
                         instructions.push(Instruction::new_read());
                         return Ok(());
                     }
@@ -89,31 +75,13 @@ pub fn emit_loop<CT: ConstantTable>(
                     }) if s == "execute" => {
                         if list_of_tokens.len() == 4 {
                             // load in the transducer
-                            emit_loop(
-                                &list_of_tokens[1],
-                                instructions,
-                                None,
-                                arity_map,
-                                constant_map,
-                            )?;
+                            emit_loop(&list_of_tokens[1], instructions, None, constant_map)?;
 
                             // load in the collection
-                            emit_loop(
-                                &list_of_tokens[2],
-                                instructions,
-                                None,
-                                arity_map,
-                                constant_map,
-                            )?;
+                            emit_loop(&list_of_tokens[2], instructions, None, constant_map)?;
 
                             // load in the output_type
-                            emit_loop(
-                                &list_of_tokens[3],
-                                instructions,
-                                None,
-                                arity_map,
-                                constant_map,
-                            )?;
+                            emit_loop(&list_of_tokens[3], instructions, None, constant_map)?;
 
                             instructions.push(Instruction::new_collect_to());
                             return Ok(());
@@ -122,22 +90,10 @@ pub fn emit_loop<CT: ConstantTable>(
                         check_length("execute", &list_of_tokens, 3)?;
 
                         // load in the transducer
-                        emit_loop(
-                            &list_of_tokens[1],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[1], instructions, None, constant_map)?;
 
                         // load in the collection
-                        emit_loop(
-                            &list_of_tokens[2],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[2], instructions, None, constant_map)?;
 
                         instructions.push(Instruction::new_collect());
                         return Ok(());
@@ -151,7 +107,7 @@ pub fn emit_loop<CT: ConstantTable>(
                         check_length("transduce", &list_of_tokens, 5)?;
 
                         for expr in &list_of_tokens[1..] {
-                            emit_loop(expr, instructions, None, arity_map, constant_map)?;
+                            emit_loop(expr, instructions, None, constant_map)?;
                         }
 
                         instructions.push(Instruction::new_transduce());
@@ -172,7 +128,7 @@ pub fn emit_loop<CT: ConstantTable>(
                     }) if s == "if" => {
                         if let [test_expr, then_expr, else_expr] = &list_of_tokens[1..] {
                             // load in the test condition
-                            emit_loop(test_expr, instructions, None, arity_map, constant_map)?;
+                            emit_loop(test_expr, instructions, None, constant_map)?;
                             // push in If
                             instructions.push(Instruction::new_if(instructions.len() + 2));
                             // save spot of jump instruction, fill in after
@@ -180,12 +136,12 @@ pub fn emit_loop<CT: ConstantTable>(
                             instructions.push(Instruction::new_jmp(0)); // dummy
 
                             // emit instructions for then expression
-                            emit_loop(then_expr, instructions, None, arity_map, constant_map)?;
+                            emit_loop(then_expr, instructions, None, constant_map)?;
                             instructions.push(Instruction::new_jmp(0)); // dummy
                             let false_start = instructions.len();
 
                             // emit instructions for else expression
-                            emit_loop(else_expr, instructions, None, arity_map, constant_map)?;
+                            emit_loop(else_expr, instructions, None, constant_map)?;
                             let j3 = instructions.len(); // first instruction after else
 
                             // set index of jump instruction to be
@@ -246,7 +202,6 @@ pub fn emit_loop<CT: ConstantTable>(
                                     &list_of_tokens[2],
                                     instructions,
                                     defining_context,
-                                    arity_map,
                                     constant_map,
                                 )?;
 
@@ -327,7 +282,7 @@ pub fn emit_loop<CT: ConstantTable>(
                         // let mut body_instructions = Vec::new();
 
                         for expr in &list_of_tokens[2..] {
-                            emit_loop(expr, &mut body_instructions, None, arity_map, constant_map)?;
+                            emit_loop(expr, &mut body_instructions, None, constant_map)?;
                         }
 
                         // TODO look out here for the
@@ -340,7 +295,7 @@ pub fn emit_loop<CT: ConstantTable>(
                             if b {
                                 info!("Transformed mutual recursion for: {}", ctx);
                             }
-                            arity_map.insert_exact(ctx, arity);
+                            // arity_map.insert_exact(ctx, arity);
                         }
 
                         instructions.append(&mut body_instructions);
@@ -383,13 +338,7 @@ pub fn emit_loop<CT: ConstantTable>(
                         //     constant_map,
                         // )?;
                         // Load in the expression to reassign
-                        emit_loop(
-                            &list_of_tokens[2],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[2], instructions, None, constant_map)?;
 
                         let identifier = &list_of_tokens[1];
 
@@ -420,7 +369,7 @@ pub fn emit_loop<CT: ConstantTable>(
                     }) if s == "begin" => {
                         // instructions.push("begin".to_string());
                         for expr in &list_of_tokens[1..] {
-                            emit_loop(expr, instructions, None, arity_map, constant_map)?;
+                            emit_loop(expr, instructions, None, constant_map)?;
                         }
                         return Ok(());
                     }
@@ -429,13 +378,7 @@ pub fn emit_loop<CT: ConstantTable>(
                         ..
                     }) if s == "return!" => {
                         check_length("return!", &list_of_tokens, 2)?;
-                        emit_loop(
-                            &list_of_tokens[1],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[1], instructions, None, constant_map)?;
                         // pop is equivalent to the last instruction in the function
                         instructions.push(Instruction::new_pop());
                         return Ok(());
@@ -445,13 +388,7 @@ pub fn emit_loop<CT: ConstantTable>(
                         ..
                     }) if s == "panic!" => {
                         check_length("panic!", &list_of_tokens, 2)?;
-                        emit_loop(
-                            &list_of_tokens[1],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[1], instructions, None, constant_map)?;
 
                         // pop is equivalent to the last instruction in the function
                         instructions.push(Instruction::new_panic(
@@ -470,7 +407,7 @@ pub fn emit_loop<CT: ConstantTable>(
                         // instructions.push("apply".to_string());
                         check_length("apply", &list_of_tokens, 3)?;
                         for expr in &list_of_tokens[1..] {
-                            emit_loop(expr, instructions, None, arity_map, constant_map)?;
+                            emit_loop(expr, instructions, None, constant_map)?;
                         }
                         instructions.push(Instruction::new_apply(
                             if let Expr::Atom(s) = &list_of_tokens[0] {
@@ -519,21 +456,9 @@ pub fn emit_loop<CT: ConstantTable>(
                         check_length("map'", &list_of_tokens, 3)?;
                         // emit_loop(expr, instructions, defining_context, arity_map, constant_map)
                         // Load in the function
-                        emit_loop(
-                            &list_of_tokens[1],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[1], instructions, None, constant_map)?;
                         // Load in the list
-                        emit_loop(
-                            &list_of_tokens[2],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[2], instructions, None, constant_map)?;
                         // instructions
                         // emit_loop(expr, instructions, defining_context, arity_map, constant_map)
                         instructions.push(Instruction::new_map());
@@ -547,21 +472,9 @@ pub fn emit_loop<CT: ConstantTable>(
                         check_length("filter'", &list_of_tokens, 3)?;
                         // emit_loop(expr, instructions, defining_context, arity_map, constant_map)
                         // Load in the function
-                        emit_loop(
-                            &list_of_tokens[1],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[1], instructions, None, constant_map)?;
                         // Load in the list
-                        emit_loop(
-                            &list_of_tokens[2],
-                            instructions,
-                            None,
-                            arity_map,
-                            constant_map,
-                        )?;
+                        emit_loop(&list_of_tokens[2], instructions, None, constant_map)?;
                         // instructions
                         // emit_loop(expr, instructions, defining_context, arity_map, constant_map)
                         instructions.push(Instruction::new_filter());
@@ -603,11 +516,11 @@ pub fn emit_loop<CT: ConstantTable>(
 
                         // emit instructions for the args
                         for expr in &list_of_tokens[1..] {
-                            emit_loop(expr, instructions, None, arity_map, constant_map)?;
+                            emit_loop(expr, instructions, None, constant_map)?;
                         }
 
                         // emit instructions for the func
-                        emit_loop(f, instructions, None, arity_map, constant_map)?;
+                        emit_loop(f, instructions, None, constant_map)?;
 
                         if let Expr::Atom(s) = &list_of_tokens[0] {
                             instructions.push(Instruction::new_func(pop_len, s.clone()));

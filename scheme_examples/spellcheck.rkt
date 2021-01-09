@@ -125,6 +125,7 @@
       #f
       (trim line)))
 
+;; For now just exclude anything longer than 6 letters for the sake of time
 (define (generate bktree func)
     (define next-word (func))
     ;; (displayln next-word)

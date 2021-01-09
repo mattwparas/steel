@@ -8,7 +8,7 @@ use std::rc::Weak;
 use std::collections::HashMap;
 pub(crate) static HEAP_LIMIT: usize = 5000;
 
-use log::{debug, info};
+use log::debug;
 
 pub struct Heap {
     heap: Vec<Rc<RefCell<Env>>>,
@@ -52,6 +52,7 @@ impl Heap {
     }
 
     pub fn clear(&mut self) {
+        debug!("Freeing the heap with length: {}", self.len());
         self.heap.clear()
     }
 

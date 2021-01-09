@@ -35,10 +35,8 @@ use crate::rvals::{ByteCodeLambda, Result, SteelVal};
 use crate::vm::inline_iter::*;
 use expand::MacroSet;
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::convert::TryFrom;
-use std::convert::TryInto;
+use std::collections::{HashMap, HashSet};
+use std::convert::{TryFrom, TryInto};
 use std::io::Read;
 use std::iter::Iterator;
 use std::path::Path;
@@ -673,6 +671,149 @@ VirtualMachineBuilder::new()
     .into() -> Virtual Machine
 */
 
+pub struct Compiler {
+    pub(crate) symbol_map: SymbolMap,
+    pub(crate) constant_map: ConstantMap,
+    pub(crate) idents: MacroSet,
+    pub(crate) global_env: Rc<RefCell<Env>>,
+    pub(crate) macro_env: Rc<RefCell<Env>>,
+}
+
+impl Compiler {
+    pub fn new(
+        symbol_map: SymbolMap,
+        constant_map: ConstantMap,
+        idents: MacroSet,
+        global_env: Rc<RefCell<Env>>,
+        macro_env: Rc<RefCell<Env>>,
+    ) -> Compiler {
+        Compiler {
+            symbol_map,
+            constant_map,
+            idents,
+            global_env,
+            macro_env,
+        }
+    }
+
+    pub fn default() -> Self {
+        Compiler::new(
+            Env::default_symbol_map(),
+            ConstantMap::new(),
+            MacroSet::new(),
+            Rc::new(RefCell::new(Env::default_env())),
+            Rc::new(RefCell::new(Env::root())),
+        )
+    }
+
+    pub fn emit_instructions_from_exprs(
+        &mut self,
+        exprs: Vec<Expr>,
+        optimizations: bool,
+    ) -> Result<Vec<Vec<DenseInstruction>>> {
+        let mut results = Vec::new();
+        // populate MacroSet
+        self.idents.insert_from_iter(
+            get_definition_names(&exprs)
+                .into_iter()
+                .chain(self.symbol_map.copy_underlying_vec().into_iter()),
+        );
+
+        // Yoink the macro definitions
+        // Add them to our macro env
+        // TODO change this to be a unique macro env struct
+        // Just a thin wrapper around a hashmap
+        let extracted_statements = extract_macro_definitions(
+            exprs,
+            &self.macro_env,
+            &self.global_env,
+            &mut self.symbol_map,
+            &self.idents,
+        )?;
+
+        // Walk through and expand all macros, lets, and defines
+        let expanded_statements =
+            expand_statements(extracted_statements, &self.global_env, &self.macro_env)?;
+
+        // Mild hack...
+        let expanded_statements = if optimizations {
+            VirtualMachine::optimize_exprs(expanded_statements)?
+        } else {
+            expanded_statements
+        };
+
+        // Collect global defines here first
+        let (ndefs_new, ndefs_old, _not) =
+            count_and_collect_global_defines(&expanded_statements, &mut self.symbol_map);
+
+        // At the global level, let the defines shadow the old ones, but call `drop` on all of the old values
+
+        // Reserve the definitions in the global environment
+        // TODO find a better way to make sure that the definitions are reserved
+        // This works for the normal bytecode execution without the repl
+        self.global_env
+            .borrow_mut()
+            .reserve_defs(if ndefs_new > 0 { ndefs_new - 1 } else { 0 }); // used to be ndefs - 1
+
+        match (ndefs_old, ndefs_new) {
+            (_, _) if ndefs_old > 0 && ndefs_new == 0 => {
+                // println!("CASE 1: Popping last!!!!!!!!!");
+                self.global_env.borrow_mut().pop_last();
+            }
+            (_, _) if ndefs_new > 0 && ndefs_old == 0 => {
+                // println!("Doing nothing");
+            }
+            (_, _) if ndefs_new > 0 && ndefs_old > 0 => {
+                // println!("$$$$$$$$$$ GOT HERE $$$$$$$$");
+                self.global_env.borrow_mut().pop_last();
+            }
+            (_, _) => {}
+        }
+
+        // TODO move this out into its thing
+        // fairly certain this isn't necessary to do this batching
+        // but it does work for now and I'll take it for now
+        let mut instruction_buffer = Vec::new();
+        let mut index_buffer = Vec::new();
+        for expr in expanded_statements {
+            // TODO add printing out the expression as its own special function
+            // println!("{:?}", expr.to_string());
+            let mut instructions: Vec<Instruction> = Vec::new();
+
+            // TODO double check that arity map doesn't exist anymore
+            emit_loop(
+                &expr,
+                &mut instructions,
+                None,
+                // &mut self.arity_map,
+                &mut self.constant_map,
+            )?;
+            // if !script {
+            // instructions.push(Instruction::new_clear());
+            instructions.push(Instruction::new_pop());
+            // Maybe see if this gets the job done here
+            inject_heap_save_to_pop(&mut instructions);
+            // }
+            index_buffer.push(instructions.len());
+            instruction_buffer.append(&mut instructions);
+        }
+
+        // println!("Got here!");
+
+        insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+        extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
+        // coalesce_clears(&mut instruction_buffer);
+
+        for idx in index_buffer {
+            let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
+            // pretty_print_instructions(extracted.as_slice());
+            results.push(densify(extracted));
+        }
+
+        Ok(results)
+    }
+}
+
 pub struct VirtualMachine {
     global_env: Rc<RefCell<Env>>,
     global_heap: Heap,
@@ -794,8 +935,8 @@ impl VirtualMachine {
             .collect::<Result<Vec<Gc<SteelVal>>>>()
     }
 
-    pub fn optimize_exprs(
-        exprs: Vec<Expr>,
+    pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(
+        exprs: I,
         // ctx: &mut Ctx<ConstantMap>,
     ) -> Result<Vec<Expr>> {
         // println!("About to optimize the input program");
@@ -923,7 +1064,7 @@ impl VirtualMachine {
                 &expr,
                 &mut instructions,
                 None,
-                &mut self.ctx.arity_map,
+                // &mut self.ctx.arity_map,
                 &mut self.ctx.constant_map,
             )?;
             // if !script {
@@ -1214,6 +1355,10 @@ pub fn vm<CT: ConstantTable>(
 
         // // this is how you could go ahead and snatch the memory count in between instructions
         // // this still doesn't answer how to stop a rust built in from exploding the memory though
+        // // A generic answer to this would be to require every built in rust function to use
+        // // the try allocate function rather than the normal gc::new one
+        // // I think it would be easier to do with a feature gate - turn it on as a compiler flag
+        // // that way allocation is either checked, or not, and if they opt for uncheck they they CAN check sometimes
         // if object_count > MAXIMUM_OBJECTS {
         //     stop!(Generic => "out of memory!");
         // }
@@ -1708,9 +1853,9 @@ pub fn vm<CT: ConstantTable>(
                 if ip == 0 && heap.len() > heap.limit() {
                     // info!("Collecting garbage on JMP with heap length: {}", heap.len());
 
-                    println!("Jumping back to the start!");
-                    println!("Heap length: {}", heap.len());
-                    println!("############################");
+                    // println!("Jumping back to the start!");
+                    // println!("Heap length: {}", heap.len());
+                    // println!("############################");
                     // heap.gather_mark_and_sweep(&global_env);
                     // heap.drop_large_refs();
                     heap.collect_garbage();

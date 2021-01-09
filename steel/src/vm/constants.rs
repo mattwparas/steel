@@ -2,12 +2,22 @@ use crate::rvals::SteelVal;
 // use std::rc::Rc;
 use crate::gc::Gc;
 
-#[derive(Debug, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct ConstantMap(Vec<Gc<SteelVal>>);
 
 impl ConstantMap {
     pub fn new() -> ConstantMap {
         ConstantMap(Vec::new())
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap();
+    }
+
+    pub fn from_bytes(encoded: &[u8]) -> ConstantMap {
+        bincode::deserialize(encoded).unwrap();
     }
 }
 
