@@ -5,6 +5,7 @@ use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
+use crate::vm::SymbolMap;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -30,13 +31,80 @@ pub struct StructFuncBuilder<'a> {
     fields: Vec<&'a str>,
 }
 
-impl StructFuncBuilder<'a> {
-    pub fn new(name: &'a str, fields: Vec<&'a str>) {
+impl<'a> StructFuncBuilder<'a> {
+    pub fn new(name: &'a str, fields: Vec<&'a str>) -> Self {
         StructFuncBuilder { name, fields }
     }
 
+    pub fn to_struct_function_names(&self) -> Vec<String> {
+        // collect the functions
+        // for each field there are going to be 2 functions
+        // add 2 for the constructor and the predicate
+        let mut func_names = Vec::with_capacity(&self.fields.len() * 2 + 2);
+        // generate constructor
+        // let cons = constructor(name, field_names_as_strs.len());
+        // generate predicate
+        func_names.push(format!("{}?", &self.name));
+        // generate getters and setters
+        for field in &self.fields {
+            func_names.push(format!("{}-{}", &self.name, field));
+            func_names.push(format!("set-{}-{}!", &self.name, field));
+        }
+        func_names.push((&self.name).to_string());
+        func_names
+    }
+
+    // This needs to return something that can be consumed at runtime from the constant map
+    // Effectively, we need a list with the form '(name fields ...)
+    // Let's make it happen
+    pub fn to_constant_val(&self, indices: Vec<usize>) -> Gc<SteelVal> {
+        let indices: Vec<_> = indices
+            .into_iter()
+            .map(|x| Gc::new(SteelVal::IntV(x as isize)))
+            .collect();
+
+        let mut name = vec![
+            crate::primitives::ListOperations::built_in_list_normal_iter_non_result(
+                indices.into_iter(),
+            ),
+            Gc::new(SteelVal::StringV((&self.name).to_string())),
+        ];
+
+        let fields: Vec<_> = self
+            .fields
+            .iter()
+            .map(|x| Gc::new(SteelVal::StringV(x.to_string())))
+            .collect();
+
+        name.extend(fields);
+
+        // TODO who knows if this actually works
+        crate::primitives::ListOperations::built_in_list_normal_iter_non_result(name.into_iter())
+    }
+
+    pub fn insert_struct_function_names(&self, symbol_map: &mut SymbolMap) -> Vec<usize> {
+        let mut indices = Vec::new();
+
+        // Constructor
+        indices.push(symbol_map.add(&self.name));
+        // Predicate
+        indices.push(symbol_map.add(format!("{}?", &self.name).as_str()));
+        for field in &self.fields {
+            // Getter
+            indices.push(symbol_map.add(format!("{}-{}", &self.name, field).as_str()));
+            // Setter
+            indices.push(symbol_map.add(format!("set-{}-{}!", &self.name, field).as_str()));
+        }
+
+        indices
+    }
+
     pub fn to_func_vec(self) -> Result<Vec<(String, SteelVal)>> {
-        SteelStruct::generate_from_name_fields(self.name, self.fields)
+        SteelStruct::generate_from_name_fields(self.name, &self.fields)
+    }
+
+    pub fn from_exprs(list_of_tokens: &'a [Expr]) -> Result<Self> {
+        SteelStruct::generate_builder_from_tokens(list_of_tokens)
     }
 }
 
@@ -73,7 +141,7 @@ impl SteelStruct {
             fields: field_names_as_strs,
         } = Self::generate_builder_from_tokens(list_of_tokens)?;
 
-        Self::generate_from_name_fields(name, field_names_as_strs)
+        Self::generate_from_name_fields(name, &field_names_as_strs)
     }
 
     pub fn generate_builder_from_tokens(list_of_tokens: &[Expr]) -> Result<StructFuncBuilder> {
@@ -102,7 +170,7 @@ impl SteelStruct {
 
     pub fn generate_from_name_fields(
         name: &str,
-        field_names_as_strs: Vec<&str>,
+        field_names_as_strs: &[&str],
     ) -> Result<Vec<(String, SteelVal)>> {
         // collect the functions
         // for each field there are going to be 2 functions
@@ -110,6 +178,7 @@ impl SteelStruct {
         let mut funcs = Vec::with_capacity(field_names_as_strs.len() * 2 + 2);
         // generate constructor
         let cons = constructor(name, field_names_as_strs.len());
+        funcs.push((name.to_string(), cons));
         // generate predicate
         funcs.push((format!("{}?", name), predicate(&name)));
         // generate getters and setters
@@ -117,7 +186,6 @@ impl SteelStruct {
             funcs.push((format!("{}-{}", name, field), getter(&name, idx)));
             funcs.push((format!("set-{}-{}!", name, field), setter(&name, idx)));
         }
-        funcs.push((name.to_string(), cons));
         Ok(funcs)
     }
 }

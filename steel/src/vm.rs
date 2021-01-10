@@ -43,6 +43,8 @@ use std::path::Path;
 use std::rc::Rc;
 use std::result;
 
+use crate::structs::SteelStruct;
+
 use crate::env::CoreModuleConfig;
 use std::cell::Cell;
 
@@ -676,7 +678,7 @@ pub struct Compiler {
     pub(crate) constant_map: ConstantMap,
     pub(crate) idents: MacroSet,
     pub(crate) global_env: Rc<RefCell<Env>>,
-    pub(crate) macro_env: Rc<RefCell<Env>>,
+    pub(crate) macro_env: HashMap<String, Gc<SteelVal>>,
 }
 
 impl Compiler {
@@ -685,7 +687,7 @@ impl Compiler {
         constant_map: ConstantMap,
         idents: MacroSet,
         global_env: Rc<RefCell<Env>>,
-        macro_env: Rc<RefCell<Env>>,
+        macro_env: HashMap<String, Gc<SteelVal>>,
     ) -> Compiler {
         Compiler {
             symbol_map,
@@ -702,7 +704,7 @@ impl Compiler {
             ConstantMap::new(),
             MacroSet::new(),
             Rc::new(RefCell::new(Env::default_env())),
-            Rc::new(RefCell::new(Env::root())),
+            HashMap::new(),
         )
     }
 
@@ -719,21 +721,32 @@ impl Compiler {
                 .chain(self.symbol_map.copy_underlying_vec().into_iter()),
         );
 
+        let mut struct_instructions = Vec::new();
+
         // Yoink the macro definitions
         // Add them to our macro env
         // TODO change this to be a unique macro env struct
         // Just a thin wrapper around a hashmap
         let extracted_statements = extract_macro_definitions(
             exprs,
-            &self.macro_env,
-            &self.global_env,
+            &mut self.macro_env,
+            // &self.global_env,
             &mut self.symbol_map,
             &self.idents,
+            &mut struct_instructions,
+            &mut self.constant_map,
         )?;
 
+        info!("Found {} struct definitions", struct_instructions.len());
+
+        // Zip up the instructions for structs
+        // TODO come back to this
+        for instruction in densify(struct_instructions) {
+            results.push(vec![instruction])
+        }
+
         // Walk through and expand all macros, lets, and defines
-        let expanded_statements =
-            expand_statements(extracted_statements, &self.global_env, &self.macro_env)?;
+        let expanded_statements = expand_statements(extracted_statements, &mut self.macro_env)?;
 
         // Mild hack...
         let expanded_statements = if optimizations {
@@ -817,7 +830,7 @@ impl Compiler {
 pub struct VirtualMachine {
     global_env: Rc<RefCell<Env>>,
     global_heap: Heap,
-    macro_env: Rc<RefCell<Env>>,
+    macro_env: HashMap<String, Gc<SteelVal>>,
     idents: MacroSet,
     callback: EvaluationProgress,
     ctx: Ctx<ConstantMap>,
@@ -828,7 +841,7 @@ impl VirtualMachine {
         VirtualMachine {
             global_env: Rc::new(RefCell::new(Env::default_env())),
             global_heap: Heap::new(),
-            macro_env: Rc::new(RefCell::new(Env::root())),
+            macro_env: HashMap::new(),
             idents: MacroSet::new(),
             callback: EvaluationProgress::new(),
             ctx: Ctx::<ConstantMap>::default_repl(),
@@ -984,21 +997,34 @@ impl VirtualMachine {
                 .chain(self.ctx.symbol_map.copy_underlying_vec().into_iter()),
         );
 
+        let mut struct_instructions = Vec::new();
+
         // Yoink the macro definitions
         // Add them to our macro env
         // TODO change this to be a unique macro env struct
         // Just a thin wrapper around a hashmap
         let extracted_statements = extract_macro_definitions(
             exprs,
-            &self.macro_env,
-            &self.global_env,
+            &mut self.macro_env,
+            // &self.global_env,
             &mut self.ctx.symbol_map,
             &self.idents,
+            &mut struct_instructions,
+            &mut self.ctx.constant_map,
         )?;
 
+        info!("Found {} struct definitions", struct_instructions.len());
+
+        // Zip up the instructions for structs
+        // TODO come back to this
+        for instruction in densify(struct_instructions) {
+            results.push(vec![instruction])
+        }
+
+        // results.push(densify(struct_instructions));
+
         // Walk through and expand all macros, lets, and defines
-        let expanded_statements =
-            expand_statements(extracted_statements, &self.global_env, &self.macro_env)?;
+        let expanded_statements = expand_statements(extracted_statements, &self.macro_env)?;
 
         // Mild hack...
         let expanded_statements = if optimizations {
@@ -1383,6 +1409,50 @@ pub fn vm<CT: ConstantTable>(
             OpCode::VOID => {
                 stack.push(VOID.with(|f| Gc::clone(f)));
                 ip += 1;
+            }
+            OpCode::STRUCT => {
+                let val = constants.get(cur_inst.payload_size);
+                let mut iter = SteelVal::iter(val);
+
+                // List of indices e.g. '(25 26 27 28) to bind struct functions to
+                let indices = iter.next().unwrap();
+
+                // The name of the struct
+                let name: String = if let SteelVal::StringV(s) = iter.next().unwrap().as_ref() {
+                    s.to_string()
+                } else {
+                    stop!( Generic => "ICE: Struct expected a string name")
+                };
+
+                // The fields of the structs
+                let fields: Vec<String> = iter
+                    .map(|x| {
+                        if let SteelVal::StringV(s) = x.as_ref() {
+                            Ok(s.clone())
+                        } else {
+                            stop!(Generic => "ICE: Struct encoded improperly with non string fields")
+                        }
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                // Get them as &str for now
+                let other_fields: Vec<&str> = fields.iter().map(|x| x.as_str()).collect();
+
+                // Generate the functions, but they immediately override them with the names
+                // Store them with the indices
+                let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
+
+                for ((_, func), idx) in funcs.into_iter().zip(SteelVal::iter(indices)) {
+                    let idx = if let SteelVal::IntV(idx) = idx.as_ref() {
+                        *idx as usize
+                    } else {
+                        stop!(Generic => "Index wrong in structs")
+                    };
+
+                    global_env.borrow_mut().repl_define_idx(idx, Gc::new(func));
+                }
+
+                return Ok(VOID.with(|f| Gc::clone(f)));
             }
             OpCode::READ => {
                 // this needs to be a string
@@ -1979,10 +2049,11 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
                 // unimplemented!();
             }
-            _ => {
-                error!("Unimplemented instruction!");
-                unimplemented!("Unimplemented instruction cannot be handled properly");
-            }
+
+            OpCode::LOOKUP => {}
+            OpCode::ECLOSURE => {}
+            OpCode::NDEFS => {}
+            OpCode::METALOOKUP => {}
         }
 
         // Check the evaluation progress in some capacity
