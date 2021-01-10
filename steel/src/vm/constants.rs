@@ -1,21 +1,64 @@
-use crate::rvals::SteelVal;
+use crate::rvals::{Result, SteelVal};
 // use std::rc::Rc;
 use crate::gc::Gc;
+use crate::parser::{Expr, ParseError, Parser};
+
+use std::convert::TryFrom;
 
 // TODO add the serializing and deserializing for constants
 // use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq)]
+use std::collections::HashMap;
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct ConstantMap(Vec<Gc<SteelVal>>);
+
+// #[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
+// struct ConstantExprMap {
+//     map: Vec<Expr>,
+// }
 
 impl ConstantMap {
     pub fn new() -> ConstantMap {
         ConstantMap(Vec::new())
     }
 
-    // pub fn to_bytes(&self) -> Vec<u8> {
-    //     bincode::serialize(self).unwrap()
-    // }
+    fn to_constant_expr_map(&self) -> Vec<String> {
+        let result: std::result::Result<Vec<_>, _> =
+            self.0.iter().map(|x| Expr::try_from(x.as_ref())).collect();
+
+        result.unwrap().into_iter().map(|x| x.to_string()).collect()
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        // let vector_val = self.to_constant_expr_map()?;
+
+        let str_vector = self.to_constant_expr_map();
+        let result = bincode::serialize(&str_vector);
+
+        Ok(result.unwrap())
+    }
+
+    pub fn from_bytes(encoded: &[u8]) -> Result<ConstantMap> {
+        let str_vector: Vec<String> = bincode::deserialize(encoded).unwrap();
+
+        // the interner needs to be fixed but for now it just is here for legacy reasons
+        // it currently does no allocation
+        let mut intern = HashMap::new();
+
+        str_vector
+            .into_iter()
+            .map(|x| {
+                // Parse the input
+                let parsed: std::result::Result<Vec<Expr>, ParseError> =
+                    Parser::new(&x, &mut intern).collect();
+                let parsed = parsed?;
+
+                Ok(Gc::new(SteelVal::try_from(parsed[0].clone()).unwrap()))
+            })
+            .collect::<Result<Vec<_>>>()
+            .map(|x| ConstantMap(x))
+    }
 
     // pub fn from_bytes(encoded: &[u8]) -> ConstantMap {
     //     bincode::deserialize(encoded).unwrap()

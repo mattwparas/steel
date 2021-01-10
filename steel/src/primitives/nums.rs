@@ -23,7 +23,7 @@ impl NumOperations {
 
             if let SteelVal::IntV(upper_bound) = args[0].as_ref() {
                 let mut rng = rand::thread_rng();
-                return Ok(Gc::new(SteelVal::IntV(rng.gen_range(0, upper_bound))));
+                return Ok(Gc::new(SteelVal::IntV(rng.gen_range(0..*upper_bound))));
             } else {
                 stop!(TypeMismatch => "random-int requires an integer upper bound");
             }

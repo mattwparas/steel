@@ -1,5 +1,7 @@
+use serde::{Serialize, Deserialize};
+
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize)]
 pub enum OpCode {
     VOID = 0,
     PUSH = 1,

@@ -57,6 +57,9 @@ use std::pin::Pin;
 use crate::lazy_stream::LazyStream;
 use crate::lazy_stream::LazyStreamIter;
 
+// use serde::ser::SerializeTupleVariant;
+// use serde::{Deserialize, Serialize, Serializer};
+
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
     Rc::new(RefCell::new(x))
@@ -252,6 +255,32 @@ pub enum SteelVal {
     /// Mutable box - lets you put a value in there and change what it points to
     BoxV(RefCell<Gc<SteelVal>>),
 }
+
+// TODO come back to this for the constant map
+
+// impl Serialize for SteelVal {
+//     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         match self {
+//             SteelVal::BoolV(b) => serializer.serialize_newtype_variant("SteelVal", 0, "BoolV", b),
+//             SteelVal::NumV(n) => serializer.serialize_newtype_variant("SteelVal", 1, "NumV", n),
+//             SteelVal::IntV(n) => serializer.serialize_newtype_variant("SteelVal", 2, "IntV", n),
+//             SteelVal::CharV(c) => serializer.serialize_newtype_variant("SteelVal", 3, "CharV", c),
+//             SteelVal::StringV(s) => {
+//                 serializer.serialize_newtype_variant("SteelVal", 7, "StringV", s)
+//             }
+//             SteelVal::Pair(car, cdr) => {
+//                 let mut state = serializer.serialize_tuple_variant("SteelVal", 4, "Pair", 2)?;
+//                 state.serialize_field(car)?;
+//                 state.serialize_field(cdr)?;
+//                 state.end()
+//             }
+//             _ => panic!("Cannot serialize enum variant: {}", self),
+//         }
+//     }
+// }
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
 

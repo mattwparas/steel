@@ -7,6 +7,8 @@ use logos::{Lexer, Logos};
 
 use crate::parser::span::Span;
 
+use serde::{Serialize, Deserialize};
+
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum TokenError {
     #[error("Unexpected char, {0} on line: {1}")]
@@ -55,7 +57,7 @@ fn parse_str(lex: &mut Lexer<TokenType>) -> Option<String> {
 
 // TODO the character parsing is not quite right
 // need to make sure that we can handle cases like "#\SPACE" or "#\a" but not "#\applesauce"
-#[derive(Logos, Clone, Debug, PartialEq)]
+#[derive(Logos, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TokenType {
     #[token("(")]
     #[token("[")]

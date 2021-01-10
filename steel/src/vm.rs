@@ -48,6 +48,8 @@ use crate::structs::SteelStruct;
 use crate::env::CoreModuleConfig;
 use std::cell::Cell;
 
+use serde::{Deserialize, Serialize};
+
 use log::{debug, error, info};
 
 const STACK_LIMIT: usize = 100000;
@@ -419,7 +421,7 @@ fn _coalesce_clears(instructions: &mut Vec<Instruction>) {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Hash, Serialize, Deserialize)]
 pub struct DenseInstruction {
     op_code: OpCode,
     payload_size: usize,
@@ -679,6 +681,55 @@ pub struct Compiler {
     pub(crate) idents: MacroSet,
     pub(crate) global_env: Rc<RefCell<Env>>,
     pub(crate) macro_env: HashMap<String, Gc<SteelVal>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Program {
+    pub(crate) instructions: Vec<Vec<DenseInstruction>>,
+    pub(crate) constant_map: Vec<u8>,
+}
+
+impl Program {
+    pub fn new(instructions: Vec<Vec<DenseInstruction>>, constant_map: Vec<u8>) -> Self {
+        Program {
+            instructions,
+            constant_map,
+        }
+    }
+
+    pub fn new_from_map(
+        instructions: Vec<Vec<DenseInstruction>>,
+        constant_map: ConstantMap,
+    ) -> Result<Self> {
+        Ok(Program::new(instructions, constant_map.to_bytes()?))
+    }
+
+    pub fn write_to_file(&self, filename: &str) -> Result<()> {
+        use std::fs::File;
+        use std::io::prelude::*;
+
+        let mut file = File::create(format!("{}.txt", filename)).unwrap();
+
+        let buffer = bincode::serialize(self).unwrap();
+
+        file.write_all(&buffer)?;
+        Ok(())
+    }
+
+    pub fn read_from_file(&self, filename: &str) -> Result<Self> {
+        use std::fs::File;
+        use std::io::prelude::*;
+
+        let mut file = File::open(format!("{}.txt", filename)).unwrap();
+
+        let mut buffer = Vec::new();
+
+        file.read(&mut buffer).unwrap();
+
+        let program: Program = bincode::deserialize(&buffer).unwrap();
+
+        Ok(program)
+    }
 }
 
 impl Compiler {
@@ -1115,6 +1166,10 @@ impl VirtualMachine {
             results.push(densify(extracted));
         }
 
+        // let program =
+        //     Program::new_from_map(results.clone(), (&self.ctx.constant_map).clone()).unwrap();
+        // program.write_to_file("test").unwrap();
+
         Ok(results)
     }
 
@@ -1318,30 +1373,6 @@ impl<'a> VmArgs<'a> {
         )
     }
 }
-
-// fn eval_eval_expr(
-//     list_of_tokens: &[Expr],
-//     env: &Rc<RefCell<Env>>,
-//     heap: &mut Vec<Rc<RefCell<Env>>>,
-//     expr_stack: &mut Vec<Expr>,
-//     // last_macro: &mut Option<&Expr>,
-// ) -> Result<Gc<SteelVal>> {
-//     if let [e] = list_of_tokens {
-//         let res_expr = evaluate(e, env, heap, expr_stack)?;
-//         match <Expr>::try_from(&(*res_expr).clone()) {
-//             Ok(e) => evaluate(&e, env, heap, expr_stack),
-//             Err(_) => stop!(ContractViolation => "Eval not given an expression"),
-//         }
-//     } else {
-//         let e = format!(
-//             "{}: expected {} args got {}",
-//             "Eval",
-//             1,
-//             list_of_tokens.len()
-//         );
-//         stop!(ArityMismatch => e)
-//     }
-// }
 
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<[DenseInstruction]>,
