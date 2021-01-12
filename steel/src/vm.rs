@@ -25,7 +25,6 @@ use codegen::emit_loop;
 
 pub use stack::{CallStack, EnvStack, Stack, StackFrame};
 
-use crate::env::{Env, FALSE, TRUE, VOID};
 use crate::gc::Gc;
 use crate::parser::span::Span;
 use crate::parser::{tokens::TokenType, Expr, ParseError, Parser, SyntaxObject};
@@ -33,6 +32,10 @@ use crate::primitives::{ListOperations, VectorOperations};
 use crate::rerrs::SteelErr;
 use crate::rvals::{ByteCodeLambda, Result, SteelVal};
 use crate::vm::inline_iter::*;
+use crate::{
+    env::{Env, FALSE, TRUE, VOID},
+    expander::SteelMacro,
+};
 use expand::MacroSet;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -675,14 +678,6 @@ VirtualMachineBuilder::new()
     .into() -> Virtual Machine
 */
 
-pub struct Compiler {
-    pub(crate) symbol_map: SymbolMap,
-    pub(crate) constant_map: ConstantMap,
-    pub(crate) idents: MacroSet,
-    pub(crate) global_env: Rc<RefCell<Env>>,
-    pub(crate) macro_env: HashMap<String, Gc<SteelVal>>,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct Program {
     pub(crate) instructions: Vec<Vec<DenseInstruction>>,
@@ -732,19 +727,24 @@ impl Program {
     }
 }
 
+pub struct Compiler {
+    pub(crate) symbol_map: SymbolMap,
+    pub(crate) constant_map: ConstantMap,
+    pub(crate) idents: MacroSet,
+    pub(crate) macro_env: HashMap<String, SteelMacro>,
+}
+
 impl Compiler {
     pub fn new(
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
         idents: MacroSet,
-        global_env: Rc<RefCell<Env>>,
-        macro_env: HashMap<String, Gc<SteelVal>>,
+        macro_env: HashMap<String, SteelMacro>,
     ) -> Compiler {
         Compiler {
             symbol_map,
             constant_map,
             idents,
-            global_env,
             macro_env,
         }
     }
@@ -754,7 +754,6 @@ impl Compiler {
             Env::default_symbol_map(),
             ConstantMap::new(),
             MacroSet::new(),
-            Rc::new(RefCell::new(Env::default_env())),
             HashMap::new(),
         )
     }
@@ -807,32 +806,32 @@ impl Compiler {
         };
 
         // Collect global defines here first
-        let (ndefs_new, ndefs_old, _not) =
-            count_and_collect_global_defines(&expanded_statements, &mut self.symbol_map);
+        // let (ndefs_new, ndefs_old, _not) =
+        //     count_and_collect_global_defines(&expanded_statements, &mut self.symbol_map);
 
         // At the global level, let the defines shadow the old ones, but call `drop` on all of the old values
 
         // Reserve the definitions in the global environment
         // TODO find a better way to make sure that the definitions are reserved
         // This works for the normal bytecode execution without the repl
-        self.global_env
-            .borrow_mut()
-            .reserve_defs(if ndefs_new > 0 { ndefs_new - 1 } else { 0 }); // used to be ndefs - 1
+        // self.global_env
+        //     .borrow_mut()
+        //     .reserve_defs(if ndefs_new > 0 { ndefs_new - 1 } else { 0 }); // used to be ndefs - 1
 
-        match (ndefs_old, ndefs_new) {
-            (_, _) if ndefs_old > 0 && ndefs_new == 0 => {
-                // println!("CASE 1: Popping last!!!!!!!!!");
-                self.global_env.borrow_mut().pop_last();
-            }
-            (_, _) if ndefs_new > 0 && ndefs_old == 0 => {
-                // println!("Doing nothing");
-            }
-            (_, _) if ndefs_new > 0 && ndefs_old > 0 => {
-                // println!("$$$$$$$$$$ GOT HERE $$$$$$$$");
-                self.global_env.borrow_mut().pop_last();
-            }
-            (_, _) => {}
-        }
+        // match (ndefs_old, ndefs_new) {
+        //     (_, _) if ndefs_old > 0 && ndefs_new == 0 => {
+        //         // println!("CASE 1: Popping last!!!!!!!!!");
+        //         self.global_env.borrow_mut().pop_last();
+        //     }
+        //     (_, _) if ndefs_new > 0 && ndefs_old == 0 => {
+        //         // println!("Doing nothing");
+        //     }
+        //     (_, _) if ndefs_new > 0 && ndefs_old > 0 => {
+        //         // println!("$$$$$$$$$$ GOT HERE $$$$$$$$");
+        //         self.global_env.borrow_mut().pop_last();
+        //     }
+        //     (_, _) => {}
+        // }
 
         // TODO move this out into its thing
         // fairly certain this isn't necessary to do this batching
@@ -881,7 +880,7 @@ impl Compiler {
 pub struct VirtualMachine {
     global_env: Rc<RefCell<Env>>,
     global_heap: Heap,
-    macro_env: HashMap<String, Gc<SteelVal>>,
+    macro_env: HashMap<String, SteelMacro>,
     idents: MacroSet,
     callback: EvaluationProgress,
     ctx: Ctx<ConstantMap>,

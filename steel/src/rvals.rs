@@ -1155,89 +1155,92 @@ fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
     }
 }
 
-#[test]
-fn display_test() {
+#[cfg(test)]
+mod display_test {
+    use super::*;
     use crate::parser::tokens::TokenType;
     use im_rc::vector;
-    assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
-    assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
-    assert_eq!(
-        SteelVal::FuncV(|_args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            Ok(Gc::new(SteelVal::VectorV(vector![])))
-        })
-        .to_string(),
-        "#<function>"
-    );
-    assert_eq!(
-        SteelVal::LambdaV(SteelLambda::new(
-            vec!["arg1".to_owned()],
-            Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
-            Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
-            None
-        ))
-        .to_string(),
-        "#<(lambda (arg1) 1.0)>"
-    );
-    assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
-}
 
-#[test]
-fn display_list_test() {
-    use crate::parser::tokens::TokenType;
-    use im_rc::vector;
-    assert_eq!(VectorV(vector![]).to_string(), "'#()");
-    assert_eq!(
-        VectorV(
-            vector![
-                BoolV(false),
-                NumV(1.0),
-                LambdaV(SteelLambda::new(
-                    vec!["arg1".to_owned()],
-                    Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
-                    Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
-                    None
-                ))
-            ]
-            .into_iter()
-            .map(Gc::new)
-            .collect()
-        )
-        .to_string(),
-        "\'#(#false 1.0 #<(lambda (arg1) 1.0)>)"
-    );
-    assert_eq!(
-        VectorV(
-            vector![
-                VectorV(
-                    vector![
-                        NumV(1.0),
-                        VectorV(
-                            vector![NumV(2.0), NumV(3.0)]
-                                .into_iter()
-                                .map(Gc::new)
-                                .collect()
-                        )
-                    ]
-                    .into_iter()
-                    .map(Gc::new)
-                    .collect()
-                ),
-                VectorV(
-                    vector![NumV(4.0), NumV(5.0)]
+    #[test]
+    fn display_test() {
+        assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
+        assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
+        assert_eq!(
+            SteelVal::FuncV(|_args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+                Ok(Gc::new(SteelVal::VectorV(vector![])))
+            })
+            .to_string(),
+            "#<function>"
+        );
+        assert_eq!(
+            SteelVal::LambdaV(SteelLambda::new(
+                vec!["arg1".to_owned()],
+                Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
+                Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
+                None
+            ))
+            .to_string(),
+            "#<(lambda (arg1) 1.0)>"
+        );
+        assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
+    }
+
+    #[test]
+    fn display_list_test() {
+        assert_eq!(VectorV(vector![]).to_string(), "'#()");
+        assert_eq!(
+            VectorV(
+                vector![
+                    BoolV(false),
+                    NumV(1.0),
+                    LambdaV(SteelLambda::new(
+                        vec!["arg1".to_owned()],
+                        Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
+                        Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
+                        None
+                    ))
+                ]
+                .into_iter()
+                .map(Gc::new)
+                .collect()
+            )
+            .to_string(),
+            "\'#(#false 1.0 #<(lambda (arg1) 1.0)>)"
+        );
+        assert_eq!(
+            VectorV(
+                vector![
+                    VectorV(
+                        vector![
+                            NumV(1.0),
+                            VectorV(
+                                vector![NumV(2.0), NumV(3.0)]
+                                    .into_iter()
+                                    .map(Gc::new)
+                                    .collect()
+                            )
+                        ]
                         .into_iter()
                         .map(Gc::new)
                         .collect()
-                ),
-                NumV(6.0),
-                VectorV(vector![NumV(7.0)].into_iter().map(Gc::new).collect())
-            ]
-            .into_iter()
-            .map(Gc::new)
-            .collect()
-        )
-        .to_string(),
-        "'#((1.0 (2.0 3.0)) (4.0 5.0) 6.0 (7.0))"
-    );
+                    ),
+                    VectorV(
+                        vector![NumV(4.0), NumV(5.0)]
+                            .into_iter()
+                            .map(Gc::new)
+                            .collect()
+                    ),
+                    NumV(6.0),
+                    VectorV(vector![NumV(7.0)].into_iter().map(Gc::new).collect())
+                ]
+                .into_iter()
+                .map(Gc::new)
+                .collect()
+            )
+            .to_string(),
+            "'#((1.0 (2.0 3.0)) (4.0 5.0) 6.0 (7.0))"
+        );
+    }
 }
 
 #[cfg(test)]

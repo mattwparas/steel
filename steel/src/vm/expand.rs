@@ -3,7 +3,7 @@ use crate::parser::Expr;
 use crate::parser::SyntaxObject;
 // use crate::primitives::ListOperations;
 use crate::rerrs::SteelErr;
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::Result;
 
 use std::ops::Deref;
 
@@ -19,8 +19,6 @@ use crate::vm::SymbolMap;
 use crate::vm::ConstantTable;
 
 use std::collections::{HashMap, HashSet};
-
-use crate::gc::Gc;
 
 pub struct MacroSet(HashSet<String>);
 
@@ -145,22 +143,19 @@ fn is_struct_definition(expr: &Expr) -> bool {
 
 fn construct_macro_def<M: MacroEnv>(
     list_of_tokens: &[Expr],
-    macro_env: &mut HashMap<String, Gc<SteelVal>>,
+    macro_env: &mut HashMap<String, SteelMacro>,
     macro_set: &M,
 ) -> Result<()> {
     let parsed_macro = SteelMacro::parse_from_tokens(list_of_tokens, macro_set)?;
     // println!("{:?}", parsed_macro);
-    macro_env.insert(
-        parsed_macro.name().to_string(),
-        Gc::new(SteelVal::MacroV(parsed_macro)),
-    );
+    macro_env.insert(parsed_macro.name().to_string(), parsed_macro);
     // env.borrow().print_bindings();
     Ok(())
 }
 
 pub fn extract_macro_definitions<M: MacroEnv>(
     exprs: Vec<Expr>,
-    macro_env: &mut HashMap<String, Gc<SteelVal>>,
+    macro_env: &mut HashMap<String, SteelMacro>,
     // struct_env: &Rc<RefCell<Env>>,
     sm: &mut SymbolMap,
     macro_set: &M,
@@ -191,17 +186,17 @@ pub fn extract_macro_definitions<M: MacroEnv>(
                 // Add the eventual function names to the symbol map
                 let indices = builder.insert_struct_function_names(sm);
 
-                dbg!(&indices);
+                // dbg!(&indices);
 
                 // Get the value we're going to add to the constant map for eventual use
                 // Throw the bindings in as well
                 let constant_values = builder.to_constant_val(indices);
 
-                dbg!(&constant_values);
+                // dbg!(&constant_values);
 
                 let idx = constant_map.add_or_get(constant_values);
 
-                dbg!(idx);
+                // dbg!(idx);
 
                 instruction_set.push(Instruction::new_struct(idx));
 
@@ -217,7 +212,7 @@ pub fn extract_macro_definitions<M: MacroEnv>(
 pub fn expand_statements(
     exprs: Vec<Expr>,
     // env: &Rc<RefCell<Env>>,
-    macro_env: &HashMap<String, Gc<SteelVal>>,
+    macro_env: &HashMap<String, SteelMacro>,
 ) -> Result<Vec<Expr>> {
     exprs.into_iter().map(|x| expand(x, macro_env)).collect()
 }
@@ -231,7 +226,7 @@ pub fn expand_statements(
 fn expand_let(
     list_of_tokens: &[Expr],
     // env: &Rc<RefCell<Env>>,
-    macro_env: &HashMap<String, Gc<SteelVal>>,
+    macro_env: &HashMap<String, SteelMacro>,
 ) -> Result<Expr> {
     if let [bindings, body] = list_of_tokens {
         let mut bindings_to_check: Vec<Expr> = Vec::new();
@@ -289,7 +284,7 @@ fn expand_let(
 fn expand_define(
     list_of_tokens: &[Expr],
     // env: &Rc<RefCell<Env>>,
-    macro_env: &HashMap<String, Gc<SteelVal>>,
+    macro_env: &HashMap<String, SteelMacro>,
 ) -> Result<Expr> {
     // env.borrow_mut().set_binding_context(true);
 
@@ -375,7 +370,7 @@ fn expand_define(
 pub fn expand(
     expr: Expr,
     // env: &Rc<RefCell<Env>>,
-    macro_env: &HashMap<String, Gc<SteelVal>>,
+    macro_env: &HashMap<String, SteelMacro>,
 ) -> Result<Expr> {
     // let env = Rc::clone(env);
     // let expr = Rc::clone(expr);
@@ -401,12 +396,9 @@ pub fn expand(
                                 // macro_env.borrow().print_bindings();
                                 let lookup = macro_env.get(s);
 
-                                if let Some(v) = lookup {
-                                    if let SteelVal::MacroV(steel_macro) = v.as_ref() {
-                                        let expanded = steel_macro.expand(&list_of_tokens)?;
-                                        return expand(expanded, macro_env);
-                                        // return steel_macro.expand(&list_of_tokens)?;
-                                    }
+                                if let Some(steel_macro) = lookup {
+                                    let expanded = steel_macro.expand(&list_of_tokens)?;
+                                    return expand(expanded, macro_env);
                                 }
                             }
                         }
