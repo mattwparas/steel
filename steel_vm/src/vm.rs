@@ -74,6 +74,10 @@ impl VirtualMachineCore {
         self.global_env.borrow_mut().add_root_value(idx, value);
     }
 
+    pub fn insert_gc_binding(&mut self, idx: usize, value: Gc<SteelVal>) {
+        self.global_env.borrow_mut().add_gc_root_value(idx, value);
+    }
+
     pub fn insert_bindings(&mut self, vals: Vec<(usize, SteelVal)>) {
         for (idx, value) in vals {
             self.global_env.borrow_mut().add_root_value(idx, value);
@@ -81,7 +85,7 @@ impl VirtualMachineCore {
     }
 
     // pub fn new_with_meta() -> VirtualMachine {
-    //     let mut vm = VirtualMachine::new();
+    //     let mut vm = VirtualMachineCore::new();
     //     vm.insert_binding("*env*".to_string(), Env::constant_env_to_hashmap());
     //     vm
     // }

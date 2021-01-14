@@ -1,9 +1,14 @@
-use std::{io::Read, path::Path, rc::Rc};
+use std::{convert::TryFrom, io::Read, path::Path, rc::Rc};
 
 use crate::vm::VirtualMachineCore;
 // use steel::rerrs::SteelErr;
-use steel::rvals::{Result, SteelVal};
 use steel::steel_compiler::{compiler::Compiler, constants::ConstantMap};
+use steel::{
+    parser::Expr,
+    primitives::ListOperations,
+    rerrs::SteelErr,
+    rvals::{Result, SteelVal},
+};
 
 use steel::gc::Gc;
 
@@ -77,6 +82,11 @@ impl Engine {
         self.virtual_machine.insert_binding(idx, value);
     }
 
+    pub fn register_gc_value(&mut self, name: &str, value: Gc<SteelVal>) {
+        let idx = self.compiler.register(name);
+        self.virtual_machine.insert_gc_binding(idx, value);
+    }
+
     pub fn register_values(&mut self, values: Vec<(String, SteelVal)>) {
         for (name, value) in values {
             self.register_value(name.as_str(), value);
@@ -105,5 +115,41 @@ impl Engine {
         let mut exprs = String::new();
         file.read_to_string(&mut exprs)?;
         self.parse_and_execute(exprs.as_str())
+    }
+
+    pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(
+        exprs: I,
+        // ctx: &mut Ctx<ConstantMap>,
+    ) -> Result<Vec<Expr>> {
+        // println!("About to optimize the input program");
+
+        let converted: Result<Vec<_>> = exprs
+            .into_iter()
+            .map(|x| SteelVal::try_from(x.clone()))
+            .collect();
+
+        // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
+        let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
+
+        let mut vm = Engine::new();
+        vm.parse_and_execute_without_optimizations(steel::stdlib::PRELUDE)?;
+        vm.register_gc_value("*program*", exprs);
+        let output = vm.parse_and_execute_without_optimizations(steel::stdlib::COMPILER)?;
+
+        // println!("{:?}", output.last().unwrap());
+
+        // if output.len()  1 {
+        //     stop!(Generic => "panic! internal compiler error: output did not return a valid program");
+        // }
+
+        // TODO
+        SteelVal::iter(Gc::clone(output.last().unwrap()))
+            .into_iter()
+            .map(|x| Expr::try_from(x.as_ref()).map_err(|x| SteelErr::Generic(x.to_string(), None)))
+            .collect::<Result<Vec<Expr>>>()
+
+        // unimplemented!()
+
+        // self.emit_instructions_from_exprs(parsed)
     }
 }

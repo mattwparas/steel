@@ -441,6 +441,13 @@ impl Compiler {
         instructions
     }
 
+    pub fn extract_structs_and_expand_macros(
+        &mut self,
+        exprs: Vec<Expr>,
+    ) -> Result<(Vec<Instruction>, Vec<Expr>)> {
+        unimplemented!()
+    }
+
     pub fn emit_instructions_from_exprs(
         &mut self,
         exprs: Vec<Expr>,

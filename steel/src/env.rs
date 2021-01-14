@@ -819,6 +819,10 @@ impl Env {
         self.bindings_map.insert(idx, Gc::new(val));
     }
 
+    pub fn add_gc_root_value(&mut self, idx: usize, val: Gc<SteelVal>) {
+        self.bindings_map.insert(idx, val);
+    }
+
     // pub fn add_rooted_value(&mut self, sm: &mut SymbolMap, val: (&str, SteelVal)) {
     //     let idx = sm.add(val.0);
     //     self.bindings_map.insert(idx, Gc::new(val.1));
