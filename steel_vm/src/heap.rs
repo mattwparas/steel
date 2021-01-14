@@ -1,9 +1,9 @@
-use crate::env::Env;
-use crate::gc::{Gc, OBJECT_COUNT};
-use crate::rvals::SteelVal;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::rc::Weak;
+use steel::env::Env;
+use steel::gc::{Gc, OBJECT_COUNT};
+use steel::rvals::SteelVal;
 
 use std::collections::HashMap;
 pub(crate) static HEAP_LIMIT: usize = 5000;

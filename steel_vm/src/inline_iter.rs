@@ -1,15 +1,16 @@
-use crate::env::Env;
-use crate::gc::Gc;
-use crate::parser::span::Span;
-use crate::rerrs::SteelErr;
-use crate::rvals::{Result, SteelVal};
+use crate::evaluation_progress::EvaluationProgress;
+use crate::heap::Heap;
 use crate::vm::vm;
-use crate::vm::ConstantTable;
-use crate::vm::DenseInstruction;
-use crate::vm::EvaluationProgress;
-use crate::vm::Heap;
 use std::cell::RefCell;
 use std::rc::Rc;
+use steel::core::instructions::DenseInstruction;
+use steel::env::Env;
+use steel::gc::Gc;
+use steel::parser::span::Span;
+use steel::rerrs::SteelErr;
+use steel::rvals::{Result, SteelVal};
+use steel::steel_compiler::constants::ConstantTable;
+use steel::stop;
 
 pub(crate) fn inline_reduce_iter<
     'global,

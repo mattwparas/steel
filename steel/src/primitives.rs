@@ -30,7 +30,7 @@ pub use vectors::VectorOperations;
 
 // use crate::converter::SteelFunctor;
 use crate::rerrs::SteelErr;
-use crate::rvals::{FunctionSignature, SteelLambda, SteelVal};
+use crate::rvals::{FunctionSignature, SteelVal};
 // use im_rc::HashMap;
 use im_rc::Vector;
 
@@ -410,11 +410,11 @@ impl From<FunctionSignature> for SteelVal {
     }
 }
 
-impl From<SteelLambda> for SteelVal {
-    fn from(val: SteelLambda) -> SteelVal {
-        SteelVal::LambdaV(val)
-    }
-}
+// impl From<SteelLambda> for SteelVal {
+//     fn from(val: SteelLambda) -> SteelVal {
+//         SteelVal::LambdaV(val)
+//     }
+// }
 
 // pub struct Adder;
 // impl SteelFunctor<VecNumbers, f64> for Adder {

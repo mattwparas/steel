@@ -980,7 +980,6 @@ dependencies = [
  "bincode",
  "codespan-reporting",
  "colored 2.0.0",
- "criterion",
  "futures",
  "im-rc",
  "itertools 0.10.0",
@@ -1005,6 +1004,7 @@ dependencies = [
  "steel",
  "steel_derive",
  "steel_repl",
+ "steel_vm",
 ]
 
 [[package]]
@@ -1024,6 +1024,16 @@ dependencies = [
  "colored 1.9.3",
  "rustyline",
  "rustyline-derive",
+ "steel",
+ "steel_vm",
+]
+
+[[package]]
+name = "steel_vm"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "log",
  "steel",
 ]
 

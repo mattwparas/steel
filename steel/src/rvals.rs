@@ -1,5 +1,5 @@
 use crate::env::Env;
-use crate::expander::SteelMacro;
+// use crate::expander::SteelMacro;
 use crate::parser::tokens::TokenType::*;
 use crate::parser::Expr;
 use crate::parser::SyntaxObject;
@@ -20,8 +20,8 @@ use std::result;
 
 use crate::structs::SteelStruct;
 
-use crate::vm::DenseInstruction;
-use crate::vm::EvaluationProgress;
+// use crate::vm::EvaluationProgress;
+use crate::core::instructions::DenseInstruction;
 
 // use std::mem;
 
@@ -31,12 +31,12 @@ use std::hash::{Hash, Hasher};
 
 // use std::ops::Deref;
 
-use crate::parser::span::Span;
-use crate::vm::ConstantTable;
+// use crate::vm::ConstantTable;
+// use steel::parser::span::Span;
 
-use crate::vm::inline_iter::{
-    inline_filter_result_iter, inline_map_result_iter, inline_reduce_iter,
-};
+// use crate::vm::inline_iter::{
+//     inline_filter_result_iter, inline_map_result_iter, inline_reduce_iter,
+// };
 // use itertools::Itertools;
 // pub use constants::ConstantTable;
 
@@ -55,7 +55,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::lazy_stream::LazyStream;
-use crate::lazy_stream::LazyStreamIter;
+// use crate::lazy_stream::LazyStreamIter;
 
 // use serde::ser::SerializeTupleVariant;
 // use serde::{Deserialize, Serialize, Serializer};
@@ -218,9 +218,9 @@ pub enum SteelVal {
     /// Represents built in rust functions
     FuncV(FunctionSignature),
     /// Represents Steel Lambda functions or closures defined inside the environment
-    LambdaV(SteelLambda),
+    // LambdaV(SteelLambda),
     /// Represents built in macros,
-    MacroV(SteelMacro),
+    // MacroV(SteelMacro),
     /// Represents a symbol, internally represented as `String`s
     SymbolV(String),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
@@ -290,7 +290,7 @@ pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<Stee
 //     fn run() -> Gc<SteelVal>;
 // }
 
-enum CollectionType {
+pub enum CollectionType {
     List,
     Vector,
 }
@@ -300,7 +300,7 @@ enum CollectionType {
 #[derive(Clone)]
 pub struct Transducer {
     // root: Gc<SteelVal>,
-    pub(crate) ops: Vector<Transducers>,
+    pub ops: Vector<Transducers>,
 }
 
 impl Transducer {
@@ -321,141 +321,98 @@ impl Transducer {
     // TODO see transduce vs educe
     // TODO change the return type to match the given input type
     // optionally add an argument to select the return type manually
-    pub fn run<CT: ConstantTable>(
-        &self,
-        root: Gc<SteelVal>,
-        constants: &CT,
-        cur_inst_span: &Span,
-        repl: bool,
-        callback: &EvaluationProgress,
-        collection_type: Option<Gc<SteelVal>>,
-    ) -> Result<Gc<SteelVal>> {
-        // if let Some(collection_type) = collection_type {
-        //     match collection_type.as_ref() {}
-        // }
+    // pub fn run<CT: ConstantTable>(
+    //     &self,
+    //     root: Gc<SteelVal>,
+    //     constants: &CT,
+    //     cur_inst_span: &Span,
+    //     repl: bool,
+    //     callback: &EvaluationProgress,
+    //     collection_type: Option<Gc<SteelVal>>,
+    // ) -> Result<Gc<SteelVal>> {
+    //     // if let Some(collection_type) = collection_type {
+    //     //     match collection_type.as_ref() {}
+    //     // }
 
-        let output_type = match root.as_ref() {
-            SteelVal::VectorV(_) => CollectionType::Vector,
-            _ => CollectionType::List,
-        };
+    //     let output_type = match root.as_ref() {
+    //         SteelVal::VectorV(_) => CollectionType::Vector,
+    //         _ => CollectionType::List,
+    //     };
 
-        let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
-            SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
-            SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
-            SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-                lazy_stream.clone(),
-                constants,
-                cur_inst_span,
-                repl,
-                callback,
-            )),
-            _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
-        };
+    //     let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
+    //         SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
+    //         SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
+    //         SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
+    //             lazy_stream.clone(),
+    //             constants,
+    //             cur_inst_span,
+    //             repl,
+    //             callback,
+    //         )),
+    //         _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
+    //     };
 
-        for t in &self.ops {
-            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-        }
+    //     for t in &self.ops {
+    //         my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
+    //     }
 
-        if let Some(collection_type) = collection_type {
-            if let SteelVal::SymbolV(n) = collection_type.as_ref() {
-                match n.as_ref() {
-                    "list" => ListOperations::built_in_list_normal_iter(my_iter),
-                    "vector" => crate::primitives::VectorOperations::vec_construct_iter(my_iter),
-                    _ => stop!(Generic => "Cannot collect into an undefined type"),
-                }
-            } else {
-                stop!(Generic => "execute takes a symbol")
-            }
-        } else {
-            match output_type {
-                CollectionType::List => ListOperations::built_in_list_normal_iter(my_iter),
-                CollectionType::Vector => {
-                    crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-                }
-            }
-            // match root.as_ref()
-            // unimplemented!()
-        }
+    //     if let Some(collection_type) = collection_type {
+    //         if let SteelVal::SymbolV(n) = collection_type.as_ref() {
+    //             match n.as_ref() {
+    //                 "list" => ListOperations::built_in_list_normal_iter(my_iter),
+    //                 "vector" => crate::primitives::VectorOperations::vec_construct_iter(my_iter),
+    //                 _ => stop!(Generic => "Cannot collect into an undefined type"),
+    //             }
+    //         } else {
+    //             stop!(Generic => "execute takes a symbol")
+    //         }
+    //     } else {
+    //         match output_type {
+    //             CollectionType::List => ListOperations::built_in_list_normal_iter(my_iter),
+    //             CollectionType::Vector => {
+    //                 crate::primitives::VectorOperations::vec_construct_iter(my_iter)
+    //             }
+    //         }
+    //     }
+    // }
 
-        // match root.as_ref() {
-        //     SteelVal::VectorV(v) => {
-        //         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-        //             Box::new(v.into_iter().map(|x| Ok(Gc::clone(x))));
-        //         for t in &self.ops {
-        //             my_iter =
-        //                 t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-        //         }
+    // pub fn transduce<CT: ConstantTable>(
+    //     &self,
+    //     root: Gc<SteelVal>,
+    //     initial_value: Gc<SteelVal>,
+    //     reducer: Gc<SteelVal>,
+    //     constants: &CT,
+    //     cur_inst_span: &Span,
+    //     repl: bool,
+    //     callback: &EvaluationProgress,
+    // ) -> Result<Gc<SteelVal>> {
+    //     let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
+    //         SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
+    //         SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
+    //         SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
+    //             lazy_stream.clone(),
+    //             constants,
+    //             cur_inst_span,
+    //             repl,
+    //             callback,
+    //         )),
+    //         _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
+    //     };
 
-        //         crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-        //     }
-        //     SteelVal::Pair(_, _) => {
-        //         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-        //             Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x)));
-        //         for t in &self.ops {
-        //             my_iter =
-        //                 t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-        //         }
+    //     for t in &self.ops {
+    //         my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
+    //     }
 
-        //         crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-        //     }
-        //     SteelVal::StreamV(lazy_stream) => {
-        //         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-        //             Box::new(LazyStreamIter::new(
-        //                 lazy_stream.clone(),
-        //                 constants,
-        //                 cur_inst_span,
-        //                 repl,
-        //                 callback,
-        //             ));
-
-        //         for t in &self.ops {
-        //             my_iter =
-        //                 t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-        //         }
-
-        //         crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-        //     }
-        //     _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
-        // }
-    }
-
-    pub fn transduce<CT: ConstantTable>(
-        &self,
-        root: Gc<SteelVal>,
-        initial_value: Gc<SteelVal>,
-        reducer: Gc<SteelVal>,
-        constants: &CT,
-        cur_inst_span: &Span,
-        repl: bool,
-        callback: &EvaluationProgress,
-    ) -> Result<Gc<SteelVal>> {
-        let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
-            SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
-            SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
-            SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-                lazy_stream.clone(),
-                constants,
-                cur_inst_span,
-                repl,
-                callback,
-            )),
-            _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
-        };
-
-        for t in &self.ops {
-            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-        }
-
-        inline_reduce_iter(
-            my_iter,
-            initial_value,
-            reducer,
-            constants,
-            cur_inst_span,
-            repl,
-            callback,
-        )
-    }
+    //     inline_reduce_iter(
+    //         my_iter,
+    //         initial_value,
+    //         reducer,
+    //         constants,
+    //         cur_inst_span,
+    //         repl,
+    //         callback,
+    //     )
+    // }
 }
 
 #[derive(Clone)]
@@ -465,50 +422,50 @@ pub enum Transducers {
     Take(Gc<SteelVal>),   // integer
 }
 
-impl Transducers {
-    pub fn into_transducer<
-        'global,
-        I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
-        CT: ConstantTable,
-    >(
-        &self,
-        iter: I,
-        // stack_func: Gc<SteelVal>,
-        constants: &'global CT,
-        cur_inst_span: &'global Span,
-        repl: bool,
-        callback: &'global EvaluationProgress,
-    ) -> Result<Box<dyn Iterator<Item = Result<Gc<SteelVal>>> + 'global>> {
-        match self {
-            Transducers::Map(func) => Ok(Box::new(inline_map_result_iter(
-                iter,
-                Gc::clone(func),
-                constants,
-                cur_inst_span,
-                repl,
-                callback,
-            ))),
-            Transducers::Filter(func) => Ok(Box::new(inline_filter_result_iter(
-                iter,
-                Gc::clone(func),
-                constants,
-                cur_inst_span,
-                repl,
-                callback,
-            ))),
-            Transducers::Take(num) => {
-                if let SteelVal::IntV(num) = num.as_ref() {
-                    if *num < 0 {
-                        stop!(ContractViolation => "take transducer must have a position number"; *cur_inst_span)
-                    }
-                    Ok(Box::new(iter.take(*num as usize)))
-                } else {
-                    stop!(TypeMismatch => "take transducer takes an integer"; *cur_inst_span)
-                }
-            }
-        }
-    }
-}
+// impl Transducers {
+//     pub fn into_transducer<
+//         'global,
+//         I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
+//         CT: ConstantTable,
+//     >(
+//         &self,
+//         iter: I,
+//         // stack_func: Gc<SteelVal>,
+//         constants: &'global CT,
+//         cur_inst_span: &'global Span,
+//         repl: bool,
+//         callback: &'global EvaluationProgress,
+//     ) -> Result<Box<dyn Iterator<Item = Result<Gc<SteelVal>>> + 'global>> {
+//         match self {
+//             Transducers::Map(func) => Ok(Box::new(inline_map_result_iter(
+//                 iter,
+//                 Gc::clone(func),
+//                 constants,
+//                 cur_inst_span,
+//                 repl,
+//                 callback,
+//             ))),
+//             Transducers::Filter(func) => Ok(Box::new(inline_filter_result_iter(
+//                 iter,
+//                 Gc::clone(func),
+//                 constants,
+//                 cur_inst_span,
+//                 repl,
+//                 callback,
+//             ))),
+//             Transducers::Take(num) => {
+//                 if let SteelVal::IntV(num) = num.as_ref() {
+//                     if *num < 0 {
+//                         stop!(ContractViolation => "take transducer must have a position number"; *cur_inst_span)
+//                     }
+//                     Ok(Box::new(iter.take(*num as usize)))
+//                 } else {
+//                     stop!(TypeMismatch => "take transducer takes an integer"; *cur_inst_span)
+//                 }
+//             }
+//         }
+//     }
+// }
 
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -529,8 +486,8 @@ impl Hash for SteelVal {
             }
             StringV(s) => s.hash(state),
             FuncV(_) => unimplemented!(),
-            LambdaV(_) => unimplemented!(),
-            MacroV(_) => unimplemented!(),
+            // LambdaV(_) => unimplemented!(),
+            // MacroV(_) => unimplemented!(),
             SymbolV(sym) => {
                 "symbol".hash(state);
                 sym.hash(state);
@@ -702,25 +659,25 @@ impl SteelVal {
         }
     }
 
-    pub fn lambda_or_else<E, F: FnOnce() -> E>(
-        &self,
-        err: F,
-    ) -> std::result::Result<&SteelLambda, E> {
-        match self {
-            Self::LambdaV(v) => Ok(&v),
-            _ => Err(err()),
-        }
-    }
+    // pub fn lambda_or_else<E, F: FnOnce() -> E>(
+    //     &self,
+    //     err: F,
+    // ) -> std::result::Result<&SteelLambda, E> {
+    //     match self {
+    //         Self::LambdaV(v) => Ok(&v),
+    //         _ => Err(err()),
+    //     }
+    // }
 
-    pub fn macro_or_else<E, F: FnOnce() -> E>(
-        &self,
-        err: F,
-    ) -> std::result::Result<&SteelMacro, E> {
-        match self {
-            Self::MacroV(v) => Ok(&v),
-            _ => Err(err()),
-        }
-    }
+    // pub fn macro_or_else<E, F: FnOnce() -> E>(
+    //     &self,
+    //     err: F,
+    // ) -> std::result::Result<&SteelMacro, E> {
+    //     match self {
+    //         Self::MacroV(v) => Ok(&v),
+    //         _ => Err(err()),
+    //     }
+    // }
 
     pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
         match self {
@@ -847,8 +804,8 @@ impl TryFrom<&SteelVal> for Expr {
             Void => Err("Can't convert from Void to expression!"),
             StringV(x) => Ok(Expr::Atom(SyntaxObject::default(StringLiteral(x.clone())))),
             FuncV(_) => Err("Can't convert from Function to expression!"),
-            LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-            MacroV(_) => Err("Can't convert from Macro to expression!"),
+            // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
+            // MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => Ok(Expr::Atom(SyntaxObject::default(Identifier(x.clone())))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
             // Pair(_, _) => Err("Can't convert from pair"), // TODO
@@ -1000,65 +957,65 @@ impl ByteCodeLambda {
     }
 }
 
-#[derive(Clone)]
-/// struct representing data required to describe a scheme function
-pub struct SteelLambda {
-    /// symbols representing the arguments to the function
-    params_exp: Vec<String>,
-    /// body of the function with identifiers yet to be bound
-    body_exp: Expr,
-    /// parent environment that created this Lambda.
-    /// the actual environment with correct bindings is built at runtime
-    /// once the function is called
-    parent_env: Option<Rc<RefCell<Env>>>,
-    /// parent subenvironment that created this lambda.
-    /// the actual environment gets upgraded at runtime if needed
-    sub_expression_env: Option<Weak<RefCell<Env>>>,
-}
-impl SteelLambda {
-    pub fn new(
-        params_exp: Vec<String>,
-        body_exp: Expr,
-        parent_env: Option<Rc<RefCell<Env>>>,
-        sub_expression_env: Option<Weak<RefCell<Env>>>,
-    ) -> SteelLambda {
-        SteelLambda {
-            params_exp,
-            body_exp,
-            parent_env,
-            sub_expression_env,
-        }
-    }
-    /// symbols representing the arguments to the function
-    pub fn params_exp(&self) -> &[String] {
-        &self.params_exp
-    }
-    /// body of the function with identifiers yet to be bound
-    pub fn body_exp(&self) -> &Expr {
-        &self.body_exp
-    }
+// #[derive(Clone)]
+// /// struct representing data required to describe a scheme function
+// pub struct SteelLambda {
+//     /// symbols representing the arguments to the function
+//     params_exp: Vec<String>,
+//     /// body of the function with identifiers yet to be bound
+//     body_exp: Expr,
+//     /// parent environment that created this Lambda.
+//     /// the actual environment with correct bindings is built at runtime
+//     /// once the function is called
+//     parent_env: Option<Rc<RefCell<Env>>>,
+//     /// parent subenvironment that created this lambda.
+//     /// the actual environment gets upgraded at runtime if needed
+//     sub_expression_env: Option<Weak<RefCell<Env>>>,
+// }
+// impl SteelLambda {
+//     pub fn new(
+//         params_exp: Vec<String>,
+//         body_exp: Expr,
+//         parent_env: Option<Rc<RefCell<Env>>>,
+//         sub_expression_env: Option<Weak<RefCell<Env>>>,
+//     ) -> SteelLambda {
+//         SteelLambda {
+//             params_exp,
+//             body_exp,
+//             parent_env,
+//             sub_expression_env,
+//         }
+//     }
+//     /// symbols representing the arguments to the function
+//     pub fn params_exp(&self) -> &[String] {
+//         &self.params_exp
+//     }
+//     /// body of the function with identifiers yet to be bound
+//     pub fn body_exp(&self) -> &Expr {
+//         &self.body_exp
+//     }
 
-    pub fn pretty_print_closure(&self) -> String {
-        let params = self.params_exp().join(" ");
-        format!(
-            "(lambda ({}) {})",
-            params.to_string(),
-            self.body_exp().to_string()
-        )
-    }
+//     pub fn pretty_print_closure(&self) -> String {
+//         let params = self.params_exp().join(" ");
+//         format!(
+//             "(lambda ({}) {})",
+//             params.to_string(),
+//             self.body_exp().to_string()
+//         )
+//     }
 
-    /// parent environment that created this Lambda.
-    ///
-    /// The actual environment with correct bindings is built at runtime
-    /// once the function is called
-    pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
-        self.parent_env.as_ref()
-    }
+//     /// parent environment that created this Lambda.
+//     ///
+//     /// The actual environment with correct bindings is built at runtime
+//     /// once the function is called
+//     pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
+//         self.parent_env.as_ref()
+//     }
 
-    pub fn sub_expression_env(&self) -> Option<&Weak<RefCell<Env>>> {
-        self.sub_expression_env.as_ref()
-    }
-}
+//     pub fn sub_expression_env(&self) -> Option<&Weak<RefCell<Env>>> {
+//         self.sub_expression_env.as_ref()
+//     }
+// }
 
 impl fmt::Display for SteelVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1097,8 +1054,8 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         CharV(c) => write!(f, "#\\{}", c),
         FuncV(_) => write!(f, "#<function>"),
         // LambdaV(_) => write!(f, "#<lambda-function>"),
-        LambdaV(l) => write!(f, "#<{}>", l.pretty_print_closure()),
-        MacroV(_) => write!(f, "#<macro>"),
+        // LambdaV(l) => write!(f, "#<{}>", l.pretty_print_closure()),
+        // MacroV(_) => write!(f, "#<macro>"),
         Void => write!(f, "#<void>"),
         SymbolV(s) => write!(f, "{}", s),
         VectorV(lst) => {
@@ -1157,90 +1114,90 @@ fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
 
 #[cfg(test)]
 mod display_test {
-    use super::*;
-    use crate::parser::tokens::TokenType;
-    use im_rc::vector;
+    // use super::*;
+    // use im_rc::vector;
+    // use steel::parser::tokens::TokenType;
 
-    #[test]
-    fn display_test() {
-        assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
-        assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
-        assert_eq!(
-            SteelVal::FuncV(|_args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-                Ok(Gc::new(SteelVal::VectorV(vector![])))
-            })
-            .to_string(),
-            "#<function>"
-        );
-        assert_eq!(
-            SteelVal::LambdaV(SteelLambda::new(
-                vec!["arg1".to_owned()],
-                Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
-                Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
-                None
-            ))
-            .to_string(),
-            "#<(lambda (arg1) 1.0)>"
-        );
-        assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
-    }
+    // #[test]
+    // fn display_test() {
+    //     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
+    //     assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
+    //     assert_eq!(
+    //         SteelVal::FuncV(|_args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+    //             Ok(Gc::new(SteelVal::VectorV(vector![])))
+    //         })
+    //         .to_string(),
+    //         "#<function>"
+    //     );
+    //     assert_eq!(
+    //         SteelVal::LambdaV(SteelLambda::new(
+    //             vec!["arg1".to_owned()],
+    //             Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
+    //             Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
+    //             None
+    //         ))
+    //         .to_string(),
+    //         "#<(lambda (arg1) 1.0)>"
+    //     );
+    //     assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
+    // }
 
-    #[test]
-    fn display_list_test() {
-        assert_eq!(VectorV(vector![]).to_string(), "'#()");
-        assert_eq!(
-            VectorV(
-                vector![
-                    BoolV(false),
-                    NumV(1.0),
-                    LambdaV(SteelLambda::new(
-                        vec!["arg1".to_owned()],
-                        Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
-                        Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
-                        None
-                    ))
-                ]
-                .into_iter()
-                .map(Gc::new)
-                .collect()
-            )
-            .to_string(),
-            "\'#(#false 1.0 #<(lambda (arg1) 1.0)>)"
-        );
-        assert_eq!(
-            VectorV(
-                vector![
-                    VectorV(
-                        vector![
-                            NumV(1.0),
-                            VectorV(
-                                vector![NumV(2.0), NumV(3.0)]
-                                    .into_iter()
-                                    .map(Gc::new)
-                                    .collect()
-                            )
-                        ]
-                        .into_iter()
-                        .map(Gc::new)
-                        .collect()
-                    ),
-                    VectorV(
-                        vector![NumV(4.0), NumV(5.0)]
-                            .into_iter()
-                            .map(Gc::new)
-                            .collect()
-                    ),
-                    NumV(6.0),
-                    VectorV(vector![NumV(7.0)].into_iter().map(Gc::new).collect())
-                ]
-                .into_iter()
-                .map(Gc::new)
-                .collect()
-            )
-            .to_string(),
-            "'#((1.0 (2.0 3.0)) (4.0 5.0) 6.0 (7.0))"
-        );
-    }
+    // #[test]
+    // fn display_list_test() {
+    //     assert_eq!(VectorV(vector![]).to_string(), "'#()");
+    //     assert_eq!(
+    //         VectorV(
+    //             vector![
+    //                 BoolV(false),
+    //                 NumV(1.0),
+    //                 LambdaV(SteelLambda::new(
+    //                     vec!["arg1".to_owned()],
+    //                     Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
+    //                     Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
+    //                     None
+    //                 ))
+    //             ]
+    //             .into_iter()
+    //             .map(Gc::new)
+    //             .collect()
+    //         )
+    //         .to_string(),
+    //         "\'#(#false 1.0 #<(lambda (arg1) 1.0)>)"
+    //     );
+    //     assert_eq!(
+    //         VectorV(
+    //             vector![
+    //                 VectorV(
+    //                     vector![
+    //                         NumV(1.0),
+    //                         VectorV(
+    //                             vector![NumV(2.0), NumV(3.0)]
+    //                                 .into_iter()
+    //                                 .map(Gc::new)
+    //                                 .collect()
+    //                         )
+    //                     ]
+    //                     .into_iter()
+    //                     .map(Gc::new)
+    //                     .collect()
+    //                 ),
+    //                 VectorV(
+    //                     vector![NumV(4.0), NumV(5.0)]
+    //                         .into_iter()
+    //                         .map(Gc::new)
+    //                         .collect()
+    //                 ),
+    //                 NumV(6.0),
+    //                 VectorV(vector![NumV(7.0)].into_iter().map(Gc::new).collect())
+    //             ]
+    //             .into_iter()
+    //             .map(Gc::new)
+    //             .collect()
+    //         )
+    //         .to_string(),
+    //         "'#((1.0 (2.0 3.0)) (4.0 5.0) 6.0 (7.0))"
+    //     );
+    // }
 }
 
 #[cfg(test)]
@@ -1348,58 +1305,5 @@ mod or_else_tests {
     fn symbol_or_else_test_bad() {
         let input = SteelVal::Void;
         assert!(input.symbol_or_else(throw!(Generic => "test")).is_err())
-    }
-}
-
-#[cfg(test)]
-mod transducer_tests {
-    // use super::*;
-    use crate::test_util::assert_script;
-
-    #[test]
-    fn generic_transducer() {
-        let script = r#"
-            (define x (mapping (fn (x) x))) ;; identity
-            (define y (filtering even?)) ;; get only even ones
-            (define z (taking 15)) ;; take the first 15 from the range
-            (define xf (compose x y z))
-            (assert! 
-                (equal? 
-                    (transduce xf + 0 (range 0 100)) ;; => 210
-                    210))
-        "#;
-        assert_script(script);
-    }
-
-    #[test]
-    fn generic_execution() {
-        let script = r#"
-        (define x (mapping (fn (x) x))) ;; identity
-        (define y (filtering even?)) ;; get only even ones
-        (define z (taking 15)) ;; take the first 15 from the range
-        (define xf (compose x y z))
-        (define result
-            (execute xf (range 0 100)))
-        
-        (define expected '(0 2 4 6 8 10 12 14 16 18 20 22 24 26 28))
-        (assert! (equal? result expected))
-        "#;
-        assert_script(script);
-    }
-
-    #[test]
-    fn generic_execuction_output_different_type() {
-        let script = r#"
-        (define x (mapping (fn (x) x))) ;; identity
-        (define y (filtering even?)) ;; get only even ones
-        (define z (taking 15)) ;; take the first 15 from the range
-        (define xf (compose x y z))
-        (define result
-            (execute xf (range 0 100) 'vector))
-        
-        (define expected (vector 0 2 4 6 8 10 12 14 16 18 20 22 24 26 28))
-        (assert! (equal? result expected))
-        "#;
-        assert_script(script);
     }
 }

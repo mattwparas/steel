@@ -6,12 +6,12 @@ First, consume the entire syntax tree and create global definitions
 // use std::io::prelude::*;
 
 use crate::env::Env;
-// use crate::parser::tokens::Token;
-use crate::parser::tokens::TokenType;
-use crate::parser::Expr;
-use crate::parser::SyntaxObject;
+// use steel::parser::tokens::Token;
 use crate::rerrs::SteelErr;
 use std::cell::RefCell;
+use steel::parser::tokens::TokenType;
+use steel::parser::Expr;
+use steel::parser::SyntaxObject;
 // use std::collections::HashMap;
 use std::rc::Rc;
 

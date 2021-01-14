@@ -29,7 +29,9 @@ impl MetaOperations {
 
             if args.len() == 1 {
                 if let SteelVal::Closure(bytecode_lambda) = args[0].as_ref() {
-                    crate::vm::pretty_print_dense_instructions(&bytecode_lambda.body_exp());
+                    crate::core::instructions::pretty_print_dense_instructions(
+                        &bytecode_lambda.body_exp(),
+                    );
                     Ok(VOID.with(|f| Gc::clone(f)))
                 } else {
                     stop!(TypeMismatch => "inspect-bytecode expects a closure object");

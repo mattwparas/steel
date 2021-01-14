@@ -1,5 +1,7 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::Result;
+use crate::stop;
+use crate::{env::Env, structs::StructFuncBuilder};
 
 #[derive(Debug, PartialEq)]
 pub struct SymbolMap(Vec<String>);
@@ -7,6 +9,14 @@ pub struct SymbolMap(Vec<String>);
 impl SymbolMap {
     pub fn new() -> Self {
         SymbolMap(Vec::new())
+    }
+
+    pub fn default_from_env() -> SymbolMap {
+        let mut sm = SymbolMap::new();
+        for val in Env::default_bindings() {
+            sm.add(val.0);
+        }
+        sm
     }
 
     pub fn add(&mut self, ident: &str) -> usize {
@@ -68,5 +78,25 @@ impl SymbolMap {
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn insert_struct_function_names<'a>(
+        &mut self,
+        struct_builder: &'a StructFuncBuilder,
+    ) -> Vec<usize> {
+        let mut indices = Vec::new();
+
+        // Constructor
+        indices.push(self.add(&struct_builder.name));
+        // Predicate
+        indices.push(self.add(format!("{}?", &struct_builder.name).as_str()));
+        for field in &struct_builder.fields {
+            // Getter
+            indices.push(self.add(format!("{}-{}", &struct_builder.name, field).as_str()));
+            // Setter
+            indices.push(self.add(format!("set-{}-{}!", &struct_builder.name, field).as_str()));
+        }
+
+        indices
     }
 }

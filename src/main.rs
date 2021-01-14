@@ -12,12 +12,12 @@ use steel::rerrs;
 use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
 // use steel::build_interpreter;
-use steel::build_vm;
-use steel::vm::VirtualMachine;
 use steel_derive::function;
 use steel_derive::steel;
 use steel_repl::build_repl;
 use steel_repl::repl::repl_base;
+use steel_vm::build_engine;
+use steel_vm::engine::Engine;
 
 use steel::Gc;
 
@@ -135,7 +135,7 @@ fn main() {
         finish(test_repl());
     } else if args.len() == 2 {
         let path = &args[1];
-        let mut interpreter = build_vm! {};
+        let mut interpreter = build_engine! {};
         // if let Err(e) = interpreter.require(PRELUDE) {
         //     eprintln!("Error loading prelude: {}", e)
         // }
@@ -443,7 +443,7 @@ impl EditDistance {
 }
 
 pub fn test_repl() -> std::io::Result<()> {
-    let vm = build_vm! {
+    let vm = build_engine! {
         Structs => {
             MyStruct,
             CoolTest,
@@ -509,7 +509,7 @@ pub fn test_result2(input: usize) -> std::result::Result<usize, String> {
 // TODO come back and flesh this out
 #[test]
 fn embed_functions_and_verify_results() {
-    let mut interp = build_vm! {
+    let mut interp = build_engine! {
         Structs => {
             MyStruct,
             CoolTest,

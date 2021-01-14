@@ -31,7 +31,7 @@ use std::rc::Weak;
 // use std::borrow::BorrowMut;
 // use crate::compiler::AST;
 
-use crate::vm::SymbolMap;
+// use crate::vm::SymbolMap;
 
 use crate::gc::Gc;
 
@@ -807,46 +807,50 @@ impl Env {
         env
     }
 
-    pub fn default_symbol_map() -> SymbolMap {
-        let mut sm = SymbolMap::new();
-        for val in Env::default_bindings() {
-            sm.add(val.0);
-        }
-        sm
+    // pub fn default_symbol_map() -> SymbolMap {
+    //     let mut sm = SymbolMap::new();
+    //     for val in Env::default_bindings() {
+    //         sm.add(val.0);
+    //     }
+    //     sm
+    // }
+
+    pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
+        self.bindings_map.insert(idx, Gc::new(val));
     }
 
-    pub fn add_rooted_value(&mut self, sm: &mut SymbolMap, val: (&str, SteelVal)) {
-        let idx = sm.add(val.0);
-        self.bindings_map.insert(idx, Gc::new(val.1));
-    }
+    // pub fn add_rooted_value(&mut self, sm: &mut SymbolMap, val: (&str, SteelVal)) {
+    //     let idx = sm.add(val.0);
+    //     self.bindings_map.insert(idx, Gc::new(val.1));
+    // }
 
-    pub fn add_rooted_gc_value(&mut self, sm: &mut SymbolMap, val: (&str, Gc<SteelVal>)) {
-        let idx = sm.add(val.0);
-        self.bindings_map.insert(idx, val.1);
-    }
+    // pub fn add_rooted_gc_value(&mut self, sm: &mut SymbolMap, val: (&str, Gc<SteelVal>)) {
+    //     let idx = sm.add(val.0);
+    //     self.bindings_map.insert(idx, val.1);
+    // }
 
     // Have this return the indices of the defined values
-    pub fn define_zipped_rooted(
-        &mut self,
-        sm: &mut SymbolMap,
-        zipped: impl Iterator<Item = (String, SteelVal)>,
-    ) {
-        zipped.for_each(|(param, arg)| {
-            sm.add(param.as_str());
-            self.bindings_vec.push(Gc::new(arg));
-        });
-    }
+    // pub fn define_zipped_rooted(
+    //     &mut self,
+    //     sm: &mut SymbolMap,
+    //     zipped: impl Iterator<Item = (String, SteelVal)>,
+    // ) {
+    //     zipped.for_each(|(param, arg)| {
+    //         sm.add(param.as_str());
+    //         self.bindings_vec.push(Gc::new(arg));
+    //     });
+    // }
 
-    pub fn repl_define_zipped_rooted(
-        &mut self,
-        sm: &mut SymbolMap,
-        zipped: impl Iterator<Item = (String, SteelVal)>,
-    ) {
-        zipped.for_each(|(param, arg)| {
-            let idx = sm.add(param.as_str());
-            self.bindings_map.insert(idx, Gc::new(arg));
-        });
-    }
+    // pub fn repl_define_zipped_rooted(
+    //     &mut self,
+    //     sm: &mut SymbolMap,
+    //     zipped: impl Iterator<Item = (String, SteelVal)>,
+    // ) {
+    //     zipped.for_each(|(param, arg)| {
+    //         let idx = sm.add(param.as_str());
+    //         self.bindings_map.insert(idx, Gc::new(arg));
+    //     });
+    // }
 
     // bit of a quality of life hack
     pub fn constant_env_to_hashmap() -> SteelVal {
@@ -1040,7 +1044,7 @@ impl Env {
         ]
     }
 
-    fn default_bindings() -> Vec<(&'static str, SteelVal)> {
+    pub fn default_bindings() -> Vec<(&'static str, SteelVal)> {
         vec![
             ("+", NumOperations::adder()),
             ("i+", NumOperations::integer_add()),

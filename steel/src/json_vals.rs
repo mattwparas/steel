@@ -142,8 +142,8 @@ impl TryFrom<Gc<SteelVal>> for Value {
             SteelVal::Void => stop!(Generic => "void not serializable"),
             SteelVal::StringV(s) => Ok(Value::String(s.clone())),
             SteelVal::FuncV(_) => stop!(Generic => "function not serializable"),
-            SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
-            SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
+            // SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
+            // SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
             SteelVal::SymbolV(s) => Ok(Value::String(s.clone())),
             SteelVal::Custom(_) => stop!(Generic => "generic struct not serializable"),
             SteelVal::HashMapV(hm) => {

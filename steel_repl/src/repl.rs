@@ -15,7 +15,9 @@ use rustyline::completion::Completer;
 use rustyline::completion::Pair;
 
 use std::borrow::Cow;
-use steel::vm::VirtualMachine;
+// use steel::vm::VirtualMachine;
+
+use steel_vm::engine::Engine;
 
 use std::io::Read;
 use steel::parser::span::Span;
@@ -27,8 +29,8 @@ use std::time::Instant;
 macro_rules! build_repl {
     ($($type:ty),*) => {
         {
-            use crate::build_vm;
-            let mut interpreter = build_vm!{
+            use crate::build_engine;
+            let mut interpreter = build_engine!{
                 $(
                     $type
                 ),*
@@ -97,7 +99,7 @@ fn display_help() {
     println!("Help TBD")
 }
 
-pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
+pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     println!(
         "{}",
         r#"
@@ -160,7 +162,8 @@ pub fn repl_base(mut vm: VirtualMachine) -> std::io::Result<()> {
                             optimizations.to_string().bright_green()
                         );
                     }
-                    ":env" => vm.print_bindings(),
+                    // TODO come back
+                    // ":env" => vm.print_bindings(),
                     ":?" => display_help(),
                     line if line.contains(":require") => {
                         let line = line.trim_start_matches(":require").trim();

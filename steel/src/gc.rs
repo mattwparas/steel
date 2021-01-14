@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 // use serde::{Deserialize, Serialize};
 
-pub(crate) static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
 /// This is simply a newtype around the `Rc` type

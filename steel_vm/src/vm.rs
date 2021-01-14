@@ -1,670 +1,108 @@
-mod codegen;
-mod constants;
-mod expand;
-mod heap;
-pub mod inline_iter;
-mod instructions;
-mod map;
-mod opcode;
-mod stack;
-
-pub use constants::ConstantMap;
-pub use constants::ConstantTable;
-pub use expand::expand;
-pub use expand::get_definition_names;
-pub use expand::{expand_statements, extract_macro_definitions};
-pub use heap::Heap;
-// pub use instructions::Instruction;
-
-use steel::instructions::{densify, DenseInstruction, Instruction};
-use steel::opcode::OpCode;
-
-pub use map::SymbolMap;
-// pub use opcode::OpCode;
-
-use codegen::emit_loop;
-
-pub use stack::{CallStack, EnvStack, Stack, StackFrame};
-
-use crate::gc::Gc;
-use crate::primitives::{ListOperations, VectorOperations};
-use crate::rerrs::SteelErr;
-use crate::rvals::{ByteCodeLambda, Result, SteelVal};
-use crate::vm::inline_iter::*;
-use crate::{
-    env::{Env, FALSE, TRUE, VOID},
-    expander::SteelMacro,
+use steel::steel_compiler::{
+    constants::{ConstantMap, ConstantTable},
+    program::Program,
 };
-use expand::MacroSet;
+// pub use expand::expand;
+// pub use expand::get_definition_names;
+// pub use expand::{expand_statements, extract_macro_definitions};
+use crate::{
+    heap::Heap,
+    transducers::{TransducerExt, TransducersExt},
+};
+use steel::core::instructions::DenseInstruction;
+// use steel_compiler::map::SymbolMap;
+use steel::core::opcode::OpCode;
+
+// use codegen::emit_loop;
+
+use crate::stack::{CallStack, EnvStack, Stack, StackFrame};
+
+use crate::inline_iter::*;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
-use std::convert::{TryFrom, TryInto};
-use std::io::Read;
+use std::collections::HashMap;
+use std::convert::TryFrom;
+// use std::io::Read;
 use std::iter::Iterator;
-use std::path::Path;
+// use std::path::Path;
 use std::rc::Rc;
 use std::result;
-use steel::parser::span::Span;
-use steel::parser::{tokens::TokenType, Expr, ParseError, Parser, SyntaxObject};
+use steel::env::{Env, VOID};
+use steel::gc::Gc;
+use steel::primitives::{ListOperations, VectorOperations};
+use steel::rerrs::SteelErr;
+use steel::rvals::{ByteCodeLambda, Result, SteelVal};
+// use steel_compiler::expand::MacroSet;
+// use steel::parser::span::Span;
+use steel::parser::{Expr, ParseError, Parser};
 
-use crate::structs::SteelStruct;
+use steel::structs::SteelStruct;
 
-use crate::env::CoreModuleConfig;
-use std::cell::Cell;
+// use std::cell::Cell;
+// use steel::env::CoreModuleConfig;
 
-use serde::{Deserialize, Serialize};
+use crate::evaluation_progress::EvaluationProgress;
+
+use steel::stop;
+// use steel_compiler::map::SymbolMap;
+
+// use crate::transducers::run;
+
+pub type Callback = fn(usize) -> bool;
+
+// use serde::{Deserialize, Serialize};
 
 use log::{debug, error, info};
 
 const STACK_LIMIT: usize = 100000;
 
-fn count_and_collect_global_defines(
-    exprs: &[Expr],
-    symbol_map: &mut SymbolMap,
-) -> (usize, usize, usize) {
-    let mut new_count = 0;
-    let mut old_count = 0;
-    let mut non_defines = 0;
-    for expr in exprs {
-        match expr {
-            Expr::Atom(_) => non_defines += 1,
-            Expr::VectorVal(list_of_tokens) => {
-                match (list_of_tokens.get(0), list_of_tokens.get(1)) {
-                    (
-                        Some(Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(def),
-                            ..
-                        })),
-                        Some(Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(name),
-                            ..
-                        })),
-                    ) => {
-                        if def == "define" || def == "defn" {
-                            let (_, added) = symbol_map.get_or_add(name.as_str());
-                            if added {
-                                new_count += 1;
-                            } else {
-                                old_count += 1;
-                            }
-                        } else {
-                            non_defines += 1;
-                        }
-                    }
-                    (
-                        Some(Expr::Atom(SyntaxObject {
-                            ty: TokenType::Identifier(def),
-                            ..
-                        })),
-                        Some(Expr::VectorVal(_)),
-                    ) => {
-                        if def == "begin" {
-                            let (res_new, res_old, res_non) =
-                                count_and_collect_global_defines(&list_of_tokens[1..], symbol_map);
-
-                            new_count += res_new;
-                            old_count += res_old;
-                            non_defines += res_non;
-                        } else {
-                            non_defines += 1;
-                        }
-                    }
-                    _ => {
-                        non_defines += 1;
-                    }
-                }
-            }
-        }
-    }
-
-    (new_count, old_count, non_defines)
-}
-
-// insert fast path for built in functions
-// rather than look up function in env, be able to call it directly?
-fn collect_defines_from_current_scope(
-    instructions: &[Instruction],
-    symbol_map: &mut SymbolMap,
-) -> Result<usize> {
-    let mut def_stack: usize = 0;
-    let mut count = 0;
-    let mut bindings: HashSet<&str> = HashSet::new();
-
-    for i in 0..instructions.len() {
-        match &instructions[i] {
-            Instruction {
-                op_code: OpCode::SDEF,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        span: _sp,
-                    }),
-                ..
-            } => {
-                if def_stack == 0 {
-                    if bindings.insert(s) {
-                        let (_idx, _) = symbol_map.get_or_add(s);
-                        count += 1;
-                    }
-                    // TODO this needs to get fixed
-                    // else {
-                    //     stop!(Generic => "define-values: duplicate binding name"; *sp)
-                    // }
-                }
-            }
-            Instruction {
-                op_code: OpCode::SCLOSURE,
-                ..
-            } => {
-                // println!("Entering closure scope!");
-                def_stack += 1;
-            }
-            Instruction {
-                op_code: OpCode::ECLOSURE,
-                ..
-            } => {
-                // println!("Exiting closure scope!");
-                if def_stack > 0 {
-                    def_stack -= 1;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Ok(count)
-}
-
-fn collect_binds_from_current_scope(
-    instructions: &mut [Instruction],
-    symbol_map: &mut SymbolMap,
-    start: usize,
-    end: usize,
-) {
-    let mut def_stack: usize = 0;
-    for i in start..end {
-        match &instructions[i] {
-            Instruction {
-                op_code: OpCode::BIND,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        ..
-                    }),
-                ..
-            } => {
-                if def_stack == 1 {
-                    let idx = symbol_map.add(s);
-                    if let Some(x) = instructions.get_mut(i) {
-                        x.payload_size = idx;
-                        x.constant = false;
-                    }
-                }
-            }
-            Instruction {
-                op_code: OpCode::SCLOSURE,
-                ..
-            } => {
-                def_stack += 1;
-            }
-            Instruction {
-                op_code: OpCode::ECLOSURE,
-                ..
-            } => {
-                if def_stack > 0 {
-                    def_stack -= 1;
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn insert_debruijn_indices(
-    instructions: &mut [Instruction],
-    symbol_map: &mut SymbolMap,
-) -> Result<()> {
-    let mut stack: Vec<usize> = Vec::new();
-    // Snag the defines that are going to be available from the global scope
-    let _ = collect_defines_from_current_scope(instructions, symbol_map)?;
-
-    // Snag the binds before the defines
-    // collect_binds_from_current_scope(instructions, symbol_map);
-
-    // name mangle
-    // Replace all identifiers with indices
-    for i in 0..instructions.len() {
-        match &instructions[i] {
-            Instruction {
-                op_code: OpCode::PUSH,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        ..
-                    }),
-                ..
-            }
-            | Instruction {
-                op_code: OpCode::SET,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        ..
-                    }),
-                ..
-            } => {
-                let idx = symbol_map.get(s).map_err(|x| {
-                    let sp = if let Some(syn) = &instructions[i].contents {
-                        syn.span
-                    } else {
-                        Span::new(0, 0)
-                    };
-
-                    x.set_span(sp)
-                })?;
-                // println!("Renaming: {} to index: {}", s, idx);
-                if let Some(x) = instructions.get_mut(i) {
-                    x.payload_size = idx;
-                    x.constant = false;
-                }
-            }
-            // Is this even necessary?
-            Instruction {
-                op_code: OpCode::BIND,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        ..
-                    }),
-                ..
-            } => {
-                let (idx, _) = symbol_map.get_or_add(s);
-
-                if let Some(x) = instructions.get_mut(i) {
-                    x.payload_size = idx;
-                    // x.contents = None;
-                }
-            }
-            Instruction {
-                op_code: OpCode::SCLOSURE,
-                ..
-            } => {
-                stack.push(symbol_map.len());
-                // More stuff goes here
-                let payload = *(&instructions[i].payload_size);
-
-                // Go through the current scope and collect binds from the lambds
-                collect_binds_from_current_scope(instructions, symbol_map, i, i + payload - 1);
-
-                // Go through the current scope and find defines and the count
-                let def_count = collect_defines_from_current_scope(
-                    &instructions[i + 1..(i + payload - 1)],
-                    symbol_map,
-                )?;
-                // Set the def count of the NDEFS instruction after the closure
-                if let Some(x) = instructions.get_mut(i + 1) {
-                    x.payload_size = def_count;
-                }
-            }
-            Instruction {
-                op_code: OpCode::ECLOSURE,
-                ..
-            } => symbol_map.roll_back(stack.pop().unwrap()),
-            Instruction {
-                op_code: OpCode::SDEF,
-                ..
-            } => {
-                if let Some(x) = instructions.get_mut(i) {
-                    x.constant = false;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Ok(())
-}
-
-// Adds a flag to the pop value in order to save the heap to the global heap
-// I should really come up with a better name but for now we'll leave it
-fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
-    match instructions {
-        [.., Instruction {
-            op_code: OpCode::EDEF,
-            ..
-        }, Instruction {
-            op_code: OpCode::BIND,
-            ..
-        }, Instruction {
-            op_code: OpCode::VOID,
-            ..
-        }, Instruction {
-            op_code: OpCode::POP,
-            payload_size: x,
-            ..
-        }] => {
-            *x = 1;
-        }
-        _ => {}
-    }
-}
-
-pub fn pretty_print_instructions(instrs: &[Instruction]) {
-    for (i, instruction) in instrs.iter().enumerate() {
-        if instruction.contents.is_some() {
-            println!(
-                "{}    {:?} : {}     {}",
-                i,
-                instruction.op_code,
-                instruction.payload_size,
-                instruction.contents.as_ref().unwrap().ty
-            );
-        } else {
-            println!(
-                "{}    {:?} : {}",
-                i, instruction.op_code, instruction.payload_size
-            );
-        }
-    }
-}
-
-pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
-    for (i, instruction) in instrs.iter().enumerate() {
-        println!(
-            "{}    {:?} : {}",
-            i, instruction.op_code, instruction.payload_size
-        );
-    }
-}
-
-fn _coalesce_clears(instructions: &mut Vec<Instruction>) {
-    if instructions.len() < 2 {
-        return;
-    }
-    for i in 0..instructions.len() - 2 {
-        match (
-            instructions.get(i),
-            instructions.get(i + 1),
-            instructions.get(i + 2),
-        ) {
-            (
-                Some(Instruction {
-                    op_code: OpCode::FUNC,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::CLEAR,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::FUNC,
-                    ..
-                }),
-            ) => {
-                if let Some(x) = instructions.get_mut(i + 1) {
-                    x.op_code = OpCode::PASS;
-                }
-            }
-            (
-                Some(Instruction {
-                    op_code: OpCode::FUNC,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::CLEAR,
-                    ..
-                }),
-                _,
-            ) => {}
-            _ => {}
-        }
-    }
-}
-
-pub struct ProfilingInformation {
-    counts: HashMap<FunctionCallCtx, usize>,
-    threshold: usize,
-}
-
-impl ProfilingInformation {
-    pub fn new() -> Self {
-        ProfilingInformation {
-            counts: HashMap::new(),
-            threshold: 20,
-        }
-    }
-
-    // Check if this function was considered already for the JIT
-    // add to the profiling information
-    pub fn add_or_increment(&mut self, ctx: FunctionCallCtx) -> bool {
-        // let ctx = FunctionCallCtx::new()
-        let mut t = false;
-        if let Some(x) = self.counts.get_mut(&ctx) {
-            if *x >= self.threshold {
-                t = true;
-            }
-            *x += 1;
-        } else {
-            self.counts.insert(ctx, 0);
-        }
-
-        t
-    }
-}
-
-#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
-pub struct FunctionCallCtx {
-    // Rooted functions are assigned an index
-    // via the symbol map
-    // I should instead use the function pointer as the hash
-    // Would probably make a lot more sense given that it is rooted and hopefully won't move
-    // I could pin them in place
-    pub(crate) function_id: usize,
-    pub(crate) instruction_id: usize,
-    // pub()
-}
-
-impl FunctionCallCtx {
-    pub fn new(function_id: usize, instruction_id: usize) -> Self {
-        FunctionCallCtx {
-            function_id,
-            instruction_id,
-        }
-    }
-}
-
-pub struct Ctx<CT: ConstantTable> {
-    pub(crate) symbol_map: SymbolMap,
-    pub(crate) constant_map: CT,
-    pub(crate) repl: bool,
-}
-
-#[derive(Clone)]
-pub struct EvaluationProgress {
-    instruction_count: Cell<usize>,
-    callback: Option<Callback>,
-}
-
-impl EvaluationProgress {
-    pub fn new() -> Self {
-        EvaluationProgress {
-            instruction_count: Cell::new(1),
-            callback: None,
-        }
-    }
-
-    pub fn with_callback(&mut self, callback: Callback) {
-        self.callback.replace(callback);
-    }
-
-    pub fn callback(&self) -> Option<bool> {
-        if let Some(callback) = &self.callback {
-            return Some(callback(self.instruction_count.get()));
-        }
-        None
-    }
-
-    pub fn increment(&self) {
-        self.instruction_count.set(self.instruction_count.get() + 1);
-    }
-
-    pub fn call_and_increment(&self) -> Option<bool> {
-        let b = self.callback();
-        self.increment();
-        b
-    }
-}
-
-impl<CT: ConstantTable> Ctx<CT> {
-    pub fn new(symbol_map: SymbolMap, constant_map: CT, repl: bool) -> Ctx<CT> {
-        Ctx {
-            symbol_map,
-            constant_map,
-            repl,
-        }
-    }
-
-    // This isn't great - default_symbol_map generates some extra code that we do not need
-    // also, generating a default environment is not _that_ expensive
-    pub fn default() -> Ctx<ConstantMap> {
-        Ctx::new(SymbolMap::default_from_env(), ConstantMap::new(), false)
-    }
-
-    pub fn default_repl() -> Ctx<ConstantMap> {
-        Ctx::new(SymbolMap::default_from_env(), ConstantMap::new(), true)
-    }
-
-    pub fn constant_map(&self) -> &CT {
-        &self.constant_map
-    }
-
-    pub fn roll_back(&mut self, idx: usize) {
-        self.symbol_map.roll_back(idx);
-        self.constant_map.roll_back(idx);
-    }
-}
-
-pub type Callback = fn(usize) -> bool;
-// pub type FunctionSignature = fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>;
-
-#[macro_export]
-macro_rules! build_vm {
-
-    ($($type:ty),* $(,)?) => {
-        {
-            let mut interpreter = VirtualMachine::new_with_meta();
-            $ (
-                interpreter.insert_bindings(<$type>::generate_bindings());
-            ) *
-            interpreter
-        }
-    };
-
-    (Structs => {$($type:ty),* $(,)?} Functions => {$($binding:expr => $func:expr),* $(,)?}) => {
-        {
-            let mut interpreter = VirtualMachine::new_with_meta();
-            $ (
-                interpreter.insert_bindings(<$type>::generate_bindings());
-            ) *
-
-            $ (
-                interpreter.insert_binding($binding.to_string(), SteelVal::FuncV($func));
-            ) *
-
-            interpreter
-        }
-    };
-}
-
-pub struct VirtualMachineBuilder {
-    modules: CoreModuleConfig,
-    callback: EvaluationProgress,
-    stack_limit: usize,
-}
-
-impl VirtualMachineBuilder {
-    pub fn new() -> Self {
-        VirtualMachineBuilder {
-            modules: CoreModuleConfig::new_core(),
-            callback: EvaluationProgress::new(),
-            stack_limit: 128,
-        }
-    }
-
-    pub fn with_network(mut self) -> Self {
-        self.modules = self.modules.with_network();
-        self
-    }
-
-    pub fn with_file_system(mut self) -> Self {
-        self.modules = self.modules.with_file_system();
-        self
-    }
-
-    pub fn with_callback(mut self, callback: Callback) -> Self {
-        self.callback.with_callback(callback);
-        self
-    }
-
-    pub fn with_stack_limit(mut self, stack_limit: usize) -> Self {
-        self.stack_limit = stack_limit;
-        self
-    }
-}
-
-/*
-VirtualMachineBuilder::new()
-    .with_network()
-    .with_file_system()
-    .with_stack_limit(128)
-    .with_callback(|_| true)
-    .into() -> Virtual Machine
-*/
-
-pub struct VirtualMachine {
+pub struct VirtualMachineCore {
     global_env: Rc<RefCell<Env>>,
     global_heap: Heap,
-    macro_env: HashMap<String, SteelMacro>,
-    idents: MacroSet,
     callback: EvaluationProgress,
-    ctx: Ctx<ConstantMap>,
 }
 
-impl VirtualMachine {
-    pub fn new() -> VirtualMachine {
-        VirtualMachine {
+impl VirtualMachineCore {
+    pub fn new() -> VirtualMachineCore {
+        VirtualMachineCore {
             global_env: Rc::new(RefCell::new(Env::default_env())),
             global_heap: Heap::new(),
-            macro_env: HashMap::new(),
-            idents: MacroSet::new(),
             callback: EvaluationProgress::new(),
-            ctx: Ctx::<ConstantMap>::default_repl(),
         }
     }
 
-    pub fn new_with_meta() -> VirtualMachine {
-        let mut vm = VirtualMachine::new();
-        vm.insert_binding("*env*".to_string(), Env::constant_env_to_hashmap());
-        vm
+    pub fn insert_binding(&mut self, idx: usize, value: SteelVal) {
+        self.global_env.borrow_mut().add_root_value(idx, value);
     }
 
-    pub fn insert_binding(&mut self, name: String, value: SteelVal) {
-        self.global_env
-            .borrow_mut()
-            .add_rooted_value(&mut self.ctx.symbol_map, (name.as_str(), value));
+    pub fn insert_bindings(&mut self, vals: Vec<(usize, SteelVal)>) {
+        for (idx, value) in vals {
+            self.global_env.borrow_mut().add_root_value(idx, value);
+        }
     }
 
-    pub fn insert_gc_binding(&mut self, name: String, value: Gc<SteelVal>) {
-        self.global_env
-            .borrow_mut()
-            .add_rooted_gc_value(&mut self.ctx.symbol_map, (name.as_str(), value));
-    }
+    // pub fn new_with_meta() -> VirtualMachine {
+    //     let mut vm = VirtualMachine::new();
+    //     vm.insert_binding("*env*".to_string(), Env::constant_env_to_hashmap());
+    //     vm
+    // }
 
-    pub fn insert_bindings(&mut self, vals: Vec<(String, SteelVal)>) {
-        self.global_env
-            .borrow_mut()
-            .repl_define_zipped_rooted(&mut self.ctx.symbol_map, vals.into_iter());
-    }
+    // pub fn insert_binding(&mut self, name: String, value: SteelVal) {
+    //     self.global_env
+    //         .borrow_mut()
+    //         .add_rooted_value(&mut self.ctx.symbol_map, (name.as_str(), value));
+    // }
+
+    // pub fn insert_gc_binding(&mut self, name: String, value: Gc<SteelVal>) {
+    //     self.global_env
+    //         .borrow_mut()
+    //         .add_rooted_gc_value(&mut self.ctx.symbol_map, (name.as_str(), value));
+    // }
+
+    // pub fn insert_bindings(&mut self, vals: Vec<(String, SteelVal)>) {
+    //     self.global_env
+    //         .borrow_mut()
+    //         .repl_define_zipped_rooted(&mut self.ctx.symbol_map, vals.into_iter());
+    // }
 
     pub fn on_progress(&mut self, callback: Callback) {
         &self.callback.with_callback(callback);
@@ -684,361 +122,177 @@ impl VirtualMachine {
 
     // Read in the file from the given path and execute accordingly
     // Loads all the functions in from the given env
-    pub fn parse_and_execute_from_path<P: AsRef<Path>>(
-        &mut self,
-        path: P,
-        // ctx: &mut Ctx<ConstantMap>,
-    ) -> Result<Vec<Gc<SteelVal>>> {
-        let mut file = std::fs::File::open(path)?;
-        let mut exprs = String::new();
-        file.read_to_string(&mut exprs)?;
-        self.parse_and_execute(exprs.as_str())
-    }
+    // pub fn parse_and_execute_from_path<P: AsRef<Path>>(
+    //     &mut self,
+    //     path: P,
+    //     // ctx: &mut Ctx<ConstantMap>,
+    // ) -> Result<Vec<Gc<SteelVal>>> {
+    //     let mut file = std::fs::File::open(path)?;
+    //     let mut exprs = String::new();
+    //     file.read_to_string(&mut exprs)?;
+    //     self.parse_and_execute(exprs.as_str())
+    // }
 
-    pub fn parse_and_execute_without_optimizations(
-        &mut self,
-        expr_str: &str,
-        // ctx: &mut Ctx<ConstantMap>,
-    ) -> Result<Vec<Gc<SteelVal>>> {
-        // let now = Instant::now();
-        let gen_bytecode = self.emit_instructions(expr_str, false)?;
+    // pub fn parse_and_execute_without_optimizations(
+    //     &mut self,
+    //     expr_str: &str,
+    //     // ctx: &mut Ctx<ConstantMap>,
+    // ) -> Result<Vec<Gc<SteelVal>>> {
+    //     // let now = Instant::now();
+    //     let gen_bytecode = self.emit_instructions(expr_str, false)?;
 
-        gen_bytecode
+    //     gen_bytecode
+    //         .into_iter()
+    //         .map(|x| {
+    //             let code = Rc::from(x.into_boxed_slice());
+    //             let res = self.execute(code, true);
+    //             res
+    //         })
+    //         .collect::<Result<Vec<Gc<SteelVal>>>>()
+    // }
+
+    pub fn execute_program(&mut self, program: Program) -> Result<Vec<Gc<SteelVal>>> {
+        // unimplemented!()
+
+        let Program {
+            instructions,
+            constant_map,
+        } = program;
+
+        let constant_map = ConstantMap::from_bytes(&constant_map)?;
+
+        instructions
             .into_iter()
             .map(|x| {
                 let code = Rc::from(x.into_boxed_slice());
-                let res = self.execute(code, self.ctx.repl);
+                let res = self.execute(code, &constant_map);
                 res
             })
-            .collect::<Result<Vec<Gc<SteelVal>>>>()
+            .collect()
+    }
+
+    pub fn execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<Gc<SteelVal>>> {
+        // unimplemented!()
+
+        let Program {
+            instructions,
+            constant_map,
+        } = program;
+
+        let constant_map = ConstantMap::from_bytes(&constant_map)?;
+        let instructions: Vec<_> = instructions
+            .clone()
+            .into_iter()
+            .map(|x| Rc::from(x.into_boxed_slice()))
+            .collect();
+
+        instructions
+            .into_iter()
+            .map(|code| {
+                let res = self.execute(code, &constant_map);
+                res
+            })
+            .collect()
     }
 
     // pub fn new_with_std
 
-    pub fn parse_and_execute(
-        &mut self,
-        expr_str: &str,
-        // ctx: &mut Ctx<ConstantMap>,
-    ) -> Result<Vec<Gc<SteelVal>>> {
-        // let now = Instant::now();
-        let gen_bytecode = self.emit_instructions(expr_str, true)?;
+    // pub fn parse_and_execute(
+    //     &mut self,
+    //     expr_str: &str,
+    //     // ctx: &mut Ctx<ConstantMap>,
+    // ) -> Result<Vec<Gc<SteelVal>>> {
+    //     // let now = Instant::now();
+    //     let gen_bytecode = self.emit_instructions(expr_str, true)?;
 
-        // previous size of the env
-        // let length = self.global_env.borrow().len();
+    //     // previous size of the env
+    //     // let length = self.global_env.borrow().len();
 
-        // println!("Bytecode generated in: {:?}", now.elapsed());
-        gen_bytecode
-            .into_iter()
-            .map(|x| {
-                let code = Rc::from(x.into_boxed_slice());
-                // let now = Instant::now();
-                // let constant_map = &self.ctx.constant_map;
-                // let repl = self.ctx.repl;
-                // let mut heap = Vec::new();
-                let res = self.execute(code, self.ctx.repl);
-                // println!("Time taken: {:?}", now.elapsed());
-                res
-            })
-            .collect::<Result<Vec<Gc<SteelVal>>>>()
-    }
+    //     // println!("Bytecode generated in: {:?}", now.elapsed());
+    //     gen_bytecode
+    //         .into_iter()
+    //         .map(|x| {
+    //             let code = Rc::from(x.into_boxed_slice());
+    //             // let now = Instant::now();
+    //             // let constant_map = &self.ctx.constant_map;
+    //             // let repl = self.ctx.repl;
+    //             // let mut heap = Vec::new();
+    //             let res = self.execute(code);
+    //             // println!("Time taken: {:?}", now.elapsed());
+    //             res
+    //         })
+    //         .collect::<Result<Vec<Gc<SteelVal>>>>()
+    // }
 
-    pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(
-        exprs: I,
-        // ctx: &mut Ctx<ConstantMap>,
-    ) -> Result<Vec<Expr>> {
-        // println!("About to optimize the input program");
+    // pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(
+    //     exprs: I,
+    //     // ctx: &mut Ctx<ConstantMap>,
+    // ) -> Result<Vec<Expr>> {
+    //     // println!("About to optimize the input program");
 
-        let converted: Result<Vec<_>> = exprs
-            .into_iter()
-            .map(|x| SteelVal::try_from(x.clone()))
-            .collect();
+    //     let converted: Result<Vec<_>> = exprs
+    //         .into_iter()
+    //         .map(|x| SteelVal::try_from(x.clone()))
+    //         .collect();
 
-        // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
-        let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
+    //     // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
+    //     let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
 
-        let mut vm = VirtualMachine::new_with_meta();
-        vm.parse_and_execute_without_optimizations(crate::stdlib::PRELUDE)?;
-        vm.insert_gc_binding("*program*".to_string(), exprs);
-        let output = vm.parse_and_execute_without_optimizations(crate::stdlib::COMPILER)?;
+    //     let mut vm = VirtualMachine::new_with_meta();
+    //     vm.parse_and_execute_without_optimizations(crate::stdlib::PRELUDE)?;
+    //     vm.insert_gc_binding("*program*".to_string(), exprs);
+    //     let output = vm.parse_and_execute_without_optimizations(crate::stdlib::COMPILER)?;
 
-        // println!("{:?}", output.last().unwrap());
+    //     // println!("{:?}", output.last().unwrap());
 
-        // if output.len()  1 {
-        //     stop!(Generic => "panic! internal compiler error: output did not return a valid program");
-        // }
+    //     // if output.len()  1 {
+    //     //     stop!(Generic => "panic! internal compiler error: output did not return a valid program");
+    //     // }
 
-        // TODO
-        SteelVal::iter(Gc::clone(output.last().unwrap()))
-            .into_iter()
-            .map(|x| Expr::try_from(x.as_ref()).map_err(|x| SteelErr::Generic(x.to_string(), None)))
-            .collect::<Result<Vec<Expr>>>()
+    //     // TODO
+    //     SteelVal::iter(Gc::clone(output.last().unwrap()))
+    //         .into_iter()
+    //         .map(|x| Expr::try_from(x.as_ref()).map_err(|x| SteelErr::Generic(x.to_string(), None)))
+    //         .collect::<Result<Vec<Expr>>>()
 
-        // unimplemented!()
+    //     // unimplemented!()
 
-        // self.emit_instructions_from_exprs(parsed)
-    }
-
-    fn emit_instructions_from_exprs(
-        &mut self,
-        exprs: Vec<Expr>,
-        optimizations: bool,
-    ) -> Result<Vec<Vec<DenseInstruction>>> {
-        let mut results = Vec::new();
-        // populate MacroSet
-        self.idents.insert_from_iter(
-            get_definition_names(&exprs)
-                .into_iter()
-                .chain(self.ctx.symbol_map.copy_underlying_vec().into_iter()),
-        );
-
-        let mut struct_instructions = Vec::new();
-
-        // Yoink the macro definitions
-        // Add them to our macro env
-        // TODO change this to be a unique macro env struct
-        // Just a thin wrapper around a hashmap
-        let extracted_statements = extract_macro_definitions(
-            exprs,
-            &mut self.macro_env,
-            // &self.global_env,
-            &mut self.ctx.symbol_map,
-            &self.idents,
-            &mut struct_instructions,
-            &mut self.ctx.constant_map,
-        )?;
-
-        info!("Found {} struct definitions", struct_instructions.len());
-
-        // Zip up the instructions for structs
-        // TODO come back to this
-        for instruction in densify(struct_instructions) {
-            results.push(vec![instruction])
-        }
-
-        // results.push(densify(struct_instructions));
-
-        // Walk through and expand all macros, lets, and defines
-        let expanded_statements = expand_statements(extracted_statements, &self.macro_env)?;
-
-        // Mild hack...
-        let expanded_statements = if optimizations {
-            VirtualMachine::optimize_exprs(expanded_statements)?
-        } else {
-            expanded_statements
-        };
-
-        // Collect global defines here first
-        let (ndefs_new, ndefs_old, _not) =
-            count_and_collect_global_defines(&expanded_statements, &mut self.ctx.symbol_map);
-
-        // At the global level, let the defines shadow the old ones, but call `drop` on all of the old values
-
-        // Reserve the definitions in the global environment
-        // TODO find a better way to make sure that the definitions are reserved
-        // This works for the normal bytecode execution without the repl
-        self.global_env
-            .borrow_mut()
-            .reserve_defs(if ndefs_new > 0 { ndefs_new - 1 } else { 0 }); // used to be ndefs - 1
-
-        match (ndefs_old, ndefs_new) {
-            (_, _) if ndefs_old > 0 && ndefs_new == 0 => {
-                // println!("CASE 1: Popping last!!!!!!!!!");
-                self.global_env.borrow_mut().pop_last();
-            }
-            (_, _) if ndefs_new > 0 && ndefs_old == 0 => {
-                // println!("Doing nothing");
-            }
-            (_, _) if ndefs_new > 0 && ndefs_old > 0 => {
-                // println!("$$$$$$$$$$ GOT HERE $$$$$$$$");
-                self.global_env.borrow_mut().pop_last();
-            }
-            (_, _) => {}
-        }
-
-        // HACK - make the global definitions line up correctly
-        // This is basically a repl only feature
-        // if ndefs_old > 0 && ndefs_new == 0 {
-        //     // Getting here
-        //     self.global_env.borrow_mut().pop_last();
-        // }
-
-        // if ndefs_old > ndefs_new && ndefs_new == 0 {
-        //     self.global_env.borrow_mut().pop_last();
-        // }
-
-        // println!(
-        //     "^^^^^^^^^^ Global env length after reserving defs: {}",
-        //     self.global_env.borrow().len()
-        // );
-
-        // TODO move this out into its thing
-        // fairly certain this isn't necessary to do this batching
-        // but it does work for now and I'll take it for now
-        let mut instruction_buffer = Vec::new();
-        let mut index_buffer = Vec::new();
-        for expr in expanded_statements {
-            // TODO add printing out the expression as its own special function
-            // println!("{:?}", expr.to_string());
-            let mut instructions: Vec<Instruction> = Vec::new();
-            emit_loop(
-                &expr,
-                &mut instructions,
-                None,
-                // &mut self.ctx.arity_map,
-                &mut self.ctx.constant_map,
-            )?;
-            // if !script {
-            // instructions.push(Instruction::new_clear());
-            instructions.push(Instruction::new_pop());
-            // Maybe see if this gets the job done here
-            inject_heap_save_to_pop(&mut instructions);
-            // }
-            index_buffer.push(instructions.len());
-            instruction_buffer.append(&mut instructions);
-        }
-
-        // println!("Got here!");
-
-        insert_debruijn_indices(&mut instruction_buffer, &mut self.ctx.symbol_map)?;
-        extract_constants(&mut instruction_buffer, &mut self.ctx.constant_map)?;
-        // coalesce_clears(&mut instruction_buffer);
-
-        for idx in index_buffer {
-            let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
-            // pretty_print_instructions(extracted.as_slice());
-            results.push(densify(extracted));
-        }
-
-        // let program =
-        //     Program::new_from_map(results.clone(), (&self.ctx.constant_map).clone()).unwrap();
-        // program.write_to_file("test").unwrap();
-
-        Ok(results)
-    }
-
-    pub fn emit_instructions(
-        &mut self,
-        expr_str: &str,
-        optimizations: bool,
-        // ctx: &mut Ctx<ConstantMap>,
-    ) -> Result<Vec<Vec<DenseInstruction>>> {
-        // the interner needs to be fixed but for now it just is here for legacy reasons
-        // it currently does no allocation
-        let mut intern = HashMap::new();
-
-        // Parse the input
-        let parsed: result::Result<Vec<Expr>, ParseError> =
-            Parser::new(expr_str, &mut intern).collect();
-        let parsed = parsed?;
-
-        self.emit_instructions_from_exprs(parsed, optimizations)
-    }
+    //     // self.emit_instructions_from_exprs(parsed)
+    // }
 
     pub fn execute(
         &mut self,
         instructions: Rc<[DenseInstruction]>,
-        // constants: &CT,
+        constant_map: &ConstantMap,
         // heap: &mut Vec<Rc<RefCell<Env>>>,
-        repl: bool,
+        // repl: bool,
     ) -> Result<Gc<SteelVal>> {
-        // execute_vm(instructions)
-
-        // println!("Active Object Count: {:?}", OBJECT_COUNT);
-
         let stack = StackFrame::new();
         let mut heap = Heap::new();
 
         // give access to the global root via this method
         heap.plant_root(Rc::downgrade(&self.global_env));
 
-        // let mut constants: Vec<Rc<RefCell<Env>>
-
-        // let global_env = Rc::new(RefCell::new(Env::default_env()));
         let result = vm(
             instructions,
             stack,
             &mut heap,
-            // heap,
             Rc::clone(&self.global_env),
-            &self.ctx.constant_map,
-            repl,
+            constant_map,
+            true,
             &self.callback,
         );
 
-        // TODO figure this noise out
-        // might be easier to just... write a GC
         if self.global_env.borrow().is_binding_context() {
-            // println!("Copying over the heap from the run time:");
-
             self.global_heap.append(&mut heap);
             self.global_env.borrow_mut().set_binding_context(false);
-            // self.global_heap.inspect_heap();
-            // inspect_heap(&self.global_heap);
         }
 
-        // Maybe?????
-        // self.global_env.borrow_mut().pop_last();
-
-        // self.global_env.borrow_mut().set_binding_offset(false);
-
-        // println!("Global heap length after: {}", self.global_heap.len());
-
-        // heap.inspect_heap();
         heap.clear();
         heap.reset_limit();
 
-        // println!("Active Object Count: {:?}", OBJECT_COUNT);
-        // println!("Heap length: {}", self.global_heap.len());
-        // println!("local heap length: {}", heap.len());
-
         result
     }
-}
-
-pub fn execute_vm(
-    instructions: Rc<[DenseInstruction]>,
-    constants: &ConstantMap,
-) -> Result<Gc<SteelVal>> {
-    let stack = StackFrame::new();
-    let mut heap = Heap::new();
-    // let mut constants: Vec<Rc<SteelVal>> = Vec::new();
-    let global_env = Rc::new(RefCell::new(Env::default_env()));
-    let evaluation_progress = EvaluationProgress::new();
-    vm(
-        instructions,
-        stack,
-        &mut heap,
-        global_env,
-        constants,
-        false,
-        &evaluation_progress,
-        // None,
-    )
-}
-
-// TODO make this not so garbage but its kind of okay
-pub fn extract_constants<CT: ConstantTable>(
-    instructions: &mut [Instruction],
-    constants: &mut CT,
-) -> Result<()> {
-    for i in 0..instructions.len() {
-        let inst = &instructions[i];
-        if let OpCode::PUSH = inst.op_code {
-            // let idx = constants.len();
-            if inst.constant {
-                let value = eval_atom(&inst.contents.as_ref().unwrap())?;
-                let idx = constants.add_or_get(value);
-                // constants.push(eval_atom(&inst.contents.as_ref().unwrap())?);
-                if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::PUSHCONST;
-                    x.payload_size = idx;
-                    x.contents = None;
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 #[derive(Debug)]
@@ -1065,55 +319,6 @@ impl InstructionPointer {
 
     pub fn instrs(self) -> Rc<[DenseInstruction]> {
         self.instrs
-    }
-}
-
-// static const HEAP_LIMIT: usize =
-
-// This is just... easier than passing all of the args into the VM every single time
-// This should work out better I hope
-// Especially with the callbacks and all that jazz
-pub struct VmArgs<'a> {
-    pub(crate) instructions: Rc<[DenseInstruction]>,
-    pub(crate) stack: StackFrame,
-    pub(crate) heap: &'a mut Heap,
-    pub(crate) global_env: Rc<RefCell<Env>>,
-    pub(crate) constants: &'a ConstantMap,
-    pub(crate) repl: bool,
-    pub(crate) evaluation_progress: &'a EvaluationProgress,
-}
-
-impl<'a> VmArgs<'a> {
-    pub fn new(
-        instructions: Rc<[DenseInstruction]>,
-        stack: StackFrame,
-        heap: &'a mut Heap,
-        global_env: Rc<RefCell<Env>>,
-        constants: &'a ConstantMap,
-        repl: bool,
-        evaluation_progress: &'a EvaluationProgress,
-    ) -> Self {
-        VmArgs {
-            instructions,
-            stack,
-            heap,
-            global_env,
-            constants,
-            repl,
-            evaluation_progress,
-        }
-    }
-
-    pub fn call(self) -> Result<Gc<SteelVal>> {
-        vm(
-            self.instructions,
-            self.stack,
-            self.heap,
-            self.global_env,
-            self.constants,
-            self.repl,
-            self.evaluation_progress,
-        )
     }
 }
 
@@ -1859,28 +1064,6 @@ pub fn vm<CT: ConstantTable>(
     //     instructions.len()
     // );
     // println!("Instructions at time:");
-    pretty_print_dense_instructions(&instructions);
+    steel::core::instructions::pretty_print_dense_instructions(&instructions);
     panic!("Out of bounds instruction")
-}
-
-/// evaluates an atom expression in given environment
-fn eval_atom(t: &SyntaxObject) -> Result<Gc<SteelVal>> {
-    match &t.ty {
-        TokenType::BooleanLiteral(b) => {
-            if *b {
-                Ok(TRUE.with(|f| Gc::clone(f)))
-            } else {
-                Ok(FALSE.with(|f| Gc::clone(f)))
-            }
-        }
-        // TokenType::Identifier(s) => env.borrow().lookup(&s),
-        TokenType::NumberLiteral(n) => Ok(Gc::new(SteelVal::NumV(*n))),
-        TokenType::StringLiteral(s) => Ok(Gc::new(SteelVal::StringV(s.clone()))),
-        TokenType::CharacterLiteral(c) => Ok(Gc::new(SteelVal::CharV(*c))),
-        TokenType::IntegerLiteral(n) => Ok(Gc::new(SteelVal::IntV(*n))),
-        what => {
-            println!("getting here in the eval_atom");
-            stop!(UnexpectedToken => what; t.span)
-        }
-    }
 }

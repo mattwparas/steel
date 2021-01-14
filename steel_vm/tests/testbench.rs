@@ -1,9 +1,9 @@
 mod helpers;
-extern crate steel;
+extern crate steel_vm;
 // use crate::steel::interpreter::evaluator::Evaluator;
-use crate::steel::vm::VirtualMachine;
-use crate::steel::PRELUDE;
+use crate::steel_vm::engine::Engine;
 use helpers::*;
+use steel::PRELUDE;
 
 // use steel::stdlib::PRELUDE;
 
@@ -14,7 +14,7 @@ fn basic_test() {
 
 #[test]
 fn if_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     test_line("(if #t 'a 2)", &["'a"], &mut evaluator);
     test_line("(if 'a 'b 1)", &["'b"], &mut evaluator);
@@ -42,7 +42,7 @@ fn if_test() {
 
 #[test]
 fn define_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("a", &["Error: Free Identifier: a"], e);
@@ -68,7 +68,7 @@ fn define_test() {
 
 #[test]
 fn lambda_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(lambda (x) 1 2)", &["#<bytecode-closure>"], e);
@@ -89,7 +89,7 @@ fn lambda_test() {
 
 #[test]
 fn set_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(set! x 10)", &["Error: Free Identifier: x"], e);
@@ -122,7 +122,7 @@ fn set_test() {
 
 #[test]
 fn let_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(let ((x 10)) (+ x x))", &["20"], e);
@@ -152,7 +152,7 @@ fn let_test() {
 
 #[test]
 fn and_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -170,7 +170,7 @@ fn and_test() {
 
 #[test]
 fn or_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -189,7 +189,7 @@ fn or_test() {
 
 #[test]
 fn cond_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -209,7 +209,7 @@ fn cond_test() {
 
 #[test]
 fn when_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -219,7 +219,7 @@ fn when_test() {
 
 #[test]
 fn unless_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -229,7 +229,7 @@ fn unless_test() {
 
 #[test]
 fn thread_first_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -246,7 +246,7 @@ fn thread_first_test() {
 
 #[test]
 fn thread_last_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -261,7 +261,7 @@ fn thread_last_test() {
 
 #[test]
 fn first_apply_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -270,7 +270,7 @@ fn first_apply_test() {
 
 #[test]
 fn last_apply_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -279,7 +279,7 @@ fn last_apply_test() {
 
 #[test]
 fn while_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -289,7 +289,7 @@ fn while_test() {
 
 #[test]
 fn map_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
@@ -302,7 +302,7 @@ fn map_test() {
 
 #[test]
 fn filter_test() {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;

@@ -7,16 +7,17 @@ use crate::rvals::Result;
 
 use std::ops::Deref;
 
-use crate::expander::SteelMacro;
+use crate::steel_compiler::expander::SteelMacro;
 use crate::structs::SteelStruct;
 
-use crate::vm::Instruction;
+use crate::core::instructions::Instruction;
 
 use crate::env::MacroEnv;
-use crate::vm::ConstantMap;
-use crate::vm::SymbolMap;
+use crate::steel_compiler::constants::ConstantMap;
+use crate::steel_compiler::map::SymbolMap;
+use crate::stop;
 
-use crate::vm::ConstantTable;
+use crate::steel_compiler::constants::ConstantTable;
 
 use std::collections::{HashMap, HashSet};
 
@@ -184,7 +185,7 @@ pub fn extract_macro_definitions<M: MacroEnv>(
                 let builder = SteelStruct::generate_builder_from_tokens(&list_of_tokens[1..])?;
 
                 // Add the eventual function names to the symbol map
-                let indices = builder.insert_struct_function_names(sm);
+                let indices = sm.insert_struct_function_names(&builder);
 
                 // dbg!(&indices);
 

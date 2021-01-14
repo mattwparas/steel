@@ -1,11 +1,11 @@
-extern crate steel;
+extern crate steel_vm;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 // use steel::interpreter::evaluator::Evaluator;
 // use steel::parser::*;
-use steel::vm::VirtualMachine;
 use steel::PRELUDE;
+use steel_vm::engine::Engine;
 
 // use std::collections::HashMap;
 
@@ -17,7 +17,7 @@ pub fn test_from_files(input_path: &str, output_path: &str) {
 }
 
 pub fn test_lines(input: impl BufRead, output: impl BufRead) {
-    let mut evaluator = VirtualMachine::new();
+    let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
 
     let io_lines = input.lines().zip(output.lines());
@@ -28,7 +28,7 @@ pub fn test_lines(input: impl BufRead, output: impl BufRead) {
     }
 }
 
-pub fn test_line(input: &str, output: &[&str], evaluator: &mut VirtualMachine) {
+pub fn test_line(input: &str, output: &[&str], evaluator: &mut Engine) {
     let result = evaluator.parse_and_execute_without_optimizations(input);
     match result {
         Ok(vals) => {

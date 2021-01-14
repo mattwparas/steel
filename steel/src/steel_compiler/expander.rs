@@ -8,9 +8,11 @@ use std::collections::HashMap;
 // use std::rc::Rc;
 
 use crate::parser::span::Span;
-// use crate::parser::SyntaxObject;
+// use steel::parser::SyntaxObject;
 
 use crate::rvals::Result;
+use crate::stop;
+use crate::throw;
 
 use crate::env::MacroEnv;
 
@@ -575,9 +577,11 @@ mod parse_macro_tests {
     use crate::parser::ParseError;
     use crate::parser::Parser;
 
-    use crate::env::Env;
     use std::cell::RefCell;
     use std::rc::Rc;
+
+    // TODO migrate away from using Env in these tests
+    use crate::env::Env;
 
     #[test]
     fn parse_single_syntax_rules() {

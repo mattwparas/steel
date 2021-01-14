@@ -1,8 +1,8 @@
-use crate::vm::constants::ConstantTable;
-use crate::vm::instructions::Instruction;
+use crate::core::instructions::Instruction;
+use crate::steel_compiler::constants::ConstantTable;
 
 use crate::rerrs::SteelErr;
-use crate::rvals::Result;
+use crate::rvals::{Result, SteelVal};
 
 use crate::stop;
 
@@ -10,11 +10,9 @@ use crate::parser::{tokens::TokenType, Expr, SyntaxObject};
 
 use std::ops::Deref;
 
-use crate::vm::opcode::OpCode;
+use crate::core::opcode::OpCode;
 
 use crate::parser::span::Span;
-
-use crate::rvals::SteelVal;
 
 use crate::gc::Gc;
 use std::convert::TryFrom;

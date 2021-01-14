@@ -1,12 +1,14 @@
-use crate::parser::SyntaxObject;
-use crate::vm::OpCode;
+use crate::core::opcode::OpCode;
+use crate::parser::{span::Span, SyntaxObject};
+use serde::{Deserialize, Serialize};
+use std::convert::TryInto;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Instruction {
-    pub(crate) op_code: OpCode,
-    pub(crate) payload_size: usize,
-    pub(crate) contents: Option<SyntaxObject>,
-    pub(crate) constant: bool,
+    pub op_code: OpCode,
+    pub payload_size: usize,
+    pub contents: Option<SyntaxObject>,
+    pub constant: bool,
 }
 
 impl Instruction {
@@ -247,5 +249,71 @@ impl Instruction {
             contents: None,
             constant: true,
         }
+    }
+}
+
+pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
+    instructions.into_iter().map(|x| x.into()).collect()
+}
+
+pub fn pretty_print_instructions(instrs: &[Instruction]) {
+    for (i, instruction) in instrs.iter().enumerate() {
+        if instruction.contents.is_some() {
+            println!(
+                "{}    {:?} : {}     {}",
+                i,
+                instruction.op_code,
+                instruction.payload_size,
+                instruction.contents.as_ref().unwrap().ty
+            );
+        } else {
+            println!(
+                "{}    {:?} : {}",
+                i, instruction.op_code, instruction.payload_size
+            );
+        }
+    }
+}
+
+pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
+    for (i, instruction) in instrs.iter().enumerate() {
+        println!(
+            "{}    {:?} : {}",
+            i, instruction.op_code, instruction.payload_size
+        );
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Hash, Serialize, Deserialize)]
+pub struct DenseInstruction {
+    pub op_code: OpCode,
+    pub payload_size: usize,
+    pub span: Span,
+}
+
+impl DenseInstruction {
+    pub fn new(op_code: OpCode, payload_size: usize, span: Span) -> DenseInstruction {
+        DenseInstruction {
+            op_code,
+            payload_size,
+            span,
+        }
+    }
+}
+
+// TODO don't actually pass around the span w/ the instruction
+// pass around an index into the span to reduce the size of the instructions
+// generate an equivalent
+impl From<Instruction> for DenseInstruction {
+    fn from(val: Instruction) -> DenseInstruction {
+        DenseInstruction::new(
+            val.op_code,
+            val.payload_size.try_into().unwrap(),
+            if let Some(syn) = val.contents {
+                syn.span
+            } else {
+                Span::new(0, 0)
+            },
+        )
     }
 }

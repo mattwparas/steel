@@ -1,13 +1,14 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use steel::steel_compiler::constants::ConstantMap;
 
 use std::rc::Rc;
 use steel::stdlib::PRELUDE;
-use steel::vm::VirtualMachine;
+use steel_vm::engine::Engine;
 
 fn range(c: &mut Criterion) {
     let script = "(range 0 5000)";
 
-    let mut vm = VirtualMachine::new();
+    let mut vm = Engine::new();
     // let mut ctx: Ctx<ConstantMap> = Ctx::new(
     //     Env::default_symbol_map(),
     //     ConstantMap::new(),
@@ -17,22 +18,23 @@ fn range(c: &mut Criterion) {
 
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
 
-    let bytecode = Rc::from(
-        vm.emit_instructions(&script, false).unwrap()[0]
-            .clone()
-            .into_boxed_slice(),
-    );
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
+
+    // let bytecode = vm.emit_program(&script).unwrap();
+
     // Rc::new(x.into_boxed_slice()), &ctx.constant_map
 
     c.bench_function("range-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
     });
 }
 
 fn map(c: &mut Criterion) {
     let script = "(map a lst)";
 
-    let mut vm = VirtualMachine::new();
+    let mut vm = Engine::new();
     // let mut ctx: Ctx<ConstantMap> = Ctx::new(
     //     Env::default_symbol_map(),
     //     ConstantMap::new(),
@@ -46,21 +48,19 @@ fn map(c: &mut Criterion) {
     vm.parse_and_execute_without_optimizations(black_box(warmup))
         .unwrap();
 
-    let bytecode = Rc::from(
-        vm.emit_instructions(&script, false).unwrap()[0]
-            .clone()
-            .into_boxed_slice(),
-    );
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("map-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
     });
 }
 
 fn transducer_map(c: &mut Criterion) {
     let script = "(execute a lst)";
 
-    let mut vm = VirtualMachine::new();
+    let mut vm = Engine::new();
     // let mut ctx: Ctx<ConstantMap> = Ctx::new(
     //     Env::default_symbol_map(),
     //     ConstantMap::new(),
@@ -74,14 +74,12 @@ fn transducer_map(c: &mut Criterion) {
     vm.parse_and_execute_without_optimizations(black_box(&warmup))
         .unwrap();
 
-    let bytecode = Rc::from(
-        vm.emit_instructions(&script, false).unwrap()[0]
-            .clone()
-            .into_boxed_slice(),
-    );
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("transducer-map", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
     });
 }
 
@@ -91,7 +89,7 @@ fn filter(c: &mut Criterion) {
 
     let script = "(filter number? lst)";
 
-    let mut vm = VirtualMachine::new();
+    let mut vm = Engine::new();
     // let mut ctx: Ctx<ConstantMap> = Ctx::new(
     //     Env::default_symbol_map(),
     //     ConstantMap::new(),
@@ -105,39 +103,35 @@ fn filter(c: &mut Criterion) {
     vm.parse_and_execute_without_optimizations(black_box(&warmup))
         .unwrap();
 
-    let bytecode = Rc::from(
-        vm.emit_instructions(&script, false).unwrap()[0]
-            .clone()
-            .into_boxed_slice(),
-    );
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("filter-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
     });
 }
 
 fn ten_thousand_iterations(c: &mut Criterion) {
     let script = "(test 0)";
-    let mut vm = VirtualMachine::new();
+    let mut vm = Engine::new();
 
     let warmup = "(define test (lambda (x) (if (= x 10000) x (test (+ x 1)))))";
     vm.parse_and_execute_without_optimizations(black_box(&warmup))
         .unwrap();
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
 
-    let bytecode = Rc::from(
-        vm.emit_instructions(&script, false).unwrap()[0]
-            .clone()
-            .into_boxed_slice(),
-    );
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("ten-thousand-iterations", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
     });
 }
 
 fn trie_sort_without_optimizations(c: &mut Criterion) {
-    let mut vm = VirtualMachine::new();
+    let mut vm = Engine::new();
     // interpreter.require(PRELUDE).unwrap();
     // require the trie sort library
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
@@ -166,19 +160,17 @@ fn trie_sort_without_optimizations(c: &mut Criterion) {
         .unwrap();
 
     let script = "(trie-sort lst)";
-    let bytecode = Rc::from(
-        vm.emit_instructions(&script, false).unwrap()[0]
-            .clone()
-            .into_boxed_slice(),
-    );
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("trie-sort-without-optimizations", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
     });
 }
 
 fn trie_sort_with_optimizations(c: &mut Criterion) {
-    let mut vm = VirtualMachine::new();
+    let mut vm = Engine::new();
     // interpreter.require(PRELUDE).unwrap();
     // require the trie sort library
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
@@ -206,14 +198,12 @@ fn trie_sort_with_optimizations(c: &mut Criterion) {
         .unwrap();
 
     let script = "(trie-sort lst)";
-    let bytecode = Rc::from(
-        vm.emit_instructions(&script, true).unwrap()[0]
-            .clone()
-            .into_boxed_slice(),
-    );
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("trie-sort-with-optimizations", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), true))
+        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
     });
 }
 
