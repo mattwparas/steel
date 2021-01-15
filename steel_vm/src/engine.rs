@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, io::Read, path::Path, rc::Rc};
+use std::{convert::TryFrom, io::Read, path::Path, rc::Rc, unimplemented};
 
 use crate::vm::VirtualMachineCore;
 // use steel::rerrs::SteelErr;
@@ -55,6 +55,12 @@ impl Engine {
             virtual_machine: VirtualMachineCore::new(),
             compiler: Compiler::default(),
         }
+    }
+
+    pub fn new_with_meta() -> Engine {
+        let mut vm = Engine::new();
+        vm.register_value("*env*", steel::env::Env::constant_env_to_hashmap());
+        vm
     }
 
     pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
@@ -117,6 +123,13 @@ impl Engine {
         self.parse_and_execute(exprs.as_str())
     }
 
+    pub fn parse_and_execute_with_optimizations(
+        &mut self,
+        _expr: &str,
+    ) -> Result<Vec<Gc<SteelVal>>> {
+        unimplemented!();
+    }
+
     pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(
         exprs: I,
         // ctx: &mut Ctx<ConstantMap>,
@@ -131,7 +144,7 @@ impl Engine {
         // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
         let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
 
-        let mut vm = Engine::new();
+        let mut vm = Engine::new_with_meta();
         vm.parse_and_execute_without_optimizations(steel::stdlib::PRELUDE)?;
         vm.register_gc_value("*program*", exprs);
         let output = vm.parse_and_execute_without_optimizations(steel::stdlib::COMPILER)?;

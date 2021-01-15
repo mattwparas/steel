@@ -3,6 +3,14 @@ use crate::rvals::Result;
 use crate::steel_compiler::constants::ConstantMap;
 use serde::{Deserialize, Serialize};
 
+pub struct ProgramBuilder(Vec<Vec<DenseInstruction>>);
+
+impl ProgramBuilder {
+    pub fn push(&mut self, val: Vec<DenseInstruction>) {
+        self.0.push(val);
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Program {
     pub instructions: Vec<Vec<DenseInstruction>>,

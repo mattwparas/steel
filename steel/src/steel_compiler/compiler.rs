@@ -444,17 +444,8 @@ impl Compiler {
     pub fn extract_structs_and_expand_macros(
         &mut self,
         exprs: Vec<Expr>,
-    ) -> Result<(Vec<Instruction>, Vec<Expr>)> {
-        unimplemented!()
-    }
-
-    pub fn emit_instructions_from_exprs(
-        &mut self,
-        exprs: Vec<Expr>,
-        _optimizations: bool,
-    ) -> Result<Vec<Vec<DenseInstruction>>> {
-        let mut results = Vec::new();
-        // populate MacroSet
+        results: &mut Vec<Vec<DenseInstruction>>,
+    ) -> Result<Vec<Expr>> {
         self.idents.insert_from_iter(
             get_definition_names(&exprs)
                 .into_iter()
@@ -486,7 +477,18 @@ impl Compiler {
         }
 
         // Walk through and expand all macros, lets, and defines
-        let expanded_statements = expand_statements(extracted_statements, &mut self.macro_env)?;
+        expand_statements(extracted_statements, &mut self.macro_env)
+    }
+
+    pub fn emit_instructions_from_exprs(
+        &mut self,
+        exprs: Vec<Expr>,
+        _optimizations: bool,
+    ) -> Result<Vec<Vec<DenseInstruction>>> {
+        let mut results = Vec::new();
+        let expanded_statements = self.extract_structs_and_expand_macros(exprs, &mut results)?;
+
+        // let expanded_statements = expand_statements(extracted_statements, &mut self.macro_env)?;
 
         // Mild hack...
         // let expanded_statements = if optimizations {
