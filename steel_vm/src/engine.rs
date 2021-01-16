@@ -1,19 +1,17 @@
-use std::{convert::TryFrom, io::Read, path::Path, rc::Rc, unimplemented};
+use std::{collections::HashMap, convert::TryFrom, io::Read, path::Path, rc::Rc};
 
 use crate::vm::VirtualMachineCore;
 // use steel::rerrs::SteelErr;
-use steel::steel_compiler::{compiler::Compiler, constants::ConstantMap};
 use steel::{
+    core::instructions::DenseInstruction,
+    gc::Gc,
     parser::Expr,
+    parser::{ParseError, Parser},
     primitives::ListOperations,
     rerrs::SteelErr,
     rvals::{Result, SteelVal},
+    steel_compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
 };
-
-use steel::gc::Gc;
-
-use steel::core::instructions::DenseInstruction;
-use steel::steel_compiler::program::Program;
 
 #[macro_export]
 macro_rules! build_engine {
@@ -125,9 +123,35 @@ impl Engine {
 
     pub fn parse_and_execute_with_optimizations(
         &mut self,
-        _expr: &str,
+        expr: &str,
     ) -> Result<Vec<Gc<SteelVal>>> {
-        unimplemented!();
+        let mut results = Vec::new();
+        let mut intern = HashMap::new();
+
+        let parsed: std::result::Result<Vec<Expr>, ParseError> =
+            Parser::new(expr, &mut intern).collect();
+        let parsed = parsed?;
+
+        let exprs_pre_optimization = self
+            .compiler
+            .extract_structs_and_expand_macros(parsed, &mut results)?;
+
+        let exprs_post_optimization = Self::optimize_exprs(exprs_pre_optimization)?;
+
+        let compiled_instructions = self
+            .compiler
+            .generate_dense_instructions(exprs_post_optimization, results)?;
+
+        let program = Program::new(
+            compiled_instructions,
+            (&self.compiler.constant_map).to_bytes()?,
+        );
+
+        self.virtual_machine.execute_program(program)
+
+        // self.compiler.
+
+        // unimplemented!();
     }
 
     pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(

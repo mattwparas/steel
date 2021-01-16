@@ -1,27 +1,15 @@
-use crate::core::instructions::Instruction;
-use crate::core::opcode::OpCode;
-use crate::steel_compiler::constants::{ConstantMap, ConstantTable};
-use crate::steel_compiler::expand::{
-    expand_statements, extract_macro_definitions, get_definition_names,
+use crate::core::{instructions::Instruction, opcode::OpCode};
+use crate::steel_compiler::{
+    codegen::emit_loop,
+    constants::{ConstantMap, ConstantTable},
+    expand::MacroSet,
+    expand::{expand_statements, extract_macro_definitions, get_definition_names},
+    expander::SteelMacro,
+    map::SymbolMap,
+    program::Program,
 };
-use crate::steel_compiler::map::SymbolMap;
-// pub use heap::Heap;
 
-use crate::steel_compiler::codegen::emit_loop;
-
-use crate::steel_compiler::expand::MacroSet;
-// use crate::gc::Gc;
-// use crate::primitives::{ListOperations, VectorOperations};
-// use crate::rerrs::SteelErr;
-// use crate::rvals::{ByteCodeLambda, Result, SteelVal};
-// use crate::vm::inline_iter::*;
-// use crate::
-//     expander::SteelMacro,
-
-// use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-// use std::convert::{TryFrom, TryInto};
-
 use std::iter::Iterator;
 
 use crate::env::{FALSE, TRUE};
@@ -30,21 +18,10 @@ use crate::rvals::{Result, SteelVal};
 
 use crate::gc::Gc;
 
-use crate::steel_compiler::expander::SteelMacro;
-
 use crate::parser::{span::Span, ParseError, Parser};
 use crate::parser::{tokens::TokenType, Expr, SyntaxObject};
 
-// use crate::structs::SteelStruct;
-
-// use crate::env::CoreModuleConfig;
-// use std::cell::Cell;
-
 use crate::core::instructions::{densify, DenseInstruction};
-
-use crate::steel_compiler::program::Program;
-
-// use serde::{Deserialize, Serialize};
 
 use crate::stop;
 
@@ -389,7 +366,7 @@ fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
 
 pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
-    pub(crate) constant_map: ConstantMap,
+    pub constant_map: ConstantMap,
     pub(crate) idents: MacroSet,
     pub(crate) macro_env: HashMap<String, SteelMacro>,
 }
@@ -480,6 +457,44 @@ impl Compiler {
         expand_statements(extracted_statements, &mut self.macro_env)
     }
 
+    pub fn generate_dense_instructions(
+        &mut self,
+        expanded_statements: Vec<Expr>,
+        results: Vec<Vec<DenseInstruction>>,
+    ) -> Result<Vec<Vec<DenseInstruction>>> {
+        let mut results = results;
+        let mut instruction_buffer = Vec::new();
+        let mut index_buffer = Vec::new();
+        for expr in expanded_statements {
+            // TODO add printing out the expression as its own special function
+            // println!("{:?}", expr.to_string());
+            let mut instructions: Vec<Instruction> = Vec::new();
+
+            // TODO double check that arity map doesn't exist anymore
+            emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
+            instructions.push(Instruction::new_pop());
+            inject_heap_save_to_pop(&mut instructions);
+            index_buffer.push(instructions.len());
+            instruction_buffer.append(&mut instructions);
+        }
+
+        // println!("Got here!");
+
+        insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+        extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
+        // coalesce_clears(&mut instruction_buffer);
+
+        for idx in index_buffer {
+            let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
+            // pretty_print_instructions(extracted.as_slice());
+            results.push(densify(extracted));
+        }
+
+        Ok(results)
+    }
+
+    // pub fn expand_structs_extract_macros(&mut self, &mut ProgramBuilder)
+
     pub fn emit_instructions_from_exprs(
         &mut self,
         exprs: Vec<Expr>,
@@ -525,49 +540,38 @@ impl Compiler {
         //     (_, _) => {}
         // }
 
+        self.generate_dense_instructions(expanded_statements, results)
+
         // TODO move this out into its thing
         // fairly certain this isn't necessary to do this batching
         // but it does work for now and I'll take it for now
-        let mut instruction_buffer = Vec::new();
-        let mut index_buffer = Vec::new();
-        for expr in expanded_statements {
-            // TODO add printing out the expression as its own special function
-            // println!("{:?}", expr.to_string());
-            let mut instructions: Vec<Instruction> = Vec::new();
+        // let mut instruction_buffer = Vec::new();
+        // let mut index_buffer = Vec::new();
+        // for expr in expanded_statements {
+        //     // TODO add printing out the expression as its own special function
+        //     // println!("{:?}", expr.to_string());
+        //     let mut instructions: Vec<Instruction> = Vec::new();
 
-            // TODO double check that arity map doesn't exist anymore
-            emit_loop(
-                &expr,
-                &mut instructions,
-                None,
-                // &mut self.arity_map,
-                &mut self.constant_map,
-            )?;
-            // if !script {
-            // instructions.push(Instruction::new_clear());
-            instructions.push(Instruction::new_pop());
-            // Maybe see if this gets the job done here
+        //     // TODO double check that arity map doesn't exist anymore
+        //     emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
+        //     instructions.push(Instruction::new_pop());
+        //     inject_heap_save_to_pop(&mut instructions);
+        //     index_buffer.push(instructions.len());
+        //     instruction_buffer.append(&mut instructions);
+        // }
 
-            inject_heap_save_to_pop(&mut instructions);
-            // instructions.inject_heap_save_to_pop();
+        // // println!("Got here!");
 
-            // }
-            index_buffer.push(instructions.len());
-            instruction_buffer.append(&mut instructions);
-        }
+        // insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+        // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
+        // // coalesce_clears(&mut instruction_buffer);
 
-        // println!("Got here!");
+        // for idx in index_buffer {
+        //     let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
+        //     // pretty_print_instructions(extracted.as_slice());
+        //     results.push(densify(extracted));
+        // }
 
-        insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
-        extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
-        // coalesce_clears(&mut instruction_buffer);
-
-        for idx in index_buffer {
-            let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
-            // pretty_print_instructions(extracted.as_slice());
-            results.push(densify(extracted));
-        }
-
-        Ok(results)
+        // Ok(results)
     }
 }

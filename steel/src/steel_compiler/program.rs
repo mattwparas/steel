@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 pub struct ProgramBuilder(Vec<Vec<DenseInstruction>>);
 
 impl ProgramBuilder {
+    pub fn new() -> Self {
+        ProgramBuilder(Vec::new())
+    }
+
     pub fn push(&mut self, val: Vec<DenseInstruction>) {
         self.0.push(val);
     }

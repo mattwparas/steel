@@ -5,10 +5,7 @@ use steel::steel_compiler::{
 // pub use expand::expand;
 // pub use expand::get_definition_names;
 // pub use expand::{expand_statements, extract_macro_definitions};
-use crate::{
-    heap::Heap,
-    transducers::{TransducerExt, TransducersExt},
-};
+use crate::{heap::Heap, transducers::TransducerExt};
 use steel::core::instructions::DenseInstruction;
 // use steel_compiler::map::SymbolMap;
 use steel::core::opcode::OpCode;
