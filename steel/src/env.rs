@@ -1,41 +1,22 @@
 // use crate::rvals::Result;
 // #[macro_use]
-use crate::primitives::ControlOperations;
-use crate::primitives::FsFunctions;
-use crate::primitives::HashMapOperations;
-use crate::primitives::HashSetOperations;
-use crate::primitives::IoFunctions;
-use crate::primitives::ListOperations;
-use crate::primitives::MetaOperations;
-use crate::primitives::NumOperations;
-use crate::primitives::PortOperations;
-use crate::primitives::StreamOperations;
-use crate::primitives::StringOperations;
-use crate::primitives::SymbolOperations;
-use crate::primitives::TransducerOperations;
-use crate::primitives::VectorOperations;
+use crate::{
+    gc::Gc,
+    primitives::{
+        ControlOperations, FsFunctions, HashMapOperations, HashSetOperations, IoFunctions,
+        ListOperations, MetaOperations, NumOperations, PortOperations, StreamOperations,
+        StringOperations, SymbolOperations, TransducerOperations, VectorOperations,
+    },
+    rerrs::SteelErr,
+    rvals::{Result, SteelVal},
+    stop,
+};
 
-// use crate::primitives::{Adder, Divider, Multiplier, SteelFunctor, Subtractor};
-use crate::rerrs::SteelErr;
-use crate::rvals::{Result, SteelVal};
-use crate::stop;
-
-use std::cell::RefCell;
-use std::collections::HashMap;
-
-// use im_rc::HashMap;
-
-use std::rc::Rc;
-use std::rc::Weak;
-// use std::convert::AsRef;
-// use std::borrow::BorrowMut;
-// use crate::compiler::AST;
-
-// use crate::vm::SymbolMap;
-
-use crate::gc::Gc;
-
-use std::collections::HashSet;
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    rc::{Rc, Weak},
+};
 
 // use crate::rvals::FutureResult;
 

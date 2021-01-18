@@ -1,64 +1,35 @@
-use crate::env::Env;
-// use crate::expander::SteelMacro;
-use crate::parser::tokens::TokenType::*;
-use crate::parser::Expr;
-use crate::parser::SyntaxObject;
-use crate::port::SteelPort;
-use crate::rerrs::SteelErr;
+use crate::{
+    core::instructions::DenseInstruction,
+    env::Env,
+    gc::Gc,
+    lazy_stream::LazyStream,
+    parser::{tokens::TokenType::*, Expr, SyntaxObject},
+    port::SteelPort,
+    primitives::ListOperations,
+    rerrs::SteelErr,
+    structs::SteelStruct,
+};
+
+use std::{
+    any::Any,
+    cell::RefCell,
+    cmp::Ordering,
+    convert::TryFrom,
+    fmt,
+    future::Future,
+    hash::{Hash, Hasher},
+    pin::Pin,
+    rc::{Rc, Weak},
+    result,
+};
+
 // use std::any::Any;
-use std::any::Any;
-use std::cell::RefCell;
-use std::cmp::Ordering;
-use std::fmt;
-use std::rc::Rc;
-use std::rc::Weak;
 use SteelVal::*;
 
 use im_rc::{HashMap, HashSet, Vector};
-use std::convert::TryFrom;
-use std::result;
 
-use crate::structs::SteelStruct;
-
-// use crate::vm::EvaluationProgress;
-use crate::core::instructions::DenseInstruction;
-
-// use std::mem;
-
-use crate::gc::Gc;
-
-use std::hash::{Hash, Hasher};
-
-// use std::ops::Deref;
-
-// use crate::vm::ConstantTable;
-// use steel::parser::span::Span;
-
-// use crate::vm::inline_iter::{
-//     inline_filter_result_iter, inline_map_result_iter, inline_reduce_iter,
-// };
-// use itertools::Itertools;
-// pub use constants::ConstantTable;
-
-// use std::collections::HashMap;
-
-// use std::io::Read;
-// use std::io::Write;
-
-use crate::primitives::ListOperations;
-
-// use futures::future::FutureExt;
-use futures::FutureExt;
-// use futures::Sha
 use futures::future::Shared;
-use std::future::Future;
-use std::pin::Pin;
-
-use crate::lazy_stream::LazyStream;
-// use crate::lazy_stream::LazyStreamIter;
-
-// use serde::ser::SerializeTupleVariant;
-// use serde::{Deserialize, Serialize, Serializer};
+use futures::FutureExt;
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {

@@ -1,7 +1,6 @@
+use crate::env::VOID;
 use crate::gc::Gc;
 use crate::rvals::SteelVal;
-
-use crate::env::VOID;
 
 #[derive(Clone)]
 pub struct LazyStream {

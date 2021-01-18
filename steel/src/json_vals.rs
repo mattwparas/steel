@@ -1,19 +1,14 @@
-use crate::env::{FALSE, TRUE, VOID};
-use crate::gc::Gc;
-use crate::rerrs::SteelErr;
-use crate::rvals::Result;
-use crate::rvals::SteelVal;
-use serde_json::Map;
-use serde_json::Number;
-use serde_json::Value;
-
-use crate::primitives::ListOperations;
-use std::convert::TryFrom;
-use std::convert::TryInto;
-
+use crate::{
+    env::{FALSE, TRUE, VOID},
+    gc::Gc,
+    primitives::ListOperations,
+    rerrs::SteelErr,
+    rvals::{Result, SteelVal},
+    throw,
+};
 use im_rc::HashMap;
-
-use crate::throw;
+use serde_json::{Map, Number, Value};
+use std::convert::{TryFrom, TryInto};
 
 // use list
 
