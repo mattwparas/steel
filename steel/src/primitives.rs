@@ -10,6 +10,7 @@ mod ports;
 mod streams;
 mod strings;
 mod symbols;
+// mod time;
 mod transducers;
 mod vectors;
 
@@ -25,6 +26,7 @@ pub use ports::PortOperations;
 pub use streams::StreamOperations;
 pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
+// pub use time::TimeOperations;
 pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
 

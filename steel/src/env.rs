@@ -1145,6 +1145,8 @@ impl Env {
             ("box", MetaOperations::new_box()),
             ("unbox", MetaOperations::unbox()),
             ("set-box!", MetaOperations::set_box()),
+            // ("time.clock", TimeOperations::time_clock()),
+            // ("time.elapsed", TimeOperations::time_elapsed()),
         ]
     }
 }

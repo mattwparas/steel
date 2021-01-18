@@ -255,12 +255,6 @@ pub enum SteelVal {
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
 
-// pub struct
-
-// pub trait Transduce {
-//     fn run() -> Gc<SteelVal>;
-// }
-
 pub enum CollectionType {
     List,
     Vector,
@@ -286,104 +280,6 @@ impl Transducer {
     pub fn push(&mut self, t: Transducers) {
         self.ops.push_back(t);
     }
-
-    // This runs through the iterators  in sequence in the transducer
-    // we want to then finish with a reducer
-    // TODO see transduce vs educe
-    // TODO change the return type to match the given input type
-    // optionally add an argument to select the return type manually
-    // pub fn run<CT: ConstantTable>(
-    //     &self,
-    //     root: Gc<SteelVal>,
-    //     constants: &CT,
-    //     cur_inst_span: &Span,
-    //     repl: bool,
-    //     callback: &EvaluationProgress,
-    //     collection_type: Option<Gc<SteelVal>>,
-    // ) -> Result<Gc<SteelVal>> {
-    //     // if let Some(collection_type) = collection_type {
-    //     //     match collection_type.as_ref() {}
-    //     // }
-
-    //     let output_type = match root.as_ref() {
-    //         SteelVal::VectorV(_) => CollectionType::Vector,
-    //         _ => CollectionType::List,
-    //     };
-
-    //     let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
-    //         SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
-    //         SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
-    //         SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-    //             lazy_stream.clone(),
-    //             constants,
-    //             cur_inst_span,
-    //             repl,
-    //             callback,
-    //         )),
-    //         _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
-    //     };
-
-    //     for t in &self.ops {
-    //         my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-    //     }
-
-    //     if let Some(collection_type) = collection_type {
-    //         if let SteelVal::SymbolV(n) = collection_type.as_ref() {
-    //             match n.as_ref() {
-    //                 "list" => ListOperations::built_in_list_normal_iter(my_iter),
-    //                 "vector" => crate::primitives::VectorOperations::vec_construct_iter(my_iter),
-    //                 _ => stop!(Generic => "Cannot collect into an undefined type"),
-    //             }
-    //         } else {
-    //             stop!(Generic => "execute takes a symbol")
-    //         }
-    //     } else {
-    //         match output_type {
-    //             CollectionType::List => ListOperations::built_in_list_normal_iter(my_iter),
-    //             CollectionType::Vector => {
-    //                 crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-    //             }
-    //         }
-    //     }
-    // }
-
-    // pub fn transduce<CT: ConstantTable>(
-    //     &self,
-    //     root: Gc<SteelVal>,
-    //     initial_value: Gc<SteelVal>,
-    //     reducer: Gc<SteelVal>,
-    //     constants: &CT,
-    //     cur_inst_span: &Span,
-    //     repl: bool,
-    //     callback: &EvaluationProgress,
-    // ) -> Result<Gc<SteelVal>> {
-    //     let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
-    //         SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
-    //         SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
-    //         SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-    //             lazy_stream.clone(),
-    //             constants,
-    //             cur_inst_span,
-    //             repl,
-    //             callback,
-    //         )),
-    //         _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
-    //     };
-
-    //     for t in &self.ops {
-    //         my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-    //     }
-
-    //     inline_reduce_iter(
-    //         my_iter,
-    //         initial_value,
-    //         reducer,
-    //         constants,
-    //         cur_inst_span,
-    //         repl,
-    //         callback,
-    //     )
-    // }
 }
 
 #[derive(Clone)]
@@ -392,51 +288,6 @@ pub enum Transducers {
     Filter(Gc<SteelVal>), // function
     Take(Gc<SteelVal>),   // integer
 }
-
-// impl Transducers {
-//     pub fn into_transducer<
-//         'global,
-//         I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
-//         CT: ConstantTable,
-//     >(
-//         &self,
-//         iter: I,
-//         // stack_func: Gc<SteelVal>,
-//         constants: &'global CT,
-//         cur_inst_span: &'global Span,
-//         repl: bool,
-//         callback: &'global EvaluationProgress,
-//     ) -> Result<Box<dyn Iterator<Item = Result<Gc<SteelVal>>> + 'global>> {
-//         match self {
-//             Transducers::Map(func) => Ok(Box::new(inline_map_result_iter(
-//                 iter,
-//                 Gc::clone(func),
-//                 constants,
-//                 cur_inst_span,
-//                 repl,
-//                 callback,
-//             ))),
-//             Transducers::Filter(func) => Ok(Box::new(inline_filter_result_iter(
-//                 iter,
-//                 Gc::clone(func),
-//                 constants,
-//                 cur_inst_span,
-//                 repl,
-//                 callback,
-//             ))),
-//             Transducers::Take(num) => {
-//                 if let SteelVal::IntV(num) = num.as_ref() {
-//                     if *num < 0 {
-//                         stop!(ContractViolation => "take transducer must have a position number"; *cur_inst_span)
-//                     }
-//                     Ok(Box::new(iter.take(*num as usize)))
-//                 } else {
-//                     stop!(TypeMismatch => "take transducer takes an integer"; *cur_inst_span)
-//                 }
-//             }
-//         }
-//     }
-// }
 
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -927,66 +778,6 @@ impl ByteCodeLambda {
         self.ndef_body
     }
 }
-
-// #[derive(Clone)]
-// /// struct representing data required to describe a scheme function
-// pub struct SteelLambda {
-//     /// symbols representing the arguments to the function
-//     params_exp: Vec<String>,
-//     /// body of the function with identifiers yet to be bound
-//     body_exp: Expr,
-//     /// parent environment that created this Lambda.
-//     /// the actual environment with correct bindings is built at runtime
-//     /// once the function is called
-//     parent_env: Option<Rc<RefCell<Env>>>,
-//     /// parent subenvironment that created this lambda.
-//     /// the actual environment gets upgraded at runtime if needed
-//     sub_expression_env: Option<Weak<RefCell<Env>>>,
-// }
-// impl SteelLambda {
-//     pub fn new(
-//         params_exp: Vec<String>,
-//         body_exp: Expr,
-//         parent_env: Option<Rc<RefCell<Env>>>,
-//         sub_expression_env: Option<Weak<RefCell<Env>>>,
-//     ) -> SteelLambda {
-//         SteelLambda {
-//             params_exp,
-//             body_exp,
-//             parent_env,
-//             sub_expression_env,
-//         }
-//     }
-//     /// symbols representing the arguments to the function
-//     pub fn params_exp(&self) -> &[String] {
-//         &self.params_exp
-//     }
-//     /// body of the function with identifiers yet to be bound
-//     pub fn body_exp(&self) -> &Expr {
-//         &self.body_exp
-//     }
-
-//     pub fn pretty_print_closure(&self) -> String {
-//         let params = self.params_exp().join(" ");
-//         format!(
-//             "(lambda ({}) {})",
-//             params.to_string(),
-//             self.body_exp().to_string()
-//         )
-//     }
-
-//     /// parent environment that created this Lambda.
-//     ///
-//     /// The actual environment with correct bindings is built at runtime
-//     /// once the function is called
-//     pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
-//         self.parent_env.as_ref()
-//     }
-
-//     pub fn sub_expression_env(&self) -> Option<&Weak<RefCell<Env>>> {
-//         self.sub_expression_env.as_ref()
-//     }
-// }
 
 impl fmt::Display for SteelVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

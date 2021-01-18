@@ -166,7 +166,9 @@ impl VirtualMachineCore {
             .into_iter()
             .map(|x| {
                 let code = Rc::from(x.into_boxed_slice());
+                // let now = std::time::Instant::now();
                 let res = self.execute(code, &constant_map);
+                // println!("{:?}", now.elapsed());
                 res
             })
             .collect()
