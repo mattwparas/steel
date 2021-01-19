@@ -276,13 +276,16 @@ impl VirtualMachineCore {
         // give access to the global root via this method
         heap.plant_root(Rc::downgrade(&self.global_env));
 
+        let repl = true;
+        // let repl = false;
+
         let result = vm(
             instructions,
             stack,
             &mut heap,
             Rc::clone(&self.global_env),
             constant_map,
-            true,
+            repl,
             &self.callback,
         );
 
@@ -372,7 +375,6 @@ pub fn vm<CT: ConstantTable>(
         // }
 
         cur_inst = &instructions[ip];
-
         // trace!()
 
         match cur_inst.op_code {
@@ -555,6 +557,7 @@ pub fn vm<CT: ConstantTable>(
                 ip += 1;
             }
             OpCode::PUSH => {
+                // TODO future me figure out the annoying offset issue
                 // awful awful awful hack to fix the repl environment noise
                 if repl {
                     let value = global_env.borrow().repl_lookup_idx(cur_inst.payload_size)?;
@@ -563,6 +566,9 @@ pub fn vm<CT: ConstantTable>(
                     let value = global_env.borrow().lookup_idx(cur_inst.payload_size)?;
                     stack.push(value);
                 }
+
+                // let value = global_env.borrow().repl_lookup_idx(cur_inst.payload_size)?;
+                // stack.push(value);
                 ip += 1;
             }
             OpCode::APPLY => {
@@ -612,6 +618,7 @@ pub fn vm<CT: ConstantTable>(
                             .borrow_mut()
                             .add_child(Rc::downgrade(&inner_env));
 
+                        // TODO future me figure out offsets
                         inner_env
                             .borrow_mut()
                             .reserve_defs(if closure.ndef_body() > 0 {
@@ -785,6 +792,7 @@ pub fn vm<CT: ConstantTable>(
                             .borrow_mut()
                             .add_child(Rc::downgrade(&inner_env));
 
+                        // TODO future me figure out offsets
                         inner_env
                             .borrow_mut()
                             .reserve_defs(if closure.ndef_body() > 0 {
@@ -865,6 +873,7 @@ pub fn vm<CT: ConstantTable>(
                             .borrow_mut()
                             .add_child(Rc::downgrade(&inner_env));
 
+                        // TODO future me to figure out with offsets
                         inner_env
                             .borrow_mut()
                             .reserve_defs(if closure.ndef_body() > 0 {
@@ -946,13 +955,18 @@ pub fn vm<CT: ConstantTable>(
                 }
             }
             OpCode::BIND => {
-                let offset = global_env.borrow().local_offset();
+                // global_env
+                //     .borrow_mut()
+                //     .repl_define_idx(cur_inst.payload_size, stack.pop().unwrap());
 
+                // TODO leave this here for future me to figure out the offset stuff
                 if repl {
                     global_env
                         .borrow_mut()
                         .repl_define_idx(cur_inst.payload_size, stack.pop().unwrap());
                 } else {
+                    let offset = global_env.borrow().local_offset();
+
                     global_env
                         .borrow_mut()
                         .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());

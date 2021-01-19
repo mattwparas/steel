@@ -42,6 +42,22 @@ impl MetaOperations {
         })
     }
 
+    pub fn active_objects() -> SteelVal {
+        println!(
+            "vector: {:?}",
+            std::mem::size_of::<im_rc::Vector<Gc<SteelVal>>>()
+        );
+
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 0 {
+                stop!(ArityMismatch => "active-object-count expects only one argument");
+            }
+            Ok(Gc::new(SteelVal::IntV(
+                Gc::<SteelVal>::get_object_count() as isize
+            )))
+        })
+    }
+
     pub fn memory_address() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() != 1 {

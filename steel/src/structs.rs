@@ -201,7 +201,7 @@ fn constructor(name: &str, len: usize) -> SteelVal {
     );
 
     SteelVal::StructClosureV(
-        factory,
+        Box::new(factory),
         |args: Vec<Gc<SteelVal>>, factory: &SteelStruct| -> Result<Gc<SteelVal>> {
             if args.len() != factory.fields.len() {
                 let error_message = format!(
@@ -222,7 +222,7 @@ fn constructor(name: &str, len: usize) -> SteelVal {
                 *key = arg;
             }
 
-            Ok(Gc::new(SteelVal::StructV(new_struct)))
+            Ok(Gc::new(SteelVal::StructV(Box::new(new_struct))))
         },
     )
 }
@@ -234,7 +234,7 @@ fn predicate(name: &str) -> SteelVal {
         StructFunctionType::Predicate(name.to_string()),
     );
     SteelVal::StructClosureV(
-        factory,
+        Box::new(factory),
         |args: Vec<Gc<SteelVal>>, factory: &SteelStruct| -> Result<Gc<SteelVal>> {
             if args.len() != 1 {
                 let error_message = format!(
@@ -266,7 +266,7 @@ fn predicate(name: &str) -> SteelVal {
 fn getter(name: &str, idx: usize) -> SteelVal {
     let factory = SteelStruct::new(Rc::from(name), Vec::new(), StructFunctionType::Getter(idx));
     SteelVal::StructClosureV(
-        factory,
+        Box::new(factory),
         |args: Vec<Gc<SteelVal>>, factory: &SteelStruct| -> Result<Gc<SteelVal>> {
             if args.len() != 1 {
                 let error_message = format!(
@@ -295,7 +295,7 @@ fn getter(name: &str, idx: usize) -> SteelVal {
 fn setter(name: &str, idx: usize) -> SteelVal {
     let factory = SteelStruct::new(Rc::from(name), Vec::new(), StructFunctionType::Setter(idx));
     SteelVal::StructClosureV(
-        factory,
+        Box::new(factory),
         |args: Vec<Gc<SteelVal>>, factory: &SteelStruct| -> Result<Gc<SteelVal>> {
             if args.len() != 2 {
                 let error_message = format!(
@@ -316,7 +316,7 @@ fn setter(name: &str, idx: usize) -> SteelVal {
                     .get_mut(*idx)
                     .ok_or_else(throw!(TypeMismatch => "Couldn't find that field in the struct"))?;
                 *key = value;
-                Ok(Gc::new(SteelVal::StructV(new_struct)))
+                Ok(Gc::new(SteelVal::StructV(Box::new(new_struct))))
             } else {
                 stop!(TypeMismatch => "something went wrong with struct setter")
             }
@@ -342,61 +342,61 @@ mod struct_tests {
     fn constructor_normal() {
         let args = vec![SteelVal::IntV(1), SteelVal::IntV(2)];
         let res = apply_function(constructor("Promise", 2), args);
-        let expected = Gc::new(SteelVal::StructV(SteelStruct {
+        let expected = Gc::new(SteelVal::StructV(Box::new(SteelStruct {
             name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
             function_purpose: StructFunctionType::Constructor,
-        }));
+        })));
         assert_eq!(res.unwrap(), expected)
     }
 
     #[test]
     fn setter_position_0() {
         let args = vec![
-            SteelVal::StructV(SteelStruct {
+            SteelVal::StructV(Box::new(SteelStruct {
                 name: Rc::from("Promise"),
                 fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
                 function_purpose: StructFunctionType::Constructor,
-            }),
+            })),
             SteelVal::IntV(100),
         ];
 
         let res = apply_function(setter("Promise", 0), args);
-        let expected = Gc::new(SteelVal::StructV(SteelStruct {
+        let expected = Gc::new(SteelVal::StructV(Box::new(SteelStruct {
             name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(100)), Gc::new(SteelVal::IntV(2))],
             function_purpose: StructFunctionType::Constructor,
-        }));
+        })));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn setter_position_1() {
         let args = vec![
-            SteelVal::StructV(SteelStruct {
+            SteelVal::StructV(Box::new(SteelStruct {
                 name: Rc::from("Promise"),
                 fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
                 function_purpose: StructFunctionType::Constructor,
-            }),
+            })),
             SteelVal::IntV(100),
         ];
 
         let res = apply_function(setter("Promise", 1), args);
-        let expected = Gc::new(SteelVal::StructV(SteelStruct {
+        let expected = Gc::new(SteelVal::StructV(Box::new(SteelStruct {
             name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(100))],
             function_purpose: StructFunctionType::Constructor,
-        }));
+        })));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn getter_position_0() {
-        let args = vec![SteelVal::StructV(SteelStruct {
+        let args = vec![SteelVal::StructV(Box::new(SteelStruct {
             name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
             function_purpose: StructFunctionType::Constructor,
-        })];
+        }))];
 
         let res = apply_function(getter("Promise", 0), args);
         let expected = Gc::new(SteelVal::IntV(1));

@@ -50,6 +50,7 @@ Closure body:
 
 (define (test) (define (foo x y z) (bar x y z)) (define (bar x y z) (foo x y z)) (foo 1 2 3))
 
+(define (fib n) (if (<= n 2) 1 (i+ (fib (i- n 1)) (fib (i- n 2)))))
 
 
 

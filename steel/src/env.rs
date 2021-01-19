@@ -573,6 +573,7 @@ impl Env {
         }
     }
 
+    // TODO could be better
     pub fn repl_lookup_idx(&self, idx: usize) -> Result<Gc<SteelVal>> {
         // unimplemented!()
         // println!("{:?}", self.bindings.keys());
@@ -1037,6 +1038,7 @@ impl Env {
             ("*", NumOperations::multiply()),
             ("/", NumOperations::divide()),
             ("-", NumOperations::subtract()),
+            ("i-", NumOperations::integer_sub()),
             ("list", ListOperations::list()),
             ("car", ListOperations::car()),
             ("cdr", ListOperations::cdr()),
@@ -1145,6 +1147,7 @@ impl Env {
             ("box", MetaOperations::new_box()),
             ("unbox", MetaOperations::unbox()),
             ("set-box!", MetaOperations::set_box()),
+            ("active-object-count", MetaOperations::active_objects())
             // ("time.clock", TimeOperations::time_clock()),
             // ("time.elapsed", TimeOperations::time_elapsed()),
         ]

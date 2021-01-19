@@ -105,7 +105,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         r#"
      _____ __            __
     / ___// /____  ___  / /          Version 0.1.0
-    \__ \/ __/ _ \/ _ \/ /           https://github.com.mattwparas/steel
+    \__ \/ __/ _ \/ _ \/ /           https://github.com/mattwparas/steel
    ___/ / /_/  __/  __/ /            :? for help
   /____/\__/\___/\___/_/ 
     "#
@@ -204,7 +204,12 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         match res {
                             Ok(r) => r.iter().for_each(|x| match x.as_ref() {
                                 SteelVal::Void => {}
-                                _ => println!("{} {}", "=>".bright_blue().bold(), x),
+                                _ => {
+                                    if print_time {
+                                        println!("Time taken: {:?}", now.elapsed());
+                                    }
+                                    println!("{} {}", "=>".bright_blue().bold(), x)
+                                }
                             }),
                             Err(e) => {
                                 e.emit_result("repl.stl", line.as_str(), Span::new(0, 0));
@@ -212,9 +217,9 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                             }
                         }
 
-                        if print_time {
-                            println!("Time taken: {:?}", now.elapsed());
-                        }
+                        // if print_time {
+                        //     println!("Time taken: {:?}", now.elapsed());
+                        // }
 
                         // println!("Active Object Count: {:?}", steel::gc::OBJECT_COUNT);
                     }

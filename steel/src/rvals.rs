@@ -201,9 +201,9 @@ pub enum SteelVal {
     // Embedded HashSet
     HashSetV(HashSet<Gc<SteelVal>>),
     /// Represents a scheme-only struct
-    StructV(SteelStruct),
+    StructV(Box<SteelStruct>),
     /// Represents a special rust closure
-    StructClosureV(SteelStruct, StructClosureSignature),
+    StructClosureV(Box<SteelStruct>, StructClosureSignature),
     /// Represents a port object
     PortV(SteelPort),
     /// Represents a bytecode closure

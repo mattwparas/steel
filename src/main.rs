@@ -98,12 +98,36 @@ fn main() {
 
     // builder
     //     // .filter(Some("steel"), LevelFilter::Trace)
-    //     .filter(Some("steel"), LevelFilter::Trace)
+    //     .filter(Some("steel_vm"), LevelFilter::Trace)
     //     // .filter(None, LevelFilter::Error)
     //     // .filter(None, LevelFilter::Warn)
     //     // .filter(None, LevelFilter)
     //     .write_style(WriteStyle::Always)
     //     .init();
+
+    println!("gc steelval: {:?}", std::mem::size_of::<Gc<SteelVal>>());
+
+    println!("steelval: {:?}", std::mem::size_of::<SteelVal>());
+
+    println!(
+        "bytecode lambda: {:?}",
+        std::mem::size_of::<steel::rvals::ByteCodeLambda>()
+    );
+
+    println!(
+        "hashmap: {:?}",
+        std::mem::size_of::<HashMap<Gc<SteelVal>, Gc<SteelVal>>>()
+    );
+
+    println!(
+        "struct: {:?}",
+        std::mem::size_of::<steel::structs::SteelStruct>()
+    );
+
+    println!(
+        "transducer: {:?}",
+        std::mem::size_of::<steel::rvals::Transducer>()
+    );
 
     let args = args().collect::<Vec<_>>();
 
