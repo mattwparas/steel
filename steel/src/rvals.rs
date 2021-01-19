@@ -265,20 +265,20 @@ pub enum CollectionType {
 #[derive(Clone)]
 pub struct Transducer {
     // root: Gc<SteelVal>,
-    pub ops: Vector<Transducers>,
+    pub ops: Vec<Transducers>,
 }
 
 impl Transducer {
     pub fn new() -> Self {
-        Transducer { ops: Vector::new() }
+        Transducer { ops: Vec::new() }
     }
 
-    pub fn append(&mut self, other: Self) {
-        self.ops.append(other.ops)
+    pub fn append(&mut self, mut other: Self) {
+        self.ops.append(&mut other.ops)
     }
 
     pub fn push(&mut self, t: Transducers) {
-        self.ops.push_back(t);
+        self.ops.push(t);
     }
 }
 

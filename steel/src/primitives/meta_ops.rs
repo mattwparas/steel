@@ -48,6 +48,11 @@ impl MetaOperations {
             std::mem::size_of::<im_rc::Vector<Gc<SteelVal>>>()
         );
 
+        println!(
+            "transducer: {:?}",
+            std::mem::size_of::<crate::rvals::Transducer>()
+        );
+
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() != 0 {
                 stop!(ArityMismatch => "active-object-count expects only one argument");
