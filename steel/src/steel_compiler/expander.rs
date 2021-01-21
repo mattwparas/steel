@@ -620,7 +620,9 @@ mod parse_macro_tests {
         ];
 
         // let default_env = Rc::new(RefCell::new(Env::default_env()));
-        let default_env = crate::steel_compiler::expand::MacroSet::new();
+        let mut default_env = crate::steel_compiler::expand::MacroSet::new();
+        default_env.insert("void".to_string());
+
         let res = SteelMacro::parse_from_tokens(&input[1..], &default_env);
 
         let expected = SteelMacro {
