@@ -49,8 +49,18 @@ impl MetaOperations {
         );
 
         println!(
-            "transducer: {:?}",
-            std::mem::size_of::<crate::rvals::Transducer>()
+            "dense instruction: {:?}",
+            std::mem::size_of::<crate::core::instructions::DenseInstruction>()
+        );
+
+        println!(
+            "opcode size: {:?}",
+            std::mem::size_of::<crate::core::opcode::OpCode>()
+        );
+
+        println!(
+            "span: {:?}",
+            std::mem::size_of::<crate::parser::span::Span>()
         );
 
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {

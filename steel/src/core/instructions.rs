@@ -250,6 +250,24 @@ impl Instruction {
             constant: true,
         }
     }
+
+    pub fn new_add_int(arity: usize, contents: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::ADDINT,
+            payload_size: arity,
+            contents: Some(contents),
+            constant: false,
+        }
+    }
+
+    pub fn new_sub_int(arity: usize, contents: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::SUBINT,
+            payload_size: arity,
+            contents: Some(contents),
+            constant: false,
+        }
+    }
 }
 
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
@@ -287,12 +305,12 @@ pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Serialize, Deserialize)]
 pub struct DenseInstruction {
     pub op_code: OpCode,
-    pub payload_size: usize,
+    pub payload_size: u32,
     pub span: Span,
 }
 
 impl DenseInstruction {
-    pub fn new(op_code: OpCode, payload_size: usize, span: Span) -> DenseInstruction {
+    pub fn new(op_code: OpCode, payload_size: u32, span: Span) -> DenseInstruction {
         DenseInstruction {
             op_code,
             payload_size,

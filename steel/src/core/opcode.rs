@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize)]
@@ -32,4 +32,6 @@ pub enum OpCode {
     READ = 26,
     COLLECTTO = 27,
     METALOOKUP = 28,
+    ADDINT,
+    SUBINT,
 }

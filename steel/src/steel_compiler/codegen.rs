@@ -373,6 +373,36 @@ pub fn emit_loop<CT: ConstantTable>(
                     }
                     Expr::Atom(SyntaxObject {
                         ty: TokenType::Identifier(s),
+                        span: sp,
+                    }) if s == "i+" => {
+                        for expr in &list_of_tokens[1..] {
+                            emit_loop(expr, instructions, None, constant_map)?;
+                        }
+                        let pop_len = list_of_tokens[1..].len();
+
+                        instructions.push(Instruction::new_add_int(
+                            pop_len,
+                            SyntaxObject::new(TokenType::Identifier(s.to_string()), *sp),
+                        ));
+                        return Ok(());
+                    }
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        span: sp,
+                    }) if s == "i-" => {
+                        for expr in &list_of_tokens[1..] {
+                            emit_loop(expr, instructions, None, constant_map)?;
+                        }
+                        let pop_len = list_of_tokens[1..].len();
+
+                        instructions.push(Instruction::new_sub_int(
+                            pop_len,
+                            SyntaxObject::new(TokenType::Identifier(s.to_string()), *sp),
+                        ));
+                        return Ok(());
+                    }
+                    Expr::Atom(SyntaxObject {
+                        ty: TokenType::Identifier(s),
                         ..
                     }) if s == "return!" => {
                         check_length("return!", &list_of_tokens, 2)?;

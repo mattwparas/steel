@@ -40,6 +40,11 @@ pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>;
 pub type StructClosureSignature = fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<Gc<SteelVal>>;
 
+// This would mean we would have to rewrite literally everything to not return Gc'd values,
+// but it would also make linked lists like impossible to use
+// Because the internals of the linked list wouldn't be as easy to use with easy shared usage
+pub type PossibleOtherFunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
+
 // Do something like this:
 // vector of async functions
 // then for a wait group, make a closure that looks something like this:

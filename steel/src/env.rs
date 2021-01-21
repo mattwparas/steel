@@ -18,6 +18,8 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use ahash::RandomState;
+
 // use crate::rvals::FutureResult;
 
 // use std::mem;
@@ -173,9 +175,9 @@ impl CoreModuleConfig {
 
 #[derive(Debug)]
 pub struct Env {
-    bindings: HashMap<String, Gc<SteelVal>>,
+    // bindings: HashMap<String, Gc<SteelVal>>,
     bindings_vec: Vec<Gc<SteelVal>>,
-    bindings_map: HashMap<usize, Gc<SteelVal>>,
+    bindings_map: HashMap<usize, Gc<SteelVal>, RandomState>,
     offset: usize,
     parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
@@ -192,7 +194,7 @@ pub struct Env {
 impl Drop for Env {
     fn drop(&mut self) {
         self.heap.clear();
-        self.clear_bindings();
+        // self.clear_bindings();
         self.heap.clear();
         // self.module.clear();
         self.bindings_vec.clear();
@@ -205,26 +207,26 @@ pub trait MacroEnv {
 
 // Don't love this one, but for now it'll suffice
 // TODO
-impl MacroEnv for Rc<RefCell<Env>> {
-    fn validate_identifier(&self, name: &str) -> bool {
-        self.borrow().lookup(name).is_ok()
-    }
-}
+// impl MacroEnv for Rc<RefCell<Env>> {
+//     fn validate_identifier(&self, name: &str) -> bool {
+//         self.borrow().lookup(name).is_ok()
+//     }
+// }
 
-impl MacroEnv for &Rc<RefCell<Env>> {
-    fn validate_identifier(&self, name: &str) -> bool {
-        self.borrow().lookup(name).is_ok()
-    }
-}
+// impl MacroEnv for &Rc<RefCell<Env>> {
+//     fn validate_identifier(&self, name: &str) -> bool {
+//         self.borrow().lookup(name).is_ok()
+//     }
+// }
 
 impl Env {
     /// Make a new `Env` from
     /// another parent `Env`.
     pub fn new(parent: &Rc<RefCell<Self>>, offset: usize) -> Self {
         Env {
-            bindings: HashMap::new(),
+            // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
-            bindings_map: HashMap::new(),
+            bindings_map: HashMap::default(),
             offset,
             parent: Some(Rc::clone(&parent)),
             sub_expression: None,
@@ -300,9 +302,9 @@ impl Env {
 
     pub fn new_subexpression(sub_expression: Weak<RefCell<Self>>, offset: usize) -> Self {
         Env {
-            bindings: HashMap::new(),
+            // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
-            bindings_map: HashMap::new(),
+            bindings_map: HashMap::default(),
             offset,
             parent: None,
             sub_expression: Some(sub_expression),
@@ -360,9 +362,9 @@ impl Env {
     /// top level global env has no parent
     pub fn root() -> Self {
         Env {
-            bindings: HashMap::new(),
+            // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
-            bindings_map: HashMap::new(),
+            bindings_map: HashMap::default(),
             offset: 0,
             parent: None,
             sub_expression: None,
@@ -397,7 +399,7 @@ impl Env {
         &self.sub_expression
     }
 
-    pub fn bindings_map(&self) -> &HashMap<usize, Gc<SteelVal>> {
+    pub fn bindings_map(&self) -> &HashMap<usize, Gc<SteelVal>, RandomState> {
         &self.bindings_map
     }
 
@@ -405,13 +407,13 @@ impl Env {
     //     self.parent.is_some()
     // }
 
-    pub fn clear_bindings(&mut self) {
-        self.bindings.clear();
-    }
+    // pub fn clear_bindings(&mut self) {
+    //     self.bindings.clear();
+    // }
 
-    pub fn print_bindings(&self) {
-        println!("{:#?}", self.bindings);
-    }
+    // pub fn print_bindings(&self) {
+    //     println!("{:#?}", self.bindings);
+    // }
 
     pub fn string_bindings_vec(&self) -> String {
         // format!("{:?}", self.bindings_map)
@@ -424,17 +426,17 @@ impl Env {
         format!("{:?}", vec_str)
     }
 
-    pub fn bindings(&self) -> &HashMap<String, Gc<SteelVal>> {
-        &self.bindings
-    }
+    // pub fn bindings(&self) -> &HashMap<String, Gc<SteelVal>> {
+    //     &self.bindings
+    // }
 
     /// Within the current environment, bind
     /// identifier `key` to `val`
-    pub fn define(&mut self, key: String, val: Gc<SteelVal>) {
-        // println!("Defining: {} with val: {}", key, (*val).clone());
-        // println!("{:?}", self.bindings.keys());
-        self.bindings.insert(key, val);
-    }
+    // pub fn define(&mut self, key: String, val: Gc<SteelVal>) {
+    //     // println!("Defining: {} with val: {}", key, (*val).clone());
+    //     // println!("{:?}", self.bindings.keys());
+    //     self.bindings.insert(key, val);
+    // }
 
     pub fn define_idx(&mut self, idx: usize, val: Gc<SteelVal>) {
         // println!("Defining value: {:?} at idx: {}", val, idx);
@@ -476,42 +478,42 @@ impl Env {
         self.bindings_vec.pop();
     }
 
-    pub fn try_define(&mut self, key: &str, val: Gc<SteelVal>) {
-        if let Some(v) = self.bindings.get_mut(key) {
-            *v = val;
-        } else {
-            self.bindings.insert(key.to_string(), val);
-        }
+    // pub fn try_define(&mut self, key: &str, val: Gc<SteelVal>) {
+    //     if let Some(v) = self.bindings.get_mut(key) {
+    //         *v = val;
+    //     } else {
+    //         self.bindings.insert(key.to_string(), val);
+    //     }
 
-        // if self.bindings.contains_key(key) {
-        //     self.bindings.get_mut(k)
-        // } else {
+    //     // if self.bindings.contains_key(key) {
+    //     //     self.bindings.get_mut(k)
+    //     // } else {
 
-        // }
-    }
+    //     // }
+    // }
 
     /// Within the current environment,
     /// bind identifiers `keys` to `vals`
     /// throws arity mismatch if they don't have the same length
-    pub fn define_all(&mut self, keys: &[String], vals: Vec<Gc<SteelVal>>) -> Result<()> {
-        let expected_len = keys.len();
-        let actual_len = vals.len();
-        if expected_len != actual_len {
-            let e = format!(
-                "function expected {} params, got {}",
-                expected_len, actual_len
-            );
-            stop!(ArityMismatch => e);
-        }
-        // let iter = keys.iter().map(String::as_ref).zip(vals.into_iter());
-        let iter = keys.iter().cloned().zip(vals.into_iter());
-        self.define_zipped(iter);
-        Ok(())
-    }
+    // pub fn define_all(&mut self, keys: &[String], vals: Vec<Gc<SteelVal>>) -> Result<()> {
+    //     let expected_len = keys.len();
+    //     let actual_len = vals.len();
+    //     if expected_len != actual_len {
+    //         let e = format!(
+    //             "function expected {} params, got {}",
+    //             expected_len, actual_len
+    //         );
+    //         stop!(ArityMismatch => e);
+    //     }
+    //     // let iter = keys.iter().map(String::as_ref).zip(vals.into_iter());
+    //     let iter = keys.iter().cloned().zip(vals.into_iter());
+    //     self.define_zipped(iter);
+    //     Ok(())
+    // }
 
-    pub fn define_zipped(&mut self, zipped: impl Iterator<Item = (String, Gc<SteelVal>)>) {
-        zipped.for_each(|(param, arg)| self.define(param, arg))
-    }
+    // pub fn define_zipped(&mut self, zipped: impl Iterator<Item = (String, Gc<SteelVal>)>) {
+    //     zipped.for_each(|(param, arg)| self.define(param, arg))
+    // }
 
     /// Search starting from the current environment
     /// for `key`, looking through the parent chain in order.
@@ -520,39 +522,39 @@ impl Env {
     /// `key` with `val` and return old value.
     ///
     /// Otherwise, error with `FreeIdentifier`
-    pub fn set(&mut self, key: String, val: Gc<SteelVal>) -> Result<Gc<SteelVal>> {
-        // println!("GETTING INSIDE SET!");
+    // pub fn set(&mut self, key: String, val: Gc<SteelVal>) -> Result<Gc<SteelVal>> {
+    //     // println!("GETTING INSIDE SET!");
 
-        if self.bindings.contains_key(&key) {
-            // println!("Inside here...");
+    //     if self.bindings.contains_key(&key) {
+    //         // println!("Inside here...");
 
-            self.bindings
-                .insert(key.clone(), val)
-                .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string(), None))
-        } else {
-            if self.parent.is_some() {
-                match &self.parent {
-                    Some(par) => par.borrow_mut().set(key, val),
-                    None => {
-                        stop!(FreeIdentifier => key.to_string()); // Err(SteelErr::FreeIdentifier(name.to_string())),
-                    }
-                }
-            } else {
-                match &self.sub_expression {
-                    Some(par) => match par.upgrade() {
-                        Some(x) => x.borrow_mut().set(key, val),
-                        None => {
-                            stop!(Generic => "Parent subexpression was dropped looking for {}", key.to_string())
-                        }
-                    },
-                    None => {
-                        // println!("Somehow getting here!");
-                        stop!(FreeIdentifier => key.to_string())
-                    }
-                }
-            }
-        }
-    }
+    //         self.bindings
+    //             .insert(key.clone(), val)
+    //             .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string(), None))
+    //     } else {
+    //         if self.parent.is_some() {
+    //             match &self.parent {
+    //                 Some(par) => par.borrow_mut().set(key, val),
+    //                 None => {
+    //                     stop!(FreeIdentifier => key.to_string()); // Err(SteelErr::FreeIdentifier(name.to_string())),
+    //                 }
+    //             }
+    //         } else {
+    //             match &self.sub_expression {
+    //                 Some(par) => match par.upgrade() {
+    //                     Some(x) => x.borrow_mut().set(key, val),
+    //                     None => {
+    //                         stop!(Generic => "Parent subexpression was dropped looking for {}", key.to_string())
+    //                     }
+    //                 },
+    //                 None => {
+    //                     // println!("Somehow getting here!");
+    //                     stop!(FreeIdentifier => key.to_string())
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     /// Search starting from the current environment
     /// for `key`, looking through the parent chain in order.
@@ -560,18 +562,18 @@ impl Env {
     /// If found, remove the binding and return the value
     ///
     /// Otherwise, error with `FreeIdentifier`
-    pub fn remove(&mut self, key: &str) -> Result<Gc<SteelVal>> {
-        if self.bindings.contains_key(key) {
-            self.bindings
-                .remove(key)
-                .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string(), None))
-        } else {
-            match &self.parent {
-                Some(par) => par.borrow_mut().remove(key),
-                None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key.to_string())),
-            }
-        }
-    }
+    // pub fn remove(&mut self, key: &str) -> Result<Gc<SteelVal>> {
+    //     if self.bindings.contains_key(key) {
+    //         self.bindings
+    //             .remove(key)
+    //             .ok_or_else(|| SteelErr::FreeIdentifier(key.to_string(), None))
+    //     } else {
+    //         match &self.parent {
+    //             Some(par) => par.borrow_mut().remove(key),
+    //             None => stop!(FreeIdentifier => key), // Err(SteelErr::FreeIdentifier(key.to_string())),
+    //         }
+    //     }
+    // }
 
     // TODO could be better
     pub fn repl_lookup_idx(&self, idx: usize) -> Result<Gc<SteelVal>> {
@@ -723,56 +725,58 @@ impl Env {
     /// if found, return that value
     ///
     /// Otherwise, error with `FreeIdentifier`
-    pub fn lookup(&self, name: &str) -> Result<Gc<SteelVal>> {
-        // println!("Looking up: {}", name);
+    // pub fn lookup(&self, name: &str) -> Result<Gc<SteelVal>> {
+    //     // println!("Looking up: {}", name);
 
-        // println!("{:?}", self.bindings.keys());
-        if self.bindings.contains_key(name) {
-            // value needs to be cloned because
-            // user needs to be able to own a persistent value
-            // from Cell that may be modified later
-            Ok(Gc::clone(&self.bindings[name]))
-        } else {
-            // half assed module approach
-            // if !self.module.is_empty() {
-            //     for module in &self.module {
-            //         let res = module.lookup(name);
-            //         if res.is_ok() {
-            //             return res;
-            //         }
-            //     }
-            // }
+    //     // println!("{:?}", self.bindings.keys());
+    //     if self.bindings.contains_key(name) {
+    //         // value needs to be cloned because
+    //         // user needs to be able to own a persistent value
+    //         // from Cell that may be modified later
+    //         Ok(Gc::clone(&self.bindings[name]))
+    //     } else {
+    //         // half assed module approach
+    //         // if !self.module.is_empty() {
+    //         //     for module in &self.module {
+    //         //         let res = module.lookup(name);
+    //         //         if res.is_ok() {
+    //         //             return res;
+    //         //         }
+    //         //     }
+    //         // }
 
-            if self.parent.is_some() {
-                match &self.parent {
-                    Some(par) => par.borrow().lookup(name),
-                    None => {
-                        stop!(FreeIdentifier => name); // Err(SteelErr::FreeIdentifier(name.to_string())),
-                    }
-                }
-            } else {
-                match &self.sub_expression {
-                    Some(par) => match par.upgrade() {
-                        Some(x) => x.borrow().lookup(name),
-                        None => {
-                            stop!(Generic => "Parent subexpression was dropped looking for {}", name)
-                        }
-                    },
-                    None => stop!(FreeIdentifier => name),
-                }
-            }
-        }
-    }
+    //         if self.parent.is_some() {
+    //             match &self.parent {
+    //                 Some(par) => par.borrow().lookup(name),
+    //                 None => {
+    //                     stop!(FreeIdentifier => name); // Err(SteelErr::FreeIdentifier(name.to_string())),
+    //                 }
+    //             }
+    //         } else {
+    //             match &self.sub_expression {
+    //                 Some(par) => match par.upgrade() {
+    //                     Some(x) => x.borrow().lookup(name),
+    //                     None => {
+    //                         stop!(Generic => "Parent subexpression was dropped looking for {}", name)
+    //                     }
+    //                 },
+    //                 None => stop!(FreeIdentifier => name),
+    //             }
+    //         }
+    //     }
+    // }
+
     /// default environment contains bindings for
     /// implementations of constants and things like
     /// `car`, `cdr`, `+`
     pub fn default_env() -> Env {
         let mut env = Env::root();
-        env.define_zipped(
-            Env::default_bindings()
-                .into_iter()
-                .map(|x| (x.0.to_string(), Gc::new(x.1))),
-        );
+
+        // env.define_zipped(
+        //     Env::default_bindings()
+        //         .into_iter()
+        //         .map(|x| (x.0.to_string(), Gc::new(x.1))),
+        // );
 
         for (idx, val) in Env::default_bindings().into_iter().enumerate() {
             env.define_idx(idx, Gc::new(val.1));
@@ -1033,12 +1037,12 @@ impl Env {
     pub fn default_bindings() -> Vec<(&'static str, SteelVal)> {
         vec![
             ("+", NumOperations::adder()),
-            ("i+", NumOperations::integer_add()),
+            // ("i+", NumOperations::integer_add()),
             ("f+", NumOperations::float_add()),
             ("*", NumOperations::multiply()),
             ("/", NumOperations::divide()),
             ("-", NumOperations::subtract()),
-            ("i-", NumOperations::integer_sub()),
+            // ("i-", NumOperations::integer_sub()),
             ("list", ListOperations::list()),
             ("car", ListOperations::car()),
             ("cdr", ListOperations::cdr()),
@@ -1187,33 +1191,33 @@ impl Env {
 #[cfg(test)]
 mod env_tests {
     use super::*;
-    fn unwrap_single_float(exp: &SteelVal) -> Result<f64> {
+    fn _unwrap_single_float(exp: &SteelVal) -> Result<f64> {
         match exp {
             SteelVal::NumV(num) => Ok(*num),
             _ => stop!(TypeMismatch => "expected a number"),
         }
     }
-    #[test]
-    fn env_basic() {
-        // default_env <- c1 <- c2
-        let default_env = Rc::new(RefCell::new(Env::default_env()));
-        assert!(default_env.borrow().lookup("+").is_ok());
-        let c1 = Rc::new(RefCell::new(Env::new(&default_env, 0)));
-        c1.borrow_mut()
-            .define("x".to_owned(), Gc::new(SteelVal::NumV(1.0)));
-        let c2 = Rc::new(RefCell::new(Env::new(&c1, 0)));
-        c2.borrow_mut()
-            .define("y".to_owned(), Gc::new(SteelVal::NumV(2.0)));
-        assert!(default_env.borrow_mut().lookup("+").is_ok());
-        assert!(c2.borrow_mut().lookup("+").is_ok());
-        assert_eq!(
-            unwrap_single_float(&c2.borrow_mut().lookup("y").unwrap()).unwrap(),
-            2.0
-        );
-        assert_eq!(
-            unwrap_single_float(&c2.borrow_mut().lookup("x").unwrap()).unwrap(),
-            1.0
-        );
-        assert!(c2.borrow_mut().lookup("z").is_err());
-    }
+    // #[test]
+    // fn env_basic() {
+    //     // default_env <- c1 <- c2
+    //     let default_env = Rc::new(RefCell::new(Env::default_env()));
+    //     assert!(default_env.borrow().lookup("+").is_ok());
+    //     let c1 = Rc::new(RefCell::new(Env::new(&default_env, 0)));
+    //     c1.borrow_mut()
+    //         .define("x".to_owned(), Gc::new(SteelVal::NumV(1.0)));
+    //     let c2 = Rc::new(RefCell::new(Env::new(&c1, 0)));
+    //     c2.borrow_mut()
+    //         .define("y".to_owned(), Gc::new(SteelVal::NumV(2.0)));
+    //     assert!(default_env.borrow_mut().lookup("+").is_ok());
+    //     assert!(c2.borrow_mut().lookup("+").is_ok());
+    //     assert_eq!(
+    //         unwrap_single_float(&c2.borrow_mut().lookup("y").unwrap()).unwrap(),
+    //         2.0
+    //     );
+    //     assert_eq!(
+    //         unwrap_single_float(&c2.borrow_mut().lookup("x").unwrap()).unwrap(),
+    //         1.0
+    //     );
+    //     assert!(c2.borrow_mut().lookup("z").is_err());
+    // }
 }

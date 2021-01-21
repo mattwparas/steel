@@ -577,11 +577,11 @@ mod parse_macro_tests {
     use crate::parser::ParseError;
     use crate::parser::Parser;
 
-    use std::cell::RefCell;
+    // use std::cell::RefCell;
     use std::rc::Rc;
 
     // TODO migrate away from using Env in these tests
-    use crate::env::Env;
+    // use crate::env::Env;
 
     #[test]
     fn parse_single_syntax_rules() {
@@ -619,7 +619,8 @@ mod parse_macro_tests {
             ]),
         ];
 
-        let default_env = Rc::new(RefCell::new(Env::default_env()));
+        // let default_env = Rc::new(RefCell::new(Env::default_env()));
+        let default_env = crate::steel_compiler::expand::MacroSet::new();
         let res = SteelMacro::parse_from_tokens(&input[1..], &default_env);
 
         let expected = SteelMacro {
@@ -820,7 +821,8 @@ mod parse_macro_tests {
 
     fn generate_macro_and_assert(s: &str, expected: SteelMacro) {
         let input = parse_statement(s);
-        let default_env = Rc::new(RefCell::new(Env::default_env()));
+        // let default_env = Rc::new(RefCell::new(Env::default_env()));
+        let default_env = crate::steel_compiler::expand::MacroSet::new();
         let res = SteelMacro::parse_from_tokens(&input[1..], &default_env);
 
         assert_eq!(res.unwrap(), expected);

@@ -394,8 +394,57 @@ pub fn vm<CT: ConstantTable>(
                 stack.push(VOID.with(|f| Gc::clone(f)));
                 ip += 1;
             }
+            OpCode::ADDINT => {
+                let args = stack.peek_range(stack.len() - cur_inst.payload_size as usize..);
+
+                let result = Gc::new(SteelVal::IntV(args.into_iter().try_fold(0, |acc, x| {
+                    if let SteelVal::IntV(v) = x.as_ref() {
+                        Ok(acc + v)
+                    } else {
+                        stop!(TypeMismatch => "i+ expected a number"; cur_inst.span)
+                    }
+                })?));
+
+                stack.truncate(stack.len() - cur_inst.payload_size as usize);
+                stack.push(result);
+                ip += 1;
+            }
+            OpCode::SUBINT => {
+                // unimplemented!();
+
+                let args = stack.peek_range(stack.len() - cur_inst.payload_size as usize..);
+
+                let initial_value = if let SteelVal::IntV(n) = &args[0].as_ref() {
+                    *n
+                } else {
+                    stop!(TypeMismatch => "i- expected a number"; cur_inst.span)
+                };
+
+                let result = Gc::new(SteelVal::IntV(args[1..].into_iter().try_fold(
+                    initial_value,
+                    |acc, x| {
+                        if let SteelVal::IntV(v) = x.as_ref() {
+                            Ok(acc - v)
+                        } else {
+                            stop!(TypeMismatch => "i- expected a number"; cur_inst.span)
+                        }
+                    },
+                )?));
+
+                stack.truncate(stack.len() - cur_inst.payload_size as usize);
+                stack.push(result);
+                ip += 1;
+
+                // let result = f(stack.peek_range(stack.len() - cur_inst.payload_size as usize..))
+                //     .map_err(|x| x.set_span(cur_inst.span))?;
+
+                // stack.truncate(stack.len() - cur_inst.payload_size as usize);
+
+                // stack.push(result);
+                // ip += 1;
+            }
             OpCode::STRUCT => {
-                let val = constants.get(cur_inst.payload_size);
+                let val = constants.get(cur_inst.payload_size as usize);
                 let mut iter = SteelVal::iter(val);
 
                 // List of indices e.g. '(25 26 27 28) to bind struct functions to
@@ -533,18 +582,18 @@ pub fn vm<CT: ConstantTable>(
                 let value_to_assign = stack.pop().unwrap();
                 // let variable = stack.pop().unwrap();
 
-                // println!("index: {}", cur_inst.payload_size);
+                // println!("index: {}", cur_inst.payload_size as usize);
 
                 if repl {
                     let value = global_env
                         .borrow_mut()
-                        .repl_set_idx(cur_inst.payload_size, value_to_assign)?;
+                        .repl_set_idx(cur_inst.payload_size as usize, value_to_assign)?;
 
                     // println!("Old value: {}", value);
                     stack.push(value);
                 } else {
                     unimplemented!();
-                    // let value = global_env.borrow().lookup_idx(cur_inst.payload_size)?;
+                    // let value = global_env.borrow().lookup_idx(cur_inst.payload_size as usize)?;
                     // stack.push(value);
                 }
                 ip += 1;
@@ -552,7 +601,7 @@ pub fn vm<CT: ConstantTable>(
                 // global_env.borrow_mut().defin
             }
             OpCode::PUSHCONST => {
-                let val = constants.get(cur_inst.payload_size);
+                let val = constants.get(cur_inst.payload_size as usize);
                 stack.push(val);
                 ip += 1;
             }
@@ -560,14 +609,18 @@ pub fn vm<CT: ConstantTable>(
                 // TODO future me figure out the annoying offset issue
                 // awful awful awful hack to fix the repl environment noise
                 if repl {
-                    let value = global_env.borrow().repl_lookup_idx(cur_inst.payload_size)?;
+                    let value = global_env
+                        .borrow()
+                        .repl_lookup_idx(cur_inst.payload_size as usize)?;
                     stack.push(value);
                 } else {
-                    let value = global_env.borrow().lookup_idx(cur_inst.payload_size)?;
+                    let value = global_env
+                        .borrow()
+                        .lookup_idx(cur_inst.payload_size as usize)?;
                     stack.push(value);
                 }
 
-                // let value = global_env.borrow().repl_lookup_idx(cur_inst.payload_size)?;
+                // let value = global_env.borrow().repl_lookup_idx(cur_inst.payload_size as usize)?;
                 // stack.push(value);
                 ip += 1;
             }
@@ -598,7 +651,7 @@ pub fn vm<CT: ConstantTable>(
                             stop!(Generic => "stack overflowed!"; cur_inst.span);
                         }
 
-                        // let args = stack.split_off(stack.len() - cur_inst.payload_size);
+                        // let args = stack.split_off(stack.len() - cur_inst.payload_size as usize);
 
                         let parent_env = closure.sub_expression_env();
 
@@ -737,33 +790,34 @@ pub fn vm<CT: ConstantTable>(
 
                 match stack_func.as_ref() {
                     SteelVal::StructClosureV(factory, func) => {
-                        let args = stack.split_off(stack.len() - cur_inst.payload_size);
+                        let args = stack.split_off(stack.len() - cur_inst.payload_size as usize);
                         let result = func(args, factory).map_err(|x| x.set_span(cur_inst.span))?;
                         stack.push(result);
                         ip += 1;
                     }
                     SteelVal::FuncV(f) => {
-                        let result = f(stack.peek_range(stack.len() - cur_inst.payload_size..))
-                            .map_err(|x| x.set_span(cur_inst.span))?;
+                        let result =
+                            f(stack.peek_range(stack.len() - cur_inst.payload_size as usize..))
+                                .map_err(|x| x.set_span(cur_inst.span))?;
 
-                        stack.truncate(stack.len() - cur_inst.payload_size);
+                        stack.truncate(stack.len() - cur_inst.payload_size as usize);
 
                         stack.push(result);
                         ip += 1;
                     }
                     SteelVal::FutureFunc(f) => {
                         let result = Gc::new(SteelVal::FutureV(f(
-                            stack.peek_range(stack.len() - cur_inst.payload_size..)
+                            stack.peek_range(stack.len() - cur_inst.payload_size as usize..)
                         )));
                         // .map_err(|x| x.set_span(cur_inst.span))?;
 
-                        stack.truncate(stack.len() - cur_inst.payload_size);
+                        stack.truncate(stack.len() - cur_inst.payload_size as usize);
                         stack.push(result);
                         ip += 1;
                     }
                     SteelVal::Closure(closure) => {
-                        if closure.arity() != cur_inst.payload_size {
-                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), cur_inst.payload_size); cur_inst.span);
+                        if closure.arity() != cur_inst.payload_size as usize {
+                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), cur_inst.payload_size as usize); cur_inst.span);
                         }
 
                         if stacks.len() == STACK_LIMIT {
@@ -772,7 +826,8 @@ pub fn vm<CT: ConstantTable>(
                             stop!(Generic => "stack overflowed!"; cur_inst.span);
                         }
 
-                        let args = stack.split_off(stack.len() - cur_inst.payload_size);
+                        // Use smallvec here?
+                        let args = stack.split_off(stack.len() - cur_inst.payload_size as usize);
 
                         let parent_env = closure.sub_expression_env();
 
@@ -827,16 +882,17 @@ pub fn vm<CT: ConstantTable>(
 
                 match stack_func.as_ref() {
                     SteelVal::StructClosureV(factory, func) => {
-                        let args = stack.split_off(stack.len() - cur_inst.payload_size);
+                        let args = stack.split_off(stack.len() - cur_inst.payload_size as usize);
                         let result = func(args, factory).map_err(|x| x.set_span(cur_inst.span))?;
                         stack.push(result);
                         ip += 1;
                     }
                     SteelVal::FuncV(f) => {
-                        let result = f(stack.peek_range(stack.len() - cur_inst.payload_size..))
-                            .map_err(|x| x.set_span(cur_inst.span))?;
+                        let result =
+                            f(stack.peek_range(stack.len() - cur_inst.payload_size as usize..))
+                                .map_err(|x| x.set_span(cur_inst.span))?;
 
-                        stack.truncate(stack.len() - cur_inst.payload_size);
+                        stack.truncate(stack.len() - cur_inst.payload_size as usize);
 
                         stack.push(result);
 
@@ -851,11 +907,11 @@ pub fn vm<CT: ConstantTable>(
                             stop!(Generic => "stack overflowed!"; cur_inst.span);
                         }
 
-                        if closure.arity() != cur_inst.payload_size {
-                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), cur_inst.payload_size); cur_inst.span);
+                        if closure.arity() != cur_inst.payload_size as usize {
+                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), cur_inst.payload_size as usize); cur_inst.span);
                         }
 
-                        let args = stack.split_off(stack.len() - cur_inst.payload_size);
+                        let args = stack.split_off(stack.len() - cur_inst.payload_size as usize);
 
                         let parent_env = closure.sub_expression_env();
                         // TODO remove this unwrap
@@ -903,13 +959,13 @@ pub fn vm<CT: ConstantTable>(
             OpCode::IF => {
                 // change to truthy...
                 if stack.pop().unwrap().is_truthy() {
-                    ip = cur_inst.payload_size;
+                    ip = cur_inst.payload_size as usize;
                 } else {
                     ip += 1;
                 }
             }
             OpCode::JMP => {
-                ip = cur_inst.payload_size;
+                ip = cur_inst.payload_size as usize;
                 // HACk
                 if ip == 0 && heap.len() > heap.limit() {
                     // info!("Collecting garbage on JMP with heap length: {}", heap.len());
@@ -927,7 +983,7 @@ pub fn vm<CT: ConstantTable>(
                 if pop_count == 0 {
                     env_stack.clear();
 
-                    if cur_inst.payload_size == 1 {
+                    if cur_inst.payload_size as usize == 1 {
                         global_env.borrow_mut().set_binding_context(true);
                     }
 
@@ -957,26 +1013,27 @@ pub fn vm<CT: ConstantTable>(
             OpCode::BIND => {
                 // global_env
                 //     .borrow_mut()
-                //     .repl_define_idx(cur_inst.payload_size, stack.pop().unwrap());
+                //     .repl_define_idx(cur_inst.payload_size as usize, stack.pop().unwrap());
 
                 // TODO leave this here for future me to figure out the offset stuff
                 if repl {
                     global_env
                         .borrow_mut()
-                        .repl_define_idx(cur_inst.payload_size, stack.pop().unwrap());
+                        .repl_define_idx(cur_inst.payload_size as usize, stack.pop().unwrap());
                 } else {
                     let offset = global_env.borrow().local_offset();
 
-                    global_env
-                        .borrow_mut()
-                        .define_idx(cur_inst.payload_size - offset, stack.pop().unwrap());
+                    global_env.borrow_mut().define_idx(
+                        cur_inst.payload_size as usize - offset,
+                        stack.pop().unwrap(),
+                    );
                 }
 
                 ip += 1;
             }
             OpCode::SCLOSURE => {
                 ip += 1;
-                let forward_jump = cur_inst.payload_size - 1;
+                let forward_jump = cur_inst.payload_size as usize - 1;
                 // Snag the number of definitions here
                 let ndefs = instructions[ip].payload_size;
                 ip += 1;
@@ -1002,7 +1059,7 @@ pub fn vm<CT: ConstantTable>(
                 };
 
                 // set the number of definitions for the environment
-                capture_env.borrow_mut().set_ndefs(ndefs);
+                capture_env.borrow_mut().set_ndefs(ndefs as usize);
 
                 // println!("Adding the capture_env to the heap!");
                 heap.add(Rc::clone(&capture_env));
@@ -1011,8 +1068,8 @@ pub fn vm<CT: ConstantTable>(
                     closure_body,
                     Rc::downgrade(&capture_env),
                     closure_offset,
-                    arity,
-                    ndefs,
+                    arity as usize,
+                    ndefs as usize,
                 );
 
                 stack.push(Gc::new(SteelVal::Closure(constructed_lambda)));
