@@ -18,6 +18,8 @@ use crate::gc::Gc;
 use std::convert::TryFrom;
 
 use log::info;
+
+use super::constants::ConstantMap;
 // use std::convert::TryInto;s
 
 pub fn emit_loop<CT: ConstantTable>(
@@ -638,7 +640,7 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
 }
 
 // Note, this should be called AFTER `transform_tail_call`
-fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> bool {
+pub fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> bool {
     let last_idx = instructions.len() - 1;
 
     // could panic

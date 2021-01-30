@@ -94,16 +94,16 @@ fn do_a_call() {
 fn main() {
     // env_logger::init();
 
-    // let mut builder = Builder::new();
+    let mut builder = Builder::new();
 
-    // builder
-    //     // .filter(Some("steel"), LevelFilter::Trace)
-    //     .filter(Some("steel_vm"), LevelFilter::Trace)
-    //     // .filter(None, LevelFilter::Error)
-    //     // .filter(None, LevelFilter::Warn)
-    //     // .filter(None, LevelFilter)
-    //     .write_style(WriteStyle::Always)
-    //     .init();
+    builder
+        // .filter(Some("steel"), LevelFilter::Trace)
+        .filter(Some("steel_vm"), LevelFilter::Trace)
+        // .filter(None, LevelFilter::Error)
+        // .filter(None, LevelFilter::Warn)
+        // .filter(None, LevelFilter)
+        .write_style(WriteStyle::Always)
+        .init();
 
     println!("gc steelval: {:?}", std::mem::size_of::<Gc<SteelVal>>());
 

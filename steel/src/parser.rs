@@ -64,6 +64,30 @@ pub enum Expr {
     VectorVal(Vec<Expr>),
 }
 
+// pub trait Node {
+//     // fn ();
+// }
+
+// pub enum TestExpr {
+//     Atom(SyntaxObject),
+//     Node(Box<dyn Node>),
+// }
+
+// struct If {
+//     test: TestExpr,
+//     then: TestExpr,
+//     els: TestExpr
+// }
+
+// struct Define {
+    
+// }
+
+// impl Node for If {
+
+// }
+
+
 impl Expr {
     pub fn vector_val_or_else<E, F: FnOnce() -> E>(
         &self,

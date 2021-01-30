@@ -195,9 +195,11 @@ impl Drop for Env {
     fn drop(&mut self) {
         self.heap.clear();
         // self.clear_bindings();
-        self.heap.clear();
+        // self.heap.clear();
         // self.module.clear();
         self.bindings_vec.clear();
+
+        self.heap.clear();
     }
 }
 

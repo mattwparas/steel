@@ -30,6 +30,8 @@ pub mod json_vals;
 pub mod lazy_stream;
 pub mod port;
 pub mod structs;
+
+pub mod new_parser;
 // pub mod vm;
 
 // #[cfg(test)]
