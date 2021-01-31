@@ -42,14 +42,34 @@ pub enum ExprKind {
     Execute(Box<Execute>),
     Quote(Box<Quote>),
     Struct(Box<Struct>),
-    Macro(Box<Macro>),
+    Macro(Macro),
+    SyntaxRules(SyntaxRules),
     Eval(Box<Eval>),
     List(List),
 }
 
 impl fmt::Display for ExprKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        unimplemented!();
+        match self {
+            ExprKind::Atom(a) => write!(f, "{}", a),
+            ExprKind::If(i) => write!(f, "{}", i),
+            ExprKind::Define(d) => write!(f, "{}", d),
+            ExprKind::DefineFunction(d) => write!(f, "{}", d),
+            ExprKind::LambdaFunction(l) => write!(f, "{}", l),
+            ExprKind::Begin(b) => write!(f, "{}", b),
+            ExprKind::Return(r) => write!(f, "{}", r),
+            ExprKind::Apply(a) => write!(f, "{}", a),
+            ExprKind::Panic(p) => write!(f, "{}", p),
+            ExprKind::Transduce(t) => write!(f, "{}", t),
+            ExprKind::Read(r) => write!(f, "{}", r),
+            ExprKind::Execute(e) => write!(f, "{}", e),
+            ExprKind::Quote(q) => write!(f, "{}", q),
+            ExprKind::Struct(s) => write!(f, "{}", s),
+            ExprKind::Macro(m) => write!(f, "{}", m),
+            ExprKind::SyntaxRules(s) => write!(f, "{}", s),
+            ExprKind::Eval(e) => write!(f, "{}", e),
+            ExprKind::List(l) => write!(f, "{}", l),
+        }
     }
 }
 
@@ -136,6 +156,12 @@ pub struct DefineFunction {
     // Insert a begin implicitly?
     pub body: Vec<ExprKind>,
     pub location: SyntaxObject,
+}
+
+impl fmt::Display for DefineFunction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        unimplemented!()
+    }
 }
 
 impl DefineFunction {
@@ -445,12 +471,59 @@ pub struct Macro {
     pub syntax_rules: SyntaxRules,
 }
 
+impl fmt::Display for Macro {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(define-syntax {} {}", self.name, self.syntax_rules)
+    }
+}
+
+impl Macro {
+    pub fn new(name: Atom, syntax_rules: SyntaxRules) -> Self {
+        Macro { name, syntax_rules }
+    }
+}
+
 // TODO figure out a good mapping immediately to a macro that can be interpreted
 // by the expander
 #[derive(Clone, Debug, PartialEq)]
 pub struct SyntaxRules {
     pub syntax: Vec<Atom>,
-    pub patterns: Vec<ExprKind>,
+    pub patterns: Vec<PatternPair>,
+}
+
+impl SyntaxRules {
+    pub fn new(syntax: Vec<Atom>, patterns: Vec<PatternPair>) -> Self {
+        SyntaxRules { syntax, patterns }
+    }
+}
+
+impl fmt::Display for SyntaxRules {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "(syntax-rules ({}) {})",
+            self.syntax.iter().map(|x| x.to_string()).join(" "),
+            self.patterns.iter().map(|x| x.to_string()).join("\n")
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PatternPair {
+    pub pattern: ExprKind,
+    pub body: ExprKind,
+}
+
+impl PatternPair {
+    pub fn new(pattern: ExprKind, body: ExprKind) -> Self {
+        PatternPair { pattern, body }
+    }
+}
+
+impl fmt::Display for PatternPair {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[{}\n{}]", self.pattern, self.body)
+    }
 }
 
 impl TryFrom<Vec<ExprKind>> for ExprKind {
@@ -460,13 +533,6 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
             match f {
                 ExprKind::Atom(a) => {
                     match &a.syn.ty {
-                        // TokenType::CharacterLiteral(_) => {}
-                        // TokenType::Comment => {}
-                        // TokenType::BooleanLiteral(_) => {}
-                        // TokenType::Identifier(_) => {}
-                        // TokenType::NumberLiteral(_) => {}
-                        // TokenType::IntegerLiteral(_) => {}
-                        // TokenType::StringLiteral(_) => {}
                         TokenType::If => {
                             if value.len() != 4 {
                                 return Err(ParseError::UnexpectedEOF);
@@ -804,6 +870,109 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     syn.span,
                                 ));
                             }
+                        }
+                        TokenType::DefineSyntax => {
+                            let syn = a.syn.clone();
+
+                            if value.len() < 3 {
+                                return Err(ParseError::SyntaxError(
+                                    format!("define-syntax expects 2 arguments - the name of the macro and the syntax-rules, found {}", value.len()), syn.span
+                                ));
+                            }
+
+                            let mut value_iter = value.into_iter();
+                            value_iter.next();
+                            let name = if let Some(ExprKind::Atom(a)) = value_iter.next() {
+                                a
+                            } else {
+                                return Err(ParseError::SyntaxError(
+                                    "define-syntax expects an identifier for the name of the macro"
+                                        .to_string(),
+                                    syn.span,
+                                ));
+                            };
+
+                            let syntax_rules =
+                                if let Some(ExprKind::SyntaxRules(s)) = value_iter.next() {
+                                    s
+                                } else {
+                                    return Err(ParseError::SyntaxError(
+                                        "define-syntax expected a syntax-rules object".to_string(),
+                                        syn.span,
+                                    ));
+                                };
+
+                            return Ok(ExprKind::Macro(Macro::new(name, syntax_rules)));
+                        }
+                        TokenType::SyntaxRules => {
+                            let syn = a.syn.clone();
+
+                            if value.len() < 3 {
+                                return Err(ParseError::SyntaxError(
+                                    format!("syntax-rules expects a list of introduced syntax, and at least one pattern-body pair, found {} arguments", value.len()), syn.span
+                                ));
+                            }
+
+                            let mut value_iter = value.into_iter();
+                            value_iter.next();
+
+                            let syntax_vec = if let Some(ExprKind::List(l)) = value_iter.next() {
+                                // unimplemented!();
+                                let mut syn_vec = Vec::new();
+
+                                for form in l.args {
+                                    if let ExprKind::Atom(a) = form {
+                                        if let TokenType::Identifier(_) = a.syn.ty {
+                                            syn_vec.push(a)
+                                        } else {
+                                            return Err(ParseError::SyntaxError(
+                                                "syntax-rules expects identifiers in the list of new syntaxes"
+                                                    .to_string(),
+                                                syn.span,
+                                            ));
+                                        }
+                                    } else {
+                                        return Err(ParseError::SyntaxError(
+                                            "syntax-rules expects identifiers in the list of new syntaxes"
+                                                .to_string(),
+                                            syn.span,
+                                        ));
+                                    };
+                                }
+
+                                syn_vec
+                            } else {
+                                return Err(ParseError::SyntaxError(
+                                    "syntax-rules expects a list of new syntax forms used in the macro".to_string(), syn.span));
+                            };
+
+                            let mut pairs = Vec::new();
+                            let rest: Vec<_> = value_iter.collect();
+
+                            for pair in rest {
+                                if let ExprKind::List(l) = pair {
+                                    if l.args.len() != 2 {
+                                        return Err(ParseError::SyntaxError(
+                                            "syntax-rules requires only one pattern to one body"
+                                                .to_string(),
+                                            syn.span,
+                                        ));
+                                    }
+
+                                    let mut pair_iter = l.args.into_iter();
+                                    let pair_object = PatternPair::new(
+                                        pair_iter.next().unwrap(),
+                                        pair_iter.next().unwrap(),
+                                    );
+                                    pairs.push(pair_object);
+                                } else {
+                                    return Err(ParseError::SyntaxError(
+                                        "syntax-rules requires pattern to expressions to be in a list".to_string(), syn.span
+                                    ));
+                                }
+                            }
+
+                            return Ok(ExprKind::SyntaxRules(SyntaxRules::new(syntax_vec, pairs)));
                         }
                         TokenType::Identifier(_) => {
                             return Ok(ExprKind::List(List::new(value)));

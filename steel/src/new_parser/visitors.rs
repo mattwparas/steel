@@ -66,6 +66,7 @@ pub trait VisitorMut {
             ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
         }
     }
 
@@ -86,6 +87,7 @@ pub trait VisitorMut {
     fn visit_eval(&mut self, e: &Eval) -> Self::Output;
     fn visit_atom(&mut self, a: &Atom) -> Self::Output;
     fn visit_list(&mut self, l: &List) -> Self::Output;
+    fn visit_syntax_rules(&mut self, l: &SyntaxRules) -> Self::Output;
 }
 
 // TODO
@@ -111,6 +113,7 @@ pub trait VisitorMutResult {
             ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
         }
     }
 
@@ -131,6 +134,7 @@ pub trait VisitorMutResult {
     fn visit_eval(&mut self, e: &Eval) -> Result<Self::Output>;
     fn visit_atom(&mut self, e: &Atom) -> Result<Self::Output>;
     fn visit_list(&mut self, l: &List) -> Result<Self::Output>;
+    fn visit_syntax_rules(&mut self, l: &SyntaxRules) -> Result<Self::Output>;
 }
 
 pub trait Visitor {
@@ -155,6 +159,7 @@ pub trait Visitor {
             ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
         }
     }
 
@@ -175,6 +180,7 @@ pub trait Visitor {
     fn visit_eval(&self, e: &Eval) -> Self::Output;
     fn visit_atom(&self, a: &Atom) -> Self::Output;
     fn visit_list(&self, l: &List) -> Self::Output;
+    fn visit_syntax_rules(&self, l: &SyntaxRules) -> Self::Output;
 }
 
 pub trait ConsumingVisitor {
@@ -198,6 +204,7 @@ pub trait ConsumingVisitor {
             ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
         }
     }
 
@@ -216,10 +223,11 @@ pub trait ConsumingVisitor {
     fn visit_execute(self: Box<Self>, execute: Box<Execute>) -> Self::Output;
     fn visit_quote(self: Box<Self>, quote: Box<Quote>) -> Self::Output;
     fn visit_struct(self: Box<Self>, s: Box<Struct>) -> Self::Output;
-    fn visit_macro(self: Box<Self>, m: Box<Macro>) -> Self::Output;
+    fn visit_macro(self: Box<Self>, m: Macro) -> Self::Output;
     fn visit_eval(self: Box<Self>, e: Box<Eval>) -> Self::Output;
     fn visit_atom(self: Box<Self>, a: Atom) -> Self::Output;
     fn visit_list(self: Box<Self>, l: List) -> Self::Output;
+    fn visit_syntax_rules(self: Box<Self>, l: SyntaxRules) -> Self::Output;
 }
 
 // pub trait VisitChildren<T> {
