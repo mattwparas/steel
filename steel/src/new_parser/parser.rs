@@ -346,50 +346,36 @@ impl<'a> Parser<'a> {
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF))
                                 .map(|x| self.construct_quote(x, token.span));
-                            match quote_inner {
-                                Ok(expr) => current_frame.push(expr),
-                                Err(e) => return Err(e),
-                            }
+
+                            current_frame.push(quote_inner?);
                         }
                         TokenType::Unquote => {
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF))
                                 .map(|x| self.construct_unquote(x, token.span));
-                            match quote_inner {
-                                Ok(expr) => current_frame.push(expr),
-                                Err(e) => return Err(e),
-                            }
+                            current_frame.push(quote_inner?);
                         }
                         TokenType::QuasiQuote => {
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF))
                                 .map(|x| self.construct_quasiquote(x, token.span));
-                            match quote_inner {
-                                Ok(expr) => current_frame.push(expr),
-                                Err(e) => return Err(e),
-                            }
+                            current_frame.push(quote_inner?);
                         }
                         TokenType::UnquoteSplice => {
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF))
                                 .map(|x| self.construct_unquote_splicing(x, token.span));
-                            match quote_inner {
-                                Ok(expr) => current_frame.push(expr),
-                                Err(e) => return Err(e),
-                            }
+                            current_frame.push(quote_inner?);
                         }
                         TokenType::Hash => {
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF))
                                 .map(|x| self.construct_lambda_shorthand(x, token.span));
-                            match quote_inner {
-                                Ok(expr) => current_frame.push(expr),
-                                Err(e) => return Err(e),
-                            }
+                            current_frame.push(quote_inner?);
                         }
                         TokenType::OpenParen => {
                             stack.push(current_frame);

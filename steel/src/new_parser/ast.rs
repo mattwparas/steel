@@ -31,7 +31,6 @@ pub enum ExprKind {
     Atom(Atom),
     If(Box<If>),
     Define(Box<Define>),
-    DefineFunction(Box<DefineFunction>),
     LambdaFunction(Box<LambdaFunction>),
     Begin(Begin),
     Return(Box<Return>),
@@ -54,7 +53,6 @@ impl fmt::Display for ExprKind {
             ExprKind::Atom(a) => write!(f, "{}", a),
             ExprKind::If(i) => write!(f, "{}", i),
             ExprKind::Define(d) => write!(f, "{}", d),
-            ExprKind::DefineFunction(d) => write!(f, "{}", d),
             ExprKind::LambdaFunction(l) => write!(f, "{}", l),
             ExprKind::Begin(b) => write!(f, "{}", b),
             ExprKind::Return(r) => write!(f, "{}", r),
@@ -87,6 +85,12 @@ impl Atom {
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.syn.ty.to_string())
+    }
+}
+
+impl From<Atom> for ExprKind {
+    fn from(val: Atom) -> Self {
+        ExprKind::Atom(val)
     }
 }
 
@@ -124,6 +128,12 @@ impl If {
     }
 }
 
+impl From<If> for ExprKind {
+    fn from(val: If) -> Self {
+        ExprKind::If(Box::new(val))
+    }
+}
+
 // Define normal
 #[derive(Clone, Debug, PartialEq)]
 pub struct Define {
@@ -149,36 +159,42 @@ impl Define {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct DefineFunction {
-    pub name: ExprKind,
-    pub args: Vec<ExprKind>,
-    // Insert a begin implicitly?
-    pub body: Vec<ExprKind>,
-    pub location: SyntaxObject,
-}
-
-impl fmt::Display for DefineFunction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        unimplemented!()
+impl From<Define> for ExprKind {
+    fn from(val: Define) -> Self {
+        ExprKind::Define(Box::new(val))
     }
 }
 
-impl DefineFunction {
-    pub fn new(
-        name: ExprKind,
-        args: Vec<ExprKind>,
-        body: Vec<ExprKind>,
-        location: SyntaxObject,
-    ) -> Self {
-        DefineFunction {
-            name,
-            args,
-            body,
-            location,
-        }
-    }
-}
+// #[derive(Clone, Debug, PartialEq)]
+// pub struct DefineFunction {
+//     pub name: ExprKind,
+//     pub args: Vec<ExprKind>,
+//     // Insert a begin implicitly?
+//     pub body: Vec<ExprKind>,
+//     pub location: SyntaxObject,
+// }
+
+// impl fmt::Display for DefineFunction {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         unimplemented!()
+//     }
+// }
+
+// impl DefineFunction {
+//     pub fn new(
+//         name: ExprKind,
+//         args: Vec<ExprKind>,
+//         body: Vec<ExprKind>,
+//         location: SyntaxObject,
+//     ) -> Self {
+//         DefineFunction {
+//             name,
+//             args,
+//             body,
+//             location,
+//         }
+//     }
+// }
 
 // Immediately parse into a begin
 // otherwise its relatively
@@ -210,6 +226,12 @@ impl LambdaFunction {
     }
 }
 
+impl From<LambdaFunction> for ExprKind {
+    fn from(val: LambdaFunction) -> Self {
+        ExprKind::LambdaFunction(Box::new(val))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Begin {
     pub exprs: Vec<ExprKind>,
@@ -225,6 +247,12 @@ impl fmt::Display for Begin {
 impl Begin {
     pub fn new(exprs: Vec<ExprKind>, location: SyntaxObject) -> Self {
         Begin { exprs, location }
+    }
+}
+
+impl From<Begin> for ExprKind {
+    fn from(val: Begin) -> Self {
+        ExprKind::Begin(val)
     }
 }
 
@@ -246,6 +274,12 @@ impl fmt::Display for Return {
     }
 }
 
+impl From<Return> for ExprKind {
+    fn from(val: Return) -> Self {
+        ExprKind::Return(Box::new(val))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct List {
     pub args: Vec<ExprKind>,
@@ -260,6 +294,12 @@ impl List {
 impl fmt::Display for List {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "({})", self.args.iter().join(" "))
+    }
+}
+
+impl From<List> for ExprKind {
+    fn from(val: List) -> Self {
+        ExprKind::List(val)
     }
 }
 
@@ -286,6 +326,12 @@ impl fmt::Display for Apply {
     }
 }
 
+impl From<Apply> for ExprKind {
+    fn from(val: Apply) -> Self {
+        ExprKind::Apply(Box::new(val))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Panic {
     pub message: ExprKind,
@@ -301,6 +347,12 @@ impl Panic {
 impl fmt::Display for Panic {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(panic {})", self.message)
+    }
+}
+
+impl From<Panic> for ExprKind {
+    fn from(val: Panic) -> Self {
+        ExprKind::Panic(Box::new(val))
     }
 }
 
@@ -342,6 +394,12 @@ impl Transduce {
     }
 }
 
+impl From<Transduce> for ExprKind {
+    fn from(val: Transduce) -> Self {
+        ExprKind::Transduce(Box::new(val))
+    }
+}
+
 // impl Transduce {
 //     fn accept(visitor_mut: &mut impl VisitorMut) {
 //         visitor_mut.visit(expr)
@@ -362,6 +420,12 @@ impl fmt::Display for Read {
 impl Read {
     pub fn new(expr: ExprKind, location: SyntaxObject) -> Self {
         Read { expr, location }
+    }
+}
+
+impl From<Read> for ExprKind {
+    fn from(val: Read) -> Self {
+        ExprKind::Read(Box::new(val))
     }
 }
 
@@ -399,6 +463,12 @@ impl Execute {
     }
 }
 
+impl From<Execute> for ExprKind {
+    fn from(val: Execute) -> Self {
+        ExprKind::Execute(Box::new(val))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Struct {
     pub name: ExprKind,
@@ -427,6 +497,12 @@ impl Struct {
     }
 }
 
+impl From<Struct> for ExprKind {
+    fn from(val: Struct) -> Self {
+        ExprKind::Struct(Box::new(val))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Quote {
     pub expr: ExprKind,
@@ -442,6 +518,12 @@ impl Quote {
 impl fmt::Display for Quote {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(quote {})", self.expr)
+    }
+}
+
+impl From<Quote> for ExprKind {
+    fn from(val: Quote) -> Self {
+        ExprKind::Quote(Box::new(val))
     }
 }
 
@@ -463,6 +545,12 @@ impl Eval {
     }
 }
 
+impl From<Eval> for ExprKind {
+    fn from(val: Eval) -> Self {
+        ExprKind::Eval(Box::new(val))
+    }
+}
+
 // TODO figure out how many fields a macro has
 // put it into here nicely
 #[derive(Clone, Debug, PartialEq)]
@@ -480,6 +568,12 @@ impl fmt::Display for Macro {
 impl Macro {
     pub fn new(name: Atom, syntax_rules: SyntaxRules) -> Self {
         Macro { name, syntax_rules }
+    }
+}
+
+impl From<Macro> for ExprKind {
+    fn from(val: Macro) -> Self {
+        ExprKind::Macro(val)
     }
 }
 
@@ -508,6 +602,12 @@ impl fmt::Display for SyntaxRules {
     }
 }
 
+impl From<SyntaxRules> for ExprKind {
+    fn from(val: SyntaxRules) -> Self {
+        ExprKind::SyntaxRules(val)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PatternPair {
     pub pattern: ExprKind,
@@ -526,260 +626,353 @@ impl fmt::Display for PatternPair {
     }
 }
 
+#[inline]
+fn parse_if<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
+where
+    I: Iterator<Item = ExprKind>,
+{
+    // let mut value_iter = value.into_iter();
+    value_iter.next();
+
+    let ret_value = If::new(
+        value_iter.next().ok_or_else(|| {
+            ParseError::SyntaxError(
+                "if expects a test condition, found none".to_string(),
+                syn.span,
+            )
+        })?,
+        value_iter.next().ok_or_else(|| {
+            ParseError::SyntaxError(
+                "if expects a then condition, found none".to_string(),
+                syn.span,
+            )
+        })?,
+        value_iter.next().ok_or_else(|| {
+            ParseError::SyntaxError(
+                "if expects an else condition, found none".to_string(),
+                syn.span,
+            )
+        })?,
+        syn.clone(),
+    )
+    .into();
+
+    if value_iter.next().is_some() {
+        Err(ParseError::SyntaxError(
+            "if takes only 3 expressions".to_string(),
+            syn.span,
+        ))
+    } else {
+        Ok(ret_value)
+    }
+}
+
+#[inline]
+fn parse_define<I>(
+    mut value_iter: I,
+    syn: SyntaxObject,
+) -> std::result::Result<ExprKind, ParseError>
+where
+    I: Iterator<Item = ExprKind>,
+{
+    value_iter.next();
+
+    match value_iter.next().ok_or_else(|| {
+        ParseError::SyntaxError(
+            "define expects an identifier, found none".to_string(),
+            syn.span,
+        )
+    })? {
+        // TODO maybe add implicit begin here
+        // maybe do it later, not sure
+        ExprKind::List(l) => {
+            let mut args = l.args.into_iter();
+
+            let name = args.next().ok_or_else(|| {
+                ParseError::SyntaxError(
+                    "define expected a function name, found none".to_string(),
+                    syn.span
+                )
+            })?;
+            let args = args.collect();
+
+            let body_exprs: Vec<_> = value_iter.collect();
+
+            let body = if body_exprs.len() == 1 {
+                body_exprs[0].clone()
+            } else {
+                ExprKind::Begin(Begin::new(
+                    body_exprs,
+                    SyntaxObject::default(TokenType::Begin),
+                ))
+            };
+
+            let lambda =
+                ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                    args,
+                    body,
+                    SyntaxObject::default(TokenType::Lambda),
+                )));
+
+            Ok(ExprKind::Define(Box::new(Define::new(
+                name, lambda, syn,
+            ))))
+        }
+        ExprKind::Atom(a) => {
+            Ok(ExprKind::Define(Box::new(Define::new(
+                ExprKind::Atom(a),
+                value_iter.next().ok_or_else(|| ParseError::SyntaxError("define statement expected a body, found none".to_string(), syn.span))?,
+                syn,
+            ))))
+        }
+
+        _ => {
+            Err(ParseError::SyntaxError(
+                format!(
+                    "Define expects either an identifier or a list with the function name and arguments"
+                ),
+                syn.span,
+            ))
+        }
+    }
+}
+
+#[inline]
+fn parse_let<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
+where
+    I: Iterator<Item = ExprKind>,
+{
+    value_iter.next();
+
+    let let_pairs = if let ExprKind::List(l) = value_iter.next().ok_or_else(|| {
+        ParseError::SyntaxError(
+            "let expected a list of variable bindings pairs in the second position, found none"
+                .to_string(),
+            syn.span,
+        )
+    })? {
+        l.args
+    } else {
+        return Err(ParseError::SyntaxError(
+            "let expects a list of variable bindings pairs in the second position".to_string(),
+            syn.span,
+        ));
+    };
+
+    let body_exprs: Vec<_> = value_iter.collect();
+    let body = if body_exprs.len() == 1 {
+        body_exprs[0].clone()
+    } else {
+        ExprKind::Begin(Begin::new(
+            body_exprs,
+            SyntaxObject::default(TokenType::Begin),
+        ))
+    };
+
+    let mut arguments = Vec::with_capacity(let_pairs.len());
+
+    // insert args at the end
+    // put the function in the inside
+    let mut application_args = Vec::with_capacity(let_pairs.len());
+
+    for pair in let_pairs {
+        if let ExprKind::List(l) = pair {
+            let pair = l.args;
+
+            if pair.len() != 2 {
+                return Err(ParseError::SyntaxError(
+                    format!("let expected a list of variable binding pairs, found a pair with length {}",
+                    pair.len()),
+                    syn.span
+                ));
+            }
+
+            let identifier = pair[0].clone();
+            let application_arg = pair[1].clone();
+
+            arguments.push(identifier);
+            application_args.push(application_arg);
+        } else {
+            return Err(ParseError::SyntaxError(
+                "let expected a list of variable binding pairs".to_string(),
+                syn.span,
+            ));
+        }
+    }
+
+    let mut function: Vec<ExprKind> =
+        vec![LambdaFunction::new(arguments, body, syn.clone()).into()];
+
+    function.append(&mut application_args);
+
+    return Ok(ExprKind::List(List::new(function)));
+}
+
+#[inline]
+fn parse_transduce<I>(
+    mut value_iter: I,
+    syn: SyntaxObject,
+) -> std::result::Result<ExprKind, ParseError>
+where
+    I: Iterator<Item = ExprKind>,
+{
+    value_iter.next();
+
+    let t = Transduce::new(
+        value_iter.next().ok_or_else(|| {
+            ParseError::SyntaxError(
+                "transducer expected a transducer, found none".to_string(),
+                syn.span,
+            )
+        })?,
+        value_iter.next().ok_or_else(|| {
+            ParseError::SyntaxError(
+                "transducer expected a function, found none".to_string(),
+                syn.span,
+            )
+        })?,
+        value_iter.next().ok_or_else(|| {
+            ParseError::SyntaxError(
+                "transducer expected a initial value, found none".to_string(),
+                syn.span,
+            )
+        })?,
+        value_iter.next().ok_or_else(|| {
+            ParseError::SyntaxError(
+                "transducer expected an iterable, found none".to_string(),
+                syn.span,
+            )
+        })?,
+        syn.clone(),
+    );
+
+    if value_iter.next().is_some() {
+        Err(ParseError::ArityMismatch(
+            "Transduce expected 4 arguments".to_string(),
+            syn.span,
+        ))
+    } else {
+        Ok(t.into())
+    }
+}
+
+#[inline]
+fn parse_quote<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
+where
+    I: Iterator<Item = ExprKind>,
+{
+    value_iter.next();
+
+    let quote = value_iter.next().ok_or_else(|| {
+        ParseError::ArityMismatch(
+            "quote expected one argument, found none".to_string(),
+            syn.span,
+        )
+    })?;
+
+    if value_iter.next().is_some() {
+        Err(ParseError::SyntaxError(
+            "quote expects only one argument".to_string(),
+            syn.span,
+        ))
+    } else {
+        Ok(Quote::new(quote, syn).into())
+    }
+}
+
+#[inline]
+fn parse_execute<I>(
+    mut value_iter: I,
+    syn: SyntaxObject,
+) -> std::result::Result<ExprKind, ParseError>
+where
+    I: Iterator<Item = ExprKind>,
+{
+    value_iter.next();
+
+    let transducer = value_iter.next().ok_or_else(|| ParseError::ArityMismatch("execute expects 2 (or possibly 3) arguments, and a transducer in the first position, found none".to_string(), syn.span))?;
+
+    let collection = value_iter.next().ok_or_else(|| ParseError::ArityMismatch("execute expects 2 (or possibly 3) arguments, and a collection in the second position, found none".to_string(), syn.span))?;
+
+    let output_type = value_iter.next();
+
+    if value_iter.next().is_some() {
+        Err(ParseError::SyntaxError(
+            "execute takes at most 3 arguments".to_string(),
+            syn.span,
+        ))
+    } else {
+        Ok(Execute::new(transducer, collection, output_type, syn).into())
+    }
+}
+
+#[inline]
+fn parse_return<I>(
+    mut value_iter: I,
+    syn: SyntaxObject,
+) -> std::result::Result<ExprKind, ParseError>
+where
+    I: Iterator<Item = ExprKind>,
+{
+    value_iter.next();
+
+    let quote = value_iter.next().ok_or_else(|| {
+        ParseError::ArityMismatch(
+            "return expected one argument, found none".to_string(),
+            syn.span,
+        )
+    })?;
+
+    if value_iter.next().is_some() {
+        Err(ParseError::SyntaxError(
+            "return expects only one argument".to_string(),
+            syn.span,
+        ))
+    } else {
+        Ok(Return::new(quote, syn).into())
+    }
+}
+
+#[inline]
+fn parse_panic<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
+where
+    I: Iterator<Item = ExprKind>,
+{
+    value_iter.next();
+
+    let quote = value_iter.next().ok_or_else(|| {
+        ParseError::ArityMismatch(
+            "panic expected one argument, found none".to_string(),
+            syn.span,
+        )
+    })?;
+
+    if value_iter.next().is_some() {
+        Err(ParseError::SyntaxError(
+            "panic expects only one argument".to_string(),
+            syn.span,
+        ))
+    } else {
+        Ok(Panic::new(quote, syn).into())
+    }
+}
+
 impl TryFrom<Vec<ExprKind>> for ExprKind {
     type Error = ParseError;
     fn try_from(value: Vec<ExprKind>) -> std::result::Result<Self, Self::Error> {
-        if let Some(f) = value.first() {
+        // let mut value = value.into_iter().peekable();
+        if let Some(f) = value.first().map(|x| x.clone()) {
             match f {
                 ExprKind::Atom(a) => {
+                    // let value = value.into_iter();
                     match &a.syn.ty {
-                        TokenType::If => {
-                            if value.len() != 4 {
-                                return Err(ParseError::UnexpectedEOF);
-                            }
-
-                            let syn = a.syn.clone();
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-
-                            return Ok(ExprKind::If(Box::new(If::new(
-                                value_iter.next().unwrap(),
-                                value_iter.next().unwrap(),
-                                value_iter.next().unwrap(),
-                                syn,
-                            ))));
-                        }
-                        TokenType::Define => {
-                            let length = value.len();
-                            let syn = a.syn.clone();
-
-                            if length < 3 {
-                                return Err(ParseError::ArityMismatch(
-                                    format!(
-                                        "Define requires at least 2 arguments, found {}",
-                                        length
-                                    ),
-                                    syn.span,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-
-                            match value_iter.next().unwrap() {
-                                // TODO maybe add implicit begin here
-                                // maybe do it later, not sure
-                                ExprKind::List(l) => {
-                                    let mut args = l.args.into_iter();
-
-                                    let name = args.next().unwrap();
-                                    let args = args.collect();
-
-                                    let body_exprs: Vec<_> = value_iter.collect();
-
-                                    let body = if body_exprs.len() == 1 {
-                                        body_exprs[0].clone()
-                                    } else {
-                                        ExprKind::Begin(Begin::new(
-                                            body_exprs,
-                                            SyntaxObject::default(TokenType::Begin),
-                                        ))
-                                    };
-
-                                    let lambda =
-                                        ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                                            args,
-                                            body,
-                                            SyntaxObject::default(TokenType::Lambda),
-                                        )));
-
-                                    return Ok(ExprKind::Define(Box::new(Define::new(
-                                        name, lambda, syn,
-                                    ))));
-                                }
-                                ExprKind::Atom(a) => {
-                                    return Ok(ExprKind::Define(Box::new(Define::new(
-                                        ExprKind::Atom(a),
-                                        value_iter.next().unwrap(),
-                                        syn,
-                                    ))));
-                                }
-
-                                _ => {
-                                    if length < 3 {
-                                        return Err(ParseError::SyntaxError(
-                                            format!(
-                                                "Define expects either an identifier or a list with the function name and arguments"
-                                            ),
-                                            syn.span,
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                        TokenType::Let => {
-                            if value.len() < 3 {
-                                return Err(ParseError::UnexpectedEOF);
-                            }
-                            let syn = a.syn.clone();
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-
-                            let let_pairs = if let ExprKind::List(l) = value_iter.next().unwrap() {
-                                l.args
-                            } else {
-                                return Err(ParseError::SyntaxError(
-                                    "let expects a list of variable bindings pairs in the second position".to_string(),
-                                    syn.span,
-                                ));
-                            };
-
-                            let body_exprs: Vec<_> = value_iter.collect();
-                            let body = if body_exprs.len() == 1 {
-                                body_exprs[0].clone()
-                            } else {
-                                ExprKind::Begin(Begin::new(
-                                    body_exprs,
-                                    SyntaxObject::default(TokenType::Begin),
-                                ))
-                            };
-
-                            let mut arguments = Vec::with_capacity(let_pairs.len());
-
-                            // insert args at the end
-                            // put the function in the inside
-                            let mut application_args = Vec::with_capacity(let_pairs.len());
-
-                            for pair in let_pairs {
-                                if let ExprKind::List(l) = pair {
-                                    let pair = l.args;
-
-                                    if pair.len() != 2 {
-                                        println!("getting in here!");
-                                        return Err(ParseError::UnexpectedEOF);
-                                    }
-
-                                    if pair.len() != 2 {
-                                        return Err(ParseError::SyntaxError(
-                                            format!("let expected a list of variable binding pairs, found a pair with length {}",
-                                            pair.len()),
-                                            syn.span
-                                        ));
-                                    }
-
-                                    let identifier = pair[0].clone();
-                                    let application_arg = pair[1].clone();
-
-                                    arguments.push(identifier);
-                                    application_args.push(application_arg);
-                                } else {
-                                    return Err(ParseError::SyntaxError(
-                                        "let expected a list of variable binding pairs".to_string(),
-                                        syn.span,
-                                    ));
-                                }
-                            }
-
-                            let mut function = vec![];
-
-                            function.push(ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                                arguments,
-                                body,
-                                syn.clone(),
-                            ))));
-
-                            function.append(&mut application_args);
-
-                            let return_value = ExprKind::List(List::new(function));
-
-                            return Ok(return_value);
-                        }
-                        TokenType::Transduce => {
-                            let syn = a.syn.clone();
-
-                            if value.len() != 5 {
-                                return Err(ParseError::ArityMismatch(
-                                    format!(
-                                        "Transduce expected 4 arguments, found {}",
-                                        value.len()
-                                    ),
-                                    syn.span,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            return Ok(ExprKind::Transduce(Box::new(Transduce::new(
-                                value_iter.next().unwrap(),
-                                value_iter.next().unwrap(),
-                                value_iter.next().unwrap(),
-                                value_iter.next().unwrap(),
-                                syn,
-                            ))));
-                        }
-                        TokenType::Quote => {
-                            let syn = a.syn.clone();
-
-                            if value.len() != 2 {
-                                return Err(ParseError::ArityMismatch(
-                                    format!(
-                                        "quote expected 1 argument, found {} instead",
-                                        value.len()
-                                    ),
-                                    syn.span,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            return Ok(ExprKind::Quote(Box::new(Quote::new(
-                                value_iter.next().unwrap(),
-                                syn,
-                            ))));
-                        }
-                        TokenType::Execute => {
-                            let syn = a.syn.clone();
-
-                            if value.len() < 2 || value.len() > 4 {
-                                return Err(ParseError::ArityMismatch(
-                                    format!(
-                                        "execute expected 3 (or possibly 4) arguments, found {} instead",
-                                        value.len()
-                                    ),
-                                    syn.span,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            return Ok(ExprKind::Execute(Box::new(Execute::new(
-                                value_iter.next().unwrap(),
-                                value_iter.next().unwrap(),
-                                value_iter.next(),
-                                syn,
-                            ))));
-                        }
-                        TokenType::Return => {
-                            let syn = a.syn.clone();
-
-                            if value.len() != 2 {
-                                return Err(ParseError::ArityMismatch(
-                                    format!(
-                                        "return expected 1 argument, found {} instead",
-                                        value.len()
-                                    ),
-                                    syn.span,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            return Ok(ExprKind::Return(Box::new(Return::new(
-                                value_iter.next().unwrap(),
-                                syn,
-                            ))));
-                        }
+                        TokenType::If => parse_if(value.into_iter(), a.syn.clone()),
+                        TokenType::Define => parse_define(value.into_iter(), a.syn.clone()),
+                        TokenType::Let => parse_let(value.into_iter(), a.syn.clone()),
+                        TokenType::Transduce => parse_transduce(value.into_iter(), a.syn.clone()),
+                        TokenType::Quote => parse_quote(value.into_iter(), a.syn.clone()),
+                        TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
+                        TokenType::Return => parse_return(value.into_iter(), a.syn.clone()),
                         TokenType::Begin => {
                             let syn = a.syn.clone();
 
@@ -795,28 +988,9 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             let mut value_iter = value.into_iter();
                             value_iter.next();
-                            return Ok(ExprKind::Begin(Begin::new(value_iter.collect(), syn)));
+                            Ok(ExprKind::Begin(Begin::new(value_iter.collect(), syn)))
                         }
-                        TokenType::Panic => {
-                            let syn = a.syn.clone();
-
-                            if value.len() != 2 {
-                                return Err(ParseError::ArityMismatch(
-                                    format!(
-                                        "panic expected 1 argument, found {} instead",
-                                        value.len()
-                                    ),
-                                    syn.span,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            return Ok(ExprKind::Panic(Box::new(Panic::new(
-                                value_iter.next().unwrap(),
-                                syn,
-                            ))));
-                        }
+                        TokenType::Panic => parse_panic(value.into_iter(), a.syn.clone()),
                         TokenType::Lambda => {
                             let syn = a.syn.clone();
 
@@ -861,14 +1035,14 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     ))
                                 };
 
-                                return Ok(ExprKind::LambdaFunction(Box::new(
-                                    LambdaFunction::new(args, body, syn),
-                                )));
+                                Ok(ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                                    args, body, syn,
+                                ))))
                             } else {
-                                return Err(ParseError::SyntaxError(
+                                Err(ParseError::SyntaxError(
                                     "lambda function expected a list of identifiers".to_string(),
                                     syn.span,
-                                ));
+                                ))
                             }
                         }
                         TokenType::DefineSyntax => {
@@ -902,7 +1076,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     ));
                                 };
 
-                            return Ok(ExprKind::Macro(Macro::new(name, syntax_rules)));
+                            Ok(ExprKind::Macro(Macro::new(name, syntax_rules)))
                         }
                         TokenType::SyntaxRules => {
                             let syn = a.syn.clone();
@@ -972,29 +1146,27 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 }
                             }
 
-                            return Ok(ExprKind::SyntaxRules(SyntaxRules::new(syntax_vec, pairs)));
+                            Ok(ExprKind::SyntaxRules(SyntaxRules::new(syntax_vec, pairs)))
                         }
                         TokenType::Identifier(_) => {
-                            return Ok(ExprKind::List(List::new(value)));
+                            Ok(ExprKind::List(List::new(value)))
                             // unimplemented!("Pass through the value as list")
                         }
                         // Application not a procedure, can catch this here for constants
-                        _ => {
-                            return Err(ParseError::SyntaxError(
-                                "illegal function application - application not a procedure"
-                                    .to_string(),
-                                a.syn.span.clone(),
-                            ))
-                        }
+                        _ => Err(ParseError::SyntaxError(
+                            "illegal function application - application not a procedure"
+                                .to_string(),
+                            a.syn.span.clone(),
+                        )),
                     }
                 }
-                _ => return Ok(ExprKind::List(List::new(value))),
+                _ => Ok(ExprKind::List(List::new(value))),
             }
         } else {
-            return Ok(ExprKind::List(List::new(vec![])));
+            Ok(ExprKind::List(List::new(vec![])))
         }
 
-        unimplemented!("Missing a case")
+        // unimplemented!("Missing a case")
     }
 }
 

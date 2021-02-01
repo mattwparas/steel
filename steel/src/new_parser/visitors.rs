@@ -51,7 +51,6 @@ pub trait VisitorMut {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::DefineFunction(f) => self.visit_define_function(f),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
@@ -72,7 +71,6 @@ pub trait VisitorMut {
 
     fn visit_if(&mut self, f: &If) -> Self::Output;
     fn visit_define(&mut self, define: &Define) -> Self::Output;
-    fn visit_define_function(&mut self, define: &DefineFunction) -> Self::Output;
     fn visit_lambda_function(&mut self, lambda_function: &LambdaFunction) -> Self::Output;
     fn visit_begin(&mut self, begin: &Begin) -> Self::Output;
     fn visit_return(&mut self, r: &Return) -> Self::Output;
@@ -98,7 +96,6 @@ pub trait VisitorMutResult {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::DefineFunction(f) => self.visit_define_function(f),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
@@ -119,7 +116,6 @@ pub trait VisitorMutResult {
 
     fn visit_if(&mut self, f: &If) -> Result<Self::Output>;
     fn visit_define(&mut self, define: &Define) -> Result<Self::Output>;
-    fn visit_define_function(&mut self, define_function: &DefineFunction) -> Result<Self::Output>;
     fn visit_lambda_function(&mut self, lambda_function: &LambdaFunction) -> Result<Self::Output>;
     fn visit_begin(&mut self, begin: &Begin) -> Result<Self::Output>;
     fn visit_return(&mut self, r: &Return) -> Result<Self::Output>;
@@ -144,7 +140,6 @@ pub trait Visitor {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::DefineFunction(f) => self.visit_define_function(f),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
@@ -165,7 +160,6 @@ pub trait Visitor {
 
     fn visit_if(&self, f: &If) -> Self::Output;
     fn visit_define(&self, define: &Define) -> Self::Output;
-    fn visit_define_function(&self, define_function: &DefineFunction) -> Self::Output;
     fn visit_lambda_function(&self, lambda_function: &LambdaFunction) -> Self::Output;
     fn visit_begin(&self, begin: &Begin) -> Self::Output;
     fn visit_return(&self, r: &Return) -> Self::Output;
@@ -189,7 +183,6 @@ pub trait ConsumingVisitor {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::DefineFunction(f) => self.visit_define_function(f),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
@@ -210,8 +203,6 @@ pub trait ConsumingVisitor {
 
     fn visit_if(self: Box<Self>, f: Box<If>) -> Self::Output;
     fn visit_define(self: Box<Self>, define: Box<Define>) -> Self::Output;
-    fn visit_define_function(self: Box<Self>, define_function: Box<DefineFunction>)
-        -> Self::Output;
     fn visit_lambda_function(self: Box<Self>, lambda_function: Box<LambdaFunction>)
         -> Self::Output;
     fn visit_begin(self: Box<Self>, begin: Begin) -> Self::Output;
@@ -228,6 +219,50 @@ pub trait ConsumingVisitor {
     fn visit_atom(self: Box<Self>, a: Atom) -> Self::Output;
     fn visit_list(self: Box<Self>, l: List) -> Self::Output;
     fn visit_syntax_rules(self: Box<Self>, l: SyntaxRules) -> Self::Output;
+}
+
+pub trait VisitorMutRef {
+    type Output;
+
+    fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Apply(a) => self.visit_apply(a),
+            ExprKind::Panic(p) => self.visit_panic(p),
+            ExprKind::Transduce(t) => self.visit_transduce(t),
+            ExprKind::Read(r) => self.visit_read(r),
+            ExprKind::Execute(e) => self.visit_execute(e),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Struct(s) => self.visit_struct(s),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Eval(e) => self.visit_eval(e),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+        }
+    }
+
+    fn visit_if(&mut self, f: &mut If) -> Self::Output;
+    fn visit_define(&mut self, define: &mut Define) -> Self::Output;
+    fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) -> Self::Output;
+    fn visit_begin(&mut self, begin: &mut Begin) -> Self::Output;
+    fn visit_return(&mut self, r: &mut Return) -> Self::Output;
+    fn visit_apply(&mut self, apply: &mut Apply) -> Self::Output;
+    fn visit_panic(&mut self, p: &mut Panic) -> Self::Output;
+    fn visit_transduce(&mut self, transduce: &mut Transduce) -> Self::Output;
+    fn visit_read(&mut self, read: &mut Read) -> Self::Output;
+    fn visit_execute(&mut self, execute: &mut Execute) -> Self::Output;
+    fn visit_quote(&mut self, quote: &mut Quote) -> Self::Output;
+    fn visit_struct(&mut self, s: &mut Struct) -> Self::Output;
+    fn visit_macro(&mut self, m: &mut Macro) -> Self::Output;
+    fn visit_eval(&mut self, e: &mut Eval) -> Self::Output;
+    fn visit_atom(&mut self, a: &mut Atom) -> Self::Output;
+    fn visit_list(&mut self, l: &mut List) -> Self::Output;
+    fn visit_syntax_rules(&mut self, l: &mut SyntaxRules) -> Self::Output;
 }
 
 // pub trait VisitChildren<T> {
