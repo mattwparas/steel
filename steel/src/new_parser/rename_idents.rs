@@ -1,4 +1,3 @@
-use crate::new_parser::ast::Atom;
 use crate::new_parser::ast::ExprKind;
 use crate::new_parser::parser::SyntaxObject;
 use crate::new_parser::tokens::TokenType;
@@ -24,6 +23,10 @@ impl RenameIdentifiersVisitor {
     pub fn is_gensym(&self, ident: &str) -> bool {
         self.introduced_identifiers.contains(ident)
     }
+
+    pub fn rename_identifiers(&mut self, expr: &mut ExprKind) {
+        self.visit(expr);
+    }
 }
 
 impl VisitorMutRef for RenameIdentifiersVisitor {
@@ -36,7 +39,18 @@ impl VisitorMutRef for RenameIdentifiersVisitor {
     }
 
     fn visit_define(&mut self, define: &mut super::ast::Define) -> Self::Output {
-        todo!()
+        if let ExprKind::Atom(a) = &mut define.name {
+            if let SyntaxObject {
+                ty: TokenType::Identifier(ref s),
+                ..
+            } = a.syn
+            {
+                self.add(s);
+                a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
+            }
+        }
+
+        self.visit(&mut define.body)
     }
 
     fn visit_lambda_function(
@@ -141,7 +155,19 @@ mod rename_visitor_tests {
 
     use super::TokenType::*;
     use super::*;
-    use crate::new_parser::ast::{LambdaFunction, List};
+    use crate::new_parser::ast::{Atom, Define, If, LambdaFunction, List, Transduce};
+
+    fn atom_identifier(s: &str) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+            s.to_string(),
+        ))))
+    }
+
+    fn atom_int(n: isize) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
+            n,
+        ))))
+    }
 
     #[test]
     fn test_rename_identifiers() {
@@ -181,6 +207,91 @@ mod rename_visitor_tests {
 
         visitor.visit(&mut pre_condition);
 
+        assert_eq!(pre_condition, post_condition);
+    }
+
+    #[test]
+    fn test_should_do_nothing() {
+        let mut pre_condition = ExprKind::If(Box::new(If::new(
+            ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(true)))),
+            ExprKind::Transduce(Box::new(Transduce::new(
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                    "a".to_string(),
+                )))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                    "b".to_string(),
+                )))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                    "c".to_string(),
+                )))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                    "d".to_string(),
+                )))),
+                SyntaxObject::default(TokenType::Transduce),
+            ))),
+            ExprKind::If(Box::new(If::new(
+                ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(false)))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
+                SyntaxObject::default(If),
+            ))),
+            SyntaxObject::default(If),
+        )));
+
+        let post_condition = pre_condition.clone();
+
+        let mut visitor = RenameIdentifiersVisitor::new();
+        visitor.visit(&mut pre_condition);
+        assert_eq!(pre_condition, post_condition);
+    }
+
+    #[test]
+    fn test_rename_define() {
+        let mut pre_condition: ExprKind = Define::new(
+            atom_identifier("applesauce"),
+            atom_int(10),
+            SyntaxObject::default(TokenType::Define),
+        )
+        .into();
+
+        let post_condition: ExprKind = Define::new(
+            atom_identifier("##applesauce"),
+            atom_int(10),
+            SyntaxObject::default(TokenType::Define),
+        )
+        .into();
+
+        let mut visitor = RenameIdentifiersVisitor::new();
+        visitor.visit(&mut pre_condition);
+        assert_eq!(pre_condition, post_condition);
+    }
+
+    #[test]
+    fn test_rename_define_datum_syntax() {
+        let mut pre_condition: ExprKind = Define::new(
+            List::new(vec![
+                atom_identifier("datum->syntax"),
+                atom_identifier("escaping-definition"),
+            ])
+            .into(),
+            atom_int(1),
+            SyntaxObject::default(TokenType::Define),
+        )
+        .into();
+
+        let post_condition: ExprKind = Define::new(
+            List::new(vec![
+                atom_identifier("datum->syntax"),
+                atom_identifier("escaping-definition"),
+            ])
+            .into(),
+            atom_int(1),
+            SyntaxObject::default(TokenType::Define),
+        )
+        .into();
+
+        let mut visitor = RenameIdentifiersVisitor::new();
+        visitor.visit(&mut pre_condition);
         assert_eq!(pre_condition, post_condition);
     }
 }

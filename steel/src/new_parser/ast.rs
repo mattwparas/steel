@@ -13,6 +13,7 @@ use std::convert::TryFrom;
 
 use itertools::Itertools;
 use std::fmt;
+use std::ops::Deref;
 
 pub trait VisitChildrenMutResult<T> {
     fn accept(&self, visitor: &mut impl VisitorMutResult<Output = T>) -> Result<T>;
@@ -45,6 +46,30 @@ pub enum ExprKind {
     SyntaxRules(SyntaxRules),
     Eval(Box<Eval>),
     List(List),
+}
+
+impl ExprKind {
+    pub fn atom_identifier_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&str, E> {
+        match self {
+            Self::Atom(Atom {
+                syn: SyntaxObject { ty: t, .. },
+            }) => match t {
+                TokenType::Identifier(s) => Ok(s),
+                _ => Err(err()),
+            },
+            _ => Err(err()),
+        }
+    }
+
+    pub fn list_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&List, E> {
+        match self {
+            Self::List(l) => Ok(l),
+            _ => Err(err()),
+        }
+    }
 }
 
 impl fmt::Display for ExprKind {
@@ -289,6 +314,10 @@ impl List {
     pub fn new(args: Vec<ExprKind>) -> Self {
         List { args }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.args.is_empty()
+    }
 }
 
 impl fmt::Display for List {
@@ -300,6 +329,24 @@ impl fmt::Display for List {
 impl From<List> for ExprKind {
     fn from(val: List) -> Self {
         ExprKind::List(val)
+    }
+}
+
+impl Deref for List {
+    type Target = [ExprKind];
+
+    fn deref(&self) -> &[ExprKind] {
+        &self.args
+    }
+}
+
+// and we'll implement IntoIterator
+impl IntoIterator for List {
+    type Item = ExprKind;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.args.into_iter()
     }
 }
 
@@ -555,8 +602,9 @@ impl From<Eval> for ExprKind {
 // put it into here nicely
 #[derive(Clone, Debug, PartialEq)]
 pub struct Macro {
-    pub name: Atom,
+    pub name: Box<ExprKind>,
     pub syntax_rules: SyntaxRules,
+    pub location: SyntaxObject,
 }
 
 impl fmt::Display for Macro {
@@ -566,8 +614,12 @@ impl fmt::Display for Macro {
 }
 
 impl Macro {
-    pub fn new(name: Atom, syntax_rules: SyntaxRules) -> Self {
-        Macro { name, syntax_rules }
+    pub fn new(name: ExprKind, syntax_rules: SyntaxRules, location: SyntaxObject) -> Self {
+        Macro {
+            name: Box::new(name),
+            syntax_rules,
+            location,
+        }
     }
 }
 
@@ -581,13 +633,18 @@ impl From<Macro> for ExprKind {
 // by the expander
 #[derive(Clone, Debug, PartialEq)]
 pub struct SyntaxRules {
-    pub syntax: Vec<Atom>,
+    pub syntax: Vec<ExprKind>,
     pub patterns: Vec<PatternPair>,
+    pub location: SyntaxObject,
 }
 
 impl SyntaxRules {
-    pub fn new(syntax: Vec<Atom>, patterns: Vec<PatternPair>) -> Self {
-        SyntaxRules { syntax, patterns }
+    pub fn new(syntax: Vec<ExprKind>, patterns: Vec<PatternPair>, location: SyntaxObject) -> Self {
+        SyntaxRules {
+            syntax,
+            patterns,
+            location,
+        }
     }
 }
 
@@ -1056,15 +1113,17 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             let mut value_iter = value.into_iter();
                             value_iter.next();
-                            let name = if let Some(ExprKind::Atom(a)) = value_iter.next() {
-                                a
-                            } else {
-                                return Err(ParseError::SyntaxError(
-                                    "define-syntax expects an identifier for the name of the macro"
-                                        .to_string(),
-                                    syn.span,
-                                ));
-                            };
+                            // let name = if let Some(ExprKind::Atom(a)) = value_iter.next() {
+                            //     a
+                            // } else {
+                            //     return Err(ParseError::SyntaxError(
+                            //         "define-syntax expects an identifier for the name of the macro"
+                            //             .to_string(),
+                            //         syn.span,
+                            //     ));
+                            // };
+
+                            let name = value_iter.next().unwrap();
 
                             let syntax_rules =
                                 if let Some(ExprKind::SyntaxRules(s)) = value_iter.next() {
@@ -1076,7 +1135,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     ));
                                 };
 
-                            Ok(ExprKind::Macro(Macro::new(name, syntax_rules)))
+                            Ok(ExprKind::Macro(Macro::new(name, syntax_rules, syn)))
                         }
                         TokenType::SyntaxRules => {
                             let syn = a.syn.clone();
@@ -1092,29 +1151,31 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             let syntax_vec = if let Some(ExprKind::List(l)) = value_iter.next() {
                                 // unimplemented!();
-                                let mut syn_vec = Vec::new();
+                                // let mut syn_vec = Vec::new();
 
-                                for form in l.args {
-                                    if let ExprKind::Atom(a) = form {
-                                        if let TokenType::Identifier(_) = a.syn.ty {
-                                            syn_vec.push(a)
-                                        } else {
-                                            return Err(ParseError::SyntaxError(
-                                                "syntax-rules expects identifiers in the list of new syntaxes"
-                                                    .to_string(),
-                                                syn.span,
-                                            ));
-                                        }
-                                    } else {
-                                        return Err(ParseError::SyntaxError(
-                                            "syntax-rules expects identifiers in the list of new syntaxes"
-                                                .to_string(),
-                                            syn.span,
-                                        ));
-                                    };
-                                }
+                                // for form in l.args {
+                                //     if let ExprKind::Atom(a) = form {
+                                //         if let TokenType::Identifier(_) = a.syn.ty {
+                                //             syn_vec.push(a)
+                                //         } else {
+                                //             return Err(ParseError::SyntaxError(
+                                //                 "syntax-rules expects identifiers in the list of new syntaxes"
+                                //                     .to_string(),
+                                //                 syn.span,
+                                //             ));
+                                //         }
+                                //     } else {
+                                //         return Err(ParseError::SyntaxError(
+                                //             "syntax-rules expects identifiers in the list of new syntaxes"
+                                //                 .to_string(),
+                                //             syn.span,
+                                //         ));
+                                //     };
+                                // }
 
-                                syn_vec
+                                // syn_vec
+
+                                l.args
                             } else {
                                 return Err(ParseError::SyntaxError(
                                     "syntax-rules expects a list of new syntax forms used in the macro".to_string(), syn.span));
@@ -1146,7 +1207,9 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 }
                             }
 
-                            Ok(ExprKind::SyntaxRules(SyntaxRules::new(syntax_vec, pairs)))
+                            Ok(ExprKind::SyntaxRules(SyntaxRules::new(
+                                syntax_vec, pairs, syn,
+                            )))
                         }
                         TokenType::Identifier(_) => {
                             Ok(ExprKind::List(List::new(value)))
@@ -1165,13 +1228,5 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
         } else {
             Ok(ExprKind::List(List::new(vec![])))
         }
-
-        // unimplemented!("Missing a case")
     }
 }
-
-// impl Quote {
-//     pub fn new(expr: ExprKind) -> Self {
-//         Quote { expr }
-//     }
-// }

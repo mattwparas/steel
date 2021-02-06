@@ -179,7 +179,7 @@ pub trait Visitor {
 
 pub trait ConsumingVisitor {
     type Output;
-    fn visit(self: Box<Self>, expr: ExprKind) -> Self::Output {
+    fn visit(&mut self, expr: ExprKind) -> Self::Output {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
@@ -201,24 +201,23 @@ pub trait ConsumingVisitor {
         }
     }
 
-    fn visit_if(self: Box<Self>, f: Box<If>) -> Self::Output;
-    fn visit_define(self: Box<Self>, define: Box<Define>) -> Self::Output;
-    fn visit_lambda_function(self: Box<Self>, lambda_function: Box<LambdaFunction>)
-        -> Self::Output;
-    fn visit_begin(self: Box<Self>, begin: Begin) -> Self::Output;
-    fn visit_return(self: Box<Self>, r: Box<Return>) -> Self::Output;
-    fn visit_apply(self: Box<Self>, apply: Box<Apply>) -> Self::Output;
-    fn visit_panic(self: Box<Self>, p: Box<Panic>) -> Self::Output;
-    fn visit_transduce(self: Box<Self>, transduce: Box<Transduce>) -> Self::Output;
-    fn visit_read(self: Box<Self>, read: Box<Read>) -> Self::Output;
-    fn visit_execute(self: Box<Self>, execute: Box<Execute>) -> Self::Output;
-    fn visit_quote(self: Box<Self>, quote: Box<Quote>) -> Self::Output;
-    fn visit_struct(self: Box<Self>, s: Box<Struct>) -> Self::Output;
-    fn visit_macro(self: Box<Self>, m: Macro) -> Self::Output;
-    fn visit_eval(self: Box<Self>, e: Box<Eval>) -> Self::Output;
-    fn visit_atom(self: Box<Self>, a: Atom) -> Self::Output;
-    fn visit_list(self: Box<Self>, l: List) -> Self::Output;
-    fn visit_syntax_rules(self: Box<Self>, l: SyntaxRules) -> Self::Output;
+    fn visit_if(&mut self, f: Box<If>) -> Self::Output;
+    fn visit_define(&mut self, define: Box<Define>) -> Self::Output;
+    fn visit_lambda_function(&mut self, lambda_function: Box<LambdaFunction>) -> Self::Output;
+    fn visit_begin(&mut self, begin: Begin) -> Self::Output;
+    fn visit_return(&mut self, r: Box<Return>) -> Self::Output;
+    fn visit_apply(&mut self, apply: Box<Apply>) -> Self::Output;
+    fn visit_panic(&mut self, p: Box<Panic>) -> Self::Output;
+    fn visit_transduce(&mut self, transduce: Box<Transduce>) -> Self::Output;
+    fn visit_read(&mut self, read: Box<Read>) -> Self::Output;
+    fn visit_execute(&mut self, execute: Box<Execute>) -> Self::Output;
+    fn visit_quote(&mut self, quote: Box<Quote>) -> Self::Output;
+    fn visit_struct(&mut self, s: Box<Struct>) -> Self::Output;
+    fn visit_macro(&mut self, m: Macro) -> Self::Output;
+    fn visit_eval(&mut self, e: Box<Eval>) -> Self::Output;
+    fn visit_atom(&mut self, a: Atom) -> Self::Output;
+    fn visit_list(&mut self, l: List) -> Self::Output;
+    fn visit_syntax_rules(&mut self, l: SyntaxRules) -> Self::Output;
 }
 
 pub trait VisitorMutRef {

@@ -1,6 +1,6 @@
 use core::ops::Range;
+use serde::{Deserialize, Serialize};
 use std::fmt;
-use serde::{Serialize, Deserialize};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Span {
@@ -45,6 +45,24 @@ impl Span {
     #[inline]
     pub const fn width(&self) -> usize {
         self.end - self.start
+    }
+
+    pub fn coalesce_span(spans: Vec<Span>) -> Span {
+        let span = spans.get(0);
+        if let Some(span) = span {
+            let mut span = span.clone();
+            for s in spans {
+                if s.start() < span.start() {
+                    span = Span::new(s.start(), span.end());
+                }
+                if s.end() > span.end() {
+                    span = Span::new(s.start(), s.end());
+                }
+            }
+            return span;
+        } else {
+            Span::new(0, 0)
+        }
     }
 }
 

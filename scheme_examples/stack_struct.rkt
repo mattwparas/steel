@@ -69,6 +69,8 @@
 
 (struct Stack (lst))
 (impl Stack
+      ;; Change this to be something like (define/method)
+      ;; as to disambiguate it from the base define
       (define (pop stack)
         (define contents (Stack-lst stack))
         (if (null? contents)

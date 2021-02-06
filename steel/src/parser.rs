@@ -44,6 +44,10 @@ impl SyntaxObject {
             span: Span::new(0, 0)
         }
     }
+
+    pub fn rewrite_span(&mut self, span: Span) {
+        self.span = span
+    }
 }
 
 impl From<&Token<'_>> for SyntaxObject {
