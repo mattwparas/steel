@@ -139,7 +139,7 @@ impl MacroCase {
     fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
         let mut bindings = HashMap::new();
         collect_bindings(&self.args, &expr, &mut bindings)?;
-        replace_identifiers(expr.into(), &bindings, span)
+        replace_identifiers(self.body.clone(), &bindings, span)
     }
 }
 
@@ -685,4 +685,70 @@ mod collect_bindings_tests {
 }
 
 #[cfg(test)]
-mod macro_case_expand_test {}
+mod macro_case_expand_test {
+    use super::MacroCase;
+
+    use super::*;
+
+    macro_rules! map {
+        ($ ( $key:expr => $value:expr ), *,) => {{
+            let mut hm: HashMap<String, ExprKind> = HashMap::new();
+            $ (hm.insert($key.to_string(), $value); ) *
+            hm
+        }};
+    }
+
+    fn atom_identifier(s: &str) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+            s.to_string(),
+        ))))
+    }
+
+    fn atom_int(n: isize) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
+            n,
+        ))))
+    }
+
+    #[test]
+    fn test_basic_expansion() {
+        let case = MacroCase {
+            args: vec![
+                MacroPattern::Syntax("test".to_string()),
+                MacroPattern::Single("a".to_string()),
+                MacroPattern::Single("b".to_string()),
+                MacroPattern::Single("c".to_string()),
+            ],
+            body: List::new(vec![
+                atom_identifier("fun-call"),
+                atom_identifier("inserted-variable"),
+                atom_identifier("a"),
+                atom_identifier("b"),
+                atom_identifier("c"),
+            ])
+            .into(),
+        };
+
+        let input = List::new(vec![
+            atom_identifier("test"),
+            atom_int(1),
+            atom_identifier("apple"),
+            atom_int(2),
+        ]);
+
+        let expected: ExprKind = List::new(vec![
+            atom_identifier("fun-call"),
+            atom_identifier("inserted-variable"),
+            atom_int(1),
+            atom_identifier("apple"),
+            atom_int(2),
+        ])
+        .into();
+
+        let output = case.expand(input, Span::new(0, 0)).unwrap();
+
+        println!("{}", output);
+
+        assert_eq!(output, expected);
+    }
+}
