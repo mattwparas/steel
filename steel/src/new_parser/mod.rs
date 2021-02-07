@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod expand_visitor;
 pub mod expander;
 pub mod lexer;
 pub mod parser;

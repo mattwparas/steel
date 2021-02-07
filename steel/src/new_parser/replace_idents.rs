@@ -5,7 +5,7 @@ use crate::new_parser::visitors::ConsumingVisitor;
 use crate::parser::span::Span;
 
 use crate::rerrs::SteelErr;
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::Result;
 
 use super::ast::Atom;
 

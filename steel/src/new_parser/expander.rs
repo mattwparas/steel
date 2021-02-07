@@ -143,12 +143,6 @@ impl MacroCase {
     }
 }
 
-// #[derive(Clone, Debug, PartialEq)]
-// pub struct PatternPair {
-//     pub pattern: ExprKind,
-//     pub body: ExprKind,
-// }
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum MacroPattern {
     Single(String),
@@ -208,14 +202,6 @@ impl MacroPattern {
         Ok(pattern_vec)
     }
 }
-
-// impl TryFrom<List> for MacroPattern {
-//     type Error = SteelErr;
-
-//     fn try_from(value: List) -> std::result::Result<Self, Self::Error> {
-//         unimplemented!();
-//     }
-// }
 
 impl MacroPattern {
     // TODO make this not so trash
@@ -284,7 +270,13 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                     }
                 }
             }
+        } else {
+            return false;
         }
+    }
+
+    if token_iter.next().is_some() && !matches!(args.last(), Some(MacroPattern::Many(_))) {
+        return false;
     }
 
     return true;
@@ -454,6 +446,49 @@ mod match_vec_pattern_tests {
             ])),
         ]);
         assert!(match_vec_pattern(&pattern_args, &list_expr));
+    }
+
+    #[test]
+    fn test_no_match_simple() {
+        let pattern_args = vec![
+            MacroPattern::Syntax("->>".to_string()),
+            MacroPattern::Single("a".to_string()),
+            MacroPattern::Single("bad".to_string()),
+        ];
+
+        let list_expr = List::new(vec![
+            atom_identifier("->>"),
+            atom_int(1),
+            atom_int(2),
+            atom_int(3),
+        ]);
+
+        assert!(!match_vec_pattern(&pattern_args, &list_expr));
+    }
+
+    #[test]
+    fn test_nested_no_match() {
+        let pattern_args = vec![
+            MacroPattern::Syntax("->>".to_string()),
+            MacroPattern::Single("a".to_string()),
+            MacroPattern::Single("bad".to_string()),
+            MacroPattern::Nested(vec![
+                MacroPattern::Single("b".to_string()),
+                MacroPattern::Many("c".to_string()),
+            ]),
+        ];
+
+        let list_expr = List::new(vec![
+            atom_identifier("->>"),
+            atom_int(1),
+            ExprKind::List(List::new(vec![
+                atom_identifier("apple"),
+                atom_identifier("sauce"),
+                atom_identifier("is-good"),
+            ])),
+        ]);
+
+        assert!(!match_vec_pattern(&pattern_args, &list_expr));
     }
 }
 
@@ -648,3 +683,6 @@ mod collect_bindings_tests {
         assert_eq!(bindings, post_bindings);
     }
 }
+
+#[cfg(test)]
+mod macro_case_expand_test {}

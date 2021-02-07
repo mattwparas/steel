@@ -1,48 +1,5 @@
-use crate::core::instructions::Instruction;
 use crate::new_parser::ast::*;
-use crate::parser::{tokens::TokenType, Expr, SyntaxObject};
 use crate::rvals::Result;
-
-// fn expression_from_expr(expr: Expr) -> Expression {
-//     match expr {
-//         Expr::Atom(s) => Expression::new(Box::new(Atom::new(s))),
-//         Expr::VectorVal(list_of_tokens) => {
-//             if let Some(f) = list_of_tokens.first() {
-//                 match f {
-//                     Expr::Atom(SyntaxObject {
-//                         ty: TokenType::Identifier(s),
-//                         ..
-//                     }) if s == "quote" => Expression::new(Box::new(Quote::new(
-//                         expression_from_expr(list_of_tokens[0].clone()),
-//                     ))),
-//                     _ => {
-//                         unimplemented!();
-//                     }
-//                 }
-//             } else {
-//                 unimplemented!()
-//             }
-//         }
-//     }
-// }
-
-// Expr::Atom(s) => {
-//     instructions.push(Instruction::new(OpCode::PUSH, 0, s.clone(), true));
-// }
-// Expr::VectorVal(list_of_tokens) => {
-//     if let Some(f) = list_of_tokens.first() {
-//         match f.deref() {
-//             Expr::Atom(SyntaxObject {
-//                 ty: TokenType::Identifier(s),
-//                 ..
-//             }) if s == "quote" => {
-//                 check_length("quote", &list_of_tokens, 2)?;
-//                 let converted = SteelVal::try_from(list_of_tokens[1].clone())?;
-//                 let idx = constant_map.add_or_get(Gc::new(converted));
-//                 instructions.push(Instruction::new_push_const(idx));
-//                 // instructions.push(Instruction::new_quote());
-//                 return Ok(());
-//             }
 
 pub trait VisitorMut {
     type Output;
@@ -263,15 +220,3 @@ pub trait VisitorMutRef {
     fn visit_list(&mut self, l: &mut List) -> Self::Output;
     fn visit_syntax_rules(&mut self, l: &mut SyntaxRules) -> Self::Output;
 }
-
-// pub trait VisitChildren<T> {
-//     // type Output = Result<T>;
-//     fn visit_children(&self, visitor: impl Visitor) -> Result<T>;
-// }
-
-// pub trait VisitChildrenMut {
-//     type Output;
-//     fn visit_children(&self, visitor: &mut impl VisitorMut) -> Self::Output;
-// }
-
-// impl VisitChildren<T> for
