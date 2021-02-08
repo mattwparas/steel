@@ -97,8 +97,8 @@ fn main() {
     let mut builder = Builder::new();
 
     builder
-        // .filter(Some("steel"), LevelFilter::Trace)
-        .filter(Some("steel_vm"), LevelFilter::Trace)
+        .filter(Some("steel"), LevelFilter::Trace)
+        // .filter(Some("steel_vm"), LevelFilter::Trace)
         // .filter(None, LevelFilter::Error)
         // .filter(None, LevelFilter::Warn)
         // .filter(None, LevelFilter)

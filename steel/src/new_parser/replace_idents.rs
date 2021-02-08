@@ -59,6 +59,9 @@ impl<'a> ReplaceExpressions<'a> {
                 throw!(BadSyntax => "macro expansion failed, could not find variable when expanding ellipses")
             )?;
 
+            // dbg!(self.bindings);
+            // dbg!(variable_to_lookup);
+
             let rest = self.bindings
                 .get(variable_to_lookup.atom_identifier_or_else(
                     throw!(BadSyntax => "macro expansion failed at lookup!"),

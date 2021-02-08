@@ -402,6 +402,8 @@ impl<'a> Parser<'a> {
         let mut stack: Vec<Vec<ExprKind>> = Vec::new();
         let mut current_frame: Vec<ExprKind> = Vec::new();
 
+        self.quote_stack = Vec::new();
+
         loop {
             match self.tokenizer.next() {
                 Some(token) => {
@@ -458,6 +460,9 @@ impl<'a> Parser<'a> {
                                             && self.quote_stack.len() > 1 =>
                                     {
                                         self.quote_stack.pop();
+                                        // println!("Stack length: {}", stack.len());
+                                        // println!("last_quote_index: {}", last_quote_index);
+                                        // println!("{:?}", current_frame);
                                         prev_frame.push(ExprKind::List(List::new(current_frame)))
                                     }
                                     Some(_) => {
@@ -509,6 +514,9 @@ impl<'a> Iterator for Parser<'a> {
     type Item = Result<ExprKind>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // self.shorthand_quote_stack = Vec::new();
+        // self.quote_stack = Vec::new();
+
         self.tokenizer.next().map(|res| match res.ty {
             // Err(e) => Err(ParseError::TokenError(e)),
             TokenType::QuoteTick => {
@@ -1545,6 +1553,189 @@ mod parser_tests {
                 .into(),
             )],
         )
+    }
+
+    #[test]
+    fn test_quote_with_inner_nested_sub_expr() {
+        assert_parse(
+            "(if (null? contents)
+                '(#f '())
+                (list (car contents) (cdr contents)))",
+            &[ExprKind::If(Box::new(If::new(
+                ExprKind::List(List::new(vec![
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                        "null?".to_string(),
+                    )))),
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                        "contents".to_string(),
+                    )))),
+                ])),
+                ExprKind::Quote(
+                    Quote::new(
+                        ExprKind::List(List::new(vec![
+                            ExprKind::Atom(Atom::new(SyntaxObject::default(
+                                TokenType::BooleanLiteral(false),
+                            ))),
+                            ExprKind::Quote(
+                                Quote::new(
+                                    List::new(vec![]).into(),
+                                    SyntaxObject::default(TokenType::Quote),
+                                )
+                                .into(),
+                            ),
+                        ])),
+                        SyntaxObject::default(TokenType::Quote),
+                    )
+                    .into(),
+                ),
+                ExprKind::List(List::new(vec![
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                        "list".to_string(),
+                    )))),
+                    ExprKind::List(List::new(vec![
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "car".to_string(),
+                        )))),
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "contents".to_string(),
+                        )))),
+                    ])),
+                    ExprKind::List(List::new(vec![
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "cdr".to_string(),
+                        )))),
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "contents".to_string(),
+                        )))),
+                    ])),
+                ])),
+                SyntaxObject::default(TokenType::If),
+            )))],
+        );
+    }
+
+    #[test]
+    fn test_quote_normal_with_inner_nested_sub_expr() {
+        assert_parse(
+            "(if (null? contents)
+                (quote (#f '()))
+                (list (car contents) (cdr contents)))",
+            &[ExprKind::If(Box::new(If::new(
+                ExprKind::List(List::new(vec![
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                        "null?".to_string(),
+                    )))),
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                        "contents".to_string(),
+                    )))),
+                ])),
+                ExprKind::Quote(
+                    Quote::new(
+                        ExprKind::List(List::new(vec![
+                            ExprKind::Atom(Atom::new(SyntaxObject::default(
+                                TokenType::BooleanLiteral(false),
+                            ))),
+                            ExprKind::Quote(
+                                Quote::new(
+                                    List::new(vec![]).into(),
+                                    SyntaxObject::default(TokenType::Quote),
+                                )
+                                .into(),
+                            ),
+                        ])),
+                        SyntaxObject::default(TokenType::Quote),
+                    )
+                    .into(),
+                ),
+                ExprKind::List(List::new(vec![
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                        "list".to_string(),
+                    )))),
+                    ExprKind::List(List::new(vec![
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "car".to_string(),
+                        )))),
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "contents".to_string(),
+                        )))),
+                    ])),
+                    ExprKind::List(List::new(vec![
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "cdr".to_string(),
+                        )))),
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "contents".to_string(),
+                        )))),
+                    ])),
+                ])),
+                SyntaxObject::default(TokenType::If),
+            )))],
+        );
+    }
+
+    #[test]
+    fn test_quote_with_inner_sub_expr_even_more_nested() {
+        assert_parse(
+            "(list 
+                (if (null? contents)
+                '(#f '())
+                (list (car contents) (cdr contents))))",
+            &[ExprKind::List(List::new(vec![
+                ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+                    "list".to_string(),
+                )))),
+                ExprKind::If(Box::new(If::new(
+                    ExprKind::List(List::new(vec![
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "null?".to_string(),
+                        )))),
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "contents".to_string(),
+                        )))),
+                    ])),
+                    ExprKind::Quote(
+                        Quote::new(
+                            ExprKind::List(List::new(vec![
+                                ExprKind::Atom(Atom::new(SyntaxObject::default(
+                                    TokenType::BooleanLiteral(false),
+                                ))),
+                                ExprKind::Quote(
+                                    Quote::new(
+                                        List::new(vec![]).into(),
+                                        SyntaxObject::default(TokenType::Quote),
+                                    )
+                                    .into(),
+                                ),
+                            ])),
+                            SyntaxObject::default(TokenType::Quote),
+                        )
+                        .into(),
+                    ),
+                    ExprKind::List(List::new(vec![
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                            "list".to_string(),
+                        )))),
+                        ExprKind::List(List::new(vec![
+                            ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                                "car".to_string(),
+                            )))),
+                            ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                                "contents".to_string(),
+                            )))),
+                        ])),
+                        ExprKind::List(List::new(vec![
+                            ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                                "cdr".to_string(),
+                            )))),
+                            ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                                "contents".to_string(),
+                            )))),
+                        ])),
+                    ])),
+                    SyntaxObject::default(TokenType::If),
+                ))),
+            ]))],
+        );
     }
 
     #[test]

@@ -5,14 +5,16 @@ use crate::new_parser::visitors::VisitorMutRef;
 
 use std::collections::HashSet;
 
-pub struct RenameIdentifiersVisitor {
+pub struct RenameIdentifiersVisitor<'a> {
     introduced_identifiers: HashSet<String>,
+    pattern_variables: &'a [&'a str],
 }
 
-impl RenameIdentifiersVisitor {
-    pub fn new() -> Self {
+impl<'a> RenameIdentifiersVisitor<'a> {
+    pub fn new(pattern_variables: &'a [&'a str]) -> Self {
         RenameIdentifiersVisitor {
             introduced_identifiers: HashSet::new(),
+            pattern_variables,
         }
     }
 
@@ -29,7 +31,7 @@ impl RenameIdentifiersVisitor {
     }
 }
 
-impl VisitorMutRef for RenameIdentifiersVisitor {
+impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
     type Output = ();
 
     fn visit_if(&mut self, f: &mut super::ast::If) -> Self::Output {
@@ -45,8 +47,11 @@ impl VisitorMutRef for RenameIdentifiersVisitor {
                 ..
             } = a.syn
             {
-                self.add(s);
-                a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
+                // If this is a special pattern variable, don't do any mangling of the variable
+                if !self.pattern_variables.contains(&s.as_str()) {
+                    self.add(s);
+                    a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
+                }
             }
         }
 
@@ -65,8 +70,10 @@ impl VisitorMutRef for RenameIdentifiersVisitor {
                     ..
                 } = a.syn
                 {
-                    self.add(s);
-                    a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
+                    if !self.pattern_variables.contains(&s.as_str()) {
+                        self.add(s);
+                        a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
+                    }
                 }
             }
         }
@@ -203,7 +210,7 @@ mod rename_visitor_tests {
             SyntaxObject::default(TokenType::Lambda),
         )));
 
-        let mut visitor = RenameIdentifiersVisitor::new();
+        let mut visitor = RenameIdentifiersVisitor::new(&[]);
 
         visitor.visit(&mut pre_condition);
 
@@ -240,7 +247,7 @@ mod rename_visitor_tests {
 
         let post_condition = pre_condition.clone();
 
-        let mut visitor = RenameIdentifiersVisitor::new();
+        let mut visitor = RenameIdentifiersVisitor::new(&[]);
         visitor.visit(&mut pre_condition);
         assert_eq!(pre_condition, post_condition);
     }
@@ -261,7 +268,7 @@ mod rename_visitor_tests {
         )
         .into();
 
-        let mut visitor = RenameIdentifiersVisitor::new();
+        let mut visitor = RenameIdentifiersVisitor::new(&[]);
         visitor.visit(&mut pre_condition);
         assert_eq!(pre_condition, post_condition);
     }
@@ -290,7 +297,7 @@ mod rename_visitor_tests {
         )
         .into();
 
-        let mut visitor = RenameIdentifiersVisitor::new();
+        let mut visitor = RenameIdentifiersVisitor::new(&[]);
         visitor.visit(&mut pre_condition);
         assert_eq!(pre_condition, post_condition);
     }

@@ -82,13 +82,13 @@ impl SteelMacro {
             }
         }
 
-        error!("Macro expansion unable to match case with: {:?}", expr);
+        error!("Macro expansion unable to match case with: {}", expr);
 
         stop!(BadSyntax => "macro expansion unable to match case");
     }
 
     pub fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
-        debug!("Expanding macro with tokens: {:?}", expr);
+        debug!("Expanding macro with tokens: {}", expr);
 
         let case_to_expand = self.match_case(&expr)?;
         let expanded_expr = case_to_expand.expand(expr, span)?;
@@ -125,16 +125,17 @@ impl MacroCase {
     ) -> Result<Self> {
         let PatternPair { pattern, mut body } = pattern_pair;
 
-        RenameIdentifiersVisitor::new().rename_identifiers(&mut body);
-
-        if let ExprKind::List(l) = pattern {
-            Ok(MacroCase {
-                args: MacroPattern::parse_from_list(l, name, special_forms)?,
-                body,
-            })
+        let args = if let ExprKind::List(l) = pattern {
+            MacroPattern::parse_from_list(l, name, special_forms)?
         } else {
             stop!(Generic => "unable to parse macro");
-        }
+        };
+
+        let args_str: Vec<&str> = args.iter().map(|x| x.deconstruct()).flatten().collect();
+
+        RenameIdentifiersVisitor::new(&args_str).rename_identifiers(&mut body);
+
+        Ok(MacroCase { args, body })
     }
 
     fn has_ellipses(&self) -> bool {
@@ -272,6 +273,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
 
                         // This solves the destructuring test case
                         if vec.len() < l.len() && vec.iter().find(|x| x.is_many()).is_none() {
+                            debug!("Matching failed - ellipses doesn't match up");
                             return false;
                         }
 
@@ -279,19 +281,31 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                         if match_vec_pattern(&vec, l) {
                             continue;
                         } else {
+                            debug!("Matching failed due to child not matching");
                             return false;
                         }
                     } else {
+                        debug!("Matching failed - atom does not match list");
                         return false;
                     }
                 }
             }
         } else {
-            return false;
+            // In the case where we have no more patterns, we should be able to contninue matching
+            if pat.is_many() {
+                continue;
+            } else {
+                debug!(
+                    "Matching failed due to insufficient tokens - next pat: {:?}",
+                    pat
+                );
+                return false;
+            }
         }
     }
 
     if token_iter.next().is_some() && !matches!(args.last(), Some(MacroPattern::Many(_))) {
+        debug!("Matching failed due to leftover tokens");
         return false;
     }
 
