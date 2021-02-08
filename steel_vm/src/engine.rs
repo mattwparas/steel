@@ -121,38 +121,40 @@ impl Engine {
         self.parse_and_execute(exprs.as_str())
     }
 
-    pub fn parse_and_execute_with_optimizations(
-        &mut self,
-        expr: &str,
-    ) -> Result<Vec<Gc<SteelVal>>> {
-        let mut results = Vec::new();
-        let mut intern = HashMap::new();
+    // TODO come back to this please
 
-        let parsed: std::result::Result<Vec<Expr>, ParseError> =
-            Parser::new(expr, &mut intern).collect();
-        let parsed = parsed?;
+    // pub fn parse_and_execute_with_optimizations(
+    //     &mut self,
+    //     expr: &str,
+    // ) -> Result<Vec<Gc<SteelVal>>> {
+    //     let mut results = Vec::new();
+    //     let mut intern = HashMap::new();
 
-        let exprs_pre_optimization = self
-            .compiler
-            .extract_structs_and_expand_macros(parsed, &mut results)?;
+    //     let parsed: std::result::Result<Vec<Expr>, ParseError> =
+    //         Parser::new(expr, &mut intern).collect();
+    //     let parsed = parsed?;
 
-        let exprs_post_optimization = Self::optimize_exprs(exprs_pre_optimization)?;
+    //     let exprs_pre_optimization = self
+    //         .compiler
+    //         .extract_structs_and_expand_macros(parsed, &mut results)?;
 
-        let compiled_instructions = self
-            .compiler
-            .generate_dense_instructions(exprs_post_optimization, results)?;
+    //     let exprs_post_optimization = Self::optimize_exprs(exprs_pre_optimization)?;
 
-        let program = Program::new(
-            compiled_instructions,
-            (&self.compiler.constant_map).to_bytes()?,
-        );
+    //     let compiled_instructions = self
+    //         .compiler
+    //         .generate_dense_instructions(exprs_post_optimization, results)?;
 
-        self.virtual_machine.execute_program(program)
+    //     let program = Program::new(
+    //         compiled_instructions,
+    //         (&self.compiler.constant_map).to_bytes()?,
+    //     );
 
-        // self.compiler.
+    //     self.virtual_machine.execute_program(program)
 
-        // unimplemented!();
-    }
+    //     // self.compiler.
+
+    //     // unimplemented!();
+    // }
 
     pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(
         exprs: I,

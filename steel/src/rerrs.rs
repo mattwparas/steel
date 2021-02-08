@@ -1,4 +1,4 @@
-use crate::parser::ParseError;
+use crate::new_parser::parser::ParseError;
 use std::convert::Infallible;
 use thiserror::Error;
 
@@ -202,11 +202,18 @@ impl SteelErr {
                 ])
             }
             Self::Parse(m) => {
+
+                let reporting_span = if let Some(s) = m.span() {
+                    s
+                } else {
+                    _error_span
+                };
+
                 Diagnostic::error()
                 .with_code("E09")
                 .with_message("parse error")
                 .with_labels(vec![
-                    Label::primary((), _error_span).with_message(m.to_string())
+                    Label::primary((), reporting_span).with_message(m.to_string())
                 ])
             }
             Self::Infallible(m) => {

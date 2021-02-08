@@ -19,9 +19,9 @@
 (define-syntax destruct
   (syntax-rules ()
     [(destruct (var) ret-value)
-     (define var (car ret-value))]
+     (define (datum->syntax var) (car ret-value))]
     [(destruct (var1 var2 ...) ret-value)
-     (begin (define var1 (car ret-value))
+     (begin (define (datum->syntax var1) (car ret-value))
             (destruct (var2 ...) (cdr ret-value)))]))
 
 

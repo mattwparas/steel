@@ -76,15 +76,15 @@
 ;         letrec*
 ;         letrec*-helper)
 
-(define-syntax quasiquote
-  (syntax-rules (unquote unquote-splicing)
-    ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
-    ((quasiquote ((unquote-splicing x)))        (append (list x) (quote ())))
-    ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
-    ((quasiquote (unquote x))                 x)
-    ((quasiquote (x))                          (quote (x)))
-    ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
-    ((quasiquote x)                           (quote x))))
+; (define-syntax quasiquote
+;   (syntax-rules (unquote unquote-splicing)
+;     ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+;     ((quasiquote ((unquote-splicing x)))        (append (list x) (quote ())))
+;     ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
+;     ((quasiquote (unquote x))                 x)
+;     ((quasiquote (x))                          (quote (x)))
+;     ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
+;     ((quasiquote x)                           (quote x))))
 
 (define-syntax lambda-hash
   (syntax-rules ()
@@ -252,10 +252,16 @@
 ;           '()
 ;           lst))
 
+; (define (map func lst)
+;   (if (empty? lst)
+;       '()
+;       (map' func lst)))
+
 (define (map func lst)
-  (if (empty? lst)
-      '()
-      (map' func lst)))
+  (if (empty? lst) 
+      '() 
+      (execute (mapping func) lst)))
+
 
 ; (define (map func lst) (map' func lst))
 
@@ -325,10 +331,15 @@
 
 ; (define (filter pred lst) (filter' pred lst))
 
+; (define (filter pred lst)
+;   (if (empty? lst)
+;       '()
+;       (filter' pred lst)))
+
 (define (filter pred lst)
-  (if (empty? lst)
-      '()
-      (filter' pred lst)))
+  (if (empty? lst) 
+      '() 
+      (execute (filtering pred) lst)))
 
 (define (fact n)
   (define factorial-tail (lambda (n acc) 

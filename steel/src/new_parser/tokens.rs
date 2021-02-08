@@ -88,11 +88,11 @@ pub enum TokenType {
     Transduce,
     #[token("execute")]
     Execute,
-    #[token("return")]
+    #[token("return!")]
     Return,
     #[token("begin")]
     Begin,
-    #[token("panic")]
+    #[token("panic!")]
     Panic,
     #[regex("(lambda)|(fn)|(λ)")]
     Lambda,
@@ -173,7 +173,7 @@ impl fmt::Display for TokenType {
             Let => write!(f, "let"),
             Transduce => write!(f, "transduce"),
             Execute => write!(f, "execute"),
-            Return => write!(f, "return"),
+            Return => write!(f, "return!"),
             Begin => write!(f, "begin"),
             Panic => write!(f, "panic"),
             Lambda => write!(f, "lambda"),

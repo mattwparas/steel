@@ -1,10 +1,10 @@
 use crate::core::{instructions::Instruction, opcode::OpCode};
 use crate::steel_compiler::{
-    codegen::emit_loop,
+    // codegen::emit_loop,
+    code_generator::CodeGenerator,
     constants::{ConstantMap, ConstantTable},
     expand::MacroSet,
     expand::{expand_statements, extract_macro_definitions, get_definition_names},
-    expander::SteelMacro,
     map::SymbolMap,
     program::Program,
 };
@@ -18,12 +18,23 @@ use crate::rvals::{Result, SteelVal};
 
 use crate::gc::Gc;
 
-use crate::parser::{span::Span, ParseError, Parser};
-use crate::parser::{tokens::TokenType, Expr, SyntaxObject};
+use crate::parser::span::Span;
+use crate::parser::Expr;
+
+use crate::new_parser::parser::{ParseError, Parser};
+
+use crate::new_parser::ast::ExprKind;
+use crate::new_parser::expander::SteelMacro;
+use crate::new_parser::parser::SyntaxObject;
+use crate::new_parser::tokens::TokenType;
+
+use crate::structs::SteelStruct;
 
 use crate::core::instructions::{densify, DenseInstruction};
 
 use crate::stop;
+
+use crate::new_parser::expand_visitor::{expand, extract_macro_defs};
 
 use log::{debug, error, info};
 
@@ -409,7 +420,7 @@ impl Compiler {
     pub fn emit_instructions(&mut self, expr_str: &str) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
 
-        let parsed: std::result::Result<Vec<Expr>, ParseError> =
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr_str, &mut intern).collect();
         let parsed = parsed?;
 
@@ -418,60 +429,105 @@ impl Compiler {
         instructions
     }
 
-    pub fn extract_structs_and_expand_macros(
+    pub fn expand_expressions(&mut self, exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
+        let non_macro_expressions = extract_macro_defs(exprs, &mut self.macro_env)?;
+
+        non_macro_expressions
+            .into_iter()
+            .map(|x| expand(x, &self.macro_env))
+            .collect()
+    }
+
+    pub fn extract_structs(
         &mut self,
-        exprs: Vec<Expr>,
+        exprs: Vec<ExprKind>,
         results: &mut Vec<Vec<DenseInstruction>>,
-    ) -> Result<Vec<Expr>> {
-        self.idents.insert_from_iter(
-            get_definition_names(&exprs)
-                .into_iter()
-                .chain(self.symbol_map.copy_underlying_vec().into_iter()),
-        );
-
+    ) -> Result<Vec<ExprKind>> {
+        let mut non_structs = Vec::new();
         let mut struct_instructions = Vec::new();
+        for expr in exprs {
+            if let ExprKind::Struct(s) = expr {
+                let builder = SteelStruct::generate_from_ast(&s)?;
 
-        // Yoink the macro definitions
-        // Add them to our macro env
-        // TODO change this to be a unique macro env struct
-        // Just a thin wrapper around a hashmap
-        let extracted_statements = extract_macro_definitions(
-            exprs,
-            &mut self.macro_env,
-            // &self.global_env,
-            &mut self.symbol_map,
-            &self.idents,
-            &mut struct_instructions,
-            &mut self.constant_map,
-        )?;
+                // Add the eventual function names to the symbol map
+                let indices = self.symbol_map.insert_struct_function_names(&builder);
 
-        info!("Found {} struct definitions", struct_instructions.len());
+                // Get the value we're going to add to the constant map for eventual use
+                // Throw the bindings in as well
+                let constant_values = builder.to_constant_val(indices);
+                let idx = self.constant_map.add_or_get(constant_values);
 
-        // Zip up the instructions for structs
-        // TODO come back to this
+                struct_instructions.push(Instruction::new_struct(idx));
+            } else {
+                non_structs.push(expr);
+            }
+        }
+
         for instruction in densify(struct_instructions) {
             results.push(vec![instruction])
         }
 
-        // Walk through and expand all macros, lets, and defines
-        expand_statements(extracted_statements, &mut self.macro_env)
+        Ok(non_structs)
     }
+
+    // pub fn extract_structs_and_expand_macros(
+    //     &mut self,
+    //     exprs: Vec<Expr>,
+    //     results: &mut Vec<Vec<DenseInstruction>>,
+    // ) -> Result<Vec<Expr>> {
+    //     self.idents.insert_from_iter(
+    //         get_definition_names(&exprs)
+    //             .into_iter()
+    //             .chain(self.symbol_map.copy_underlying_vec().into_iter()),
+    //     );
+
+    //     let mut struct_instructions = Vec::new();
+
+    //     // Yoink the macro definitions
+    //     // Add them to our macro env
+    //     // TODO change this to be a unique macro env struct
+    //     // Just a thin wrapper around a hashmap
+    //     let extracted_statements = extract_macro_definitions(
+    //         exprs,
+    //         &mut self.macro_env,
+    //         // &self.global_env,
+    //         &mut self.symbol_map,
+    //         &self.idents,
+    //         &mut struct_instructions,
+    //         &mut self.constant_map,
+    //     )?;
+
+    //     info!("Found {} struct definitions", struct_instructions.len());
+
+    //     // Zip up the instructions for structs
+    //     // TODO come back to this
+    //     for instruction in densify(struct_instructions) {
+    //         results.push(vec![instruction])
+    //     }
+
+    //     // Walk through and expand all macros, lets, and defines
+    //     expand_statements(extracted_statements, &mut self.macro_env)
+    // }
 
     pub fn generate_dense_instructions(
         &mut self,
-        expanded_statements: Vec<Expr>,
+        expanded_statements: Vec<ExprKind>,
         results: Vec<Vec<DenseInstruction>>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = results;
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
+
         for expr in expanded_statements {
             // TODO add printing out the expression as its own special function
             // println!("{:?}", expr.to_string());
-            let mut instructions: Vec<Instruction> = Vec::new();
+            // let mut instructions: Vec<Instruction> = Vec::new();
+
+            let mut instructions = CodeGenerator::new(&mut self.constant_map).compile(&expr)?;
 
             // TODO double check that arity map doesn't exist anymore
-            emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
+            // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
+
             instructions.push(Instruction::new_pop());
             inject_heap_save_to_pop(&mut instructions);
             index_buffer.push(instructions.len());
@@ -497,11 +553,17 @@ impl Compiler {
 
     pub fn emit_instructions_from_exprs(
         &mut self,
-        exprs: Vec<Expr>,
+        exprs: Vec<ExprKind>,
         _optimizations: bool,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
-        let expanded_statements = self.extract_structs_and_expand_macros(exprs, &mut results)?;
+        // let expanded_statements = self.extract_structs_and_expand_macros(exprs, &mut results)?;
+
+        let expanded_statements = self.expand_expressions(exprs)?;
+
+        let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
+
+        // let expanded_statements =
 
         // let expanded_statements = expand_statements(extracted_statements, &mut self.macro_env)?;
 
@@ -540,7 +602,7 @@ impl Compiler {
         //     (_, _) => {}
         // }
 
-        self.generate_dense_instructions(expanded_statements, results)
+        self.generate_dense_instructions(statements_without_structs, results)
 
         // TODO move this out into its thing
         // fairly certain this isn't necessary to do this batching

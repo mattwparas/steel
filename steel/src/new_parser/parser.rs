@@ -20,6 +20,8 @@ use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
 
+use super::ast;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyntaxObject {
     pub(crate) ty: TokenType,
@@ -256,10 +258,24 @@ pub enum ParseError {
     UnexpectedChar(char, Span),
     #[error("Parse: Incomplete String: {0}")]
     IncompleteString(String, Span),
-    #[error("Parse: Syntax Error")]
+    #[error("Parse: Syntax Error: {0}")]
     SyntaxError(String, Span),
-    #[error("Parse: Arity mismatch")]
+    #[error("Parse: Arity mismatch: {0}")]
     ArityMismatch(String, Span),
+}
+
+impl ParseError {
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            ParseError::TokenError(_) => None,
+            ParseError::Unexpected(_) => None,
+            ParseError::UnexpectedEOF => None,
+            ParseError::UnexpectedChar(_, s) => Some(*s),
+            ParseError::IncompleteString(_, s) => Some(*s),
+            ParseError::SyntaxError(_, s) => Some(*s),
+            ParseError::ArityMismatch(_, s) => Some(*s),
+        }
+    }
 }
 
 // #[derive(Clone, Debug, PartialEq, Error)]
@@ -309,15 +325,20 @@ impl<'a> Parser<'a> {
 
     // TODO this is definitely wrong
     fn construct_quote(&mut self, val: ExprKind, span: Span) -> ExprKind {
-        let q = {
-            let rc_val = TokenType::Quote;
-            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
-            // let val = ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)));
-            // // self.intern.insert("quote".to_string(), rc_val);
-            // val
-        };
+        // let q = {
+        //     let rc_val = TokenType::Quote;
+        //     ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        //     // let val = ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)));
+        //     // // self.intern.insert("quote".to_string(), rc_val);
+        //     // val
+        // };
 
-        ExprKind::List(List::new(vec![q, val]))
+        // ExprKind::List(List::new(vec![q, val]))
+
+        ExprKind::Quote(Box::new(ast::Quote::new(
+            val,
+            SyntaxObject::new(TokenType::Quote, span),
+        )))
     }
 
     fn construct_quote_vec(&mut self, val: ExprKind, span: Span) -> Vec<ExprKind> {
@@ -392,6 +413,7 @@ impl<'a> Parser<'a> {
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF))
                                 .map(|x| self.construct_quote(x, token.span));
+                            self.quote_stack.pop();
 
                             current_frame.push(quote_inner?);
                         }
@@ -441,8 +463,12 @@ impl<'a> Parser<'a> {
                                         prev_frame.push(ExprKind::List(List::new(current_frame)))
                                     }
                                     _ => match self.shorthand_quote_stack.last() {
-                                        Some(_) => prev_frame
-                                            .push(ExprKind::List(List::new(current_frame))),
+                                        Some(_) => {
+                                            // self.shorthand_quote_stack.pop();
+                                            // println!("{:?}", current_frame);
+                                            prev_frame
+                                                .push(ExprKind::List(List::new(current_frame)))
+                                        }
                                         _ => {
                                             prev_frame.push(ExprKind::try_from(current_frame)?);
                                         }
@@ -493,6 +519,8 @@ impl<'a> Iterator for Parser<'a> {
                     .unwrap_or(Err(ParseError::UnexpectedEOF))
                     .map(|x| self.construct_quote_vec(x, res.span));
 
+                self.shorthand_quote_stack.pop();
+
                 match value {
                     Ok(v) => ExprKind::try_from(v),
                     Err(e) => Err(e),
@@ -524,7 +552,7 @@ impl<'a> Iterator for Parser<'a> {
 
 #[cfg(test)]
 mod parser_tests {
-    use super::TokenType::*;
+    // use super::TokenType::*;
     use super::*;
     use crate::new_parser::ast::ExprKind;
     use crate::new_parser::ast::{
@@ -575,6 +603,39 @@ mod parser_tests {
     fn test_empty() {
         assert_parse("", &[]);
         assert_parse("()", &[ExprKind::List(List::new(vec![]))]);
+    }
+
+    #[test]
+    fn test_empty_quote() {
+        assert_parse(
+            "'()",
+            &[ExprKind::Quote(
+                Quote::new(
+                    List::new(vec![]).into(),
+                    SyntaxObject::default(TokenType::Quote),
+                )
+                .into(),
+            )],
+        )
+    }
+
+    #[test]
+    fn test_empty_quote_nested() {
+        assert_parse(
+            "(list '())",
+            &[ExprKind::List(List::new(vec![
+                ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+                    "list".to_string(),
+                )))),
+                ExprKind::Quote(
+                    Quote::new(
+                        List::new(vec![]).into(),
+                        SyntaxObject::default(TokenType::Quote),
+                    )
+                    .into(),
+                ),
+            ]))],
+        )
     }
 
     #[test]
@@ -866,12 +927,19 @@ mod parser_tests {
                     ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
                         "applesauce".to_string(),
                     )))),
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Quote))),
+                    ExprKind::Quote(Box::new(Quote::new(
                         ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
                             "one".to_string(),
                         )))),
-                    ])),
+                        SyntaxObject::default(TokenType::Quote)
+                    )))
+                    // ])),
+                    // ExprKind::List(List::new(vec![
+                    //     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Quote))),
+                    //     ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                    //         "one".to_string(),
+                    //     )))),
+                    // ])),
                 ])),
                 SyntaxObject::default(TokenType::Quote),
             )))],
@@ -887,12 +955,18 @@ mod parser_tests {
                     ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
                         "applesauce".to_string(),
                     )))),
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Quote))),
+                    ExprKind::Quote(Box::new(Quote::new(
                         ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
                             "one".to_string(),
                         )))),
-                    ])),
+                        SyntaxObject::default(TokenType::Quote)
+                    )))
+                    // ExprKind::List(List::new(vec![
+                    //     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Quote))),
+                    //     ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                    //         "one".to_string(),
+                    //     )))),
+                    // ])),
                 ])),
                 SyntaxObject::default(TokenType::Quote),
             )))],
@@ -1392,6 +1466,109 @@ mod parser_tests {
                 ))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
             ]))],
+        )
+    }
+
+    #[test]
+    fn test_execute() {
+        assert_parse(
+            "(execute a b)",
+            &[ExprKind::Execute(Box::new(Execute::new(
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                    "a".to_string(),
+                )))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                    "b".to_string(),
+                )))),
+                None,
+                SyntaxObject::default(TokenType::Execute),
+            )))],
+        )
+    }
+
+    #[test]
+    fn test_execute_nested() {
+        assert_parse(
+            "(if (empty? lst) '() (execute a b))",
+            &[ExprKind::If(Box::new(If::new(
+                ExprKind::List(List::new(vec![
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                        "empty?".to_string(),
+                    )))),
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                        "lst".to_string(),
+                    )))),
+                ])),
+                ExprKind::Quote(
+                    Quote::new(
+                        List::new(vec![]).into(),
+                        SyntaxObject::default(TokenType::Quote),
+                    )
+                    .into(),
+                ),
+                ExprKind::Execute(Box::new(Execute::new(
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                        "a".to_string(),
+                    )))),
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+                        "b".to_string(),
+                    )))),
+                    None,
+                    SyntaxObject::default(TokenType::Execute),
+                ))),
+                SyntaxObject::default(TokenType::If),
+            )))],
+        )
+    }
+
+    #[test]
+    fn test_quote_with_inner_nested() {
+        assert_parse(
+            "'(#f '())",
+            &[ExprKind::Quote(
+                Quote::new(
+                    ExprKind::List(List::new(vec![
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(
+                            TokenType::BooleanLiteral(false),
+                        ))),
+                        ExprKind::Quote(
+                            Quote::new(
+                                List::new(vec![]).into(),
+                                SyntaxObject::default(TokenType::Quote),
+                            )
+                            .into(),
+                        ),
+                    ])),
+                    SyntaxObject::default(TokenType::Quote),
+                )
+                .into(),
+            )],
+        )
+    }
+
+    #[test]
+    fn test_define_with_datum_syntax_name() {
+        assert_parse(
+            "(define (datum->syntax var) (car ret-value))",
+            &[ExprKind::Define(Box::new(Define::new(
+                ExprKind::List(List::new(vec![
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+                        "datum->syntax".to_string(),
+                    )))),
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+                        "var".to_string(),
+                    )))),
+                ])),
+                ExprKind::List(List::new(vec![
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+                        "car".to_string(),
+                    )))),
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+                        "ret-value".to_string(),
+                    )))),
+                ])),
+                SyntaxObject::default(TokenType::Define),
+            )))],
         )
     }
 }

@@ -1,16 +1,22 @@
-use super::constants::ConstantMap;
-use crate::core::instructions::Instruction;
+use std::convert::TryFrom;
+
+use super::constants::{ConstantMap, ConstantTable};
+use crate::{
+    core::{instructions::Instruction, opcode::OpCode},
+    new_parser::{ast::Atom, parser::SyntaxObject, tokens::TokenType},
+};
 
 use crate::new_parser::ast::ExprKind;
 use crate::new_parser::visitors::VisitorMut;
 
+use crate::gc::Gc;
 use crate::rerrs::SteelErr;
-use crate::rvals::Result;
+use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
 use log::info;
 
-use super::codegen::{check_and_transform_mutual_recursion, transform_tail_call};
+// use super::codegen::{check_and_transform_mutual_recursion, transform_tail_call};
 
 pub struct CodeGenerator<'a> {
     instructions: Vec<Instruction>,
@@ -19,6 +25,30 @@ pub struct CodeGenerator<'a> {
 }
 
 impl<'a> CodeGenerator<'a> {
+    pub fn new(constant_map: &'a mut ConstantMap) -> Self {
+        CodeGenerator {
+            instructions: Vec::new(),
+            constant_map,
+            defining_context: None,
+        }
+    }
+
+    pub fn new_from_body_instructions(
+        constant_map: &'a mut ConstantMap,
+        instructions: Vec<Instruction>,
+    ) -> Self {
+        CodeGenerator {
+            instructions,
+            constant_map,
+            defining_context: None,
+        }
+    }
+
+    pub fn compile(mut self, expr: &ExprKind) -> Result<Vec<Instruction>> {
+        self.visit(expr)?;
+        Ok(self.instructions)
+    }
+
     #[inline]
     fn push(&mut self, instr: Instruction) {
         self.instructions.push(instr);
@@ -144,7 +174,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
-        self.visit(&lambda_function.body)?;
+        // make recursive call with "fresh" vector so that offsets are correct
+        body_instructions =
+            CodeGenerator::new_from_body_instructions(&mut self.constant_map, body_instructions)
+                .compile(&lambda_function.body)?;
 
         body_instructions.push(Instruction::new_pop());
         if let Some(ctx) = &self.defining_context {
@@ -218,15 +251,19 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_quote(&mut self, quote: &crate::new_parser::ast::Quote) -> Self::Output {
-        todo!()
+        let converted = SteelVal::try_from(quote.expr.clone())?;
+        let idx = self.constant_map.add_or_get(Gc::new(converted));
+        self.push(Instruction::new_push_const(idx));
+
+        return Ok(());
     }
 
     fn visit_struct(&mut self, s: &crate::new_parser::ast::Struct) -> Self::Output {
-        todo!()
+        stop!(BadSyntax => "struct definition only allowed at top level"; s.location.span)
     }
 
     fn visit_macro(&mut self, m: &crate::new_parser::ast::Macro) -> Self::Output {
-        todo!()
+        stop!(BadSyntax => "unexpected macro definition"; m.location.span)
     }
 
     fn visit_eval(&mut self, e: &crate::new_parser::ast::Eval) -> Self::Output {
@@ -239,12 +276,134 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_list(&mut self, l: &crate::new_parser::ast::List) -> Self::Output {
-        todo!()
+        // dbg!(l);
+
+        let pop_len = l.args[1..].len();
+
+        // emit instructions for the args
+        for expr in &l.args[1..] {
+            self.visit(expr)?;
+        }
+
+        // emit instructions for the func
+        self.visit(&l.args[0])?;
+
+        if let ExprKind::Atom(Atom { syn: s }) = &l.args[0] {
+            self.push(Instruction::new_func(pop_len, s.clone()));
+        } else {
+            self.push(Instruction::new_func(
+                pop_len,
+                SyntaxObject::default(TokenType::Identifier("lambda".to_string())),
+            ));
+        }
+
+        Ok(())
     }
 
-    fn visit_define_function(&mut self, define: &crate::new_parser::ast::DefineFunction) -> Self::Output {
+    fn visit_syntax_rules(&mut self, l: &crate::new_parser::ast::SyntaxRules) -> Self::Output {
         todo!()
     }
+}
 
-    // fn visit_define_function()
+pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &str) -> bool {
+    let last_idx = instructions.len() - 1;
+
+    let mut indices = vec![last_idx];
+
+    let mut transformed = false;
+
+    for (idx, instruction) in instructions.iter().enumerate() {
+        if instruction.op_code == OpCode::JMP && instruction.payload_size == last_idx {
+            indices.push(idx);
+        }
+    }
+
+    for index in &indices {
+        if *index < 2 {
+            continue;
+        }
+        let prev_instruction = instructions.get(index - 1);
+        let prev_func_push = instructions.get(index - 2);
+
+        match (prev_instruction, prev_func_push) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::FUNC,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            ..
+                        }),
+                    ..
+                }),
+            ) => {
+                if s == defining_context {
+                    let new_jmp = Instruction::new_jmp(0);
+                    // inject tail call jump
+                    instructions[index - 2] = new_jmp;
+                    instructions[index - 1] = Instruction::new_pass();
+                    transformed = true;
+
+                    info!("Tail call optimization performed for: {}", defining_context);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    transformed
+}
+
+// Note, this should be called AFTER `transform_tail_call`
+pub fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> bool {
+    let last_idx = instructions.len() - 1;
+
+    // could panic
+    let mut indices = vec![last_idx];
+
+    let mut transformed = false;
+
+    for (idx, instruction) in instructions.iter().enumerate() {
+        if instruction.op_code == OpCode::JMP && instruction.payload_size == last_idx {
+            indices.push(idx);
+        }
+    }
+
+    for index in &indices {
+        if *index < 2 {
+            continue;
+        }
+        let prev_instruction = instructions.get(index - 1);
+        let prev_func_push = instructions.get(index - 2);
+
+        match (prev_instruction, prev_func_push) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::FUNC,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(_s),
+                            ..
+                        }),
+                    ..
+                }),
+            ) => {
+                if let Some(x) = instructions.get_mut(index - 1) {
+                    x.op_code = OpCode::TAILCALL;
+                    transformed = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    transformed
 }

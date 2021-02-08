@@ -1,6 +1,7 @@
 // use crate::parser::{tokens::TokenType, Expr, SyntaxObject};
 use crate::new_parser::parser::SyntaxObject;
 use crate::new_parser::tokens::TokenType;
+use crate::new_parser::tokens::TokenType::*;
 use crate::rvals::Result;
 
 // use super::{VisitChildren, Visitor};
@@ -17,8 +18,11 @@ use std::ops::Deref;
 
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
+use crate::rvals::SteelVal::*;
 
 use crate::new_parser::tryfrom_visitor::TryFromExprKindForSteelVal;
+
+use crate::rvals::collect_pair_into_vector;
 
 pub trait VisitChildrenMutResult<T> {
     fn accept(&self, visitor: &mut impl VisitorMutResult<Output = T>) -> Result<T>;
@@ -85,13 +89,77 @@ impl TryFrom<ExprKind> for SteelVal {
     }
 }
 
+/// Sometimes you want to execute a list
+/// as if it was an expression
 impl TryFrom<&SteelVal> for ExprKind {
-    type Error = SteelErr;
-
-    fn try_from(_val: &SteelVal) -> std::result::Result<Self, Self::Error> {
-        unimplemented!("Have not yet implemented going from steel val back to an expression")
+    type Error = &'static str;
+    fn try_from(r: &SteelVal) -> std::result::Result<Self, Self::Error> {
+        match r {
+            BoolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                BooleanLiteral(*x),
+            )))),
+            NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                NumberLiteral(*x),
+            )))),
+            IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                IntegerLiteral(*x),
+            )))),
+            VectorV(lst) => {
+                let items: std::result::Result<Vec<Self>, Self::Error> = lst
+                    .into_iter()
+                    .map(|x| Self::try_from(x.as_ref()))
+                    .collect();
+                Ok(ExprKind::List(List::new(items?)))
+            }
+            Void => Err("Can't convert from Void to expression!"),
+            StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                StringLiteral(x.clone()),
+            )))),
+            FuncV(_) => Err("Can't convert from Function to expression!"),
+            // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
+            // MacroV(_) => Err("Can't convert from Macro to expression!"),
+            SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                Identifier(x.clone()),
+            )))),
+            Custom(_) => Err("Can't convert from Custom Type to expression!"),
+            // Pair(_, _) => Err("Can't convert from pair"), // TODO
+            Pair(_, _) => {
+                if let VectorV(ref lst) = collect_pair_into_vector(r) {
+                    let items: std::result::Result<Vec<Self>, Self::Error> = lst
+                        .into_iter()
+                        .map(|x| Self::try_from(x.as_ref()))
+                        .collect();
+                    Ok(ExprKind::List(List::new(items?)))
+                } else {
+                    Err("Couldn't convert from list to expression")
+                }
+            }
+            CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                CharacterLiteral(*x),
+            )))),
+            StructV(_) => Err("Can't convert from Struct to expression!"),
+            StructClosureV(_, _) => Err("Can't convert from struct-function to expression!"),
+            PortV(_) => Err("Can't convert from port to expression!"),
+            Closure(_) => Err("Can't convert from bytecode closure to expression"),
+            HashMapV(_) => Err("Can't convert from hashmap to expression!"),
+            HashSetV(_) => Err("Can't convert from hashset to expression!"),
+            IterV(_) => Err("Can't convert from iterator to expression!"),
+            FutureFunc(_) => Err("Can't convert from future function to expression!"),
+            FutureV(_) => Err("Can't convert future to expression!"),
+            // Promise(_) => Err("Can't convert from promise to expression!"),
+            StreamV(_) => Err("Can't convert from stream to expression!"),
+            BoxV(_) => Err("Can't convert from box to expression!"),
+        }
     }
 }
+
+// impl TryFrom<&SteelVal> for ExprKind {
+//     type Error = SteelErr;
+
+//     fn try_from(_val: &SteelVal) -> std::result::Result<Self, Self::Error> {
+//         unimplemented!("Have not yet implemented going from SteelVal back to an expression")
+//     }
+// }
 
 impl fmt::Display for ExprKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -152,7 +220,7 @@ impl fmt::Display for If {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "({} {} {})",
+            "(if {} {} {})",
             self.test_expr, self.then_expr, self.else_expr
         )
     }
@@ -316,7 +384,7 @@ impl Return {
 
 impl fmt::Display for Return {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(return {})", self.expr)
+        write!(f, "(return! {})", self.expr)
     }
 }
 
@@ -764,6 +832,30 @@ where
         // TODO maybe add implicit begin here
         // maybe do it later, not sure
         ExprKind::List(l) => {
+
+            let name_ref = l.args.first().ok_or_else(|| {
+                ParseError::SyntaxError(
+                    "define expected a function name, found none".to_string(),
+                    syn.span
+                )
+            })?;
+
+            if let ExprKind::Atom(Atom { syn: SyntaxObject { ty: TokenType::Identifier(datum_syntax), ..}}) = name_ref {
+                if datum_syntax == "datum->syntax" {
+                    return Ok(ExprKind::Define(Box::new(Define::new(
+                        ExprKind::List(List::new(l.args)),
+                        {
+                            let v = value_iter.next().ok_or_else(|| ParseError::SyntaxError("define statement expected a body, found none".to_string(), syn.span))?;
+                            if value_iter.next().is_some() {
+                                return Err(ParseError::SyntaxError("Define expected only one expression after the identifier".to_string(), syn.span));
+                            }
+                            v
+                        },
+                        syn,
+                    ))))
+                }
+            }
+
             let mut args = l.args.into_iter();
 
             let name = args.next().ok_or_else(|| {
@@ -772,6 +864,7 @@ where
                     syn.span
                 )
             })?;
+
             let args = args.collect();
 
             let body_exprs: Vec<_> = value_iter.collect();
@@ -799,7 +892,13 @@ where
         ExprKind::Atom(a) => {
             Ok(ExprKind::Define(Box::new(Define::new(
                 ExprKind::Atom(a),
-                value_iter.next().ok_or_else(|| ParseError::SyntaxError("define statement expected a body, found none".to_string(), syn.span))?,
+                {
+                    let v = value_iter.next().ok_or_else(|| ParseError::SyntaxError("define statement expected a body, found none".to_string(), syn.span))?;
+                    if value_iter.next().is_some() {
+                        return Err(ParseError::SyntaxError("Define expected only one expression after the identifier".to_string(), syn.span));
+                    }
+                    v
+                },
                 syn,
             ))))
         }
@@ -1232,16 +1331,17 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 syntax_vec, pairs, syn,
                             )))
                         }
-                        TokenType::Identifier(_) => {
-                            Ok(ExprKind::List(List::new(value)))
-                            // unimplemented!("Pass through the value as list")
-                        }
-                        // Application not a procedure, can catch this here for constants
-                        _ => Err(ParseError::SyntaxError(
-                            "illegal function application - application not a procedure"
-                                .to_string(),
-                            a.syn.span.clone(),
-                        )),
+                        _ => Ok(ExprKind::List(List::new(value))),
+                        // TokenType::Identifier(_) => {
+                        //     Ok(ExprKind::List(List::new(value)))
+                        //     // unimplemented!("Pass through the value as list")
+                        // }
+                        // // Application not a procedure, can catch this here for constants
+                        // _ => Err(ParseError::SyntaxError(
+                        //     "illegal function application - application not a procedure"
+                        //         .to_string(),
+                        //     a.syn.span.clone(),
+                        // )),
                     }
                 }
                 _ => Ok(ExprKind::List(List::new(value))),

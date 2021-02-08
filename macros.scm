@@ -16,6 +16,10 @@
 (displayln (filter-test (= 2) (list 1 2 3 4 5 2 4 2)))
 
 
+((lambda (##z) 
+        (if ##z ##z 
+            ((lambda (##z) (if ##z ##z 3)) 2))) 1)
+
 ; (define-syntax for
 ;   (syntax-rules (in as)
 ;     [(for element in lst body ...)

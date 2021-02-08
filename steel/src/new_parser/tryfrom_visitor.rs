@@ -87,7 +87,9 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
     }
 
     fn visit_quote(&self, quote: Box<super::ast::Quote>) -> Self::Output {
-        todo!()
+        // todo!()
+
+        self.visit(quote.expr)
     }
 
     fn visit_struct(&self, s: Box<super::ast::Struct>) -> Self::Output {

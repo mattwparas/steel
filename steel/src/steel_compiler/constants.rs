@@ -1,7 +1,12 @@
 use crate::rvals::{Result, SteelVal};
 // use std::rc::Rc;
 use crate::gc::Gc;
-use crate::parser::{Expr, ParseError, Parser};
+// use crate::parser::{Expr, ParseError, Parser};
+
+use crate::new_parser::{
+    ast::ExprKind,
+    parser::{ParseError, Parser},
+};
 
 use std::convert::TryFrom;
 
@@ -24,8 +29,11 @@ impl ConstantMap {
     }
 
     fn to_constant_expr_map(&self) -> Vec<String> {
-        let result: std::result::Result<Vec<_>, _> =
-            self.0.iter().map(|x| Expr::try_from(x.as_ref())).collect();
+        let result: std::result::Result<Vec<_>, _> = self
+            .0
+            .iter()
+            .map(|x| ExprKind::try_from(x.as_ref()))
+            .collect();
 
         result.unwrap().into_iter().map(|x| x.to_string()).collect()
     }
@@ -50,7 +58,7 @@ impl ConstantMap {
             .into_iter()
             .map(|x| {
                 // Parse the input
-                let parsed: std::result::Result<Vec<Expr>, ParseError> =
+                let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
                     Parser::new(&x, &mut intern).collect();
                 let parsed = parsed?;
 
