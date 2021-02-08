@@ -937,6 +937,14 @@ where
     };
 
     let body_exprs: Vec<_> = value_iter.collect();
+
+    if body_exprs.is_empty() {
+        return Err(ParseError::SyntaxError(
+            "let expects an expression, found none".to_string(),
+            syn.span,
+        ));
+    }
+
     let body = if body_exprs.len() == 1 {
         body_exprs[0].clone()
     } else {
@@ -1150,6 +1158,31 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::Quote => parse_quote(value.into_iter(), a.syn.clone()),
                         TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
                         TokenType::Return => parse_return(value.into_iter(), a.syn.clone()),
+                        TokenType::Struct => {
+                            let syn = a.syn.clone();
+
+                            if value.len() != 3 {
+                                return Err(ParseError::ArityMismatch(
+                                    format!(
+                                        "struct expects a name and a list of fields, found {} arguments instead", value.len()
+                                    ), syn.span,
+                                ));
+                            }
+
+                            let mut value_iter = value.into_iter();
+                            value_iter.next();
+                            let name = value_iter.next().unwrap();
+                            let args = value_iter.next().unwrap();
+
+                            if let ExprKind::List(l) = args {
+                                Ok(ExprKind::Struct(Box::new(Struct::new(name, l.args, syn))))
+                            } else {
+                                Err(ParseError::SyntaxError(
+                                    "struct expected a list of field names".to_string(),
+                                    syn.span,
+                                ))
+                            }
+                        }
                         TokenType::Begin => {
                             let syn = a.syn.clone();
 

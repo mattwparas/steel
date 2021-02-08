@@ -105,6 +105,8 @@ pub enum TokenType {
     DefineSyntax,
     #[token("...")]
     Ellipses,
+    #[token("struct")]
+    Struct,
 
     #[token("#\\SPACE", |_| Some(' '))]
     #[regex(r"#\\\p{L}", parse_char)]
@@ -181,6 +183,7 @@ impl fmt::Display for TokenType {
             DefineSyntax => write!(f, "define-syntax"),
             SyntaxRules => write!(f, "syntax-rules"),
             Ellipses => write!(f, "..."),
+            Struct => write!(f, "struct"),
         }
     }
 }

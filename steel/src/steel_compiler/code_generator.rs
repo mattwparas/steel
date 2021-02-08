@@ -244,9 +244,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         if let Some(output_type) = &execute.output_type {
             self.visit(output_type)?;
+            self.push(Instruction::new_collect_to());
+        } else {
+            self.push(Instruction::new_collect());
         }
-
-        self.push(Instruction::new_collect());
         Ok(())
     }
 

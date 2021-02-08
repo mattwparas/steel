@@ -30,12 +30,12 @@ fn if_test() {
     );
     test_line(
         "(if (= 1 1))",
-        &["Error: Arity Mismatch: if: expected 3 args got 1"],
+        &["Error: Parse error: Parse: Syntax Error: if expects a then condition, found none"],
         &mut evaluator,
     );
     test_line(
         "(if 1 2 3 4)",
-        &["Error: Arity Mismatch: if: expected 3 args got 4"],
+        &["Error: Parse error: Parse: Syntax Error: if takes only 3 expressions"],
         &mut evaluator,
     );
 }
@@ -48,12 +48,12 @@ fn define_test() {
     test_line("a", &["Error: Free Identifier: a"], e);
     test_line(
         "(define a (lambda (x) (+ x 1)) wat)",
-        &["Error: Arity Mismatch: define statement expects an identifier and an expression"],
+        &["Error: Parse error: Parse: Syntax Error: Define expected only one expression after the identifier"],
         e,
     );
     test_line(
         "(define a)",
-        &["Error: Arity Mismatch: Define: expected at least 2 args got 1"],
+        &["Error: Parse error: Parse: Syntax Error: define statement expected a body, found none"],
         e,
     );
     test_line("(define a (lambda (x) (+ x 1)))", &["#<void>"], e);
@@ -72,7 +72,7 @@ fn lambda_test() {
     evaluator.parse_and_execute(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(lambda (x) 1 2)", &["#<bytecode-closure>"], e);
-    test_line("(lambda x 1)", &["Error: Expected List of Identifiers"], e);
+    test_line("(lambda x 1)", &["Error: Parse error: Parse: Syntax Error: lambda function expected a list of identifiers"], e);
     test_line("(lambda () 1)", &["#<bytecode-closure>"], e);
     test_line(
         "(lambda () (lambda () (lambda () (lambda () 1))))",
@@ -87,38 +87,39 @@ fn lambda_test() {
     test_line("((((x 1) 2 3) 4) 5)", &["15"], e);
 }
 
-#[test]
-fn set_test() {
-    let mut evaluator = Engine::new();
-    evaluator.parse_and_execute(PRELUDE).unwrap();
-    let e = &mut evaluator;
-    test_line("(set! x 10)", &["Error: Free Identifier: x"], e);
-    test_line(
-        "(set! x)",
-        &["Error: Arity Mismatch: set: expected 2 args got 1"],
-        e,
-    );
-    test_line(
-        "(set! x 1 2)",
-        &["Error: Arity Mismatch: set: expected 2 args got 3"],
-        e,
-    );
-    test_line(
-        "(define x 100) (set! x (+ x 1)) x",
-        &["#<void>", "100", "101"],
-        e,
-    );
-    test_line(
-        "(define x (lambda () (begin (define a 10) (set! a 20) a))) (x)",
-        &["#<void>", "20"],
-        e,
-    );
-    test_line(
-        "(define a 1000) (define x (lambda () (begin (set! a 20)  a))) (x)",
-        &["#<void>", "#<void>", "20"],
-        e,
-    );
-}
+// TODO implement set again
+// #[test]
+// fn set_test() {
+//     let mut evaluator = Engine::new();
+//     evaluator.parse_and_execute(PRELUDE).unwrap();
+//     let e = &mut evaluator;
+//     test_line("(set! x 10)", &["Error: Free Identifier: x"], e);
+//     test_line(
+//         "(set! x)",
+//         &["Error: Arity Mismatch: set: expected 2 args got 1"],
+//         e,
+//     );
+//     test_line(
+//         "(set! x 1 2)",
+//         &["Error: Arity Mismatch: set: expected 2 args got 3"],
+//         e,
+//     );
+//     test_line(
+//         "(define x 100) (set! x (+ x 1)) x",
+//         &["#<void>", "100", "101"],
+//         e,
+//     );
+//     test_line(
+//         "(define x (lambda () (begin (define a 10) (set! a 20) a))) (x)",
+//         &["#<void>", "20"],
+//         e,
+//     );
+//     test_line(
+//         "(define a 1000) (define x (lambda () (begin (set! a 20)  a))) (x)",
+//         &["#<void>", "#<void>", "20"],
+//         e,
+//     );
+// }
 
 #[test]
 fn let_test() {
@@ -130,24 +131,20 @@ fn let_test() {
     test_line("(let () 1)", &["1"], e);
     test_line(
         "(let ((1)) x)",
-        &["Error: Bad Syntax: Let requires pairs for binding"],
+        &["Error: Parse error: Parse: Syntax Error: let expected a list of variable binding pairs, found a pair with length 1"],
         e,
     );
     test_line(
         "(let ((x 1) (1)) x)",
-        &["Error: Bad Syntax: Let requires pairs for binding"],
+        &["Error: Parse error: Parse: Syntax Error: let expected a list of variable binding pairs, found a pair with length 1"],
         e,
     );
     test_line(
         "(let ((x 1)))",
-        &["Error: Arity Mismatch: Let: expected 2 args got 1"],
+        &["Error: Parse error: Parse: Syntax Error: let expects an expression, found none"],
         e,
     );
-    test_line(
-        "(let ((x 1)) 1 2 3 4)",
-        &["Error: Arity Mismatch: Let: expected 2 args got 5"],
-        e,
-    );
+    test_line("(let ((x 1)) 1 2 3 4)", &["4"], e);
 }
 
 #[test]
@@ -277,15 +274,16 @@ fn last_apply_test() {
     test_line("((l> append (list 3 4)) (list 1 2))", &["'(3 4 1 2)"], e);
 }
 
-#[test]
-fn while_test() {
-    let mut evaluator = Engine::new();
-    evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
-    let e = &mut evaluator;
-    test_line("(define x 0)", &["#<void>"], e);
-    test_line("(while (< x 5) (set! x (+ x 1))) x", &["#<void>", "5"], e);
-}
+// TODO implement set again
+// #[test]
+// fn while_test() {
+//     let mut evaluator = Engine::new();
+//     evaluator.parse_and_execute(PRELUDE).unwrap();
+//     // evaluator.parse_and_eval(PRELUDE).unwrap();
+//     let e = &mut evaluator;
+//     test_line("(define x 0)", &["#<void>"], e);
+//     test_line("(while (< x 5) (set! x (+ x 1))) x", &["#<void>", "5"], e);
+// }
 
 #[test]
 fn map_test() {

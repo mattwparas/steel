@@ -21,7 +21,3 @@ Error: Parse error: Parse: Unexpected token: CloseParen
 #false
 #false
 #false
-#<void>
-#<void>
-80.0
-60.0
