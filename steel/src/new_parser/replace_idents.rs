@@ -335,7 +335,7 @@ mod replace_expressions_tests {
     #[test]
     fn test_expand_datum_syntax() {
         let bindings = map! {
-            "apple" => atom_identifier("x"),
+            "struct-name" => atom_identifier("apple"),
         };
 
         let expr = ExprKind::List(List::new(vec![
@@ -344,7 +344,7 @@ mod replace_expressions_tests {
             atom_identifier("?"),
         ]));
 
-        let post_condition = atom_identifier("struct-name?");
+        let post_condition = atom_identifier("apple?");
 
         let output = ReplaceExpressions::new(&bindings, Span::new(0, 0))
             .visit(expr)

@@ -10,6 +10,8 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::new_parser::ast::Struct;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum StructFunctionType {
     Constructor,
@@ -142,6 +144,20 @@ impl SteelStruct {
         } = Self::generate_builder_from_tokens(list_of_tokens)?;
 
         Self::generate_from_name_fields(name, &field_names_as_strs)
+    }
+
+    pub fn generate_from_ast(s: &Struct) -> Result<StructFuncBuilder> {
+        let name = s.name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
+
+        let field_names_as_strs: Vec<&str> = s
+            .fields
+            .iter()
+            .map(|x| {
+                x.atom_identifier_or_else(throw!(TypeMismatch => "struct expected identifiers"))
+            })
+            .collect::<Result<_>>()?;
+
+        Ok(StructFuncBuilder::new(name, field_names_as_strs))
     }
 
     pub fn generate_builder_from_tokens(list_of_tokens: &[Expr]) -> Result<StructFuncBuilder> {

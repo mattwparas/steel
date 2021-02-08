@@ -15,6 +15,11 @@ use itertools::Itertools;
 use std::fmt;
 use std::ops::Deref;
 
+use crate::rerrs::SteelErr;
+use crate::rvals::SteelVal;
+
+use crate::new_parser::tryfrom_visitor::TryFromExprKindForSteelVal;
+
 pub trait VisitChildrenMutResult<T> {
     fn accept(&self, visitor: &mut impl VisitorMutResult<Output = T>) -> Result<T>;
 }
@@ -69,6 +74,22 @@ impl ExprKind {
             Self::List(l) => Ok(l),
             _ => Err(err()),
         }
+    }
+}
+
+impl TryFrom<ExprKind> for SteelVal {
+    type Error = SteelErr;
+
+    fn try_from(e: ExprKind) -> std::result::Result<Self, Self::Error> {
+        TryFromExprKindForSteelVal::try_from_expr_kind(e)
+    }
+}
+
+impl TryFrom<&SteelVal> for ExprKind {
+    type Error = SteelErr;
+
+    fn try_from(_val: &SteelVal) -> std::result::Result<Self, Self::Error> {
+        unimplemented!("Have not yet implemented going from steel val back to an expression")
     }
 }
 

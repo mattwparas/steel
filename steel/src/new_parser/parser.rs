@@ -1,6 +1,6 @@
 // use lexer::Tokenizer;
 use crate::new_parser::lexer::TokenStream;
-use crate::new_parser::tokens::{Token, TokenError, TokenType};
+use crate::new_parser::tokens::{Token, TokenError, TokenType, TokenType::*};
 
 use std::collections::HashMap;
 use std::fmt;
@@ -15,6 +15,10 @@ use crate::parser::span::Span;
 use crate::new_parser::ast::*;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
+
+use crate::rerrs::SteelErr;
+use crate::rvals::SteelVal;
+use crate::rvals::SteelVal::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyntaxObject {
@@ -48,6 +52,44 @@ impl SyntaxObject {
 impl From<&Token<'_>> for SyntaxObject {
     fn from(val: &Token) -> SyntaxObject {
         SyntaxObject::new(val.ty.clone(), val.span)
+    }
+}
+
+impl TryFrom<SyntaxObject> for SteelVal {
+    type Error = SteelErr;
+
+    fn try_from(e: SyntaxObject) -> std::result::Result<Self, Self::Error> {
+        let span = e.span;
+        match e.ty {
+            OpenParen => Err(SteelErr::UnexpectedToken("(".to_string(), Some(span))),
+            CloseParen => Err(SteelErr::UnexpectedToken(")".to_string(), Some(span))),
+            CharacterLiteral(x) => Ok(CharV(x)),
+            BooleanLiteral(x) => Ok(BoolV(x)),
+            Identifier(x) => Ok(SymbolV(x.clone())),
+            NumberLiteral(x) => Ok(NumV(x)),
+            IntegerLiteral(x) => Ok(IntV(x)),
+            StringLiteral(x) => Ok(StringV(x.clone())),
+            QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string(), Some(span))),
+            Unquote => Err(SteelErr::UnexpectedToken(",".to_string(), Some(span))),
+            QuasiQuote => Err(SteelErr::UnexpectedToken("`".to_string(), Some(span))),
+            UnquoteSplice => Err(SteelErr::UnexpectedToken(",@".to_string(), Some(span))),
+            Error => Err(SteelErr::UnexpectedToken("error".to_string(), Some(span))),
+            Comment => Err(SteelErr::UnexpectedToken("comment".to_string(), Some(span))),
+            Hash => Err(SteelErr::UnexpectedToken("#".to_string(), Some(span))),
+            If => Ok(SymbolV("if".to_string())),
+            Define => Ok(SymbolV("define".to_string())),
+            Let => Ok(SymbolV("let".to_string())),
+            Transduce => Ok(SymbolV("transduce".to_string())),
+            Execute => Ok(SymbolV("execute".to_string())),
+            Return => Ok(SymbolV("return".to_string())),
+            Begin => Ok(SymbolV("begin".to_string())),
+            Panic => Ok(SymbolV("panic".to_string())),
+            Lambda => Ok(SymbolV("lambda".to_string())),
+            Quote => Ok(SymbolV("quote".to_string())),
+            DefineSyntax => Ok(SymbolV("define-syntax".to_string())),
+            SyntaxRules => Ok(SymbolV("syntax-rules".to_string())),
+            Ellipses => Ok(SymbolV("...".to_string())),
+        }
     }
 }
 

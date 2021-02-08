@@ -13,6 +13,27 @@ use std::collections::HashMap;
 
 use crate::new_parser::expander::SteelMacro;
 
+pub fn extract_macro_defs(
+    exprs: Vec<ExprKind>,
+    macro_map: &mut HashMap<String, SteelMacro>,
+) -> Result<Vec<ExprKind>> {
+    let mut non_macros = Vec::new();
+    for expr in exprs {
+        if let ExprKind::Macro(m) = expr {
+            let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
+            let name = generated_macro.name().clone();
+            macro_map.insert(name.to_string(), generated_macro);
+        } else {
+            non_macros.push(expr)
+        }
+    }
+    Ok(non_macros)
+}
+
+pub fn expand(expr: ExprKind, map: &HashMap<String, SteelMacro>) -> Result<ExprKind> {
+    Expander { map }.visit(expr)
+}
+
 pub struct Expander<'a> {
     map: &'a HashMap<String, SteelMacro>,
 }
@@ -134,5 +155,82 @@ impl<'a> ConsumingVisitor for Expander<'a> {
 
     fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
+    }
+}
+
+#[cfg(test)]
+mod expansion_tests {
+    use super::*;
+
+    use crate::new_parser::expander::MacroCase;
+    use crate::new_parser::expander::MacroPattern;
+
+    use crate::new_parser::ast::{Begin, If, List};
+    use crate::new_parser::tokens::TokenType;
+
+    fn atom_identifier(s: &str) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+            s.to_string(),
+        ))))
+    }
+
+    fn ellipses() -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Ellipses)))
+    }
+
+    #[test]
+    fn test_basic_expansion() {
+        // (define-syntax when
+        //     (syntax-rules ()
+        //       [(when a b ...)
+        //        (if a (begin b ...) void)]))
+        let m = SteelMacro::new(
+            "when".to_string(),
+            Vec::new(),
+            vec![MacroCase::new(
+                vec![
+                    MacroPattern::Syntax("when".to_string()),
+                    MacroPattern::Single("a".to_string()),
+                    MacroPattern::Many("b".to_string()),
+                ],
+                If::new(
+                    atom_identifier("a"),
+                    Begin::new(
+                        vec![atom_identifier("b"), ellipses()],
+                        SyntaxObject::default(TokenType::Begin),
+                    )
+                    .into(),
+                    atom_identifier("void"),
+                    SyntaxObject::default(TokenType::If),
+                )
+                .into(),
+            )],
+        );
+
+        let mut map = HashMap::new();
+        map.insert("when".to_string(), m);
+
+        let input: ExprKind = List::new(vec![
+            atom_identifier("when"),
+            atom_identifier("blagh"),
+            atom_identifier("do-thing"),
+        ])
+        .into();
+
+        let expected: ExprKind = If::new(
+            atom_identifier("blagh"),
+            Begin::new(
+                vec![atom_identifier("do-thing")],
+                SyntaxObject::default(TokenType::Begin),
+            )
+            .into(),
+            atom_identifier("void"),
+            SyntaxObject::default(TokenType::If),
+        )
+        .into();
+
+        let output = expand(input, &map).unwrap();
+
+        assert_eq!(expected, output)
     }
 }

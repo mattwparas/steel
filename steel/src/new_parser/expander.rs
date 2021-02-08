@@ -23,6 +23,18 @@ pub struct SteelMacro {
 }
 
 impl SteelMacro {
+    pub fn new(name: String, special_forms: Vec<String>, cases: Vec<MacroCase>) -> Self {
+        SteelMacro {
+            name,
+            special_forms,
+            cases,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn parse_from_ast_macro(ast_macro: Macro) -> Result<Self> {
         let name = ast_macro
             .name
@@ -102,6 +114,10 @@ pub struct MacroCase {
 // }
 
 impl MacroCase {
+    pub fn new(args: Vec<MacroPattern>, body: ExprKind) -> Self {
+        MacroCase { args, body }
+    }
+
     fn parse_from_pattern_pair(
         pattern_pair: PatternPair,
         name: &str,
@@ -690,13 +706,13 @@ mod macro_case_expand_test {
 
     use super::*;
 
-    macro_rules! map {
-        ($ ( $key:expr => $value:expr ), *,) => {{
-            let mut hm: HashMap<String, ExprKind> = HashMap::new();
-            $ (hm.insert($key.to_string(), $value); ) *
-            hm
-        }};
-    }
+    // macro_rules! map {
+    //     ($ ( $key:expr => $value:expr ), *,) => {{
+    //         let mut hm: HashMap<String, ExprKind> = HashMap::new();
+    //         $ (hm.insert($key.to_string(), $value); ) *
+    //         hm
+    //     }};
+    // }
 
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
@@ -746,8 +762,6 @@ mod macro_case_expand_test {
         .into();
 
         let output = case.expand(input, Span::new(0, 0)).unwrap();
-
-        println!("{}", output);
 
         assert_eq!(output, expected);
     }
