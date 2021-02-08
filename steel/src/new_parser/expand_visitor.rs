@@ -31,11 +31,7 @@ pub fn extract_macro_defs(
 }
 
 pub fn expand(expr: ExprKind, map: &HashMap<String, SteelMacro>) -> Result<ExprKind> {
-    let output = Expander { map }.visit(expr)?;
-
-    println!("{}", output);
-
-    Ok(output)
+    Expander { map }.visit(expr)
 }
 
 pub struct Expander<'a> {
