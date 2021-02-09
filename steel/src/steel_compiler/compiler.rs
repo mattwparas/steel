@@ -4,7 +4,6 @@ use crate::steel_compiler::{
     code_generator::CodeGenerator,
     constants::{ConstantMap, ConstantTable},
     expand::MacroSet,
-    expand::{expand_statements, extract_macro_definitions, get_definition_names},
     map::SymbolMap,
     program::Program,
 };
@@ -19,7 +18,6 @@ use crate::rvals::{Result, SteelVal};
 use crate::gc::Gc;
 
 use crate::parser::span::Span;
-use crate::parser::Expr;
 
 use crate::new_parser::parser::{ParseError, Parser};
 
@@ -378,7 +376,6 @@ fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
 pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub constant_map: ConstantMap,
-    pub(crate) idents: MacroSet,
     pub(crate) macro_env: HashMap<String, SteelMacro>,
 }
 
@@ -386,13 +383,11 @@ impl Compiler {
     pub fn new(
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
-        idents: MacroSet,
         macro_env: HashMap<String, SteelMacro>,
     ) -> Compiler {
         Compiler {
             symbol_map,
             constant_map,
-            idents,
             macro_env,
         }
     }
@@ -401,7 +396,6 @@ impl Compiler {
         Compiler::new(
             SymbolMap::default_from_env(),
             ConstantMap::new(),
-            MacroSet::new(),
             HashMap::new(),
         )
     }

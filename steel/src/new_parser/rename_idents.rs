@@ -125,11 +125,11 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
         self.visit(&mut quote.expr);
     }
 
-    fn visit_struct(&mut self, s: &mut super::ast::Struct) -> Self::Output {
-        todo!()
+    fn visit_struct(&mut self, _s: &mut super::ast::Struct) -> Self::Output {
+        // no op
     }
 
-    fn visit_macro(&mut self, m: &mut super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, _m: &mut super::ast::Macro) -> Self::Output {
         todo!()
     }
 
@@ -152,7 +152,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
         }
     }
 
-    fn visit_syntax_rules(&mut self, l: &mut super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, _l: &mut super::ast::SyntaxRules) -> Self::Output {
         todo!()
     }
 }

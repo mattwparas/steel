@@ -216,11 +216,18 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_apply(&mut self, apply: &crate::new_parser::ast::Apply) -> Self::Output {
-        todo!()
+        // todo!()
+        self.visit(&apply.func)?;
+        self.visit(&apply.list)?;
+        self.push(Instruction::new_apply(apply.location.clone()));
+        Ok(())
     }
 
     fn visit_panic(&mut self, p: &crate::new_parser::ast::Panic) -> Self::Output {
-        todo!()
+        // todo!()
+        self.visit(&p.message)?;
+        self.push(Instruction::new_panic(p.location.clone()));
+        Ok(())
     }
 
     fn visit_transduce(&mut self, transduce: &crate::new_parser::ast::Transduce) -> Self::Output {
@@ -268,7 +275,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_eval(&mut self, e: &crate::new_parser::ast::Eval) -> Self::Output {
-        todo!()
+        self.visit(&e.expr)?;
+        self.push(Instruction::new_eval());
+        Ok(())
     }
 
     fn visit_atom(&mut self, a: &crate::new_parser::ast::Atom) -> Self::Output {
@@ -302,7 +311,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_syntax_rules(&mut self, l: &crate::new_parser::ast::SyntaxRules) -> Self::Output {
-        todo!()
+        stop!(BadSyntax => "unexpected syntax rules"; l.location.span)
     }
 }
 

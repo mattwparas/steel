@@ -1,10 +1,7 @@
-// use lexer::Tokenizer;
 use crate::new_parser::lexer::TokenStream;
 use crate::new_parser::tokens::{Token, TokenError, TokenType, TokenType::*};
 
 use std::collections::HashMap;
-use std::fmt;
-// use std::iter::Peekable;
 use std::rc::Rc;
 use std::result;
 use std::str;
@@ -96,157 +93,6 @@ impl TryFrom<SyntaxObject> for SteelVal {
     }
 }
 
-// impl From<Box<dyn CustomType>> for SteelVal {
-//     fn from(val: Box<dyn CustomType>) -> SteelVal {
-//         val.new_steel_val()
-//     }
-// }
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Expr {
-    Atom(SyntaxObject),
-    VectorVal(Vec<Expr>),
-}
-
-// pub trait Node {
-//     // fn ();
-// }
-
-// pub enum TestExpr {
-//     Atom(SyntaxObject),
-//     Node(Box<dyn Node>),
-// }
-
-// struct If {
-//     test: TestExpr,
-//     then: TestExpr,
-//     els: TestExpr
-// }
-
-// struct Define {
-
-// }
-
-// impl Node for If {
-
-// }
-
-impl Expr {
-    pub fn vector_val_or_else<E, F: FnOnce() -> E>(
-        &self,
-        err: F,
-    ) -> std::result::Result<&[Expr], E> {
-        match self {
-            Self::VectorVal(v) => Ok(v),
-            Self::Atom(_) => Err(err()),
-        }
-    }
-
-    pub fn atom_identifier_or_else<E, F: FnOnce() -> E>(
-        &self,
-        err: F,
-    ) -> std::result::Result<&str, E> {
-        match self {
-            Self::Atom(SyntaxObject { ty: t, .. }) => match t {
-                TokenType::Identifier(s) => Ok(s),
-                _ => Err(err()),
-            },
-            _ => Err(err()),
-        }
-    }
-
-    pub fn rewrite_span(expr: Expr, span: Span) -> Self {
-        match expr {
-            Expr::Atom(SyntaxObject { ty: t, .. }) => {
-                Expr::Atom(SyntaxObject::new(t, span.clone()))
-            }
-            Expr::VectorVal(vec_exprs) => Expr::VectorVal(
-                vec_exprs
-                    .into_iter()
-                    .map(|x| Self::rewrite_span(x, span.clone()))
-                    .collect(),
-            ),
-        }
-    }
-
-    pub fn coalesce_span(spans: Vec<Span>) -> Span {
-        let span = spans.get(0);
-        if let Some(span) = span {
-            let mut span = span.clone();
-            for s in spans {
-                if s.start() < span.start() {
-                    span = Span::new(s.start(), span.end());
-                }
-                if s.end() > span.end() {
-                    span = Span::new(s.start(), s.end());
-                }
-            }
-            return span;
-        } else {
-            Span::new(0, 0)
-        }
-    }
-
-    pub fn span(&self) -> Span {
-        // let mut span = Span::new(0, 0);
-
-        fn collect_span(vec_exprs: Vec<Expr>) -> Vec<Span> {
-            let mut spans = Vec::new();
-            for exp in vec_exprs {
-                match exp {
-                    Expr::Atom(SyntaxObject { span: s, .. }) => {
-                        spans.push(s);
-                    }
-                    Expr::VectorVal(vec_exprs2) => {
-                        let mut res = collect_span(vec_exprs2);
-                        spans.append(&mut res);
-                    }
-                }
-            }
-            spans
-        }
-
-        match &self {
-            Self::Atom(SyntaxObject { span: s, .. }) => {
-                return s.clone();
-            }
-            Self::VectorVal(vec_exprs) => {
-                let spans = collect_span(vec_exprs.clone());
-                let span = spans.get(0);
-                if let Some(span) = span {
-                    let mut span = span.clone();
-                    for s in spans {
-                        if s.start() < span.start() {
-                            span = Span::new(s.start(), span.end());
-                        }
-                        if s.end() > span.end() {
-                            span = Span::new(span.start(), s.end());
-                        }
-                    }
-                    return span;
-                } else {
-                    Span::new(0, 0)
-                }
-            }
-        }
-    }
-}
-
-impl fmt::Display for Expr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Expr::Atom(t) => write!(f, "{}", t.ty.to_string()),
-            Expr::VectorVal(t) => {
-                let lst = t
-                    .iter()
-                    .map(|item| item.to_string() + " ")
-                    .collect::<String>();
-                write!(f, "({})", lst.trim())
-            }
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum ParseError {
     #[error("Parse: Error reading tokens: {0}")]
@@ -278,18 +124,6 @@ impl ParseError {
         }
     }
 }
-
-// #[derive(Clone, Debug, PartialEq, Error)]
-// pub enum TokenError {
-//     #[error("Unexpected char, {0} on line: {1}")]
-//     UnexpectedChar(char, usize),
-//     #[error("Incomplete String on line {0}")]
-//     IncompleteString(usize),
-//     #[error("Invalid Escape on line {0}")]
-//     InvalidEscape(usize),
-//     #[error("Invalid Character on line {0}")]
-//     InvalidCharacter(usize),
-// }
 
 #[derive(Debug)]
 pub struct Parser<'a> {
@@ -602,8 +436,6 @@ mod parser_tests {
 
     #[test]
     fn test_should_err() {
-        // assert_parse_is_err("(lambda (1 2) (+ 1 2 3))");
-        // assert_parse_is_err("(define (1 2 3) 10)");
         assert_parse_is_err("(execute)");
         assert_parse_is_err("(panic!)");
     }
