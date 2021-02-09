@@ -3,7 +3,7 @@ use crate::steel_compiler::{
     // codegen::emit_loop,
     code_generator::CodeGenerator,
     constants::{ConstantMap, ConstantTable},
-    expand::MacroSet,
+    // expand::MacroSet,
     map::SymbolMap,
     program::Program,
 };
