@@ -11,6 +11,7 @@ mod streams;
 mod strings;
 mod symbols;
 // mod time;
+mod contracts;
 mod transducers;
 mod vectors;
 
@@ -27,6 +28,7 @@ pub use streams::StreamOperations;
 pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
 // pub use time::TimeOperations;
+pub use contracts::ContractOperations;
 pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
 

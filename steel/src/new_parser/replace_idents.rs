@@ -43,7 +43,10 @@ impl<'a> ReplaceExpressions<'a> {
         ReplaceExpressions { bindings, span }
     }
 
-    fn expand_atom(&self, expr: Atom) -> ExprKind {
+    fn expand_atom(&self, mut expr: Atom) -> ExprKind {
+        // Overwrite the span on any atoms
+        expr.syn.set_span(self.span);
+
         if let TokenType::Identifier(s) = &expr.syn.ty {
             if let Some(body) = self.bindings.get(s) {
                 return body.clone();

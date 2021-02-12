@@ -5,7 +5,7 @@ use steel::steel_compiler::{
 // pub use expand::expand;
 // pub use expand::get_definition_names;
 // pub use expand::{expand_statements, extract_macro_definitions};
-use crate::{heap::Heap, transducers::TransducerExt};
+use crate::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
 use steel::core::instructions::DenseInstruction;
 // use steel_compiler::map::SymbolMap;
 use steel::core::opcode::OpCode;
@@ -814,6 +814,17 @@ pub fn vm<CT: ConstantTable>(
                         stack.truncate(stack.len() - cur_inst.payload_size as usize);
                         stack.push(result);
                         ip += 1;
+                    }
+                    SteelVal::ContractedFunction(cf) => {
+                        let args = stack.split_off(stack.len() - cur_inst.payload_size as usize);
+
+                        let result =
+                            cf.apply(args, heap, constants, &cur_inst.span, repl, callback)?;
+
+                        stack.push(result);
+                        ip += 1;
+
+                        // constants, &cur_inst.span, repl, callback
                     }
                     SteelVal::Closure(closure) => {
                         if closure.arity() != cur_inst.payload_size as usize {

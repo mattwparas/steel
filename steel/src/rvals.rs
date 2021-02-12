@@ -1,4 +1,5 @@
 use crate::{
+    contracts::{ContractType, ContractedFunction},
     core::instructions::DenseInstruction,
     env::Env,
     gc::Gc,
@@ -230,6 +231,10 @@ pub enum SteelVal {
     // EvaluationEnv(Weak<RefCell<Env>>),
     /// Mutable box - lets you put a value in there and change what it points to
     BoxV(RefCell<Gc<SteelVal>>),
+    /// Contract
+    Contract(ContractType),
+    /// Contracted Function
+    ContractedFunction(ContractedFunction),
 }
 
 // TODO come back to this for the constant map
@@ -374,6 +379,17 @@ impl SteelVal {
             | Closure(_) => true,
             _ => false,
         }
+    }
+
+    pub fn is_function(&self) -> bool {
+        match self {
+            StructClosureV(_, _) | Closure(_) | FuncV(_) | ContractedFunction(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_contract(&self) -> bool {
+        matches!(self, Contract(_))
     }
 }
 
@@ -660,6 +676,8 @@ impl TryFrom<&SteelVal> for Expr {
             // Promise(_) => Err("Can't convert from promise to expression!"),
             StreamV(_) => Err("Can't convert from stream to expression!"),
             BoxV(_) => Err("Can't convert from box to expression!"),
+            Contract(_) => Err("Can't convert from contract to expression!"),
+            ContractedFunction(_) => Err("Can't convert from contracted function to expression"),
         }
     }
 }
@@ -854,6 +872,8 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         // Promise(_) => write!(f, "#<promise>"),
         StreamV(_) => write!(f, "#<stream>"),
         BoxV(b) => write!(f, "#<box {:?}>", b.borrow()),
+        Contract(_) => write!(f, "#<contract>"),
+        ContractedFunction(_) => write!(f, "#<contracted-function>"),
     }
 }
 

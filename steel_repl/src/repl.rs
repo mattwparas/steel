@@ -21,7 +21,7 @@ use steel_vm::engine::Engine;
 
 use std::io::Read;
 use steel::parser::span::Span;
-use steel::stdlib::PRELUDE;
+use steel::stdlib::{CONTRACTS, PRELUDE};
 
 use std::time::Instant;
 
@@ -122,16 +122,20 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     let buffer = String::new();
 
-    let res = vm.parse_and_execute_without_optimizations(PRELUDE);
+    let core_libraries = &[PRELUDE, CONTRACTS];
 
-    match res {
-        Ok(r) => r.iter().for_each(|x| match x.as_ref() {
-            SteelVal::Void => {}
-            _ => println!("{} {}", "=>".bright_blue().bold(), x),
-        }),
-        Err(e) => {
-            e.emit_result("stdlib.stl", buffer.as_str(), Span::new(0, 0));
-            eprintln!("{}", e.to_string().bright_red());
+    for core in core_libraries {
+        let res = vm.parse_and_execute_without_optimizations(core);
+
+        match res {
+            Ok(r) => r.iter().for_each(|x| match x.as_ref() {
+                SteelVal::Void => {}
+                _ => println!("{} {}", "=>".bright_blue().bold(), x),
+            }),
+            Err(e) => {
+                e.emit_result("stdlib.stl", buffer.as_str(), Span::new(0, 0));
+                eprintln!("{}", e.to_string().bright_red());
+            }
         }
     }
 

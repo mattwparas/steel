@@ -555,6 +555,14 @@ impl Compiler {
 
         let expanded_statements = self.expand_expressions(exprs)?;
 
+        debug!(
+            "Generating instructions for the expression: {:?}",
+            expanded_statements
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+        );
+
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
 
         // let expanded_statements =

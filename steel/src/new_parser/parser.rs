@@ -1595,4 +1595,31 @@ mod parser_tests {
             )))],
         )
     }
+
+    #[test]
+    fn test_define_with_datum_syntax_function_name() {
+        assert_parse(
+            "(define ((datum->syntax var) arg) 10)",
+            &[ExprKind::Define(Box::new(Define::new(
+                ExprKind::List(List::new(vec![
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+                        "datum->syntax".to_string(),
+                    )))),
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+                        "var".to_string(),
+                    )))),
+                ])),
+                ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                    vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
+                        TokenType::Identifier("arg".to_string()),
+                    )))],
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
+                        10,
+                    )))),
+                    SyntaxObject::default(TokenType::Lambda),
+                ))),
+                SyntaxObject::default(TokenType::Define),
+            )))],
+        )
+    }
 }

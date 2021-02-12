@@ -3,9 +3,10 @@
 use crate::{
     gc::Gc,
     primitives::{
-        ControlOperations, FsFunctions, HashMapOperations, HashSetOperations, IoFunctions,
-        ListOperations, MetaOperations, NumOperations, PortOperations, StreamOperations,
-        StringOperations, SymbolOperations, TransducerOperations, VectorOperations,
+        ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
+        IoFunctions, ListOperations, MetaOperations, NumOperations, PortOperations,
+        StreamOperations, StringOperations, SymbolOperations, TransducerOperations,
+        VectorOperations,
     },
     rerrs::SteelErr,
     rvals::{Result, SteelVal},
@@ -1153,7 +1154,10 @@ impl Env {
             ("box", MetaOperations::new_box()),
             ("unbox", MetaOperations::unbox()),
             ("set-box!", MetaOperations::set_box()),
-            ("active-object-count", MetaOperations::active_objects())
+            ("active-object-count", MetaOperations::active_objects()),
+            ("bind/c", ContractOperations::bind_contract_to_function()),
+            ("make-flat/c", ContractOperations::make_flat_contract()),
+            ("make-function/c", ContractOperations::make_function_contract())
             // ("time.clock", TimeOperations::time_clock()),
             // ("time.elapsed", TimeOperations::time_elapsed()),
         ]

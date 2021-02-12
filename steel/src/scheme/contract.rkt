@@ -1,9 +1,6 @@
-(export define/contract define/contract-helper)
-
 (define-syntax define/contract-helper
   (syntax-rules (->)
-    [(define/contract-helper name 
-       ()
+    [(define/contract-helper name ()
        (-> argc)
        body ...)
      (begin
@@ -30,6 +27,8 @@
                  (symbol->string 'argc)))
        (define/contract-helper name (args ...) (-> argcs ...) body ...))]))
 
+;; TODO name should not escape unless you add the datum->syntax wrapper
+;; jk this is fine, because its an argument to the macr
 (define-syntax define/contract
   (syntax-rules (->)
     [(define/contract (name arg args ...)

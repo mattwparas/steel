@@ -266,7 +266,7 @@ mod transducer_tests {
     }
 
     #[test]
-    fn generic_execuction_output_different_type() {
+    fn generic_execution_output_different_type() {
         let script = r#"
         (define x (mapping (fn (x) x))) ;; identity
         (define y (filtering even?)) ;; get only even ones
@@ -276,6 +276,18 @@ mod transducer_tests {
             (execute xf (range 0 100) 'vector))
         
         (define expected (vector 0 2 4 6 8 10 12 14 16 18 20 22 24 26 28))
+        (assert! (equal? result expected))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn transducer_over_streams() {
+        let script = r#"
+        (define (integers n)
+                (stream-cons n (lambda () (integers (+ 1 n)))))
+        (define result (execute (taking 15) (integers 0)))
+        (define expected '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14))
         (assert! (equal? result expected))
         "#;
         assert_script(script);

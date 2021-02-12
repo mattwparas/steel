@@ -31,6 +31,7 @@ pub mod lazy_stream;
 pub mod port;
 pub mod structs;
 
+pub mod contracts;
 pub mod new_parser;
 // pub mod vm;
 

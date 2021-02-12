@@ -25,10 +25,23 @@
             (destruct (var2 ...) (cdr ret-value)))]))
 
 
+(define (any? v) #t)
+(define stack? list?)
+(define (pair? s)
+  (and (list? s) (= (length s) 2)))
+
+
 (define (make-stack) '())
 
 ;; stack -> '(value, stack)
-(define (pop stack)
+;; (define (pop stack)
+;;   (if (null? stack)
+;;       '(#f '())
+;;       (list (car stack) (cdr stack))))
+
+
+(define/contract (pop stack)
+  (-> stack? pair?)
   (if (null? stack)
       '(#f '())
       (list (car stack) (cdr stack))))
