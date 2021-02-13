@@ -1,5 +1,5 @@
 use crate::{
-    env::{FALSE, TRUE, VOID},
+    env::VOID,
     gc::Gc,
     primitives::ListOperations,
     rerrs::SteelErr,

@@ -57,7 +57,6 @@
 
 ;; (make-function/c (make/c val1) (make/c val2) (make/c result))
 
-
 (define-syntax ->/c
   (syntax-rules ()
     [(->/c r)
@@ -73,7 +72,9 @@
     [(->/c a b c d e f)
      (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c) (make/c d 'd) (make/c e 'e) (make/c f 'f))]
     [(->/c a b c d e f g)
-     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c) (make/c d 'd) (make/c e 'e) (make/c f 'f) (make/c g 'g))]))
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c) (make/c d 'd) (make/c e 'e) (make/c f 'f) (make/c g 'g))]
+    [(->/c a b c d e f g h)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c) (make/c d 'd) (make/c e 'e) (make/c f 'f) (make/c g 'g) (make/c h 'h))]))
 
 
 (define-syntax define/contract
@@ -95,3 +96,12 @@
 
 ;; (define/contract (test arg1 arg2 arg3)
 ;;   (-> int/c ))
+
+
+;; This should work, but it _should_ lose its tailcall-ness?
+;; The contract will get checked at every loop
+(define/contract (loop x)
+  (->/c int? int?)
+  (if (= x 10)
+      x
+      (loop (+ x 1))))

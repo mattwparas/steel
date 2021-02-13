@@ -31,6 +31,18 @@ thread_local! {
     pub static FALSE: Gc<SteelVal> = Gc::new(SteelVal::BoolV(false));
 }
 
+pub fn new_void() -> Gc<SteelVal> {
+    VOID.with(Gc::clone)
+}
+
+pub fn new_true() -> Gc<SteelVal> {
+    TRUE.with(Gc::clone)
+}
+
+pub fn new_false() -> Gc<SteelVal> {
+    FALSE.with(Gc::clone)
+}
+
 impl From<bool> for Gc<SteelVal> {
     fn from(b: bool) -> Self {
         if b {
@@ -884,6 +896,8 @@ impl Env {
             ("range", ListOperations::range()),
             // ("list->vector", ListOperations::list_to_vec()),
             ("null?", VectorOperations::list_vec_null()),
+            ("int?", gen_pred!(IntV)),
+            ("float?", gen_pred!(NumV)),
             ("number?", gen_pred!(NumV, IntV)),
             ("string?", gen_pred!(StringV)),
             ("symbol?", gen_pred!(SymbolV)),
