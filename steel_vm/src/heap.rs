@@ -107,26 +107,7 @@ impl Heap {
             .map(|x| x.borrow().string_bindings_vec())
             .collect();
         println!("{:?}", hp);
-
-        // println!("Length of the heap: {}", hp.len());
-
-        // hp.sort();
-        // hp.dedup();
-
-        // println!("Length of the heap after removing duplicates: {}", hp.len());
     }
-
-    // pub fn find_rogue_references(&self) {
-    //     let mut heap = Heap::new();
-    //     for env in &self.heap {
-    //         for (_, value) in env.borrow().bindings_map() {
-    //             heap.walk_down_closure(value);
-    //         }
-    //     }
-    //     println!("##################");
-    //     heap.inspect_heap();
-    //     heap.mark();
-    // }
 
     pub fn len(&self) -> usize {
         self.heap.len()
@@ -145,22 +126,12 @@ impl Heap {
     }
 
     pub fn collect_garbage(&mut self) {
-        // heap.inspect_heap();
-        // TODO should GC here but for some reason... not working...
-        // heap.gather_mark_and_sweep_2(&global_env, &inner_env);
-        // heap.drop_large_refs();
-
-        // heap.inspect_heap();
-
         if self.len() > self.limit {
             debug!(
                 "Before mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
                 self.len(),
                 OBJECT_COUNT
             );
-            // println!("Heap length before mark and sweep: {}", self.len());
-            // println!("Active Object Count: {:?}", OBJECT_COUNT);
-            // self.inspect_heap();
             self.profile_heap();
             self.drop_large_refs();
             if self.current_double < self.max_double {
@@ -168,7 +139,6 @@ impl Heap {
                 self.current_double += 1;
             }
             self.profile_heap();
-            // self.inspect_heap();
 
             debug!(
                 "After mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
@@ -177,10 +147,6 @@ impl Heap {
             );
 
             debug!("Heap limit doubled to: {}", self.limit);
-
-            // println!("Heap length after mark and sweep: {}", self.len());
-            // println!("Active Object Count: {:?}", OBJECT_COUNT);
-            // println!("Limit doubled to: {}", self.limit);
         }
     }
 
@@ -194,8 +160,6 @@ impl Heap {
         }
 
         debug!("Heap profile: {:?}", hm);
-
-        // println!("{:?}", hm);
     }
 
     pub fn drop_large_refs(&mut self) {
@@ -213,13 +177,7 @@ impl Heap {
 
                 let reachable = p_env.borrow().is_reachable();
 
-                // println!("FOUND A CLOSURE!");
-
                 if !reachable {
-                    // println!(
-                    //     "Was it reachable? No, but was it root?: {}",
-                    //     p_env.borrow().is_root()
-                    // );
                     self.gather(&p_env);
                 }
             }
@@ -232,40 +190,6 @@ impl Heap {
         }
     }
 
-    // fn walk_down_closure(&mut self, val: &Gc<SteelVal>) {
-    //     match val.as_ref() {
-    //         SteelVal::Closure(bytecode_lambda) => {
-    //             let p_env = bytecode_lambda.sub_expression_env().upgrade().unwrap();
-
-    //             let reachable = p_env.borrow().is_reachable();
-
-    //             println!("FOUND A CLOSURE!");
-
-    //             if !reachable {
-    //                 println!(
-    //                     "Was it reachable? No, but was it root?: {}",
-    //                     p_env.borrow().is_root()
-    //                 );
-    //                 self.walk(&Rc::downgrade(&p_env));
-    //             }
-    //         }
-    //         SteelVal::Pair(_, _) => {
-    //             println!("Getting here!");
-    //             SteelVal::iter(Gc::clone(val)).for_each(|x| self.match_closure(&x))
-    //         }
-    //         SteelVal::VectorV(v) => v.iter().for_each(|x| self.match_closure(x)),
-    //         _ => {} // SteelVal::Closure
-    //     }
-    // }
-
-    // make iterative instead of recursive
-    // don't allow a node to be visited twice
-
-    // TODO
-    // make sure to mark roots to gather into heap at various points
-    // I think the entire gather stage leaves it empty because it has no args / the env is empty
-    // and for some reason this means that the proper envs are not being reached from the leaves
-    // I honestly have no idea but this might get us some of the way there
     pub fn gather(&mut self, leaf: &Rc<RefCell<Env>>) {
         self.add(Rc::clone(leaf));
 

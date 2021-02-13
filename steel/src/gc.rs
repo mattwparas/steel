@@ -24,6 +24,10 @@ impl fmt::Display for Gc<SteelVal> {
     }
 }
 
+pub fn get_object_count() -> usize {
+    OBJECT_COUNT.fetch_add(0, Ordering::SeqCst)
+}
+
 impl<T: Clone> Gc<T> {
     // in order to fully sandbox, I have to check the memory limit
     pub fn new(val: T) -> Gc<T> {
@@ -37,10 +41,6 @@ impl<T: Clone> Gc<T> {
             stop!(Generic => "ran out of memory!")
         }
         Ok(Gc(Rc::new(val)))
-    }
-
-    pub fn get_object_count() -> usize {
-        OBJECT_COUNT.fetch_add(0, Ordering::SeqCst)
     }
 
     pub fn checked_allocate(allocations: usize) -> Result<(), SteelErr> {

@@ -1,21 +1,10 @@
-// use crate::env::{FALSE, TRUE};
-use crate::rerrs::SteelErr;
-// use crate::rvals::SteelVal::*;
 use crate::env::VOID;
-use crate::gc::Gc;
-// use crate::rvals::gc_get_size;
+use crate::gc::{get_object_count, Gc};
+use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-// use crate::rvals::MemSize;
 
-// use crate::primitives::lists::ListOperations;
-
-use futures::executor::LocalPool;
-use futures::future::join_all;
-// use futures::future::LocalFutureObj;
-// use futures::task::LocalSpawn;
-
-// use tokio::runtime;
+use futures::{executor::LocalPool, future::join_all};
 
 use async_compat::Compat;
 
@@ -43,33 +32,11 @@ impl MetaOperations {
     }
 
     pub fn active_objects() -> SteelVal {
-        println!(
-            "vector: {:?}",
-            std::mem::size_of::<im_rc::Vector<Gc<SteelVal>>>()
-        );
-
-        println!(
-            "dense instruction: {:?}",
-            std::mem::size_of::<crate::core::instructions::DenseInstruction>()
-        );
-
-        println!(
-            "opcode size: {:?}",
-            std::mem::size_of::<crate::core::opcode::OpCode>()
-        );
-
-        println!(
-            "span: {:?}",
-            std::mem::size_of::<crate::parser::span::Span>()
-        );
-
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() != 0 {
                 stop!(ArityMismatch => "active-object-count expects only one argument");
             }
-            Ok(Gc::new(SteelVal::IntV(
-                Gc::<SteelVal>::get_object_count() as isize
-            )))
+            Ok(Gc::new(SteelVal::IntV(get_object_count() as isize)))
         })
     }
 
@@ -90,14 +57,11 @@ impl MetaOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "assert takes one argument")
             }
-            // println!("Arg here: {}")
             if let SteelVal::BoolV(true) = &args[0].as_ref() {
                 Ok(Gc::new(SteelVal::Void))
             } else {
                 panic!("Value given not true!")
             }
-            // assert!(&args[0].is_truthy());
-            // Ok(Gc::new(SteelVal::Void))
         })
     }
 
@@ -109,13 +73,6 @@ impl MetaOperations {
             }
 
             Ok(Gc::new(SteelVal::BoxV(RefCell::new(Gc::clone(&args[0])))))
-
-            // println!("Arg here: {}")
-            // if let SteelVal::BoolV(true) = &args[0].as_ref() {
-            //     Ok(Gc::new(SteelVal::Void))
-            // } else {
-            //     panic!("Value given not true!")
-            // }
         })
     }
 
@@ -220,26 +177,6 @@ impl MetaOperations {
     //         )))
 
     //         // unimplemented!()
-    //     })
-    // }
-
-    // pub fn size_of() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-    //         // let mut error_message = String::new();
-    //         if args.len() == 1 {
-    //             Ok(Gc::new(SteelVal::IntV(
-    //                 gc_get_size(Gc::clone(&args[0])) as isize
-    //             )))
-
-    //         // if let SteelVal::Closure(bytecode_lambda) = args[0].as_ref() {
-    //         //     crate::vm::pretty_print_dense_instructions(&bytecode_lambda.body_exp());
-    //         //     Ok(VOID.with(|f| Rc::clone(f)))
-    //         // } else {
-    //         //     stop!(TypeMismatch => "inspect-bytecode expects a closure object");
-    //         // }
-    //         } else {
-    //             stop!(ArityMismatch => "sizeof takes only one argument");
-    //         }
     //     })
     // }
 }
