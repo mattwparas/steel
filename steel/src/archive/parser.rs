@@ -14,7 +14,7 @@ use std::result;
 use std::str;
 use thiserror::Error;
 
-use crate::new_parser::span::Span;
+use crate::parser::span::Span;
 
 use serde::{Serialize, Deserialize};
 

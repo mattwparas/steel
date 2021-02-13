@@ -13,7 +13,7 @@ use std::fmt;
 
 use logos::{Lexer, Logos};
 
-// use steel::new_parser::span::Span;
+// use steel::parser::span::Span;
 
 // use steel::parser::tokens::TokenType;
 
@@ -67,7 +67,7 @@ impl fmt::Debug for TokenStream<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::new_parser::span::Span;
+    use crate::parser::span::Span;
     use crate::parser::tokens::TokenType::*;
 
     #[test]

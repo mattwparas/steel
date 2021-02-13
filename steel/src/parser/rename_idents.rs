@@ -1,7 +1,7 @@
-use crate::new_parser::ast::ExprKind;
-use crate::new_parser::parser::SyntaxObject;
-use crate::new_parser::tokens::TokenType;
-use crate::new_parser::visitors::VisitorMutRef;
+use crate::parser::ast::ExprKind;
+use crate::parser::parser::SyntaxObject;
+use crate::parser::tokens::TokenType;
+use crate::parser::visitors::VisitorMutRef;
 
 use std::collections::HashSet;
 
@@ -162,7 +162,7 @@ mod rename_visitor_tests {
 
     use super::TokenType::*;
     use super::*;
-    use crate::new_parser::ast::{Atom, Define, If, LambdaFunction, List, Transduce};
+    use crate::parser::ast::{Atom, Define, If, LambdaFunction, List, Transduce};
 
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(

@@ -1,5 +1,5 @@
-use crate::new_parser::lexer::TokenStream;
-use crate::new_parser::tokens::{Token, TokenError, TokenType, TokenType::*};
+use crate::parser::lexer::TokenStream;
+use crate::parser::tokens::{Token, TokenError, TokenType, TokenType::*};
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -7,9 +7,9 @@ use std::result;
 use std::str;
 use thiserror::Error;
 
-use crate::new_parser::span::Span;
+use crate::parser::span::Span;
 
-use crate::new_parser::ast::*;
+use crate::parser::ast::*;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
@@ -397,8 +397,8 @@ impl<'a> Iterator for Parser<'a> {
 mod parser_tests {
     // use super::TokenType::*;
     use super::*;
-    use crate::new_parser::ast::ExprKind;
-    use crate::new_parser::ast::{
+    use crate::parser::ast::ExprKind;
+    use crate::parser::ast::{
         Begin, Define, Execute, If, LambdaFunction, Panic, Quote, Return, Transduce,
     };
 

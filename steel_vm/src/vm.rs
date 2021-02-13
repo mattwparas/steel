@@ -29,13 +29,13 @@ use steel::primitives::{ListOperations, VectorOperations};
 use steel::rerrs::SteelErr;
 use steel::rvals::{ByteCodeLambda, Result, SteelVal};
 // use steel_compiler::expand::MacroSet;
-// use steel::new_parser::span::Span;
+// use steel::parser::span::Span;
 // use steel::parser::{Expr, ParseError, Parser};
 
 use steel::structs::SteelStruct;
 
-use steel::new_parser::ast::ExprKind;
-use steel::new_parser::parser::{ParseError, Parser};
+use steel::parser::ast::ExprKind;
+use steel::parser::parser::{ParseError, Parser};
 
 // use std::cell::Cell;
 // use steel::env::CoreModuleConfig;

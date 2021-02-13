@@ -1,11 +1,11 @@
-use crate::new_parser::ast::{Atom, ExprKind, List, Macro, PatternPair};
-use crate::new_parser::parser::SyntaxObject;
-use crate::new_parser::rename_idents::RenameIdentifiersVisitor;
-use crate::new_parser::replace_idents::replace_identifiers;
-use crate::new_parser::tokens::TokenType;
-// use crate::new_parser::visitors::VisitorMutRef;
+use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair};
+use crate::parser::parser::SyntaxObject;
+use crate::parser::rename_idents::RenameIdentifiersVisitor;
+use crate::parser::replace_idents::replace_identifiers;
+use crate::parser::tokens::TokenType;
+// use crate::parser::visitors::VisitorMutRef;
 
-use crate::new_parser::span::Span;
+use crate::parser::span::Span;
 
 use crate::rerrs::SteelErr;
 use crate::rvals::Result;

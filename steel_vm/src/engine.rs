@@ -6,7 +6,7 @@ use steel::{
     core::instructions::DenseInstruction,
     gc::Gc,
     // parser::Expr,
-    new_parser::parser::{ParseError, Parser},
+    parser::parser::{ParseError, Parser},
     primitives::ListOperations,
     rerrs::SteelErr,
     rvals::{Result, SteelVal},

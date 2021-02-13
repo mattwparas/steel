@@ -1,8 +1,8 @@
-use crate::new_parser::ast::ExprKind;
-use crate::new_parser::parser::SyntaxObject;
-use crate::new_parser::tokens::TokenType;
-use crate::new_parser::visitors::ConsumingVisitorRef;
-// use crate::new_parser::span::Span;
+use crate::parser::ast::ExprKind;
+use crate::parser::parser::SyntaxObject;
+use crate::parser::tokens::TokenType;
+use crate::parser::visitors::ConsumingVisitorRef;
+// use crate::parser::span::Span;
 
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
@@ -12,7 +12,7 @@ use super::ast::Atom;
 use std::{collections::HashMap, convert::TryFrom};
 
 use crate::gc::Gc;
-use crate::new_parser::expander::SteelMacro;
+use crate::parser::expander::SteelMacro;
 use crate::primitives::ListOperations;
 
 //             Expr::VectorVal(lst) => {

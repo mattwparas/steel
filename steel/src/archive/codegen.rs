@@ -12,7 +12,7 @@ use std::ops::Deref;
 
 use crate::core::opcode::OpCode;
 
-use crate::new_parser::span::Span;
+use crate::parser::span::Span;
 
 use crate::gc::Gc;
 use std::convert::TryFrom;

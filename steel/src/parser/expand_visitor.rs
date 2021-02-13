@@ -1,8 +1,8 @@
-use crate::new_parser::ast::ExprKind;
-use crate::new_parser::parser::SyntaxObject;
-use crate::new_parser::tokens::TokenType;
-use crate::new_parser::visitors::ConsumingVisitor;
-// use crate::new_parser::span::Span;
+use crate::parser::ast::ExprKind;
+use crate::parser::parser::SyntaxObject;
+use crate::parser::tokens::TokenType;
+use crate::parser::visitors::ConsumingVisitor;
+// use crate::parser::span::Span;
 
 use crate::rerrs::SteelErr;
 use crate::rvals::Result;
@@ -11,7 +11,7 @@ use super::ast::Atom;
 
 use std::collections::HashMap;
 
-use crate::new_parser::expander::SteelMacro;
+use crate::parser::expander::SteelMacro;
 
 pub fn extract_macro_defs(
     exprs: Vec<ExprKind>,
@@ -162,11 +162,11 @@ impl<'a> ConsumingVisitor for Expander<'a> {
 mod expansion_tests {
     use super::*;
 
-    use crate::new_parser::expander::MacroCase;
-    use crate::new_parser::expander::MacroPattern;
+    use crate::parser::expander::MacroCase;
+    use crate::parser::expander::MacroPattern;
 
-    use crate::new_parser::ast::{Begin, If, List};
-    use crate::new_parser::tokens::TokenType;
+    use crate::parser::ast::{Begin, If, List};
+    use crate::parser::tokens::TokenType;
 
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(

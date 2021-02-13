@@ -7,7 +7,7 @@ use crate::rerrs::SteelErr;
 use std::collections::HashMap;
 // use std::rc::Rc;
 
-use crate::new_parser::span::Span;
+use crate::parser::span::Span;
 // use steel::parser::SyntaxObject;
 
 use crate::rvals::Result;

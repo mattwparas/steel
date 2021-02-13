@@ -1,6 +1,6 @@
 use crate::core::opcode::OpCode;
-use crate::new_parser::parser::SyntaxObject;
-use crate::new_parser::span::Span;
+use crate::parser::parser::SyntaxObject;
+use crate::parser::span::Span;
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 

@@ -1,14 +1,14 @@
 // use crate::parser::{tokens::TokenType, Expr, SyntaxObject};
-use crate::new_parser::parser::SyntaxObject;
-use crate::new_parser::tokens::TokenType;
-use crate::new_parser::tokens::TokenType::*;
+use crate::parser::parser::SyntaxObject;
+use crate::parser::tokens::TokenType;
+use crate::parser::tokens::TokenType::*;
 use crate::rvals::Result;
 
 // use super::{VisitChildren, Visitor};
 
 use super::visitors::VisitorMutResult;
 
-use crate::new_parser::parser::ParseError;
+use crate::parser::parser::ParseError;
 
 use std::convert::TryFrom;
 
@@ -20,7 +20,7 @@ use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
 
-use crate::new_parser::tryfrom_visitor::TryFromExprKindForSteelVal;
+use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 
 use crate::rvals::collect_pair_into_vector;
 

@@ -3,7 +3,7 @@ use crate::rvals::{Result, SteelVal};
 use crate::gc::Gc;
 // use crate::parser::{Expr, ParseError, Parser};
 
-use crate::new_parser::{
+use crate::parser::{
     ast::ExprKind,
     parser::{ParseError, Parser},
 };

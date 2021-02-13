@@ -16,14 +16,14 @@ use crate::rvals::{Result, SteelVal};
 
 use crate::gc::Gc;
 
-use crate::new_parser::span::Span;
+use crate::parser::span::Span;
 
-use crate::new_parser::parser::{ParseError, Parser};
+use crate::parser::parser::{ParseError, Parser};
 
-use crate::new_parser::ast::ExprKind;
-use crate::new_parser::expander::SteelMacro;
-use crate::new_parser::parser::SyntaxObject;
-use crate::new_parser::tokens::TokenType;
+use crate::parser::ast::ExprKind;
+use crate::parser::expander::SteelMacro;
+use crate::parser::parser::SyntaxObject;
+use crate::parser::tokens::TokenType;
 
 use crate::structs::SteelStruct;
 
@@ -31,7 +31,7 @@ use crate::core::instructions::{densify, DenseInstruction};
 
 use crate::stop;
 
-use crate::new_parser::expand_visitor::{expand, extract_macro_defs};
+use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
 use log::{debug, error, info};
 

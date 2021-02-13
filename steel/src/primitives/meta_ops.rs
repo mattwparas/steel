@@ -60,7 +60,7 @@ impl MetaOperations {
 
         println!(
             "span: {:?}",
-            std::mem::size_of::<crate::new_parser::span::Span>()
+            std::mem::size_of::<crate::parser::span::Span>()
         );
 
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {

@@ -1,8 +1,8 @@
-use crate::new_parser::ast::ExprKind;
-use crate::new_parser::parser::SyntaxObject;
-use crate::new_parser::span::Span;
-use crate::new_parser::tokens::TokenType;
-use crate::new_parser::visitors::ConsumingVisitor;
+use crate::parser::ast::ExprKind;
+use crate::parser::parser::SyntaxObject;
+use crate::parser::span::Span;
+use crate::parser::tokens::TokenType;
+use crate::parser::visitors::ConsumingVisitor;
 
 use crate::rerrs::SteelErr;
 use crate::rvals::Result;
@@ -269,7 +269,7 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
 
 #[cfg(test)]
 mod replace_expressions_tests {
-    use crate::new_parser::ast::{If, LambdaFunction, List, Transduce};
+    use crate::parser::ast::{If, LambdaFunction, List, Transduce};
 
     use super::*;
 

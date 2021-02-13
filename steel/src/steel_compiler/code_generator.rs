@@ -3,11 +3,11 @@ use std::convert::TryFrom;
 use super::constants::{ConstantMap, ConstantTable};
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
-    new_parser::{ast::Atom, parser::SyntaxObject, tokens::TokenType},
+    parser::{ast::Atom, parser::SyntaxObject, tokens::TokenType},
 };
 
-use crate::new_parser::ast::ExprKind;
-use crate::new_parser::visitors::VisitorMut;
+use crate::parser::ast::ExprKind;
+use crate::parser::visitors::VisitorMut;
 
 use crate::gc::Gc;
 use crate::rerrs::SteelErr;
@@ -63,7 +63,7 @@ impl<'a> CodeGenerator<'a> {
 impl<'a> VisitorMut for CodeGenerator<'a> {
     type Output = Result<()>;
 
-    fn visit_if(&mut self, f: &crate::new_parser::ast::If) -> Self::Output {
+    fn visit_if(&mut self, f: &crate::parser::ast::If) -> Self::Output {
         // load in the test condition
         self.visit(&f.test_expr)?;
         // push in if
@@ -97,7 +97,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    fn visit_define(&mut self, define: &crate::new_parser::ast::Define) -> Self::Output {
+    fn visit_define(&mut self, define: &crate::parser::ast::Define) -> Self::Output {
         // todo!()
 
         let sidx = self.len();
@@ -141,7 +141,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
     fn visit_lambda_function(
         &mut self,
-        lambda_function: &crate::new_parser::ast::LambdaFunction,
+        lambda_function: &crate::parser::ast::LambdaFunction,
     ) -> Self::Output {
         // todo!()
 
@@ -201,21 +201,21 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    fn visit_begin(&mut self, begin: &crate::new_parser::ast::Begin) -> Self::Output {
+    fn visit_begin(&mut self, begin: &crate::parser::ast::Begin) -> Self::Output {
         for expr in &begin.exprs {
             self.visit(expr)?;
         }
         Ok(())
     }
 
-    fn visit_return(&mut self, r: &crate::new_parser::ast::Return) -> Self::Output {
+    fn visit_return(&mut self, r: &crate::parser::ast::Return) -> Self::Output {
         self.visit(&r.expr)?;
         // pop is equivalent to the last instruction in the function
         self.push(Instruction::new_pop());
         Ok(())
     }
 
-    fn visit_apply(&mut self, apply: &crate::new_parser::ast::Apply) -> Self::Output {
+    fn visit_apply(&mut self, apply: &crate::parser::ast::Apply) -> Self::Output {
         // todo!()
         self.visit(&apply.func)?;
         self.visit(&apply.list)?;
@@ -223,14 +223,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    fn visit_panic(&mut self, p: &crate::new_parser::ast::Panic) -> Self::Output {
+    fn visit_panic(&mut self, p: &crate::parser::ast::Panic) -> Self::Output {
         // todo!()
         self.visit(&p.message)?;
         self.push(Instruction::new_panic(p.location.clone()));
         Ok(())
     }
 
-    fn visit_transduce(&mut self, transduce: &crate::new_parser::ast::Transduce) -> Self::Output {
+    fn visit_transduce(&mut self, transduce: &crate::parser::ast::Transduce) -> Self::Output {
         self.visit(&transduce.transducer)?;
         self.visit(&transduce.func)?;
         self.visit(&transduce.initial_value)?;
@@ -239,13 +239,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    fn visit_read(&mut self, read: &crate::new_parser::ast::Read) -> Self::Output {
+    fn visit_read(&mut self, read: &crate::parser::ast::Read) -> Self::Output {
         self.visit(&read.expr)?;
         self.push(Instruction::new_read());
         Ok(())
     }
 
-    fn visit_execute(&mut self, execute: &crate::new_parser::ast::Execute) -> Self::Output {
+    fn visit_execute(&mut self, execute: &crate::parser::ast::Execute) -> Self::Output {
         self.visit(&execute.transducer)?;
         self.visit(&execute.collection)?;
 
@@ -258,7 +258,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    fn visit_quote(&mut self, quote: &crate::new_parser::ast::Quote) -> Self::Output {
+    fn visit_quote(&mut self, quote: &crate::parser::ast::Quote) -> Self::Output {
         let converted = SteelVal::try_from(quote.expr.clone())?;
         let idx = self.constant_map.add_or_get(Gc::new(converted));
         self.push(Instruction::new_push_const(idx));
@@ -266,26 +266,26 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         return Ok(());
     }
 
-    fn visit_struct(&mut self, s: &crate::new_parser::ast::Struct) -> Self::Output {
+    fn visit_struct(&mut self, s: &crate::parser::ast::Struct) -> Self::Output {
         stop!(BadSyntax => "struct definition only allowed at top level"; s.location.span)
     }
 
-    fn visit_macro(&mut self, m: &crate::new_parser::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: &crate::parser::ast::Macro) -> Self::Output {
         stop!(BadSyntax => "unexpected macro definition"; m.location.span)
     }
 
-    fn visit_eval(&mut self, e: &crate::new_parser::ast::Eval) -> Self::Output {
+    fn visit_eval(&mut self, e: &crate::parser::ast::Eval) -> Self::Output {
         self.visit(&e.expr)?;
         self.push(Instruction::new_eval());
         Ok(())
     }
 
-    fn visit_atom(&mut self, a: &crate::new_parser::ast::Atom) -> Self::Output {
+    fn visit_atom(&mut self, a: &crate::parser::ast::Atom) -> Self::Output {
         self.push(Instruction::new(OpCode::PUSH, 0, a.syn.clone(), true));
         Ok(())
     }
 
-    fn visit_list(&mut self, l: &crate::new_parser::ast::List) -> Self::Output {
+    fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
         // dbg!(l);
 
         let pop_len = l.args[1..].len();
@@ -310,7 +310,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    fn visit_syntax_rules(&mut self, l: &crate::new_parser::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, l: &crate::parser::ast::SyntaxRules) -> Self::Output {
         stop!(BadSyntax => "unexpected syntax rules"; l.location.span)
     }
 }

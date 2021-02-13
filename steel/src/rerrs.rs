@@ -1,4 +1,4 @@
-use crate::new_parser::parser::ParseError;
+use crate::parser::parser::ParseError;
 use std::convert::Infallible;
 use thiserror::Error;
 
@@ -9,7 +9,7 @@ use codespan_reporting::term::{self, ColorArg};
 // use std::ops::Range;
 use structopt::StructOpt;
 
-use crate::new_parser::span::Span;
+use crate::parser::span::Span;
 
 // pub struct Span {
 //     expr: String,

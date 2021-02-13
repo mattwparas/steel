@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::new_parser::ast::Struct;
+use crate::parser::ast::Struct;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StructFunctionType {

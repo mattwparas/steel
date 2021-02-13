@@ -1,7 +1,7 @@
 // pub mod parser;
 // pub mod tokens;
 
-use crate::new_parser::tokens::{Token, TokenError, TokenType};
+use crate::parser::tokens::{Token, TokenError, TokenType};
 use std::iter::Iterator;
 use std::result;
 // use std::str::Chars;
@@ -13,7 +13,7 @@ use std::fmt;
 
 use logos::{Lexer, Logos};
 
-// use steel::new_parser::span::Span;
+// use steel::parser::span::Span;
 
 // use steel::parser::tokens::TokenType;
 
@@ -67,8 +67,8 @@ impl fmt::Debug for TokenStream<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::new_parser::span::Span;
-    use crate::new_parser::tokens::TokenType::*;
+    use crate::parser::span::Span;
+    use crate::parser::tokens::TokenType::*;
 
     #[test]
     fn test_chars() {
