@@ -4,8 +4,6 @@ use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
-// use crate::vm::SymbolMap;
-// use crate::parser::Expr;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -84,30 +82,9 @@ impl<'a> StructFuncBuilder<'a> {
         crate::primitives::ListOperations::built_in_list_normal_iter_non_result(name.into_iter())
     }
 
-    // pub fn insert_struct_function_names(&self, symbol_map: &mut SymbolMap) -> Vec<usize> {
-    //     let mut indices = Vec::new();
-
-    //     // Constructor
-    //     indices.push(symbol_map.add(&self.name));
-    //     // Predicate
-    //     indices.push(symbol_map.add(format!("{}?", &self.name).as_str()));
-    //     for field in &self.fields {
-    //         // Getter
-    //         indices.push(symbol_map.add(format!("{}-{}", &self.name, field).as_str()));
-    //         // Setter
-    //         indices.push(symbol_map.add(format!("set-{}-{}!", &self.name, field).as_str()));
-    //     }
-
-    //     indices
-    // }
-
     pub fn to_func_vec(self) -> Result<Vec<(String, SteelVal)>> {
         SteelStruct::generate_from_name_fields(self.name, &self.fields)
     }
-
-    // pub fn from_exprs(list_of_tokens: &'a [Expr]) -> Result<Self> {
-    //     SteelStruct::generate_builder_from_tokens(list_of_tokens)
-    // }
 }
 
 // Housekeeping (just in case there are cyclical references)
@@ -137,15 +114,6 @@ impl SteelStruct {
 }
 
 impl SteelStruct {
-    // pub fn generate_from_tokens(list_of_tokens: &[Expr]) -> Result<Vec<(String, SteelVal)>> {
-    //     let StructFuncBuilder {
-    //         name,
-    //         fields: field_names_as_strs,
-    //     } = Self::generate_builder_from_tokens(list_of_tokens)?;
-
-    //     Self::generate_from_name_fields(name, &field_names_as_strs)
-    // }
-
     pub fn generate_from_ast(s: &Struct) -> Result<StructFuncBuilder> {
         let name = s.name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
 
@@ -159,30 +127,6 @@ impl SteelStruct {
 
         Ok(StructFuncBuilder::new(name, field_names_as_strs))
     }
-
-    // pub fn generate_builder_from_tokens(list_of_tokens: &[Expr]) -> Result<StructFuncBuilder> {
-    //     let (name, list_of_tokens) = list_of_tokens.split_first().ok_or_else(
-    //         throw!(ArityMismatch => "struct definition requires a name and a list of field names"),
-    //     )?;
-
-    //     let name = name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
-
-    //     if list_of_tokens.len() != 1 {
-    //         stop!(ArityMismatch => "Struct definition requires list of field names")
-    //     }
-    //     let field_names = list_of_tokens[0].vector_val_or_else(
-    //         throw!(ArityMismatch => "struct requires list of identifiers for the field names"),
-    //     )?;
-
-    //     let field_names_as_strs: Vec<&str> = field_names
-    //         .iter()
-    //         .map(|x| {
-    //             x.atom_identifier_or_else(throw!(TypeMismatch => "struct expected identifiers"))
-    //         })
-    //         .collect::<Result<_>>()?;
-
-    //     Ok(StructFuncBuilder::new(name, field_names_as_strs))
-    // }
 
     pub fn generate_from_name_fields(
         name: &str,
