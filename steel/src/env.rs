@@ -31,6 +31,16 @@ thread_local! {
     pub static FALSE: Gc<SteelVal> = Gc::new(SteelVal::BoolV(false));
 }
 
+impl From<bool> for Gc<SteelVal> {
+    fn from(b: bool) -> Self {
+        if b {
+            TRUE.with(Gc::clone)
+        } else {
+            FALSE.with(Gc::clone)
+        }
+    }
+}
+
 #[macro_use]
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
@@ -1157,7 +1167,8 @@ impl Env {
             ("active-object-count", MetaOperations::active_objects()),
             ("bind/c", ContractOperations::bind_contract_to_function()),
             ("make-flat/c", ContractOperations::make_flat_contract()),
-            ("make-function/c", ContractOperations::make_function_contract())
+            ("make-function/c", ContractOperations::make_function_contract()),
+            ("make/c", ContractOperations::make_c())
             // ("time.clock", TimeOperations::time_clock()),
             // ("time.elapsed", TimeOperations::time_elapsed()),
         ]

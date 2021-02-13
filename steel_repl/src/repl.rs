@@ -122,7 +122,8 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     let buffer = String::new();
 
-    let core_libraries = &[PRELUDE, CONTRACTS];
+    // TODO make this better
+    let core_libraries = &[PRELUDE];
 
     for core in core_libraries {
         let res = vm.parse_and_execute_without_optimizations(core);

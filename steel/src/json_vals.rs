@@ -87,13 +87,7 @@ impl TryFrom<Value> for Gc<SteelVal> {
     fn try_from(val: Value) -> std::result::Result<Self, Self::Error> {
         match val {
             Value::Null => Ok(VOID.with(|x| Gc::clone(x))),
-            Value::Bool(t) => {
-                if t {
-                    Ok(TRUE.with(|x| Gc::clone(x)))
-                } else {
-                    Ok(FALSE.with(|x| Gc::clone(x)))
-                }
-            }
+            Value::Bool(t) => Ok(t.into()),
             Value::Number(n) => <Gc<SteelVal>>::try_from(n),
             Value::String(s) => Ok(s.into()),
             Value::Array(v) => {

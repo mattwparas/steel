@@ -7,7 +7,7 @@ pub struct FlatContract {
     // function of any kind
     predicate: Gc<SteelVal>,
     // name of the function for blaming purposes
-    name: String,
+    pub name: String,
 }
 
 impl FlatContract {

@@ -13,6 +13,8 @@ use steel::stop;
 
 use steel::contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract};
 
+use log::error;
+
 pub trait ContractedFunctionExt {
     fn apply<CT: ConstantTable>(
         &self,
@@ -63,7 +65,7 @@ impl ContractedFunctionExt for ContractedFunction {
                 ContractType::Function(fc) => match arg.as_ref() {
                     SteelVal::ContractedFunction(contracted_function) => {
                         if &contracted_function.contract != fc {
-                            stop!(ContractViolation => "function contract does not match required contract");
+                            stop!(ContractViolation => "function contract does not match required contract"; *cur_inst_span);
                         } else {
                             verified_args.push(arg)
                         }
@@ -72,7 +74,7 @@ impl ContractedFunctionExt for ContractedFunction {
                         ContractedFunction::new(fc.clone(), c.clone()).into(),
                     )),
                     _ => {
-                        stop!(ContractViolation => "contracts not yet supported with non user defined")
+                        stop!(ContractViolation => "contracts not yet supported with non user defined"; *cur_inst_span)
                     }
                 },
             }
@@ -112,21 +114,24 @@ impl ContractedFunctionExt for ContractedFunction {
         match self.contract.post_condition().as_ref() {
             ContractType::Flat(f) => {
                 // unimplemented!();
-                f.apply(
+
+                if let Err(e) = f.apply(
                     Gc::clone(&output),
                     local_heap,
                     constants,
                     cur_inst_span,
                     repl,
                     callback,
-                )?;
+                ) {
+                    stop!(ContractViolation => format!("error occured in the range position: {}", e.to_string()); *cur_inst_span);
+                }
 
                 Ok(output)
             }
             ContractType::Function(fc) => match output.as_ref() {
                 SteelVal::ContractedFunction(contracted_function) => {
                     if &contracted_function.contract != fc {
-                        stop!(ContractViolation => "function contract does not match required contract");
+                        stop!(ContractViolation => "function contract does not match required contract"; *cur_inst_span);
                     } else {
                         Ok(output)
                     }
@@ -135,7 +140,7 @@ impl ContractedFunctionExt for ContractedFunction {
                     ContractedFunction::new(fc.clone(), c.clone()).into(),
                 )),
                 _ => {
-                    stop!(ContractViolation => "contracts not yet supported with non user defined")
+                    stop!(ContractViolation => "contracts not yet supported with non user defined"; *cur_inst_span)
                 }
             },
         }
@@ -164,7 +169,7 @@ impl FlatContractExt for FlatContract {
         repl: bool,
         callback: &EvaluationProgress,
     ) -> Result<()> {
-        let arg_vec = vec![arg];
+        let arg_vec = vec![Gc::clone(&arg)];
         let output = match self.predicate().as_ref() {
             SteelVal::FuncV(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
             SteelVal::StructClosureV(factory, func) => {
@@ -202,13 +207,13 @@ impl FlatContractExt for FlatContract {
                     callback,
                 )
             }
-            _ => stop!(TypeMismatch => "stream expected a function"; *cur_inst_span),
+            _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),
         }?;
 
         if output.as_ref().is_truthy() {
             Ok(())
         } else {
-            stop!(ContractViolation => format!("contract violation {}", output));
+            stop!(ContractViolation => format!("Found in the application of a flat contract for {}: the given input: {} resulted in a contract violation", &self.name, arg); *cur_inst_span);
         }
     }
 }

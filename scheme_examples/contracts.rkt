@@ -51,5 +51,47 @@
   (bind/c range-contract range-test))
 
 
-(define/contract (test arg1 arg2 arg3)
-  (-> int/c ))
+
+;; turns into this
+;; (->/c val1 val2 result)
+
+;; (make-function/c (make/c val1) (make/c val2) (make/c result))
+
+
+(define-syntax ->/c
+  (syntax-rules ()
+    [(->/c r)
+     (make-function/c (make/c r 'r))]
+    [(->/c a b)
+     (make-function/c (make/c a 'a) (make/c b 'b))]
+    [(->/c a b c)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c))]
+    [(->/c a b c d)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c) (make/c d 'd))]
+    [(->/c a b c d e)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c) (make/c d 'd) (make/c e 'e))]
+    [(->/c a b c d e f)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c) (make/c d 'd) (make/c e 'e) (make/c f 'f))]
+    [(->/c a b c d e f g)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c) (make/c d 'd) (make/c e 'e) (make/c f 'f) (make/c g 'g))]))
+
+
+(define-syntax define/contract
+  (syntax-rules ()
+    [(define/contract (name arg args ...)
+       contract
+       body ...)
+     (define name (bind/c contract (lambda (arg args ...) body ...)))]))
+
+
+(define/contract (test x y)
+  (->/c even? even? odd?)
+  (+ x y 1))
+
+(define/contract (blagh func y)
+  (->/c (->/c even? odd?) even? even?)
+  (+ 1 (func y)))
+
+
+;; (define/contract (test arg1 arg2 arg3)
+;;   (-> int/c ))

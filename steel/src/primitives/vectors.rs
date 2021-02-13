@@ -200,13 +200,7 @@ impl VectorOperations {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 match &args[0].as_ref() {
-                    SteelVal::VectorV(v) => {
-                        if v.is_empty() {
-                            Ok(TRUE.with(|f| Gc::clone(f)))
-                        } else {
-                            Ok(FALSE.with(|f| Gc::clone(f)))
-                        }
-                    }
+                    SteelVal::VectorV(v) => Ok(v.is_empty().into()),
                     _ => Ok(FALSE.with(|f| Gc::clone(f))),
                 }
             } else {

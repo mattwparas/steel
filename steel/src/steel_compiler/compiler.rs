@@ -330,13 +330,7 @@ pub fn extract_constants<CT: ConstantTable>(
 /// evaluates an atom expression in given environment
 fn eval_atom(t: &SyntaxObject) -> Result<Gc<SteelVal>> {
     match &t.ty {
-        TokenType::BooleanLiteral(b) => {
-            if *b {
-                Ok(TRUE.with(|f| Gc::clone(f)))
-            } else {
-                Ok(FALSE.with(|f| Gc::clone(f)))
-            }
-        }
+        TokenType::BooleanLiteral(b) => Ok((*b).into()),
         // TokenType::Identifier(s) => env.borrow().lookup(&s),
         TokenType::NumberLiteral(n) => Ok(Gc::new(SteelVal::NumV(*n))),
         TokenType::StringLiteral(s) => Ok(Gc::new(SteelVal::StringV(s.clone()))),
