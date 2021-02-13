@@ -1088,6 +1088,8 @@ impl Env {
             ("push", VectorOperations::vec_push()),
             ("range-vec", VectorOperations::vec_range()),
             ("vec-append", VectorOperations::vec_append()),
+            ("int?", gen_pred!(IntV)),
+            ("float?", gen_pred!(NumV)),
             ("number?", gen_pred!(NumV, IntV)),
             ("string?", gen_pred!(StringV)),
             ("symbol?", gen_pred!(SymbolV)),
