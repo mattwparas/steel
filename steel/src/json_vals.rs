@@ -161,3 +161,33 @@ impl TryFrom<Gc<SteelVal>> for Value {
         // unimplemented!()
     }
 }
+
+#[cfg(test)]
+mod json_tests {
+    use super::*;
+
+    use crate::rvals::SteelVal::*;
+    use im_rc::hashmap;
+
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
+        let args: Vec<Gc<SteelVal>> = args.into_iter().map(|x| Gc::new(x)).collect();
+        func.func_or_else(throw!(BadSyntax => "hash tests"))
+            .unwrap()(&args)
+    }
+
+    #[test]
+    fn test_string_to_jsexpr() {
+        let json_expr = r#"{"a":"applesauce","b":"bananas"}"#;
+        let steelval = SteelVal::StringV(json_expr.to_string());
+        let args = vec![steelval];
+
+        let result = apply_function(string_to_jsexpr(), args);
+
+        let expected = Gc::new(SteelVal::HashMapV(hashmap! {
+            Gc::new(SymbolV("a".to_string())) => Gc::new(StringV("applesauce".to_string())),
+            Gc::new(SymbolV("b".to_string())) => Gc::new(StringV("bananas".to_string()))
+        }));
+
+        assert_eq!(result.unwrap(), expected);
+    }
+}
