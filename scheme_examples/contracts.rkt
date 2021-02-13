@@ -98,7 +98,7 @@
 
 (define/contract (test x y)
   (->/c even? even? odd?)
-  (+ x y 1))
+  (+ x y 2))
 
 (define/contract (blagh func y)
   (->/c (->/c even? odd?) even? even?)
@@ -109,6 +109,9 @@
   (->/c (->/c string? int?))
   (lambda (x) 10))
 
+(define/contract (accept func)
+  (->/c (->/c string? string?) string?)
+  "cool cool cool")
 
 ;; (define/contract (test arg1 arg2 arg3)
 ;;   (-> int/c ))
@@ -118,6 +121,6 @@
 ;; The contract will get checked at every loop
 (define/contract (loop x)
   (->/c int? int?)
-  (if (= x 10)
+  (if (= x 100)
       x
       (loop (+ x 1))))
