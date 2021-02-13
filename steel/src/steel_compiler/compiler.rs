@@ -35,68 +35,6 @@ use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
 use log::{debug, error, info};
 
-// fn _count_and_collect_global_defines(
-//     exprs: &[Expr],
-//     symbol_map: &mut SymbolMap,
-// ) -> (usize, usize, usize) {
-//     let mut new_count = 0;
-//     let mut old_count = 0;
-//     let mut non_defines = 0;
-//     for expr in exprs {
-//         match expr {
-//             Expr::Atom(_) => non_defines += 1,
-//             Expr::VectorVal(list_of_tokens) => {
-//                 match (list_of_tokens.get(0), list_of_tokens.get(1)) {
-//                     (
-//                         Some(Expr::Atom(SyntaxObject {
-//                             ty: TokenType::Identifier(def),
-//                             ..
-//                         })),
-//                         Some(Expr::Atom(SyntaxObject {
-//                             ty: TokenType::Identifier(name),
-//                             ..
-//                         })),
-//                     ) => {
-//                         if def == "define" || def == "defn" {
-//                             let (_, added) = symbol_map.get_or_add(name.as_str());
-//                             if added {
-//                                 new_count += 1;
-//                             } else {
-//                                 old_count += 1;
-//                             }
-//                         } else {
-//                             non_defines += 1;
-//                         }
-//                     }
-//                     (
-//                         Some(Expr::Atom(SyntaxObject {
-//                             ty: TokenType::Identifier(def),
-//                             ..
-//                         })),
-//                         Some(Expr::VectorVal(_)),
-//                     ) => {
-//                         if def == "begin" {
-//                             let (res_new, res_old, res_non) =
-//                                 _count_and_collect_global_defines(&list_of_tokens[1..], symbol_map);
-
-//                             new_count += res_new;
-//                             old_count += res_old;
-//                             non_defines += res_non;
-//                         } else {
-//                             non_defines += 1;
-//                         }
-//                     }
-//                     _ => {
-//                         non_defines += 1;
-//                     }
-//                 }
-//             }
-//         }
-//     }
-
-//     (new_count, old_count, non_defines)
-// }
-
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?
 fn collect_defines_from_current_scope(
