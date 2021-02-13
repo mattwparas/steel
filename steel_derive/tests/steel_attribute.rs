@@ -13,8 +13,8 @@ use std::any::Any;
 use steel::rerrs;
 use steel::rvals::{self, CustomType, SteelVal};
 
-// use steel::build_interpreter;
 use steel_derive::function;
+// use steel_vm::build_engine;
 
 // use std::process;
 // use std::rc::Rc;
@@ -112,7 +112,7 @@ pub fn test_result(input: usize) -> std::result::Result<usize, String> {
 // TODO come back and flesh this out
 #[test]
 fn embed_functions_and_verify_results() {
-    let mut interp = build_interpreter! {
+    let mut interp = build_engine! {
         Structs => {
             MyStruct,
             CoolTest,
@@ -149,7 +149,7 @@ fn embed_functions_and_verify_results() {
 pub fn build_interpreter_and_modify() {
     // Construct interpreter with 3 custom structs
     // each has now getters, setters, a predicate and constructor
-    let mut interpreter = build_interpreter! {
+    let mut interpreter = build_engine! {
         MyStruct,
         CoolTest,
         Foo
@@ -200,4 +200,5 @@ pub fn build_interpreter_and_modify() {
         }
     }
 }
+
 */
