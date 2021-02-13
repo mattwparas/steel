@@ -1,55 +1,32 @@
-use steel::steel_compiler::{
-    constants::{ConstantMap, ConstantTable},
-    program::Program,
-};
-// pub use expand::expand;
-// pub use expand::get_definition_names;
-// pub use expand::{expand_statements, extract_macro_definitions};
-use crate::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
-use steel::core::instructions::DenseInstruction;
-// use steel_compiler::map::SymbolMap;
-use steel::core::opcode::OpCode;
-
-// use codegen::emit_loop;
-
 use crate::stack::{CallStack, EnvStack, Stack, StackFrame};
+use crate::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
+use steel::{
+    core::{instructions::DenseInstruction, opcode::OpCode},
+    steel_compiler::{
+        constants::{ConstantMap, ConstantTable},
+        program::Program,
+    },
+};
 
 use crate::inline_iter::*;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::convert::TryFrom;
-// use std::io::Read;
-use std::iter::Iterator;
-// use std::path::Path;
-use std::rc::Rc;
-use std::result;
-use steel::env::{Env, VOID};
-use steel::gc::Gc;
-use steel::primitives::{ListOperations, VectorOperations};
-use steel::rerrs::SteelErr;
-use steel::rvals::{ByteCodeLambda, Result, SteelVal};
-// use steel_compiler::expand::MacroSet;
-// use steel::parser::span::Span;
-// use steel::parser::{Expr, ParseError, Parser};
-
-use steel::structs::SteelStruct;
-
-use steel::parser::ast::ExprKind;
-use steel::parser::parser::{ParseError, Parser};
-
-// use std::cell::Cell;
-// use steel::env::CoreModuleConfig;
+use std::{cell::RefCell, collections::HashMap, convert::TryFrom, iter::Iterator, rc::Rc, result};
+use steel::{
+    env::{Env, VOID},
+    gc::Gc,
+    parser::{
+        ast::ExprKind,
+        parser::{ParseError, Parser},
+    },
+    primitives::{ListOperations, VectorOperations},
+    rerrs::SteelErr,
+    rvals::{ByteCodeLambda, Result, SteelVal},
+    stop,
+    structs::SteelStruct,
+};
 
 use crate::evaluation_progress::EvaluationProgress;
 
-use steel::stop;
-// use steel_compiler::map::SymbolMap;
-
-// use crate::transducers::run;
-
 pub type Callback = fn(usize) -> bool;
-
-// use serde::{Deserialize, Serialize};
 
 use log::{debug, error, info};
 

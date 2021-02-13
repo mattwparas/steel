@@ -1,20 +1,16 @@
 use crate::evaluation_progress::EvaluationProgress;
-use steel::parser::span::Span;
-use steel::rvals::{CollectionType, Result, SteelVal, Transducer, Transducers};
-
-use steel::rerrs::SteelErr;
-use steel::stop;
-
-use crate::lazy_stream::LazyStreamIter;
-
-use steel::gc::Gc;
-use steel::steel_compiler::constants::ConstantTable;
-
-use steel::primitives::{ListOperations, VectorOperations};
+use steel::{
+    gc::Gc,
+    parser::span::Span,
+    primitives::{ListOperations, VectorOperations},
+    rerrs::SteelErr,
+    rvals::{CollectionType, Result, SteelVal, Transducer, Transducers},
+    steel_compiler::constants::ConstantTable,
+    stop,
+};
 
 use crate::inline_iter::*;
-
-// impl Transducer {
+use crate::lazy_stream::LazyStreamIter;
 
 pub trait TransducerExt {
     fn run<CT: ConstantTable>(
