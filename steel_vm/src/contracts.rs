@@ -221,3 +221,104 @@ impl FlatContractExt for FlatContract {
 pub trait FunctionContractExt {
     fn apply<CT: ConstantTable>(&self);
 }
+
+#[cfg(test)]
+mod contract_tests {
+    use crate::test_util::{assert_script, assert_script_error};
+
+    #[test]
+    fn simple_flat_contract() {
+        let script = r#"
+          (define/contract (test x y)
+            (->/c even? even? odd?)
+            (+ x y 1))
+
+          (assert! (equal? (test 2 2) 5))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn simple_flat_contract_domain_violation() {
+        let script = r#"
+          (define/contract (test x y)
+            (->/c even? even? odd?)
+            (+ x y 1))
+
+          (test 1 2)
+        "#;
+        assert_script_error(script);
+    }
+
+    #[test]
+    fn simple_higher_order_contract() {
+        let script = r#"
+          (define/contract (blagh func y)
+            (->/c (->/c even? odd?) even? even?)
+            (+ 1 (func y)))
+            
+          (assert! (equal? (blagh (lambda (x) (+ x 1)) 2) 4))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn simple_higher_order_contract_violation() {
+        let script = r#"
+          (define/contract (blagh func y)
+            (->/c (->/c even? odd?) even? even?)
+            (+ 1 (func y)))
+
+          (blagh (lambda (x) (+ x 2)) 2)
+        "#;
+        assert_script_error(script);
+    }
+
+    #[test]
+    fn tail_call_contract_still_works() {
+        let script = r#"
+          (define/contract (loop x)
+            (->/c int? int?)
+              (if (= x 100)
+                  x
+                  (loop (+ x 1))))
+
+          (assert! (equal? (loop 0) 100))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_checking_on_application_success() {
+        let script = r#"
+
+        (define/contract (output)
+            (->/c (->/c string? int?))
+            (lambda (x) 10))
+
+        (define/contract (accept func)
+            (->/c (->/c string? int?) string?)
+            "cool cool cool")
+
+        (assert! (equal? (accept (output)) "cool cool cool"))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_checking_on_application_failure() {
+        let script = r#"
+
+        (define/contract (output)
+            (->/c (->/c string? int?))
+            (lambda (x) 10))
+
+        (define/contract (accept func)
+            (->/c (->/c string? string?) string?)
+            "cool cool cool")
+
+        (assert! (equal? (accept (output)) "cool cool cool"))
+        "#;
+        assert_script_error(script);
+    }
+}

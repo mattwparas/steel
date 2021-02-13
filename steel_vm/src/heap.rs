@@ -1,9 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::rc::Weak;
-use steel::env::Env;
-use steel::gc::{Gc, OBJECT_COUNT};
-use steel::rvals::SteelVal;
+use steel::{env::Env, gc::{Gc, OBJECT_COUNT}, rvals::SteelVal};
 
 use std::collections::HashMap;
 pub(crate) static HEAP_LIMIT: usize = 5000;
