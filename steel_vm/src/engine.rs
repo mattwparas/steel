@@ -1,7 +1,6 @@
 use std::{collections::HashMap, convert::TryFrom, io::Read, path::Path, rc::Rc};
 
 use crate::vm::VirtualMachineCore;
-// use steel::rerrs::SteelErr;
 use steel::{
     core::instructions::DenseInstruction,
     gc::Gc,
