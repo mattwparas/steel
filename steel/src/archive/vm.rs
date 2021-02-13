@@ -44,7 +44,7 @@ use std::iter::Iterator;
 use std::path::Path;
 use std::rc::Rc;
 use std::result;
-use steel::parser::span::Span;
+use steel::new_parser::span::Span;
 use steel::parser::{tokens::TokenType, Expr, ParseError, Parser, SyntaxObject};
 
 use crate::structs::SteelStruct;

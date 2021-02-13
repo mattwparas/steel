@@ -7,7 +7,7 @@ use std::result;
 use std::str;
 use thiserror::Error;
 
-use crate::parser::span::Span;
+use crate::new_parser::span::Span;
 
 use crate::new_parser::ast::*;
 use serde::{Deserialize, Serialize};

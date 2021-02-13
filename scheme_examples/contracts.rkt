@@ -90,10 +90,10 @@
 
 (define-syntax define/contract
   (syntax-rules ()
-    [(define/contract (name arg args ...)
+    [(define/contract (name args ...)
        contract
        body ...)
-     (define name (bind/c contract (lambda (arg args ...) body ...)))]))
+     (define name (bind/c contract (lambda (args ...) body ...)))]))
 
 
 (define/contract (test x y)
@@ -103,6 +103,11 @@
 (define/contract (blagh func y)
   (->/c (->/c even? odd?) even? even?)
   (+ 1 (func y)))
+
+
+(define/contract (output)
+  (->/c (->/c string? int?))
+  (lambda (x) 10))
 
 
 ;; (define/contract (test arg1 arg2 arg3)

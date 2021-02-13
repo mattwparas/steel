@@ -5,7 +5,7 @@ use crate::new_parser::replace_idents::replace_identifiers;
 use crate::new_parser::tokens::TokenType;
 // use crate::new_parser::visitors::VisitorMutRef;
 
-use crate::parser::span::Span;
+use crate::new_parser::span::Span;
 
 use crate::rerrs::SteelErr;
 use crate::rvals::Result;

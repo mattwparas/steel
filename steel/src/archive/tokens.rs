@@ -5,9 +5,9 @@ use TokenType::*;
 
 use logos::{Lexer, Logos};
 
-use crate::parser::span::Span;
+use crate::new_parser::span::Span;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum TokenError {

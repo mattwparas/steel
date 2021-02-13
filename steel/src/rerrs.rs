@@ -9,7 +9,7 @@ use codespan_reporting::term::{self, ColorArg};
 // use std::ops::Range;
 use structopt::StructOpt;
 
-use crate::parser::span::Span;
+use crate::new_parser::span::Span;
 
 // pub struct Span {
 //     expr: String,

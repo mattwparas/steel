@@ -11,13 +11,12 @@ use crate::steel_compiler::{
 use std::collections::{HashMap, HashSet};
 use std::iter::Iterator;
 
-use crate::env::{FALSE, TRUE};
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 
 use crate::gc::Gc;
 
-use crate::parser::span::Span;
+use crate::new_parser::span::Span;
 
 use crate::new_parser::parser::{ParseError, Parser};
 

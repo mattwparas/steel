@@ -1,5 +1,5 @@
 use crate::evaluation_progress::EvaluationProgress;
-use steel::parser::span::Span;
+use steel::new_parser::span::Span;
 use steel::rvals::{CollectionType, Result, SteelVal, Transducer, Transducers};
 
 use steel::rerrs::SteelErr;

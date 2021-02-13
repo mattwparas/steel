@@ -1,10 +1,10 @@
-pub mod lexer;
+// pub mod lexer;
 pub mod span;
-pub mod tokens;
+// pub mod tokens;
 
 // use lexer::Tokenizer;
-use lexer::TokenStream;
-use tokens::{Token, TokenError, TokenType};
+// use lexer::TokenStream;
+// use tokens::{Token, TokenError, TokenType};
 
 use std::collections::HashMap;
 use std::fmt;
@@ -14,7 +14,7 @@ use std::result;
 use std::str;
 use thiserror::Error;
 
-use crate::parser::span::Span;
+use crate::new_parser::span::Span;
 
 use serde::{Serialize, Deserialize};
 

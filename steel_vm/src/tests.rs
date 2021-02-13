@@ -4,7 +4,7 @@ mod stream_tests {
     use crate::lazy_stream::LazyStreamIter;
     use crate::test_util::assert_script;
     use steel::lazy_stream::LazyStream;
-    use steel::parser::span::Span;
+    use steel::new_parser::span::Span;
     use steel::steel_compiler::constants::ConstantMap;
 
     #[test]

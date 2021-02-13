@@ -10,7 +10,7 @@ pub mod env;
 #[macro_use]
 // pub mod interpreter;
 
-pub mod parser;
+// pub mod parser;
 pub mod core;
 pub mod steel_compiler;
 

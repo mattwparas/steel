@@ -5,7 +5,7 @@ use TokenType::*;
 
 use logos::{Lexer, Logos};
 
-use crate::parser::span::Span;
+use crate::new_parser::span::Span;
 
 use serde::{Deserialize, Serialize};
 

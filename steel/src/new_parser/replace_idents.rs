@@ -1,8 +1,8 @@
 use crate::new_parser::ast::ExprKind;
 use crate::new_parser::parser::SyntaxObject;
+use crate::new_parser::span::Span;
 use crate::new_parser::tokens::TokenType;
 use crate::new_parser::visitors::ConsumingVisitor;
-use crate::parser::span::Span;
 
 use crate::rerrs::SteelErr;
 use crate::rvals::Result;

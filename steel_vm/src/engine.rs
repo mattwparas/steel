@@ -5,8 +5,8 @@ use crate::vm::VirtualMachineCore;
 use steel::{
     core::instructions::DenseInstruction,
     gc::Gc,
-    parser::Expr,
-    parser::{ParseError, Parser},
+    // parser::Expr,
+    new_parser::parser::{ParseError, Parser},
     primitives::ListOperations,
     rerrs::SteelErr,
     rvals::{Result, SteelVal},
@@ -156,39 +156,40 @@ impl Engine {
     //     // unimplemented!();
     // }
 
-    pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(
-        exprs: I,
-        // ctx: &mut Ctx<ConstantMap>,
-    ) -> Result<Vec<Expr>> {
-        // println!("About to optimize the input program");
+    // TODO come back to this
+    // pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(
+    //     exprs: I,
+    //     // ctx: &mut Ctx<ConstantMap>,
+    // ) -> Result<Vec<Expr>> {
+    //     // println!("About to optimize the input program");
 
-        let converted: Result<Vec<_>> = exprs
-            .into_iter()
-            .map(|x| SteelVal::try_from(x.clone()))
-            .collect();
+    //     let converted: Result<Vec<_>> = exprs
+    //         .into_iter()
+    //         .map(|x| SteelVal::try_from(x.clone()))
+    //         .collect();
 
-        // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
-        let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
+    //     // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
+    //     let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
 
-        let mut vm = Engine::new_with_meta();
-        vm.parse_and_execute_without_optimizations(steel::stdlib::PRELUDE)?;
-        vm.register_gc_value("*program*", exprs);
-        let output = vm.parse_and_execute_without_optimizations(steel::stdlib::COMPILER)?;
+    //     let mut vm = Engine::new_with_meta();
+    //     vm.parse_and_execute_without_optimizations(steel::stdlib::PRELUDE)?;
+    //     vm.register_gc_value("*program*", exprs);
+    //     let output = vm.parse_and_execute_without_optimizations(steel::stdlib::COMPILER)?;
 
-        // println!("{:?}", output.last().unwrap());
+    //     // println!("{:?}", output.last().unwrap());
 
-        // if output.len()  1 {
-        //     stop!(Generic => "panic! internal compiler error: output did not return a valid program");
-        // }
+    //     // if output.len()  1 {
+    //     //     stop!(Generic => "panic! internal compiler error: output did not return a valid program");
+    //     // }
 
-        // TODO
-        SteelVal::iter(Gc::clone(output.last().unwrap()))
-            .into_iter()
-            .map(|x| Expr::try_from(x.as_ref()).map_err(|x| SteelErr::Generic(x.to_string(), None)))
-            .collect::<Result<Vec<Expr>>>()
+    //     // TODO
+    //     SteelVal::iter(Gc::clone(output.last().unwrap()))
+    //         .into_iter()
+    //         .map(|x| Expr::try_from(x.as_ref()).map_err(|x| SteelErr::Generic(x.to_string(), None)))
+    //         .collect::<Result<Vec<Expr>>>()
 
-        // unimplemented!()
+    //     // unimplemented!()
 
-        // self.emit_instructions_from_exprs(parsed)
-    }
+    //     // self.emit_instructions_from_exprs(parsed)
+    // }
 }

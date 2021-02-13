@@ -5,7 +5,7 @@ use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
 // use crate::vm::SymbolMap;
-use crate::parser::Expr;
+// use crate::parser::Expr;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -105,9 +105,9 @@ impl<'a> StructFuncBuilder<'a> {
         SteelStruct::generate_from_name_fields(self.name, &self.fields)
     }
 
-    pub fn from_exprs(list_of_tokens: &'a [Expr]) -> Result<Self> {
-        SteelStruct::generate_builder_from_tokens(list_of_tokens)
-    }
+    // pub fn from_exprs(list_of_tokens: &'a [Expr]) -> Result<Self> {
+    //     SteelStruct::generate_builder_from_tokens(list_of_tokens)
+    // }
 }
 
 // Housekeeping (just in case there are cyclical references)
@@ -137,14 +137,14 @@ impl SteelStruct {
 }
 
 impl SteelStruct {
-    pub fn generate_from_tokens(list_of_tokens: &[Expr]) -> Result<Vec<(String, SteelVal)>> {
-        let StructFuncBuilder {
-            name,
-            fields: field_names_as_strs,
-        } = Self::generate_builder_from_tokens(list_of_tokens)?;
+    // pub fn generate_from_tokens(list_of_tokens: &[Expr]) -> Result<Vec<(String, SteelVal)>> {
+    //     let StructFuncBuilder {
+    //         name,
+    //         fields: field_names_as_strs,
+    //     } = Self::generate_builder_from_tokens(list_of_tokens)?;
 
-        Self::generate_from_name_fields(name, &field_names_as_strs)
-    }
+    //     Self::generate_from_name_fields(name, &field_names_as_strs)
+    // }
 
     pub fn generate_from_ast(s: &Struct) -> Result<StructFuncBuilder> {
         let name = s.name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
@@ -160,29 +160,29 @@ impl SteelStruct {
         Ok(StructFuncBuilder::new(name, field_names_as_strs))
     }
 
-    pub fn generate_builder_from_tokens(list_of_tokens: &[Expr]) -> Result<StructFuncBuilder> {
-        let (name, list_of_tokens) = list_of_tokens.split_first().ok_or_else(
-            throw!(ArityMismatch => "struct definition requires a name and a list of field names"),
-        )?;
+    // pub fn generate_builder_from_tokens(list_of_tokens: &[Expr]) -> Result<StructFuncBuilder> {
+    //     let (name, list_of_tokens) = list_of_tokens.split_first().ok_or_else(
+    //         throw!(ArityMismatch => "struct definition requires a name and a list of field names"),
+    //     )?;
 
-        let name = name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
+    //     let name = name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
 
-        if list_of_tokens.len() != 1 {
-            stop!(ArityMismatch => "Struct definition requires list of field names")
-        }
-        let field_names = list_of_tokens[0].vector_val_or_else(
-            throw!(ArityMismatch => "struct requires list of identifiers for the field names"),
-        )?;
+    //     if list_of_tokens.len() != 1 {
+    //         stop!(ArityMismatch => "Struct definition requires list of field names")
+    //     }
+    //     let field_names = list_of_tokens[0].vector_val_or_else(
+    //         throw!(ArityMismatch => "struct requires list of identifiers for the field names"),
+    //     )?;
 
-        let field_names_as_strs: Vec<&str> = field_names
-            .iter()
-            .map(|x| {
-                x.atom_identifier_or_else(throw!(TypeMismatch => "struct expected identifiers"))
-            })
-            .collect::<Result<_>>()?;
+    //     let field_names_as_strs: Vec<&str> = field_names
+    //         .iter()
+    //         .map(|x| {
+    //             x.atom_identifier_or_else(throw!(TypeMismatch => "struct expected identifiers"))
+    //         })
+    //         .collect::<Result<_>>()?;
 
-        Ok(StructFuncBuilder::new(name, field_names_as_strs))
-    }
+    //     Ok(StructFuncBuilder::new(name, field_names_as_strs))
+    // }
 
     pub fn generate_from_name_fields(
         name: &str,
