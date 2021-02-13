@@ -146,14 +146,3 @@ impl From<ContractedFunction> for SteelVal {
         SteelVal::ContractedFunction(val)
     }
 }
-
-/*
-
-(define/contract (test a b c)
-    (-> int? int? string?))
-
-
-(make/c function)
-
-
-*/

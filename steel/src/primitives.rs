@@ -1,3 +1,4 @@
+mod contracts;
 mod control;
 mod fs;
 mod hashmaps;
@@ -10,11 +11,10 @@ mod ports;
 mod streams;
 mod strings;
 mod symbols;
-// mod time;
-mod contracts;
 mod transducers;
 mod vectors;
 
+pub use contracts::ContractOperations;
 pub use control::ControlOperations;
 pub use fs::FsFunctions;
 pub use hashmaps::HashMapOperations;
@@ -27,48 +27,18 @@ pub use ports::PortOperations;
 pub use streams::StreamOperations;
 pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
-// pub use time::TimeOperations;
-pub use contracts::ContractOperations;
 pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
 
-// use crate::converter::SteelFunctor;
 use crate::rerrs::SteelErr;
 use crate::rvals::{FunctionSignature, SteelVal};
-// use im_rc::HashMap;
 use im_rc::Vector;
 
-// use std::collections::Vector;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::result;
 
 use crate::gc::Gc;
-
-// pub struct List(pub Vec<T>);
-
-// the conversion layer works like
-// Vec<SteelVal> -> your struct -> call the function -> output -> Steelval output
-// maybe TryFrom Error type should be something else?
-
-// pub trait SteelFunctor<U, V>
-// where
-//     U: TryFrom<Vec<SteelVal>, Error = SteelErr>,
-//     V: Into<SteelVal>,
-// {
-//     fn new_func() -> FunctionSignature {
-//         |args: &[Rc<SteelVal>]| {
-//             let args = args.into_iter().map(|x| (*x).clone()).collect();
-//             let input = Self::in_convert(args)?;
-//             let res = Self::call(input)?;
-//             Ok(Rc::new(res.into())) // TODO
-//         }
-//     }
-//     fn call(input: U) -> Result<V, SteelErr>;
-//     fn in_convert(input: Vec<SteelVal>) -> Result<U, SteelErr> {
-//         U::try_from(input)
-//     }
-// }
 
 macro_rules! try_from_impl {
     ($type:ident => $($body:ty),*) => {
@@ -120,50 +90,11 @@ macro_rules! from_for_isize {
     };
 }
 
-// macro_rules! from_usize {
-//     ($($body:ty),*) => {
-//         $(
-//             impl From<$body> for SteelVal {
-//                 fn from(val: $body) -> SteelVal {
-//                     SteelVal::IntV(val as isize)
-//                 }
-//             }
-//         )*
-//     };
-// }
-
 impl From<char> for SteelVal {
     fn from(val: char) -> SteelVal {
         SteelVal::CharV(val)
     }
 }
-
-// impl<T: TryInto<SteelVal>> TryFrom<HashMap<T, T>> for SteelVal {
-//     type Error = SteelErr;
-//     fn try_from(val: HashMap<T, T>) -> result::Result<Self, Self::Error> {
-//         let pairs: Vec<(_, _)> = val
-//             .iter()
-//             .map(|x| (x.0.try_into(), x.1.try_into()))
-//             .collect();
-
-//         let mut hm = HashMap::new();
-//         for pair in pairs {
-//             match pair {
-//                 (Ok(k), Ok(v)) => {
-//                     hm.insert(k, v);
-//                 }
-//                 (_l, _r) => {
-//                     return Err(SteelErr::ConversionError(
-//                         format!("Could not convert hash map to SteelVal"),
-//                         None,
-//                     ));
-//                 }
-//             }
-//         }
-
-//         Ok(SteelVal::HashMapV(hm))
-//     }
-// }
 
 impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
     type Error = SteelErr;
@@ -320,13 +251,6 @@ impl TryFrom<SteelVal> for String {
     }
 }
 
-// impl TryFrom<Gc<SteelVal>> for Gc<SteelVal> {
-//     type Error = SteelErr;
-//     fn try_from(value: Gc<SteelVal>) -> result::Result<Self, Self::Error> {
-//         Ok(value)
-//     }
-// }
-
 impl From<SteelVal> for Gc<SteelVal> {
     fn from(val: SteelVal) -> Self {
         Gc::new(val)
@@ -413,56 +337,6 @@ impl From<FunctionSignature> for SteelVal {
         SteelVal::FuncV(val)
     }
 }
-
-// impl From<SteelLambda> for SteelVal {
-//     fn from(val: SteelLambda) -> SteelVal {
-//         SteelVal::LambdaV(val)
-//     }
-// }
-
-// pub struct Adder;
-// impl SteelFunctor<VecNumbers, f64> for Adder {
-//     fn call(input: VecNumbers) -> Result<f64, SteelErr> {
-//         Ok(input.0.iter().fold(0.0, |sum, x| sum + x))
-//     }
-// }
-
-// pub struct Multiplier;
-// impl SteelFunctor<VecNumbers, f64> for Multiplier {
-//     fn call(input: VecNumbers) -> Result<f64, SteelErr> {
-//         Ok(input.0.iter().fold(1.0, |sum, x| sum * x))
-//     }
-// }
-
-// pub struct Subtractor;
-// impl SteelFunctor<VecNumbers, f64> for Subtractor {
-//     fn call(input: VecNumbers) -> Result<f64, SteelErr> {
-//         let mut v = input.0.into_iter();
-//         if let Some(first) = v.next() {
-//             Ok(v.fold(first, |acc, x| acc - x))
-//         } else {
-//             Err(SteelErr::ArityMismatch(
-//                 "'-' expects at least one number".to_string(),
-//                 None,
-//             ))
-//         }
-//     }
-// }
-
-// pub struct Divider;
-// impl SteelFunctor<VecNumbers, f64> for Divider {
-//     fn call(input: VecNumbers) -> Result<f64, SteelErr> {
-//         let mut v = input.0.into_iter();
-//         if let Some(first) = v.next() {
-//             Ok(v.fold(first, |acc, x| acc / x))
-//         } else {
-//             Err(SteelErr::ArityMismatch(
-//                 "'\' expects at least one number".to_string(),
-//                 None,
-//             ))
-//         }
-//     }
-// }
 
 #[cfg(test)]
 mod try_from_tests {
