@@ -8,7 +8,6 @@ use steel::{
     },
 };
 
-use crate::inline_iter::*;
 use std::{cell::RefCell, collections::HashMap, convert::TryFrom, iter::Iterator, rc::Rc, result};
 use steel::{
     env::{Env, VOID},
@@ -17,7 +16,7 @@ use steel::{
         ast::ExprKind,
         parser::{ParseError, Parser},
     },
-    primitives::{ListOperations, VectorOperations},
+    primitives::ListOperations,
     rerrs::SteelErr,
     rvals::{ByteCodeLambda, Result, SteelVal},
     stop,
@@ -680,87 +679,6 @@ pub fn vm<CT: ConstantTable>(
                 }
             }
             OpCode::CLEAR => {
-                ip += 1;
-            }
-            OpCode::MAP => {
-                let list = stack.pop().unwrap();
-                let stack_func = stack.pop().unwrap();
-
-                match stack_func.closure_arity() {
-                    Some(s) if s != 1 => {
-                        stop!(ArityMismatch => format!("map expected a function that takes 1 arguments, found {}", s));
-                    }
-                    _ => {}
-                }
-
-                match list.as_ref() {
-                    SteelVal::Pair(_, _) => {
-                        let collected_results = inline_map_normal(
-                            SteelVal::iter(list),
-                            stack_func,
-                            constants,
-                            &cur_inst,
-                            repl,
-                            callback,
-                        )?;
-
-                        stack.push(ListOperations::built_in_list_func()(&collected_results)?);
-                    }
-                    SteelVal::VectorV(v) => {
-                        // TODO get rid of the clone here
-                        stack.push(VectorOperations::vec_construct_iter(inline_map_iter(
-                            v.into_iter().map(Gc::clone),
-                            stack_func,
-                            constants,
-                            &cur_inst.span,
-                            repl,
-                            callback,
-                        ))?);
-                    }
-                    _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
-                }
-
-                ip += 1;
-            }
-            OpCode::FILTER => {
-                let list = stack.pop().unwrap();
-                let stack_func = stack.pop().unwrap();
-
-                match stack_func.closure_arity() {
-                    Some(s) if s != 1 => {
-                        stop!(ArityMismatch => format!("filter expected a function that takes 1 arguments, found {}", s));
-                    }
-                    _ => {}
-                }
-
-                // Change inline_map and inline_filter to return iterators... now that would be cool
-                match list.as_ref() {
-                    SteelVal::Pair(_, _) => {
-                        let collected_results = inline_filter_normal(
-                            SteelVal::iter(list),
-                            stack_func,
-                            constants,
-                            cur_inst,
-                            repl,
-                            callback,
-                        )?;
-                        stack.push(ListOperations::built_in_list_func()(&collected_results)?);
-                    }
-                    SteelVal::VectorV(v) => {
-                        // TODO get rid of the clone here
-
-                        stack.push(VectorOperations::vec_construct_iter(inline_filter_iter(
-                            v.into_iter().map(Gc::clone),
-                            stack_func,
-                            constants,
-                            &cur_inst.span,
-                            repl,
-                            callback,
-                        ))?);
-                    }
-                    _ => stop!(TypeMismatch => "map expected a list"; cur_inst.span),
-                }
-
                 ip += 1;
             }
             OpCode::FUNC => {

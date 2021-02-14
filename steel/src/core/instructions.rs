@@ -27,24 +27,6 @@ impl Instruction {
         }
     }
 
-    pub fn new_map() -> Instruction {
-        Instruction {
-            op_code: OpCode::MAP,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_filter() -> Instruction {
-        Instruction {
-            op_code: OpCode::FILTER,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
     pub fn new_panic(span: SyntaxObject) -> Instruction {
         Instruction {
             op_code: OpCode::PANIC,
