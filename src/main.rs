@@ -522,36 +522,24 @@ fn embed_functions_and_verify_results() {
     (define option-res-bad (test-option 2))
     ";
     assert!(interp.parse_and_execute(&script).is_ok());
-
-    // let bad_val: bool = bool::try_from(interp.extract_value("option-res-bad").unwrap()).unwrap();
 }
-
-/*
 
 #[test]
 fn build_interpreter_and_modify() {
     // Construct interpreter with 3 custom structs
     // each has now getters, setters, a predicate and constructor
-    let mut interpreter = build_vm! {
+    let mut interpreter = build_engine! {
         MyStruct,
         CoolTest,
         Foo
     };
 
-    // interpreter.require(PRELUDE).unwrap();
-
     // define value outside of interpreter to embed
     let test = UnnamedFields(100);
     // embed the value
-    interpreter.insert_binding("unnamed".to_string(), test.new_steel_val());
-    interpreter.insert_binding(
-        "add_cool_tests".to_string(),
-        SteelVal::FuncV(add_cool_tests),
-    );
-    interpreter.insert_binding(
-        "multiple_types".to_string(),
-        SteelVal::FuncV(multiple_types),
-    );
+    interpreter.register_value("unnamed", test.new_steel_val());
+    interpreter.register_value("add_cool_tests", SteelVal::FuncV(add_cool_tests));
+    interpreter.register_value("multiple_types", SteelVal::FuncV(multiple_types));
 
     // write a quick script
     let script = "
@@ -560,11 +548,11 @@ fn build_interpreter_and_modify() {
         (define return-val (set-CoolTest-val! cool-test 200.0))
         (define foo-test (Foo unnamed))
         (define sum-test (add_cool_tests cool-test cool-test2))
-        (displayln (multiple_types 25))
+        (define mt (multiple_types 25))
     ";
 
     // get the values back out
-    match interpreter.evaluate(&script) {
+    match interpreter.parse_and_execute_without_optimizations(&script) {
         Ok(_) => {
             let ret_val: CoolTest =
                 CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
@@ -588,4 +576,3 @@ fn build_interpreter_and_modify() {
         }
     }
 }
-*/

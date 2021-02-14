@@ -60,6 +60,10 @@ impl VirtualMachineCore {
         }
     }
 
+    pub fn extract_value(&self, idx: usize) -> Option<SteelVal> {
+        self.global_env.borrow().extract(idx).map(|x| x.unwrap())
+    }
+
     // pub fn new_with_meta() -> VirtualMachine {
     //     let mut vm = VirtualMachineCore::new();
     //     vm.insert_binding("*env*".to_string(), Env::constant_env_to_hashmap());

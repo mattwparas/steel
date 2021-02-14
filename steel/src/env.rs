@@ -274,6 +274,10 @@ impl Env {
         self.reachable
     }
 
+    pub fn extract(&self, idx: usize) -> Option<Gc<SteelVal>> {
+        self.bindings_map.get(&idx).map(Gc::clone)
+    }
+
     // pub fn add_module(&mut self, new_mod: AST) {
     //     self.module.push(new_mod)
     // }

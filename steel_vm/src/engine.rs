@@ -10,6 +10,7 @@ use steel::{
     rerrs::SteelErr,
     rvals::{Result, SteelVal},
     steel_compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
+    throw,
 };
 
 #[macro_export]
@@ -94,6 +95,17 @@ impl Engine {
         for (name, value) in values {
             self.register_value(name.as_str(), value);
         }
+    }
+
+    pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
+        let idx = self.compiler.get_idx(name).ok_or_else(throw!(
+            Generic => format!("free identifier: {} - identifier given cannot be found in the global environment", name)
+        ))?;
+
+        self.virtual_machine.extract_value(idx)
+            .ok_or_else(throw!(
+                Generic => format!("free identifier: {} - identifier given cannot be found in the global environment", name)
+            ))
     }
 
     pub fn parse_and_execute_without_optimizations(

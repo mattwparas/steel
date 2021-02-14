@@ -335,6 +335,10 @@ impl Compiler {
         self.symbol_map.add(name)
     }
 
+    pub fn get_idx(&self, name: &str) -> Option<usize> {
+        self.symbol_map.get(name).ok()
+    }
+
     pub fn compile_program(&mut self, expr_str: &str) -> Result<Program> {
         let instructions = self.emit_instructions(expr_str)?;
 

@@ -246,29 +246,10 @@
              (cdr lst))))
 
 
-; (define (map func lst)
-;    (foldl (lambda (ele acc)
-;             (cons (func ele) acc))
-;           '()
-;           lst))
-
-; (define (map func lst)
-;   (if (empty? lst)
-;       '()
-;       (map' func lst)))
-
 (define (map func lst)
   (if (empty? lst) 
       '() 
       (execute (mapping func) lst)))
-
-
-; (define (map func lst) (map' func lst))
-
-; (define (map func lst) 
-;   (if (empty? lst)
-;       lst
-;       (mapR func lst)))
 
 
 (define foldr (lambda (func accum lst)
@@ -314,27 +295,6 @@
            (car alist)
            (assoc thing (cdr alist)))))
 
-
-; (define filter (lambda (pred lst)   (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst)))
-
-; (define (filter pred lst) (if (empty? lst) lst (filterR pred lst)))
-
-; (define (filter f lst)
-;   (define (iter lst result)
-;     (cond
-;       ((null? lst) result) ;; should reverse here
-;       ((f (car lst)) (iter (cdr lst)
-;                            (cons (car lst) result)))
-;       (else (iter (cdr lst)
-;                   result))))
-;   (iter lst '()))
-
-; (define (filter pred lst) (filter' pred lst))
-
-; (define (filter pred lst)
-;   (if (empty? lst)
-;       '()
-;       (filter' pred lst)))
 
 (define (filter pred lst)
   (if (empty? lst) 

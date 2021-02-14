@@ -51,7 +51,7 @@ impl SymbolMap {
     }
 
     // fallible
-    pub fn get(&mut self, ident: &str) -> Result<usize> {
+    pub fn get(&self, ident: &str) -> Result<usize> {
         let rev_iter = self.0.iter().enumerate().rev();
 
         for (idx, val) in rev_iter {
