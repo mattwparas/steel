@@ -455,7 +455,7 @@ impl Panic {
 
 impl fmt::Display for Panic {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(panic {})", self.message)
+        write!(f, "(panic! {})", self.message)
     }
 }
 
@@ -1346,5 +1346,117 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
         } else {
             Ok(ExprKind::List(List::new(vec![])))
         }
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+
+    use super::*;
+    use crate::parser::parser::{Parser, Result};
+    use std::collections::HashMap;
+    use std::rc::Rc;
+
+    fn parse(expr: &str) -> ExprKind {
+        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache).collect();
+        let a = a.unwrap()[0].clone();
+        a
+    }
+
+    #[test]
+    fn display_list() {
+        let expression = "(list 1 2 3 4)";
+        let parsed_expr = parse(expression);
+        let expected = "(list 1 2 3 4)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_lambda() {
+        let expression = "(lambda (x) (+ x 10))";
+        let parsed_expr = parse(expression);
+        let expected = "(lambda (x) (+ x 10))";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_set() {
+        let expression = "(set! x 10)";
+        let parsed_expr = parse(expression);
+        let expected = "(set! x 10)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_panic() {
+        let expression = "(panic! 12345)";
+        let parsed_expr = parse(expression);
+        let expected = "(panic! 12345)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_begin() {
+        let expression = "(begin 1 2 3 4 5)";
+        let parsed_expr = parse(expression);
+        let expected = "(begin 1 2 3 4 5)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_define_normal() {
+        let expression = "(define a 10)";
+        let parsed_expr = parse(expression);
+        let expected = "(define a 10)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_define_function() {
+        let expression = "(define (applesauce x y z) (+ x y z))";
+        let parsed_expr = parse(expression);
+        let expected = "(define applesauce (lambda (x y z) (+ x y z)))";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_let() {
+        let expression = "(let ((x 10)) (+ x 10))";
+        let parsed_expr = parse(expression);
+        let expected = "((lambda (x) (+ x 10)) 10)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_apply() {
+        let expression = "(apply + (list 1 2 3 4))";
+        let parsed_expr = parse(expression);
+        let expected = "(apply + (list 1 2 3 4))";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_transduce() {
+        let expression = "(transduce 1 2 3 4)";
+        let parsed_expr = parse(expression);
+        let expected = "(transduce 1 2 3 4)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_execute_two_args() {
+        let expression = "(execute 1 2)";
+        let parsed_expr = parse(expression);
+        let expected = "(execute 1 2)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_execute_three_args() {
+        let expression = "(execute 1 2 3)";
+        let parsed_expr = parse(expression);
+        let expected = "(execute 1 2 3)";
+        assert_eq!(parsed_expr.to_string(), expected);
     }
 }

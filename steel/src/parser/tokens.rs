@@ -183,7 +183,7 @@ impl fmt::Display for TokenType {
             Execute => write!(f, "execute"),
             Return => write!(f, "return!"),
             Begin => write!(f, "begin"),
-            Panic => write!(f, "panic"),
+            Panic => write!(f, "panic!"),
             Lambda => write!(f, "lambda"),
             Apply => write!(f, "apply"),
             Quote => write!(f, "quote"),
