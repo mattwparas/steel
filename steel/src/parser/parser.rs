@@ -440,6 +440,8 @@ mod parser_tests {
     fn test_should_err() {
         assert_parse_is_err("(execute)");
         assert_parse_is_err("(panic!)");
+        assert_parse_is_err("(transduce)");
+        assert_parse_is_err("(if)");
     }
 
     #[test]
