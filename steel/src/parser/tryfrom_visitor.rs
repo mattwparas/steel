@@ -98,7 +98,7 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
             .map(|x| self.visit(x).map(Gc::new))
             .collect();
 
-        ListOperations::built_in_list_func()(&items?).map(|x| (*x).clone())
+        ListOperations::built_in_list_func_flat(&items?).map(|x| (*x).clone())
     }
 
     fn visit_syntax_rules(&self, l: super::ast::SyntaxRules) -> Self::Output {

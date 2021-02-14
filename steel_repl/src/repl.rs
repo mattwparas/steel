@@ -96,7 +96,15 @@ impl Highlighter for RustylineHelper {
 }
 
 fn display_help() {
-    println!("Help TBD")
+    println!(
+        "{}",
+        r#"
+        :time       -- toggles the timing of expressions
+        :? | :help  -- displays help dialog
+        :o          -- toggles optimizations
+        :quit       -- exits the REPL
+        "#
+    );
 }
 
 pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
@@ -169,12 +177,20 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                     }
                     // TODO come back
                     // ":env" => vm.print_bindings(),
-                    ":?" => display_help(),
+                    ":?" | ":help" => display_help(),
                     line if line.contains(":require") => {
                         let line = line.trim_start_matches(":require").trim();
                         let path = Path::new(line);
 
-                        let mut file = std::fs::File::open(path)?;
+                        let file = std::fs::File::open(path);
+
+                        if let Err(e) = file {
+                            eprintln!("{}", e);
+                            continue;
+                        }
+
+                        let mut file = file?;
+
                         let mut exprs = String::new();
                         file.read_to_string(&mut exprs)?;
 

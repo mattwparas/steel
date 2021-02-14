@@ -325,7 +325,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 }
 
-pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &str) -> bool {
+fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &str) -> bool {
     let last_idx = instructions.len() - 1;
 
     let mut indices = vec![last_idx];
@@ -379,7 +379,7 @@ pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context
 }
 
 // Note, this should be called AFTER `transform_tail_call`
-pub fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> bool {
+fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> bool {
     let last_idx = instructions.len() - 1;
 
     // could panic
