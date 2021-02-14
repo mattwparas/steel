@@ -89,6 +89,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             SyntaxRules => Ok(SymbolV("syntax-rules".to_string())),
             Ellipses => Ok(SymbolV("...".to_string())),
             Struct => Ok(SymbolV("struct".to_string())),
+            Apply => Ok(SymbolV("apply".to_string())),
         }
     }
 }

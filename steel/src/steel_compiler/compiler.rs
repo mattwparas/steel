@@ -33,7 +33,7 @@ use crate::stop;
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
-use log::{debug, error, info};
+use log::debug;
 
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?

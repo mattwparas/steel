@@ -108,6 +108,9 @@ pub enum TokenType {
     #[token("struct")]
     Struct,
 
+    #[token("apply")]
+    Apply,
+
     #[token("#\\SPACE", |_| Some(' '))]
     #[regex(r"#\\\p{L}", parse_char)]
     CharacterLiteral(char),
@@ -179,6 +182,7 @@ impl fmt::Display for TokenType {
             Begin => write!(f, "begin"),
             Panic => write!(f, "panic"),
             Lambda => write!(f, "lambda"),
+            Apply => write!(f, "apply"),
             Quote => write!(f, "quote"),
             DefineSyntax => write!(f, "define-syntax"),
             SyntaxRules => write!(f, "syntax-rules"),

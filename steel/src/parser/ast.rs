@@ -1160,6 +1160,23 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::Quote => parse_quote(value.into_iter(), a.syn.clone()),
                         TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
                         TokenType::Return => parse_return(value.into_iter(), a.syn.clone()),
+                        TokenType::Apply => {
+                            let syn = a.syn.clone();
+                            if value.len() != 3 {
+                                return Err(ParseError::ArityMismatch(
+                                    format!(
+                                        "apply expects a symbol (for a function) and a list of fields, found {} arguments instead",value.len()
+                                    ), syn.span
+                                ));
+                            }
+
+                            let mut value_iter = value.into_iter();
+                            value_iter.next();
+                            let function = value_iter.next().unwrap();
+                            let list = value_iter.next().unwrap();
+
+                            Ok(ExprKind::Apply(Box::new(Apply::new(function, list, syn))))
+                        }
                         TokenType::Struct => {
                             let syn = a.syn.clone();
 
@@ -1268,15 +1285,6 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             let mut value_iter = value.into_iter();
                             value_iter.next();
-                            // let name = if let Some(ExprKind::Atom(a)) = value_iter.next() {
-                            //     a
-                            // } else {
-                            //     return Err(ParseError::SyntaxError(
-                            //         "define-syntax expects an identifier for the name of the macro"
-                            //             .to_string(),
-                            //         syn.span,
-                            //     ));
-                            // };
 
                             let name = value_iter.next().unwrap();
 
@@ -1305,31 +1313,6 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                             value_iter.next();
 
                             let syntax_vec = if let Some(ExprKind::List(l)) = value_iter.next() {
-                                // unimplemented!();
-                                // let mut syn_vec = Vec::new();
-
-                                // for form in l.args {
-                                //     if let ExprKind::Atom(a) = form {
-                                //         if let TokenType::Identifier(_) = a.syn.ty {
-                                //             syn_vec.push(a)
-                                //         } else {
-                                //             return Err(ParseError::SyntaxError(
-                                //                 "syntax-rules expects identifiers in the list of new syntaxes"
-                                //                     .to_string(),
-                                //                 syn.span,
-                                //             ));
-                                //         }
-                                //     } else {
-                                //         return Err(ParseError::SyntaxError(
-                                //             "syntax-rules expects identifiers in the list of new syntaxes"
-                                //                 .to_string(),
-                                //             syn.span,
-                                //         ));
-                                //     };
-                                // }
-
-                                // syn_vec
-
                                 l.args
                             } else {
                                 return Err(ParseError::SyntaxError(
@@ -1367,16 +1350,6 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                             )))
                         }
                         _ => Ok(ExprKind::List(List::new(value))),
-                        // TokenType::Identifier(_) => {
-                        //     Ok(ExprKind::List(List::new(value)))
-                        //     // unimplemented!("Pass through the value as list")
-                        // }
-                        // // Application not a procedure, can catch this here for constants
-                        // _ => Err(ParseError::SyntaxError(
-                        //     "illegal function application - application not a procedure"
-                        //         .to_string(),
-                        //     a.syn.span.clone(),
-                        // )),
                     }
                 }
                 _ => Ok(ExprKind::List(List::new(value))),

@@ -11,9 +11,7 @@ use steel::rvals::{Result, SteelVal};
 use steel::steel_compiler::constants::ConstantTable;
 use steel::stop;
 
-use steel::contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract};
-
-use log::error;
+use steel::contracts::{ContractType, ContractedFunction, FlatContract};
 
 pub trait ContractedFunctionExt {
     fn apply<CT: ConstantTable>(

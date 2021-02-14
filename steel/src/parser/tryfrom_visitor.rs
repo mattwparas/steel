@@ -15,23 +15,6 @@ use crate::gc::Gc;
 use crate::parser::expander::SteelMacro;
 use crate::primitives::ListOperations;
 
-//             Expr::VectorVal(lst) => {
-//                 let items: std::result::Result<Vec<Gc<Self>>, Self::Error> = lst
-//                     .iter()
-//                     .map(|x| Self::try_from(x.clone()).map(Gc::new))
-//                     .collect();
-
-//                 ListOperations::built_in_list_func()(&items?).map(|x| (*x).clone())
-//                 // Ok(VectorV(items?))
-
-//                 // let items: std::result::Result<Vector<Self>, Self::Error> =
-//                 //     lst.iter().map(|x| Self::try_from(x.clone())).collect();
-//                 // Ok(VectorV(items?))
-//             }
-//         }
-//     }
-// }
-
 pub struct TryFromExprKindForSteelVal {}
 
 impl TryFromExprKindForSteelVal {
@@ -122,5 +105,3 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
         todo!()
     }
 }
-
-struct TryFromSteelValForExprKind {}

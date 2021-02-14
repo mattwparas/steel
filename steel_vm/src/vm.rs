@@ -28,7 +28,7 @@ use crate::evaluation_progress::EvaluationProgress;
 
 pub type Callback = fn(usize) -> bool;
 
-use log::{debug, error, info};
+use log::error;
 
 const STACK_LIMIT: usize = 100000;
 
