@@ -589,7 +589,7 @@ impl fmt::Display for Struct {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "(struct {} ({})",
+            "(struct {} ({}))",
             self.name,
             self.fields.iter().map(|x| x.to_string()).join(" ")
         )
@@ -1457,6 +1457,54 @@ mod display_tests {
         let expression = "(execute 1 2 3)";
         let parsed_expr = parse(expression);
         let expected = "(execute 1 2 3)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_if() {
+        let expression = "(if 1 2 3)";
+        let parsed_expr = parse(expression);
+        let expected = "(if 1 2 3)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_quote() {
+        let expression = "'(1 2 3 4)";
+        let parsed_expr = parse(expression);
+        let expected = "(quote (1 2 3 4))";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_read() {
+        let expression = "(read '(1 2 3 4))";
+        let parsed_expr = parse(expression);
+        let expected = "(read (quote (1 2 3 4)))";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_return() {
+        let expression = "(return 10)";
+        let parsed_expr = parse(expression);
+        let expected = "(return 10)";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_struct() {
+        let expression = "(struct Apple (a b c))";
+        let parsed_expr = parse(expression);
+        let expected = "(struct Apple (a b c))";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
+    fn display_eval() {
+        let expression = "(eval 'a)";
+        let parsed_expr = parse(expression);
+        let expected = "(eval (quote a))";
         assert_eq!(parsed_expr.to_string(), expected);
     }
 }
