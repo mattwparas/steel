@@ -104,4 +104,8 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
     fn visit_syntax_rules(&self, l: super::ast::SyntaxRules) -> Self::Output {
         todo!()
     }
+
+    fn visit_set(&self, s: Box<super::ast::Set>) -> Self::Output {
+        todo!()
+    }
 }

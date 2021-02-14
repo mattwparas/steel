@@ -1,11 +1,8 @@
 mod helpers;
 extern crate steel_vm;
-// use crate::steel::interpreter::evaluator::Evaluator;
 use crate::steel_vm::engine::Engine;
 use helpers::*;
 use steel::PRELUDE;
-
-// use steel::stdlib::PRELUDE;
 
 #[test]
 fn basic_test() {
@@ -87,39 +84,38 @@ fn lambda_test() {
     test_line("((((x 1) 2 3) 4) 5)", &["15"], e);
 }
 
-// TODO implement set again
-// #[test]
-// fn set_test() {
-//     let mut evaluator = Engine::new();
-//     evaluator.parse_and_execute(PRELUDE).unwrap();
-//     let e = &mut evaluator;
-//     test_line("(set! x 10)", &["Error: Free Identifier: x"], e);
-//     test_line(
-//         "(set! x)",
-//         &["Error: Arity Mismatch: set: expected 2 args got 1"],
-//         e,
-//     );
-//     test_line(
-//         "(set! x 1 2)",
-//         &["Error: Arity Mismatch: set: expected 2 args got 3"],
-//         e,
-//     );
-//     test_line(
-//         "(define x 100) (set! x (+ x 1)) x",
-//         &["#<void>", "100", "101"],
-//         e,
-//     );
-//     test_line(
-//         "(define x (lambda () (begin (define a 10) (set! a 20) a))) (x)",
-//         &["#<void>", "20"],
-//         e,
-//     );
-//     test_line(
-//         "(define a 1000) (define x (lambda () (begin (set! a 20)  a))) (x)",
-//         &["#<void>", "#<void>", "20"],
-//         e,
-//     );
-// }
+#[test]
+fn set_test() {
+    let mut evaluator = Engine::new();
+    evaluator.parse_and_execute(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line("(set! x 10)", &["Error: Free Identifier: x"], e);
+    test_line(
+        "(set! x)",
+        &["Error: Parse error: Parse: Arity mismatch: set! expects an identifier and an expression"],
+        e,
+    );
+    test_line(
+        "(set! x 1 2)",
+        &["Error: Parse error: Parse: Arity mismatch: set! expects an identifier and an expression"],
+        e,
+    );
+    test_line(
+        "(define x 100) (set! x (+ x 1)) x",
+        &["#<void>", "100", "101"],
+        e,
+    );
+    test_line(
+        "(define x (lambda () (begin (define a 10) (set! a 20) a))) (x)",
+        &["#<void>", "20"],
+        e,
+    );
+    test_line(
+        "(define a 1000) (define x (lambda () (begin (set! a 20)  a))) (x)",
+        &["#<void>", "#<void>", "20"],
+        e,
+    );
+}
 
 #[test]
 fn let_test() {
@@ -151,7 +147,6 @@ fn let_test() {
 fn and_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(and #t #f)", &["#false"], e);
     test_line("(and #t #t)", &["#true"], e);
@@ -169,7 +164,6 @@ fn and_test() {
 fn or_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(or #t #f)", &["#true"], e);
     test_line("(or #t #t)", &["#true"], e);
@@ -188,7 +182,6 @@ fn or_test() {
 fn cond_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(cond [else 10])", &["10"], e);
     test_line("(cond [#f 10] [else 20])", &["20"], e);
@@ -208,7 +201,6 @@ fn cond_test() {
 fn when_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(when #t 10)", &["10"], e);
     test_line("(when #f 10)", &["#<void>"], e);
@@ -218,7 +210,6 @@ fn when_test() {
 fn unless_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(unless #t 10)", &["#<void>"], e);
     test_line("(unless #f 10)", &["10"], e);
@@ -228,7 +219,6 @@ fn unless_test() {
 fn thread_first_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line(
         "(->> (list 1 2 3 4)
@@ -245,7 +235,6 @@ fn thread_first_test() {
 fn thread_last_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line(
         "(-> (list 1 2 3 4)
@@ -260,7 +249,6 @@ fn thread_last_test() {
 fn first_apply_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("((f> append (list 3 4)) (list 1 2))", &["'(1 2 3 4)"], e);
 }
@@ -269,27 +257,23 @@ fn first_apply_test() {
 fn last_apply_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("((l> append (list 3 4)) (list 1 2))", &["'(3 4 1 2)"], e);
 }
 
-// TODO implement set again
-// #[test]
-// fn while_test() {
-//     let mut evaluator = Engine::new();
-//     evaluator.parse_and_execute(PRELUDE).unwrap();
-//     // evaluator.parse_and_eval(PRELUDE).unwrap();
-//     let e = &mut evaluator;
-//     test_line("(define x 0)", &["#<void>"], e);
-//     test_line("(while (< x 5) (set! x (+ x 1))) x", &["#<void>", "5"], e);
-// }
+#[test]
+fn while_test() {
+    let mut evaluator = Engine::new();
+    evaluator.parse_and_execute(PRELUDE).unwrap();
+    let e = &mut evaluator;
+    test_line("(define x 0)", &["#<void>"], e);
+    test_line("(while (< x 5) (set! x (+ x 1))) x", &["#<void>", "5"], e);
+}
 
 #[test]
 fn map_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line(
         "(map (lambda (x) (* 2 x)) (list 1 2 3 4))",
@@ -302,7 +286,6 @@ fn map_test() {
 fn filter_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
-    // evaluator.parse_and_eval(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(filter even? (list 1 2 3 4 5))", &["'(2 4)"], e);
 }

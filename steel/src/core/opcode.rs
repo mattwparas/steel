@@ -30,6 +30,4 @@ pub enum OpCode {
     READ,
     COLLECTTO,
     METALOOKUP,
-    ADDINT,
-    SUBINT,
 }

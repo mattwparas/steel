@@ -233,24 +233,6 @@ impl Instruction {
             constant: true,
         }
     }
-
-    pub fn new_add_int(arity: usize, contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::ADDINT,
-            payload_size: arity,
-            contents: Some(contents),
-            constant: false,
-        }
-    }
-
-    pub fn new_sub_int(arity: usize, contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::SUBINT,
-            payload_size: arity,
-            contents: Some(contents),
-            constant: false,
-        }
-    }
 }
 
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {

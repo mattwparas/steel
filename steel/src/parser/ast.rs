@@ -1,14 +1,7 @@
-// use crate::parser::{tokens::TokenType, Expr, SyntaxObject};
+use crate::parser::parser::ParseError;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::tokens::TokenType;
 use crate::parser::tokens::TokenType::*;
-use crate::rvals::Result;
-
-// use super::{VisitChildren, Visitor};
-
-use super::visitors::VisitorMutResult;
-
-use crate::parser::parser::ParseError;
 
 use std::convert::TryFrom;
 
@@ -23,18 +16,6 @@ use crate::rvals::SteelVal::*;
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 
 use crate::rvals::collect_pair_into_vector;
-
-pub trait VisitChildrenMutResult<T> {
-    fn accept(&self, visitor: &mut impl VisitorMutResult<Output = T>) -> Result<T>;
-}
-
-impl<T> VisitChildrenMutResult<T> for If {
-    fn accept(&self, visitor: &mut impl VisitorMutResult<Output = T>) -> Result<T> {
-        visitor.visit(&self.test_expr)?;
-        visitor.visit(&self.then_expr)?;
-        visitor.visit(&self.else_expr)
-    }
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprKind {
@@ -55,6 +36,7 @@ pub enum ExprKind {
     SyntaxRules(SyntaxRules),
     Eval(Box<Eval>),
     List(List),
+    Set(Box<Set>),
 }
 
 impl ExprKind {
@@ -155,14 +137,6 @@ impl TryFrom<&SteelVal> for ExprKind {
     }
 }
 
-// impl TryFrom<&SteelVal> for ExprKind {
-//     type Error = SteelErr;
-
-//     fn try_from(_val: &SteelVal) -> std::result::Result<Self, Self::Error> {
-//         unimplemented!("Have not yet implemented going from SteelVal back to an expression")
-//     }
-// }
-
 impl fmt::Display for ExprKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -183,6 +157,7 @@ impl fmt::Display for ExprKind {
             ExprKind::SyntaxRules(s) => write!(f, "{}", s),
             ExprKind::Eval(e) => write!(f, "{}", e),
             ExprKind::List(l) => write!(f, "{}", l),
+            ExprKind::Set(s) => write!(f, "{}", s),
         }
     }
 }
@@ -207,6 +182,35 @@ impl fmt::Display for Atom {
 impl From<Atom> for ExprKind {
     fn from(val: Atom) -> Self {
         ExprKind::Atom(val)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Set {
+    pub variable: ExprKind,
+    pub expr: ExprKind,
+    pub location: SyntaxObject,
+}
+
+impl Set {
+    pub fn new(variable: ExprKind, expr: ExprKind, location: SyntaxObject) -> Self {
+        Set {
+            variable,
+            expr,
+            location,
+        }
+    }
+}
+
+impl fmt::Display for Set {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(set! {} {})", self.variable, self.expr)
+    }
+}
+
+impl From<Set> for ExprKind {
+    fn from(val: Set) -> Self {
+        ExprKind::Set(Box::new(val))
     }
 }
 
@@ -281,39 +285,6 @@ impl From<Define> for ExprKind {
     }
 }
 
-// #[derive(Clone, Debug, PartialEq)]
-// pub struct DefineFunction {
-//     pub name: ExprKind,
-//     pub args: Vec<ExprKind>,
-//     // Insert a begin implicitly?
-//     pub body: Vec<ExprKind>,
-//     pub location: SyntaxObject,
-// }
-
-// impl fmt::Display for DefineFunction {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         unimplemented!()
-//     }
-// }
-
-// impl DefineFunction {
-//     pub fn new(
-//         name: ExprKind,
-//         args: Vec<ExprKind>,
-//         body: Vec<ExprKind>,
-//         location: SyntaxObject,
-//     ) -> Self {
-//         DefineFunction {
-//             name,
-//             args,
-//             body,
-//             location,
-//         }
-//     }
-// }
-
-// Immediately parse into a begin
-// otherwise its relatively
 #[derive(Clone, Debug, PartialEq)]
 pub struct LambdaFunction {
     pub args: Vec<ExprKind>,
@@ -1160,6 +1131,24 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::Quote => parse_quote(value.into_iter(), a.syn.clone()),
                         TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
                         TokenType::Return => parse_return(value.into_iter(), a.syn.clone()),
+                        TokenType::Set => {
+                            let syn = a.syn.clone();
+                            if value.len() != 3 {
+                                return Err(ParseError::ArityMismatch(
+                                    "set! expects an identifier and an expression".to_string(),
+                                    syn.span,
+                                ));
+                            }
+
+                            let mut value_iter = value.into_iter();
+                            value_iter.next();
+                            let identifier = value_iter.next().unwrap();
+                            let expression = value_iter.next().unwrap();
+
+                            Ok(ExprKind::Set(Box::new(Set::new(
+                                identifier, expression, syn,
+                            ))))
+                        }
                         TokenType::Apply => {
                             let syn = a.syn.clone();
                             if value.len() != 3 {

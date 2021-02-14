@@ -35,10 +35,6 @@ impl ContractedFunctionExt for ContractedFunction {
         repl: bool,
         callback: &EvaluationProgress,
     ) -> Result<Gc<SteelVal>> {
-        // unimplemented!()
-
-        // if self.function.arity() != self.contract.arity()
-
         let mut verified_args = Vec::new();
 
         for (arg, contract) in arguments

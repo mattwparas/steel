@@ -313,6 +313,16 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     fn visit_syntax_rules(&mut self, l: &crate::parser::ast::SyntaxRules) -> Self::Output {
         stop!(BadSyntax => "unexpected syntax rules"; l.location.span)
     }
+
+    fn visit_set(&mut self, s: &crate::parser::ast::Set) -> Self::Output {
+        self.visit(&s.expr)?;
+        if let ExprKind::Atom(Atom { syn: s }) = &s.variable {
+            self.push(Instruction::new(OpCode::SET, 0, s.clone(), false));
+        } else {
+            stop!(BadSyntax => "set! takes an identifier")
+        }
+        Ok(())
+    }
 }
 
 pub fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &str) -> bool {

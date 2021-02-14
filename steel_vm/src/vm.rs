@@ -373,55 +373,6 @@ pub fn vm<CT: ConstantTable>(
                 stack.push(VOID.with(|f| Gc::clone(f)));
                 ip += 1;
             }
-            OpCode::ADDINT => {
-                let args = stack.peek_range(stack.len() - cur_inst.payload_size as usize..);
-
-                let result = Gc::new(SteelVal::IntV(args.into_iter().try_fold(0, |acc, x| {
-                    if let SteelVal::IntV(v) = x.as_ref() {
-                        Ok(acc + v)
-                    } else {
-                        stop!(TypeMismatch => "i+ expected a number"; cur_inst.span)
-                    }
-                })?));
-
-                stack.truncate(stack.len() - cur_inst.payload_size as usize);
-                stack.push(result);
-                ip += 1;
-            }
-            OpCode::SUBINT => {
-                // unimplemented!();
-
-                let args = stack.peek_range(stack.len() - cur_inst.payload_size as usize..);
-
-                let initial_value = if let SteelVal::IntV(n) = &args[0].as_ref() {
-                    *n
-                } else {
-                    stop!(TypeMismatch => "i- expected a number"; cur_inst.span)
-                };
-
-                let result = Gc::new(SteelVal::IntV(args[1..].into_iter().try_fold(
-                    initial_value,
-                    |acc, x| {
-                        if let SteelVal::IntV(v) = x.as_ref() {
-                            Ok(acc - v)
-                        } else {
-                            stop!(TypeMismatch => "i- expected a number"; cur_inst.span)
-                        }
-                    },
-                )?));
-
-                stack.truncate(stack.len() - cur_inst.payload_size as usize);
-                stack.push(result);
-                ip += 1;
-
-                // let result = f(stack.peek_range(stack.len() - cur_inst.payload_size as usize..))
-                //     .map_err(|x| x.set_span(cur_inst.span))?;
-
-                // stack.truncate(stack.len() - cur_inst.payload_size as usize);
-
-                // stack.push(result);
-                // ip += 1;
-            }
             OpCode::STRUCT => {
                 let val = constants.get(cur_inst.payload_size as usize);
                 let mut iter = SteelVal::iter(val);

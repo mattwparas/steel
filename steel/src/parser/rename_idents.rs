@@ -155,6 +155,11 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
     fn visit_syntax_rules(&mut self, _l: &mut super::ast::SyntaxRules) -> Self::Output {
         todo!()
     }
+
+    fn visit_set(&mut self, s: &mut super::ast::Set) -> Self::Output {
+        self.visit(&mut s.variable);
+        self.visit(&mut s.expr);
+    }
 }
 
 #[cfg(test)]

@@ -156,6 +156,12 @@ impl<'a> ConsumingVisitor for Expander<'a> {
     fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
     }
+
+    fn visit_set(&mut self, mut s: Box<super::ast::Set>) -> Self::Output {
+        s.variable = self.visit(s.variable)?;
+        s.expr = self.visit(s.expr)?;
+        Ok(ExprKind::Set(s))
+    }
 }
 
 #[cfg(test)]
