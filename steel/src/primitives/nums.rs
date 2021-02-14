@@ -311,3 +311,80 @@ impl NumOperations {
         })
     }
 }
+
+#[cfg(test)]
+mod num_op_tests {
+
+    use super::*;
+    use crate::rvals::SteelVal::*;
+    use crate::throw;
+
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
+        let args: Vec<Gc<SteelVal>> = args.into_iter().map(|x| Gc::new(x)).collect();
+        func.func_or_else(throw!(BadSyntax => "num op tests"))
+            .unwrap()(&args)
+    }
+
+    #[test]
+    fn division_test() {
+        let args = vec![IntV(10), IntV(2)];
+
+        let output = apply_function(NumOperations::divide(), args).unwrap();
+        let expected = Gc::new(NumV(5.0));
+        assert_eq!(output.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn multiplication_test() {
+        let args = vec![IntV(10), IntV(2)];
+
+        let output = apply_function(NumOperations::multiply(), args).unwrap();
+        let expected = Gc::new(IntV(20));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn multiplication_different_types() {
+        let args = vec![IntV(10), NumV(2.0)];
+
+        let output = apply_function(NumOperations::multiply(), args).unwrap();
+        let expected = Gc::new(NumV(20.0));
+        assert_eq!(output.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn addition_different_types() {
+        let args = vec![IntV(10), NumV(2.0)];
+
+        let output = apply_function(NumOperations::adder(), args).unwrap();
+        let expected = Gc::new(NumV(12.0));
+        assert_eq!(output.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn subtraction_different_types() {
+        let args = vec![IntV(10), NumV(2.0)];
+
+        let output = apply_function(NumOperations::subtract(), args).unwrap();
+        let expected = Gc::new(NumV(8.0));
+        assert_eq!(output.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn test_integer_add() {
+        let args = vec![IntV(10), IntV(2)];
+
+        let output = apply_function(NumOperations::integer_add(), args).unwrap();
+        let expected = Gc::new(IntV(12));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_integer_sub() {
+        let args = vec![IntV(10), IntV(2)];
+
+        let output = apply_function(NumOperations::integer_sub(), args).unwrap();
+        let expected = Gc::new(IntV(8));
+        assert_eq!(output, expected);
+    }
+}
