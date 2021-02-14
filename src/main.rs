@@ -105,68 +105,27 @@ fn main() {
         .write_style(WriteStyle::Always)
         .init();
 
-    println!("gc steelval: {:?}", std::mem::size_of::<Gc<SteelVal>>());
-
-    println!("steelval: {:?}", std::mem::size_of::<SteelVal>());
-
-    println!(
-        "bytecode lambda: {:?}",
-        std::mem::size_of::<steel::rvals::ByteCodeLambda>()
-    );
-
-    println!(
-        "hashmap: {:?}",
-        std::mem::size_of::<HashMap<Gc<SteelVal>, Gc<SteelVal>>>()
-    );
-
-    println!(
-        "struct: {:?}",
-        std::mem::size_of::<steel::structs::SteelStruct>()
-    );
-
-    println!(
-        "transducer: {:?}",
-        std::mem::size_of::<steel::rvals::Transducer>()
-    );
-
     let args = args().collect::<Vec<_>>();
 
     if args.len() == 1 {
-        // let mut interpreter = build_interpreter! {};
-        // if let Err(e) = interpreter.require(PRELUDE) {
-        //     eprintln!("Error loading prelude: {}", e)
-        // }
-        // let contents =
-        //     fs::read_to_string("struct.rkt").expect("Something weont wrong reading the file");
-
-        // let ast = interpreter.compile(&contents).unwrap();
-        // // if let Err(e) = ast {
-        // //     eprintln!("Error compiling the file: {}", e);
-        // // }
-
-        // let res = SteelInterpreter::evaluate_from_ast(&ast);
-
-        // match res {
-        //     Ok(r) => r.iter().for_each(|x| match x {
-        //         SteelVal::Void => {}
-        //         _ => println!("{}", x),
-        //     }),
-        //     Err(e) => eprintln!("{}", e.to_string()),
-        // }
-
-        // interpreter.parse_and
-
         finish(test_repl());
     } else if args.len() == 2 {
         let path = &args[1];
-        let mut interpreter = build_engine! {};
-        // if let Err(e) = interpreter.require(PRELUDE) {
-        //     eprintln!("Error loading prelude: {}", e)
-        // }
+        let mut vm = build_engine! {};
+
+        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+
+        for core in core_libraries {
+            let res = vm.parse_and_execute_without_optimizations(core);
+            if let Err(e) = res {
+                eprintln!("{}", e);
+                return;
+            }
+        }
 
         let contents = fs::read_to_string(path).expect("Something went wrong reading the file");
         // let now = Instant::now();
-        let res = interpreter.parse_and_execute(&contents);
+        let res = vm.parse_and_execute_without_optimizations(&contents);
 
         // println!("{:?}", now.elapsed());
 

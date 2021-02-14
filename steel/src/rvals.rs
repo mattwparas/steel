@@ -502,26 +502,6 @@ impl SteelVal {
         }
     }
 
-    // pub fn lambda_or_else<E, F: FnOnce() -> E>(
-    //     &self,
-    //     err: F,
-    // ) -> std::result::Result<&SteelLambda, E> {
-    //     match self {
-    //         Self::LambdaV(v) => Ok(&v),
-    //         _ => Err(err()),
-    //     }
-    // }
-
-    // pub fn macro_or_else<E, F: FnOnce() -> E>(
-    //     &self,
-    //     err: F,
-    // ) -> std::result::Result<&SteelMacro, E> {
-    //     match self {
-    //         Self::MacroV(v) => Ok(&v),
-    //         _ => Err(err()),
-    //     }
-    // }
-
     pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
         match self {
             Self::SymbolV(v) => Ok(&v),
