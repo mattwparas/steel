@@ -1,23 +1,10 @@
-// use crate::env::VOID;
+use crate::gc::Gc;
+use crate::primitives::lists::ListOperations;
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-// use std::io;
-// use std::rc::Rc;
-
-use crate::gc::Gc;
-
-// mod primitives;
-
-// use std::fs
-
-use std::path::Path;
-
-use crate::primitives::lists::ListOperations;
-
 use std::env::current_dir;
-
-// use crate::lists::ListOperations
+use std::path::Path;
 
 pub struct FsFunctions {}
 impl FsFunctions {

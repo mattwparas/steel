@@ -214,9 +214,9 @@ pub enum SteelVal {
     PortV(SteelPort),
     /// Represents a bytecode closure
     Closure(ByteCodeLambda),
-    /// Generic iterator wrapper?
+    /// Generic iterator wrapper
     IterV(Transducer),
-    // Generic IntoIter wrapper?
+    // Generic IntoIter wrapper
     // Promise(Gc<SteelVal>),
     /// Async Function wrapper
     FutureFunc(AsyncSignature),
@@ -579,109 +579,6 @@ impl Drop for SteelVal {
     }
 }
 
-// sometimes you want to just
-// return an expression
-// impl TryFrom<Expr> for SteelVal {
-//     type Error = SteelErr;
-//     fn try_from(e: Expr) -> std::result::Result<Self, Self::Error> {
-//         // let span = || {
-//         //     e.span()
-//         // }
-//         match &e {
-//             Expr::Atom(a) => match &a.ty {
-//                 OpenParen => Err(SteelErr::UnexpectedToken("(".to_string(), Some(e.span()))),
-//                 CloseParen => Err(SteelErr::UnexpectedToken(")".to_string(), Some(e.span()))),
-//                 QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string(), Some(e.span()))),
-//                 Unquote => Err(SteelErr::UnexpectedToken(",".to_string(), Some(e.span()))),
-//                 UnquoteSplice => Err(SteelErr::UnexpectedToken(",@".to_string(), Some(e.span()))),
-//                 QuasiQuote => Err(SteelErr::UnexpectedToken("`".to_string(), Some(e.span()))),
-//                 Hash => Err(SteelErr::UnexpectedToken("#".to_string(), Some(e.span()))),
-//                 BooleanLiteral(x) => Ok(BoolV(*x)),
-//                 Identifier(x) => Ok(SymbolV(x.clone())),
-//                 NumberLiteral(x) => Ok(NumV(*x)),
-//                 IntegerLiteral(x) => Ok(IntV(*x)),
-//                 StringLiteral(x) => Ok(StringV(x.clone())),
-//                 CharacterLiteral(x) => Ok(CharV(*x)),
-//                 Error => Err(SteelErr::UnexpectedToken(
-//                     "error".to_string(),
-//                     Some(e.span()),
-//                 )),
-//                 Comment => Err(SteelErr::UnexpectedToken(
-//                     "comment".to_string(),
-//                     Some(e.span()),
-//                 )),
-//             },
-//             Expr::VectorVal(lst) => {
-//                 let items: std::result::Result<Vec<Gc<Self>>, Self::Error> = lst
-//                     .iter()
-//                     .map(|x| Self::try_from(x.clone()).map(Gc::new))
-//                     .collect();
-
-//                 ListOperations::built_in_list_func()(&items?).map(|x| (*x).clone())
-//                 // Ok(VectorV(items?))
-
-//                 // let items: std::result::Result<Vector<Self>, Self::Error> =
-//                 //     lst.iter().map(|x| Self::try_from(x.clone())).collect();
-//                 // Ok(VectorV(items?))
-//             }
-//         }
-//     }
-// }
-
-/// Sometimes you want to execute a list
-/// as if it was an expression
-// impl TryFrom<&SteelVal> for Expr {
-//     type Error = &'static str;
-//     fn try_from(r: &SteelVal) -> result::Result<Self, Self::Error> {
-//         match r {
-//             BoolV(x) => Ok(Expr::Atom(SyntaxObject::default(BooleanLiteral(*x)))),
-//             NumV(x) => Ok(Expr::Atom(SyntaxObject::default(NumberLiteral(*x)))),
-//             IntV(x) => Ok(Expr::Atom(SyntaxObject::default(IntegerLiteral(*x)))),
-//             VectorV(lst) => {
-//                 let items: result::Result<Vec<Self>, Self::Error> = lst
-//                     .into_iter()
-//                     .map(|x| Self::try_from(x.as_ref()))
-//                     .collect();
-//                 Ok(Expr::VectorVal(items?))
-//             }
-//             Void => Err("Can't convert from Void to expression!"),
-//             StringV(x) => Ok(Expr::Atom(SyntaxObject::default(StringLiteral(x.clone())))),
-//             FuncV(_) => Err("Can't convert from Function to expression!"),
-//             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-//             // MacroV(_) => Err("Can't convert from Macro to expression!"),
-//             SymbolV(x) => Ok(Expr::Atom(SyntaxObject::default(Identifier(x.clone())))),
-//             Custom(_) => Err("Can't convert from Custom Type to expression!"),
-//             // Pair(_, _) => Err("Can't convert from pair"), // TODO
-//             Pair(_, _) => {
-//                 if let VectorV(ref lst) = collect_pair_into_vector(r) {
-//                     let items: result::Result<Vec<Self>, Self::Error> = lst
-//                         .into_iter()
-//                         .map(|x| Self::try_from(x.as_ref()))
-//                         .collect();
-//                     Ok(Expr::VectorVal(items?))
-//                 } else {
-//                     Err("Couldn't convert from list to expression")
-//                 }
-//             }
-//             CharV(x) => Ok(Expr::Atom(SyntaxObject::default(CharacterLiteral(*x)))),
-//             StructV(_) => Err("Can't convert from Struct to expression!"),
-//             StructClosureV(_, _) => Err("Can't convert from struct-function to expression!"),
-//             PortV(_) => Err("Can't convert from port to expression!"),
-//             Closure(_) => Err("Can't convert from bytecode closure to expression"),
-//             HashMapV(_) => Err("Can't convert from hashmap to expression!"),
-//             HashSetV(_) => Err("Can't convert from hashset to expression!"),
-//             IterV(_) => Err("Can't convert from iterator to expression!"),
-//             FutureFunc(_) => Err("Can't convert from future function to expression!"),
-//             FutureV(_) => Err("Can't convert future to expression!"),
-//             // Promise(_) => Err("Can't convert from promise to expression!"),
-//             StreamV(_) => Err("Can't convert from stream to expression!"),
-//             BoxV(_) => Err("Can't convert from box to expression!"),
-//             Contract(_) => Err("Can't convert from contract to expression!"),
-//             ContractedFunction(_) => Err("Can't convert from contracted function to expression"),
-//         }
-//     }
-// }
-
 impl Eq for SteelVal {}
 
 // TODO add tests
@@ -773,17 +670,9 @@ impl ByteCodeLambda {
         }
     }
 
-    // pub fn params_exp(&self) -> &[String] {
-    //     &self.params_exp
-    // }
-
     pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
         Rc::clone(&self.body_exp)
     }
-
-    // pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
-    //     self.parent_env.as_ref()
-    // }
 
     pub fn sub_expression_env(&self) -> &Weak<RefCell<Env>> {
         &self.sub_expression_env

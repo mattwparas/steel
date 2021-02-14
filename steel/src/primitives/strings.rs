@@ -13,84 +13,6 @@ macro_rules! ok_string {
     };
 }
 
-// macro_rules! extract_types_from_vec {
-
-// }
-
-// make this macro to generate functions with some sanity
-// ideally we want something like this
-/*
-
-new_function_fixed_arity!{
-    "string-append",
-    arity => 2,
-    (arg1: String, arg2: String, arg3: String),
-
-}
-
-(Structs => {$($type:ty),* $(,)?} Functions => {$($binding:expr => $func:ident),* $(,)?}) => {
-        {
-            let mut interpreter = SteelInterpreter::new();
-            $ (
-                interpreter.insert_bindings(<$type>::generate_bindings());
-            ) *
-
-            $ (
-                interpreter.insert_binding($binding, SteelVal::FuncV($func));
-            ) *
-
-            interpreter
-        }
-    };
-
-*/
-
-// min! will calculate the minimum of any number of arguments
-// macro_rules! min {
-//     // base case
-//     ($x:expr) => ($x);
-//     // `$x` followed by at least one `$y,`
-//     ($x:expr, $($y:expr),+) => (
-//         // call min! on the tail `$y`
-//         std::cmp::min($x, min!($($y),+))
-//     )
-// }
-
-// macro_rules! result_tuple {
-//     (($($arg:tt),+)) => {
-//         (
-//             $ (
-//                 $arg?
-//             ), *
-//         )
-//     }
-// }
-
-// macro_rules! type_and_arity_check {
-//     ($name:expr, $arity:expr, $args:expr, ($($type:ident => $inner_type:ty), * $(,)?)) => {{
-
-//         if $args.len() != $arity {
-//             stop!(TypeMismatch => format!("{} expected takes two arguments, found {}", $args.len(), $arity))
-//         }
-//         let args_iter = $args.into_iter();
-//         let result = (
-//             $ (
-//                 {
-//                     let val: $inner_type = if let Some(SteelVal::$type(inner_value)) = args_iter.next().map(|x| x.as_ref()) {
-//                         inner_value
-//                     } else {
-//                         stop!(TypeMismatch => format!("{} type mismatch", $name))
-//                     };
-//                     val
-//                 }
-
-//             ) ,*
-//         );
-
-//         Ok(result)
-//     }}
-// }
-
 pub struct StringOperations {}
 impl StringOperations {
     pub fn string_append() -> SteelVal {
@@ -110,27 +32,6 @@ impl StringOperations {
             }
         })
     }
-
-    // pub fn test_test() -> SteelVal {
-    //     embedded_function! {
-    //         fn _test_function(test_test_test: &str, arg1: StringV, arg2: StringV) {
-    //             ok_string!(arg1.to_string())
-    //         }
-    //     }
-    // }
-
-    // pub fn test_test() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-    //         let (arg1, arg2, arg3): (&String, &String, &String) = type_and_arity_check!(
-    //             "test-test",
-    //             3,
-    //             args,
-    //             (StringV => &String, StringV => &String, StringV => &String)
-    //         )?;
-
-    //         ok_string!(arg1.to_string())
-    //     })
-    // }
 
     pub fn string_to_int() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {

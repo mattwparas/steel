@@ -1,27 +1,14 @@
+use crate::contracts::*;
 use crate::gc::Gc;
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-
-// use crate::rvals::Transducer;
-// use crate::rvals::Transducers;
-
-use crate::contracts::*;
 
 pub struct ContractOperations {}
 
 impl ContractOperations {
     pub fn make_c() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            // if args.len() == 1 {
-            //     let contract = Gc::clone(&args[0]);
-            //     if contract.is_contract() {
-            //         return Ok(contract);
-            //     } else {
-            //         stop!(ArityMismatch => "make/c given one argument - expected that first argument to be a contract");
-            //     }
-            // }
-
             if args.len() == 0 {
                 stop!(ArityMismatch => "make/c given no arguments");
             }

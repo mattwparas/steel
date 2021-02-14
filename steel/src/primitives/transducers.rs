@@ -21,8 +21,6 @@ impl TransducerOperations {
             }
 
             Ok(Gc::new(SteelVal::IterV(transformers)))
-
-            // unimplemented!()
         })
     }
 
