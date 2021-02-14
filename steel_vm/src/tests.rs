@@ -126,7 +126,7 @@ mod stream_tests {
 
         (assert! 
             (equal? 10
-                    (transduce + 0 (taking 5) (integers 0))))
+                    (transduce (taking 5) + 0 (integers 0))))
         "#;
         assert_script(script);
     }
