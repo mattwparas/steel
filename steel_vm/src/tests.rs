@@ -250,7 +250,6 @@ mod struct_integration_tests {
 
 #[cfg(test)]
 mod transducer_tests {
-    // use super::*;
     use crate::test_util::assert_script;
 
     #[test]
@@ -308,6 +307,137 @@ mod transducer_tests {
         (define result (execute (taking 15) (integers 0)))
         (define expected '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14))
         (assert! (equal? result expected))
+        "#;
+        assert_script(script);
+    }
+}
+
+#[cfg(test)]
+mod stack_tests {
+    use crate::test_util::assert_script;
+
+    #[test]
+    fn stack_test_with_contract() {
+        let script = r#"
+        ;; destruct works like so:
+        ;; (destruct (a b c) value)
+        ;;  ...
+        ;; (define a (car value))
+        ;; (define b (car (cdr value)))
+        ;; (define c (car (cdr (cdr value))))
+        (define-syntax destruct
+        (syntax-rules ()
+            [(destruct (var) ret-value)
+            (define (datum->syntax var) (car ret-value))]
+            [(destruct (var1 var2 ...) ret-value)
+            (begin (define (datum->syntax var1) (car ret-value))
+                    (destruct (var2 ...) (cdr ret-value)))]))
+
+
+        (define (any? v) #t)
+        (define stack? list?)
+        (define (pair? s)
+        (and (list? s) (= (length s) 2)))
+
+
+        (define (make-stack) '())
+
+        (define/contract (pop stack)
+        (->/c stack? pair?)
+        (if (null? stack)
+            '(#f '())
+            (list (car stack) (cdr stack))))
+
+        ;; value -> stack -> stack
+        (define push cons)
+
+        ;; instantiate an empty stack
+        (define my-stack (make-stack))
+
+        ;; Bind the last few values from the stack
+        ;; Push the values 1, 2, 3, 4, then pop and return the value and the stack
+        (destruct (pop-val new-stack)
+                (->> my-stack
+                    (push 1)
+                    (push 2)
+                    (push 3)
+                    (push 4)
+                    (pop)))
+
+        pop-val ;; => 4
+        new-stack ;; => '(3 2 1)
+        (assert! (equal? pop-val 4))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn stack_struct_test() {
+        let script = r#"
+        ;; destruct works like so:
+        ;; (destruct (a b c) value)
+        ;;  ...
+        ;; (define a (car value)
+        ;; (define b (car (cdr value)))
+        ;; (define c (car (cdr (cdr value))))
+        (define-syntax destruct
+        (syntax-rules ()
+            [(destruct (var) ret-value)
+            (define (datum->syntax var) (car ret-value))]
+            [(destruct (var1 var2 ...) ret-value)
+            (begin (define (datum->syntax var1) (car ret-value))
+                    (destruct (var2 ...) (cdr ret-value)))]))
+
+        (define-syntax def-method
+        (syntax-rules ()
+            [(def-method struct-name (define/method (a this b ...) body ...))
+            (define ((datum->syntax struct-name . a) this b ...)
+            (unless ((datum->syntax struct-name ?) this)
+                (error! (datum->syntax struct-name . a) "method takes a value of" struct-name "given" this))
+            body ...)]))
+
+        ;; impl block asserts that each function contains the struct type given as the first argument
+        ;; This is why later down we use the thread first vs. the thread last given above
+        ;;
+        ;; However, take note that a recursive call will not work properly in this, best to be used as an interface
+        ;; since it does not transform the name of the recursive call
+        (define-syntax impl
+        (syntax-rules ()
+            [(impl struct-name (define/method (a this b ...) body ...) c ...)
+            (begin (def-method struct-name (define/method (a this b ...) body ...))
+                    (impl struct-name c ...))]
+            [(impl struct-name (define/method (a this b ...) body ...))
+            (def-method struct-name (define/method (a this b ...) body ...))]))
+
+
+        (struct Stack (lst))
+        (impl Stack
+            ;; Change this to be something like (define/method)
+            ;; as to disambiguate it from the base define
+            (define/method (pop stack)
+                (define contents (Stack-lst stack))
+                (if (null? contents)
+                    '(#f '())
+                    (list (car contents) (cdr contents))))
+
+            (define/method (push stack value)
+                (define contents (Stack-lst stack))
+                (Stack (cons value contents))))
+
+        (define test-stack (Stack '()))
+
+        (destruct (pop-val-test new-stack-test)
+                (-> test-stack
+                    (Stack.push 1)
+                    (Stack.push 2)
+                    (Stack.push 3)
+                    (Stack.push 4)
+                    (Stack.pop)))
+
+        pop-val-test ;; => 4
+        new-stack-test ;; => '(3 2 1)
+        (assert! (equal? 4 pop-val-test))
+        (assert! (equal? '(3 2 1) new-stack-test))
         "#;
         assert_script(script);
     }

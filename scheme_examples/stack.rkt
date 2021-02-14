@@ -33,15 +33,8 @@
 
 (define (make-stack) '())
 
-;; stack -> '(value, stack)
-;; (define (pop stack)
-;;   (if (null? stack)
-;;       '(#f '())
-;;       (list (car stack) (cdr stack))))
-
-
 (define/contract (pop stack)
-  (-> stack? pair?)
+  (->/c stack? pair?)
   (if (null? stack)
       '(#f '())
       (list (car stack) (cdr stack))))

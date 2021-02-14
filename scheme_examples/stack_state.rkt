@@ -8,12 +8,6 @@
           (new-stack (cdr stack)))
       (list element new-stack))))
 
-; (define (stack-of result)
-;   (cadr result))
-
-; (define (value-of result)
-;   (car result))
-
 (define stack-of cadr)
 (define value-of car)
 
@@ -21,16 +15,6 @@
   (lambda (stack)
     (let ((result (stack-action stack)))
       ((continuation (value-of result)) (stack-of result)))))
-
-
-;; (define >>=
-;;   (lambda (stack-action continuation)
-;;     (lambda (stack)
-;;       ((lambda (result)
-;;          ((continuation (value-of result))
-;;           (stack-of result)))
-;;        (stack-action stack)))))
-
 
 (define (return value)
   (lambda (stack)
@@ -94,5 +78,3 @@
   (define (foo) (bar))
   (define (bar) (foo))
   (foo))
-
-;; (main)
