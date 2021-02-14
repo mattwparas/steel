@@ -114,6 +114,22 @@ mod stream_tests {
         "#;
         assert_script(script);
     }
+
+    #[test]
+    fn simple_stream_with_transduce_operation() {
+        let script = r#"
+        (define (stream-cdr stream)
+            ((stream-cdr' stream)))
+
+        (define (integers n)
+            (stream-cons n (lambda () (integers (+ 1 n)))))
+
+        (assert! 
+            (equal? 10
+                    (transduce + 0 (taking 5) (integers 0))))
+        "#;
+        assert_script(script);
+    }
 }
 
 #[cfg(test)]

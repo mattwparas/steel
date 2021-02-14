@@ -491,6 +491,7 @@ mod parser_tests {
         assert_parse_is_err("(define)");
         assert_parse_is_err("(define blagh)");
         assert_parse_is_err("(define test 1 2)");
+        assert_parse_is_err("(define () test");
     }
 
     #[test]
