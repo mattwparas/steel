@@ -441,4 +441,125 @@ mod stack_tests {
         "#;
         assert_script(script);
     }
+
+    #[test]
+    fn test_stack_state() {
+        let script = r#"
+        (define (push element)
+            (lambda (stack)
+                (list '() (cons element stack))))
+
+        (define (pop)
+            (lambda (stack)
+                (let ((element (car stack))
+                    (new-stack (cdr stack)))
+                (list element new-stack))))
+
+        (define stack-of cadr)
+        (define value-of car)
+
+        (define (>>= stack-action continuation)
+            (lambda (stack)
+                (let ((result (stack-action stack)))
+                ((continuation (value-of result)) (stack-of result)))))
+
+        (define (return value)
+            (lambda (stack)
+                (list value stack)))
+
+        (define (run-stack computation stack)
+            (computation stack))
+
+        (define (eval-stack computation stack)
+            (value-of (computation stack)))
+
+        (define (exec-stack computation stack)
+            (stack-of (computation stack)))
+
+        (define computation-1 (>>= (push 4) (lambda (_)
+                            (>>= (push 5) (lambda (_)
+                            (>>= (pop)    (lambda (a)
+                            (>>= (pop)    (lambda (b)
+                            (return (list a b)))))))))))
+
+        (define computation-2 (>>= (push 2) (lambda (_)
+                            (>>= (push 3) (lambda (_)
+                            (>>= (pop)    (lambda (a)
+                            (>>= (pop)    (lambda (b)
+                            (return (list a b)))))))))))
+
+        (define (main)
+            (let ((initial-stack '())
+                    (composed (>>= computation-1 (lambda (a)
+                            (>>= computation-2 (lambda (b)
+                            (return (list a b))))))))
+                (begin
+                    (display "Result: ")
+                    (define result (eval-stack composed initial-stack))
+                    (display result)
+                    (newline)
+                    result)))
+
+        (assert! (equal? '((5 4) (3 2)) (main)))
+        "#;
+
+        assert_script(script);
+    }
+
+    #[test]
+    fn merge_sort_test() {
+        let script = r#"
+        ;;; -----------------------------------------------------------------
+        ;;; Merge two lists of numbers which are already in increasing order
+
+        (define merge-lists
+        (lambda (l1 l2)
+            (if (null? l1)
+                l2
+                (if (null? l2)
+                    l1
+                    (if (< (car l1) (car l2))
+                        (cons (car l1) (merge-lists (cdr l1) l2))
+                        (cons (car l2) (merge-lists (cdr l2) l1)))))))
+
+        ;;; -------------------------------------------------------------------
+        ;;; Given list l, output those tokens of l which are in even positions
+
+        (define even-numbers
+        (lambda (l)
+            (if (null? l)
+                '()
+                (if (null? (cdr l))
+                    '()
+                    (cons (car (cdr l)) (even-numbers (cdr (cdr l))))))))
+
+        ;;; -------------------------------------------------------------------
+        ;;; Given list l, output those tokens of l which are in odd positions
+
+        (define odd-numbers
+        (lambda (l)
+            (if (null? l)
+                '()
+                (if (null? (cdr l))
+                    (list (car l))
+                    (cons (car l) (odd-numbers (cdr (cdr l))))))))
+
+        ;;; ---------------------------------------------------------------------
+        ;;; Use the procedures above to create a simple and efficient merge-sort
+
+        (define merge-sort
+        (lambda (l)
+            (if (null? l)
+                l
+                (if (null? (cdr l))
+                    l
+                    (merge-lists
+                    (merge-sort (odd-numbers l))
+                    (merge-sort (even-numbers l)))))))
+
+        (define result (merge-sort '(5 1 4 2 3)))
+        (assert! (equal? result '(1 2 3 4 5)))
+        "#;
+        assert_script(script);
+    }
 }

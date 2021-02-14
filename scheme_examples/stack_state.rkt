@@ -48,9 +48,10 @@
                   (return (list a b))))))))
     (begin
       (display "Result: ")
-      (display (eval-stack composed initial-stack))
-      (newline))))
-
+      (define result (eval-stack composed initial-stack))
+      (display result)
+      (newline)
+      result)))
 
 (define (test x)
   (if (= x 10) x
@@ -59,7 +60,6 @@
         (test (+ x 1)))))
 
 (test 0)
-
 
 (define (foo x)
   (main)
