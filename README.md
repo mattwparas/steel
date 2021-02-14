@@ -60,7 +60,7 @@ pub struct Foo {
 pub fn build_interpreter_and_modify() {
     // Construct interpreter with 3 custom structs
     // each has now getters, setters, a predicate and constructor
-    let mut interpreter = build_interpreter! {
+    let mut interpreter = build_engine! {
         MyStruct,
         CoolTest,
         Foo
@@ -69,7 +69,7 @@ pub fn build_interpreter_and_modify() {
     // define value outside of interpreter to embed
     let test = UnnamedFields(100);
     // embed the value
-    interpreter.insert_binding("unnamed", test.new_steel_val());
+    interpreter.register_value("unnamed", test.new_steel_val());
 
     // write a quick script
     let script = "
@@ -79,7 +79,7 @@ pub fn build_interpreter_and_modify() {
     ";
 
     // get the values back out
-    if let Ok(_) = interpreter.evaluate(script) {
+    if let Ok(_) = interpreter.parse_and_execute_without_optimizations(script) {
         let ret_val = unwrap!(interpreter.extract_value("return-val").unwrap(), CoolTest).unwrap();
         println!("{:?}", ret_val); // Should be "CoolTest { val: 200.0 }"
         let ret_val2 =
@@ -145,7 +145,7 @@ pub fn multiple_types(val: u64) -> u64 {
 Expands to:
 
 ```rust
-pub fn multiple_types(args: Vec<Gc<SteelVal>>) -> Result<Gc<SteelVal>, SteelErr>
+pub fn multiple_types(args: &[<Gc<SteelVal>>]) -> Result<Gc<SteelVal>, SteelErr>
 {
     pub fn multiple_types(val: u64) -> u64 { val + 25 }
     if args.len () != 1usize {
@@ -183,7 +183,7 @@ This builds a mutable interpreter with all of the relevant bindings for the stru
 You can launch a repl by passing the result of `build_vm!` into `repl_base`, as follows:
 
 ```rust
-repl_base(build_vm!{...})
+repl_base(build_engine!{...})
 ```
 
 From here, these would be valid calls:
