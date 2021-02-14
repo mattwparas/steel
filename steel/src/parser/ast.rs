@@ -1131,6 +1131,21 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::Quote => parse_quote(value.into_iter(), a.syn.clone()),
                         TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
                         TokenType::Return => parse_return(value.into_iter(), a.syn.clone()),
+                        TokenType::Eval => {
+                            let syn = a.syn.clone();
+                            if value.len() != 2 {
+                                return Err(ParseError::ArityMismatch(
+                                    "eval expected an expression".to_string(),
+                                    syn.span,
+                                ));
+                            }
+
+                            let mut value_iter = value.into_iter();
+                            value_iter.next();
+                            let expression = value_iter.next().unwrap();
+
+                            Ok(ExprKind::Eval(Box::new(Eval::new(expression, syn))))
+                        }
                         TokenType::Read => {
                             let syn = a.syn.clone();
                             if value.len() != 2 {

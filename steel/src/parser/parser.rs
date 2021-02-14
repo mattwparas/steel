@@ -92,6 +92,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Apply => Ok(SymbolV("apply".to_string())),
             Set => Ok(SymbolV("set!".to_string())),
             Read => Ok(SymbolV("read".to_string())),
+            Eval => Ok(SymbolV("eval".to_string())),
         }
     }
 }
@@ -438,11 +439,64 @@ mod parser_tests {
     }
 
     #[test]
-    fn test_should_err() {
-        assert_parse_is_err("(execute)");
+    fn test_panic_should_err() {
         assert_parse_is_err("(panic!)");
-        assert_parse_is_err("(transduce)");
+        assert_parse_is_err("(panic! 1 2)")
+    }
+
+    #[test]
+    fn test_eval_should_err() {
+        assert_parse_is_err("(eval)");
+        assert_parse_is_err("(eval 1 2)");
+    }
+
+    #[test]
+    fn test_read_should_err() {
+        assert_parse_is_err("(read)");
+        assert_parse_is_err("(read 1 2)");
+    }
+
+    #[test]
+    fn test_let_should_err() {
+        assert_parse_is_err("(let)");
+        assert_parse_is_err("(let (a) 10)");
+    }
+
+    #[test]
+    fn test_execute_should_err() {
+        assert_parse_is_err("(execute)");
+        assert_parse_is_err("(execute 1)");
+        assert_parse_is_err("(execute 1 2 3 4)");
+    }
+
+    #[test]
+    fn test_if_should_err() {
         assert_parse_is_err("(if)");
+        assert_parse_is_err("(if 1)");
+        assert_parse_is_err("(if 1 2)");
+        assert_parse_is_err("(if 1 2 3 4)");
+    }
+
+    #[test]
+    fn test_transduce_should_err() {
+        assert_parse_is_err("(transduce)");
+        assert_parse_is_err("(transduce 1)");
+        assert_parse_is_err("(transduce 1 2)");
+        assert_parse_is_err("(transduce 1 2 3)");
+        assert_parse_is_err("(transduce 1 2 3 4 5)");
+    }
+
+    #[test]
+    fn test_define_should_err() {
+        assert_parse_is_err("(define)");
+        assert_parse_is_err("(define blagh)");
+        assert_parse_is_err("(define test 1 2)");
+    }
+
+    #[test]
+    fn test_lambda_should_err() {
+        assert_parse_is_err("(lambda)");
+        assert_parse_is_err("(lambda (x))");
     }
 
     #[test]
@@ -777,15 +831,8 @@ mod parser_tests {
                         ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
                             "one".to_string(),
                         )))),
-                        SyntaxObject::default(TokenType::Quote)
-                    )))
-                    // ])),
-                    // ExprKind::List(List::new(vec![
-                    //     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Quote))),
-                    //     ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    //         "one".to_string(),
-                    //     )))),
-                    // ])),
+                        SyntaxObject::default(TokenType::Quote),
+                    ))),
                 ])),
                 SyntaxObject::default(TokenType::Quote),
             )))],
@@ -805,14 +852,8 @@ mod parser_tests {
                         ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
                             "one".to_string(),
                         )))),
-                        SyntaxObject::default(TokenType::Quote)
-                    )))
-                    // ExprKind::List(List::new(vec![
-                    //     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Quote))),
-                    //     ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    //         "one".to_string(),
-                    //     )))),
-                    // ])),
+                        SyntaxObject::default(TokenType::Quote),
+                    ))),
                 ])),
                 SyntaxObject::default(TokenType::Quote),
             )))],
