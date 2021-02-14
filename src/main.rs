@@ -464,6 +464,45 @@ pub fn test_repl() -> std::io::Result<()> {
     repl_base(vm)
 }
 
+pub fn test_repl_with_progress() -> std::io::Result<()> {
+    let mut vm = build_engine! {
+        Structs => {
+            MyStruct,
+            CoolTest,
+            Foo,
+            MutexWrapper,
+            VecStruct,
+            Levenshtein
+        }
+        Functions => {
+            "add-cool-tests" => add_cool_tests,
+            "multiple-types" => multiple_types,
+            "new-mutex-wrapper" => new_mutex_wrapper,
+            "display-cool-test" => pretty_print_cool_test,
+            "test-result" => test_result,
+            "test-option" => test_option,
+            "panic-time" => panic_time,
+            "do-a-call" => do_a_call,
+            "blargh" => CoolTest::blargh,
+            "new-mutation" => new_mutation,
+            "mutation-inner!" => mutation_inner,
+            "new-levenshtein" => new_levenshtein,
+            "edit-distance" => edit_distance,
+        }
+    };
+
+    vm.on_progress(|count| {
+        // parameter is 'u64' - number of operations already performed
+        if count % 1000 == 0 {
+            println!("Number of instructions up to this point: {}", count); // print out a progress log every 1,000 operations
+            return false;
+        }
+        true
+    });
+
+    repl_base(vm)
+}
+
 pub fn my_repl() -> std::io::Result<()> {
     build_repl! {
         MyStruct,
@@ -479,15 +518,6 @@ pub fn test_result2(input: usize) -> std::result::Result<usize, String> {
         Err("We got an error".to_string())
     }
 }
-
-// pub fn test_test() {
-//     build_interpreter_2! {
-//         Structs => {}
-//         Functions =>  {
-//             "test-result" => test_result2
-//         }
-//     };
-// }
 
 // TODO come back and flesh this out
 #[test]

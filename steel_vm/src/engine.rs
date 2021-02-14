@@ -1,6 +1,6 @@
 use std::{collections::HashMap, convert::TryFrom, io::Read, path::Path, rc::Rc};
 
-use crate::vm::VirtualMachineCore;
+use crate::{evaluation_progress::Callback, vm::VirtualMachineCore};
 use steel::{
     core::instructions::DenseInstruction,
     gc::Gc,
@@ -95,6 +95,10 @@ impl Engine {
         for (name, value) in values {
             self.register_value(name.as_str(), value);
         }
+    }
+
+    pub fn on_progress(&mut self, callback: Callback) {
+        self.virtual_machine.on_progress(callback);
     }
 
     pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
