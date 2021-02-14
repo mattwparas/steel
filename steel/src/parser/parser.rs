@@ -80,9 +80,9 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Let => Ok(SymbolV("let".to_string())),
             Transduce => Ok(SymbolV("transduce".to_string())),
             Execute => Ok(SymbolV("execute".to_string())),
-            Return => Ok(SymbolV("return".to_string())),
+            Return => Ok(SymbolV("return!".to_string())),
             Begin => Ok(SymbolV("begin".to_string())),
-            Panic => Ok(SymbolV("panic".to_string())),
+            Panic => Ok(SymbolV("panic!".to_string())),
             Lambda => Ok(SymbolV("lambda".to_string())),
             Quote => Ok(SymbolV("quote".to_string())),
             DefineSyntax => Ok(SymbolV("define-syntax".to_string())),
@@ -91,6 +91,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Struct => Ok(SymbolV("struct".to_string())),
             Apply => Ok(SymbolV("apply".to_string())),
             Set => Ok(SymbolV("set!".to_string())),
+            Read => Ok(SymbolV("read".to_string())),
         }
     }
 }

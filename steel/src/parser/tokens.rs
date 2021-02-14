@@ -114,6 +114,9 @@ pub enum TokenType {
     #[token("set!")]
     Set,
 
+    #[token("read")]
+    Read,
+
     #[token("#\\SPACE", |_| Some(' '))]
     #[regex(r"#\\\p{L}", parse_char)]
     CharacterLiteral(char),
@@ -192,6 +195,7 @@ impl fmt::Display for TokenType {
             Ellipses => write!(f, "..."),
             Struct => write!(f, "struct"),
             Set => write!(f, "set!"),
+            Read => write!(f, "read"),
         }
     }
 }
