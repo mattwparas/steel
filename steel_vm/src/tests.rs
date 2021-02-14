@@ -563,3 +563,26 @@ mod stack_tests {
         assert_script(script);
     }
 }
+
+#[cfg(test)]
+mod apply_tests {
+    use crate::test_util::assert_script;
+
+    #[test]
+    fn basic_apply() {
+        let script = r#"
+        (define result (apply + (list 1 2 3 4)))
+        (assert! (equal? 10 result))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn apply_more_complex() {
+        let script = r#"
+        (define result (apply map (list (lambda (x) 10) (list 1 2 3 4))))
+        (assert! (equal? result (list 10 10 10 10)))
+        "#;
+        assert_script(script);
+    }
+}
