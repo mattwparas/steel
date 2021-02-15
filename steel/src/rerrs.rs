@@ -55,7 +55,7 @@ impl Clone for SteelErr {
                 SteelErr::Io(std::io::Error::new(std::io::ErrorKind::Other, "io error"))
             }
             SteelErr::Parse(p) => SteelErr::Parse(p.clone()),
-            SteelErr::Infallible(l) => SteelErr::Infallible(l.clone()),
+            SteelErr::Infallible(l) => SteelErr::Infallible(*l),
             SteelErr::Generic(l, r) => SteelErr::Generic(l.clone(), *r),
         }
     }

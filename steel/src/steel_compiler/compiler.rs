@@ -353,9 +353,7 @@ impl Compiler {
             Parser::new(expr_str, &mut intern).collect();
         let parsed = parsed?;
 
-        let instructions = self.emit_instructions_from_exprs(parsed, false);
-
-        instructions
+        self.emit_instructions_from_exprs(parsed, false)
     }
 
     pub fn expand_expressions(&mut self, exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {

@@ -341,16 +341,10 @@ impl Hash for SteelVal {
 
 pub struct Iter(Option<Gc<SteelVal>>);
 
-// pub struct IntoIter(Option<Gc<SteelVal>>);
-
 impl SteelVal {
     pub fn iter(_self: Gc<SteelVal>) -> Iter {
         Iter(Some(_self))
     }
-
-    // pub fn into_iter(_self: Gc<SteelVal>) -> Iter {
-    //     IntoIter(Some(_self))
-    // }
 
     pub fn is_truthy(&self) -> bool {
         match &self {
@@ -361,18 +355,18 @@ impl SteelVal {
     }
 
     pub fn is_hashable(&self) -> bool {
-        match self {
+        matches!(
+            self,
             BoolV(_)
-            | IntV(_)
-            | CharV(_)
-            | Pair(_, _)
-            | VectorV(_)
-            | StringV(_)
-            | SymbolV(_)
-            | HashMapV(_)
-            | Closure(_) => true,
-            _ => false,
-        }
+                | IntV(_)
+                | CharV(_)
+                | Pair(_, _)
+                | VectorV(_)
+                | StringV(_)
+                | SymbolV(_)
+                | HashMapV(_)
+                | Closure(_)
+        )
     }
 
     pub fn is_function(&self) -> bool {

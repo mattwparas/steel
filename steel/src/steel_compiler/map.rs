@@ -11,6 +11,10 @@ impl SymbolMap {
         SymbolMap(Vec::new())
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn default_from_env() -> SymbolMap {
         let mut sm = SymbolMap::new();
         for val in Env::default_bindings() {

@@ -263,7 +263,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let idx = self.constant_map.add_or_get(Gc::new(converted));
         self.push(Instruction::new_push_const(idx));
 
-        return Ok(());
+        Ok(())
     }
 
     fn visit_struct(&mut self, s: &crate::parser::ast::Struct) -> Self::Output {
