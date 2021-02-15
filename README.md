@@ -230,6 +230,24 @@ By default, execute outputs to the same type that was passed in. In other words,
 (execute xf (vector 0 1 2 3 4 5 6 7 8 9 10) 'list) ;; => '(1 3 5 7 9)
 ```
 
+## Syntax Choices
+
+`Steel` is mildly opinionated in that there a few ways to define variables and functions. These choices are fairly arbitrary except for the shorthand function syntax, which I borrowed from Racket. `defn` and `fn` were really encouraged by me wanting to type less characters.
+
+```scheme
+
+;; All of the following are equivalent
+(define (foo x) (+ x 1))
+(define foo (lambda (x) (+ x 1)))
+(defn (foo x) (+ x 1))
+(defn foo (lambda (x) (+ x 1)))
+
+;; All of the following are equivalent
+(lambda (x) (+ x 1))
+(λ (x) (+ x 1))
+(fn (x) (+ x 1))
+```
+
 ## Attribute Macros
 
 The `steel_derive` crate contains a number of procedural macros designed to make your life easier while using `Steel`. The macros are as follows:
