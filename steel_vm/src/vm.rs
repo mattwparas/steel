@@ -629,7 +629,7 @@ pub fn vm<CT: ConstantTable>(
                         ip = 0;
                     }
                     _ => {
-                        stop!(BadSyntax => "Application not a procedure or function type not supported"; cur_inst.span);
+                        stop!(BadSyntax => "Apply - Application not a procedure or function type not supported"; cur_inst.span);
                     }
                 }
             }
@@ -735,7 +735,7 @@ pub fn vm<CT: ConstantTable>(
                         ip = 0;
                     }
                     _ => {
-                        stop!(BadSyntax => "Application not a procedure or function type not supported"; cur_inst.span);
+                        stop!(BadSyntax => "Function application not a procedure or function type not supported"; cur_inst.span);
                     }
                 }
             }
@@ -762,6 +762,15 @@ pub fn vm<CT: ConstantTable>(
 
                         // println!("{:?}")
 
+                        ip += 1;
+                    }
+                    SteelVal::ContractedFunction(cf) => {
+                        let args = stack.split_off(stack.len() - cur_inst.payload_size as usize);
+
+                        let result =
+                            cf.apply(args, heap, constants, &cur_inst.span, repl, callback)?;
+
+                        stack.push(result);
                         ip += 1;
                     }
                     SteelVal::Closure(closure) => {
@@ -816,7 +825,7 @@ pub fn vm<CT: ConstantTable>(
                         ip = 0;
                     }
                     _ => {
-                        stop!(BadSyntax => "Application not a procedure or function type not supported"; cur_inst.span);
+                        stop!(BadSyntax => "TailCall - Application not a procedure or function type not supported"; cur_inst.span);
                     }
                 }
             }

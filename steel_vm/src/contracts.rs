@@ -315,4 +315,22 @@ mod contract_tests {
         "#;
         assert_script_error(script);
     }
+
+    #[test]
+    fn contract_checking_on_return() {
+        let script = r#"
+
+        (define/contract (output)
+            (->/c (->/c string? int?))
+            (lambda (x) 10))
+
+        (define/contract (accept)
+            (->/c (->/c string? string?))
+            (output))
+
+        (accept)
+        "#;
+
+        assert_script_error(script);
+    }
 }

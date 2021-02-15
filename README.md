@@ -28,13 +28,14 @@ This will launch a REPL instance that looks something like this:
 * Easily call a script from rust or via a separate file
 * Few dependencies
 * Efficient - common functions and data structures are optimized for performance (`map`, `filter`, etc)
+* Higher order Contracts
 * Built in immutable data structures include:
   * lists
   * vectors
   * hashmaps
   * hashsets
 
-## Examples
+## Examples of embedding Rust values in the virtual machine
 
 ```rust
 [steel]
@@ -91,6 +92,73 @@ pub fn build_interpreter_and_modify() {
 }
 ```
 
+## Contracts
+
+Inspired by Racket's higher order contracts, `Steel` implements\* higher order contracts to enable design by contract, made easy with a `define\contract` macro for easier ergonomics. Here are some examples:
+
+```scheme
+
+;; Simple flat contracts
+(define/contract (test x y)
+    (->/c even? even? odd?)
+    (+ x y 1))
+
+(test 2 2) ;; => 5
+
+(define/contract (test-violation x y)
+    (->/c even? even? odd?)
+    (+ x y 1))
+
+(test-violation 1 2) ;; contract violation
+
+
+;; Higher order contracts, check on application
+(define/contract (higher-order func y)
+    (->/c (->/c even? odd?) even? even?)
+    (+ 1 (func y)))
+
+(higher-order (lambda (x) (+ x 1)) 2) ;; => 4
+
+(define/contract (higher-order-violation func y)
+    (->/c (->/c even? odd?) even? even?)
+    (+ 1 (func y)))
+
+(higher-order-violation (lambda (x) (+ x 2)) 2) ;; contract violation
+
+;; More higher order contracts, get checked on application
+(define/contract (output)
+    (->/c (->/c string? int?))
+    (lambda (x) 10))
+
+(define/contract (accept func)
+    (->/c (->/c string? int?) string?)
+    "cool cool cool")
+
+(accept (output)) ;; => "cool cool cool"
+
+;; different contracts on the argument
+(define/contract (accept-violation func)
+    (->/c (->/c string? string?) string?)
+    "cool cool cool")
+
+(accept-violation (output)) ;; contract violation
+
+;; generates a function
+(define/contract (generate-closure)
+    (->/c (->/c string? int?))
+    (lambda (x) 10))
+
+;; calls generate-closure which immediately forces a contract violation
+(define/contract (accept-violation)
+    (->/c (->/c string? string?))
+    (generate-closure))
+
+(accept-violation) ;; contract violation
+```
+
+
+\* Very much a work in progress
+
 ## Attribute Macros
 
 The `steel_derive` crate contains a number of procedural macros designed to make your life easier while using `Steel`. The macros are as follows:
@@ -145,7 +213,7 @@ pub fn multiple_types(val: u64) -> u64 {
 Expands to:
 
 ```rust
-pub fn multiple_types(args: &[<Gc<SteelVal>>]) -> Result<Gc<SteelVal>, SteelErr>
+pub fn multiple_types(args: &[Gc<SteelVal>]) -> Result<Gc<SteelVal>, SteelErr>
 {
     pub fn multiple_types(val: u64) -> u64 { val + 25 }
     if args.len () != 1usize {
