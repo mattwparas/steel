@@ -186,7 +186,7 @@ Each of these expressions emit an `<#iterator>` object, which means they're comp
 (execute (mapping (lambda (x) (+ x 1))) (list 1 2 3 4 5)) ;; => '(2 3 4 5 6)
 
 ;; Accepts vectors
-(execute (mapping (lambda (x) (+ x 1))) (vector 1 2 3 4 5)) 
+(execute (mapping (lambda (x) (+ x 1))) (vector 1 2 3 4 5)) ;; '#(2 3 4 5 6)
 
 ;; Even accepts streams!
 (define (integers n)
