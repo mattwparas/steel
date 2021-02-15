@@ -64,10 +64,10 @@ impl TryFrom<SyntaxObject> for SteelVal {
             CloseParen => Err(SteelErr::UnexpectedToken(")".to_string(), Some(span))),
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
-            Identifier(x) => Ok(SymbolV(x.clone())),
+            Identifier(x) => Ok(SymbolV(x)),
             NumberLiteral(x) => Ok(NumV(x)),
             IntegerLiteral(x) => Ok(IntV(x)),
-            StringLiteral(x) => Ok(StringV(x.clone())),
+            StringLiteral(x) => Ok(StringV(x)),
             QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string(), Some(span))),
             Unquote => Err(SteelErr::UnexpectedToken(",".to_string(), Some(span))),
             QuasiQuote => Err(SteelErr::UnexpectedToken("`".to_string(), Some(span))),
@@ -142,13 +142,13 @@ pub type Result<T> = result::Result<T, ParseError>;
 
 fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
     if let TokenType::Error = t.ty {
-        if t.source.starts_with("\"") {
-            return ParseError::IncompleteString(t.source.to_string(), t.span);
+        if t.source.starts_with('\"') {
+            ParseError::IncompleteString(t.source.to_string(), t.span)
         } else {
-            return ParseError::UnexpectedChar(t.source.chars().next().unwrap(), t.span);
+            ParseError::UnexpectedChar(t.source.chars().next().unwrap(), t.span)
         }
     } else {
-        return ParseError::UnexpectedEOF;
+        ParseError::UnexpectedEOF
     }
 }
 

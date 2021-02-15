@@ -50,7 +50,7 @@ impl Span {
     pub fn coalesce_span(spans: Vec<Span>) -> Span {
         let span = spans.get(0);
         if let Some(span) = span {
-            let mut span = span.clone();
+            let mut span = *span;
             for s in spans {
                 if s.start() < span.start() {
                     span = Span::new(s.start(), span.end());
@@ -59,7 +59,7 @@ impl Span {
                     span = Span::new(s.start(), s.end());
                 }
             }
-            return span;
+            span
         } else {
             Span::new(0, 0)
         }

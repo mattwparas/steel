@@ -176,10 +176,7 @@ impl Engine {
     ) -> Result<Vec<ExprKind>> {
         // println!("About to optimize the input program");
 
-        let converted: Result<Vec<_>> = exprs
-            .into_iter()
-            .map(|x| SteelVal::try_from(x.clone()))
-            .collect();
+        let converted: Result<Vec<_>> = exprs.into_iter().map(|x| SteelVal::try_from(x)).collect();
 
         // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
         let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;

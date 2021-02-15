@@ -25,17 +25,15 @@ pub struct ReplaceExpressions<'a> {
 }
 
 fn check_ellipses(expr: &ExprKind) -> bool {
-    if let ExprKind::Atom(Atom {
-        syn: SyntaxObject {
-            ty: TokenType::Ellipses,
-            ..
-        },
-    }) = expr
-    {
-        true
-    } else {
-        false
-    }
+    matches!(
+        expr,
+        ExprKind::Atom(Atom {
+            syn: SyntaxObject {
+                ty: TokenType::Ellipses,
+                ..
+            },
+        })
+    )
 }
 
 impl<'a> ReplaceExpressions<'a> {
@@ -53,7 +51,7 @@ impl<'a> ReplaceExpressions<'a> {
             }
         }
 
-        return ExprKind::Atom(expr);
+        ExprKind::Atom(expr)
     }
 
     fn expand_ellipses(&self, vec_exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {

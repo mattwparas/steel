@@ -82,7 +82,7 @@ impl<'a> StructFuncBuilder<'a> {
         crate::primitives::ListOperations::built_in_list_normal_iter_non_result(name.into_iter())
     }
 
-    pub fn to_func_vec(self) -> Result<Vec<(String, SteelVal)>> {
+    pub fn to_func_vec(&self) -> Result<Vec<(String, SteelVal)>> {
         SteelStruct::generate_from_name_fields(self.name, &self.fields)
     }
 }
@@ -142,7 +142,7 @@ impl SteelStruct {
         // generate predicate
         funcs.push((format!("{}?", name), predicate(&name)));
         // generate getters and setters
-        for (idx, field) in field_names_as_strs.into_iter().enumerate() {
+        for (idx, field) in field_names_as_strs.iter().enumerate() {
             funcs.push((format!("{}-{}", name, field), getter(&name, idx)));
             funcs.push((format!("set-{}-{}!", name, field), setter(&name, idx)));
         }

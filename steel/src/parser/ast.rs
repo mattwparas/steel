@@ -805,27 +805,42 @@ where
         // TODO maybe add implicit begin here
         // maybe do it later, not sure
         ExprKind::List(l) => {
-
             let name_ref = l.args.first().ok_or_else(|| {
                 ParseError::SyntaxError(
                     "define expected a function name, found none".to_string(),
-                    syn.span
+                    syn.span,
                 )
             })?;
 
-            if let ExprKind::Atom(Atom { syn: SyntaxObject { ty: TokenType::Identifier(datum_syntax), ..}}) = name_ref {
+            if let ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Identifier(datum_syntax),
+                        ..
+                    },
+            }) = name_ref
+            {
                 if datum_syntax == "datum->syntax" {
                     return Ok(ExprKind::Define(Box::new(Define::new(
                         ExprKind::List(List::new(l.args)),
                         {
-                            let v = value_iter.next().ok_or_else(|| ParseError::SyntaxError("define statement expected a body, found none".to_string(), syn.span))?;
+                            let v = value_iter.next().ok_or_else(|| {
+                                ParseError::SyntaxError(
+                                    "define statement expected a body, found none".to_string(),
+                                    syn.span,
+                                )
+                            })?;
                             if value_iter.next().is_some() {
-                                return Err(ParseError::SyntaxError("Define expected only one expression after the identifier".to_string(), syn.span));
+                                return Err(ParseError::SyntaxError(
+                                    "Define expected only one expression after the identifier"
+                                        .to_string(),
+                                    syn.span,
+                                ));
                             }
                             v
                         },
                         syn,
-                    ))))
+                    ))));
                 }
             }
 
@@ -834,7 +849,7 @@ where
             let name = args.next().ok_or_else(|| {
                 ParseError::SyntaxError(
                     "define expected a function name, found none".to_string(),
-                    syn.span
+                    syn.span,
                 )
             })?;
 
@@ -851,39 +866,39 @@ where
                 ))
             };
 
-            let lambda =
-                ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    args,
-                    body,
-                    SyntaxObject::default(TokenType::Lambda),
-                )));
+            let lambda = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                args,
+                body,
+                SyntaxObject::default(TokenType::Lambda),
+            )));
 
-            Ok(ExprKind::Define(Box::new(Define::new(
-                name, lambda, syn,
-            ))))
+            Ok(ExprKind::Define(Box::new(Define::new(name, lambda, syn))))
         }
-        ExprKind::Atom(a) => {
-            Ok(ExprKind::Define(Box::new(Define::new(
-                ExprKind::Atom(a),
-                {
-                    let v = value_iter.next().ok_or_else(|| ParseError::SyntaxError("define statement expected a body, found none".to_string(), syn.span))?;
-                    if value_iter.next().is_some() {
-                        return Err(ParseError::SyntaxError("Define expected only one expression after the identifier".to_string(), syn.span));
-                    }
-                    v
-                },
-                syn,
-            ))))
-        }
+        ExprKind::Atom(a) => Ok(ExprKind::Define(Box::new(Define::new(
+            ExprKind::Atom(a),
+            {
+                let v = value_iter.next().ok_or_else(|| {
+                    ParseError::SyntaxError(
+                        "define statement expected a body, found none".to_string(),
+                        syn.span,
+                    )
+                })?;
+                if value_iter.next().is_some() {
+                    return Err(ParseError::SyntaxError(
+                        "Define expected only one expression after the identifier".to_string(),
+                        syn.span,
+                    ));
+                }
+                v
+            },
+            syn,
+        )))),
 
-        _ => {
-            Err(ParseError::SyntaxError(
-                format!(
-                    "Define expects either an identifier or a list with the function name and arguments"
-                ),
-                syn.span,
-            ))
-        }
+        _ => Err(ParseError::SyntaxError(
+            "Define expects either an identifier or a list with the function name and arguments"
+                .to_string(),
+            syn.span,
+        )),
     }
 }
 
@@ -958,12 +973,11 @@ where
         }
     }
 
-    let mut function: Vec<ExprKind> =
-        vec![LambdaFunction::new(arguments, body, syn.clone()).into()];
+    let mut function: Vec<ExprKind> = vec![LambdaFunction::new(arguments, body, syn).into()];
 
     function.append(&mut application_args);
 
-    return Ok(ExprKind::List(List::new(function)));
+    Ok(ExprKind::List(List::new(function)))
 }
 
 #[inline]

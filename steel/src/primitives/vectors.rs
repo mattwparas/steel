@@ -13,7 +13,7 @@ impl VectorOperations {
     pub fn vec_construct() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             Ok(Gc::new(SteelVal::VectorV(
-                args.into_iter().map(Gc::clone).collect(),
+                args.iter().map(Gc::clone).collect(),
             )))
         })
     }

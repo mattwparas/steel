@@ -309,7 +309,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
         return false;
     }
 
-    return true;
+    true
 }
 
 pub fn collect_bindings(

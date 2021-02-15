@@ -206,7 +206,7 @@ fn insert_debruijn_indices(
             } => {
                 stack.push(symbol_map.len());
                 // More stuff goes here
-                let payload = *(&instructions[i].payload_size);
+                let payload = instructions[i].payload_size;
 
                 // Go through the current scope and collect binds from the lambds
                 collect_binds_from_current_scope(instructions, symbol_map, i, i + payload - 1);
