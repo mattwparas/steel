@@ -1,3 +1,4 @@
+use crate::contracts::ContractedFunctionExt;
 use crate::evaluation_progress::EvaluationProgress;
 use crate::heap::Heap;
 use crate::vm::vm;
@@ -28,12 +29,24 @@ pub(crate) fn inline_reduce_iter<
 
     let switch_statement = move |acc, x| match reducer.as_ref() {
         SteelVal::FuncV(func) => {
-            let arg_vec = vec![acc?, x?];
+            let arg_vec = [acc?, x?];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
         SteelVal::StructClosureV(factory, func) => {
             let arg_vec = vec![acc?, x?];
             func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+        }
+        SteelVal::ContractedFunction(cf) => {
+            let arg_vec = vec![acc?, x?];
+            let mut local_heap = Heap::new();
+            cf.apply(
+                arg_vec,
+                &mut local_heap,
+                constants,
+                cur_inst_span,
+                repl,
+                callback,
+            )
         }
         SteelVal::Closure(closure) => {
             // ignore the stack limit here
@@ -100,12 +113,24 @@ pub(crate) fn inline_map_result_iter<
     // TODO don't allocate this vec for just this
     let switch_statement = move |arg| match stack_func.as_ref() {
         SteelVal::FuncV(func) => {
-            let arg_vec = vec![arg?];
+            let arg_vec = [arg?];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
         SteelVal::StructClosureV(factory, func) => {
             let arg_vec = vec![arg?];
             func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+        }
+        SteelVal::ContractedFunction(cf) => {
+            let arg_vec = vec![arg?];
+            let mut local_heap = Heap::new();
+            cf.apply(
+                arg_vec,
+                &mut local_heap,
+                constants,
+                cur_inst_span,
+                repl,
+                callback,
+            )
         }
         SteelVal::Closure(closure) => {
             // ignore the stack limit here
@@ -173,7 +198,7 @@ pub(crate) fn inline_filter_result_iter<
         Ok(arg) => {
             match stack_func.as_ref() {
                 SteelVal::FuncV(func) => {
-                    let arg_vec = vec![Gc::clone(&arg)];
+                    let arg_vec = [Gc::clone(&arg)];
                     let res = func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
                     match res {
                         Ok(k) => match k.as_ref() {
@@ -183,6 +208,26 @@ pub(crate) fn inline_filter_result_iter<
                         },
                         Err(e) => Some(Err(e)),
                         // _ => None,
+                    }
+                }
+                SteelVal::ContractedFunction(cf) => {
+                    let arg_vec = vec![Gc::clone(&arg)];
+                    let mut local_heap = Heap::new();
+                    let res = cf.apply(
+                        arg_vec,
+                        &mut local_heap,
+                        constants,
+                        cur_inst_span,
+                        repl,
+                        callback,
+                    );
+                    match res {
+                        Ok(k) => match k.as_ref() {
+                            SteelVal::BoolV(true) => Some(Ok(arg)),
+                            SteelVal::BoolV(false) => None,
+                            _ => None,
+                        },
+                        Err(e) => Some(Err(e)),
                     }
                 }
                 SteelVal::StructClosureV(factory, func) => {

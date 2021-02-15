@@ -333,4 +333,28 @@ mod contract_tests {
 
         assert_script_error(script);
     }
+
+    #[test]
+    fn contract_application_in_map() {
+        let script = r#"
+        (define (test x)
+            (->/c int? int?)
+            (+ x 1))
+        (define result (map test (list 1 2 3 4)))
+        (assert! (equal? result (list 2 3 4 5)))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_application_in_filter() {
+        let script = r#"
+        (define (test x)
+            (->/c int? boolean?)
+            (even? x))
+        (define result (filter test (list 1 2 3 4)))
+        (assert! (equal? result (list 2 4)))
+        "#;
+        assert_script(script);
+    }
 }
