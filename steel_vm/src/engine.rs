@@ -112,6 +112,10 @@ impl Engine {
             ))
     }
 
+    pub fn extract<T: TryFrom<SteelVal, Error = SteelErr>>(&self, name: &str) -> Result<T> {
+        T::try_from(self.extract_value(name)?)
+    }
+
     pub fn parse_and_execute_without_optimizations(
         &mut self,
         expr: &str,
