@@ -43,8 +43,8 @@ use std::collections::HashMap;
 
 use std::cmp::{max, min};
 
-use env_logger::{Builder, WriteStyle};
-use log::LevelFilter;
+// use env_logger::{Builder, WriteStyle};
+// use log::LevelFilter;
 
 // extern crate reqwest;
 
