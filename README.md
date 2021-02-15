@@ -1,4 +1,4 @@
-# steel
+# Steel
 
 ![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) [![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
 
