@@ -195,9 +195,10 @@ Each of these expressions emit an `<#iterator>` object, which means they're comp
 (execute (taking 5) (integers 0)) ;; => '(0 1 2 3 4)
 ```
 
-Transduce is just `reduce` and works similarly:
+Transduce is just `reduce` with more bells and whistles and works similarly:
 
 ```scheme
+;; (-> transducer reducing-function initial-value iterable)
 (transduce (mapping (lambda (x) (+ x 1))) + 0 (list 0 1 2 3)) ;; => 10
 ```
 
