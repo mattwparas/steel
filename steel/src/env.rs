@@ -703,7 +703,7 @@ impl Env {
 
             if let Some(v) = self.bindings_vec.get(lookup) {
                 // println!("Found {:?}", v);
-                return Ok(Gc::clone(v));
+                Ok(Gc::clone(v))
             } else {
                 // println!(
                 //     "Looking up idx: {} with length {}",

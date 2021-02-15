@@ -21,7 +21,7 @@ pub fn extract_macro_defs(
     for expr in exprs {
         if let ExprKind::Macro(m) = expr {
             let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
-            let name = generated_macro.name().clone();
+            let name = generated_macro.name();
             macro_map.insert(name.to_string(), generated_macro);
         } else {
             non_macros.push(expr)

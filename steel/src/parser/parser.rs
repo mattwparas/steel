@@ -196,8 +196,7 @@ impl<'a> Parser<'a> {
     fn construct_quasiquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
             let rc_val = TokenType::Identifier("quasiquote".to_string());
-            let val = ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)));
-            val
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
         ExprKind::List(List::new(vec![q, val]))
@@ -207,8 +206,7 @@ impl<'a> Parser<'a> {
     fn construct_unquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
             let rc_val = TokenType::Identifier("unquote".to_string());
-            let val = ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)));
-            val
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
         ExprKind::List(List::new(vec![q, val]))
@@ -218,8 +216,7 @@ impl<'a> Parser<'a> {
     fn construct_unquote_splicing(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
             let rc_val = TokenType::Identifier("unquote-splicing".to_string());
-            let val = ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)));
-            val
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
         ExprKind::List(List::new(vec![q, val]))
@@ -229,8 +226,7 @@ impl<'a> Parser<'a> {
     fn construct_lambda_shorthand(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
             let rc_val = TokenType::Identifier("lambda-hash".to_string());
-            let val = ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)));
-            val
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
         ExprKind::List(List::new(vec![q, val]))

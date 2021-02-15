@@ -45,8 +45,8 @@ fn collect_defines_from_current_scope(
     let mut count = 0;
     let mut bindings: HashSet<&str> = HashSet::new();
 
-    for i in 0..instructions.len() {
-        match &instructions[i] {
+    for instruction in instructions {
+        match instruction {
             Instruction {
                 op_code: OpCode::SDEF,
                 contents:

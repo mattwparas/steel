@@ -65,7 +65,7 @@ impl ConstantMap {
                 Ok(Gc::new(SteelVal::try_from(parsed[0].clone()).unwrap()))
             })
             .collect::<Result<Vec<_>>>()
-            .map(|x| ConstantMap(x))
+            .map(ConstantMap)
     }
 
     // pub fn from_bytes(encoded: &[u8]) -> ConstantMap {

@@ -109,7 +109,7 @@ impl FsFunctions {
 
     pub fn current_dir() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            if args.len() == 0 {
+            if args.is_empty() {
                 let path = current_dir()?;
                 Ok(Gc::new(SteelVal::StringV(
                     path.to_str().unwrap_or("").to_string(),

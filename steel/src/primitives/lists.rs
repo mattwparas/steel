@@ -14,7 +14,7 @@ impl ListOperations {
             if args.len() != 2 {
                 stop!(ArityMismatch => "cons takes only two arguments")
             }
-            let mut args = args.into_iter().map(Gc::clone);
+            let mut args = args.iter().map(Gc::clone);
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => match lst.as_ref() {
                     SteelVal::VectorV(l) => {
@@ -36,7 +36,7 @@ impl ListOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "car takes one argument");
             }
-            if let Some(first) = args.into_iter().next() {
+            if let Some(first) = args.iter().next() {
                 match first.as_ref() {
                     Pair(car, _) => Ok(Gc::clone(car)),
                     e => {
@@ -54,7 +54,7 @@ impl ListOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "cdr takes one argument");
             }
-            if let Some(first) = args.into_iter().next() {
+            if let Some(first) = args.iter().next() {
                 match first.as_ref() {
                     Pair(_, cdr) => match cdr {
                         Some(rest) => match rest.as_ref() {

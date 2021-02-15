@@ -60,7 +60,7 @@ impl SymbolMap {
                 return Ok(idx);
             }
         }
-        let e = format!("{}", ident);
+        let e = ident.to_string();
         stop!(FreeIdentifier => e)
     }
 

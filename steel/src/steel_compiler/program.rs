@@ -56,7 +56,7 @@ impl Program {
 
         let mut buffer = Vec::new();
 
-        file.read(&mut buffer).unwrap();
+        let _ = file.read(&mut buffer).unwrap();
 
         let program: Program = bincode::deserialize(&buffer).unwrap();
 

@@ -355,13 +355,7 @@ impl SteelVal {
     pub fn is_truthy(&self) -> bool {
         match &self {
             SteelVal::BoolV(false) => false,
-            SteelVal::VectorV(v) => {
-                if v.is_empty() {
-                    false
-                } else {
-                    true
-                }
-            }
+            SteelVal::VectorV(v) => v.is_empty(),
             _ => true,
         }
     }
@@ -382,10 +376,10 @@ impl SteelVal {
     }
 
     pub fn is_function(&self) -> bool {
-        match self {
-            StructClosureV(_, _) | Closure(_) | FuncV(_) | ContractedFunction(_) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            StructClosureV(_, _) | Closure(_) | FuncV(_) | ContractedFunction(_)
+        )
     }
 
     pub fn is_contract(&self) -> bool {
@@ -626,8 +620,8 @@ pub struct ByteCodeLambda {
 
 impl Hash for ByteCodeLambda {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        &self.body_exp.as_ptr().hash(state);
-        &self.sub_expression_env.as_ptr().hash(state);
+        self.body_exp.as_ptr().hash(state);
+        self.sub_expression_env.as_ptr().hash(state);
     }
 }
 

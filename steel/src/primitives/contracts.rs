@@ -9,7 +9,7 @@ pub struct ContractOperations {}
 impl ContractOperations {
     pub fn make_c() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            if args.len() == 0 {
+            if args.is_empty() {
                 stop!(ArityMismatch => "make/c given no arguments");
             }
 
