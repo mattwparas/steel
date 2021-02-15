@@ -6,7 +6,7 @@ An embedded scheme interpreter in Rust.
 
 ## Getting Started
 
-This github repository is a client that uses the `steel`, `steel_vm`, and `steel_derive` crates. To get started using a repl with the crates, make sure you first have rust installed.
+This github repository is a client that uses the `steel`, `steel_vm`, `steel_derive`, and `steel_repl` crates. To get started using a repl with the crates, make sure you first have rust installed.
 
 Then, clone the repo and run the following command:
 
@@ -74,7 +74,7 @@ Contracts are implemented as _values_, so they are bound to functions. This enab
 (higher-order-violation (lambda (x) (+ x 2)) 2) ;; contract violation
 ```
 
-Contracts on functions do not get checked until they are applied, so a function returning a contracted function won't cause a violation until that function is actually used:
+Contracts on functions do not get checked until they are applied, so a function returning a _contracted_ function won't cause a violation until that function is actually used:
 
 ```scheme
 ;; More higher order contracts, get checked on application
