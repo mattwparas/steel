@@ -6,7 +6,7 @@ An embedded scheme interpreter in Rust.
 
 ## Getting Started
 
-This github repository is a client that uses the `steel` and `steel_derive` crates. To get started using a repl with the crates, make sure you first have rust installed.
+This github repository is a client that uses the `steel`, `steel_vm`, and `steel_derive` crates. To get started using a repl with the crates, make sure you first have rust installed.
 
 Then, clone the repo and run the following command:
 
@@ -19,6 +19,10 @@ This will launch a REPL instance that looks something like this:
 <p align="center">
   <img src="images/repl.gif" width="100%">
 </p>
+
+## About
+
+`Steel` is an embedded scheme interpreter. Inspired largely by Racket and Clojure, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine.
 
 ## Features
 
