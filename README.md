@@ -34,63 +34,6 @@ This will launch a REPL instance that looks something like this:
   * hashmaps
   * hashsets
 
-## Examples of embedding Rust values in the virtual machine
-
-```rust
-[steel]
-pub struct MyStruct {
-    pub field: usize,
-    pub stays_the_same: usize,
-    pub name: String,
-}
-
-#[steel]
-pub struct CoolTest {
-    pub val: f64,
-}
-
-#[steel]
-pub struct UnnamedFields(pub usize);
-
-#[steel]
-pub struct Foo {
-    pub f: UnnamedFields,
-}
-
-pub fn build_interpreter_and_modify() {
-    // Construct interpreter with 3 custom structs
-    // each has now getters, setters, a predicate and constructor
-    let mut interpreter = build_engine! {
-        MyStruct,
-        CoolTest,
-        Foo
-    };
-
-    // define value outside of interpreter to embed
-    let test = UnnamedFields(100);
-    // embed the value
-    interpreter.register_value("unnamed", test.new_steel_val());
-
-    // write a quick script
-    let script = "
-    (define cool-test (CoolTest 100))
-    (define return-val (set-CoolTest-val! cool-test 200))
-    (define foo-test (Foo unnamed))
-    ";
-
-    // get the values back out
-    if let Ok(_) = interpreter.parse_and_execute_without_optimizations(script) {
-        let ret_val = CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
-        println!("{:?}", ret_val); // Should be "CoolTest { val: 200.0 }"
-        let ret_val2 =
-            UnnamedFields::try_from(interpreter.extract_value("unnamed").unwrap()).unwrap();
-        println!("{:?}", ret_val2); // Should be "UnnamedFields(100)"
-        let ret_val3 = Foo::try_from(interpreter.extract_value("foo-test").unwrap()).unwrap();
-        println!("{:?}", ret_val3); // Should be Foo { f: UnnamedFields(100) }
-    };
-}
-```
-
 ## Contracts
 
 Inspired by Racket's higher order contracts, `Steel` implements\* higher order contracts to enable design by contract, made easy with a `define\contract` macro for easier ergonomics. Here are some examples:
@@ -246,6 +189,65 @@ By default, execute outputs to the same type that was passed in. In other words,
 (lambda (x) (+ x 1))
 (λ (x) (+ x 1))
 (fn (x) (+ x 1))
+```
+
+## Examples of embedding Rust values in the virtual machine
+
+Rust is easily embeddable due to the use of some helpful attribute macros
+
+```rust
+[steel]
+pub struct MyStruct {
+    pub field: usize,
+    pub stays_the_same: usize,
+    pub name: String,
+}
+
+#[steel]
+pub struct CoolTest {
+    pub val: f64,
+}
+
+#[steel]
+pub struct UnnamedFields(pub usize);
+
+#[steel]
+pub struct Foo {
+    pub f: UnnamedFields,
+}
+
+pub fn build_interpreter_and_modify() {
+    // Construct interpreter with 3 custom structs
+    // each has now getters, setters, a predicate and constructor
+    let mut interpreter = build_engine! {
+        MyStruct,
+        CoolTest,
+        Foo
+    };
+
+    // define value outside of interpreter to embed
+    let test = UnnamedFields(100);
+    // embed the value
+    interpreter.register_value("unnamed", test.new_steel_val());
+
+    // write a quick script
+    let script = "
+    (define cool-test (CoolTest 100))
+    (define return-val (set-CoolTest-val! cool-test 200))
+    (define foo-test (Foo unnamed))
+    ";
+
+    // get the values back out
+    if let Ok(_) = interpreter.parse_and_execute_without_optimizations(script) {
+        let ret_val = CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
+        println!("{:?}", ret_val); // Should be "CoolTest { val: 200.0 }"
+        let ret_val2 =
+            UnnamedFields::try_from(interpreter.extract_value("unnamed").unwrap()).unwrap();
+        println!("{:?}", ret_val2); // Should be "UnnamedFields(100)"
+        let ret_val3 = Foo::try_from(interpreter.extract_value("foo-test").unwrap()).unwrap();
+        println!("{:?}", ret_val3); // Should be Foo { f: UnnamedFields(100) }
+    };
+}
 ```
 
 ## Attribute Macros
