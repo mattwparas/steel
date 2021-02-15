@@ -81,12 +81,12 @@ pub fn build_interpreter_and_modify() {
 
     // get the values back out
     if let Ok(_) = interpreter.parse_and_execute_without_optimizations(script) {
-        let ret_val = unwrap!(interpreter.extract_value("return-val").unwrap(), CoolTest).unwrap();
+        let ret_val = CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
         println!("{:?}", ret_val); // Should be "CoolTest { val: 200.0 }"
         let ret_val2 =
-            unwrap!(interpreter.extract_value("unnamed").unwrap(), UnnamedFields).unwrap();
+            UnnamedFields::try_from(interpreter.extract_value("unnamed").unwrap()).unwrap();
         println!("{:?}", ret_val2); // Should be "UnnamedFields(100)"
-        let ret_val3 = unwrap!(interpreter.extract_value("foo-test").unwrap(), Foo).unwrap();
+        let ret_val3 = Foo::try_from(interpreter.extract_value("foo-test").unwrap()).unwrap();
         println!("{:?}", ret_val3); // Should be Foo { f: UnnamedFields(100) }
     };
 }
