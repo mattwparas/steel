@@ -8,12 +8,6 @@
           (new-stack (cdr stack)))
       (list element new-stack))))
 
-; (define (stack-of result)
-;   (cadr result))
-
-; (define (value-of result)
-;   (car result))
-
 (define stack-of cadr)
 (define value-of car)
 
@@ -21,16 +15,6 @@
   (lambda (stack)
     (let ((result (stack-action stack)))
       ((continuation (value-of result)) (stack-of result)))))
-
-
-;; (define >>=
-;;   (lambda (stack-action continuation)
-;;     (lambda (stack)
-;;       ((lambda (result)
-;;          ((continuation (value-of result))
-;;           (stack-of result)))
-;;        (stack-action stack)))))
-
 
 (define (return value)
   (lambda (stack)
@@ -64,9 +48,10 @@
                   (return (list a b))))))))
     (begin
       (display "Result: ")
-      (display (eval-stack composed initial-stack))
-      (newline))))
-
+      (define result (eval-stack composed initial-stack))
+      (display result)
+      (newline)
+      result)))
 
 (define (test x)
   (if (= x 10) x
@@ -75,7 +60,6 @@
         (test (+ x 1)))))
 
 (test 0)
-
 
 (define (foo x)
   (main)
@@ -91,8 +75,6 @@
   (foo))
 
 (define (test-3)
-  (define (foo) (inspect-bytecode bar) (bar))
-  (define (bar) (inspect-bytecode foo) (foo))
+  (define (foo) (bar))
+  (define (bar) (foo))
   (foo))
-
-;; (main)

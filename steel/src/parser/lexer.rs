@@ -13,9 +13,9 @@ use std::fmt;
 
 use logos::{Lexer, Logos};
 
-// use crate::parser::span::Span;
+// use steel::parser::span::Span;
 
-// use crate::parser::tokens::TokenType;
+// use steel::parser::tokens::TokenType;
 
 pub type Result<T> = result::Result<T, TokenError>;
 

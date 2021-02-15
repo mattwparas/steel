@@ -47,11 +47,3 @@
             (merge-lists
              (merge-sort (odd-numbers l))
              (merge-sort (even-numbers l)))))))
-
-
-; (define-syntax merge-sort
-;   (syntax-rules ()
-;     [(merge-sort lst)
-;      (merge-sort-fn lst <)]
-;     [(merge-sort lst predicate-fn)
-;      (merge-sort-fn lst predicate-fn)]))

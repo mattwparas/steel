@@ -11,3 +11,4 @@ rustyline = "6.2.0"
 rustyline-derive = "0.2.0"
 colored = "1.9"
 steel = { path = "../steel" }
+steel_vm = { path = "../steel_vm" }

@@ -1,4 +1,4 @@
-use crate::env::{FALSE, TRUE};
+use crate::env::FALSE;
 use crate::gc::Gc;
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal::*;
@@ -13,7 +13,7 @@ impl VectorOperations {
     pub fn vec_construct() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             Ok(Gc::new(SteelVal::VectorV(
-                args.into_iter().map(Gc::clone).collect(),
+                args.iter().map(Gc::clone).collect(),
             )))
         })
     }
@@ -66,7 +66,7 @@ impl VectorOperations {
     pub fn vec_append() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             let lsts: Vector<Gc<SteelVal>> =
-                unwrap_list_of_lists(args.into_iter().map(Gc::clone).collect())?
+                unwrap_list_of_lists(args.iter().map(Gc::clone).collect())?
                     .into_iter()
                     .flatten()
                     .collect();
@@ -79,7 +79,7 @@ impl VectorOperations {
             if args.len() != 2 {
                 stop!(ArityMismatch => "range takes two arguments");
             }
-            let mut args = args.into_iter().map(Gc::clone);
+            let mut args = args.iter().map(Gc::clone);
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
                     if let (IntV(lower), IntV(upper)) = (elem.as_ref(), lst.as_ref()) {
@@ -103,7 +103,7 @@ impl VectorOperations {
             if args.len() != 2 {
                 stop!(ArityMismatch => "push takes two arguments");
             }
-            let mut args = args.into_iter().map(Gc::clone);
+            let mut args = args.iter().map(Gc::clone);
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
                     if let SteelVal::VectorV(l) = lst.as_ref() {
@@ -127,7 +127,7 @@ impl VectorOperations {
             if args.len() != 2 {
                 stop!(ArityMismatch => "cons takes two arguments")
             }
-            let mut args = args.into_iter().map(Gc::clone);
+            let mut args = args.iter().map(Gc::clone);
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
                     if let SteelVal::VectorV(l) = lst.as_ref() {
@@ -151,7 +151,7 @@ impl VectorOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "car takes one argument");
             }
-            if let Some(first) = args.into_iter().map(Gc::clone).next() {
+            if let Some(first) = args.iter().map(Gc::clone).next() {
                 match first.as_ref() {
                     SteelVal::VectorV(e) => {
                         let mut e = e.clone();
@@ -175,7 +175,7 @@ impl VectorOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "cdr takes one argument");
             }
-            if let Some(first) = args.into_iter().map(Gc::clone).next() {
+            if let Some(first) = args.iter().map(Gc::clone).next() {
                 match first.as_ref() {
                     SteelVal::VectorV(e) => {
                         let mut e = e.clone();
@@ -200,13 +200,7 @@ impl VectorOperations {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 match &args[0].as_ref() {
-                    SteelVal::VectorV(v) => {
-                        if v.is_empty() {
-                            Ok(TRUE.with(|f| Gc::clone(f)))
-                        } else {
-                            Ok(FALSE.with(|f| Gc::clone(f)))
-                        }
-                    }
+                    SteelVal::VectorV(v) => Ok(v.is_empty().into()),
                     _ => Ok(FALSE.with(|f| Gc::clone(f))),
                 }
             } else {

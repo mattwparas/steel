@@ -13,7 +13,7 @@ impl ControlOperations {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             let mut error_message = String::new();
 
-            if args.len() > 0 {
+            if !args.is_empty() {
                 for arg in args {
                     let error_val = arg.to_string();
                     error_message.push(' ');

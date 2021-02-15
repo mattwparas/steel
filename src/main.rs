@@ -12,12 +12,12 @@ use steel::rerrs;
 use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
 // use steel::build_interpreter;
-use steel::build_vm;
-use steel::vm::VirtualMachine;
 use steel_derive::function;
 use steel_derive::steel;
 use steel_repl::build_repl;
 use steel_repl::repl::repl_base;
+use steel_vm::build_engine;
+use steel_vm::engine::Engine;
 
 use steel::Gc;
 
@@ -38,6 +38,14 @@ use std::sync::{Arc, Mutex};
 
 use std::cell::RefCell;
 use std::rc::Rc;
+
+use std::collections::HashMap;
+
+use std::cmp::{max, min};
+
+// use env_logger::{Builder, WriteStyle};
+// use log::LevelFilter;
+
 // extern crate reqwest;
 
 // use std::io::Read;
@@ -84,44 +92,40 @@ fn do_a_call() {
 }
 
 fn main() {
+    // env_logger::init();
+
+    // let mut builder = Builder::new();
+
+    // builder
+    //     .filter(Some("steel"), LevelFilter::Trace)
+    //     // .filter(Some("steel_vm"), LevelFilter::Trace)
+    //     // .filter(None, LevelFilter::Error)
+    //     // .filter(None, LevelFilter::Warn)
+    //     // .filter(None, LevelFilter)
+    //     .write_style(WriteStyle::Always)
+    //     .init();
+
     let args = args().collect::<Vec<_>>();
 
     if args.len() == 1 {
-        // let mut interpreter = build_interpreter! {};
-        // if let Err(e) = interpreter.require(PRELUDE) {
-        //     eprintln!("Error loading prelude: {}", e)
-        // }
-        // let contents =
-        //     fs::read_to_string("struct.rkt").expect("Something weont wrong reading the file");
-
-        // let ast = interpreter.compile(&contents).unwrap();
-        // // if let Err(e) = ast {
-        // //     eprintln!("Error compiling the file: {}", e);
-        // // }
-
-        // let res = SteelInterpreter::evaluate_from_ast(&ast);
-
-        // match res {
-        //     Ok(r) => r.iter().for_each(|x| match x {
-        //         SteelVal::Void => {}
-        //         _ => println!("{}", x),
-        //     }),
-        //     Err(e) => eprintln!("{}", e.to_string()),
-        // }
-
-        // interpreter.parse_and
-
         finish(test_repl());
     } else if args.len() == 2 {
         let path = &args[1];
-        let mut interpreter = build_vm! {};
-        // if let Err(e) = interpreter.require(PRELUDE) {
-        //     eprintln!("Error loading prelude: {}", e)
-        // }
+        let mut vm = build_engine! {};
+
+        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+
+        for core in core_libraries {
+            let res = vm.parse_and_execute_without_optimizations(core);
+            if let Err(e) = res {
+                eprintln!("{}", e);
+                return;
+            }
+        }
 
         let contents = fs::read_to_string(path).expect("Something went wrong reading the file");
         // let now = Instant::now();
-        let res = interpreter.parse_and_execute(&contents);
+        let res = vm.parse_and_execute_without_optimizations(&contents);
 
         // println!("{:?}", now.elapsed());
 
@@ -259,14 +263,177 @@ pub fn mutation_test(arg: CoolTest) -> CoolTest {
     arg
 }
 
+// #[steel]
+// pub struct Cache(Rc<RefCell<HashMap<Gc<SteelVal>, Gc<SteelVal>>>>);
+
+// #[function]
+// pub fn new_cache() -> Cache {
+//     Cache(Rc::new(RefCell::new(HashMap::new())))
+// }
+
+// #[function]
+// pub fn cache_insert(cache: Cache, key: Gc<SteelVal>, value: Gc<SteelVal>) {
+//     cache.0.borrow_mut().insert(key, value);
+// }
+
+// #[function]
+// pub fn cache_lookup(cache: Cache, key: Gc<SteelVal>) -> Option<Gc<SteelVal>> {
+//     cache.0.borrow().get(&key).map(|x| Gc::clone(x))
+// }
+
+#[steel]
+pub struct Levenshtein(Rc<RefCell<EditDistance>>);
+
+#[function]
+pub fn new_levenshtein() -> Levenshtein {
+    Levenshtein(Rc::new(RefCell::new(EditDistance::new(15))))
+}
+
+#[function]
+pub fn edit_distance(l: Levenshtein, one: String, two: String) -> usize {
+    l.0.borrow_mut()
+        .get_edit_distance(one.as_str(), two.as_str())
+}
+
+/// Represents edit distance with a preallocated array for distances
+#[derive(Default, Debug, PartialEq)]
+pub struct EditDistance {
+    mat: Vec<Vec<usize>>,
+}
+
+// static TOL: usize = 2;
+
+impl EditDistance {
+    /// Creates a new `EditDistance` with dimensions `n` x `n`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use correct::bktree::EditDistance;
+    /// let mut ed1 = EditDistance::new(5);
+    /// let mut ed2 = EditDistance::new(5);
+    /// ed1.get_edit_distance("one", "ones");
+    /// assert_ne!(ed1, ed2);
+    /// ed1.clear_mat();
+    /// assert_eq!(ed1, ed2);
+    /// ```
+    ///
+    pub fn new(n: usize) -> Self {
+        EditDistance {
+            mat: vec![vec![0; n + 2]; n + 2],
+        }
+    }
+
+    /// Zeros out the edit distance matrix
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use correct::bktree::EditDistance;
+    /// let mut ed1 = EditDistance::new(5);
+    /// let mut ed2 = EditDistance::new(5);
+    /// ed1.get_edit_distance("one", "ones");
+    /// assert_ne!(ed1, ed2);
+    /// ed1.clear_mat();
+    /// assert_eq!(ed1, ed2);
+    /// ```
+    ///
+    pub fn clear_mat(&mut self) {
+        for i in 0..self.mat.len() {
+            for j in 0..self.mat.len() {
+                self.mat[i][j] = 0;
+            }
+        }
+    }
+
+    /// Calculates the Damerau-Levenshtein distance between two
+    /// `&str`s, `s`, and `t`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use correct::bktree::EditDistance;
+    /// let mut ed = EditDistance::new(6);
+    /// assert_eq!(1, ed.get_edit_distance("matt", "mat"));
+    /// assert_eq!(1, ed.get_edit_distance("mattt", "matt"));
+    /// assert_eq!(1, ed.get_edit_distance("maat", "matt"));
+    /// assert_eq!(1, ed.get_edit_distance("kevin", "kevi"));
+    /// assert_eq!(1, ed.get_edit_distance("kevn", "kevin"));
+    /// assert_eq!(2, ed.get_edit_distance("abcde", "badce"));
+    /// assert_eq!(2, ed.get_edit_distance("m", "man"));
+    /// assert_eq!(0, ed.get_edit_distance("", ""));
+    /// assert_eq!(3, ed.get_edit_distance("", "one"));
+    /// assert_eq!(3, ed.get_edit_distance("two", ""));
+    /// assert_eq!(3, ed.get_edit_distance("1234", "21435"));
+    ///
+    /// ```
+    ///
+    pub fn get_edit_distance(&mut self, s: &str, t: &str) -> usize {
+        // get length of unicode chars
+        let len_s = s.chars().count();
+        let len_t = t.chars().count();
+        let max_distance = len_t + len_s;
+        let longest = max(len_s, len_t);
+
+        // TODO make this better
+        // expand the matrix if its not big enough
+        // self.mat = vec![vec![0; longest + 2]; longest + 2];
+        if self.mat.len() < longest + 2 {
+            self.mat = vec![vec![0; longest + 2]; longest + 2];
+        }
+
+        // initialize the matrix
+        self.mat[0][0] = max_distance;
+        for i in 0..=len_s {
+            self.mat[i + 1][0] = max_distance;
+            self.mat[i + 1][1] = i;
+        }
+        for i in 0..=len_t {
+            self.mat[0][i + 1] = max_distance;
+            self.mat[1][i + 1] = i;
+        }
+
+        let mut char_map: HashMap<char, usize> = HashMap::new();
+        // apply edit operations
+        for (i, s_char) in s.chars().enumerate() {
+            let mut db = 0;
+            let i = i + 1;
+            for (j, t_char) in t.chars().enumerate() {
+                let j = j + 1;
+                let last = *char_map.get(&t_char).unwrap_or(&0);
+
+                let cost = if s_char == t_char { 0 } else { 1 };
+                self.mat[i + 1][j + 1] = min(
+                    self.mat[i + 1][j] + 1, // deletion
+                    min(
+                        self.mat[i][j + 1] + 1, // insertion
+                        min(
+                            self.mat[i][j] + cost,                                  // substitution
+                            self.mat[last][db] + (i - last - 1) + 1 + (j - db - 1), // transposition
+                        ),
+                    ),
+                );
+                if cost == 0 {
+                    db = j;
+                }
+            }
+
+            char_map.insert(s_char, i);
+        }
+
+        self.mat[len_s + 1][len_t + 1]
+    }
+}
+
 pub fn test_repl() -> std::io::Result<()> {
-    let mut vm = build_vm! {
+    let vm = build_engine! {
         Structs => {
             MyStruct,
             CoolTest,
             Foo,
             MutexWrapper,
-            VecStruct
+            VecStruct,
+            Levenshtein
         }
         Functions => {
             "add-cool-tests" => add_cool_tests,
@@ -280,6 +447,8 @@ pub fn test_repl() -> std::io::Result<()> {
             "blargh" => CoolTest::blargh,
             "new-mutation" => new_mutation,
             "mutation-inner!" => mutation_inner,
+            "new-levenshtein" => new_levenshtein,
+            "edit-distance" => edit_distance,
         }
     };
 
@@ -291,6 +460,45 @@ pub fn test_repl() -> std::io::Result<()> {
     //     }
     //     true
     // });
+
+    repl_base(vm)
+}
+
+pub fn test_repl_with_progress() -> std::io::Result<()> {
+    let mut vm = build_engine! {
+        Structs => {
+            MyStruct,
+            CoolTest,
+            Foo,
+            MutexWrapper,
+            VecStruct,
+            Levenshtein
+        }
+        Functions => {
+            "add-cool-tests" => add_cool_tests,
+            "multiple-types" => multiple_types,
+            "new-mutex-wrapper" => new_mutex_wrapper,
+            "display-cool-test" => pretty_print_cool_test,
+            "test-result" => test_result,
+            "test-option" => test_option,
+            "panic-time" => panic_time,
+            "do-a-call" => do_a_call,
+            "blargh" => CoolTest::blargh,
+            "new-mutation" => new_mutation,
+            "mutation-inner!" => mutation_inner,
+            "new-levenshtein" => new_levenshtein,
+            "edit-distance" => edit_distance,
+        }
+    };
+
+    vm.on_progress(|count| {
+        // parameter is 'u64' - number of operations already performed
+        if count % 1000 == 0 {
+            println!("Number of instructions up to this point: {}", count); // print out a progress log every 1,000 operations
+            return false;
+        }
+        true
+    });
 
     repl_base(vm)
 }
@@ -311,19 +519,10 @@ pub fn test_result2(input: usize) -> std::result::Result<usize, String> {
     }
 }
 
-// pub fn test_test() {
-//     build_interpreter_2! {
-//         Structs => {}
-//         Functions =>  {
-//             "test-result" => test_result2
-//         }
-//     };
-// }
-
 // TODO come back and flesh this out
 #[test]
 fn embed_functions_and_verify_results() {
-    let mut interp = build_vm! {
+    let mut interp = build_engine! {
         Structs => {
             MyStruct,
             CoolTest,
@@ -353,36 +552,24 @@ fn embed_functions_and_verify_results() {
     (define option-res-bad (test-option 2))
     ";
     assert!(interp.parse_and_execute(&script).is_ok());
-
-    // let bad_val: bool = bool::try_from(interp.extract_value("option-res-bad").unwrap()).unwrap();
 }
-
-/*
 
 #[test]
 fn build_interpreter_and_modify() {
     // Construct interpreter with 3 custom structs
     // each has now getters, setters, a predicate and constructor
-    let mut interpreter = build_vm! {
+    let mut interpreter = build_engine! {
         MyStruct,
         CoolTest,
         Foo
     };
 
-    // interpreter.require(PRELUDE).unwrap();
-
     // define value outside of interpreter to embed
     let test = UnnamedFields(100);
     // embed the value
-    interpreter.insert_binding("unnamed".to_string(), test.new_steel_val());
-    interpreter.insert_binding(
-        "add_cool_tests".to_string(),
-        SteelVal::FuncV(add_cool_tests),
-    );
-    interpreter.insert_binding(
-        "multiple_types".to_string(),
-        SteelVal::FuncV(multiple_types),
-    );
+    interpreter.register_value("unnamed", test.new_steel_val());
+    interpreter.register_value("add_cool_tests", SteelVal::FuncV(add_cool_tests));
+    interpreter.register_value("multiple_types", SteelVal::FuncV(multiple_types));
 
     // write a quick script
     let script = "
@@ -391,11 +578,11 @@ fn build_interpreter_and_modify() {
         (define return-val (set-CoolTest-val! cool-test 200.0))
         (define foo-test (Foo unnamed))
         (define sum-test (add_cool_tests cool-test cool-test2))
-        (displayln (multiple_types 25))
+        (define mt (multiple_types 25))
     ";
 
     // get the values back out
-    match interpreter.evaluate(&script) {
+    match interpreter.parse_and_execute_without_optimizations(&script) {
         Ok(_) => {
             let ret_val: CoolTest =
                 CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
@@ -419,4 +606,3 @@ fn build_interpreter_and_modify() {
         }
     }
 }
-*/

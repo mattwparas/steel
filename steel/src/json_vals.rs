@@ -1,19 +1,14 @@
-use crate::env::{FALSE, TRUE, VOID};
-use crate::gc::Gc;
-use crate::rerrs::SteelErr;
-use crate::rvals::Result;
-use crate::rvals::SteelVal;
-use serde_json::Map;
-use serde_json::Number;
-use serde_json::Value;
-
-use crate::primitives::ListOperations;
-use std::convert::TryFrom;
-use std::convert::TryInto;
-
+use crate::{
+    env::VOID,
+    gc::Gc,
+    primitives::ListOperations,
+    rerrs::SteelErr,
+    rvals::{Result, SteelVal},
+    throw,
+};
 use im_rc::HashMap;
-
-use crate::throw;
+use serde_json::{Map, Number, Value};
+use std::convert::{TryFrom, TryInto};
 
 // use list
 
@@ -92,13 +87,7 @@ impl TryFrom<Value> for Gc<SteelVal> {
     fn try_from(val: Value) -> std::result::Result<Self, Self::Error> {
         match val {
             Value::Null => Ok(VOID.with(|x| Gc::clone(x))),
-            Value::Bool(t) => {
-                if t {
-                    Ok(TRUE.with(|x| Gc::clone(x)))
-                } else {
-                    Ok(FALSE.with(|x| Gc::clone(x)))
-                }
-            }
+            Value::Bool(t) => Ok(t.into()),
             Value::Number(n) => <Gc<SteelVal>>::try_from(n),
             Value::String(s) => Ok(s.into()),
             Value::Array(v) => {
@@ -142,8 +131,8 @@ impl TryFrom<Gc<SteelVal>> for Value {
             SteelVal::Void => stop!(Generic => "void not serializable"),
             SteelVal::StringV(s) => Ok(Value::String(s.clone())),
             SteelVal::FuncV(_) => stop!(Generic => "function not serializable"),
-            SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
-            SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
+            // SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
+            // SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
             SteelVal::SymbolV(s) => Ok(Value::String(s.clone())),
             SteelVal::Custom(_) => stop!(Generic => "generic struct not serializable"),
             SteelVal::HashMapV(hm) => {
@@ -170,5 +159,35 @@ impl TryFrom<Gc<SteelVal>> for Value {
         }
 
         // unimplemented!()
+    }
+}
+
+#[cfg(test)]
+mod json_tests {
+    use super::*;
+
+    use crate::rvals::SteelVal::*;
+    use im_rc::hashmap;
+
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
+        let args: Vec<Gc<SteelVal>> = args.into_iter().map(|x| Gc::new(x)).collect();
+        func.func_or_else(throw!(BadSyntax => "hash tests"))
+            .unwrap()(&args)
+    }
+
+    #[test]
+    fn test_string_to_jsexpr() {
+        let json_expr = r#"{"a":"applesauce","b":"bananas"}"#;
+        let steelval = SteelVal::StringV(json_expr.to_string());
+        let args = vec![steelval];
+
+        let result = apply_function(string_to_jsexpr(), args);
+
+        let expected = Gc::new(SteelVal::HashMapV(hashmap! {
+            Gc::new(SymbolV("a".to_string())) => Gc::new(StringV("applesauce".to_string())),
+            Gc::new(SymbolV("b".to_string())) => Gc::new(StringV("bananas".to_string()))
+        }));
+
+        assert_eq!(result.unwrap(), expected);
     }
 }

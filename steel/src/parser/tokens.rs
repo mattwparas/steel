@@ -7,6 +7,8 @@ use logos::{Lexer, Logos};
 
 use crate::parser::span::Span;
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum TokenError {
     #[error("Unexpected char, {0} on line: {1}")]
@@ -55,7 +57,7 @@ fn parse_str(lex: &mut Lexer<TokenType>) -> Option<String> {
 
 // TODO the character parsing is not quite right
 // need to make sure that we can handle cases like "#\SPACE" or "#\a" but not "#\applesauce"
-#[derive(Logos, Clone, Debug, PartialEq)]
+#[derive(Logos, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TokenType {
     #[token("(")]
     #[token("[")]
@@ -75,6 +77,49 @@ pub enum TokenType {
     UnquoteSplice,
     #[token("#")]
     Hash,
+
+    #[token("if")]
+    If,
+    #[regex("(define)|(defn)")]
+    Define,
+    #[token("let")]
+    Let,
+    #[token("transduce")]
+    Transduce,
+    #[token("execute")]
+    Execute,
+    #[token("return!")]
+    Return,
+    #[token("begin")]
+    Begin,
+    #[token("panic!")]
+    Panic,
+    #[regex("(lambda)|(fn)|(λ)")]
+    Lambda,
+    #[token("quote")]
+    Quote,
+
+    #[token("syntax-rules")]
+    SyntaxRules,
+    #[token("define-syntax")]
+    DefineSyntax,
+    #[token("...")]
+    Ellipses,
+    #[token("struct")]
+    Struct,
+
+    #[token("apply")]
+    Apply,
+
+    #[token("set!")]
+    Set,
+
+    #[token("read")]
+    Read,
+
+    #[token("eval")]
+    Eval,
+
     #[token("#\\SPACE", |_| Some(' '))]
     #[regex(r"#\\\p{L}", parse_char)]
     CharacterLiteral(char),
@@ -137,6 +182,24 @@ impl fmt::Display for TokenType {
             Error => write!(f, "error"),
             Comment => write!(f, ""),
             Hash => write!(f, "#"),
+            If => write!(f, "if"),
+            Define => write!(f, "define"),
+            Let => write!(f, "let"),
+            Transduce => write!(f, "transduce"),
+            Execute => write!(f, "execute"),
+            Return => write!(f, "return!"),
+            Begin => write!(f, "begin"),
+            Panic => write!(f, "panic!"),
+            Lambda => write!(f, "lambda"),
+            Apply => write!(f, "apply"),
+            Quote => write!(f, "quote"),
+            DefineSyntax => write!(f, "define-syntax"),
+            SyntaxRules => write!(f, "syntax-rules"),
+            Ellipses => write!(f, "..."),
+            Struct => write!(f, "struct"),
+            Set => write!(f, "set!"),
+            Read => write!(f, "read"),
+            Eval => write!(f, "eval"),
         }
     }
 }

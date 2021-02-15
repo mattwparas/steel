@@ -6,19 +6,26 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub(crate) static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
+// use serde::{Deserialize, Serialize};
+
+pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
 /// This is simply a newtype around the `Rc` type
 /// When enabled, this allows for complete sandboxing of data types
 /// It does not expose the full functionality of the `Rc` type
 /// but it does allow for some
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct Gc<T: Clone>(Rc<T>);
 
 impl fmt::Display for Gc<SteelVal> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+pub fn get_object_count() -> usize {
+    OBJECT_COUNT.fetch_add(0, Ordering::SeqCst)
 }
 
 impl<T: Clone> Gc<T> {
@@ -30,7 +37,7 @@ impl<T: Clone> Gc<T> {
 
     pub fn try_new(val: T) -> Result<Gc<T>, SteelErr> {
         let mem: usize = OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
-        if mem > crate::vm::MAXIMUM_OBJECTS {
+        if mem > MAXIMUM_OBJECTS {
             stop!(Generic => "ran out of memory!")
         }
         Ok(Gc(Rc::new(val)))
@@ -38,7 +45,7 @@ impl<T: Clone> Gc<T> {
 
     pub fn checked_allocate(allocations: usize) -> Result<(), SteelErr> {
         let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
-        if mem + allocations > crate::vm::MAXIMUM_OBJECTS {
+        if mem + allocations > MAXIMUM_OBJECTS {
             stop!(Generic => "allocation would exceed maximum allowed memory")
         }
         Ok(())
@@ -83,7 +90,7 @@ impl<T: Clone> Gc<T> {
 
     pub fn check_memory() -> Result<usize, SteelErr> {
         let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
-        if mem > crate::vm::MAXIMUM_OBJECTS {
+        if mem > MAXIMUM_OBJECTS {
             stop!(Generic => "ran out of memory!")
         }
         Ok(mem)
@@ -114,5 +121,11 @@ impl<T: Clone> Drop for Gc<T> {
 impl<T: Clone> Clone for Gc<T> {
     fn clone(&self) -> Self {
         Gc(Rc::clone(&self.0))
+    }
+}
+
+impl fmt::Debug for Gc<SteelVal> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

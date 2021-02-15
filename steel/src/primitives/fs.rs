@@ -1,23 +1,10 @@
-// use crate::env::VOID;
+use crate::gc::Gc;
+use crate::primitives::lists::ListOperations;
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-// use std::io;
-// use std::rc::Rc;
-
-use crate::gc::Gc;
-
-// mod primitives;
-
-// use std::fs
-
-use std::path::Path;
-
-use crate::primitives::lists::ListOperations;
-
 use std::env::current_dir;
-
-// use crate::lists::ListOperations
+use std::path::Path;
 
 pub struct FsFunctions {}
 impl FsFunctions {
@@ -122,7 +109,7 @@ impl FsFunctions {
 
     pub fn current_dir() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            if args.len() == 0 {
+            if args.is_empty() {
                 let path = current_dir()?;
                 Ok(Gc::new(SteelVal::StringV(
                     path.to_str().unwrap_or("").to_string(),

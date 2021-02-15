@@ -1,61 +1,36 @@
-use crate::env::Env;
-use crate::expander::SteelMacro;
-use crate::parser::tokens::TokenType::*;
-use crate::parser::Expr;
-use crate::parser::SyntaxObject;
-use crate::port::SteelPort;
-use crate::rerrs::SteelErr;
+use crate::{
+    contracts::{ContractType, ContractedFunction},
+    core::instructions::DenseInstruction,
+    env::Env,
+    gc::Gc,
+    lazy_stream::LazyStream,
+    // parser::{tokens::TokenType::*, Expr, SyntaxObject},
+    port::SteelPort,
+    // primitives::ListOperations,
+    rerrs::SteelErr,
+    structs::SteelStruct,
+};
+
+use std::{
+    any::Any,
+    cell::RefCell,
+    cmp::Ordering,
+    // convert::TryFrom,
+    fmt,
+    future::Future,
+    hash::{Hash, Hasher},
+    pin::Pin,
+    rc::{Rc, Weak},
+    result,
+};
+
 // use std::any::Any;
-use std::any::Any;
-use std::cell::RefCell;
-use std::cmp::Ordering;
-use std::fmt;
-use std::rc::Rc;
-use std::rc::Weak;
 use SteelVal::*;
 
 use im_rc::{HashMap, HashSet, Vector};
-use std::convert::TryFrom;
-use std::result;
 
-use crate::structs::SteelStruct;
-
-use crate::vm::DenseInstruction;
-use crate::vm::EvaluationProgress;
-
-// use std::mem;
-
-use crate::gc::Gc;
-
-use std::hash::{Hash, Hasher};
-
-// use std::ops::Deref;
-
-use crate::parser::span::Span;
-use crate::vm::ConstantTable;
-
-use crate::vm::inline_iter::{
-    inline_filter_result_iter, inline_map_result_iter, inline_reduce_iter,
-};
-// use itertools::Itertools;
-// pub use constants::ConstantTable;
-
-// use std::collections::HashMap;
-
-// use std::io::Read;
-// use std::io::Write;
-
-use crate::primitives::ListOperations;
-
-// use futures::future::FutureExt;
-use futures::FutureExt;
-// use futures::Sha
 use futures::future::Shared;
-use std::future::Future;
-use std::pin::Pin;
-
-use crate::lazy_stream::LazyStream;
-use crate::lazy_stream::LazyStreamIter;
+use futures::FutureExt;
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
@@ -65,6 +40,11 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>;
 pub type StructClosureSignature = fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<Gc<SteelVal>>;
+
+// This would mean we would have to rewrite literally everything to not return Gc'd values,
+// but it would also make linked lists like impossible to use
+// Because the internals of the linked list wouldn't be as easy to use with easy shared usage
+pub type PossibleOtherFunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 
 // Do something like this:
 // vector of async functions
@@ -176,16 +156,18 @@ macro_rules! unwrap {
             let left_type = (*v).as_any();
             let left = left_type.downcast_ref::<$body>();
             left.map(|x| x.clone()).ok_or_else(|| {
-                crate::rerrs::SteelErr::ConversionError(
-                    "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
-                    None,
-                )
+                let error_message = format!(
+                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                    stringify!($body)
+                );
+                crate::rerrs::SteelErr::ConversionError(error_message, None)
             })
         } else {
-            Err(crate::rerrs::SteelErr::ConversionError(
-                "Type Mismatch: Type of SteelVal did not match the given type".to_string(),
-                None,
-            ))
+            let error_message = format!(
+                "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                stringify!($body)
+            );
+            Err(crate::rerrs::SteelErr::ConversionError(error_message, None))
         }
     }};
 }
@@ -213,9 +195,9 @@ pub enum SteelVal {
     /// Represents built in rust functions
     FuncV(FunctionSignature),
     /// Represents Steel Lambda functions or closures defined inside the environment
-    LambdaV(SteelLambda),
+    // LambdaV(SteelLambda),
     /// Represents built in macros,
-    MacroV(SteelMacro),
+    // MacroV(SteelMacro),
     /// Represents a symbol, internally represented as `String`s
     SymbolV(String),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
@@ -225,16 +207,16 @@ pub enum SteelVal {
     // Embedded HashSet
     HashSetV(HashSet<Gc<SteelVal>>),
     /// Represents a scheme-only struct
-    StructV(SteelStruct),
+    StructV(Box<SteelStruct>),
     /// Represents a special rust closure
-    StructClosureV(SteelStruct, StructClosureSignature),
+    StructClosureV(Box<SteelStruct>, StructClosureSignature),
     /// Represents a port object
     PortV(SteelPort),
     /// Represents a bytecode closure
     Closure(ByteCodeLambda),
-    /// Generic iterator wrapper?
+    /// Generic iterator wrapper
     IterV(Transducer),
-    // Generic IntoIter wrapper?
+    // Generic IntoIter wrapper
     // Promise(Gc<SteelVal>),
     /// Async Function wrapper
     FutureFunc(AsyncSignature),
@@ -247,128 +229,66 @@ pub enum SteelVal {
     StreamV(LazyStream),
     // Break the cycle somehow
     // EvaluationEnv(Weak<RefCell<Env>>),
+    /// Mutable box - lets you put a value in there and change what it points to
+    BoxV(RefCell<Gc<SteelVal>>),
+    /// Contract
+    Contract(ContractType),
+    /// Contracted Function
+    ContractedFunction(ContractedFunction),
 }
+
+// TODO come back to this for the constant map
+
+// impl Serialize for SteelVal {
+//     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         match self {
+//             SteelVal::BoolV(b) => serializer.serialize_newtype_variant("SteelVal", 0, "BoolV", b),
+//             SteelVal::NumV(n) => serializer.serialize_newtype_variant("SteelVal", 1, "NumV", n),
+//             SteelVal::IntV(n) => serializer.serialize_newtype_variant("SteelVal", 2, "IntV", n),
+//             SteelVal::CharV(c) => serializer.serialize_newtype_variant("SteelVal", 3, "CharV", c),
+//             SteelVal::StringV(s) => {
+//                 serializer.serialize_newtype_variant("SteelVal", 7, "StringV", s)
+//             }
+//             SteelVal::Pair(car, cdr) => {
+//                 let mut state = serializer.serialize_tuple_variant("SteelVal", 4, "Pair", 2)?;
+//                 state.serialize_field(car)?;
+//                 state.serialize_field(cdr)?;
+//                 state.end()
+//             }
+//             _ => panic!("Cannot serialize enum variant: {}", self),
+//         }
+//     }
+// }
 
 pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
 
-// pub struct
-
-// pub trait Transduce {
-//     fn run() -> Gc<SteelVal>;
-// }
+pub enum CollectionType {
+    List,
+    Vector,
+}
 
 // Make a transducer actually contain an option to a rooted value, otherwise
 // it is a source agnostic transformer on the (eventual) input
 #[derive(Clone)]
 pub struct Transducer {
     // root: Gc<SteelVal>,
-    pub(crate) ops: Vector<Transducers>,
+    pub ops: Vec<Transducers>,
 }
 
 impl Transducer {
     pub fn new() -> Self {
-        Transducer { ops: Vector::new() }
+        Transducer { ops: Vec::new() }
     }
 
-    pub fn append(&mut self, other: Self) {
-        self.ops.append(other.ops)
+    pub fn append(&mut self, mut other: Self) {
+        self.ops.append(&mut other.ops)
     }
 
     pub fn push(&mut self, t: Transducers) {
-        self.ops.push_back(t);
-    }
-
-    // This runs through the iterators  in sequence in the transducer
-    // we want to then finish with a reducer
-    // TODO see transduce vs educe
-    // TODO change the return type to match the given input type
-    // optionally add an argument to select the return type manually
-    pub fn run<CT: ConstantTable>(
-        &self,
-        root: Gc<SteelVal>,
-        constants: &CT,
-        cur_inst_span: &Span,
-        repl: bool,
-        callback: &EvaluationProgress,
-    ) -> Result<Gc<SteelVal>> {
-        match root.as_ref() {
-            SteelVal::VectorV(v) => {
-                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-                    Box::new(v.into_iter().map(|x| Ok(Gc::clone(x))));
-                for t in &self.ops {
-                    my_iter =
-                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-                }
-
-                crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-            }
-            SteelVal::Pair(_, _) => {
-                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-                    Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x)));
-                for t in &self.ops {
-                    my_iter =
-                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-                }
-
-                crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-            }
-            SteelVal::StreamV(lazy_stream) => {
-                let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> =
-                    Box::new(LazyStreamIter::new(
-                        lazy_stream.clone(),
-                        constants,
-                        cur_inst_span,
-                        repl,
-                        callback,
-                    ));
-
-                for t in &self.ops {
-                    my_iter =
-                        t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-                }
-
-                crate::primitives::VectorOperations::vec_construct_iter(my_iter)
-            }
-            _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
-        }
-    }
-
-    pub fn transduce<CT: ConstantTable>(
-        &self,
-        root: Gc<SteelVal>,
-        initial_value: Gc<SteelVal>,
-        reducer: Gc<SteelVal>,
-        constants: &CT,
-        cur_inst_span: &Span,
-        repl: bool,
-        callback: &EvaluationProgress,
-    ) -> Result<Gc<SteelVal>> {
-        let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
-            SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
-            SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
-            SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-                lazy_stream.clone(),
-                constants,
-                cur_inst_span,
-                repl,
-                callback,
-            )),
-            _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
-        };
-
-        for t in &self.ops {
-            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
-        }
-
-        inline_reduce_iter(
-            my_iter,
-            initial_value,
-            reducer,
-            constants,
-            cur_inst_span,
-            repl,
-            callback,
-        )
+        self.ops.push(t);
     }
 }
 
@@ -377,51 +297,6 @@ pub enum Transducers {
     Map(Gc<SteelVal>),    // function
     Filter(Gc<SteelVal>), // function
     Take(Gc<SteelVal>),   // integer
-}
-
-impl Transducers {
-    pub fn into_transducer<
-        'global,
-        I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
-        CT: ConstantTable,
-    >(
-        &self,
-        iter: I,
-        // stack_func: Gc<SteelVal>,
-        constants: &'global CT,
-        cur_inst_span: &'global Span,
-        repl: bool,
-        callback: &'global EvaluationProgress,
-    ) -> Result<Box<dyn Iterator<Item = Result<Gc<SteelVal>>> + 'global>> {
-        match self {
-            Transducers::Map(func) => Ok(Box::new(inline_map_result_iter(
-                iter,
-                Gc::clone(func),
-                constants,
-                cur_inst_span,
-                repl,
-                callback,
-            ))),
-            Transducers::Filter(func) => Ok(Box::new(inline_filter_result_iter(
-                iter,
-                Gc::clone(func),
-                constants,
-                cur_inst_span,
-                repl,
-                callback,
-            ))),
-            Transducers::Take(num) => {
-                if let SteelVal::IntV(num) = num.as_ref() {
-                    if *num < 0 {
-                        stop!(ContractViolation => "take transducer must have a position number"; *cur_inst_span)
-                    }
-                    Ok(Box::new(iter.take(*num as usize)))
-                } else {
-                    stop!(TypeMismatch => "take transducer takes an integer"; *cur_inst_span)
-                }
-            }
-        }
-    }
 }
 
 impl Hash for SteelVal {
@@ -443,8 +318,8 @@ impl Hash for SteelVal {
             }
             StringV(s) => s.hash(state),
             FuncV(_) => unimplemented!(),
-            LambdaV(_) => unimplemented!(),
-            MacroV(_) => unimplemented!(),
+            // LambdaV(_) => unimplemented!(),
+            // MacroV(_) => unimplemented!(),
             SymbolV(sym) => {
                 "symbol".hash(state);
                 sym.hash(state);
@@ -466,44 +341,43 @@ impl Hash for SteelVal {
 
 pub struct Iter(Option<Gc<SteelVal>>);
 
-// pub struct IntoIter(Option<Gc<SteelVal>>);
-
 impl SteelVal {
     pub fn iter(_self: Gc<SteelVal>) -> Iter {
         Iter(Some(_self))
     }
 
-    // pub fn into_iter(_self: Gc<SteelVal>) -> Iter {
-    //     IntoIter(Some(_self))
-    // }
-
     pub fn is_truthy(&self) -> bool {
         match &self {
             SteelVal::BoolV(false) => false,
-            SteelVal::VectorV(v) => {
-                if v.is_empty() {
-                    false
-                } else {
-                    true
-                }
-            }
+            SteelVal::VectorV(v) => v.is_empty(),
             _ => true,
         }
     }
 
     pub fn is_hashable(&self) -> bool {
-        match self {
+        matches!(
+            self,
             BoolV(_)
-            | IntV(_)
-            | CharV(_)
-            | Pair(_, _)
-            | VectorV(_)
-            | StringV(_)
-            | SymbolV(_)
-            | HashMapV(_)
-            | Closure(_) => true,
-            _ => false,
-        }
+                | IntV(_)
+                | CharV(_)
+                | Pair(_, _)
+                | VectorV(_)
+                | StringV(_)
+                | SymbolV(_)
+                | HashMapV(_)
+                | Closure(_)
+        )
+    }
+
+    pub fn is_function(&self) -> bool {
+        matches!(
+            self,
+            StructClosureV(_, _) | Closure(_) | FuncV(_) | ContractedFunction(_)
+        )
+    }
+
+    pub fn is_contract(&self) -> bool {
+        matches!(self, Contract(_))
     }
 }
 
@@ -616,26 +490,6 @@ impl SteelVal {
         }
     }
 
-    pub fn lambda_or_else<E, F: FnOnce() -> E>(
-        &self,
-        err: F,
-    ) -> std::result::Result<&SteelLambda, E> {
-        match self {
-            Self::LambdaV(v) => Ok(&v),
-            _ => Err(err()),
-        }
-    }
-
-    pub fn macro_or_else<E, F: FnOnce() -> E>(
-        &self,
-        err: F,
-    ) -> std::result::Result<&SteelMacro, E> {
-        match self {
-            Self::MacroV(v) => Ok(&v),
-            _ => Err(err()),
-        }
-    }
-
     pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
         match self {
             Self::SymbolV(v) => Ok(&v),
@@ -662,6 +516,14 @@ impl SteelVal {
             _ => Err(err()),
         }
     }
+
+    pub fn closure_arity(&self) -> Option<usize> {
+        if let SteelVal::Closure(c) = self {
+            Some(c.arity())
+        } else {
+            None
+        }
+    }
 }
 
 impl Drop for SteelVal {
@@ -681,106 +543,6 @@ impl Drop for SteelVal {
                 },
                 _ => return,
             }
-        }
-    }
-}
-
-// sometimes you want to just
-// return an expression
-impl TryFrom<Expr> for SteelVal {
-    type Error = SteelErr;
-    fn try_from(e: Expr) -> std::result::Result<Self, Self::Error> {
-        // let span = || {
-        //     e.span()
-        // }
-        match &e {
-            Expr::Atom(a) => match &a.ty {
-                OpenParen => Err(SteelErr::UnexpectedToken("(".to_string(), Some(e.span()))),
-                CloseParen => Err(SteelErr::UnexpectedToken(")".to_string(), Some(e.span()))),
-                QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string(), Some(e.span()))),
-                Unquote => Err(SteelErr::UnexpectedToken(",".to_string(), Some(e.span()))),
-                UnquoteSplice => Err(SteelErr::UnexpectedToken(",@".to_string(), Some(e.span()))),
-                QuasiQuote => Err(SteelErr::UnexpectedToken("`".to_string(), Some(e.span()))),
-                Hash => Err(SteelErr::UnexpectedToken("#".to_string(), Some(e.span()))),
-                BooleanLiteral(x) => Ok(BoolV(*x)),
-                Identifier(x) => Ok(SymbolV(x.clone())),
-                NumberLiteral(x) => Ok(NumV(*x)),
-                IntegerLiteral(x) => Ok(IntV(*x)),
-                StringLiteral(x) => Ok(StringV(x.clone())),
-                CharacterLiteral(x) => Ok(CharV(*x)),
-                Error => Err(SteelErr::UnexpectedToken(
-                    "error".to_string(),
-                    Some(e.span()),
-                )),
-                Comment => Err(SteelErr::UnexpectedToken(
-                    "comment".to_string(),
-                    Some(e.span()),
-                )),
-            },
-            Expr::VectorVal(lst) => {
-                let items: std::result::Result<Vec<Gc<Self>>, Self::Error> = lst
-                    .iter()
-                    .map(|x| Self::try_from(x.clone()).map(Gc::new))
-                    .collect();
-
-                ListOperations::built_in_list_func()(&items?).map(|x| (*x).clone())
-                // Ok(VectorV(items?))
-
-                // let items: std::result::Result<Vector<Self>, Self::Error> =
-                //     lst.iter().map(|x| Self::try_from(x.clone())).collect();
-                // Ok(VectorV(items?))
-            }
-        }
-    }
-}
-
-/// Sometimes you want to execute a list
-/// as if it was an expression
-impl TryFrom<&SteelVal> for Expr {
-    type Error = &'static str;
-    fn try_from(r: &SteelVal) -> result::Result<Self, Self::Error> {
-        match r {
-            BoolV(x) => Ok(Expr::Atom(SyntaxObject::default(BooleanLiteral(*x)))),
-            NumV(x) => Ok(Expr::Atom(SyntaxObject::default(NumberLiteral(*x)))),
-            IntV(x) => Ok(Expr::Atom(SyntaxObject::default(IntegerLiteral(*x)))),
-            VectorV(lst) => {
-                let items: result::Result<Vec<Self>, Self::Error> = lst
-                    .into_iter()
-                    .map(|x| Self::try_from(x.as_ref()))
-                    .collect();
-                Ok(Expr::VectorVal(items?))
-            }
-            Void => Err("Can't convert from Void to expression!"),
-            StringV(x) => Ok(Expr::Atom(SyntaxObject::default(StringLiteral(x.clone())))),
-            FuncV(_) => Err("Can't convert from Function to expression!"),
-            LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-            MacroV(_) => Err("Can't convert from Macro to expression!"),
-            SymbolV(x) => Ok(Expr::Atom(SyntaxObject::default(Identifier(x.clone())))),
-            Custom(_) => Err("Can't convert from Custom Type to expression!"),
-            // Pair(_, _) => Err("Can't convert from pair"), // TODO
-            Pair(_, _) => {
-                if let VectorV(ref lst) = collect_pair_into_vector(r) {
-                    let items: result::Result<Vec<Self>, Self::Error> = lst
-                        .into_iter()
-                        .map(|x| Self::try_from(x.as_ref()))
-                        .collect();
-                    Ok(Expr::VectorVal(items?))
-                } else {
-                    Err("Couldn't convert from list to expression")
-                }
-            }
-            CharV(x) => Ok(Expr::Atom(SyntaxObject::default(CharacterLiteral(*x)))),
-            StructV(_) => Err("Can't convert from Struct to expression!"),
-            StructClosureV(_, _) => Err("Can't convert from struct-function to expression!"),
-            PortV(_) => Err("Can't convert from port to expression!"),
-            Closure(_) => Err("Can't convert from bytecode closure to expression"),
-            HashMapV(_) => Err("Can't convert from hashmap to expression!"),
-            HashSetV(_) => Err("Can't convert from hashset to expression!"),
-            IterV(_) => Err("Can't convert from iterator to expression!"),
-            FutureFunc(_) => Err("Can't convert from future function to expression!"),
-            FutureV(_) => Err("Can't convert future to expression!"),
-            // Promise(_) => Err("Can't convert from promise to expression!"),
-            StreamV(_) => Err("Can't convert from stream to expression!"),
         }
     }
 }
@@ -852,8 +614,8 @@ pub struct ByteCodeLambda {
 
 impl Hash for ByteCodeLambda {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        &self.body_exp.as_ptr().hash(state);
-        &self.sub_expression_env.as_ptr().hash(state);
+        self.body_exp.as_ptr().hash(state);
+        self.sub_expression_env.as_ptr().hash(state);
     }
 }
 
@@ -876,17 +638,9 @@ impl ByteCodeLambda {
         }
     }
 
-    // pub fn params_exp(&self) -> &[String] {
-    //     &self.params_exp
-    // }
-
     pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
         Rc::clone(&self.body_exp)
     }
-
-    // pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
-    //     self.parent_env.as_ref()
-    // }
 
     pub fn sub_expression_env(&self) -> &Weak<RefCell<Env>> {
         &self.sub_expression_env
@@ -902,66 +656,6 @@ impl ByteCodeLambda {
 
     pub fn ndef_body(&self) -> usize {
         self.ndef_body
-    }
-}
-
-#[derive(Clone)]
-/// struct representing data required to describe a scheme function
-pub struct SteelLambda {
-    /// symbols representing the arguments to the function
-    params_exp: Vec<String>,
-    /// body of the function with identifiers yet to be bound
-    body_exp: Expr,
-    /// parent environment that created this Lambda.
-    /// the actual environment with correct bindings is built at runtime
-    /// once the function is called
-    parent_env: Option<Rc<RefCell<Env>>>,
-    /// parent subenvironment that created this lambda.
-    /// the actual environment gets upgraded at runtime if needed
-    sub_expression_env: Option<Weak<RefCell<Env>>>,
-}
-impl SteelLambda {
-    pub fn new(
-        params_exp: Vec<String>,
-        body_exp: Expr,
-        parent_env: Option<Rc<RefCell<Env>>>,
-        sub_expression_env: Option<Weak<RefCell<Env>>>,
-    ) -> SteelLambda {
-        SteelLambda {
-            params_exp,
-            body_exp,
-            parent_env,
-            sub_expression_env,
-        }
-    }
-    /// symbols representing the arguments to the function
-    pub fn params_exp(&self) -> &[String] {
-        &self.params_exp
-    }
-    /// body of the function with identifiers yet to be bound
-    pub fn body_exp(&self) -> &Expr {
-        &self.body_exp
-    }
-
-    pub fn pretty_print_closure(&self) -> String {
-        let params = self.params_exp().join(" ");
-        format!(
-            "(lambda ({}) {})",
-            params.to_string(),
-            self.body_exp().to_string()
-        )
-    }
-
-    /// parent environment that created this Lambda.
-    ///
-    /// The actual environment with correct bindings is built at runtime
-    /// once the function is called
-    pub fn parent_env(&self) -> Option<&Rc<RefCell<Env>>> {
-        self.parent_env.as_ref()
-    }
-
-    pub fn sub_expression_env(&self) -> Option<&Weak<RefCell<Env>>> {
-        self.sub_expression_env.as_ref()
     }
 }
 
@@ -1002,8 +696,8 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         CharV(c) => write!(f, "#\\{}", c),
         FuncV(_) => write!(f, "#<function>"),
         // LambdaV(_) => write!(f, "#<lambda-function>"),
-        LambdaV(l) => write!(f, "#<{}>", l.pretty_print_closure()),
-        MacroV(_) => write!(f, "#<macro>"),
+        // LambdaV(l) => write!(f, "#<{}>", l.pretty_print_closure()),
+        // MacroV(_) => write!(f, "#<macro>"),
         Void => write!(f, "#<void>"),
         SymbolV(s) => write!(f, "{}", s),
         VectorV(lst) => {
@@ -1027,17 +721,20 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         StructClosureV(_, _) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
-        HashMapV(hm) => write!(f, "#<hashmap {:?}>", hm),
+        HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm),
         IterV(_) => write!(f, "#<iterator>"),
         HashSetV(hs) => write!(f, "#<hashset {:?}>", hs),
         FutureFunc(_) => write!(f, "#<future-func>"),
         FutureV(_) => write!(f, "#<future>"),
         // Promise(_) => write!(f, "#<promise>"),
         StreamV(_) => write!(f, "#<stream>"),
+        BoxV(b) => write!(f, "#<box {:?}>", b.borrow()),
+        Contract(_) => write!(f, "#<contract>"),
+        ContractedFunction(_) => write!(f, "#<contracted-function>"),
     }
 }
 
-fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
+pub(crate) fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
     let mut lst = Vector::new();
 
     loop {
@@ -1059,89 +756,92 @@ fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
     }
 }
 
-#[test]
-fn display_test() {
-    use crate::parser::tokens::TokenType;
-    use im_rc::vector;
-    assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
-    assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
-    assert_eq!(
-        SteelVal::FuncV(|_args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            Ok(Gc::new(SteelVal::VectorV(vector![])))
-        })
-        .to_string(),
-        "#<function>"
-    );
-    assert_eq!(
-        SteelVal::LambdaV(SteelLambda::new(
-            vec!["arg1".to_owned()],
-            Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
-            Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
-            None
-        ))
-        .to_string(),
-        "#<(lambda (arg1) 1.0)>"
-    );
-    assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
-}
+#[cfg(test)]
+mod display_test {
+    // use super::*;
+    // use im_rc::vector;
+    // use steel::parser::tokens::TokenType;
 
-#[test]
-fn display_list_test() {
-    use crate::parser::tokens::TokenType;
-    use im_rc::vector;
-    assert_eq!(VectorV(vector![]).to_string(), "'#()");
-    assert_eq!(
-        VectorV(
-            vector![
-                BoolV(false),
-                NumV(1.0),
-                LambdaV(SteelLambda::new(
-                    vec!["arg1".to_owned()],
-                    Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
-                    Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
-                    None
-                ))
-            ]
-            .into_iter()
-            .map(Gc::new)
-            .collect()
-        )
-        .to_string(),
-        "\'#(#false 1.0 #<(lambda (arg1) 1.0)>)"
-    );
-    assert_eq!(
-        VectorV(
-            vector![
-                VectorV(
-                    vector![
-                        NumV(1.0),
-                        VectorV(
-                            vector![NumV(2.0), NumV(3.0)]
-                                .into_iter()
-                                .map(Gc::new)
-                                .collect()
-                        )
-                    ]
-                    .into_iter()
-                    .map(Gc::new)
-                    .collect()
-                ),
-                VectorV(
-                    vector![NumV(4.0), NumV(5.0)]
-                        .into_iter()
-                        .map(Gc::new)
-                        .collect()
-                ),
-                NumV(6.0),
-                VectorV(vector![NumV(7.0)].into_iter().map(Gc::new).collect())
-            ]
-            .into_iter()
-            .map(Gc::new)
-            .collect()
-        )
-        .to_string(),
-        "'#((1.0 (2.0 3.0)) (4.0 5.0) 6.0 (7.0))"
-    );
+    // #[test]
+    // fn display_test() {
+    //     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
+    //     assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
+    //     assert_eq!(
+    //         SteelVal::FuncV(|_args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+    //             Ok(Gc::new(SteelVal::VectorV(vector![])))
+    //         })
+    //         .to_string(),
+    //         "#<function>"
+    //     );
+    //     assert_eq!(
+    //         SteelVal::LambdaV(SteelLambda::new(
+    //             vec!["arg1".to_owned()],
+    //             Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
+    //             Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
+    //             None
+    //         ))
+    //         .to_string(),
+    //         "#<(lambda (arg1) 1.0)>"
+    //     );
+    //     assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
+    // }
+
+    // #[test]
+    // fn display_list_test() {
+    //     assert_eq!(VectorV(vector![]).to_string(), "'#()");
+    //     assert_eq!(
+    //         VectorV(
+    //             vector![
+    //                 BoolV(false),
+    //                 NumV(1.0),
+    //                 LambdaV(SteelLambda::new(
+    //                     vec!["arg1".to_owned()],
+    //                     Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
+    //                     Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
+    //                     None
+    //                 ))
+    //             ]
+    //             .into_iter()
+    //             .map(Gc::new)
+    //             .collect()
+    //         )
+    //         .to_string(),
+    //         "\'#(#false 1.0 #<(lambda (arg1) 1.0)>)"
+    //     );
+    //     assert_eq!(
+    //         VectorV(
+    //             vector![
+    //                 VectorV(
+    //                     vector![
+    //                         NumV(1.0),
+    //                         VectorV(
+    //                             vector![NumV(2.0), NumV(3.0)]
+    //                                 .into_iter()
+    //                                 .map(Gc::new)
+    //                                 .collect()
+    //                         )
+    //                     ]
+    //                     .into_iter()
+    //                     .map(Gc::new)
+    //                     .collect()
+    //                 ),
+    //                 VectorV(
+    //                     vector![NumV(4.0), NumV(5.0)]
+    //                         .into_iter()
+    //                         .map(Gc::new)
+    //                         .collect()
+    //                 ),
+    //                 NumV(6.0),
+    //                 VectorV(vector![NumV(7.0)].into_iter().map(Gc::new).collect())
+    //             ]
+    //             .into_iter()
+    //             .map(Gc::new)
+    //             .collect()
+    //         )
+    //         .to_string(),
+    //         "'#((1.0 (2.0 3.0)) (4.0 5.0) 6.0 (7.0))"
+    //     );
+    // }
 }
 
 #[cfg(test)]

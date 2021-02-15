@@ -14,7 +14,7 @@ impl ListOperations {
             if args.len() != 2 {
                 stop!(ArityMismatch => "cons takes only two arguments")
             }
-            let mut args = args.into_iter().map(Gc::clone);
+            let mut args = args.iter().map(Gc::clone);
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => match lst.as_ref() {
                     SteelVal::VectorV(l) => {
@@ -36,7 +36,7 @@ impl ListOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "car takes one argument");
             }
-            if let Some(first) = args.into_iter().next() {
+            if let Some(first) = args.iter().next() {
                 match first.as_ref() {
                     Pair(car, _) => Ok(Gc::clone(car)),
                     e => {
@@ -54,7 +54,7 @@ impl ListOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "cdr takes one argument");
             }
-            if let Some(first) = args.into_iter().next() {
+            if let Some(first) = args.iter().next() {
                 match first.as_ref() {
                     Pair(_, cdr) => match cdr {
                         Some(rest) => match rest.as_ref() {
@@ -78,6 +78,7 @@ impl ListOperations {
     }
 
     // TODO fix this
+    // This panics on non positive values
     pub fn range() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() != 2 {
@@ -89,6 +90,8 @@ impl ListOperations {
                     if let (IntV(lower), IntV(upper)) = (elem, lst) {
                         // let size = (upper - lower) as usize;
                         // let mut res = Vec::with_capacity(size);
+
+                        // println!("{} {}", lower, upper);
 
                         Ok(Self::built_in_list_normal_iter_non_result(
                             (lower as usize..upper as usize)
@@ -325,7 +328,7 @@ impl ListOperations {
             }
         }
 
-        pairs.pop().unwrap()
+        pairs.pop().unwrap_or(Gc::new(VectorV(Vector::new())))
     }
 
     pub fn built_in_list_normal_iter<I>(args: I) -> Result<Gc<SteelVal>>

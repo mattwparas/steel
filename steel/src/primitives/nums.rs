@@ -23,7 +23,7 @@ impl NumOperations {
 
             if let SteelVal::IntV(upper_bound) = args[0].as_ref() {
                 let mut rng = rand::thread_rng();
-                return Ok(Gc::new(SteelVal::IntV(rng.gen_range(0, upper_bound))));
+                return Ok(Gc::new(SteelVal::IntV(rng.gen_range(0..*upper_bound))));
             } else {
                 stop!(TypeMismatch => "random-int requires an integer upper bound");
             }
@@ -81,6 +81,30 @@ impl NumOperations {
             for arg in args {
                 if let SteelVal::IntV(n) = arg.as_ref() {
                     sum += n;
+                } else {
+                    stop!(TypeMismatch => "+ expected a number, found {:?}", arg);
+                }
+            }
+
+            Ok(Gc::new(SteelVal::IntV(sum)))
+        })
+    }
+
+    pub fn integer_sub() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.is_empty() {
+                stop!(ArityMismatch => "+ requires at least one argument")
+            }
+
+            let mut sum = if let SteelVal::IntV(n) = &args[0].as_ref() {
+                *n
+            } else {
+                stop!(TypeMismatch => "- expected a number, found {:?}", &args[0])
+            };
+
+            for arg in &args[1..] {
+                if let SteelVal::IntV(n) = arg.as_ref() {
+                    sum -= n;
                 } else {
                     stop!(TypeMismatch => "+ expected a number, found {:?}", arg);
                 }
@@ -285,5 +309,82 @@ impl NumOperations {
                 Ok(Gc::new(SteelVal::IntV(sum_int)))
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod num_op_tests {
+
+    use super::*;
+    use crate::rvals::SteelVal::*;
+    use crate::throw;
+
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
+        let args: Vec<Gc<SteelVal>> = args.into_iter().map(|x| Gc::new(x)).collect();
+        func.func_or_else(throw!(BadSyntax => "num op tests"))
+            .unwrap()(&args)
+    }
+
+    #[test]
+    fn division_test() {
+        let args = vec![IntV(10), IntV(2)];
+
+        let output = apply_function(NumOperations::divide(), args).unwrap();
+        let expected = Gc::new(NumV(5.0));
+        assert_eq!(output.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn multiplication_test() {
+        let args = vec![IntV(10), IntV(2)];
+
+        let output = apply_function(NumOperations::multiply(), args).unwrap();
+        let expected = Gc::new(IntV(20));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn multiplication_different_types() {
+        let args = vec![IntV(10), NumV(2.0)];
+
+        let output = apply_function(NumOperations::multiply(), args).unwrap();
+        let expected = Gc::new(NumV(20.0));
+        assert_eq!(output.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn addition_different_types() {
+        let args = vec![IntV(10), NumV(2.0)];
+
+        let output = apply_function(NumOperations::adder(), args).unwrap();
+        let expected = Gc::new(NumV(12.0));
+        assert_eq!(output.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn subtraction_different_types() {
+        let args = vec![IntV(10), NumV(2.0)];
+
+        let output = apply_function(NumOperations::subtract(), args).unwrap();
+        let expected = Gc::new(NumV(8.0));
+        assert_eq!(output.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn test_integer_add() {
+        let args = vec![IntV(10), IntV(2)];
+
+        let output = apply_function(NumOperations::integer_add(), args).unwrap();
+        let expected = Gc::new(IntV(12));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_integer_sub() {
+        let args = vec![IntV(10), IntV(2)];
+
+        let output = apply_function(NumOperations::integer_sub(), args).unwrap();
+        let expected = Gc::new(IntV(8));
+        assert_eq!(output, expected);
     }
 }

@@ -3,9 +3,6 @@ use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
-// use crate::rvals::Transducer;
-// use crate::rvals::Transducers;
-
 use crate::lazy_stream::LazyStream;
 
 pub struct StreamOperations {}

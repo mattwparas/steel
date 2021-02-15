@@ -78,14 +78,13 @@
 
 (define-syntax quasiquote
   (syntax-rules (unquote unquote-splicing)
-    ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote xs ...)))
-    ((quasiquote ((unquote-splicing x)))        (append (list x) (quote ())))
+    ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+    ((quasiquote ((unquote-splicing x)))        (append (list x) '()))
     ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
     ((quasiquote (unquote x))                 x)
-    ((quasiquote (x))                          (quote (x)))
+    ((quasiquote (x))                          '(x))
     ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
-    ((quasiquote x)                           (quote x))))
-
+    ((quasiquote x)                           'x)))
 
 (define-syntax lambda-hash
   (syntax-rules ()
@@ -247,23 +246,10 @@
              (cdr lst))))
 
 
-; (define (map func lst)
-;    (foldl (lambda (ele acc)
-;             (cons (func ele) acc))
-;           '()
-;           lst))
-
 (define (map func lst)
-  (if (empty? lst)
-      '()
-      (map' func lst)))
-
-; (define (map func lst) (map' func lst))
-
-; (define (map func lst) 
-;   (if (empty? lst)
-;       lst
-;       (mapR func lst)))
+  (if (empty? lst) 
+      '() 
+      (execute (mapping func) lst)))
 
 
 (define foldr (lambda (func accum lst)
@@ -310,26 +296,10 @@
            (assoc thing (cdr alist)))))
 
 
-; (define filter (lambda (pred lst)   (foldl (lambda (x y) (if (pred x) (cons x y) y)) '() lst)))
-
-; (define (filter pred lst) (if (empty? lst) lst (filterR pred lst)))
-
-; (define (filter f lst)
-;   (define (iter lst result)
-;     (cond
-;       ((null? lst) result) ;; should reverse here
-;       ((f (car lst)) (iter (cdr lst)
-;                            (cons (car lst) result)))
-;       (else (iter (cdr lst)
-;                   result))))
-;   (iter lst '()))
-
-; (define (filter pred lst) (filter' pred lst))
-
 (define (filter pred lst)
-  (if (empty? lst)
-      '()
-      (filter' pred lst)))
+  (if (empty? lst) 
+      '() 
+      (execute (filtering pred) lst)))
 
 (define (fact n)
   (define factorial-tail (lambda (n acc) 

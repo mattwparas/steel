@@ -1,4 +1,4 @@
-use crate::parser::ParseError;
+use crate::parser::parser::ParseError;
 use std::convert::Infallible;
 use thiserror::Error;
 
@@ -44,19 +44,19 @@ pub enum SteelErr {
 impl Clone for SteelErr {
     fn clone(&self) -> SteelErr {
         match self {
-            SteelErr::ArityMismatch(l, r) => SteelErr::ArityMismatch(l.clone(), r.clone()),
-            SteelErr::FreeIdentifier(l, r) => SteelErr::FreeIdentifier(l.clone(), r.clone()),
-            SteelErr::TypeMismatch(l, r) => SteelErr::TypeMismatch(l.clone(), r.clone()),
-            SteelErr::UnexpectedToken(l, r) => SteelErr::UnexpectedToken(l.clone(), r.clone()),
-            SteelErr::ContractViolation(l, r) => SteelErr::ContractViolation(l.clone(), r.clone()),
-            SteelErr::BadSyntax(l, r) => SteelErr::BadSyntax(l.clone(), r.clone()),
-            SteelErr::ConversionError(l, r) => SteelErr::ConversionError(l.clone(), r.clone()),
+            SteelErr::ArityMismatch(l, r) => SteelErr::ArityMismatch(l.clone(), *r),
+            SteelErr::FreeIdentifier(l, r) => SteelErr::FreeIdentifier(l.clone(), *r),
+            SteelErr::TypeMismatch(l, r) => SteelErr::TypeMismatch(l.clone(), *r),
+            SteelErr::UnexpectedToken(l, r) => SteelErr::UnexpectedToken(l.clone(), *r),
+            SteelErr::ContractViolation(l, r) => SteelErr::ContractViolation(l.clone(), *r),
+            SteelErr::BadSyntax(l, r) => SteelErr::BadSyntax(l.clone(), *r),
+            SteelErr::ConversionError(l, r) => SteelErr::ConversionError(l.clone(), *r),
             SteelErr::Io(_) => {
                 SteelErr::Io(std::io::Error::new(std::io::ErrorKind::Other, "io error"))
             }
             SteelErr::Parse(p) => SteelErr::Parse(p.clone()),
-            SteelErr::Infallible(l) => SteelErr::Infallible(l.clone()),
-            SteelErr::Generic(l, r) => SteelErr::Generic(l.clone(), r.clone()),
+            SteelErr::Infallible(l) => SteelErr::Infallible(*l),
+            SteelErr::Generic(l, r) => SteelErr::Generic(l.clone(), *r),
         }
     }
 }
@@ -202,11 +202,18 @@ impl SteelErr {
                 ])
             }
             Self::Parse(m) => {
+
+                let reporting_span = if let Some(s) = m.span() {
+                    s
+                } else {
+                    _error_span
+                };
+
                 Diagnostic::error()
                 .with_code("E09")
                 .with_message("parse error")
                 .with_labels(vec![
-                    Label::primary((), _error_span).with_message(m.to_string())
+                    Label::primary((), reporting_span).with_message(m.to_string())
                 ])
             }
             Self::Infallible(m) => {

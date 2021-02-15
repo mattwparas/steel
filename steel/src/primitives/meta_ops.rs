@@ -1,23 +1,14 @@
-// use crate::env::{FALSE, TRUE};
-use crate::rerrs::SteelErr;
-// use crate::rvals::SteelVal::*;
 use crate::env::VOID;
-use crate::gc::Gc;
-// use crate::rvals::gc_get_size;
+use crate::gc::{get_object_count, Gc};
+use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-// use crate::rvals::MemSize;
 
-// use crate::primitives::lists::ListOperations;
-
-use futures::executor::LocalPool;
-use futures::future::join_all;
-// use futures::future::LocalFutureObj;
-// use futures::task::LocalSpawn;
-
-// use tokio::runtime;
+use futures::{executor::LocalPool, future::join_all};
 
 use async_compat::Compat;
+
+use std::cell::RefCell;
 
 pub struct MetaOperations {}
 impl MetaOperations {
@@ -27,7 +18,9 @@ impl MetaOperations {
 
             if args.len() == 1 {
                 if let SteelVal::Closure(bytecode_lambda) = args[0].as_ref() {
-                    crate::vm::pretty_print_dense_instructions(&bytecode_lambda.body_exp());
+                    crate::core::instructions::pretty_print_dense_instructions(
+                        &bytecode_lambda.body_exp(),
+                    );
                     Ok(VOID.with(|f| Gc::clone(f)))
                 } else {
                     stop!(TypeMismatch => "inspect-bytecode expects a closure object");
@@ -35,6 +28,15 @@ impl MetaOperations {
             } else {
                 stop!(ArityMismatch => "inspect-bytecode takes only one argument");
             }
+        })
+    }
+
+    pub fn active_objects() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 0 {
+                stop!(ArityMismatch => "active-object-count expects only one argument");
+            }
+            Ok(Gc::new(SteelVal::IntV(get_object_count() as isize)))
         })
     }
 
@@ -55,14 +57,50 @@ impl MetaOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "assert takes one argument")
             }
-            // println!("Arg here: {}")
             if let SteelVal::BoolV(true) = &args[0].as_ref() {
                 Ok(Gc::new(SteelVal::Void))
             } else {
                 panic!("Value given not true!")
             }
-            // assert!(&args[0].is_truthy());
-            // Ok(Gc::new(SteelVal::Void))
+        })
+    }
+
+    // TODO
+    pub fn new_box() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "box takes one argument")
+            }
+
+            Ok(Gc::new(SteelVal::BoxV(RefCell::new(Gc::clone(&args[0])))))
+        })
+    }
+
+    // TODO
+    pub fn unbox() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "unbox takes one argument")
+            }
+            if let SteelVal::BoxV(inner) = &args[0].as_ref() {
+                Ok(inner.clone().into_inner())
+            } else {
+                stop!(TypeMismatch => "unbox takes a box")
+            }
+        })
+    }
+
+    // TODO
+    pub fn set_box() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "setbox! takes two arguments")
+            }
+            if let SteelVal::BoxV(inner) = &args[0].as_ref() {
+                Ok(inner.replace(Gc::clone(&args[1])))
+            } else {
+                stop!(TypeMismatch => "setbox! takes a box")
+            }
         })
     }
 
@@ -139,26 +177,6 @@ impl MetaOperations {
     //         )))
 
     //         // unimplemented!()
-    //     })
-    // }
-
-    // pub fn size_of() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-    //         // let mut error_message = String::new();
-    //         if args.len() == 1 {
-    //             Ok(Gc::new(SteelVal::IntV(
-    //                 gc_get_size(Gc::clone(&args[0])) as isize
-    //             )))
-
-    //         // if let SteelVal::Closure(bytecode_lambda) = args[0].as_ref() {
-    //         //     crate::vm::pretty_print_dense_instructions(&bytecode_lambda.body_exp());
-    //         //     Ok(VOID.with(|f| Rc::clone(f)))
-    //         // } else {
-    //         //     stop!(TypeMismatch => "inspect-bytecode expects a closure object");
-    //         // }
-    //         } else {
-    //             stop!(ArityMismatch => "sizeof takes only one argument");
-    //         }
     //     })
     // }
 }

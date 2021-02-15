@@ -19,16 +19,22 @@
 (define-syntax destruct
   (syntax-rules ()
     [(destruct (var) ret-value)
-     (define var (car ret-value))]
+     (define (datum->syntax var) (car ret-value))]
     [(destruct (var1 var2 ...) ret-value)
-     (begin (define var1 (car ret-value))
+     (begin (define (datum->syntax var1) (car ret-value))
             (destruct (var2 ...) (cdr ret-value)))]))
+
+
+(define (any? v) #t)
+(define stack? list?)
+(define (pair? s)
+  (and (list? s) (= (length s) 2)))
 
 
 (define (make-stack) '())
 
-;; stack -> '(value, stack)
-(define (pop stack)
+(define/contract (pop stack)
+  (->/c stack? pair?)
   (if (null? stack)
       '(#f '())
       (list (car stack) (cdr stack))))

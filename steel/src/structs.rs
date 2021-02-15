@@ -1,11 +1,14 @@
 use crate::env::{FALSE, TRUE, VOID};
 use crate::gc::Gc;
-use crate::parser::Expr;
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
 use std::rc::Rc;
+
+use serde::{Deserialize, Serialize};
+
+use crate::parser::ast::Struct;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StructFunctionType {
@@ -20,6 +23,68 @@ pub struct SteelStruct {
     name: Rc<str>,
     fields: Vec<Gc<SteelVal>>,
     function_purpose: StructFunctionType,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StructFuncBuilder<'a> {
+    pub name: &'a str,
+    pub fields: Vec<&'a str>,
+}
+
+impl<'a> StructFuncBuilder<'a> {
+    pub fn new(name: &'a str, fields: Vec<&'a str>) -> Self {
+        StructFuncBuilder { name, fields }
+    }
+
+    pub fn to_struct_function_names(&self) -> Vec<String> {
+        // collect the functions
+        // for each field there are going to be 2 functions
+        // add 2 for the constructor and the predicate
+        let mut func_names = Vec::with_capacity(&self.fields.len() * 2 + 2);
+        // generate constructor
+        // let cons = constructor(name, field_names_as_strs.len());
+        // generate predicate
+        func_names.push(format!("{}?", &self.name));
+        // generate getters and setters
+        for field in &self.fields {
+            func_names.push(format!("{}-{}", &self.name, field));
+            func_names.push(format!("set-{}-{}!", &self.name, field));
+        }
+        func_names.push((&self.name).to_string());
+        func_names
+    }
+
+    // This needs to return something that can be consumed at runtime from the constant map
+    // Effectively, we need a list with the form '(name fields ...)
+    // Let's make it happen
+    pub fn to_constant_val(&self, indices: Vec<usize>) -> Gc<SteelVal> {
+        let indices: Vec<_> = indices
+            .into_iter()
+            .map(|x| Gc::new(SteelVal::IntV(x as isize)))
+            .collect();
+
+        let mut name = vec![
+            crate::primitives::ListOperations::built_in_list_normal_iter_non_result(
+                indices.into_iter(),
+            ),
+            Gc::new(SteelVal::StringV((&self.name).to_string())),
+        ];
+
+        let fields: Vec<_> = self
+            .fields
+            .iter()
+            .map(|x| Gc::new(SteelVal::StringV(x.to_string())))
+            .collect();
+
+        name.extend(fields);
+
+        // TODO who knows if this actually works
+        crate::primitives::ListOperations::built_in_list_normal_iter_non_result(name.into_iter())
+    }
+
+    pub fn to_func_vec(&self) -> Result<Vec<(String, SteelVal)>> {
+        SteelStruct::generate_from_name_fields(self.name, &self.fields)
+    }
 }
 
 // Housekeeping (just in case there are cyclical references)
@@ -49,41 +114,38 @@ impl SteelStruct {
 }
 
 impl SteelStruct {
-    pub fn generate_from_tokens(list_of_tokens: &[Expr]) -> Result<Vec<(String, SteelVal)>> {
-        let (name, list_of_tokens) = list_of_tokens.split_first().ok_or_else(
-            throw!(ArityMismatch => "struct definition requires a name and a list of field names"),
-        )?;
+    pub fn generate_from_ast(s: &Struct) -> Result<StructFuncBuilder> {
+        let name = s.name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
 
-        let name = name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
-
-        if list_of_tokens.len() != 1 {
-            stop!(ArityMismatch => "Struct definition requires list of field names")
-        }
-        let field_names = list_of_tokens[0].vector_val_or_else(
-            throw!(ArityMismatch => "struct requires list of identifiers for the field names"),
-        )?;
-
-        let field_names_as_strs: Vec<&str> = field_names
+        let field_names_as_strs: Vec<&str> = s
+            .fields
             .iter()
             .map(|x| {
                 x.atom_identifier_or_else(throw!(TypeMismatch => "struct expected identifiers"))
             })
             .collect::<Result<_>>()?;
 
+        Ok(StructFuncBuilder::new(name, field_names_as_strs))
+    }
+
+    pub fn generate_from_name_fields(
+        name: &str,
+        field_names_as_strs: &[&str],
+    ) -> Result<Vec<(String, SteelVal)>> {
         // collect the functions
         // for each field there are going to be 2 functions
         // add 2 for the constructor and the predicate
         let mut funcs = Vec::with_capacity(field_names_as_strs.len() * 2 + 2);
         // generate constructor
         let cons = constructor(name, field_names_as_strs.len());
+        funcs.push((name.to_string(), cons));
         // generate predicate
         funcs.push((format!("{}?", name), predicate(&name)));
         // generate getters and setters
-        for (idx, field) in field_names_as_strs.into_iter().enumerate() {
+        for (idx, field) in field_names_as_strs.iter().enumerate() {
             funcs.push((format!("{}-{}", name, field), getter(&name, idx)));
             funcs.push((format!("set-{}-{}!", name, field), setter(&name, idx)));
         }
-        funcs.push((name.to_string(), cons));
         Ok(funcs)
     }
 }
@@ -99,7 +161,7 @@ fn constructor(name: &str, len: usize) -> SteelVal {
     );
 
     SteelVal::StructClosureV(
-        factory,
+        Box::new(factory),
         |args: Vec<Gc<SteelVal>>, factory: &SteelStruct| -> Result<Gc<SteelVal>> {
             if args.len() != factory.fields.len() {
                 let error_message = format!(
@@ -120,7 +182,7 @@ fn constructor(name: &str, len: usize) -> SteelVal {
                 *key = arg;
             }
 
-            Ok(Gc::new(SteelVal::StructV(new_struct)))
+            Ok(Gc::new(SteelVal::StructV(Box::new(new_struct))))
         },
     )
 }
@@ -132,7 +194,7 @@ fn predicate(name: &str) -> SteelVal {
         StructFunctionType::Predicate(name.to_string()),
     );
     SteelVal::StructClosureV(
-        factory,
+        Box::new(factory),
         |args: Vec<Gc<SteelVal>>, factory: &SteelStruct| -> Result<Gc<SteelVal>> {
             if args.len() != 1 {
                 let error_message = format!(
@@ -164,7 +226,7 @@ fn predicate(name: &str) -> SteelVal {
 fn getter(name: &str, idx: usize) -> SteelVal {
     let factory = SteelStruct::new(Rc::from(name), Vec::new(), StructFunctionType::Getter(idx));
     SteelVal::StructClosureV(
-        factory,
+        Box::new(factory),
         |args: Vec<Gc<SteelVal>>, factory: &SteelStruct| -> Result<Gc<SteelVal>> {
             if args.len() != 1 {
                 let error_message = format!(
@@ -193,7 +255,7 @@ fn getter(name: &str, idx: usize) -> SteelVal {
 fn setter(name: &str, idx: usize) -> SteelVal {
     let factory = SteelStruct::new(Rc::from(name), Vec::new(), StructFunctionType::Setter(idx));
     SteelVal::StructClosureV(
-        factory,
+        Box::new(factory),
         |args: Vec<Gc<SteelVal>>, factory: &SteelStruct| -> Result<Gc<SteelVal>> {
             if args.len() != 2 {
                 let error_message = format!(
@@ -214,7 +276,7 @@ fn setter(name: &str, idx: usize) -> SteelVal {
                     .get_mut(*idx)
                     .ok_or_else(throw!(TypeMismatch => "Couldn't find that field in the struct"))?;
                 *key = value;
-                Ok(Gc::new(SteelVal::StructV(new_struct)))
+                Ok(Gc::new(SteelVal::StructV(Box::new(new_struct))))
             } else {
                 stop!(TypeMismatch => "something went wrong with struct setter")
             }
@@ -240,61 +302,61 @@ mod struct_tests {
     fn constructor_normal() {
         let args = vec![SteelVal::IntV(1), SteelVal::IntV(2)];
         let res = apply_function(constructor("Promise", 2), args);
-        let expected = Gc::new(SteelVal::StructV(SteelStruct {
+        let expected = Gc::new(SteelVal::StructV(Box::new(SteelStruct {
             name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
             function_purpose: StructFunctionType::Constructor,
-        }));
+        })));
         assert_eq!(res.unwrap(), expected)
     }
 
     #[test]
     fn setter_position_0() {
         let args = vec![
-            SteelVal::StructV(SteelStruct {
+            SteelVal::StructV(Box::new(SteelStruct {
                 name: Rc::from("Promise"),
                 fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
                 function_purpose: StructFunctionType::Constructor,
-            }),
+            })),
             SteelVal::IntV(100),
         ];
 
         let res = apply_function(setter("Promise", 0), args);
-        let expected = Gc::new(SteelVal::StructV(SteelStruct {
+        let expected = Gc::new(SteelVal::StructV(Box::new(SteelStruct {
             name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(100)), Gc::new(SteelVal::IntV(2))],
             function_purpose: StructFunctionType::Constructor,
-        }));
+        })));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn setter_position_1() {
         let args = vec![
-            SteelVal::StructV(SteelStruct {
+            SteelVal::StructV(Box::new(SteelStruct {
                 name: Rc::from("Promise"),
                 fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
                 function_purpose: StructFunctionType::Constructor,
-            }),
+            })),
             SteelVal::IntV(100),
         ];
 
         let res = apply_function(setter("Promise", 1), args);
-        let expected = Gc::new(SteelVal::StructV(SteelStruct {
+        let expected = Gc::new(SteelVal::StructV(Box::new(SteelStruct {
             name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(100))],
             function_purpose: StructFunctionType::Constructor,
-        }));
+        })));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn getter_position_0() {
-        let args = vec![SteelVal::StructV(SteelStruct {
+        let args = vec![SteelVal::StructV(Box::new(SteelStruct {
             name: Rc::from("Promise"),
             fields: vec![Gc::new(SteelVal::IntV(1)), Gc::new(SteelVal::IntV(2))],
             function_purpose: StructFunctionType::Constructor,
-        })];
+        }))];
 
         let res = apply_function(getter("Promise", 0), args);
         let expected = Gc::new(SteelVal::IntV(1));

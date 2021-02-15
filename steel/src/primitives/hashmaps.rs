@@ -102,6 +102,22 @@ impl HashMapOperations {
         })
     }
 
+    pub fn hm_length() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "hm-length takes 1 argument")
+            }
+
+            let hashmap = Gc::clone(&args[0]);
+
+            if let SteelVal::HashMapV(hm) = hashmap.as_ref() {
+                Ok(Gc::new(SteelVal::IntV(hm.len() as isize)))
+            } else {
+                stop!(TypeMismatch => "hm-length takes a hashmap")
+            }
+        })
+    }
+
     pub fn hm_contains() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() != 2 {
