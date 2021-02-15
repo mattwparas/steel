@@ -67,7 +67,7 @@ impl TryFrom<ExprKind> for SteelVal {
     type Error = SteelErr;
 
     fn try_from(e: ExprKind) -> std::result::Result<Self, Self::Error> {
-        TryFromExprKindForSteelVal::try_from_expr_kind(e)
+        TryFromExprKindForSteelVal::try_from_expr_kind(e).map(|x| x.unwrap())
     }
 }
 

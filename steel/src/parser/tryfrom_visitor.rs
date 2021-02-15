@@ -1,33 +1,35 @@
 use crate::parser::ast::ExprKind;
-use crate::parser::parser::SyntaxObject;
-use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitorRef;
-// use crate::parser::span::Span;
 
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 
 use super::ast::Atom;
 
-use std::{collections::HashMap, convert::TryFrom};
+use std::convert::TryFrom;
 
 use crate::gc::Gc;
-use crate::parser::expander::SteelMacro;
 use crate::primitives::ListOperations;
 
 pub struct TryFromExprKindForSteelVal {}
 
 impl TryFromExprKindForSteelVal {
-    pub fn try_from_expr_kind(e: ExprKind) -> Result<SteelVal> {
+    pub fn try_from_expr_kind(e: ExprKind) -> Result<Gc<SteelVal>> {
         TryFromExprKindForSteelVal {}.visit(e)
     }
 }
 
 impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
-    type Output = Result<SteelVal>;
+    type Output = Result<Gc<SteelVal>>;
 
     fn visit_if(&self, f: Box<super::ast::If>) -> Self::Output {
-        todo!()
+        let expr = [
+            Gc::new(SteelVal::try_from(f.location)?),
+            self.visit(f.test_expr)?,
+            self.visit(f.then_expr)?,
+            self.visit(f.else_expr)?,
+        ];
+        ListOperations::built_in_list_func_flat(&expr)
     }
 
     fn visit_define(&self, define: Box<super::ast::Define>) -> Self::Output {
@@ -58,20 +60,38 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
     }
 
     fn visit_transduce(&self, transduce: Box<super::ast::Transduce>) -> Self::Output {
-        todo!()
+        let expr = [
+            Gc::new(SteelVal::try_from(transduce.location)?),
+            self.visit(transduce.transducer)?,
+            self.visit(transduce.func)?,
+            self.visit(transduce.initial_value)?,
+            self.visit(transduce.iterable)?,
+        ];
+        ListOperations::built_in_list_func_flat(&expr)
     }
 
     fn visit_read(&self, read: Box<super::ast::Read>) -> Self::Output {
-        todo!()
+        let expr = [
+            Gc::new(SteelVal::try_from(read.location)?),
+            self.visit(read.expr)?,
+        ];
+        ListOperations::built_in_list_func_flat(&expr)
     }
 
     fn visit_execute(&self, execute: Box<super::ast::Execute>) -> Self::Output {
-        todo!()
+        let mut exprs = vec![
+            Gc::new(SteelVal::try_from(execute.location)?),
+            self.visit(execute.transducer)?,
+            self.visit(execute.collection)?,
+        ];
+
+        if let Some(output) = execute.output_type {
+            exprs.push(self.visit(output)?);
+        }
+        ListOperations::built_in_list_func_flat(&exprs)
     }
 
     fn visit_quote(&self, quote: Box<super::ast::Quote>) -> Self::Output {
-        // todo!()
-
         self.visit(quote.expr)
     }
 
@@ -88,17 +108,14 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
     }
 
     fn visit_atom(&self, a: Atom) -> Self::Output {
-        SteelVal::try_from(a.syn)
+        SteelVal::try_from(a.syn).map(Gc::new)
     }
 
     fn visit_list(&self, l: super::ast::List) -> Self::Output {
-        let items: std::result::Result<Vec<Gc<SteelVal>>, SteelErr> = l
-            .args
-            .into_iter()
-            .map(|x| self.visit(x).map(Gc::new))
-            .collect();
+        let items: std::result::Result<Vec<Gc<SteelVal>>, SteelErr> =
+            l.args.into_iter().map(|x| self.visit(x)).collect();
 
-        ListOperations::built_in_list_func_flat(&items?).map(|x| (*x).clone())
+        ListOperations::built_in_list_func_flat(&items?)
     }
 
     fn visit_syntax_rules(&self, l: super::ast::SyntaxRules) -> Self::Output {
