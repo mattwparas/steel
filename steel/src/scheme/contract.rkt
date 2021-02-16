@@ -34,4 +34,4 @@
     [(define/contract (name args ...)
        contract
        body ...)
-     (define name (bind/c contract (lambda (args ...) body ...)))]))
+     (define name (bind/c contract (lambda (args ...) body ...) 'name))]))

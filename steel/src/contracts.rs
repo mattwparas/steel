@@ -52,9 +52,11 @@ pub struct FunctionContract {
     // Post condition, required to be a contract type
     post_condition: Gc<ContractType>,
     // Location/Name of contract attachment
-    contract_attachment_location: Option<String>,
+    pub contract_attachment_location: Option<String>,
     // Stack of function contracts to also abide by, checked at application
     parent: Option<Gc<FunctionContract>>,
+    // Post condition output reference
+    // child: Option<Weak<FunctionContract>>,
 }
 
 impl fmt::Display for FunctionContract {
@@ -104,6 +106,10 @@ impl FunctionContract {
         (&self.parent).as_ref().map(Gc::clone)
     }
 
+    pub fn set_attachment_location(&mut self, loc: Option<String>) {
+        self.contract_attachment_location = loc
+    }
+
     pub fn new(
         pre_conditions: Box<[ContractType]>,
         post_condition: Gc<ContractType>,
@@ -115,6 +121,7 @@ impl FunctionContract {
             post_condition,
             contract_attachment_location,
             parent,
+            // child: None,
         }
     }
 
@@ -156,6 +163,7 @@ impl fmt::Display for ContractType {
 pub struct ContractedFunction {
     pub contract: FunctionContract,
     pub function: ByteCodeLambda,
+    pub name: Option<String>,
 }
 
 impl PartialEq for ContractedFunction {
@@ -165,8 +173,12 @@ impl PartialEq for ContractedFunction {
 }
 
 impl ContractedFunction {
-    pub fn new(contract: FunctionContract, function: ByteCodeLambda) -> Self {
-        ContractedFunction { contract, function }
+    pub fn new(contract: FunctionContract, function: ByteCodeLambda, name: Option<String>) -> Self {
+        ContractedFunction {
+            contract,
+            function,
+            name,
+        }
     }
 
     pub fn arity(&self) -> usize {
@@ -177,7 +189,14 @@ impl ContractedFunction {
     pub fn new_from_steelvals(
         contract: Gc<SteelVal>,
         function: Gc<SteelVal>,
+        name: Option<Gc<SteelVal>>,
     ) -> Result<Gc<SteelVal>> {
+        let name = match name.as_ref().map(|x| x.as_ref()) {
+            Some(SteelVal::SymbolV(s)) => Some(s.clone()),
+            Some(_) => stop!(TypeMismatch => "bind/c expected a symbol in the first position"),
+            None => None,
+        };
+
         let contract = if let SteelVal::Contract(ContractType::Function(fc)) = contract.as_ref() {
             fc.clone()
         } else {
@@ -194,7 +213,9 @@ impl ContractedFunction {
             stop!(TypeMismatch => "contract did not match function arity");
         }
 
-        Ok(Gc::new(ContractedFunction::new(contract, function).into()))
+        Ok(Gc::new(
+            ContractedFunction::new(contract, function, name).into(),
+        ))
     }
 }
 

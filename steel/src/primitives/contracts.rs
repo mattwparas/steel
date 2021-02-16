@@ -70,14 +70,16 @@ impl ContractOperations {
 
     pub fn bind_contract_to_function() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            if args.len() != 2 {
+            if args.len() < 2 || args.len() > 4 {
                 stop!(ArityMismatch => "bind/c requires 2 arguments, a contract and a function")
             }
 
             let contract = Gc::clone(&args[0]);
             let function = Gc::clone(&args[1]);
 
-            ContractedFunction::new_from_steelvals(contract, function)
+            let name = args.get(2).map(Gc::clone);
+
+            ContractedFunction::new_from_steelvals(contract, function, name)
         })
     }
 }
