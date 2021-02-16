@@ -58,7 +58,7 @@ Inspired by Racket's higher order contracts, `Steel` implements\* higher order c
 
 ```
 
-Contracts are implemented as _values_, so they are bound to functions. This enables to use of contract checking on functions themselves since functions can be passed around:
+Contracts are implemented as _values_, so they are bound to functions. This enables the use of contract checking on functions themselves since functions can be passed around:
 
 ```scheme
 ;; Higher order contracts, check on application
@@ -108,6 +108,21 @@ Contracts on functions do not get checked until they are applied, so a function 
     (generate-closure))
 
 ((accept-violation) "test") ;; contract violation
+```
+
+Perhaps a more nuanced case:
+
+```scheme
+(define/contract (output)
+    (->/c (->/c string? int?))
+    (lambda (x) 10.2))
+
+(define/contract (accept)
+    (->/c (->/c string? number?))
+    (output))
+
+
+((accept) "test") ;; contract violation 10.2 satisfies number? but _not_ int?
 ```
 
 \* Very much a work in progress
