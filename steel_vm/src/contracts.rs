@@ -37,17 +37,36 @@ impl ContractedFunctionExt for ContractedFunction {
         repl: bool,
         callback: &EvaluationProgress,
     ) -> Result<Gc<SteelVal>> {
-        if let Some(parent) = self.contract.parent() {
-            parent.apply(
-                &self.function,
-                &arguments,
-                local_heap,
-                constants,
-                cur_inst_span,
-                repl,
-                callback,
-            )?;
+        // Walk back and find the contracts to apply?
+
+        {
+            let mut parent = self.contract.parent();
+            while let Some(p) = parent {
+                p.apply(
+                    &self.function,
+                    &arguments,
+                    local_heap,
+                    constants,
+                    cur_inst_span,
+                    repl,
+                    callback,
+                )?;
+
+                parent = p.parent()
+            }
         }
+
+        // if let Some(parent) = self.contract.parent() {
+        //     parent.apply(
+        //         &self.function,
+        //         &arguments,
+        //         local_heap,
+        //         constants,
+        //         cur_inst_span,
+        //         repl,
+        //         callback,
+        //     )?;
+        // }
 
         self.contract.apply(
             &self.function,
@@ -452,6 +471,29 @@ mod contract_tests {
             (output))
 
         ((accept) "test")
+        "#;
+
+        assert_script_error(script);
+    }
+
+    #[test]
+    fn three_levels_of_contracts() {
+        let script = r#"
+        (define (any? x) #t)
+
+        (define/contract (level1)
+            (->/c (->/c int?))
+            (lambda () 10.2))
+
+        (define/contract (level2)
+            (->/c (->/c number?))
+            (level1))
+
+        (define/contract (level3)
+            (->/c (->/c any?))
+            (level2))
+
+        ((level3))
         "#;
 
         assert_script_error(script);

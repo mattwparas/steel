@@ -51,7 +51,7 @@ pub struct FunctionContract {
     pre_conditions: Box<[ContractType]>,
     // Post condition, required to be a contract type
     post_condition: Gc<ContractType>,
-    // Location of contract attachment
+    // Location/Name of contract attachment
     contract_attachment_location: Option<String>,
     // Stack of function contracts to also abide by, checked at application
     parent: Option<Gc<FunctionContract>>,
