@@ -1,6 +1,8 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::{gc::Gc, rvals::ByteCodeLambda};
+use itertools::Itertools;
+use std::fmt;
 
 #[derive(Clone, PartialEq)]
 pub struct FlatContract {
@@ -8,6 +10,12 @@ pub struct FlatContract {
     predicate: Gc<SteelVal>,
     // name of the function for blaming purposes
     pub name: String,
+}
+
+impl fmt::Display for FlatContract {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
 }
 
 impl FlatContract {
@@ -43,6 +51,21 @@ pub struct FunctionContract {
     pre_conditions: Box<[ContractType]>,
     // Post condition, required to be a contract type
     post_condition: Gc<ContractType>,
+    // Location of contract attachment
+    contract_attachment_location: Option<String>,
+    // Stack of function contracts to also abide by, checked at application
+    parent: Option<Gc<FunctionContract>>,
+}
+
+impl fmt::Display for FunctionContract {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "(-> {} {})",
+            self.pre_conditions.iter().map(|x| x.to_string()).join(" "),
+            self.post_condition.to_string()
+        )
+    }
 }
 
 impl FunctionContract {
@@ -69,14 +92,29 @@ impl FunctionContract {
         };
 
         Ok(Gc::new(
-            FunctionContract::new(pre_conditions, Gc::new(post_condition)).into(),
+            FunctionContract::new(pre_conditions, Gc::new(post_condition), None, None).into(),
         ))
     }
 
-    pub fn new(pre_conditions: Box<[ContractType]>, post_condition: Gc<ContractType>) -> Self {
+    pub fn set_parent(&mut self, p: Gc<FunctionContract>) {
+        self.parent = Some(p);
+    }
+
+    pub fn parent(&self) -> Option<Gc<FunctionContract>> {
+        (&self.parent).as_ref().map(Gc::clone)
+    }
+
+    pub fn new(
+        pre_conditions: Box<[ContractType]>,
+        post_condition: Gc<ContractType>,
+        contract_attachment_location: Option<String>,
+        parent: Option<Gc<FunctionContract>>,
+    ) -> Self {
         FunctionContract {
             pre_conditions,
             post_condition,
+            contract_attachment_location,
+            parent,
         }
     }
 
@@ -105,15 +143,34 @@ pub enum ContractType {
     Function(FunctionContract),
 }
 
+impl fmt::Display for ContractType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Flat(flat) => write!(f, "{}", flat),
+            Self::Function(fc) => write!(f, "{}", fc),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ContractedFunction {
     pub contract: FunctionContract,
     pub function: ByteCodeLambda,
 }
 
+impl PartialEq for ContractedFunction {
+    fn eq(&self, other: &Self) -> bool {
+        self.contract == other.contract
+    }
+}
+
 impl ContractedFunction {
     pub fn new(contract: FunctionContract, function: ByteCodeLambda) -> Self {
         ContractedFunction { contract, function }
+    }
+
+    pub fn arity(&self) -> usize {
+        self.function.arity()
     }
 
     #[inline(always)]

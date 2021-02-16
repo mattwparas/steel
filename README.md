@@ -55,6 +55,7 @@ Inspired by Racket's higher order contracts, `Steel` implements\* higher order c
     (+ x y 1))
 
 (test-violation 1 2) ;; contract violation
+
 ```
 
 Contracts are implemented as _values_, so they are bound to functions. This enables to use of contract checking on functions themselves since functions can be passed around:
@@ -91,6 +92,7 @@ Contracts on functions do not get checked until they are applied, so a function 
 ;; different contracts on the argument
 (define/contract (accept-violation func)
     (->/c (->/c string? string?) string?)
+    (func "applesauce")
     "cool cool cool")
 
 (accept-violation (output)) ;; contract violation
@@ -100,12 +102,12 @@ Contracts on functions do not get checked until they are applied, so a function 
     (->/c (->/c string? int?))
     (lambda (x) 10))
 
-;; calls generate-closure which immediately forces a contract violation
+;; calls generate-closure which should result in a contract violation
 (define/contract (accept-violation)
     (->/c (->/c string? string?))
     (generate-closure))
 
-(accept-violation) ;; contract violation
+((accept-violation) "test") ;; contract violation
 ```
 
 \* Very much a work in progress
