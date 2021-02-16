@@ -56,18 +56,6 @@ impl ContractedFunctionExt for ContractedFunction {
             }
         }
 
-        // if let Some(parent) = self.contract.parent() {
-        //     parent.apply(
-        //         &self.function,
-        //         &arguments,
-        //         local_heap,
-        //         constants,
-        //         cur_inst_span,
-        //         repl,
-        //         callback,
-        //     )?;
-        // }
-
         self.contract.apply(
             &self.function,
             &arguments,
