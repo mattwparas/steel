@@ -290,7 +290,10 @@ impl FunctionContractExt for FunctionContract {
 
                     debug!("Parent exists: {}", self.parent().is_some());
 
-                    stop!(ContractViolation => format!("error occured in the range position: {}, blaming: {:?}", e.to_string(), self.contract_attachment_location); *cur_inst_span);
+                    stop!(ContractViolation => format!(r#"
+                    error occured in the range position of this contract: {}
+                    {}
+                    blaming: {:?}"#, self.to_string(), e.to_string(), self.contract_attachment_location); *cur_inst_span);
                 }
 
                 Ok(output)

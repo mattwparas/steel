@@ -229,7 +229,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                             }),
                             Err(e) => {
                                 e.emit_result("repl.stl", line.as_str(), Span::new(0, 0));
-                                eprintln!("{}", e.to_string().bright_red());
+                                // eprintln!("{}", e.to_string().bright_red());
                             }
                         }
 

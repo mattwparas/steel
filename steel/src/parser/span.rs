@@ -47,7 +47,7 @@ impl Span {
         self.end - self.start
     }
 
-    pub fn coalesce_span(spans: Vec<Span>) -> Span {
+    pub fn coalesce_span(spans: &[Span]) -> Span {
         let span = spans.get(0);
         if let Some(span) = span {
             let mut span = *span;

@@ -17,6 +17,8 @@ use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 
 use crate::rvals::collect_pair_into_vector;
 
+use super::span::Span;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprKind {
     Atom(Atom),
@@ -869,7 +871,7 @@ where
             let lambda = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                 args,
                 body,
-                SyntaxObject::default(TokenType::Lambda),
+                SyntaxObject::new(TokenType::Lambda, syn.span),
             )));
 
             Ok(ExprKind::Define(Box::new(Define::new(name, lambda, syn))))

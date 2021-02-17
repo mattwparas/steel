@@ -97,7 +97,7 @@ pub trait VisitorMutResult {
 pub trait Visitor {
     type Output;
 
-    fn visit(&mut self, expr: &ExprKind) -> Self::Output {
+    fn visit(&self, expr: &ExprKind) -> Self::Output {
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
