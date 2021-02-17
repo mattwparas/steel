@@ -192,7 +192,7 @@ impl FunctionContractExt for FunctionContract {
                             self.contract_attachment_location, name
                         );
 
-                        stop!(ContractViolation => format!("error occured in the domain position: {}, with the contract: {}, blaming: {:?}", i, e.to_string(), self.contract_attachment_location); *cur_inst_span);
+                        stop!(ContractViolation => format!("This function call caused an error - an occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location); *cur_inst_span);
                     }
 
                     verified_args.push(Gc::clone(arg));
@@ -290,10 +290,17 @@ impl FunctionContractExt for FunctionContract {
 
                     debug!("Parent exists: {}", self.parent().is_some());
 
-                    stop!(ContractViolation => format!(r#"
-                    error occured in the range position of this contract: {}
+                    let blame_location = if self.contract_attachment_location.is_none() {
+                        name
+                    } else {
+                        &self.contract_attachment_location
+                    };
+
+                    let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
                     {}
-                    blaming: {:?}"#, self.to_string(), e.to_string(), self.contract_attachment_location); *cur_inst_span);
+                    blaming: {:?} - broke its own contract", self.to_string(), e.to_string(), blame_location);
+
+                    stop!(ContractViolation => error_message; *cur_inst_span);
                 }
 
                 Ok(output)
