@@ -20,7 +20,6 @@ use std::borrow::Cow;
 use steel_vm::engine::Engine;
 
 use std::io::Read;
-use steel::parser::span::Span;
 use steel::stdlib::{CONTRACTS, PRELUDE};
 
 use std::time::Instant;
