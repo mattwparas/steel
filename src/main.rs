@@ -111,6 +111,9 @@ fn main() {
         finish(test_repl());
     } else if args.len() == 2 {
         let path = &args[1];
+
+        println!("Getting here!!!! {}", path);
+
         let mut vm = build_engine! {};
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
@@ -130,7 +133,7 @@ fn main() {
         // println!("{:?}", now.elapsed());
 
         if let Err(e) = res {
-            eprintln!("{}", e);
+            e.emit_result(path, &contents);
         }
     }
 }

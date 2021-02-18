@@ -4,10 +4,10 @@ use thiserror::Error;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFile;
-use codespan_reporting::term::termcolor::StandardStream;
-use codespan_reporting::term::{self, ColorArg};
+use codespan_reporting::term;
+use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 // use std::ops::Range;
-use structopt::StructOpt;
+// use structopt::StructOpt;
 
 use crate::parser::span::Span;
 
@@ -78,17 +78,17 @@ impl PartialEq for SteelErr {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "emit")]
-pub struct Opts {
-    #[structopt(long = "color",
-        parse(try_from_str),
-        default_value = "auto",
-        possible_values = ColorArg::VARIANTS,
-        case_insensitive = true
-    )]
-    color: ColorArg,
-}
+// #[derive(Debug, StructOpt)]
+// #[structopt(name = "emit")]
+// struct Opts {
+//     #[structopt(long = "color",
+//         parse(try_from_str),
+//         default_value = "auto",
+//         possible_values = ColorArg::VARIANTS,
+//         case_insensitive = true
+//     )]
+//     color: ColorArg,
+// }
 
 impl SteelErr {
     pub fn set_span(self, span: Span) -> Self {
@@ -107,23 +107,15 @@ impl SteelErr {
         }
     }
 
-    pub fn emit_result(&self, file_name: &str, file_content: &str, error_span: Span) {
-        let opts = Opts::from_args();
-        let writer = StandardStream::stderr(opts.color.into());
+    pub fn emit_result(&self, file_name: &str, file_content: &str) {
+        // let opts = Opts::();
+        // let config = codespan_reporting::term::Config::default();
+        let writer = StandardStream::stderr(ColorChoice::Always);
         let config = codespan_reporting::term::Config::default();
 
-        let file = SimpleFile::new(
-            file_name,
-            file_content
-            // unindent::unindent(
-            //     r#"
-            //         fn main() {
-            //             let foo: i32 = "hello, world";
-            //             foo += 1;
-            //         }
-            //     "#,
-            // ),
-        );
+        let file = SimpleFile::new(file_name, file_content);
+
+        let error_span = Span::new(0, 0);
 
         let report = self.report(file_name, file_content, error_span);
         term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back

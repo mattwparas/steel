@@ -142,7 +142,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
             }),
             Err(e) => {
-                e.emit_result("stdlib.stl", buffer.as_str(), Span::new(0, 0));
+                e.emit_result("stdlib.stl", buffer.as_str());
                 eprintln!("{}", e.to_string().bright_red());
             }
         }
@@ -206,7 +206,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
                             }),
                             Err(e) => {
-                                e.emit_result("repl.stl", exprs.as_str(), Span::new(0, 0));
+                                e.emit_result("repl.stl", exprs.as_str());
                                 eprintln!("{}", e.to_string().bright_red());
                             }
                         }
@@ -228,7 +228,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
                             }),
                             Err(e) => {
-                                e.emit_result("repl.stl", line.as_str(), Span::new(0, 0));
+                                e.emit_result("repl.stl", line.as_str());
                                 // eprintln!("{}", e.to_string().bright_red());
                             }
                         }

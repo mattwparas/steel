@@ -17,8 +17,6 @@ use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 
 use crate::rvals::collect_pair_into_vector;
 
-use super::span::Span;
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprKind {
     Atom(Atom),
