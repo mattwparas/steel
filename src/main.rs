@@ -112,8 +112,6 @@ fn main() {
     } else if args.len() == 2 {
         let path = &args[1];
 
-        println!("Getting here!!!! {}", path);
-
         let mut vm = build_engine! {};
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
