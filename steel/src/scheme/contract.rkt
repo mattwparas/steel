@@ -41,7 +41,7 @@
 (define (listof pred)
         (lambda (lst)
             (define (loop lst)
-                (cond [(empty? lst) #t]
+                (cond [(null? lst) #t]
                       [(pred (car lst)) (loop (cdr lst))]
                       [else #f]))
             (if (list? lst)

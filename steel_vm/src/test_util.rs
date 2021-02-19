@@ -12,6 +12,7 @@ fn prelude_parses() {
 #[test]
 fn contract_parses() {
     let mut vm = Engine::new();
+    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
     vm.parse_and_execute_without_optimizations(CONTRACTS)
         .unwrap();
 }
