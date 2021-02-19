@@ -23,11 +23,13 @@ impl ContractOperations {
                 let name = Gc::clone(&args[1]);
 
                 if function.is_function() {
-                    if let SteelVal::SymbolV(s) = name.as_ref() {
-                        return FlatContract::new_from_steelval(function, s.to_string());
-                    } else {
-                        stop!(TypeMismatch => "make/c attempted to make a flat contract, expected a symbol for the name in the second position");
-                    }
+                    return FlatContract::new_from_steelval(function, name.to_string());
+
+                    // if let SteelVal::SymbolV(s) = name.as_ref() {
+                    //     return FlatContract::new_from_steelval(function, s.to_string());
+                    // } else {
+                    //     stop!(TypeMismatch => "make/c attempted to make a flat contract, expected a symbol for the name in the second position");
+                    // }
                 }
             }
 

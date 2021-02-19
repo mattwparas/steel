@@ -37,8 +37,7 @@ impl ContractedFunctionExt for ContractedFunction {
         repl: bool,
         callback: &EvaluationProgress,
     ) -> Result<Gc<SteelVal>> {
-        // Walk back and find the contracts to apply?
-
+        // Walk back and find the contracts to apply
         {
             let mut parent = self.contract.parent();
             while let Some(p) = parent {
