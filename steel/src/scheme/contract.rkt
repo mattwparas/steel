@@ -31,6 +31,10 @@
 ;; Macro for basic usage of contracts
 (define-syntax define/contract
   (syntax-rules ()
+    [(define/contract name contract expr)
+     (define name ((bind/c
+                      (make-function/c (make/c contract 'contract))
+                      (lambda () expr))))]
     [(define/contract (name args ...)
        contract
        body ...)

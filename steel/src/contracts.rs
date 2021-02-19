@@ -55,8 +55,6 @@ pub struct FunctionContract {
     pub contract_attachment_location: Option<String>,
     // Stack of function contracts to also abide by, checked at application
     parent: Option<Gc<FunctionContract>>,
-    // Post condition output reference
-    // child: Option<Weak<FunctionContract>>,
 }
 
 impl fmt::Display for FunctionContract {
@@ -121,7 +119,6 @@ impl FunctionContract {
             post_condition,
             contract_attachment_location,
             parent,
-            // child: None,
         }
     }
 
