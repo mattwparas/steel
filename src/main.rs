@@ -43,8 +43,8 @@ use std::collections::HashMap;
 
 use std::cmp::{max, min};
 
-use env_logger::Builder;
-use log::LevelFilter;
+// use env_logger::Builder;
+// use log::LevelFilter;
 
 // extern crate reqwest;
 
@@ -92,7 +92,7 @@ fn do_a_call() {
 }
 
 fn main() {
-    // env_logger::init();
+    env_logger::init();
 
     // let mut builder = Builder::new();
 
