@@ -74,3 +74,7 @@
 ;; produces a function compatible with contract definitions
 (define (and/c x y)
     (lambda (z) (and (x z) (y z))))
+
+;; produces a function compatible with contract definitions
+(define (or/c x y)
+    (lambda (z) (or (x z) (y z))))
