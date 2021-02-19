@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use super::constants::{ConstantMap, ConstantTable};
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
-    parser::{ast::Atom, parser::SyntaxObject, tokens::TokenType},
+    parser::{ast::Atom, parser::SyntaxObject, span_visitor::get_span, tokens::TokenType},
 };
 
 use crate::parser::ast::ExprKind;
@@ -301,9 +301,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         if let ExprKind::Atom(Atom { syn: s }) = &l.args[0] {
             self.push(Instruction::new_func(pop_len, s.clone()));
         } else {
+            // TODO check span information here by coalescing the entire list
             self.push(Instruction::new_func(
                 pop_len,
-                SyntaxObject::default(TokenType::Identifier("lambda".to_string())),
+                SyntaxObject::new(
+                    TokenType::Identifier("lambda".to_string()),
+                    get_span(&l.args[0]),
+                ),
             ));
         }
 

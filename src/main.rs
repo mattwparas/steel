@@ -43,7 +43,7 @@ use std::collections::HashMap;
 
 use std::cmp::{max, min};
 
-// use env_logger::{Builder, WriteStyle};
+// use env_logger::Builder;
 // use log::LevelFilter;
 
 // extern crate reqwest;
@@ -92,18 +92,18 @@ fn do_a_call() {
 }
 
 fn main() {
-    // env_logger::init();
+    env_logger::init();
 
     // let mut builder = Builder::new();
 
     // builder
-    //     .filter(Some("steel"), LevelFilter::Trace)
+    // .filter(Some("steel_vm::contracts"), LevelFilter::Trace)
     //     // .filter(Some("steel_vm"), LevelFilter::Trace)
     //     // .filter(None, LevelFilter::Error)
     //     // .filter(None, LevelFilter::Warn)
     //     // .filter(None, LevelFilter)
     //     .write_style(WriteStyle::Always)
-    //     .init();
+    // .init();
 
     let args = args().collect::<Vec<_>>();
 
@@ -111,6 +111,7 @@ fn main() {
         finish(test_repl());
     } else if args.len() == 2 {
         let path = &args[1];
+
         let mut vm = build_engine! {};
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
@@ -130,7 +131,7 @@ fn main() {
         // println!("{:?}", now.elapsed());
 
         if let Err(e) = res {
-            eprintln!("{}", e);
+            e.emit_result(path, &contents);
         }
     }
 }

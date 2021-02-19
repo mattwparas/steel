@@ -669,6 +669,10 @@ pub fn vm<CT: ConstantTable>(
                         ip += 1;
                     }
                     SteelVal::ContractedFunction(cf) => {
+                        if cf.arity() != cur_inst.payload_size as usize {
+                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), cur_inst.payload_size as usize); cur_inst.span);
+                        }
+
                         let args = stack.split_off(stack.len() - cur_inst.payload_size as usize);
 
                         let result =
@@ -765,6 +769,10 @@ pub fn vm<CT: ConstantTable>(
                         ip += 1;
                     }
                     SteelVal::ContractedFunction(cf) => {
+                        if cf.arity() != cur_inst.payload_size as usize {
+                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), cur_inst.payload_size as usize); cur_inst.span);
+                        }
+
                         let args = stack.split_off(stack.len() - cur_inst.payload_size as usize);
 
                         let result =

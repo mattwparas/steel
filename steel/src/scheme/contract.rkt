@@ -28,10 +28,53 @@
                       (make/c d 'd) (make/c e 'e) (make/c f 'f)
                       (make/c g 'g) (make/c h 'h) (make/c i 'i))]))
 
-
+;; Macro for basic usage of contracts
 (define-syntax define/contract
   (syntax-rules ()
     [(define/contract (name args ...)
        contract
        body ...)
-     (define name (bind/c contract (lambda (args ...) body ...)))]))
+     (define name (bind/c contract (lambda (args ...) body ...) 'name))]
+    [(define/contract name contract expr)
+     (define name ((bind/c
+                      (make-function/c (make/c contract 'contract))
+                      (lambda () expr))))]))
+
+
+;; Contract combinators
+(define (listof pred)
+        (lambda (lst)
+            (define (loop lst)
+                (cond [(null? lst) #t]
+                      [(pred (car lst)) (loop (cdr lst))]
+                      [else #f]))
+            (if (list? lst)
+                (loop lst)
+                #f)))
+
+;; Contracts for <
+(define (</c n)
+    (make/c (fn (x) (< x n)) '</c))
+
+;; Contracts for >
+(define (>/c n)
+    (make/c (fn (x) (> x n)) '>/c))
+
+;; Contracts for <=
+(define (<=/c n)
+    (make/c (fn (x) (<= x n)) '<=/c))
+
+;; Contracts for >=
+(define (>=/c n)
+    (make/c (fn (x) (>= x n)) '>=/c))
+
+(define (any/c x)
+    (make/c (fn (x) #t) 'any/c))
+
+;; produces a function compatible with contract definitions
+(define (and/c x y)
+    (lambda (z) (and (x z) (y z))))
+
+;; produces a function compatible with contract definitions
+(define (or/c x y)
+    (lambda (z) (or (x z) (y z))))

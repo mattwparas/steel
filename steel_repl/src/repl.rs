@@ -20,7 +20,6 @@ use std::borrow::Cow;
 use steel_vm::engine::Engine;
 
 use std::io::Read;
-use steel::parser::span::Span;
 use steel::stdlib::{CONTRACTS, PRELUDE};
 
 use std::time::Instant;
@@ -142,7 +141,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
             }),
             Err(e) => {
-                e.emit_result("stdlib.stl", buffer.as_str(), Span::new(0, 0));
+                e.emit_result("stdlib.stl", buffer.as_str());
                 eprintln!("{}", e.to_string().bright_red());
             }
         }
@@ -206,7 +205,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
                             }),
                             Err(e) => {
-                                e.emit_result("repl.stl", exprs.as_str(), Span::new(0, 0));
+                                e.emit_result("repl.stl", exprs.as_str());
                                 eprintln!("{}", e.to_string().bright_red());
                             }
                         }
@@ -228,8 +227,8 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
                             }),
                             Err(e) => {
-                                e.emit_result("repl.stl", line.as_str(), Span::new(0, 0));
-                                eprintln!("{}", e.to_string().bright_red());
+                                e.emit_result("repl.stl", line.as_str());
+                                // eprintln!("{}", e.to_string().bright_red());
                             }
                         }
 

@@ -612,6 +612,12 @@ pub struct ByteCodeLambda {
     ndef_body: usize,
 }
 
+impl PartialEq for ByteCodeLambda {
+    fn eq(&self, other: &Self) -> bool {
+        self.body_exp == other.body_exp && self.arity == other.arity
+    }
+}
+
 impl Hash for ByteCodeLambda {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.body_exp.as_ptr().hash(state);
