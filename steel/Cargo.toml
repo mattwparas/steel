@@ -27,6 +27,9 @@ serde_derive = "1.0.118"
 bincode = "1.3.1"
 ahash = "0.6.3"
 
+[dev-dependencies]
+proptest = "0.10.1"
+
 [features]
 # this effectively enable the feature `no-color` of colored when testing with
 # `cargo test --features colors_off`

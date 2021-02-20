@@ -68,6 +68,7 @@
 (define (>=/c n)
     (make/c (fn (x) (>= x n)) '>=/c))
 
+;; Satisfies any single value
 (define (any/c x)
     (make/c (fn (x) #t) 'any/c))
 
