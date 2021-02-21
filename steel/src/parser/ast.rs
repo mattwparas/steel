@@ -1238,15 +1238,15 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::Begin => {
                             let syn = a.syn.clone();
 
-                            if value.len() < 2 {
-                                return Err(ParseError::ArityMismatch(
-                                    format!(
-                                        "begin expected at least one expression, found {} instead",
-                                        value.len()
-                                    ),
-                                    syn.span,
-                                ));
-                            }
+                            // if value.len() < 1 {
+                            //     return Err(ParseError::ArityMismatch(
+                            //         format!(
+                            //             "begin expected at least one expression, found {} instead",
+                            //             value.len()
+                            //         ),
+                            //         syn.span,
+                            //     ));
+                            // }
 
                             let mut value_iter = value.into_iter();
                             value_iter.next();

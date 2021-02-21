@@ -105,7 +105,7 @@ pub enum ParseError {
     Unexpected(TokenType),
     #[error("Parse: Unexpected EOF")]
     UnexpectedEOF,
-    #[error("Parse: Unexpected character: {0}")]
+    #[error("Parse: Unexpected character: {0:?}")]
     UnexpectedChar(char, Span),
     #[error("Parse: Incomplete String: {0}")]
     IncompleteString(String, Span),
@@ -138,10 +138,19 @@ pub struct Parser<'a> {
                                        // span: String
 }
 
+impl<'a> Parser<'a> {
+    pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {
+        let mut intern = HashMap::new();
+        Parser::new(expr, &mut intern).collect()
+    }
+}
+
 pub type Result<T> = result::Result<T, ParseError>;
 
 fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
     if let TokenType::Error = t.ty {
+        println!("Found an error: {}", t);
+
         if t.source.starts_with('\"') {
             ParseError::IncompleteString(t.source.to_string(), t.span)
         } else {
@@ -294,21 +303,34 @@ impl<'a> Parser<'a> {
                                             && self.quote_stack.len() > 1 =>
                                     {
                                         self.quote_stack.pop();
-                                        // println!("Stack length: {}", stack.len());
-                                        // println!("last_quote_index: {}", last_quote_index);
-                                        // println!("{:?}", current_frame);
                                         prev_frame.push(ExprKind::List(List::new(current_frame)))
+                                    }
+                                    Some(last_quote_index)
+                                        if stack.len() == *last_quote_index
+                                            && self.quote_stack.len() == 1 =>
+                                    {
+                                        self.quote_stack.pop();
+
+                                        match current_frame.first() {
+                                            Some(ExprKind::Atom(Atom {
+                                                syn:
+                                                    SyntaxObject {
+                                                        ty: TokenType::Quote,
+                                                        ..
+                                                    },
+                                            })) => {
+                                                prev_frame.push(ExprKind::try_from(current_frame)?);
+                                            }
+                                            _ => prev_frame
+                                                .push(ExprKind::List(List::new(current_frame))),
+                                        }
                                     }
                                     Some(_) => {
                                         prev_frame.push(ExprKind::List(List::new(current_frame)))
                                     }
                                     _ => match self.shorthand_quote_stack.last() {
-                                        Some(_) => {
-                                            // self.shorthand_quote_stack.pop();
-                                            // println!("{:?}", current_frame);
-                                            prev_frame
-                                                .push(ExprKind::List(List::new(current_frame)))
-                                        }
+                                        Some(_) => prev_frame
+                                            .push(ExprKind::List(List::new(current_frame))),
                                         _ => {
                                             prev_frame.push(ExprKind::try_from(current_frame)?);
                                         }
@@ -329,8 +351,11 @@ impl<'a> Parser<'a> {
 
                         _ => {
                             if let TokenType::Quote = &token.ty {
-                                self.quote_stack.push(current_frame.len());
+                                // self.quote_stack.push(current_frame.len());
+                                self.quote_stack.push(stack.len());
                             }
+
+                            // println!("{}", token);
 
                             current_frame
                                 .push(ExprKind::Atom(Atom::new(SyntaxObject::from(&token))))
@@ -422,6 +447,105 @@ mod parser_tests {
     }
 
     #[test]
+    fn parse_unicode() {
+        assert_parse(
+            "#\\¡",
+            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::CharacterLiteral('¡'),
+            )))],
+        );
+        assert_parse(
+            "#\\\\u{b}",
+            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::CharacterLiteral('\u{b}'),
+            )))],
+        );
+    }
+
+    #[test]
+    fn parse_more_unicode() {
+        assert_parse(
+            "#\\\\u{a0}",
+            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::CharacterLiteral('\u{a0}'),
+            )))],
+        );
+    }
+
+    #[test]
+    fn parse_strange_characters() {
+        assert_parse(
+            "#\\^",
+            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::CharacterLiteral('^'),
+            )))],
+        );
+    }
+
+    #[test]
+    fn parse_character_sequence() {
+        assert_parse(
+            "#\\¡ #\\SPACE #\\g",
+            &[
+                ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    TokenType::CharacterLiteral('¡'),
+                ))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    TokenType::CharacterLiteral(' '),
+                ))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    TokenType::CharacterLiteral('g'),
+                ))),
+            ],
+        )
+    }
+
+    #[test]
+    fn parse_character_sequence_inside_if() {
+        assert_parse(
+            "(if #\\¡ #\\SPACE #\\g)",
+            &[ExprKind::If(Box::new(If::new(
+                ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    TokenType::CharacterLiteral('¡'),
+                ))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    TokenType::CharacterLiteral(' '),
+                ))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    TokenType::CharacterLiteral('g'),
+                ))),
+                SyntaxObject::default(TokenType::If),
+            )))],
+        )
+    }
+
+    #[test]
+    fn parse_close_paren_character() {
+        assert_parse(
+            "#\\)",
+            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::CharacterLiteral(')'),
+            )))],
+        );
+        assert_parse(
+            "#\\]",
+            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::CharacterLiteral(']'),
+            )))],
+        )
+    }
+
+    #[test]
+    fn parse_open_paren_character() {
+        assert_parse(
+            "#\\(",
+            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::CharacterLiteral('('),
+            )))],
+        )
+    }
+
+    #[test]
     fn test_error() {
         assert_parse_err("(", ParseError::UnexpectedEOF);
         assert_parse_err("(abc", ParseError::UnexpectedEOF);
@@ -500,6 +624,29 @@ mod parser_tests {
     fn test_empty() {
         assert_parse("", &[]);
         assert_parse("()", &[ExprKind::List(List::new(vec![]))]);
+    }
+
+    #[test]
+    fn test_empty_quote_inside_if() {
+        assert_parse(
+            "(if #\\¡ (quote ()) #\\g)",
+            &[ExprKind::If(Box::new(If::new(
+                ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    TokenType::CharacterLiteral('¡'),
+                ))),
+                ExprKind::Quote(
+                    Quote::new(
+                        List::new(vec![]).into(),
+                        SyntaxObject::default(TokenType::Quote),
+                    )
+                    .into(),
+                ),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    TokenType::CharacterLiteral('g'),
+                ))),
+                SyntaxObject::default(TokenType::If),
+            )))],
+        )
     }
 
     #[test]
