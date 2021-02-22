@@ -314,7 +314,7 @@ impl InstructionPointer {
     }
 }
 
-pub struct VmCore<'a, CT: ConstantTable> {
+struct VmCore<'a, CT: ConstantTable> {
     instructions: Rc<[DenseInstruction]>,
     stack: StackFrame,
     heap: &'a mut Heap,
