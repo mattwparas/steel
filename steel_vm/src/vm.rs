@@ -361,7 +361,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     fn vm(mut self) -> Result<Gc<SteelVal>> {
         let mut cur_inst;
-        // let mut instructions = Rc::clone(&self.instructions);
 
         while self.ip < self.instructions.len() {
             cur_inst = self.instructions[self.ip];
@@ -472,19 +471,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 OpCode::METALOOKUP => {}
             }
 
-            // Check the evaluation progress in some capacity
-            // if let Some(callback) = callback {
-            //     callback(&instruction_count);
-            // }
-
-            // _instruction_count += 1;
-
             match self.callback.call_and_increment() {
                 Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
                 _ => {}
             }
-
-            // ip += 1;
         }
 
         error!(
@@ -492,24 +482,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             self.ip,
             self.instructions.len()
         );
-        // error!("Instructions at out of bounds!: {}", pretty_print_dense_instructions(&instructions));
-        // unimplemented!()
-        // println!("###### Out of bounds instruction ######");
-        // println!(
-        //     "Instruction pointer: {}, instructions length: {}",
-        //     ip,
-        //     instructions.len()
-        // );
-        // println!("Instructions at time:");
         steel::core::instructions::pretty_print_dense_instructions(&self.instructions);
         panic!("Out of bounds instruction")
     }
-
-    // #[inline]
-    // fn handle_panic(&mut self, cur_inst: &DenseInstruction) -> Result<Gc<SteelVal>> {
-    //     let error_message = self.stack.pop().unwrap();
-    //     stop!(Generic => error_message.to_string(); cur_inst.span);
-    // }
 
     #[inline]
     fn handle_transduce(&mut self, span: Span) -> Result<()> {
