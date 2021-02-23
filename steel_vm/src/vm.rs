@@ -34,6 +34,10 @@ use log::error;
 
 const STACK_LIMIT: usize = 100000;
 
+// lazy_static! {
+//     static ref CALL_STACK: Mutex<Vec<u8>> = Mutex::new(vec![]);
+// }
+
 pub struct VirtualMachineCore {
     global_env: Rc<RefCell<Env>>,
     global_heap: Heap,
@@ -288,29 +292,23 @@ impl VirtualMachineCore {
 }
 
 #[derive(Debug)]
-pub struct InstructionPointer {
-    pub(crate) ip: usize,
-    instrs: Rc<[DenseInstruction]>,
-}
+pub struct InstructionPointer(usize, Rc<[DenseInstruction]>);
 
 impl InstructionPointer {
     pub fn new_raw() -> Self {
-        InstructionPointer {
-            ip: 0,
-            instrs: Rc::from(Vec::new().into_boxed_slice()),
-        }
+        InstructionPointer(0, Rc::from(Vec::new().into_boxed_slice()))
     }
 
     pub fn new(ip: usize, instrs: Rc<[DenseInstruction]>) -> Self {
-        InstructionPointer { ip, instrs }
+        InstructionPointer(ip, instrs)
     }
 
     pub fn instrs_ref(&self) -> &Rc<[DenseInstruction]> {
-        &self.instrs
+        &self.1
     }
 
     pub fn instrs(self) -> Rc<[DenseInstruction]> {
-        self.instrs
+        self.1
     }
 }
 
@@ -384,10 +382,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     self.handle_struct(cur_inst.payload_size as usize)?;
                     return Ok(VOID.with(|f| Gc::clone(f)));
                 }
-                OpCode::READ => self.handle_read(cur_inst.span)?,
-                OpCode::COLLECT => self.handle_collect(cur_inst.span)?,
-                OpCode::COLLECTTO => self.handle_collect_to(cur_inst.span)?,
-                OpCode::TRANSDUCE => self.handle_transduce(cur_inst.span)?,
+                OpCode::READ => self.handle_read(&cur_inst.span)?,
+                OpCode::COLLECT => self.handle_collect(&cur_inst.span)?,
+                OpCode::COLLECTTO => self.handle_collect_to(&cur_inst.span)?,
+                OpCode::TRANSDUCE => self.handle_transduce(&cur_inst.span)?,
                 OpCode::SET => self.handle_set(cur_inst.payload_size as usize)?,
                 OpCode::PUSHCONST => {
                     let val = self.constants.get(cur_inst.payload_size as usize);
@@ -400,12 +398,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     self.ip += 1;
                 }
                 OpCode::FUNC => {
-                    self.handle_function_call(cur_inst.payload_size as usize, cur_inst.span)?;
+                    self.handle_function_call(cur_inst.payload_size as usize, &cur_inst.span)?;
                 }
                 // Tail call basically says "hey this function is exiting"
                 // In the closure case, transfer ownership of the stack to the called function
                 OpCode::TAILCALL => {
-                    self.handle_tail_call(cur_inst.payload_size as usize, cur_inst.span)?
+                    self.handle_tail_call(cur_inst.payload_size as usize, &cur_inst.span)?
                 }
                 OpCode::IF => {
                     // change to truthy...
@@ -442,9 +440,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         let ret_val = self.stack.pop().unwrap();
                         let prev_state = self.instruction_stack.pop().unwrap();
 
-                        if prev_state.instrs_ref().len() != 0 {
+                        if !prev_state.instrs_ref().is_empty() {
                             self.global_env = self.env_stack.pop().unwrap();
-                            self.ip = prev_state.ip;
+                            self.ip = prev_state.0;
                             self.instructions = prev_state.instrs();
                         } else {
                             self.ip += 1;
@@ -458,11 +456,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 OpCode::SCLOSURE => self.handle_start_closure(cur_inst.payload_size as usize),
                 OpCode::SDEF => self.handle_start_def(),
                 OpCode::EDEF => {
-                    // println!("Found end definition");
                     self.global_env.borrow_mut().set_binding_context(false);
-                    // def_stack -= 1;
                     self.ip += 1;
-                    // unimplemented!();
                 }
 
                 OpCode::LOOKUP => {}
@@ -487,7 +482,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline]
-    fn handle_transduce(&mut self, span: Span) -> Result<()> {
+    fn handle_transduce(&mut self, span: &Span) -> Result<()> {
         let list = self.stack.pop().unwrap();
         let initial_value = self.stack.pop().unwrap();
         let reducer = self.stack.pop().unwrap();
@@ -499,7 +494,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 initial_value,
                 reducer,
                 self.constants,
-                &span,
+                span,
                 self.repl,
                 self.callback,
             );
@@ -512,7 +507,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline]
-    fn handle_collect_to(&mut self, span: Span) -> Result<()> {
+    fn handle_collect_to(&mut self, span: &Span) -> Result<()> {
         let output_type = self.stack.pop().unwrap();
         let list = self.stack.pop().unwrap();
         let transducer = self.stack.pop().unwrap();
@@ -521,30 +516,30 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             let ret_val = transducer.run(
                 list,
                 self.constants,
-                &span,
+                span,
                 self.repl,
                 self.callback,
                 Some(output_type),
             );
             self.stack.push(ret_val?);
         } else {
-            stop!(Generic => "Transducer execute takes a list"; span);
+            stop!(Generic => "Transducer execute takes a list"; *span);
         }
         self.ip += 1;
         Ok(())
     }
 
     #[inline]
-    fn handle_collect(&mut self, span: Span) -> Result<()> {
+    fn handle_collect(&mut self, span: &Span) -> Result<()> {
         let list = self.stack.pop().unwrap();
         let transducer = self.stack.pop().unwrap();
 
         if let SteelVal::IterV(transducer) = transducer.as_ref() {
             let ret_val =
-                transducer.run(list, self.constants, &span, self.repl, self.callback, None);
+                transducer.run(list, self.constants, span, self.repl, self.callback, None);
             self.stack.push(ret_val?);
         } else {
-            stop!(Generic => "Transducer execute takes a list"; span);
+            stop!(Generic => "Transducer execute takes a list"; *span);
         }
         self.ip += 1;
         Ok(())
@@ -604,7 +599,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline]
-    fn handle_read(&mut self, span: Span) -> Result<()> {
+    fn handle_read(&mut self, span: &Span) -> Result<()> {
         // this needs to be a string
         let expression_to_parse = self.stack.pop().unwrap();
 
@@ -629,10 +624,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         .push(ListOperations::built_in_list_func_flat_non_gc(converted?)?);
                     self.ip += 1;
                 }
-                Err(e) => stop!(Generic => format!("{}", e); span),
+                Err(e) => stop!(Generic => format!("{}", e); *span),
             }
         } else {
-            stop!(TypeMismatch => "read expects a string"; span)
+            stop!(TypeMismatch => "read expects a string"; *span)
         }
         Ok(())
     }
@@ -660,6 +655,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // TODO future me figure out the annoying offset issue
         // awful awful awful hack to fix the repl environment noise
         // cur_inst.payload_size as usize
+
+        // println!("pushing");
+
+        // let value = self.global_env.borrow().repl_lookup_idx(index)?;
+        // self.stack.push(value);
+
         if self.repl {
             let value = self.global_env.borrow().repl_lookup_idx(index)?;
             self.stack.push(value);
@@ -738,7 +739,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline]
-    fn handle_tail_call(&mut self, payload_size: usize, span: Span) -> Result<()> {
+    fn handle_tail_call(&mut self, payload_size: usize, span: &Span) -> Result<()> {
         use SteelVal::*;
         let stack_func = self.stack.pop().unwrap();
 
@@ -753,11 +754,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 if self.stacks.len() == STACK_LIMIT {
                     println!("stacks at exit: {:?}", self.stacks);
                     println!("stack frame at exit: {:?}", self.stack);
-                    stop!(Generic => "stack overflowed!"; span);
+                    stop!(Generic => "stack overflowed!"; *span);
                 }
 
                 if closure.arity() != payload_size as usize {
-                    stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size as usize); span);
+                    stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size as usize); *span);
                 }
 
                 let args = self
@@ -789,13 +790,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         0
                     });
 
-                // info!("Calling mark and sweep");
                 self.heap
                     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
-                // info!(
-                //     "Collecting garbage on TAILCALL with heap length: {}",
-                //     heap.len()
-                // );
                 self.heap.collect_garbage();
 
                 self.global_env = inner_env;
@@ -804,7 +800,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.ip = 0;
             }
             _ => {
-                stop!(BadSyntax => "TailCall - Application not a procedure or function type not supported"; span);
+                stop!(BadSyntax => "TailCall - Application not a procedure or function type not supported"; *span);
             }
         }
 
@@ -817,10 +813,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         factory: &Box<SteelStruct>,
         func: &fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<Gc<SteelVal>>,
         payload_size: usize,
-        span: Span,
+        span: &Span,
     ) -> Result<()> {
         let args = self.stack.split_off(self.stack.len() - payload_size);
-        let result = func(args, factory).map_err(|x| x.set_span(span))?;
+        let result = func(args, factory).map_err(|x| x.set_span(*span))?;
         self.stack.push(result);
         self.ip += 1;
         Ok(())
@@ -831,10 +827,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         &mut self,
         f: &fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>,
         payload_size: usize,
-        span: Span,
+        span: &Span,
     ) -> Result<()> {
         let result = f(self.stack.peek_range(self.stack.len() - payload_size..))
-            .map_err(|x| x.set_span(span))?;
+            .map_err(|x| x.set_span(*span))?;
 
         self.stack.truncate(self.stack.len() - payload_size);
 
@@ -848,10 +844,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         &mut self,
         cf: &ContractedFunction,
         payload_size: usize,
-        span: Span,
+        span: &Span,
     ) -> Result<()> {
         if cf.arity() != payload_size {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); span);
+            stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
         }
 
         let args = self.stack.split_off(self.stack.len() - payload_size);
@@ -860,7 +856,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             args,
             self.heap,
             self.constants,
-            &span,
+            span,
             self.repl,
             self.callback,
         )?;
@@ -875,7 +871,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let result = Gc::new(SteelVal::FutureV(f(self
             .stack
             .peek_range(self.stack.len() - payload_size..))));
-        // .map_err(|x| x.set_span(cur_inst.span))?;
 
         self.stack.truncate(self.stack.len() - payload_size);
         self.stack.push(result);
@@ -883,7 +878,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline]
-    fn handle_function_call(&mut self, payload_size: usize, span: Span) -> Result<()> {
+    fn handle_function_call(&mut self, payload_size: usize, span: &Span) -> Result<()> {
         use SteelVal::*;
         let stack_func = self.stack.pop().unwrap();
 
@@ -896,13 +891,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             Closure(closure) => {
                 if closure.arity() != payload_size {
-                    stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); span);
+                    stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
                 }
 
                 if self.stacks.len() == STACK_LIMIT {
                     // println!("stacks at exit: {:?}", stacks);
                     println!("stack frame at exit: {:?}", self.stack);
-                    stop!(Generic => "stack overflowed!"; span);
+                    stop!(Generic => "stack overflowed!"; *span);
                 }
 
                 // Use smallvec here?
@@ -954,7 +949,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.ip = 0;
             }
             _ => {
-                stop!(BadSyntax => "Function application not a procedure or function type not supported"; span);
+                stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);
             }
         }
         Ok(())

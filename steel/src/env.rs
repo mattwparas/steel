@@ -608,11 +608,11 @@ impl Env {
     pub fn repl_lookup_idx(&self, idx: usize) -> Result<Gc<SteelVal>> {
         // unimplemented!()
         // println!("{:?}", self.bindings.keys());
-        if self.bindings_map.contains_key(&idx) {
+        if let Some(v) = self.bindings_map.get(&idx) {
             // value needs to be cloned because
             // user needs to be able to own a persistent value
             // from Cell that may be modified later
-            Ok(Gc::clone(&self.bindings_map[&idx]))
+            Ok(Gc::clone(v))
         } else {
             // half assed module approach
             // if !self.module.is_empty() {
@@ -956,6 +956,8 @@ impl Env {
             ("append", ListOperations::append()),
             ("push-back", ListOperations::push_back()),
             ("range", ListOperations::range()),
+            ("length", ListOperations::list_length()),
+            ("reverse", ListOperations::reverse()),
             ("list->vector", ListOperations::list_to_vec()),
             ("vector", VectorOperations::vec_construct()),
             ("push-front", VectorOperations::vec_cons()),

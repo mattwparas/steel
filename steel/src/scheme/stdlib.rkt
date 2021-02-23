@@ -271,13 +271,6 @@
 
 (define empty? null?)
 
-(define (length lst)
-  (define (length-helper lst accum)
-    (if (empty? lst)
-        accum
-        (length-helper (cdr lst) (add1 accum))))
-  (length-helper lst 0))
-
 (define mem-helper (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 ;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
 ;; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
