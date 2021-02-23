@@ -199,7 +199,7 @@ pub enum SteelVal {
     /// Represents built in macros,
     // MacroV(SteelMacro),
     /// Represents a symbol, internally represented as `String`s
-    SymbolV(String),
+    SymbolV(Gc<String>),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Box<dyn CustomType>),
     // Embedded HashMap
@@ -944,7 +944,7 @@ mod or_else_tests {
 
     #[test]
     fn symbol_or_else_test_good() {
-        let input = SteelVal::SymbolV("foo".to_string());
+        let input = SteelVal::SymbolV("foo".into());
         assert_eq!(
             input.symbol_or_else(throw!(Generic => "test")).unwrap(),
             "foo".to_string()

@@ -189,7 +189,7 @@ impl ContractedFunction {
         name: Option<Gc<SteelVal>>,
     ) -> Result<Gc<SteelVal>> {
         let name = match name.as_ref().map(|x| x.as_ref()) {
-            Some(SteelVal::SymbolV(s)) => Some(s.clone()),
+            Some(SteelVal::SymbolV(s)) => Some(s.unwrap()),
             Some(_) => stop!(TypeMismatch => "bind/c expected a symbol in the first position"),
             None => None,
         };

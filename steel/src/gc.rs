@@ -159,3 +159,9 @@ impl From<&String> for Gc<String> {
         Gc::new(val.clone())
     }
 }
+
+impl AsRef<str> for Gc<String> {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}

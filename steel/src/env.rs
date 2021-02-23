@@ -875,7 +875,7 @@ impl Env {
     pub fn constant_env_to_hashmap() -> SteelVal {
         let mut hm = crate::im_rc::HashMap::new();
         for (name, val) in Env::constant_core() {
-            hm.insert(Gc::new(SteelVal::SymbolV(name.to_string())), Gc::new(val));
+            hm.insert(Gc::new(SteelVal::SymbolV(name.into())), Gc::new(val));
         }
         SteelVal::HashMapV(hm)
     }

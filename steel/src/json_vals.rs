@@ -76,7 +76,7 @@ impl TryFrom<Map<String, Value>> for Gc<SteelVal> {
     fn try_from(map: Map<String, Value>) -> std::result::Result<Self, Self::Error> {
         let mut hm = HashMap::new();
         for (key, value) in map {
-            hm.insert(Gc::new(SteelVal::SymbolV(key)), value.try_into()?);
+            hm.insert(Gc::new(SteelVal::SymbolV(key.into())), value.try_into()?);
         }
         Ok(Gc::new(SteelVal::HashMapV(hm)))
     }
@@ -133,7 +133,7 @@ impl TryFrom<Gc<SteelVal>> for Value {
             SteelVal::FuncV(_) => stop!(Generic => "function not serializable"),
             // SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
             // SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
-            SteelVal::SymbolV(s) => Ok(Value::String(s.clone())),
+            SteelVal::SymbolV(s) => Ok(Value::String(s.unwrap())),
             SteelVal::Custom(_) => stop!(Generic => "generic struct not serializable"),
             SteelVal::HashMapV(hm) => {
                 let mut map: Map<String, Value> = Map::new();
@@ -184,8 +184,8 @@ mod json_tests {
         let result = apply_function(string_to_jsexpr(), args);
 
         let expected = Gc::new(SteelVal::HashMapV(hashmap! {
-            Gc::new(SymbolV("a".to_string())) => Gc::new(StringV("applesauce".into())),
-            Gc::new(SymbolV("b".to_string())) => Gc::new(StringV("bananas".into()))
+            Gc::new(SymbolV("a".into())) => Gc::new(StringV("applesauce".into())),
+            Gc::new(SymbolV("b".into())) => Gc::new(StringV("bananas".into()))
         }));
 
         assert_eq!(result.unwrap(), expected);

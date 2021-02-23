@@ -51,7 +51,7 @@ impl PortOperations {
 
                     if let Ok((size, result)) = res {
                         if size == 0 {
-                            Ok(Gc::new(SteelVal::SymbolV("eof".to_string())))
+                            Ok(Gc::new(SteelVal::SymbolV("eof".into())))
                         } else {
                             Ok(Gc::new(SteelVal::StringV(result.into())))
                         }
