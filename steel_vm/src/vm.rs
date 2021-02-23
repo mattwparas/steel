@@ -307,6 +307,7 @@ impl InstructionPointer {
         &self.1
     }
 
+    #[inline(always)]
     pub fn instrs(self) -> Rc<[DenseInstruction]> {
         self.1
     }
@@ -481,7 +482,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         panic!("Out of bounds instruction")
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_transduce(&mut self, span: &Span) -> Result<()> {
         let list = self.stack.pop().unwrap();
         let initial_value = self.stack.pop().unwrap();
@@ -506,7 +507,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_collect_to(&mut self, span: &Span) -> Result<()> {
         let output_type = self.stack.pop().unwrap();
         let list = self.stack.pop().unwrap();
@@ -529,7 +530,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_collect(&mut self, span: &Span) -> Result<()> {
         let list = self.stack.pop().unwrap();
         let transducer = self.stack.pop().unwrap();
@@ -545,13 +546,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_panic(&mut self, span: Span) -> Result<()> {
         let error_message = self.stack.pop().unwrap();
         stop!(Generic => error_message.to_string(); span);
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_struct(&mut self, offset: usize) -> Result<()> {
         let val = self.constants.get(offset);
         let mut iter = SteelVal::iter(val);
@@ -598,7 +599,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_read(&mut self, span: &Span) -> Result<()> {
         // this needs to be a string
         let expression_to_parse = self.stack.pop().unwrap();
@@ -632,7 +633,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_set(&mut self, index: usize) -> Result<()> {
         let value_to_assign = self.stack.pop().unwrap();
 
@@ -650,7 +651,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
         // TODO future me figure out the annoying offset issue
         // awful awful awful hack to fix the repl environment noise
@@ -673,7 +674,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_start_closure(&mut self, offset: usize) {
         self.ip += 1;
         let forward_jump = offset - 1;
@@ -721,7 +722,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.ip += forward_jump;
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_bind(&mut self, payload_size: usize) {
         if self.repl {
             self.global_env
@@ -738,7 +739,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.ip += 1;
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_tail_call(&mut self, payload_size: usize, span: &Span) -> Result<()> {
         use SteelVal::*;
         let stack_func = self.stack.pop().unwrap();
@@ -757,13 +758,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     stop!(Generic => "stack overflowed!"; *span);
                 }
 
-                if closure.arity() != payload_size as usize {
-                    stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size as usize); *span);
+                if closure.arity() != payload_size {
+                    stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
                 }
 
-                let args = self
-                    .stack
-                    .split_off(self.stack.len() - payload_size as usize);
+                let args = self.stack.split_off(self.stack.len() - payload_size);
 
                 let parent_env = closure.sub_expression_env();
                 // TODO remove this unwrap
@@ -807,7 +806,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn call_struct_func(
         &mut self,
         factory: &Box<SteelStruct>,
@@ -822,7 +821,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn call_primitive_func(
         &mut self,
         f: &fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>,
@@ -839,7 +838,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn call_contracted_function(
         &mut self,
         cf: &ContractedFunction,
@@ -866,7 +865,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn call_future_func(&mut self, f: &fn(&[Gc<SteelVal>]) -> FutureResult, payload_size: usize) {
         let result = Gc::new(SteelVal::FutureV(f(self
             .stack
@@ -877,7 +876,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.ip += 1;
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_function_call(&mut self, payload_size: usize, span: &Span) -> Result<()> {
         use SteelVal::*;
         let stack_func = self.stack.pop().unwrap();
@@ -955,7 +954,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_start_def(&mut self) {
         self.ip += 1;
 
@@ -970,7 +969,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.pop_count += 1;
     }
 
-    #[inline]
+    #[inline(always)]
     fn handle_apply(&mut self, span: Span) -> Result<()> {
         let list = self.stack.pop().unwrap();
         let func = self.stack.pop().unwrap();
@@ -1052,6 +1051,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 }
 
+#[inline(always)]
 pub fn vm<CT: ConstantTable>(
     instructions: Rc<[DenseInstruction]>,
     stack: StackFrame,
