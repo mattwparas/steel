@@ -39,6 +39,7 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>;
+// pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type StructClosureSignature = fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<Gc<SteelVal>>;
 
 // This would mean we would have to rewrite literally everything to not return Gc'd values,
