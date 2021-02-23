@@ -717,7 +717,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         );
 
         self.stack
-            .push(Gc::new(SteelVal::Closure(constructed_lambda)));
+            .push(Gc::new(SteelVal::Closure(Gc::new(constructed_lambda))));
 
         self.ip += forward_jump;
     }

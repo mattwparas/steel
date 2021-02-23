@@ -159,7 +159,7 @@ impl fmt::Display for ContractType {
 #[derive(Clone)]
 pub struct ContractedFunction {
     pub contract: FunctionContract,
-    pub function: ByteCodeLambda,
+    pub function: Gc<ByteCodeLambda>,
     pub name: Option<String>,
 }
 
@@ -170,7 +170,11 @@ impl PartialEq for ContractedFunction {
 }
 
 impl ContractedFunction {
-    pub fn new(contract: FunctionContract, function: ByteCodeLambda, name: Option<String>) -> Self {
+    pub fn new(
+        contract: FunctionContract,
+        function: Gc<ByteCodeLambda>,
+        name: Option<String>,
+    ) -> Self {
         ContractedFunction {
             contract,
             function,

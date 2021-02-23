@@ -213,7 +213,7 @@ pub enum SteelVal {
     /// Represents a port object
     PortV(SteelPort),
     /// Represents a bytecode closure
-    Closure(ByteCodeLambda),
+    Closure(Gc<ByteCodeLambda>),
     /// Generic iterator wrapper
     IterV(Transducer),
     // Generic IntoIter wrapper
