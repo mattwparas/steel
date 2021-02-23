@@ -363,7 +363,7 @@ mod string_operation_tests {
     fn string_to_list_empty() {
         let args = vec![SteelVal::StringV("".into())];
         let res = apply_function(StringOperations::string_to_list(), args);
-        let expected = Gc::new(SteelVal::VectorV(Vector::new()));
+        let expected = Gc::new(SteelVal::VectorV(Gc::new(Vector::new())));
         assert_eq!(res.unwrap(), expected);
     }
 

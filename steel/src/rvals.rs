@@ -188,7 +188,7 @@ pub enum SteelVal {
     Pair(Gc<SteelVal>, Option<Gc<SteelVal>>),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
-    VectorV(Vector<Gc<SteelVal>>),
+    VectorV(Gc<Vector<Gc<SteelVal>>>), // TODO wrap in GC
     /// Void return value
     Void,
     /// Represents strings
@@ -204,9 +204,9 @@ pub enum SteelVal {
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Box<dyn CustomType>),
     // Embedded HashMap
-    HashMapV(HashMap<Gc<SteelVal>, Gc<SteelVal>>),
+    HashMapV(HashMap<Gc<SteelVal>, Gc<SteelVal>>), // TODO wrap in GC
     // Embedded HashSet
-    HashSetV(HashSet<Gc<SteelVal>>),
+    HashSetV(HashSet<Gc<SteelVal>>), // TODO wrap in GC
     /// Represents a scheme-only struct
     StructV(Box<SteelStruct>),
     /// Represents a special rust closure
@@ -450,7 +450,7 @@ impl SteelVal {
         err: F,
     ) -> std::result::Result<Vector<Gc<SteelVal>>, E> {
         match self {
-            Self::VectorV(v) => Ok(v.clone()),
+            Self::VectorV(v) => Ok(v.unwrap()),
             _ => Err(err()),
         }
     }
@@ -752,11 +752,11 @@ pub(crate) fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
                     Pair(_, _) => p = rest,
                     _ => {
                         lst.push_back(Gc::clone(rest));
-                        return VectorV(lst);
+                        return VectorV(Gc::new(lst));
                     }
                 },
                 None => {
-                    return VectorV(lst);
+                    return VectorV(Gc::new(lst));
                 }
             }
         }
@@ -895,12 +895,12 @@ mod or_else_tests {
 
     #[test]
     fn vector_or_else_test_good() {
-        let input = SteelVal::VectorV(
+        let input = SteelVal::VectorV(Gc::new(
             vector![SteelVal::IntV(1)]
                 .into_iter()
                 .map(Gc::new)
                 .collect(),
-        );
+        ));
         assert_eq!(
             input.vector_or_else(throw!(Generic => "test")).unwrap(),
             vector![SteelVal::IntV(1)]

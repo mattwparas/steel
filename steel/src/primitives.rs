@@ -130,7 +130,7 @@ impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
             }
             SteelVal::VectorV(ref v) => {
                 let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    v.into_iter().map(|x| T::try_from((**x).clone())).collect();
+                    v.into_iter().map(|x| T::try_from((*x).clone())).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::ConversionError(
@@ -165,7 +165,7 @@ impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
             }
             SteelVal::VectorV(v) => {
                 let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    v.into_iter().map(|x| T::try_from((**x).clone())).collect();
+                    v.into_iter().map(|x| T::try_from(x.unwrap())).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::ConversionError(
@@ -212,7 +212,7 @@ fn vec_to_list(args: Vec<SteelVal>) -> SteelVal {
             pairs.push(Gc::new(SteelVal::Pair(Gc::new(cdr), None)));
         }
         (_, _) => {
-            return SteelVal::VectorV(Vector::new());
+            return SteelVal::VectorV(Gc::new(Vector::new()));
         }
     }
 
@@ -328,7 +328,7 @@ impl From<bool> for SteelVal {
 
 impl From<Vector<Gc<SteelVal>>> for SteelVal {
     fn from(val: Vector<Gc<SteelVal>>) -> SteelVal {
-        SteelVal::VectorV(val)
+        SteelVal::VectorV(Gc::new(val))
     }
 }
 
@@ -376,12 +376,12 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_vec_to_vec_usize() {
-        let input = SteelVal::VectorV(
+        let input = SteelVal::VectorV(Gc::new(
             vector![SteelVal::IntV(0), SteelVal::IntV(1)]
                 .into_iter()
                 .map(Gc::new)
                 .collect(),
-        );
+        ));
         let res = <Vec<usize>>::try_from(input);
         let expected: Vec<usize> = vec![0, 1];
         assert_eq!(res.unwrap(), expected);
@@ -397,12 +397,12 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_ref_vec_to_vec_usize() {
-        let input = SteelVal::VectorV(
+        let input = SteelVal::VectorV(Gc::new(
             vector![SteelVal::IntV(0), SteelVal::IntV(1)]
                 .into_iter()
                 .map(Gc::new)
                 .collect(),
-        );
+        ));
         let res = <Vec<usize>>::try_from(&input);
         let expected: Vec<usize> = vec![0, 1];
         assert_eq!(res.unwrap(), expected);

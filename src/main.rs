@@ -107,6 +107,8 @@ fn main() {
 
     let args = args().collect::<Vec<_>>();
 
+    println!("Size of SteelVal: {}", std::mem::size_of::<SteelVal>());
+
     if args.len() == 1 {
         finish(test_repl());
     } else if args.len() == 2 {

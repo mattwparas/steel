@@ -61,7 +61,7 @@ impl ListOperations {
                             Pair(_, _) => Ok(Gc::clone(rest)),
                             _ => Ok(Gc::new(SteelVal::Pair(Gc::clone(rest), None))), // Ok(Gc::clone(rest))
                         },
-                        None => Ok(Gc::new(SteelVal::VectorV(Vector::new()))), // TODO
+                        None => Ok(Gc::new(SteelVal::VectorV(Gc::new(Vector::new())))), // TODO
                     },
                     e => {
                         stop!(TypeMismatch => "cdr takes a list, given: {}", e);
@@ -122,9 +122,9 @@ impl ListOperations {
                         lst.reverse();
                         Self::built_in_list_func_flat(&lst)
                     }
-                    SteelVal::VectorV(v) => Ok(Gc::new(SteelVal::VectorV(
-                        v.into_iter().rev().map(Gc::clone).collect(),
-                    ))),
+                    SteelVal::VectorV(v) => Ok(Gc::new(SteelVal::VectorV(Gc::new(
+                        v.iter().rev().map(Gc::clone).collect(),
+                    )))),
                     _ => {
                         stop!(TypeMismatch => "reverse requires an iterable")
                     }
@@ -275,9 +275,9 @@ impl ListOperations {
                     //     .map(|x| (*x).clone())
                     //     .collect();
                     // let im_vec: Vector<SteelVal> = collected.into();
-                    Ok(Gc::new(SteelVal::VectorV(
+                    Ok(Gc::new(SteelVal::VectorV(Gc::new(
                         SteelVal::iter(Gc::clone(&args[0])).collect(),
-                    )))
+                    ))))
                 } else {
                     stop!(TypeMismatch => "list->vector expected list")
                 }
@@ -332,7 +332,9 @@ impl ListOperations {
             }
         }
 
-        pairs.pop().unwrap_or(Gc::new(VectorV(Vector::new())))
+        pairs
+            .pop()
+            .unwrap_or(Gc::new(VectorV(Gc::new(Vector::new()))))
     }
 
     pub fn built_in_list_normal_iter<I>(args: I) -> Result<Gc<SteelVal>>
@@ -385,7 +387,7 @@ impl ListOperations {
                 pairs.push(Gc::new(SteelVal::Pair(car, None)));
             }
             _ => {
-                return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+                return Ok(Gc::new(SteelVal::VectorV(Gc::new(Vector::new()))));
             }
         }
 
@@ -409,7 +411,7 @@ impl ListOperations {
                 pairs.push(Gc::new(SteelVal::Pair(car?, None)));
             }
             _ => {
-                return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+                return Ok(Gc::new(SteelVal::VectorV(Gc::new(Vector::new()))));
             }
         }
 
@@ -464,7 +466,7 @@ impl ListOperations {
                     pairs.push(Gc::new(SteelVal::Pair(car, None)));
                 }
                 _ => {
-                    return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+                    return Ok(Gc::new(SteelVal::VectorV(Gc::new(Vector::new()))));
                 }
             }
 
@@ -487,7 +489,7 @@ impl ListOperations {
                 pairs.push(Gc::new(SteelVal::Pair(car, None)));
             }
             _ => {
-                return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+                return Ok(Gc::new(SteelVal::VectorV(Gc::new(Vector::new()))));
             }
         }
 
@@ -527,7 +529,7 @@ impl ListOperations {
                 pairs.push(Gc::new(SteelVal::Pair(car, None)));
             }
             _ => {
-                return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+                return Ok(Gc::new(SteelVal::VectorV(Gc::new(Vector::new()))));
             }
         }
 
@@ -583,7 +585,7 @@ mod list_operation_tests {
 
     #[test]
     fn cons_with_empty_list() {
-        let args = vec![SteelVal::IntV(1), SteelVal::VectorV(Vector::new())];
+        let args = vec![SteelVal::IntV(1), SteelVal::VectorV(Gc::new(Vector::new()))];
         let res = apply_function(ListOperations::cons(), args);
         let expected = Gc::new(SteelVal::Pair(Gc::new(SteelVal::IntV(1)), None));
         assert_eq!(res.unwrap(), expected);
@@ -592,14 +594,14 @@ mod list_operation_tests {
     fn cons_with_non_empty_vector() {
         let args = vec![
             SteelVal::IntV(1),
-            SteelVal::VectorV(vector![Gc::new(SteelVal::IntV(2))]),
+            SteelVal::VectorV(Gc::new(vector![Gc::new(SteelVal::IntV(2))])),
         ];
         let res = apply_function(ListOperations::cons(), args);
         let expected = Gc::new(SteelVal::Pair(
             Gc::new(SteelVal::IntV(1)),
-            Some(Gc::new(SteelVal::VectorV(vector![Gc::new(
+            Some(Gc::new(SteelVal::VectorV(Gc::new(vector![Gc::new(
                 SteelVal::IntV(2)
-            )]))),
+            )])))),
         ));
         assert_eq!(res.unwrap(), expected);
     }
@@ -678,7 +680,7 @@ mod list_operation_tests {
     fn cdr_single_element_list() {
         let args = vec![SteelVal::Pair(Gc::new(SteelVal::NumV(1.0)), None)];
         let res = apply_function(ListOperations::cdr(), args);
-        let expected = Gc::new(SteelVal::VectorV(Vector::new()));
+        let expected = Gc::new(SteelVal::VectorV(Gc::new(Vector::new())));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -747,12 +749,12 @@ mod list_operation_tests {
             Some(Gc::new(SteelVal::IntV(2))),
         )];
         let res = apply_function(ListOperations::list_to_vec(), args);
-        let expected = Gc::new(SteelVal::VectorV(
+        let expected = Gc::new(SteelVal::VectorV(Gc::new(
             vector![SteelVal::IntV(1), SteelVal::IntV(2)]
                 .into_iter()
                 .map(Gc::new)
                 .collect(),
-        ));
+        )));
         assert_eq!(res.unwrap(), expected);
     }
 }

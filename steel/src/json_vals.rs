@@ -124,7 +124,7 @@ impl TryFrom<Gc<SteelVal>> for Value {
                     .collect::<Result<Vec<_>>>()?,
             )),
             SteelVal::VectorV(v) => Ok(Value::Array(
-                v.into_iter()
+                v.iter()
                     .map(|x| Gc::clone(x).try_into())
                     .collect::<Result<Vec<_>>>()?,
             )),

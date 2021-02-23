@@ -76,9 +76,9 @@ impl TransducerOperations {
 
     pub fn transducer_construct() -> SteelVal {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            Ok(Gc::new(SteelVal::VectorV(
+            Ok(Gc::new(SteelVal::VectorV(Gc::new(
                 args.into_iter().map(Gc::clone).collect(),
-            )))
+            ))))
         })
     }
 }

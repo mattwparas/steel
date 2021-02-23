@@ -128,12 +128,12 @@ impl MetaOperations {
             // let future = LocalFutureObj::new(Box::pin(async {}));
             // spawner.spawn_local_obj(future);
             // executor.run_until(future);
-            Ok(Gc::new(SteelVal::VectorV(
+            Ok(Gc::new(SteelVal::VectorV(Gc::new(
                 executor
                     .run_until(Compat::new(futures))
                     .into_iter()
                     .collect::<Result<_>>()?,
-            )))
+            ))))
 
             // unimplemented!()
         })

@@ -268,7 +268,7 @@ mod hashset_tests {
             .collect(),
         )];
         let res = apply_function(HashSetOperations::keys_to_vector(), args);
-        let expected = Gc::new(SteelVal::VectorV(
+        let expected = Gc::new(SteelVal::VectorV(Gc::new(
             vec![
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into()),
@@ -277,16 +277,16 @@ mod hashset_tests {
             .into_iter()
             .map(Gc::new)
             .collect(),
-        ));
+        )));
 
         // pull out the vectors and sort them
         let unwrapped_res: SteelVal = (*res.unwrap()).clone();
         let unwrapped_expected: SteelVal = (*expected).clone();
 
         let mut res_vec_string: Vec<Gc<String>> = if let SteelVal::VectorV(v) = &unwrapped_res {
-            v.into_iter()
+            v.iter()
                 .map(|x| {
-                    if let SteelVal::StringV(s) = (*x).clone().as_ref() {
+                    if let SteelVal::StringV(ref s) = x.unwrap() {
                         s.clone()
                     } else {
                         panic!("test failed")
@@ -299,9 +299,9 @@ mod hashset_tests {
 
         let mut expected_vec_string: Vec<Gc<String>> =
             if let SteelVal::VectorV(v) = &unwrapped_expected {
-                v.into_iter()
+                v.iter()
                     .map(|x| {
-                        if let SteelVal::StringV(s) = (*x).clone().as_ref() {
+                        if let SteelVal::StringV(ref s) = x.unwrap() {
                             s.clone()
                         } else {
                             panic!("test failed")
