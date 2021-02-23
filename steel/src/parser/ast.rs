@@ -87,10 +87,8 @@ impl TryFrom<&SteelVal> for ExprKind {
                 IntegerLiteral(*x),
             )))),
             VectorV(lst) => {
-                let items: std::result::Result<Vec<Self>, Self::Error> = lst
-                    .into_iter()
-                    .map(|x| Self::try_from(x.as_ref()))
-                    .collect();
+                let items: std::result::Result<Vec<Self>, Self::Error> =
+                    lst.iter().map(|x| Self::try_from(x.as_ref())).collect();
                 Ok(ExprKind::List(List::new(items?)))
             }
             Void => Err("Can't convert from Void to expression!"),
@@ -107,10 +105,8 @@ impl TryFrom<&SteelVal> for ExprKind {
             // Pair(_, _) => Err("Can't convert from pair"), // TODO
             Pair(_, _) => {
                 if let VectorV(ref lst) = collect_pair_into_vector(r) {
-                    let items: std::result::Result<Vec<Self>, Self::Error> = lst
-                        .into_iter()
-                        .map(|x| Self::try_from(x.as_ref()))
-                        .collect();
+                    let items: std::result::Result<Vec<Self>, Self::Error> =
+                        lst.iter().map(|x| Self::try_from(x.as_ref())).collect();
                     Ok(ExprKind::List(List::new(items?)))
                 } else {
                     Err("Couldn't convert from list to expression")
