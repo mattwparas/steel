@@ -78,7 +78,7 @@ impl TryFrom<Map<String, Value>> for Gc<SteelVal> {
         for (key, value) in map {
             hm.insert(Gc::new(SteelVal::SymbolV(key.into())), value.try_into()?);
         }
-        Ok(Gc::new(SteelVal::HashMapV(hm)))
+        Ok(Gc::new(SteelVal::HashMapV(Gc::new(hm))))
     }
 }
 
@@ -137,13 +137,13 @@ impl TryFrom<Gc<SteelVal>> for Value {
             SteelVal::Custom(_) => stop!(Generic => "generic struct not serializable"),
             SteelVal::HashMapV(hm) => {
                 let mut map: Map<String, Value> = Map::new();
-                for (key, value) in hm {
+                for (key, value) in hm.iter() {
                     map.insert(key.try_into()?, Gc::clone(value).try_into()?);
                 }
                 Ok(Value::Object(map))
             }
             SteelVal::HashSetV(hs) => Ok(Value::Array(
-                hs.into_iter()
+                hs.iter()
                     .map(|x| Gc::clone(x).try_into())
                     .collect::<Result<Vec<_>>>()?,
             )),
@@ -183,10 +183,10 @@ mod json_tests {
 
         let result = apply_function(string_to_jsexpr(), args);
 
-        let expected = Gc::new(SteelVal::HashMapV(hashmap! {
+        let expected = Gc::new(SteelVal::HashMapV(Gc::new(hashmap! {
             Gc::new(SymbolV("a".into())) => Gc::new(StringV("applesauce".into())),
             Gc::new(SymbolV("b".into())) => Gc::new(StringV("bananas".into()))
-        }));
+        })));
 
         assert_eq!(result.unwrap(), expected);
     }

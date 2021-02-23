@@ -34,7 +34,7 @@ impl HashMapOperations {
                 }
             }
 
-            Ok(Gc::new(SteelVal::HashMapV(hm)))
+            Ok(Gc::new(SteelVal::HashMapV(Gc::new(hm))))
         })
     }
 
@@ -49,13 +49,13 @@ impl HashMapOperations {
             let value = Gc::clone(&args[2]);
 
             if let SteelVal::HashMapV(hm) = hashmap.as_ref() {
-                let mut hm = hm.clone();
+                let mut hm = hm.unwrap();
                 if key.is_hashable() {
                     hm.insert(key, value);
                 } else {
                     stop!(TypeMismatch => "hash key not hashable!");
                 }
-                Ok(Gc::new(SteelVal::HashMapV(hm)))
+                Ok(Gc::new(SteelVal::HashMapV(Gc::new(hm))))
             } else {
                 stop!(TypeMismatch => "hm insert takes a hashmap")
             }
@@ -221,9 +221,9 @@ impl HashMapOperations {
             let hashmap = Gc::clone(&args[0]);
 
             if let SteelVal::HashMapV(hm) = hashmap.as_ref() {
-                let mut hm = hm.clone();
+                let mut hm = hm.unwrap();
                 hm.clear();
-                Ok(Gc::new(SteelVal::HashMapV(hm)))
+                Ok(Gc::new(SteelVal::HashMapV(Gc::new(hm))))
             } else {
                 stop!(TypeMismatch => "hm-clear takes a hashmap")
             }
@@ -254,10 +254,10 @@ mod hashmap_tests {
             StringV("bar2".into()),
         ];
         let res = apply_function(HashMapOperations::hm_construct(), args);
-        let expected = Gc::new(SteelVal::HashMapV(hashmap! {
+        let expected = Gc::new(SteelVal::HashMapV(Gc::new(hashmap! {
             Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into())),
             Gc::new(StringV("foo2".into())) => Gc::new(StringV("bar2".into()))
-        }));
+        })));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -274,33 +274,33 @@ mod hashmap_tests {
             StringV("bar2".into()),
         ];
         let res = apply_function(HashMapOperations::hm_construct(), args);
-        let expected = Gc::new(SteelVal::HashMapV(hashmap! {
+        let expected = Gc::new(SteelVal::HashMapV(Gc::new(hashmap! {
             Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into())),
             Gc::new(StringV("foo2".into())) => Gc::new(StringV("bar2".into()))
-        }));
+        })));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn hm_insert_from_empty() {
         let args = vec![
-            HashMapV(hashmap![]),
+            HashMapV(Gc::new(hashmap![])),
             StringV("foo".into()),
             StringV("bar".into()),
         ];
         let res = apply_function(HashMapOperations::hm_insert(), args);
-        let expected = Gc::new(SteelVal::HashMapV(hashmap! {
+        let expected = Gc::new(SteelVal::HashMapV(Gc::new(hashmap! {
             Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into()))
-        }));
+        })));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn hm_get_found() {
         let args = vec![
-            HashMapV(hashmap! {
+            HashMapV(Gc::new(hashmap! {
                 Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into()))
-            }),
+            })),
             StringV("foo".into()),
         ];
         let res = apply_function(HashMapOperations::hm_get(), args);
@@ -311,9 +311,9 @@ mod hashmap_tests {
     #[test]
     fn hm_get_error() {
         let args = vec![
-            HashMapV(hashmap! {
+            HashMapV(Gc::new(hashmap! {
                 Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into()))
-            }),
+            })),
             StringV("garbage".into()),
         ];
         let res = apply_function(HashMapOperations::hm_get(), args);
@@ -323,9 +323,9 @@ mod hashmap_tests {
     #[test]
     fn hm_try_get_found() {
         let args = vec![
-            HashMapV(hashmap! {
+            HashMapV(Gc::new(hashmap! {
                 Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into()))
-            }),
+            })),
             StringV("foo".into()),
         ];
         let res = apply_function(HashMapOperations::hm_try_get(), args);
@@ -336,9 +336,9 @@ mod hashmap_tests {
     #[test]
     fn hm_try_get_error() {
         let args = vec![
-            HashMapV(hashmap! {
+            HashMapV(Gc::new(hashmap! {
                 Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into()))
-            }),
+            })),
             StringV("garbage".into()),
         ];
         let res = apply_function(HashMapOperations::hm_contains(), args);
@@ -349,9 +349,9 @@ mod hashmap_tests {
     #[test]
     fn hm_contains_true() {
         let args = vec![
-            HashMapV(hashmap! {
+            HashMapV(Gc::new(hashmap! {
                 Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into()))
-            }),
+            })),
             StringV("foo".into()),
         ];
         let res = apply_function(HashMapOperations::hm_contains(), args);
@@ -362,9 +362,9 @@ mod hashmap_tests {
     #[test]
     fn hm_contains_false() {
         let args = vec![
-            HashMapV(hashmap! {
+            HashMapV(Gc::new(hashmap! {
                 Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into()))
-            }),
+            })),
             StringV("bar".into()),
         ];
         let res = apply_function(HashMapOperations::hm_contains(), args);
@@ -374,11 +374,11 @@ mod hashmap_tests {
 
     #[test]
     fn hm_keys_to_vector_normal() {
-        let args = vec![HashMapV(hashmap! {
+        let args = vec![HashMapV(Gc::new(hashmap! {
             Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into())),
             Gc::new(StringV("bar".into())) => Gc::new(StringV("baz".into())),
             Gc::new(StringV("baz".into())) => Gc::new(StringV("quux".into()))
-        })];
+        }))];
         let res = apply_function(HashMapOperations::keys_to_vector(), args);
         let expected = Gc::new(SteelVal::VectorV(Gc::new(
             vec![
@@ -432,11 +432,11 @@ mod hashmap_tests {
 
     #[test]
     fn hm_values_to_vector_normal() {
-        let args = vec![HashMapV(hashmap! {
+        let args = vec![HashMapV(Gc::new(hashmap! {
             Gc::new(StringV("foo".into())) => Gc::new(StringV("bar".into())),
             Gc::new(StringV("bar".into())) => Gc::new(StringV("baz".into())),
             Gc::new(StringV("baz".into())) => Gc::new(StringV("quux".into()))
-        })];
+        }))];
         let res = apply_function(HashMapOperations::values_to_vector(), args);
         let expected = Gc::new(SteelVal::VectorV(Gc::new(
             vec![

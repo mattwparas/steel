@@ -24,7 +24,7 @@ impl HashSetOperations {
                 }
             }
 
-            Ok(Gc::new(SteelVal::HashSetV(hs)))
+            Ok(Gc::new(SteelVal::HashSetV(Gc::new(hs))))
         })
     }
 
@@ -38,13 +38,13 @@ impl HashSetOperations {
             let key = Gc::clone(&args[1]);
 
             if let SteelVal::HashSetV(hs) = hashset.as_ref() {
-                let mut hs = hs.clone();
+                let mut hs = hs.unwrap();
                 if key.is_hashable() {
                     hs.insert(key);
                 } else {
                     stop!(TypeMismatch => "hash key not hashable!");
                 }
-                Ok(Gc::new(SteelVal::HashSetV(hs)))
+                Ok(Gc::new(SteelVal::HashSetV(Gc::new(hs))))
             } else {
                 stop!(TypeMismatch => "set insert takes a set")
             }
@@ -120,9 +120,9 @@ impl HashSetOperations {
             let hashset = Gc::clone(&args[0]);
 
             if let SteelVal::HashSetV(hs) = hashset.as_ref() {
-                let mut hs = hs.clone();
+                let mut hs = hs.unwrap();
                 hs.clear();
-                Ok(Gc::new(SteelVal::HashSetV(hs)))
+                Ok(Gc::new(SteelVal::HashSetV(Gc::new(hs))))
             } else {
                 stop!(TypeMismatch => "hs-clear takes a hashmap")
             }
@@ -137,7 +137,7 @@ impl HashSetOperations {
             if let SteelVal::Pair(_, _) = &args[0].as_ref() {
                 let root = Gc::clone(&args[0]);
                 let hashset: HashSet<Gc<SteelVal>> = SteelVal::iter(root).collect();
-                Ok(Gc::new(SteelVal::HashSetV(hashset)))
+                Ok(Gc::new(SteelVal::HashSetV(Gc::new(hashset))))
             } else {
                 stop!(TypeMismatch => "list->hashset takes a hashset");
             }
@@ -166,7 +166,7 @@ mod hashset_tests {
             SteelVal::StringV("bar2".into()),
         ];
         let res = apply_function(HashSetOperations::hs_construct(), args);
-        let expected = Gc::new(SteelVal::HashSetV(
+        let expected = Gc::new(SteelVal::HashSetV(Gc::new(
             vec![
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into()),
@@ -176,7 +176,7 @@ mod hashset_tests {
             .into_iter()
             .map(Gc::new)
             .collect(),
-        ));
+        )));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -193,7 +193,7 @@ mod hashset_tests {
             SteelVal::StringV("bar2".into()),
         ];
         let res = apply_function(HashSetOperations::hs_construct(), args);
-        let expected = Gc::new(SteelVal::HashSetV(
+        let expected = Gc::new(SteelVal::HashSetV(Gc::new(
             vec![
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into()),
@@ -203,35 +203,35 @@ mod hashset_tests {
             .into_iter()
             .map(Gc::new)
             .collect(),
-        ));
+        )));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn hs_insert_from_empty() {
         let args = vec![
-            SteelVal::HashSetV(vec![].into()),
+            SteelVal::HashSetV(Gc::new(vec![].into())),
             SteelVal::StringV("foo".into()),
         ];
         let res = apply_function(HashSetOperations::hs_insert(), args);
-        let expected = Gc::new(SteelVal::HashSetV(
+        let expected = Gc::new(SteelVal::HashSetV(Gc::new(
             vec![SteelVal::StringV("foo".into())]
                 .into_iter()
                 .map(Gc::new)
                 .collect(),
-        ));
+        )));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn hs_contains_true() {
         let args = vec![
-            SteelVal::HashSetV(
+            SteelVal::HashSetV(Gc::new(
                 vec![SteelVal::StringV("foo".into())]
                     .into_iter()
                     .map(Gc::new)
                     .collect(),
-            ),
+            )),
             SteelVal::StringV("foo".into()),
         ];
         let res = apply_function(HashSetOperations::hs_contains(), args);
@@ -242,12 +242,12 @@ mod hashset_tests {
     #[test]
     fn hs_contains_false() {
         let args = vec![
-            SteelVal::HashSetV(
+            SteelVal::HashSetV(Gc::new(
                 vec![SteelVal::StringV("foo".into())]
                     .into_iter()
                     .map(Gc::new)
                     .collect(),
-            ),
+            )),
             SteelVal::StringV("bar".into()),
         ];
         let res = apply_function(HashSetOperations::hs_contains(), args);
@@ -257,7 +257,7 @@ mod hashset_tests {
 
     #[test]
     fn hs_keys_to_vector_normal() {
-        let args = vec![SteelVal::HashSetV(
+        let args = vec![SteelVal::HashSetV(Gc::new(
             vec![
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into()),
@@ -266,7 +266,7 @@ mod hashset_tests {
             .into_iter()
             .map(Gc::new)
             .collect(),
-        )];
+        ))];
         let res = apply_function(HashSetOperations::keys_to_vector(), args);
         let expected = Gc::new(SteelVal::VectorV(Gc::new(
             vec![

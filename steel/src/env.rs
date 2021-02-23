@@ -877,7 +877,7 @@ impl Env {
         for (name, val) in Env::constant_core() {
             hm.insert(Gc::new(SteelVal::SymbolV(name.into())), Gc::new(val));
         }
-        SteelVal::HashMapV(hm)
+        SteelVal::HashMapV(Gc::new(hm))
     }
 
     // TODO actually determine which functions are const

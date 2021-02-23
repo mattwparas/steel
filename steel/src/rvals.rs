@@ -204,9 +204,9 @@ pub enum SteelVal {
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Box<dyn CustomType>),
     // Embedded HashMap
-    HashMapV(HashMap<Gc<SteelVal>, Gc<SteelVal>>), // TODO wrap in GC
+    HashMapV(Gc<HashMap<Gc<SteelVal>, Gc<SteelVal>>>), // TODO wrap in GC
     // Embedded HashSet
-    HashSetV(HashSet<Gc<SteelVal>>), // TODO wrap in GC
+    HashSetV(Gc<HashSet<Gc<SteelVal>>>), // TODO wrap in GC
     /// Represents a scheme-only struct
     StructV(Box<SteelStruct>),
     /// Represents a special rust closure
