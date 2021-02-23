@@ -234,7 +234,7 @@ pub enum SteelVal {
     /// Contract
     Contract(ContractType),
     /// Contracted Function
-    ContractedFunction(ContractedFunction),
+    ContractedFunction(Box<ContractedFunction>),
 }
 
 // TODO come back to this for the constant map

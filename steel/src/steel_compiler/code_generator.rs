@@ -202,6 +202,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_begin(&mut self, begin: &crate::parser::ast::Begin) -> Self::Output {
+        if begin.exprs.is_empty() {
+            self.push(Instruction::new_void());
+            return Ok(());
+        }
+
         for expr in &begin.exprs {
             self.visit(expr)?;
         }

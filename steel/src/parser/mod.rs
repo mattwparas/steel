@@ -10,3 +10,6 @@ pub mod span_visitor;
 pub mod tokens;
 pub mod tryfrom_visitor;
 pub mod visitors;
+
+#[cfg(test)]
+mod prop;

@@ -120,10 +120,14 @@ impl ListOperations {
                     SteelVal::Pair(_, _) => {
                         let mut lst = Self::collect_into_vec(&args[0])?;
                         lst.reverse();
-                        Self::built_in_list_func()(&lst)
+                        Self::built_in_list_func_flat(&lst)
                     }
-                    SteelVal::VectorV(v) => Ok(Gc::new(SteelVal::BoolV(v.is_empty()))),
-                    _ => Ok(Gc::new(SteelVal::BoolV(false))),
+                    SteelVal::VectorV(v) => Ok(Gc::new(SteelVal::VectorV(
+                        v.into_iter().rev().map(Gc::clone).collect(),
+                    ))),
+                    _ => {
+                        stop!(TypeMismatch => "reverse requires an iterable")
+                    }
                 }
             } else {
                 stop!(ArityMismatch => "reverse takes one argument");
@@ -494,6 +498,24 @@ impl ListOperations {
         pairs
             .pop()
             .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
+    }
+
+    pub fn list_length() -> SteelVal {
+        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+            if args.len() == 1 {
+                if let SteelVal::Pair(_, _) = &args[0].as_ref() {
+                    let mut count: isize = 0;
+                    for _ in SteelVal::iter(Gc::clone(&args[0])) {
+                        count += 1;
+                    }
+                    Ok(Gc::new(SteelVal::IntV(count)))
+                } else {
+                    stop!(TypeMismatch => "length expects a list")
+                }
+            } else {
+                stop!(ArityMismatch => "length takes one argument");
+            }
+        })
     }
 
     pub fn built_in_list_func_flat_non_gc(args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
