@@ -77,7 +77,7 @@ impl TransducerExt for Transducer {
         };
 
         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
-            SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
+            SteelVal::VectorV(v) => Box::new(v.iter().map(|x| Ok(Gc::clone(x)))),
             SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
             SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
                 lazy_stream.unwrap(),
@@ -122,7 +122,7 @@ impl TransducerExt for Transducer {
         callback: &EvaluationProgress,
     ) -> Result<Gc<SteelVal>> {
         let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
-            SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
+            SteelVal::VectorV(v) => Box::new(v.iter().map(|x| Ok(Gc::clone(x)))),
             SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
             SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
                 lazy_stream.unwrap(),

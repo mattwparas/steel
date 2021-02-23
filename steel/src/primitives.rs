@@ -130,7 +130,7 @@ impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
             }
             SteelVal::VectorV(ref v) => {
                 let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    v.into_iter().map(|x| T::try_from((*x).clone())).collect();
+                    v.iter().map(|x| T::try_from(x.unwrap())).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::ConversionError(
@@ -165,7 +165,7 @@ impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
             }
             SteelVal::VectorV(v) => {
                 let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    v.into_iter().map(|x| T::try_from(x.unwrap())).collect();
+                    v.iter().map(|x| T::try_from(x.unwrap())).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::ConversionError(
