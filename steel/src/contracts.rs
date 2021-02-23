@@ -41,14 +41,14 @@ impl FlatContract {
 
 impl From<FlatContract> for SteelVal {
     fn from(val: FlatContract) -> SteelVal {
-        SteelVal::Contract(ContractType::Flat(val))
+        SteelVal::Contract(Gc::new(ContractType::Flat(val)))
     }
 }
 
 #[derive(Clone, PartialEq)]
 pub struct FunctionContract {
     // List of pre conditions, required to be list of ContractType
-    pre_conditions: Box<[ContractType]>,
+    pre_conditions: Box<[Gc<ContractType>]>,
     // Post condition, required to be a contract type
     post_condition: Gc<ContractType>,
     // Location/Name of contract attachment
@@ -92,7 +92,7 @@ impl FunctionContract {
         };
 
         Ok(Gc::new(
-            FunctionContract::new(pre_conditions, Gc::new(post_condition), None, None).into(),
+            FunctionContract::new(pre_conditions, post_condition, None, None).into(),
         ))
     }
 
@@ -109,7 +109,7 @@ impl FunctionContract {
     }
 
     pub fn new(
-        pre_conditions: Box<[ContractType]>,
+        pre_conditions: Box<[Gc<ContractType>]>,
         post_condition: Gc<ContractType>,
         contract_attachment_location: Option<String>,
         parent: Option<Gc<FunctionContract>>,
@@ -126,7 +126,7 @@ impl FunctionContract {
         self.pre_conditions.len()
     }
 
-    pub fn pre_conditions(&self) -> &[ContractType] {
+    pub fn pre_conditions(&self) -> &[Gc<ContractType>] {
         &self.pre_conditions
     }
 
@@ -137,7 +137,7 @@ impl FunctionContract {
 
 impl From<FunctionContract> for SteelVal {
     fn from(val: FunctionContract) -> SteelVal {
-        SteelVal::Contract(ContractType::Function(val))
+        SteelVal::Contract(Gc::new(ContractType::Function(val)))
     }
 }
 
@@ -198,8 +198,12 @@ impl ContractedFunction {
             None => None,
         };
 
-        let contract = if let SteelVal::Contract(ContractType::Function(fc)) = contract.as_ref() {
-            fc.clone()
+        let contract = if let SteelVal::Contract(fc) = contract.as_ref() {
+            if let ContractType::Function(fc) = fc.as_ref() {
+                fc.clone()
+            } else {
+                stop!(TypeMismatch => "bind/c requires a function contract")
+            }
         } else {
             stop!(TypeMismatch => "bind/c requires a function contract")
         };

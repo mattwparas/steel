@@ -232,7 +232,7 @@ pub enum SteelVal {
     /// Mutable box - lets you put a value in there and change what it points to
     BoxV(RefCell<Gc<SteelVal>>),
     /// Contract
-    Contract(ContractType),
+    Contract(Gc<ContractType>),
     /// Contracted Function
     ContractedFunction(Gc<ContractedFunction>),
 }

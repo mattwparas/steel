@@ -173,7 +173,7 @@ impl FunctionContractExt for FunctionContract {
             .zip(self.pre_conditions().iter())
             .enumerate()
         {
-            match contract {
+            match contract.as_ref() {
                 ContractType::Flat(f) => {
                     debug!("applying flat contract in pre condition: {}", f.name);
                     // unimplemented!();
