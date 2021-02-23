@@ -27,7 +27,7 @@ impl SymbolOperations {
         SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             if args.len() == 1 {
                 if let SteelVal::SymbolV(quoted_value) = args[0].as_ref() {
-                    return Ok(Gc::new(SteelVal::StringV(quoted_value.clone())));
+                    return Ok(Gc::new(SteelVal::StringV(quoted_value.into())));
                 } else {
                     let error_message = format!(
                         "symbol->string expected a symbol, found {}",
@@ -71,7 +71,7 @@ mod symbol_tests {
     fn symbol_to_string_normal() {
         let args = vec![SymbolV("foo".to_string())];
         let result = apply_function(SymbolOperations::symbol_to_string(), args);
-        let expected = Gc::new(StringV("foo".to_string()));
+        let expected = Gc::new(StringV("foo".into()));
         assert_eq!(result.unwrap(), expected);
     }
 }

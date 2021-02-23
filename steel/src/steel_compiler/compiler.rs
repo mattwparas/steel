@@ -270,7 +270,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<Gc<SteelVal>> {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
         // TokenType::Identifier(s) => env.borrow().lookup(&s),
         TokenType::NumberLiteral(n) => Ok(Gc::new(SteelVal::NumV(*n))),
-        TokenType::StringLiteral(s) => Ok(Gc::new(SteelVal::StringV(s.clone()))),
+        TokenType::StringLiteral(s) => Ok(Gc::new(SteelVal::StringV(s.clone().into()))),
         TokenType::CharacterLiteral(c) => Ok(Gc::new(SteelVal::CharV(*c))),
         TokenType::IntegerLiteral(n) => Ok(Gc::new(SteelVal::IntV(*n))),
         what => {

@@ -1,10 +1,10 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::stop;
-use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{ffi::OsStr, fmt};
 
 // use serde::{Deserialize, Serialize};
 
@@ -15,10 +15,16 @@ pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 /// When enabled, this allows for complete sandboxing of data types
 /// It does not expose the full functionality of the `Rc` type
 /// but it does allow for some
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct Gc<T: Clone>(Rc<T>);
 
 impl fmt::Display for Gc<SteelVal> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Display for Gc<String> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -124,8 +130,32 @@ impl<T: Clone> Clone for Gc<T> {
     }
 }
 
-impl fmt::Debug for Gc<SteelVal> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
+impl AsRef<OsStr> for Gc<String> {
+    fn as_ref(&self) -> &OsStr {
+        self.0.as_ref().as_ref()
+    }
+}
+
+// impl fmt::Debug for Gc<SteelVal> {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         write!(f, "{}", self.0)
+//     }
+// }
+
+impl From<&str> for Gc<String> {
+    fn from(val: &str) -> Self {
+        Gc::new(val.to_string())
+    }
+}
+
+impl From<String> for Gc<String> {
+    fn from(val: String) -> Self {
+        Gc::new(val)
+    }
+}
+
+impl From<&String> for Gc<String> {
+    fn from(val: &String) -> Self {
+        Gc::new(val.clone())
     }
 }

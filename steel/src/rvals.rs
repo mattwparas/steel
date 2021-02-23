@@ -191,7 +191,7 @@ pub enum SteelVal {
     /// Void return value
     Void,
     /// Represents strings
-    StringV(String),
+    StringV(Gc<String>),
     /// Represents built in rust functions
     FuncV(FunctionSignature),
     /// Represents Steel Lambda functions or closures defined inside the environment
@@ -923,13 +923,13 @@ mod or_else_tests {
 
     #[test]
     fn void_or_else_test_bad() {
-        let input = SteelVal::StringV("foo".to_string());
+        let input = SteelVal::StringV("foo".into());
         assert!(input.void_or_else(throw!(Generic => "test")).is_err());
     }
 
     #[test]
     fn string_or_else_test_good() {
-        let input = SteelVal::StringV("foo".to_string());
+        let input = SteelVal::StringV("foo".into());
         assert_eq!(
             input.string_or_else(throw!(Generic => "test")).unwrap(),
             "foo".to_string()

@@ -241,7 +241,7 @@ impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
     fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
         match value {
-            SteelVal::StringV(ref x) => Ok(x.clone()),
+            SteelVal::StringV(ref x) => Ok(x.unwrap()),
             SteelVal::SymbolV(ref x) => Ok(x.clone()),
             _ => Err(SteelErr::ConversionError(
                 "Expected string".to_string(),
@@ -267,7 +267,7 @@ impl TryFrom<&Gc<SteelVal>> for String {
     type Error = SteelErr;
     fn try_from(value: &Gc<SteelVal>) -> result::Result<Self, Self::Error> {
         match value.as_ref() {
-            SteelVal::StringV(x) => Ok(x.clone()),
+            SteelVal::StringV(x) => Ok(x.unwrap()),
             SteelVal::SymbolV(x) => Ok(x.clone()),
             _ => Err(SteelErr::ConversionError(
                 "Expected string".to_string(),
@@ -281,7 +281,7 @@ impl TryFrom<&SteelVal> for String {
     type Error = SteelErr;
     fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
         match value {
-            SteelVal::StringV(x) => Ok(x.clone()),
+            SteelVal::StringV(x) => Ok(x.unwrap()),
             SteelVal::SymbolV(x) => Ok(x.clone()),
             _ => Err(SteelErr::ConversionError(
                 "Expected string".to_string(),
@@ -310,7 +310,7 @@ impl TryFrom<Vec<SteelVal>> for VecNumbers {
 
 impl From<String> for SteelVal {
     fn from(val: String) -> SteelVal {
-        SteelVal::StringV(val)
+        SteelVal::StringV(val.into())
     }
 }
 
@@ -362,14 +362,14 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_list_to_vec_bad() {
-        let input = SteelVal::StringV("foo".to_string());
+        let input = SteelVal::StringV("foo".into());
         let res = <Vec<usize>>::try_from(input);
         assert!(res.is_err());
     }
 
     #[test]
     fn try_from_steelval_list_ref_to_vec_bad() {
-        let input = SteelVal::StringV("foo".to_string());
+        let input = SteelVal::StringV("foo".into());
         let res = <Vec<usize>>::try_from(&input);
         assert!(res.is_err());
     }
@@ -421,7 +421,7 @@ mod try_from_tests {
     #[test]
     fn try_from_steelval_string() {
         let expected = "foo".to_string();
-        let input = SteelVal::StringV("foo".to_string());
+        let input = SteelVal::StringV("foo".into());
 
         let res = String::try_from(input);
         assert_eq!(res.unwrap(), expected);
@@ -430,7 +430,7 @@ mod try_from_tests {
     #[test]
     fn try_from_steelval_ref_string() {
         let expected = "foo".to_string();
-        let input = SteelVal::StringV("foo".to_string());
+        let input = SteelVal::StringV("foo".into());
 
         let res = String::try_from(&input);
         assert_eq!(res.unwrap(), expected);

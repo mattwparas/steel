@@ -67,13 +67,13 @@ impl<'a> StructFuncBuilder<'a> {
             crate::primitives::ListOperations::built_in_list_normal_iter_non_result(
                 indices.into_iter(),
             ),
-            Gc::new(SteelVal::StringV((&self.name).to_string())),
+            Gc::new(SteelVal::StringV(self.name.into())),
         ];
 
         let fields: Vec<_> = self
             .fields
             .iter()
-            .map(|x| Gc::new(SteelVal::StringV(x.to_string())))
+            .map(|x| Gc::new(SteelVal::StringV((*x).into())))
             .collect();
 
         name.extend(fields);

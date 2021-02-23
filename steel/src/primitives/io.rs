@@ -44,9 +44,7 @@ impl IoFunctions {
         SteelVal::FuncV(|_args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
             let mut input_text = String::new();
             io::stdin().read_line(&mut input_text)?;
-            Ok(Gc::new(SteelVal::StringV(
-                input_text.trim_end().to_string(),
-            )))
+            Ok(Gc::new(SteelVal::StringV(input_text.trim_end().into())))
         })
     }
 }

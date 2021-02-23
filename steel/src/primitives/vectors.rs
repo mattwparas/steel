@@ -298,7 +298,7 @@ mod vector_prim_tests {
                     .map(Gc::new)
                     .collect(),
             ),
-            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("foo".into()),
             SteelVal::VectorV(
                 vector![SteelVal::IntV(1), SteelVal::IntV(2), SteelVal::IntV(3)]
                     .into_iter()
@@ -328,7 +328,7 @@ mod vector_prim_tests {
 
     #[test]
     fn vec_range_test_bad_input() {
-        let args = vec![SteelVal::StringV("1".to_string()), SteelVal::NumV(1.0)];
+        let args = vec![SteelVal::StringV("1".into()), SteelVal::NumV(1.0)];
 
         let res = apply_function(VectorOperations::vec_range(), args);
         assert!(res.is_err());
@@ -355,7 +355,7 @@ mod vector_prim_tests {
 
     #[test]
     fn vec_push_arity_too_few() {
-        let args = vec![SteelVal::StringV("foo".to_string())];
+        let args = vec![SteelVal::StringV("foo".into())];
         let res = apply_function(VectorOperations::vec_push(), args);
         assert!(res.is_err());
     }
@@ -363,9 +363,9 @@ mod vector_prim_tests {
     #[test]
     fn vec_push_arity_too_many() {
         let args = vec![
-            SteelVal::StringV("foo".to_string()),
-            SteelVal::StringV("foo".to_string()),
-            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("foo".into()),
         ];
         let res = apply_function(VectorOperations::vec_push(), args);
         assert!(res.is_err());
@@ -374,14 +374,14 @@ mod vector_prim_tests {
     #[test]
     fn vec_push_test_good_input_pair() {
         let args = vec![
-            SteelVal::StringV("baz".to_string()),
-            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("baz".into()),
+            SteelVal::StringV("bar".into()),
         ];
         let res = apply_function(VectorOperations::vec_push(), args);
         let expected = Gc::new(SteelVal::VectorV(
             vector![
-                SteelVal::StringV("bar".to_string()),
-                SteelVal::StringV("baz".to_string()),
+                SteelVal::StringV("bar".into()),
+                SteelVal::StringV("baz".into()),
             ]
             .into_iter()
             .map(Gc::new)
@@ -393,11 +393,11 @@ mod vector_prim_tests {
     #[test]
     fn vec_push_test_good_input() {
         let args = vec![
-            SteelVal::StringV("baz".to_string()),
+            SteelVal::StringV("baz".into()),
             SteelVal::VectorV(
                 vector![
-                    SteelVal::StringV("foo".to_string()),
-                    SteelVal::StringV("bar".to_string())
+                    SteelVal::StringV("foo".into()),
+                    SteelVal::StringV("bar".into())
                 ]
                 .into_iter()
                 .map(Gc::new)
@@ -407,9 +407,9 @@ mod vector_prim_tests {
         let res = apply_function(VectorOperations::vec_push(), args);
         let expected = Gc::new(SteelVal::VectorV(
             vector![
-                SteelVal::StringV("foo".to_string()),
-                SteelVal::StringV("bar".to_string()),
-                SteelVal::StringV("baz".to_string())
+                SteelVal::StringV("foo".into()),
+                SteelVal::StringV("bar".into()),
+                SteelVal::StringV("baz".into())
             ]
             .into_iter()
             .map(Gc::new)
@@ -428,9 +428,9 @@ mod vector_prim_tests {
     #[test]
     fn vec_cons_test_arity_too_many() {
         let args = vec![
-            SteelVal::StringV("foo".to_string()),
-            SteelVal::StringV("foo".to_string()),
-            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("foo".into()),
         ];
         let res = apply_function(VectorOperations::vec_cons(), args);
         assert!(res.is_err());
@@ -439,14 +439,14 @@ mod vector_prim_tests {
     #[test]
     fn vec_cons_pair() {
         let args = vec![
-            SteelVal::StringV("foo".to_string()),
-            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("bar".into()),
         ];
         let res = apply_function(VectorOperations::vec_cons(), args);
         let expected = Gc::new(SteelVal::VectorV(
             vector![
-                SteelVal::StringV("foo".to_string()),
-                SteelVal::StringV("bar".to_string())
+                SteelVal::StringV("foo".into()),
+                SteelVal::StringV("bar".into())
             ]
             .into_iter()
             .map(Gc::new)
@@ -458,11 +458,11 @@ mod vector_prim_tests {
     #[test]
     fn vec_cons_elem_vector() {
         let args = vec![
-            SteelVal::StringV("foo".to_string()),
+            SteelVal::StringV("foo".into()),
             SteelVal::VectorV(
                 vector![
-                    SteelVal::StringV("bar".to_string()),
-                    SteelVal::StringV("baz".to_string())
+                    SteelVal::StringV("bar".into()),
+                    SteelVal::StringV("baz".into())
                 ]
                 .into_iter()
                 .map(Gc::new)
@@ -472,9 +472,9 @@ mod vector_prim_tests {
         let res = apply_function(VectorOperations::vec_cons(), args);
         let expected = Gc::new(SteelVal::VectorV(
             vector![
-                SteelVal::StringV("foo".to_string()),
-                SteelVal::StringV("bar".to_string()),
-                SteelVal::StringV("baz".to_string())
+                SteelVal::StringV("foo".into()),
+                SteelVal::StringV("bar".into()),
+                SteelVal::StringV("baz".into())
             ]
             .into_iter()
             .map(Gc::new)
@@ -493,8 +493,8 @@ mod vector_prim_tests {
     #[test]
     fn vec_car_arity_too_many() {
         let args = vec![
-            SteelVal::StringV("foo".to_string()),
-            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("bar".into()),
         ];
         let res = apply_function(VectorOperations::vec_car(), args);
         assert!(res.is_err());
@@ -502,7 +502,7 @@ mod vector_prim_tests {
 
     #[test]
     fn vec_car_bad_input() {
-        let args = vec![SteelVal::StringV("foo".to_string())];
+        let args = vec![SteelVal::StringV("foo".into())];
         let res = apply_function(VectorOperations::vec_car(), args);
         assert!(res.is_err());
     }
@@ -511,15 +511,15 @@ mod vector_prim_tests {
     fn vec_car_normal_input() {
         let args = vec![SteelVal::VectorV(
             vector![
-                SteelVal::StringV("foo".to_string()),
-                SteelVal::StringV("bar".to_string())
+                SteelVal::StringV("foo".into()),
+                SteelVal::StringV("bar".into())
             ]
             .into_iter()
             .map(Gc::new)
             .collect(),
         )];
         let res = apply_function(VectorOperations::vec_car(), args);
-        let expected = Gc::new(SteelVal::StringV("foo".to_string()));
+        let expected = Gc::new(SteelVal::StringV("foo".into()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -533,8 +533,8 @@ mod vector_prim_tests {
     #[test]
     fn vec_cdr_arity_too_many() {
         let args = vec![
-            SteelVal::StringV("foo".to_string()),
-            SteelVal::StringV("bar".to_string()),
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("bar".into()),
         ];
         let res = apply_function(VectorOperations::vec_cdr(), args);
         assert!(res.is_err());
@@ -551,8 +551,8 @@ mod vector_prim_tests {
     fn vec_cdr_normal_input() {
         let args = vec![SteelVal::VectorV(
             vector![
-                SteelVal::StringV("foo".to_string()),
-                SteelVal::StringV("bar".to_string())
+                SteelVal::StringV("foo".into()),
+                SteelVal::StringV("bar".into())
             ]
             .into_iter()
             .map(Gc::new)
@@ -560,7 +560,7 @@ mod vector_prim_tests {
         )];
         let res = apply_function(VectorOperations::vec_cdr(), args);
         let expected = Gc::new(SteelVal::VectorV(
-            vector![SteelVal::StringV("bar".to_string())]
+            vector![SteelVal::StringV("bar".into())]
                 .into_iter()
                 .map(Gc::new)
                 .collect(),
@@ -584,7 +584,7 @@ mod vector_prim_tests {
 
     #[test]
     fn list_vec_anything_but_null() {
-        let args = vec![SteelVal::StringV("foo".to_string())];
+        let args = vec![SteelVal::StringV("foo".into())];
         let res = apply_function(VectorOperations::list_vec_null(), args);
         let expected = Gc::new(SteelVal::BoolV(false));
         assert_eq!(res.unwrap(), expected);
@@ -594,8 +594,8 @@ mod vector_prim_tests {
     fn list_vec_non_empty_vec() {
         let args = vec![SteelVal::VectorV(
             vector![
-                SteelVal::StringV("foo".to_string()),
-                SteelVal::StringV("bar".to_string())
+                SteelVal::StringV("foo".into()),
+                SteelVal::StringV("bar".into())
             ]
             .into_iter()
             .map(Gc::new)

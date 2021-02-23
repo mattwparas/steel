@@ -568,7 +568,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         };
 
         // The fields of the structs
-        let fields: Vec<String> = iter
+        let fields: Vec<Gc<String>> = iter
             .map(|x| {
                 if let SteelVal::StringV(s) = x.as_ref() {
                     Ok(s.clone())

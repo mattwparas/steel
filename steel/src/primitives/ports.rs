@@ -30,7 +30,7 @@ impl PortOperations {
                     // let new_port = SteelPort::new_textual_file_input(&*path)?;
                     // Ok(Gc::new(SteelVal::PortV(new_port)))
                     let (_, result) = port.read_all_str()?;
-                    Ok(Gc::new(SteelVal::StringV(result)))
+                    Ok(Gc::new(SteelVal::StringV(result.into())))
                 } else {
                     stop!(TypeMismatch => "read-port-to-string expected a port")
                 }
@@ -53,7 +53,7 @@ impl PortOperations {
                         if size == 0 {
                             Ok(Gc::new(SteelVal::SymbolV("eof".to_string())))
                         } else {
-                            Ok(Gc::new(SteelVal::StringV(result)))
+                            Ok(Gc::new(SteelVal::StringV(result.into())))
                         }
                     } else {
                         // bit of a hack for now we'll see

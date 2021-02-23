@@ -95,7 +95,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             }
             Void => Err("Can't convert from Void to expression!"),
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                StringLiteral(x.clone()),
+                StringLiteral(x.unwrap()),
             )))),
             FuncV(_) => Err("Can't convert from Function to expression!"),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),

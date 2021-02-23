@@ -37,7 +37,7 @@ pub fn serialize_val_to_string() -> SteelVal {
             let arg = Gc::clone(&args[0]);
             let serde_value: Value = arg.try_into()?;
             let serialized_value = serde_value.to_string();
-            Ok(Gc::new(SteelVal::StringV(serialized_value)))
+            Ok(Gc::new(SteelVal::StringV(serialized_value.into())))
         }
     })
 }
@@ -129,7 +129,7 @@ impl TryFrom<Gc<SteelVal>> for Value {
                     .collect::<Result<Vec<_>>>()?,
             )),
             SteelVal::Void => stop!(Generic => "void not serializable"),
-            SteelVal::StringV(s) => Ok(Value::String(s.clone())),
+            SteelVal::StringV(s) => Ok(Value::String(s.unwrap())),
             SteelVal::FuncV(_) => stop!(Generic => "function not serializable"),
             // SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
             // SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
@@ -178,14 +178,14 @@ mod json_tests {
     #[test]
     fn test_string_to_jsexpr() {
         let json_expr = r#"{"a":"applesauce","b":"bananas"}"#;
-        let steelval = SteelVal::StringV(json_expr.to_string());
+        let steelval = SteelVal::StringV(json_expr.into());
         let args = vec![steelval];
 
         let result = apply_function(string_to_jsexpr(), args);
 
         let expected = Gc::new(SteelVal::HashMapV(hashmap! {
-            Gc::new(SymbolV("a".to_string())) => Gc::new(StringV("applesauce".to_string())),
-            Gc::new(SymbolV("b".to_string())) => Gc::new(StringV("bananas".to_string()))
+            Gc::new(SymbolV("a".to_string())) => Gc::new(StringV("applesauce".into())),
+            Gc::new(SymbolV("b".to_string())) => Gc::new(StringV("bananas".into()))
         }));
 
         assert_eq!(result.unwrap(), expected);

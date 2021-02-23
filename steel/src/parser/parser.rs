@@ -67,7 +67,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Identifier(x) => Ok(SymbolV(x)),
             NumberLiteral(x) => Ok(NumV(x)),
             IntegerLiteral(x) => Ok(IntV(x)),
-            StringLiteral(x) => Ok(StringV(x)),
+            StringLiteral(x) => Ok(StringV(x.into())),
             QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string(), Some(span))),
             Unquote => Err(SteelErr::UnexpectedToken(",".to_string(), Some(span))),
             QuasiQuote => Err(SteelErr::UnexpectedToken("`".to_string(), Some(span))),

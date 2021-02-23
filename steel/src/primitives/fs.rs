@@ -64,7 +64,7 @@ impl FsFunctions {
                             .map(|x| x.to_str())
                             .flatten()
                             .unwrap_or("")
-                            .to_string(),
+                            .into(),
                     )))
                 } else {
                     stop!(TypeMismatch => "is-dir? expects a string")
@@ -88,7 +88,7 @@ impl FsFunctions {
                             Ok(i) => {
                                 ListOperations::built_in_list_normal_iter(i.into_iter().map(|x| {
                                     match x?.path().to_str() {
-                                        Some(s) => Ok(Gc::new(SteelVal::StringV(s.to_string()))),
+                                        Some(s) => Ok(Gc::new(SteelVal::StringV(s.into()))),
                                         None => Ok(Gc::new(SteelVal::BoolV(false))),
                                     }
                                 }))
@@ -112,7 +112,7 @@ impl FsFunctions {
             if args.is_empty() {
                 let path = current_dir()?;
                 Ok(Gc::new(SteelVal::StringV(
-                    path.to_str().unwrap_or("").to_string(),
+                    path.to_str().unwrap_or("").into(),
                 )))
             // println!("The current directory is {}", path.display());
             // Ok(())

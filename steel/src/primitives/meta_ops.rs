@@ -48,7 +48,7 @@ impl MetaOperations {
 
             let memory_address = format!("{:p}", &args[0].as_ptr());
 
-            Ok(Gc::new(SteelVal::StringV(memory_address)))
+            Ok(Gc::new(SteelVal::StringV(memory_address.into())))
         })
     }
 

@@ -148,9 +148,9 @@ impl ListOperations {
                         })
                         .collect::<Result<String>>()?;
 
-                        Ok(Gc::new(SteelVal::StringV(collected_string)))
+                        Ok(Gc::new(SteelVal::StringV(collected_string.into())))
                     }
-                    VectorV(v) if v.len() == 0 => Ok(Gc::new(SteelVal::StringV("".to_string()))),
+                    VectorV(v) if v.len() == 0 => Ok(Gc::new(SteelVal::StringV("".into()))),
                     e => {
                         stop!(TypeMismatch => "list->string takes a list, given: {}", e);
                     }
