@@ -211,17 +211,17 @@ pub enum SteelVal {
     /// Represents a special rust closure
     StructClosureV(Box<SteelStruct>, StructClosureSignature),
     /// Represents a port object
-    PortV(SteelPort),
+    PortV(Gc<SteelPort>),
     /// Represents a bytecode closure
     Closure(Gc<ByteCodeLambda>),
     /// Generic iterator wrapper
-    IterV(Transducer),
+    IterV(Gc<Transducer>),
     // Generic IntoIter wrapper
     // Promise(Gc<SteelVal>),
     /// Async Function wrapper
     FutureFunc(AsyncSignature),
     // Boxed Future Result
-    FutureV(FutureResult),
+    FutureV(Gc<FutureResult>),
     // Mutable Box
     // Functions that want to operate by reference must move the value into a mutable box
     // This deep clones the value but then the value can be mutably snatched
@@ -234,7 +234,7 @@ pub enum SteelVal {
     /// Contract
     Contract(ContractType),
     /// Contracted Function
-    ContractedFunction(Box<ContractedFunction>),
+    ContractedFunction(Gc<ContractedFunction>),
 }
 
 // TODO come back to this for the constant map
@@ -275,7 +275,7 @@ pub enum CollectionType {
 #[derive(Clone)]
 pub struct Transducer {
     // root: Gc<SteelVal>,
-    pub ops: Vec<Transducers>,
+    pub ops: Vec<Gc<Transducers>>,
 }
 
 impl Transducer {
@@ -287,7 +287,7 @@ impl Transducer {
         self.ops.append(&mut other.ops)
     }
 
-    pub fn push(&mut self, t: Transducers) {
+    pub fn push(&mut self, t: Gc<Transducers>) {
         self.ops.push(t);
     }
 }

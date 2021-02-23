@@ -14,13 +14,13 @@ impl TransducerOperations {
             let mut transformers = Transducer::new();
             for transducer in args {
                 if let IterV(t) = transducer.as_ref() {
-                    transformers.append(t.clone());
+                    transformers.append(t.unwrap());
                 } else {
                     stop!(TypeMismatch => "compose only accepts transducers")
                 }
             }
 
-            Ok(Gc::new(SteelVal::IterV(transformers)))
+            Ok(Gc::new(SteelVal::IterV(Gc::new(transformers))))
         })
     }
 
@@ -33,8 +33,8 @@ impl TransducerOperations {
             match &args[0].as_ref() {
                 Closure(_) | FuncV(_) | StructClosureV(_, _) => {
                     let mut transducer = Transducer::new();
-                    transducer.push(Transducers::Map(Gc::clone(&args[0])));
-                    Ok(Gc::new(SteelVal::IterV(transducer)))
+                    transducer.push(Gc::new(Transducers::Map(Gc::clone(&args[0]))));
+                    Ok(Gc::new(SteelVal::IterV(Gc::new(transducer))))
                 }
                 _ => stop!(TypeMismatch => "mapping expects a function"),
             }
@@ -50,8 +50,8 @@ impl TransducerOperations {
             match &args[0].as_ref() {
                 Closure(_) | FuncV(_) | StructClosureV(_, _) => {
                     let mut transducer = Transducer::new();
-                    transducer.push(Transducers::Filter(Gc::clone(&args[0])));
-                    Ok(Gc::new(SteelVal::IterV(transducer)))
+                    transducer.push(Gc::new(Transducers::Filter(Gc::clone(&args[0]))));
+                    Ok(Gc::new(SteelVal::IterV(Gc::new(transducer))))
                 }
                 _ => stop!(TypeMismatch => "filtering expects a function"),
             }
@@ -66,8 +66,8 @@ impl TransducerOperations {
 
             if let IntV(_) = &args[0].as_ref() {
                 let mut transducer = Transducer::new();
-                transducer.push(Transducers::Take(Gc::clone(&args[0])));
-                Ok(Gc::new(SteelVal::IterV(transducer)))
+                transducer.push(Gc::new(Transducers::Take(Gc::clone(&args[0]))));
+                Ok(Gc::new(SteelVal::IterV(Gc::new(transducer))))
             } else {
                 stop!(TypeMismatch => "taking expects an integer")
             }

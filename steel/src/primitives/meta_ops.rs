@@ -114,7 +114,7 @@ impl MetaOperations {
                 .into_iter()
                 .map(|x| {
                     if let SteelVal::FutureV(f) = x.as_ref() {
-                        Ok(f.clone().into_shared())
+                        Ok(f.unwrap().into_shared())
                     } else {
                         stop!(TypeMismatch => "exec-async given non future")
                     }

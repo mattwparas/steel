@@ -13,7 +13,7 @@ impl PortOperations {
             if args.len() == 1 {
                 if let SteelVal::StringV(path) = &args[0].as_ref() {
                     let new_port = SteelPort::new_textual_file_input(&*path)?;
-                    Ok(Gc::new(SteelVal::PortV(new_port)))
+                    Ok(Gc::new(SteelVal::PortV(Gc::new(new_port))))
                 } else {
                     stop!(TypeMismatch => "open-input-file expects a path")
                 }

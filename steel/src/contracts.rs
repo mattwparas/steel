@@ -222,6 +222,6 @@ impl ContractedFunction {
 
 impl From<ContractedFunction> for SteelVal {
     fn from(val: ContractedFunction) -> Self {
-        SteelVal::ContractedFunction(Box::new(val))
+        SteelVal::ContractedFunction(Gc::new(val))
     }
 }

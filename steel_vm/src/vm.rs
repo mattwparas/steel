@@ -867,9 +867,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn call_future_func(&mut self, f: &fn(&[Gc<SteelVal>]) -> FutureResult, payload_size: usize) {
-        let result = Gc::new(SteelVal::FutureV(f(self
+        let result = Gc::new(SteelVal::FutureV(Gc::new(f(self
             .stack
-            .peek_range(self.stack.len() - payload_size..))));
+            .peek_range(self.stack.len() - payload_size..)))));
 
         self.stack.truncate(self.stack.len() - payload_size);
         self.stack.push(result);
