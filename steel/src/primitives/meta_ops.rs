@@ -72,7 +72,9 @@ impl MetaOperations {
                 stop!(ArityMismatch => "box takes one argument")
             }
 
-            Ok(Gc::new(SteelVal::BoxV(RefCell::new(Gc::clone(&args[0])))))
+            Ok(Gc::new(SteelVal::BoxV(Gc::new(RefCell::new(Gc::clone(
+                &args[0],
+            ))))))
         })
     }
 
@@ -83,7 +85,7 @@ impl MetaOperations {
                 stop!(ArityMismatch => "unbox takes one argument")
             }
             if let SteelVal::BoxV(inner) = &args[0].as_ref() {
-                Ok(inner.clone().into_inner())
+                Ok(inner.unwrap().into_inner())
             } else {
                 stop!(TypeMismatch => "unbox takes a box")
             }

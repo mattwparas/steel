@@ -108,6 +108,10 @@ fn main() {
     let args = args().collect::<Vec<_>>();
 
     println!("Size of SteelVal: {}", std::mem::size_of::<SteelVal>());
+    println!(
+        "Size of boxed struct: {}",
+        std::mem::size_of::<Box<steel::structs::SteelStruct>>()
+    );
 
     if args.len() == 1 {
         finish(test_repl());

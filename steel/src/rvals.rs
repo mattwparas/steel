@@ -231,7 +231,7 @@ pub enum SteelVal {
     // Break the cycle somehow
     // EvaluationEnv(Weak<RefCell<Env>>),
     /// Mutable box - lets you put a value in there and change what it points to
-    BoxV(RefCell<Gc<SteelVal>>),
+    BoxV(Gc<RefCell<Gc<SteelVal>>>),
     /// Contract
     Contract(Gc<ContractType>),
     /// Contracted Function
