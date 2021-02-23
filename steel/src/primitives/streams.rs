@@ -16,10 +16,10 @@ impl StreamOperations {
             if let SteelVal::Closure(_) = &args[1].as_ref() {
                 let initial_value = Gc::clone(&args[0]);
                 let stream_thunk = Gc::clone(&args[1]);
-                Ok(Gc::new(SteelVal::StreamV(LazyStream::new(
+                Ok(Gc::new(SteelVal::StreamV(Gc::new(LazyStream::new(
                     initial_value,
                     stream_thunk,
-                ))))
+                )))))
             } else {
                 stop!(TypeMismatch => "stream-cons takes a function in the second position")
             }
@@ -28,7 +28,7 @@ impl StreamOperations {
 
     #[inline(always)]
     pub fn empty_stream() -> SteelVal {
-        SteelVal::StreamV(LazyStream::new_empty_stream())
+        SteelVal::StreamV(Gc::new(LazyStream::new_empty_stream()))
     }
 
     pub fn stream_empty_huh() -> SteelVal {

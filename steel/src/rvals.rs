@@ -226,7 +226,7 @@ pub enum SteelVal {
     // Functions that want to operate by reference must move the value into a mutable box
     // This deep clones the value but then the value can be mutably snatched
     // MutableBox(Gc<RefCell<SteelVal>>),
-    StreamV(LazyStream),
+    StreamV(Gc<LazyStream>),
     // Break the cycle somehow
     // EvaluationEnv(Weak<RefCell<Env>>),
     /// Mutable box - lets you put a value in there and change what it points to

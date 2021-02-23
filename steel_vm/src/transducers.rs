@@ -80,7 +80,7 @@ impl TransducerExt for Transducer {
             SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
             SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
             SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-                lazy_stream.clone(),
+                lazy_stream.unwrap(),
                 constants,
                 cur_inst_span,
                 repl,
@@ -125,7 +125,7 @@ impl TransducerExt for Transducer {
             SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
             SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
             SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-                lazy_stream.clone(),
+                lazy_stream.unwrap(),
                 constants,
                 cur_inst_span,
                 repl,
