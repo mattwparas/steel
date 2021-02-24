@@ -6,12 +6,12 @@ use crate::stop;
 pub struct SymbolOperations {}
 impl SymbolOperations {
     pub fn concat_symbols() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             let mut new_symbol = String::new();
 
             for arg in args {
-                if let SteelVal::SymbolV(quoted_value) = arg.as_ref() {
-                    new_symbol.push_str(quoted_value);
+                if let SteelVal::SymbolV(quoted_value) = arg {
+                    new_symbol.push_str(quoted_value.as_ref());
                 } else {
                     let error_message =
                         format!("concat-symbol expected only symbols, found {}", arg);
@@ -19,20 +19,18 @@ impl SymbolOperations {
                 }
             }
 
-            return Ok(Gc::new(SteelVal::SymbolV(new_symbol.into())));
+            return Ok(SteelVal::SymbolV(new_symbol.into()));
         })
     }
 
     pub fn symbol_to_string() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
-                if let SteelVal::SymbolV(quoted_value) = args[0].as_ref() {
-                    return Ok(Gc::new(SteelVal::StringV(Gc::clone(quoted_value.into()))));
+                if let SteelVal::SymbolV(quoted_value) = &args[0] {
+                    return Ok(SteelVal::StringV(Gc::clone(&quoted_value)));
                 } else {
-                    let error_message = format!(
-                        "symbol->string expected a symbol, found {}",
-                        args[0].as_ref()
-                    );
+                    let error_message =
+                        format!("symbol->string expected a symbol, found {}", &args[0]);
                     stop!(TypeMismatch => error_message)
                 }
             } else {
@@ -49,8 +47,7 @@ mod symbol_tests {
 
     use crate::rvals::SteelVal::*;
 
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
-        let args: Vec<Gc<SteelVal>> = args.into_iter().map(|x| Gc::new(x)).collect();
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
         func.func_or_else(throw!(BadSyntax => "hash tests"))
             .unwrap()(&args)
     }
@@ -63,7 +60,7 @@ mod symbol_tests {
             SymbolV("baz".into()),
         ];
         let result = apply_function(SymbolOperations::concat_symbols(), args);
-        let expected = Gc::new(SymbolV("foobarbaz".into()));
+        let expected = SymbolV("foobarbaz".into());
         assert_eq!(result.unwrap(), expected);
     }
 
@@ -71,7 +68,7 @@ mod symbol_tests {
     fn symbol_to_string_normal() {
         let args = vec![SymbolV("foo".into())];
         let result = apply_function(SymbolOperations::symbol_to_string(), args);
-        let expected = Gc::new(StringV("foo".into()));
+        let expected = StringV("foo".into());
         assert_eq!(result.unwrap(), expected);
     }
 }

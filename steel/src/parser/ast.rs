@@ -67,7 +67,7 @@ impl TryFrom<ExprKind> for SteelVal {
     type Error = SteelErr;
 
     fn try_from(e: ExprKind) -> std::result::Result<Self, Self::Error> {
-        TryFromExprKindForSteelVal::try_from_expr_kind(e).map(|x| x.unwrap())
+        TryFromExprKindForSteelVal::try_from_expr_kind(e)
     }
 }
 
@@ -88,7 +88,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             )))),
             VectorV(lst) => {
                 let items: std::result::Result<Vec<Self>, Self::Error> =
-                    lst.iter().map(|x| Self::try_from(x.as_ref())).collect();
+                    lst.iter().map(|x| Self::try_from(x)).collect();
                 Ok(ExprKind::List(List::new(items?)))
             }
             Void => Err("Can't convert from Void to expression!"),
@@ -103,10 +103,10 @@ impl TryFrom<&SteelVal> for ExprKind {
             )))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
             // Pair(_, _) => Err("Can't convert from pair"), // TODO
-            Pair(_, _) => {
+            Pair(_) => {
                 if let VectorV(ref lst) = collect_pair_into_vector(r) {
                     let items: std::result::Result<Vec<Self>, Self::Error> =
-                        lst.iter().map(|x| Self::try_from(x.as_ref())).collect();
+                        lst.iter().map(|x| Self::try_from(x)).collect();
                     Ok(ExprKind::List(List::new(items?)))
                 } else {
                     Err("Couldn't convert from list to expression")

@@ -57,7 +57,7 @@ impl VirtualMachineCore {
         self.global_env.borrow_mut().add_root_value(idx, value);
     }
 
-    pub fn insert_gc_binding(&mut self, idx: usize, value: Gc<SteelVal>) {
+    pub fn insert_gc_binding(&mut self, idx: usize, value: SteelVal) {
         self.global_env.borrow_mut().add_gc_root_value(idx, value);
     }
 
@@ -68,7 +68,7 @@ impl VirtualMachineCore {
     }
 
     pub fn extract_value(&self, idx: usize) -> Option<SteelVal> {
-        self.global_env.borrow().extract(idx).map(|x| x.unwrap())
+        self.global_env.borrow().extract(idx)
     }
 
     // pub fn new_with_meta() -> VirtualMachine {
@@ -83,7 +83,7 @@ impl VirtualMachineCore {
     //         .add_rooted_value(&mut self.ctx.symbol_map, (name.as_str(), value));
     // }
 
-    // pub fn insert_gc_binding(&mut self, name: String, value: Gc<SteelVal>) {
+    // pub fn insert_gc_binding(&mut self, name: String, value: SteelVal) {
     //     self.global_env
     //         .borrow_mut()
     //         .add_rooted_gc_value(&mut self.ctx.symbol_map, (name.as_str(), value));
@@ -117,7 +117,7 @@ impl VirtualMachineCore {
     //     &mut self,
     //     path: P,
     //     // ctx: &mut Ctx<ConstantMap>,
-    // ) -> Result<Vec<Gc<SteelVal>>> {
+    // ) -> Result<Vec<SteelVal>> {
     //     let mut file = std::fs::File::open(path)?;
     //     let mut exprs = String::new();
     //     file.read_to_string(&mut exprs)?;
@@ -128,7 +128,7 @@ impl VirtualMachineCore {
     //     &mut self,
     //     expr_str: &str,
     //     // ctx: &mut Ctx<ConstantMap>,
-    // ) -> Result<Vec<Gc<SteelVal>>> {
+    // ) -> Result<Vec<SteelVal>> {
     //     // let now = Instant::now();
     //     let gen_bytecode = self.emit_instructions(expr_str, false)?;
 
@@ -139,10 +139,10 @@ impl VirtualMachineCore {
     //             let res = self.execute(code, true);
     //             res
     //         })
-    //         .collect::<Result<Vec<Gc<SteelVal>>>>()
+    //         .collect::<Result<Vec<SteelVal>>>()
     // }
 
-    pub fn execute_program(&mut self, program: Program) -> Result<Vec<Gc<SteelVal>>> {
+    pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
         // unimplemented!()
 
         let Program {
@@ -164,7 +164,7 @@ impl VirtualMachineCore {
             .collect()
     }
 
-    pub fn execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<Gc<SteelVal>>> {
+    pub fn execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<SteelVal>> {
         // unimplemented!()
 
         let Program {
@@ -194,7 +194,7 @@ impl VirtualMachineCore {
     //     &mut self,
     //     expr_str: &str,
     //     // ctx: &mut Ctx<ConstantMap>,
-    // ) -> Result<Vec<Gc<SteelVal>>> {
+    // ) -> Result<Vec<SteelVal>> {
     //     // let now = Instant::now();
     //     let gen_bytecode = self.emit_instructions(expr_str, true)?;
 
@@ -214,7 +214,7 @@ impl VirtualMachineCore {
     //             // println!("Time taken: {:?}", now.elapsed());
     //             res
     //         })
-    //         .collect::<Result<Vec<Gc<SteelVal>>>>()
+    //         .collect::<Result<Vec<SteelVal>>>()
     // }
 
     // pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(
@@ -259,7 +259,7 @@ impl VirtualMachineCore {
         constant_map: &ConstantMap,
         // heap: &mut Vec<Rc<RefCell<Env>>>,
         // repl: bool,
-    ) -> Result<Gc<SteelVal>> {
+    ) -> Result<SteelVal> {
         let stack = StackFrame::new();
         let mut heap = Heap::new();
 
@@ -358,7 +358,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         })
     }
 
-    fn vm(mut self) -> Result<Gc<SteelVal>> {
+    fn vm(mut self) -> Result<SteelVal> {
         let mut cur_inst;
 
         while self.ip < self.instructions.len() {
@@ -374,14 +374,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     self.ip += 1;
                 }
                 OpCode::VOID => {
-                    self.stack.push(VOID.with(|f| Gc::clone(f)));
+                    self.stack.push(SteelVal::Void);
                     self.ip += 1;
                 }
                 OpCode::STRUCT => {
                     // For now, only allow structs at the top level
                     // In the future, allow structs to be also available in a nested scope
                     self.handle_struct(cur_inst.payload_size as usize)?;
-                    return Ok(VOID.with(|f| Gc::clone(f)));
+                    return Ok(SteelVal::Void);
                 }
                 OpCode::READ => self.handle_read(&cur_inst.span)?,
                 OpCode::COLLECT => self.handle_collect(&cur_inst.span)?,
@@ -489,7 +489,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let reducer = self.stack.pop().unwrap();
         let transducer = self.stack.pop().unwrap();
 
-        if let SteelVal::IterV(transducer) = transducer.as_ref() {
+        if let SteelVal::IterV(transducer) = &transducer {
             let ret_val = transducer.transduce(
                 list,
                 initial_value,
@@ -513,7 +513,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let list = self.stack.pop().unwrap();
         let transducer = self.stack.pop().unwrap();
 
-        if let SteelVal::IterV(transducer) = transducer.as_ref() {
+        if let SteelVal::IterV(transducer) = &transducer {
             let ret_val = transducer.run(
                 list,
                 self.constants,
@@ -535,7 +535,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let list = self.stack.pop().unwrap();
         let transducer = self.stack.pop().unwrap();
 
-        if let SteelVal::IterV(transducer) = transducer.as_ref() {
+        if let SteelVal::IterV(transducer) = &transducer {
             let ret_val =
                 transducer.run(list, self.constants, span, self.repl, self.callback, None);
             self.stack.push(ret_val?);
@@ -561,7 +561,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let indices = iter.next().unwrap();
 
         // The name of the struct
-        let name: String = if let SteelVal::StringV(s) = iter.next().unwrap().as_ref() {
+        let name: String = if let SteelVal::StringV(s) = iter.next().unwrap() {
             s.to_string()
         } else {
             stop!( Generic => "ICE: Struct expected a string name")
@@ -570,7 +570,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // The fields of the structs
         let fields: Vec<Gc<String>> = iter
             .map(|x| {
-                if let SteelVal::StringV(s) = x.as_ref() {
+                if let SteelVal::StringV(s) = x {
                     Ok(s.clone())
                 } else {
                     stop!(Generic => "ICE: Struct encoded improperly with non string fields")
@@ -586,15 +586,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
 
         for ((_, func), idx) in funcs.into_iter().zip(SteelVal::iter(indices)) {
-            let idx = if let SteelVal::IntV(idx) = idx.as_ref() {
-                *idx as usize
+            let idx = if let SteelVal::IntV(idx) = idx {
+                idx as usize
             } else {
                 stop!(Generic => "Index wrong in structs")
             };
 
-            self.global_env
-                .borrow_mut()
-                .repl_define_idx(idx, Gc::new(func));
+            self.global_env.borrow_mut().repl_define_idx(idx, func);
         }
         Ok(())
     }
@@ -604,7 +602,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // this needs to be a string
         let expression_to_parse = self.stack.pop().unwrap();
 
-        if let SteelVal::StringV(expr) = expression_to_parse.as_ref() {
+        if let SteelVal::StringV(expr) = expression_to_parse {
             // dummy interning hashmap because the parser is bad
             // please don't judge I'm working on fixing it
             // TODO
@@ -717,7 +715,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         );
 
         self.stack
-            .push(Gc::new(SteelVal::Closure(Gc::new(constructed_lambda))));
+            .push(SteelVal::Closure(Gc::new(constructed_lambda)));
 
         self.ip += forward_jump;
     }
@@ -744,7 +742,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         use SteelVal::*;
         let stack_func = self.stack.pop().unwrap();
 
-        match stack_func.as_ref() {
+        match &stack_func {
             StructClosureV(factory, func) => {
                 self.call_struct_func(factory, func, payload_size, span)?
             }
@@ -810,12 +808,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn call_struct_func(
         &mut self,
         factory: &Box<SteelStruct>,
-        func: &fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<Gc<SteelVal>>,
+        func: &fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>,
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
         let args = self.stack.split_off(self.stack.len() - payload_size);
-        let result = func(args, factory).map_err(|x| x.set_span(*span))?;
+        let result = func(&args, factory).map_err(|x| x.set_span(*span))?;
         self.stack.push(result);
         self.ip += 1;
         Ok(())
@@ -824,7 +822,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     #[inline(always)]
     fn call_primitive_func(
         &mut self,
-        f: &fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>,
+        f: &fn(&[SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
@@ -866,10 +864,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
-    fn call_future_func(&mut self, f: &fn(&[Gc<SteelVal>]) -> FutureResult, payload_size: usize) {
-        let result = Gc::new(SteelVal::FutureV(Gc::new(f(self
+    fn call_future_func(&mut self, f: &fn(&[SteelVal]) -> FutureResult, payload_size: usize) {
+        let result = SteelVal::FutureV(Gc::new(f(self
             .stack
-            .peek_range(self.stack.len() - payload_size..)))));
+            .peek_range(self.stack.len() - payload_size..))));
 
         self.stack.truncate(self.stack.len() - payload_size);
         self.stack.push(result);
@@ -881,7 +879,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         use SteelVal::*;
         let stack_func = self.stack.pop().unwrap();
 
-        match stack_func.as_ref() {
+        match &stack_func {
             StructClosureV(factory, func) => {
                 self.call_struct_func(factory, func, payload_size, span)?
             }
@@ -979,9 +977,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             Err(_) => stop!(TypeMismatch => "apply expected a list"; span),
         };
 
-        match func.as_ref() {
+        match &func {
             SteelVal::StructClosureV(factory, func) => {
-                let result = func(args, factory).map_err(|x| x.set_span(span))?;
+                let result = func(&args, factory).map_err(|x| x.set_span(span))?;
                 self.stack.push(result);
                 self.ip += 1;
             }
@@ -1060,7 +1058,7 @@ pub fn vm<CT: ConstantTable>(
     constants: &CT,
     repl: bool,
     callback: &EvaluationProgress,
-) -> Result<Gc<SteelVal>> {
+) -> Result<SteelVal> {
     VmCore::new(
         instructions,
         stack,

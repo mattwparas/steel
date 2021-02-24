@@ -4,7 +4,6 @@ use crate::vm::vm;
 use std::cell::RefCell;
 use std::rc::Rc;
 use steel::env::Env;
-use steel::gc::Gc;
 use steel::parser::span::Span;
 use steel::rerrs::SteelErr;
 use steel::rvals::{Result, SteelVal};
@@ -42,7 +41,7 @@ impl<'global, CT: ConstantTable> LazyStreamIter<'global, CT> {
 }
 
 impl<'global, CT: ConstantTable> Iterator for LazyStreamIter<'global, CT> {
-    type Item = Result<Gc<SteelVal>>;
+    type Item = Result<SteelVal>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.stream.empty_stream {
             return None;
@@ -61,7 +60,7 @@ impl<'global, CT: ConstantTable> Iterator for LazyStreamIter<'global, CT> {
         );
 
         if let Ok(next_value) = next_value {
-            if let SteelVal::StreamV(lazy_stream) = next_value.as_ref() {
+            if let SteelVal::StreamV(lazy_stream) = next_value {
                 self.stream = lazy_stream.unwrap();
             } else {
                 panic!("Lazy stream not implemented for the given type");
@@ -78,21 +77,21 @@ impl<'global, CT: ConstantTable> Iterator for LazyStreamIter<'global, CT> {
 // in order to make this work with transducers, just create an iterator that returns closures
 // that then maps the application of that closure on each element to get our result
 fn exec_func<CT: ConstantTable>(
-    stack_func: Gc<SteelVal>,
+    stack_func: SteelVal,
     constants: &CT,
     cur_inst_span: &Span,
     repl: bool,
     local_heap: &mut Heap,
     callback: &EvaluationProgress,
-) -> Result<Gc<SteelVal>> {
-    match stack_func.as_ref() {
+) -> Result<SteelVal> {
+    match stack_func {
         SteelVal::FuncV(func) => {
             let arg_vec = vec![];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
         SteelVal::StructClosureV(factory, func) => {
             let arg_vec = vec![];
-            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+            func(&arg_vec, &factory).map_err(|x| x.set_span(*cur_inst_span))
         }
         SteelVal::Closure(closure) => {
             let args = vec![];

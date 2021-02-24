@@ -31,34 +31,32 @@ thread_local! {
     pub static FALSE: Gc<SteelVal> = Gc::new(SteelVal::BoolV(false));
 }
 
-pub fn new_void() -> Gc<SteelVal> {
-    VOID.with(Gc::clone)
+pub fn new_void() -> SteelVal {
+    // VOID.with(Gc::clone)
+    SteelVal::Void
 }
 
-pub fn new_true() -> Gc<SteelVal> {
-    TRUE.with(Gc::clone)
+pub fn new_true() -> SteelVal {
+    // TRUE.with(Gc::clone)
+    SteelVal::BoolV(true)
 }
 
-pub fn new_false() -> Gc<SteelVal> {
-    FALSE.with(Gc::clone)
+pub fn new_false() -> SteelVal {
+    SteelVal::BoolV(false)
+    // FALSE.with(Gc::clone)
 }
 
-impl From<bool> for Gc<SteelVal> {
-    fn from(b: bool) -> Self {
-        if b {
-            TRUE.with(Gc::clone)
-        } else {
-            FALSE.with(Gc::clone)
-        }
-    }
-}
+// impl From<bool> for SteelVal {
+//     fn from(b: bool) -> Self {
+//         SteelVal::BoolV(b)
+//     }
+// }
 
 #[macro_use]
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
-        |args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            let args_iter: Vec<SteelVal> = args.into_iter().map(|x| (**x).clone()).collect();
-            let mut args_iter = args_iter.iter();
+        |args: &[SteelVal]| -> Result<SteelVal> {
+            let mut args_iter = args.iter();
             let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
                 "expected at least one argument".to_string(),
                 None,
@@ -70,11 +68,7 @@ macro_rules! ensure_tonicity {
                 }
             };
             let res = f(&first, args_iter);
-            if res {
-                Ok(TRUE.with(|f| Gc::clone(f)))
-            } else {
-                Ok(FALSE.with(|f| Gc::clone(f)))
-            }
+            Ok(SteelVal::BoolV(res))
         }
     }};
 }
@@ -82,25 +76,21 @@ macro_rules! ensure_tonicity {
 #[macro_use]
 macro_rules! ensure_tonicity_pointer_equality {
     ($check_fn:expr) => {{
-        |args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        |args: &[SteelVal]| -> Result<SteelVal> {
             // let args_iter: Vec<Rc<SteelVal>> = args.into_iter();
             let mut args_iter = args.into_iter();
             let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
                 "expected at least one argument".to_string(),
                 None,
             ))?;
-            fn f<'a>(prev: &Gc<SteelVal>, mut xs: impl Iterator<Item = &'a Gc<SteelVal>>) -> bool {
+            fn f<'a>(prev: &SteelVal, mut xs: impl Iterator<Item = &'a SteelVal>) -> bool {
                 match xs.next() {
                     Some(x) => $check_fn(prev, x) && f(x, xs),
                     None => true,
                 }
             };
             let res = f(&first, args_iter);
-            if res {
-                Ok(TRUE.with(|f| Gc::clone(f)))
-            } else {
-                Ok(FALSE.with(|f| Gc::clone(f)))
-            }
+            Ok(SteelVal::BoolV(res))
         }
     }};
 }
@@ -108,27 +98,27 @@ macro_rules! ensure_tonicity_pointer_equality {
 #[macro_use]
 macro_rules! gen_pred {
     ($variant:ident) => {{
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if let Some(first) = args.first() {
-                if let SteelVal::$variant(..) = first.as_ref() {
-                    return Ok(TRUE.with(|f| Gc::clone(f)));
+                if let SteelVal::$variant(..) = first {
+                    return Ok(SteelVal::BoolV(true));
                 }
             }
-            Ok(FALSE.with(|f| Gc::clone(f)))
+            Ok(SteelVal::BoolV(false))
         })
     }};
 
     ($variant1:ident, $variant2:ident) => {{
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if let Some(first) = args.first() {
-                match first.as_ref() {
+                match first {
                     SteelVal::$variant1(..) | SteelVal::$variant2(..) => {
-                        return Ok(TRUE.with(|f| Gc::clone(f)));
+                        return Ok(SteelVal::BoolV(true));
                     }
                     _ => {}
                 }
             }
-            Ok(FALSE.with(|f| Gc::clone(f)))
+            Ok(SteelVal::BoolV(false))
         })
     }};
 }
@@ -199,8 +189,8 @@ impl CoreModuleConfig {
 #[derive(Debug)]
 pub struct Env {
     // bindings: HashMap<String, Gc<SteelVal>>,
-    bindings_vec: Vec<Gc<SteelVal>>,
-    bindings_map: HashMap<usize, Gc<SteelVal>, RandomState>,
+    bindings_vec: Vec<SteelVal>,
+    bindings_map: HashMap<usize, SteelVal, RandomState>,
     offset: usize,
     parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
@@ -274,8 +264,8 @@ impl Env {
         self.reachable
     }
 
-    pub fn extract(&self, idx: usize) -> Option<Gc<SteelVal>> {
-        self.bindings_map.get(&idx).map(Gc::clone)
+    pub fn extract(&self, idx: usize) -> Option<SteelVal> {
+        self.bindings_map.get(&idx).cloned()
     }
 
     // pub fn add_module(&mut self, new_mod: AST) {
@@ -428,7 +418,7 @@ impl Env {
         &self.sub_expression
     }
 
-    pub fn bindings_map(&self) -> &HashMap<usize, Gc<SteelVal>, RandomState> {
+    pub fn bindings_map(&self) -> &HashMap<usize, SteelVal, RandomState> {
         &self.bindings_map
     }
 
@@ -467,7 +457,7 @@ impl Env {
     //     self.bindings.insert(key, val);
     // }
 
-    pub fn define_idx(&mut self, idx: usize, val: Gc<SteelVal>) {
+    pub fn define_idx(&mut self, idx: usize, val: SteelVal) {
         // println!("Defining value: {:?} at idx: {}", val, idx);
         // println!("Current bindings: {:?}", self.bindings_vec);
 
@@ -484,7 +474,7 @@ impl Env {
             // This _should_ be unreachable outside of a repl
             // This allows for redefinitions and additions into scripts
             for _ in 0..(idx - self.bindings_vec.len()) {
-                self.bindings_vec.push(VOID.with(|f| Gc::clone(f)))
+                self.bindings_vec.push(SteelVal::Void)
             }
 
             self.bindings_vec.push(val);
@@ -499,7 +489,7 @@ impl Env {
 
     pub fn reserve_defs(&mut self, ndefs: usize) {
         for _ in 0..ndefs {
-            self.bindings_vec.push(VOID.with(|f| Gc::clone(f)));
+            self.bindings_vec.push(SteelVal::Void);
         }
     }
 
@@ -605,14 +595,14 @@ impl Env {
     // }
 
     // TODO could be better
-    pub fn repl_lookup_idx(&self, idx: usize) -> Result<Gc<SteelVal>> {
+    pub fn repl_lookup_idx(&self, idx: usize) -> Result<SteelVal> {
         // unimplemented!()
         // println!("{:?}", self.bindings.keys());
         if let Some(v) = self.bindings_map.get(&idx) {
             // value needs to be cloned because
             // user needs to be able to own a persistent value
             // from Cell that may be modified later
-            Ok(Gc::clone(v))
+            Ok(v.clone())
         } else {
             // half assed module approach
             // if !self.module.is_empty() {
@@ -656,12 +646,12 @@ impl Env {
         }
     }
 
-    pub fn repl_define_idx(&mut self, idx: usize, val: Gc<SteelVal>) {
+    pub fn repl_define_idx(&mut self, idx: usize, val: SteelVal) {
         self.bindings_map.insert(idx, val);
         // unimplemented!()
     }
 
-    pub fn repl_set_idx(&mut self, idx: usize, val: Gc<SteelVal>) -> Result<Gc<SteelVal>> {
+    pub fn repl_set_idx(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
         if self.bindings_map.contains_key(&idx) {
             Ok(self.bindings_map.insert(idx, val).unwrap())
         } else {
@@ -677,7 +667,7 @@ impl Env {
         }
     }
 
-    pub fn lookup_idx(&self, idx: usize) -> Result<Gc<SteelVal>> {
+    pub fn lookup_idx(&self, idx: usize) -> Result<SteelVal> {
         let offset = self.offset;
         // println!("Looking up {}, with offset: {}", idx, offset);
         // println!("{:?}", self.bindings_vec);
@@ -703,7 +693,7 @@ impl Env {
 
             if let Some(v) = self.bindings_vec.get(lookup) {
                 // println!("Found {:?}", v);
-                Ok(Gc::clone(v))
+                Ok(v.clone())
             } else {
                 // println!(
                 //     "Looking up idx: {} with length {}",
@@ -808,11 +798,11 @@ impl Env {
         // );
 
         for (idx, val) in Env::default_bindings().into_iter().enumerate() {
-            env.define_idx(idx, Gc::new(val.1));
+            env.define_idx(idx, val.1);
         }
 
         for (idx, val) in Env::default_bindings().into_iter().enumerate() {
-            env.repl_define_idx(idx, Gc::new(val.1));
+            env.repl_define_idx(idx, val.1);
         }
 
         // for (idx, val) in Env::default_bindings().iter().enumerate() {
@@ -831,10 +821,10 @@ impl Env {
     // }
 
     pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
-        self.bindings_map.insert(idx, Gc::new(val));
+        self.bindings_map.insert(idx, val);
     }
 
-    pub fn add_gc_root_value(&mut self, idx: usize, val: Gc<SteelVal>) {
+    pub fn add_gc_root_value(&mut self, idx: usize, val: SteelVal) {
         self.bindings_map.insert(idx, val);
     }
 
@@ -875,7 +865,7 @@ impl Env {
     pub fn constant_env_to_hashmap() -> SteelVal {
         let mut hm = crate::im_rc::HashMap::new();
         for (name, val) in Env::constant_core() {
-            hm.insert(Gc::new(SteelVal::SymbolV(name.into())), Gc::new(val));
+            hm.insert(SteelVal::SymbolV(name.into()), val);
         }
         SteelVal::HashMapV(Gc::new(hm))
     }
@@ -912,10 +902,10 @@ impl Env {
             ("function?", gen_pred!(Closure, FuncV)),
             ("=", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             ("equal?", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
-            (
-                "eq?",
-                SteelVal::FuncV(ensure_tonicity_pointer_equality!(|a, b| Gc::ptr_eq(a, b))),
-            ),
+            // (
+            //     "eq?",
+            //     SteelVal::FuncV(ensure_tonicity_pointer_equality!(|a, b| Gc::ptr_eq(a, b))),
+            // ),
             (">", SteelVal::FuncV(ensure_tonicity!(|a, b| a > b))),
             (">=", SteelVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
             ("<", SteelVal::FuncV(ensure_tonicity!(|a, b| a < b))),
@@ -979,10 +969,10 @@ impl Env {
             ("function?", gen_pred!(Closure, FuncV)),
             ("=", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
             ("equal?", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
-            (
-                "eq?",
-                SteelVal::FuncV(ensure_tonicity_pointer_equality!(|a, b| Gc::ptr_eq(a, b))),
-            ),
+            // (
+            //     "eq?",
+            //     SteelVal::FuncV(ensure_tonicity_pointer_equality!(|a, b| Gc::ptr_eq(a, b))),
+            // ),
             (">", SteelVal::FuncV(ensure_tonicity!(|a, b| a > b))),
             (">=", SteelVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
             ("<", SteelVal::FuncV(ensure_tonicity!(|a, b| a < b))),

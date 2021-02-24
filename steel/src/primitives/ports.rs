@@ -9,11 +9,11 @@ use crate::stop;
 pub struct PortOperations {}
 impl PortOperations {
     pub fn open_input_file() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
-                if let SteelVal::StringV(path) = &args[0].as_ref() {
+                if let SteelVal::StringV(path) = &args[0] {
                     let new_port = SteelPort::new_textual_file_input(&*path)?;
-                    Ok(Gc::new(SteelVal::PortV(Gc::new(new_port))))
+                    Ok(SteelVal::PortV(Gc::new(new_port)))
                 } else {
                     stop!(TypeMismatch => "open-input-file expects a path")
                 }
@@ -24,13 +24,13 @@ impl PortOperations {
     }
 
     pub fn read_port_to_string() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
-                if let SteelVal::PortV(port) = &args[0].as_ref() {
+                if let SteelVal::PortV(port) = &args[0] {
                     // let new_port = SteelPort::new_textual_file_input(&*path)?;
                     // Ok(Gc::new(SteelVal::PortV(new_port)))
                     let (_, result) = port.read_all_str()?;
-                    Ok(Gc::new(SteelVal::StringV(result.into())))
+                    Ok(SteelVal::StringV(result.into()))
                 } else {
                     stop!(TypeMismatch => "read-port-to-string expected a port")
                 }
@@ -41,9 +41,9 @@ impl PortOperations {
     }
 
     pub fn read_line_to_string() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
-                if let SteelVal::PortV(port) = &args[0].as_ref() {
+                if let SteelVal::PortV(port) = &args[0] {
                     // let new_port = SteelPort::new_textual_file_input(&*path)?;
                     // Ok(Gc::new(SteelVal::PortV(new_port)))
 
@@ -51,9 +51,9 @@ impl PortOperations {
 
                     if let Ok((size, result)) = res {
                         if size == 0 {
-                            Ok(Gc::new(SteelVal::SymbolV("eof".into())))
+                            Ok(SteelVal::SymbolV("eof".into()))
                         } else {
-                            Ok(Gc::new(SteelVal::StringV(result.into())))
+                            Ok(SteelVal::StringV(result.into()))
                         }
                     } else {
                         // bit of a hack for now we'll see

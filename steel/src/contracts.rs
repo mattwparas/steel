@@ -7,7 +7,7 @@ use std::fmt;
 #[derive(Clone, PartialEq)]
 pub struct FlatContract {
     // function of any kind
-    predicate: Gc<SteelVal>,
+    predicate: SteelVal,
     // name of the function for blaming purposes
     pub name: String,
 }
@@ -20,21 +20,21 @@ impl fmt::Display for FlatContract {
 
 impl FlatContract {
     #[inline(always)]
-    pub fn new_from_steelval(predicate: Gc<SteelVal>, name: String) -> Result<Gc<SteelVal>> {
+    pub fn new_from_steelval(predicate: SteelVal, name: String) -> Result<SteelVal> {
         if predicate.is_contract() {
             Ok(predicate)
         } else if predicate.is_function() {
-            Ok(Gc::new(FlatContract::new(predicate, name).into()))
+            Ok(FlatContract::new(predicate, name).into())
         } else {
             stop!(TypeMismatch => format!("flat contracts require a function argument, found {}", predicate.to_string()));
         }
     }
 
-    pub fn new(predicate: Gc<SteelVal>, name: String) -> Self {
+    pub fn new(predicate: SteelVal, name: String) -> Self {
         FlatContract { predicate, name }
     }
 
-    pub fn predicate(&self) -> &Gc<SteelVal> {
+    pub fn predicate(&self) -> &SteelVal {
         &self.predicate
     }
 }
@@ -71,13 +71,13 @@ impl fmt::Display for FunctionContract {
 impl FunctionContract {
     #[inline(always)]
     pub fn new_from_steelval(
-        pre_conditions: &[Gc<SteelVal>],
-        post_condition: Gc<SteelVal>,
-    ) -> Result<Gc<SteelVal>> {
+        pre_conditions: &[SteelVal],
+        post_condition: SteelVal,
+    ) -> Result<SteelVal> {
         let pre_conditions = pre_conditions
             .iter()
             .map(|x| {
-                if let SteelVal::Contract(c) = x.as_ref() {
+                if let SteelVal::Contract(c) = x {
                     Ok(c.clone()) // TODO find out how to remove this clone
                 } else {
                     stop!(TypeMismatch => "Function contract domain requires a list of contracts")
@@ -85,15 +85,13 @@ impl FunctionContract {
             })
             .collect::<Result<Box<_>>>()?;
 
-        let post_condition = if let SteelVal::Contract(c) = post_condition.as_ref() {
+        let post_condition = if let SteelVal::Contract(c) = post_condition {
             c.clone()
         } else {
             stop!(TypeMismatch => "function contract range expected a contract")
         };
 
-        Ok(Gc::new(
-            FunctionContract::new(pre_conditions, post_condition, None, None).into(),
-        ))
+        Ok(FunctionContract::new(pre_conditions, post_condition, None, None).into())
     }
 
     pub fn set_parent(&mut self, p: Gc<FunctionContract>) {
@@ -188,17 +186,17 @@ impl ContractedFunction {
 
     #[inline(always)]
     pub fn new_from_steelvals(
-        contract: Gc<SteelVal>,
-        function: Gc<SteelVal>,
-        name: Option<Gc<SteelVal>>,
-    ) -> Result<Gc<SteelVal>> {
-        let name = match name.as_ref().map(|x| x.as_ref()) {
+        contract: SteelVal,
+        function: SteelVal,
+        name: Option<SteelVal>,
+    ) -> Result<SteelVal> {
+        let name = match name {
             Some(SteelVal::SymbolV(s)) => Some(s.unwrap()),
             Some(_) => stop!(TypeMismatch => "bind/c expected a symbol in the first position"),
             None => None,
         };
 
-        let contract = if let SteelVal::Contract(fc) = contract.as_ref() {
+        let contract = if let SteelVal::Contract(fc) = contract {
             if let ContractType::Function(fc) = fc.as_ref() {
                 fc.clone()
             } else {
@@ -208,7 +206,7 @@ impl ContractedFunction {
             stop!(TypeMismatch => "bind/c requires a function contract")
         };
 
-        let function = if let SteelVal::Closure(b) = function.as_ref() {
+        let function = if let SteelVal::Closure(b) = function {
             b.clone()
         } else {
             stop!(TypeMismatch => "bind/c requires a bytecode function, not a primitive")
@@ -218,9 +216,7 @@ impl ContractedFunction {
             stop!(TypeMismatch => "contract did not match function arity");
         }
 
-        Ok(Gc::new(
-            ContractedFunction::new(contract, function, name).into(),
-        ))
+        Ok(ContractedFunction::new(contract, function, name).into())
     }
 }
 

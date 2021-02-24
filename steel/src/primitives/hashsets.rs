@@ -13,38 +13,38 @@ pub struct HashSetOperations {}
 
 impl HashSetOperations {
     pub fn hs_construct() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             let mut hs = HashSet::new();
 
             for key in args {
                 if key.is_hashable() {
-                    hs.insert(Gc::clone(key));
+                    hs.insert(key.clone());
                 } else {
                     stop!(TypeMismatch => "hash key not hashable!");
                 }
             }
 
-            Ok(Gc::new(SteelVal::HashSetV(Gc::new(hs))))
+            Ok(SteelVal::HashSetV(Gc::new(hs)))
         })
     }
 
     pub fn hs_insert() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
                 stop!(ArityMismatch => "set insert takes 2 arguments")
             }
 
-            let hashset = Gc::clone(&args[0]);
-            let key = Gc::clone(&args[1]);
+            let hashset = &args[0];
+            let key = &args[1];
 
-            if let SteelVal::HashSetV(hs) = hashset.as_ref() {
+            if let SteelVal::HashSetV(hs) = hashset {
                 let mut hs = hs.unwrap();
                 if key.is_hashable() {
-                    hs.insert(key);
+                    hs.insert(key.clone());
                 } else {
                     stop!(TypeMismatch => "hash key not hashable!");
                 }
-                Ok(Gc::new(SteelVal::HashSetV(Gc::new(hs))))
+                Ok(SteelVal::HashSetV(Gc::new(hs)))
             } else {
                 stop!(TypeMismatch => "set insert takes a set")
             }
@@ -52,20 +52,20 @@ impl HashSetOperations {
     }
 
     pub fn hs_contains() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
                 stop!(ArityMismatch => "set-contains? get takes 2 arguments")
             }
 
-            let hashset = Gc::clone(&args[0]);
+            let hashset = &args[0];
             let key = &args[1];
 
-            if let SteelVal::HashSetV(hm) = hashset.as_ref() {
+            if let SteelVal::HashSetV(hm) = hashset {
                 if key.is_hashable() {
                     if hm.contains(key) {
-                        Ok(TRUE.with(|x| Gc::clone(x)))
+                        Ok(SteelVal::BoolV(true))
                     } else {
-                        Ok(FALSE.with(|x| Gc::clone(x)))
+                        Ok(SteelVal::BoolV(false))
                     }
                 } else {
                     stop!(TypeMismatch => "hash key not hashable!");
@@ -78,15 +78,15 @@ impl HashSetOperations {
 
     // keys as list
     pub fn keys_to_list() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "hm-keys->list takes 1 argument")
             }
 
-            let hashset = Gc::clone(&args[0]);
+            let hashset = &args[0];
 
-            if let SteelVal::HashSetV(hs) = hashset.as_ref() {
-                let keys = hs.iter().map(Gc::clone).collect::<Vec<Gc<SteelVal>>>();
+            if let SteelVal::HashSetV(hs) = hashset {
+                let keys = hs.iter().cloned().collect::<Vec<SteelVal>>();
                 ListOperations::built_in_list_func_flat(&keys)
             } else {
                 stop!(TypeMismatch => "hm-keys->list takes a hashmap")
@@ -96,15 +96,15 @@ impl HashSetOperations {
 
     // keys as vectors
     pub fn keys_to_vector() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "hm-keys->vector takes 1 argument")
             }
 
-            let hashset = Gc::clone(&args[0]);
+            let hashset = &args[0];
 
-            if let SteelVal::HashSetV(hs) = hashset.as_ref() {
-                VectorOperations::vec_construct_iter_normal(hs.iter().map(Gc::clone))
+            if let SteelVal::HashSetV(hs) = hashset {
+                VectorOperations::vec_construct_iter_normal(hs.iter().cloned())
             } else {
                 stop!(TypeMismatch => "hm-keys->vector takes a hashmap")
             }
@@ -112,17 +112,17 @@ impl HashSetOperations {
     }
 
     pub fn clear() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "hs-clear takes 1 argument")
             }
 
-            let hashset = Gc::clone(&args[0]);
+            let hashset = &args[0];
 
-            if let SteelVal::HashSetV(hs) = hashset.as_ref() {
+            if let SteelVal::HashSetV(hs) = hashset {
                 let mut hs = hs.unwrap();
                 hs.clear();
-                Ok(Gc::new(SteelVal::HashSetV(Gc::new(hs))))
+                Ok(SteelVal::HashSetV(Gc::new(hs)))
             } else {
                 stop!(TypeMismatch => "hs-clear takes a hashmap")
             }
@@ -130,14 +130,14 @@ impl HashSetOperations {
     }
 
     pub fn list_to_hashset() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "list->hashset takes one argument")
             }
-            if let SteelVal::Pair(_, _) = &args[0].as_ref() {
-                let root = Gc::clone(&args[0]);
-                let hashset: HashSet<Gc<SteelVal>> = SteelVal::iter(root).collect();
-                Ok(Gc::new(SteelVal::HashSetV(Gc::new(hashset))))
+            if let SteelVal::Pair(_) = &args[0] {
+                let root = &args[0];
+                let hashset: HashSet<SteelVal> = SteelVal::iter(root.clone()).collect();
+                Ok(SteelVal::HashSetV(Gc::new(hashset)))
             } else {
                 stop!(TypeMismatch => "list->hashset takes a hashset");
             }
@@ -151,8 +151,7 @@ mod hashset_tests {
     use crate::throw;
     // use im_rc::hashset;
 
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
-        let args: Vec<Gc<SteelVal>> = args.into_iter().map(|x| Gc::new(x)).collect();
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
         func.func_or_else(throw!(BadSyntax => "hash tests"))
             .unwrap()(&args)
     }
@@ -166,7 +165,7 @@ mod hashset_tests {
             SteelVal::StringV("bar2".into()),
         ];
         let res = apply_function(HashSetOperations::hs_construct(), args);
-        let expected = Gc::new(SteelVal::HashSetV(Gc::new(
+        let expected = SteelVal::HashSetV(Gc::new(
             vec![
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into()),
@@ -176,7 +175,7 @@ mod hashset_tests {
             .into_iter()
             .map(Gc::new)
             .collect(),
-        )));
+        ));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -193,7 +192,7 @@ mod hashset_tests {
             SteelVal::StringV("bar2".into()),
         ];
         let res = apply_function(HashSetOperations::hs_construct(), args);
-        let expected = Gc::new(SteelVal::HashSetV(Gc::new(
+        let expected = SteelVal::HashSetV(Gc::new(
             vec![
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into()),
@@ -203,7 +202,7 @@ mod hashset_tests {
             .into_iter()
             .map(Gc::new)
             .collect(),
-        )));
+        ));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -214,12 +213,12 @@ mod hashset_tests {
             SteelVal::StringV("foo".into()),
         ];
         let res = apply_function(HashSetOperations::hs_insert(), args);
-        let expected = Gc::new(SteelVal::HashSetV(Gc::new(
+        let expected = SteelVal::HashSetV(Gc::new(
             vec![SteelVal::StringV("foo".into())]
                 .into_iter()
                 .map(Gc::new)
                 .collect(),
-        )));
+        ));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -235,7 +234,7 @@ mod hashset_tests {
             SteelVal::StringV("foo".into()),
         ];
         let res = apply_function(HashSetOperations::hs_contains(), args);
-        let expected = Gc::new(SteelVal::BoolV(true));
+        let expected = SteelVal::BoolV(true);
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -251,7 +250,7 @@ mod hashset_tests {
             SteelVal::StringV("bar".into()),
         ];
         let res = apply_function(HashSetOperations::hs_contains(), args);
-        let expected = Gc::new(SteelVal::BoolV(false));
+        let expected = SteelVal::BoolV(false);
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -264,29 +263,26 @@ mod hashset_tests {
                 SteelVal::StringV("baz".into()),
             ]
             .into_iter()
-            .map(Gc::new)
             .collect(),
         ))];
         let res = apply_function(HashSetOperations::keys_to_vector(), args);
-        let expected = Gc::new(SteelVal::VectorV(Gc::new(
+        let expected = SteelVal::VectorV(Gc::new(
             vec![
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into()),
                 SteelVal::StringV("baz".into()),
             ]
             .into_iter()
-            .map(Gc::new)
             .collect(),
-        )));
+        ));
 
         // pull out the vectors and sort them
-        let unwrapped_res: SteelVal = (*res.unwrap()).clone();
-        let unwrapped_expected: SteelVal = (*expected).clone();
+        // let unwrapped_expected: SteelVal = (*expected).clone();
 
-        let mut res_vec_string: Vec<Gc<String>> = if let SteelVal::VectorV(v) = &unwrapped_res {
+        let mut res_vec_string: Vec<Gc<String>> = if let SteelVal::VectorV(v) = res.unwrap() {
             v.iter()
                 .map(|x| {
-                    if let SteelVal::StringV(ref s) = x.unwrap() {
+                    if let SteelVal::StringV(ref s) = x {
                         s.clone()
                     } else {
                         panic!("test failed")
@@ -297,20 +293,19 @@ mod hashset_tests {
             panic!("test failed")
         };
 
-        let mut expected_vec_string: Vec<Gc<String>> =
-            if let SteelVal::VectorV(v) = &unwrapped_expected {
-                v.iter()
-                    .map(|x| {
-                        if let SteelVal::StringV(ref s) = x.unwrap() {
-                            s.clone()
-                        } else {
-                            panic!("test failed")
-                        }
-                    })
-                    .collect()
-            } else {
-                panic!("test failed")
-            };
+        let mut expected_vec_string: Vec<Gc<String>> = if let SteelVal::VectorV(v) = expected {
+            v.iter()
+                .map(|x| {
+                    if let SteelVal::StringV(ref s) = x {
+                        s.clone()
+                    } else {
+                        panic!("test failed")
+                    }
+                })
+                .collect()
+        } else {
+            panic!("test failed")
+        };
 
         res_vec_string.sort();
         expected_vec_string.sort();

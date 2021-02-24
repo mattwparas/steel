@@ -1,18 +1,16 @@
-use crate::env::VOID;
-use crate::gc::Gc;
 use crate::rvals::SteelVal;
 
 #[derive(Clone)]
 pub struct LazyStream {
-    pub initial_value: Gc<SteelVal>, // argument to stream
-    pub stream_thunk: Gc<SteelVal>,  // function to get the next value
+    pub initial_value: SteelVal, // argument to stream
+    pub stream_thunk: SteelVal,  // function to get the next value
     pub empty_stream: bool,
 }
 
 impl LazyStream {
     // Perhaps do some error checking here in order to determine
     // if the arguments passed are actually valid
-    pub fn new(initial_value: Gc<SteelVal>, stream_thunk: Gc<SteelVal>) -> Self {
+    pub fn new(initial_value: SteelVal, stream_thunk: SteelVal) -> Self {
         LazyStream {
             initial_value,
             stream_thunk,
@@ -22,25 +20,25 @@ impl LazyStream {
 
     pub fn new_empty_stream() -> Self {
         LazyStream {
-            initial_value: VOID.with(|x| Gc::clone(x)),
-            stream_thunk: VOID.with(|x| Gc::clone(x)),
+            initial_value: SteelVal::Void,
+            stream_thunk: SteelVal::Void,
             empty_stream: true,
         }
     }
 
     // Should return the value in the `initial_value` field
     // is equivalent to calling (stream-first stream)
-    pub fn stream_first(&self) -> Gc<SteelVal> {
-        Gc::clone(&self.initial_value)
+    pub fn stream_first(&self) -> SteelVal {
+        self.initial_value.clone()
     }
 
     // `stream_thunk` should be a thunk that return the next `LazyStream`
     //  this should just return a new `LazyStream`
-    pub fn stream_thunk(&self) -> Gc<SteelVal> {
-        Gc::clone(&self.stream_thunk)
+    pub fn stream_thunk(&self) -> SteelVal {
+        self.stream_thunk.clone()
     }
 
-    pub fn empty_stream(&self) -> Gc<SteelVal> {
-        Gc::new(SteelVal::BoolV(self.empty_stream))
+    pub fn empty_stream(&self) -> SteelVal {
+        SteelVal::BoolV(self.empty_stream)
     }
 }

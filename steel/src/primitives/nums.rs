@@ -5,14 +5,10 @@ use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use rand::Rng;
 
-use crate::env::{FALSE, TRUE};
-
-use crate::gc::Gc;
-
 pub struct NumOperations {}
 impl NumOperations {
     pub fn random_int() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.is_empty() {
                 stop!(ArityMismatch => "random-int requires an upper bound");
             }
@@ -21,9 +17,9 @@ impl NumOperations {
                 stop!(ArityMismatch => "random-int takes one argument")
             }
 
-            if let SteelVal::IntV(upper_bound) = args[0].as_ref() {
+            if let SteelVal::IntV(upper_bound) = &args[0] {
                 let mut rng = rand::thread_rng();
-                return Ok(Gc::new(SteelVal::IntV(rng.gen_range(0..*upper_bound))));
+                return Ok(SteelVal::IntV(rng.gen_range(0..*upper_bound)));
             } else {
                 stop!(TypeMismatch => "random-int requires an integer upper bound");
             }
@@ -31,18 +27,18 @@ impl NumOperations {
     }
 
     pub fn even() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "even? takes one argument")
             }
 
-            if let SteelVal::IntV(n) = args[0].as_ref() {
+            if let SteelVal::IntV(n) = &args[0] {
                 // let is_odd = |x: i32| x & 1 == 1;
                 // let is_even = |x: i32| x & 1 == 0;
                 if n & 1 == 0 {
-                    Ok(TRUE.with(|f| Gc::clone(f)))
+                    Ok(SteelVal::BoolV(true))
                 } else {
-                    Ok(FALSE.with(|f| Gc::clone(f)))
+                    Ok(SteelVal::BoolV(false))
                 }
             } else {
                 stop!(TypeMismatch => "even? requires an integer")
@@ -51,18 +47,18 @@ impl NumOperations {
     }
 
     pub fn odd() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "even? takes one argument")
             }
 
-            if let SteelVal::IntV(n) = args[0].as_ref() {
+            if let SteelVal::IntV(n) = &args[0] {
                 // let is_odd = |x: i32| x & 1 == 1;
                 // let is_even = |x: i32| x & 1 == 0;
                 if n & 1 == 1 {
-                    Ok(TRUE.with(|f| Gc::clone(f)))
+                    Ok(SteelVal::BoolV(true))
                 } else {
-                    Ok(FALSE.with(|f| Gc::clone(f)))
+                    Ok(SteelVal::BoolV(false))
                 }
             } else {
                 stop!(TypeMismatch => "odd? requires an integer")
@@ -71,7 +67,7 @@ impl NumOperations {
     }
 
     pub fn integer_add() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.is_empty() {
                 stop!(ArityMismatch => "+ requires at least one argument")
             }
@@ -79,43 +75,43 @@ impl NumOperations {
             let mut sum = 0;
 
             for arg in args {
-                if let SteelVal::IntV(n) = arg.as_ref() {
+                if let SteelVal::IntV(n) = arg {
                     sum += n;
                 } else {
                     stop!(TypeMismatch => "+ expected a number, found {:?}", arg);
                 }
             }
 
-            Ok(Gc::new(SteelVal::IntV(sum)))
+            Ok(SteelVal::IntV(sum))
         })
     }
 
     pub fn integer_sub() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.is_empty() {
                 stop!(ArityMismatch => "+ requires at least one argument")
             }
 
-            let mut sum = if let SteelVal::IntV(n) = &args[0].as_ref() {
+            let mut sum = if let SteelVal::IntV(n) = &args[0] {
                 *n
             } else {
                 stop!(TypeMismatch => "- expected a number, found {:?}", &args[0])
             };
 
             for arg in &args[1..] {
-                if let SteelVal::IntV(n) = arg.as_ref() {
+                if let SteelVal::IntV(n) = arg {
                     sum -= n;
                 } else {
                     stop!(TypeMismatch => "+ expected a number, found {:?}", arg);
                 }
             }
 
-            Ok(Gc::new(SteelVal::IntV(sum)))
+            Ok(SteelVal::IntV(sum))
         })
     }
 
     pub fn float_add() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.is_empty() {
                 stop!(ArityMismatch => "+ requires at least one argument")
             }
@@ -123,19 +119,19 @@ impl NumOperations {
             let mut sum = 0.0;
 
             for arg in args {
-                if let SteelVal::NumV(n) = arg.as_ref() {
+                if let SteelVal::NumV(n) = arg {
                     sum += n;
                 } else {
                     stop!(TypeMismatch => "+ expected a number, found {:?}", arg);
                 }
             }
 
-            Ok(Gc::new(SteelVal::NumV(sum)))
+            Ok(SteelVal::NumV(sum))
         })
     }
 
     pub fn adder() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.is_empty() {
                 stop!(ArityMismatch => "+ requires at least one argument")
             }
@@ -145,7 +141,7 @@ impl NumOperations {
             let mut found_float = false;
 
             for arg in args {
-                match arg.as_ref() {
+                match arg {
                     SteelVal::IntV(n) => {
                         if found_float {
                             sum_float += *n as f64;
@@ -173,15 +169,15 @@ impl NumOperations {
             }
 
             if found_float {
-                Ok(Gc::new(SteelVal::NumV(sum_float)))
+                Ok(SteelVal::NumV(sum_float))
             } else {
-                Ok(Gc::new(SteelVal::IntV(sum_int)))
+                Ok(SteelVal::IntV(sum_int))
             }
         })
     }
 
     pub fn multiply() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.is_empty() {
                 stop!(ArityMismatch => "* requires at least one argument")
             }
@@ -191,7 +187,7 @@ impl NumOperations {
             let mut found_float = false;
 
             for arg in args {
-                match arg.as_ref() {
+                match arg {
                     SteelVal::IntV(n) => {
                         if found_float {
                             sum_float *= *n as f64;
@@ -216,9 +212,9 @@ impl NumOperations {
             }
 
             if found_float {
-                Ok(Gc::new(SteelVal::NumV(sum_float)))
+                Ok(SteelVal::NumV(sum_float))
             } else {
-                Ok(Gc::new(SteelVal::IntV(sum_int)))
+                Ok(SteelVal::IntV(sum_int))
             }
         })
     }
@@ -226,14 +222,14 @@ impl NumOperations {
     // TODO implement the full numerical tower
     // For now, only support division into floats
     pub fn divide() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.is_empty() {
                 stop!(ArityMismatch => "/ requires at least one argument")
             }
 
             let floats: Result<Vec<f64>> = args
-                .into_iter()
-                .map(|x| match x.as_ref() {
+                .iter()
+                .map(|x| match x {
                     SteelVal::IntV(n) => Ok(*n as f64),
                     SteelVal::NumV(n) => Ok(*n),
                     _ => stop!(TypeMismatch => "division expects a number"),
@@ -243,9 +239,7 @@ impl NumOperations {
             let mut floats = floats?.into_iter();
 
             if let Some(first) = floats.next() {
-                Ok(Gc::new(SteelVal::NumV(
-                    floats.fold(first, |acc, x| acc / x),
-                )))
+                Ok(SteelVal::NumV(floats.fold(first, |acc, x| acc / x)))
             } else {
                 stop!(ArityMismatch => "division requires at least one argument")
             }
@@ -253,7 +247,7 @@ impl NumOperations {
     }
 
     pub fn subtract() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.is_empty() {
                 stop!(ArityMismatch => "- requires at least one argument")
             }
@@ -265,7 +259,7 @@ impl NumOperations {
             let mut args = args.into_iter();
 
             if let Some(first) = args.next() {
-                match first.as_ref() {
+                match first {
                     SteelVal::IntV(n) => {
                         sum_int = *n;
                         // sum_float = *n as f64;
@@ -279,7 +273,7 @@ impl NumOperations {
             }
 
             for arg in args {
-                match arg.as_ref() {
+                match arg {
                     SteelVal::IntV(n) => {
                         if found_float {
                             sum_float -= *n as f64;
@@ -304,9 +298,9 @@ impl NumOperations {
             }
 
             if found_float {
-                Ok(Gc::new(SteelVal::NumV(sum_float)))
+                Ok(SteelVal::NumV(sum_float))
             } else {
-                Ok(Gc::new(SteelVal::IntV(sum_int)))
+                Ok(SteelVal::IntV(sum_int))
             }
         })
     }
@@ -319,8 +313,7 @@ mod num_op_tests {
     use crate::rvals::SteelVal::*;
     use crate::throw;
 
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
-        let args: Vec<Gc<SteelVal>> = args.into_iter().map(|x| Gc::new(x)).collect();
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
         func.func_or_else(throw!(BadSyntax => "num op tests"))
             .unwrap()(&args)
     }
@@ -330,7 +323,7 @@ mod num_op_tests {
         let args = vec![IntV(10), IntV(2)];
 
         let output = apply_function(NumOperations::divide(), args).unwrap();
-        let expected = Gc::new(NumV(5.0));
+        let expected = NumV(5.0);
         assert_eq!(output.to_string(), expected.to_string());
     }
 
@@ -339,7 +332,7 @@ mod num_op_tests {
         let args = vec![IntV(10), IntV(2)];
 
         let output = apply_function(NumOperations::multiply(), args).unwrap();
-        let expected = Gc::new(IntV(20));
+        let expected = IntV(20);
         assert_eq!(output, expected);
     }
 
@@ -348,7 +341,7 @@ mod num_op_tests {
         let args = vec![IntV(10), NumV(2.0)];
 
         let output = apply_function(NumOperations::multiply(), args).unwrap();
-        let expected = Gc::new(NumV(20.0));
+        let expected = NumV(20.0);
         assert_eq!(output.to_string(), expected.to_string());
     }
 
@@ -357,7 +350,7 @@ mod num_op_tests {
         let args = vec![IntV(10), NumV(2.0)];
 
         let output = apply_function(NumOperations::adder(), args).unwrap();
-        let expected = Gc::new(NumV(12.0));
+        let expected = NumV(12.0);
         assert_eq!(output.to_string(), expected.to_string());
     }
 
@@ -366,7 +359,7 @@ mod num_op_tests {
         let args = vec![IntV(10), NumV(2.0)];
 
         let output = apply_function(NumOperations::subtract(), args).unwrap();
-        let expected = Gc::new(NumV(8.0));
+        let expected = NumV(8.0);
         assert_eq!(output.to_string(), expected.to_string());
     }
 
@@ -375,7 +368,7 @@ mod num_op_tests {
         let args = vec![IntV(10), IntV(2)];
 
         let output = apply_function(NumOperations::integer_add(), args).unwrap();
-        let expected = Gc::new(IntV(12));
+        let expected = IntV(12);
         assert_eq!(output, expected);
     }
 
@@ -384,7 +377,7 @@ mod num_op_tests {
         let args = vec![IntV(10), IntV(2)];
 
         let output = apply_function(NumOperations::integer_sub(), args).unwrap();
-        let expected = Gc::new(IntV(8));
+        let expected = IntV(8);
         assert_eq!(output, expected);
     }
 }
