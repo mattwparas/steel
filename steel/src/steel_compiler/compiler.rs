@@ -14,8 +14,6 @@ use std::iter::Iterator;
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 
-use crate::gc::Gc;
-
 use crate::parser::span::Span;
 
 use crate::parser::parser::{ParseError, Parser};

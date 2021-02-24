@@ -1,6 +1,5 @@
 use crate::evaluation_progress::EvaluationProgress;
 use steel::{
-    gc::Gc,
     parser::span::Span,
     primitives::{ListOperations, VectorOperations},
     rerrs::SteelErr,

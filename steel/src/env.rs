@@ -73,27 +73,27 @@ macro_rules! ensure_tonicity {
     }};
 }
 
-#[macro_use]
-macro_rules! ensure_tonicity_pointer_equality {
-    ($check_fn:expr) => {{
-        |args: &[SteelVal]| -> Result<SteelVal> {
-            // let args_iter: Vec<Rc<SteelVal>> = args.into_iter();
-            let mut args_iter = args.into_iter();
-            let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
-                "expected at least one argument".to_string(),
-                None,
-            ))?;
-            fn f<'a>(prev: &SteelVal, mut xs: impl Iterator<Item = &'a SteelVal>) -> bool {
-                match xs.next() {
-                    Some(x) => $check_fn(prev, x) && f(x, xs),
-                    None => true,
-                }
-            };
-            let res = f(&first, args_iter);
-            Ok(SteelVal::BoolV(res))
-        }
-    }};
-}
+// #[macro_use]
+// macro_rules! ensure_tonicity_pointer_equality {
+//     ($check_fn:expr) => {{
+//         |args: &[SteelVal]| -> Result<SteelVal> {
+//             // let args_iter: Vec<Rc<SteelVal>> = args.into_iter();
+//             let mut args_iter = args.into_iter();
+//             let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
+//                 "expected at least one argument".to_string(),
+//                 None,
+//             ))?;
+//             fn f<'a>(prev: &SteelVal, mut xs: impl Iterator<Item = &'a SteelVal>) -> bool {
+//                 match xs.next() {
+//                     Some(x) => $check_fn(prev, x) && f(x, xs),
+//                     None => true,
+//                 }
+//             };
+//             let res = f(&first, args_iter);
+//             Ok(SteelVal::BoolV(res))
+//         }
+//     }};
+// }
 
 #[macro_use]
 macro_rules! gen_pred {
@@ -207,12 +207,9 @@ pub struct Env {
 impl Drop for Env {
     fn drop(&mut self) {
         self.heap.clear();
-        // self.clear_bindings();
+        // self.bindings_vec.clear();
+        self.bindings_map.clear();
         // self.heap.clear();
-        // self.module.clear();
-        self.bindings_vec.clear();
-
-        self.heap.clear();
     }
 }
 

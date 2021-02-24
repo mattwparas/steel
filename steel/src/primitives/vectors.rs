@@ -1,4 +1,3 @@
-use crate::env::FALSE;
 use crate::gc::Gc;
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal::*;

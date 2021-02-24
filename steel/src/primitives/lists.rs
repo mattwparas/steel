@@ -293,7 +293,7 @@ impl ListOperations {
         })
     }
 
-    pub fn collect_into_vec(mut p: &SteelVal) -> Result<Vec<SteelVal>> {
+    pub fn collect_into_vec(p: &SteelVal) -> Result<Vec<SteelVal>> {
         // let mut lst = Vec::new();
 
         Ok(SteelVal::iter(p.clone()).into_iter().collect())

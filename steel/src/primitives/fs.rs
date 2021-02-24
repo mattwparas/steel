@@ -1,4 +1,3 @@
-use crate::gc::Gc;
 use crate::primitives::lists::ListOperations;
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};

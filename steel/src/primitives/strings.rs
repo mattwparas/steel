@@ -1,7 +1,6 @@
 // use crate::env::{FALSE, TRUE};
 use crate::rerrs::SteelErr;
 // use crate::rvals::SteelVal::*;
-use crate::gc::Gc;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
@@ -182,6 +181,7 @@ impl StringOperations {
 #[cfg(test)]
 mod string_operation_tests {
     use super::*;
+    use crate::gc::Gc;
     use crate::rvals::ConsCell;
     use crate::throw;
     use im_rc::Vector;

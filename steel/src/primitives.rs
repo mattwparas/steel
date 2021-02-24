@@ -188,9 +188,9 @@ impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
     }
 }
 
-fn collect_pair_into_vector(mut p: &SteelVal) -> Vec<SteelVal> {
-    SteelVal::iter(p.clone()).collect()
-}
+// fn collect_pair_into_vector(p: &SteelVal) -> Vec<SteelVal> {
+//     SteelVal::iter(p.clone()).collect()
+// }
 
 // from_f64!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 

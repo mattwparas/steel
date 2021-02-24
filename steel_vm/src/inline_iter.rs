@@ -5,7 +5,6 @@ use crate::vm::vm;
 use std::cell::RefCell;
 use std::rc::Rc;
 use steel::env::Env;
-use steel::gc::Gc;
 use steel::parser::span::Span;
 use steel::rerrs::SteelErr;
 use steel::rvals::{Result, SteelVal};

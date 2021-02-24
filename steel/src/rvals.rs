@@ -765,7 +765,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
     }
 }
 
-pub(crate) fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
+pub(crate) fn collect_pair_into_vector(p: &SteelVal) -> SteelVal {
     VectorV(Gc::new(SteelVal::iter(p.clone()).collect::<Vector<_>>()))
     // let mut lst = Vector::new();
 

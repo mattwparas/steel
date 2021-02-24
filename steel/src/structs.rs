@@ -1,13 +1,9 @@
 use crate::gc::Gc;
 use crate::rerrs::SteelErr;
+use crate::rvals::StructClosureSignature;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
-use crate::{
-    env::{FALSE, TRUE, VOID},
-    rvals::StructClosureSignature,
-};
-use std::fmt;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};

@@ -3,7 +3,6 @@ use std::{collections::HashMap, convert::TryFrom, io::Read, path::Path, rc::Rc};
 use crate::{evaluation_progress::Callback, vm::VirtualMachineCore};
 use steel::{
     core::instructions::DenseInstruction,
-    gc::Gc,
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser},
     primitives::ListOperations,

@@ -1,5 +1,4 @@
 use crate::{
-    env::VOID,
     gc::Gc,
     primitives::ListOperations,
     rerrs::SteelErr,

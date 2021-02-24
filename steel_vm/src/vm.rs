@@ -12,7 +12,7 @@ use steel::{
 
 use std::{cell::RefCell, collections::HashMap, convert::TryFrom, iter::Iterator, rc::Rc, result};
 use steel::{
-    env::{Env, VOID},
+    env::Env,
     gc::Gc,
     parser::{
         ast::ExprKind,

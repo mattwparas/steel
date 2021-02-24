@@ -9,7 +9,6 @@ use crate::{
 use crate::parser::ast::ExprKind;
 use crate::parser::visitors::VisitorMut;
 
-use crate::gc::Gc;
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
