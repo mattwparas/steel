@@ -32,9 +32,9 @@ pub(crate) fn inline_reduce_iter<
             let arg_vec = [acc?, x?];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
-        SteelVal::StructClosureV(factory, func) => {
+        SteelVal::StructClosureV(sc) => {
             let arg_vec = vec![acc?, x?];
-            func(&arg_vec, &factory).map_err(|x| x.set_span(*cur_inst_span))
+            (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
         }
         SteelVal::ContractedFunction(cf) => {
             let arg_vec = vec![acc?, x?];
@@ -116,9 +116,9 @@ pub(crate) fn inline_map_result_iter<
             let arg_vec = [arg?];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
-        SteelVal::StructClosureV(factory, func) => {
+        SteelVal::StructClosureV(sc) => {
             let arg_vec = vec![arg?];
-            func(&arg_vec, &factory).map_err(|x| x.set_span(*cur_inst_span))
+            (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
         }
         SteelVal::ContractedFunction(cf) => {
             let arg_vec = vec![arg?];
@@ -230,9 +230,10 @@ pub(crate) fn inline_filter_result_iter<
                         Err(e) => Some(Err(e)),
                     }
                 }
-                SteelVal::StructClosureV(factory, func) => {
+                SteelVal::StructClosureV(sc) => {
                     let arg_vec = vec![arg.clone()];
-                    let res = func(&arg_vec, &factory).map_err(|x| x.set_span(*cur_inst_span));
+                    let res =
+                        (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span));
                     match res {
                         Ok(k) => match k {
                             SteelVal::BoolV(true) => Some(Ok(arg)),

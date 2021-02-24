@@ -8,7 +8,7 @@ use crate::{
     port::SteelPort,
     // primitives::ListOperations,
     rerrs::SteelErr,
-    structs::SteelStruct,
+    structs::{SteelStruct, StructClosure},
 };
 
 use std::{
@@ -203,15 +203,16 @@ pub enum SteelVal {
     /// Represents a symbol, internally represented as `String`s
     SymbolV(Gc<String>),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
-    Custom(Box<dyn CustomType>),
+    Custom(Gc<Box<dyn CustomType>>),
     // Embedded HashMap
     HashMapV(Gc<HashMap<SteelVal, SteelVal>>), // TODO wrap in GC
     // Embedded HashSet
     HashSetV(Gc<HashSet<SteelVal>>), // TODO wrap in GC
     /// Represents a scheme-only struct
-    StructV(Box<SteelStruct>),
+    StructV(Gc<SteelStruct>),
     /// Represents a special rust closure
-    StructClosureV(Box<SteelStruct>, StructClosureSignature),
+    // StructClosureV(Box<SteelStruct>, StructClosureSignature),
+    StructClosureV(Box<StructClosure>),
     /// Represents a port object
     PortV(Gc<SteelPort>),
     /// Represents a bytecode closure
@@ -328,7 +329,7 @@ impl Hash for SteelVal {
             }
             Custom(_) => unimplemented!(),
             StructV(_) => unimplemented!(),
-            StructClosureV(_, _) => unimplemented!(),
+            StructClosureV(_) => unimplemented!(),
             PortV(_) => unimplemented!(),
             Closure(b) => b.hash(state),
             HashMapV(hm) => hm.hash(state),
@@ -340,11 +341,18 @@ impl Hash for SteelVal {
     }
 }
 
-pub struct Iter(Option<SteelVal>);
+// pub struct Iter(Option<SteelVal>);
+
+pub struct Iter(Option<Gc<ConsCell>>);
 
 impl SteelVal {
     pub fn iter(_self: SteelVal) -> Iter {
-        Iter(Some(_self))
+        // Iter(Some(_self))
+        if let SteelVal::Pair(cell) = _self {
+            Iter(Some(cell))
+        } else {
+            panic!("Cannot iterate over a non list");
+        }
     }
 
     pub fn is_truthy(&self) -> bool {
@@ -373,7 +381,7 @@ impl SteelVal {
     pub fn is_function(&self) -> bool {
         matches!(
             self,
-            StructClosureV(_, _) | Closure(_) | FuncV(_) | ContractedFunction(_)
+            StructClosureV(_) | Closure(_) | FuncV(_) | ContractedFunction(_)
         )
     }
 
@@ -391,85 +399,14 @@ impl Iterator for Iter {
     type Item = SteelVal;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(_self) = &self.0 {
-            match _self {
-                SteelVal::Pair(cons) => match cons.as_ref() {
-                    ConsCell {
-                        car: first,
-                        cdr: Some(rest),
-                    } => {
-                        let ret_val = Some(first.clone());
-                        self.0 = Some(SteelVal::Pair(Gc::clone(rest)));
-                        ret_val
-                    }
-                    ConsCell {
-                        car: first,
-                        cdr: None,
-                    } => {
-                        let ret_val = Some(first.clone());
-                        self.0 = None;
-                        ret_val
-                    }
-                },
-                SteelVal::VectorV(v) => {
-                    if v.is_empty() {
-                        None
-                    } else {
-                        let ret_val = Some(_self.clone());
-                        self.0 = None;
-                        ret_val
-                    }
-                }
-                _ => {
-                    let ret_val = Some(_self.clone());
-                    self.0 = None;
-                    ret_val
-                }
-            }
+            let ret_val = Some(_self.car.clone());
+            self.0 = _self.cdr.as_ref().map(Gc::clone);
+            ret_val
         } else {
             None
         }
     }
 }
-
-// impl Iterator for Iter {
-//     type Item = Gc<SteelVal>;
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if let Some(_self) = &self.0 {
-//             match _self.as_ref() {
-//                 SteelVal::Pair(car, cdr) => {
-//                     match (car, cdr) {
-//                         (first, Some(rest)) => {
-//                             let ret_val = Some(Gc::clone(&first));
-//                             self.0 = Some(Gc::clone(&rest));
-//                             ret_val
-//                         }
-//                         (first, None) => {
-//                             let ret_val = Some(Gc::clone(&first));
-//                             self.0 = None;
-//                             ret_val
-//                         } // _ => None,
-//                     }
-//                 }
-//                 SteelVal::VectorV(v) => {
-//                     if v.is_empty() {
-//                         None
-//                     } else {
-//                         let ret_val = Some(Gc::clone(&_self));
-//                         self.0 = None;
-//                         ret_val
-//                     }
-//                 }
-//                 _ => {
-//                     let ret_val = Some(Gc::clone(&_self));
-//                     self.0 = None;
-//                     ret_val
-//                 }
-//             }
-//         } else {
-//             None
-//         }
-//     }
-// }
 
 impl SteelVal {
     pub fn bool_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<bool, E> {
@@ -532,11 +469,10 @@ impl SteelVal {
         &self,
         err: F,
     ) -> std::result::Result<(&SteelStruct, &StructClosureSignature), E> {
-        match self {
-            Self::StructClosureV(steel_struct, struct_closure) => {
-                Ok((steel_struct, struct_closure))
-            }
-            _ => Err(err()),
+        if let Self::StructClosureV(s) = self {
+            Ok((&s.factory, &s.func))
+        } else {
+            Err(err())
         }
     }
 
@@ -813,7 +749,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             display_helper(&v, f)
         }
         StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
-        StructClosureV(_, _) => write!(f, "#<struct-constructor>"),
+        StructClosureV(_) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
         HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm),

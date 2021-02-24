@@ -4,8 +4,6 @@ use std::rc::Rc;
 use steel::env::Env;
 use steel::rvals::SteelVal;
 
-use steel::gc::Gc;
-
 pub type CallStack = Stack<Stack<SteelVal>>;
 pub type StackFrame = Stack<SteelVal>;
 pub type EnvStack = Stack<Rc<RefCell<Env>>>;

@@ -345,7 +345,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     Box::new((*self).clone())
                 }
                 fn new_steel_val(&self) -> SteelVal {
-                    SteelVal::Custom(Box::new(self.clone()))
+                    SteelVal::Custom(Gc::new(Box::new(self.clone())))
                 }
                 fn display(&self) -> std::result::Result<String, std::fmt::Error> {
                     let mut buf = String::new();
@@ -411,7 +411,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 Box::new((*self).clone())
             }
             fn new_steel_val(&self) -> SteelVal {
-                SteelVal::Custom(Box::new(self.clone()))
+                SteelVal::Custom(Gc::new(Box::new(self.clone())))
             }
             fn display(&self) -> std::result::Result<String, std::fmt::Error> {
                 let mut buf = String::new();

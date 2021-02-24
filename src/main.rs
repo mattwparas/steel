@@ -113,6 +113,11 @@ fn main() {
         std::mem::size_of::<Box<steel::structs::SteelStruct>>()
     );
 
+    println!(
+        "Size of custom type: {}",
+        std::mem::size_of::<Box<Box<dyn crate::rvals::CustomType>>>()
+    );
+
     if args.len() == 1 {
         finish(test_repl());
     } else if args.len() == 2 {

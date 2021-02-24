@@ -89,9 +89,9 @@ fn exec_func<CT: ConstantTable>(
             let arg_vec = vec![];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
-        SteelVal::StructClosureV(factory, func) => {
+        SteelVal::StructClosureV(sc) => {
             let arg_vec = vec![];
-            func(&arg_vec, &factory).map_err(|x| x.set_span(*cur_inst_span))
+            (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
         }
         SteelVal::Closure(closure) => {
             let args = vec![];

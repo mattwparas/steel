@@ -743,8 +743,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {
-            StructClosureV(factory, func) => {
-                self.call_struct_func(factory, func, payload_size, span)?
+            StructClosureV(sc) => {
+                self.call_struct_func(&sc.factory, &sc.func, payload_size, span)?
             }
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size),
@@ -807,7 +807,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     #[inline(always)]
     fn call_struct_func(
         &mut self,
-        factory: &Box<SteelStruct>,
+        factory: &SteelStruct,
         func: &fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>,
         payload_size: usize,
         span: &Span,
@@ -880,8 +880,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {
-            StructClosureV(factory, func) => {
-                self.call_struct_func(factory, func, payload_size, span)?
+            StructClosureV(sc) => {
+                self.call_struct_func(&sc.factory, &sc.func, payload_size, span)?
             }
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size),
@@ -978,8 +978,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         };
 
         match &func {
-            SteelVal::StructClosureV(factory, func) => {
-                let result = func(&args, factory).map_err(|x| x.set_span(span))?;
+            SteelVal::StructClosureV(sc) => {
+                let result = (sc.func)(&args, &sc.factory).map_err(|x| x.set_span(span))?;
                 self.stack.push(result);
                 self.ip += 1;
             }

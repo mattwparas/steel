@@ -94,8 +94,8 @@ impl FlatContractExt for FlatContract {
         let arg_vec = vec![arg.clone()];
         let output = match self.predicate() {
             SteelVal::FuncV(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
-            SteelVal::StructClosureV(factory, func) => {
-                func(&arg_vec, &factory).map_err(|x| x.set_span(*cur_inst_span))
+            SteelVal::StructClosureV(sc) => {
+                (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => {
                 let parent_env = closure.sub_expression_env();
