@@ -308,7 +308,7 @@ Example usage:
 The `#[function]` attribute macro operates on functions. It _transforms_ the function from a normal rust function into a function that matches the form used inside the `Steel` interpreter. Functions inside the `Steel` interpreter have the following signature:
 
 ```rust
-fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>
+fn(&[SteelVal]) -> Result<SteelVal>
 ```
 
 This macro attempts to remove a great deal of the boilerplate with respect to transferring values in and out of the semantics of the interpreter. However, this means that a function tagged with the `#[function]` attribute **_cannot_** be used as a standard Rust function with the original signature. For a rough idea of what this function does, let's look at a function and its resultant expansion:
@@ -325,14 +325,14 @@ pub fn multiple_types(val: u64) -> u64 {
 Expands to:
 
 ```rust
-pub fn multiple_types(args: &[Gc<SteelVal>]) -> Result<Gc<SteelVal>, SteelErr>
+pub fn multiple_types(args: &[SteelVal]) -> Result<SteelVal, SteelErr>
 {
     pub fn multiple_types(val: u64) -> u64 { val + 25 }
     if args.len () != 1usize {
         steel::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", stringify!(multiple_types), 1usize.to_string (), args.len()))
     }
     let res = multiple_types(unwrap!((*(args [0usize])).clone(), u64)?);
-    Ok(Gc::new(SteelVal::try_from(res)?))
+    Ok(SteelVal::try_from(res)?)
 }
 ```
 
