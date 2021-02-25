@@ -8,7 +8,7 @@ use crate::{
     port::SteelPort,
     // primitives::ListOperations,
     rerrs::SteelErr,
-    structs::SteelStruct,
+    structs::{SteelStruct, StructClosure},
 };
 
 use std::{
@@ -38,8 +38,9 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 }
 
 pub type Result<T> = result::Result<T, SteelErr>;
-pub type FunctionSignature = fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>>;
-pub type StructClosureSignature = fn(Vec<Gc<SteelVal>>, &SteelStruct) -> Result<Gc<SteelVal>>;
+pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
+// pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
+pub type StructClosureSignature = fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>;
 
 // This would mean we would have to rewrite literally everything to not return Gc'd values,
 // but it would also make linked lists like impossible to use
@@ -58,9 +59,9 @@ pub type PossibleOtherFunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 // }
 
 // pub type BoxedFutureResult = Shared<Output = Result<Gc<SteelVal>>>;
-pub type AsyncSignature = fn(&[Gc<SteelVal>]) -> FutureResult;
+pub type AsyncSignature = fn(&[SteelVal]) -> FutureResult;
 
-pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<Gc<SteelVal>>>>>;
+pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>>>>;
 
 // Pin<Box<dyn Future<Output = T> + 'a + Send>>;
 
@@ -184,14 +185,15 @@ pub enum SteelVal {
     CharV(char),
     /// Represents a cons cell
     /// cons, cdr, optional parent pointer
-    Pair(Gc<SteelVal>, Option<Gc<SteelVal>>),
+    // Pair(Gc<SteelVal>, Option<Gc<SteelVal>>),
+    Pair(Gc<ConsCell>),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
-    VectorV(Vector<Gc<SteelVal>>),
+    VectorV(Gc<Vector<SteelVal>>), // TODO wrap in GC
     /// Void return value
     Void,
     /// Represents strings
-    StringV(String),
+    StringV(Gc<String>),
     /// Represents built in rust functions
     FuncV(FunctionSignature),
     /// Represents Steel Lambda functions or closures defined inside the environment
@@ -199,42 +201,43 @@ pub enum SteelVal {
     /// Represents built in macros,
     // MacroV(SteelMacro),
     /// Represents a symbol, internally represented as `String`s
-    SymbolV(String),
+    SymbolV(Gc<String>),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
-    Custom(Box<dyn CustomType>),
+    Custom(Gc<Box<dyn CustomType>>),
     // Embedded HashMap
-    HashMapV(HashMap<Gc<SteelVal>, Gc<SteelVal>>),
+    HashMapV(Gc<HashMap<SteelVal, SteelVal>>), // TODO wrap in GC
     // Embedded HashSet
-    HashSetV(HashSet<Gc<SteelVal>>),
+    HashSetV(Gc<HashSet<SteelVal>>), // TODO wrap in GC
     /// Represents a scheme-only struct
-    StructV(Box<SteelStruct>),
+    StructV(Gc<SteelStruct>),
     /// Represents a special rust closure
-    StructClosureV(Box<SteelStruct>, StructClosureSignature),
+    // StructClosureV(Box<SteelStruct>, StructClosureSignature),
+    StructClosureV(Box<StructClosure>),
     /// Represents a port object
-    PortV(SteelPort),
+    PortV(Gc<SteelPort>),
     /// Represents a bytecode closure
-    Closure(ByteCodeLambda),
+    Closure(Gc<ByteCodeLambda>),
     /// Generic iterator wrapper
-    IterV(Transducer),
+    IterV(Gc<Transducer>),
     // Generic IntoIter wrapper
     // Promise(Gc<SteelVal>),
     /// Async Function wrapper
     FutureFunc(AsyncSignature),
     // Boxed Future Result
-    FutureV(FutureResult),
+    FutureV(Gc<FutureResult>),
     // Mutable Box
     // Functions that want to operate by reference must move the value into a mutable box
     // This deep clones the value but then the value can be mutably snatched
     // MutableBox(Gc<RefCell<SteelVal>>),
-    StreamV(LazyStream),
+    StreamV(Gc<LazyStream>),
     // Break the cycle somehow
     // EvaluationEnv(Weak<RefCell<Env>>),
     /// Mutable box - lets you put a value in there and change what it points to
-    BoxV(RefCell<Gc<SteelVal>>),
+    BoxV(Gc<RefCell<SteelVal>>),
     /// Contract
-    Contract(ContractType),
+    Contract(Gc<ContractType>),
     /// Contracted Function
-    ContractedFunction(Box<ContractedFunction>),
+    ContractedFunction(Gc<ContractedFunction>),
 }
 
 // TODO come back to this for the constant map
@@ -294,9 +297,9 @@ impl Transducer {
 
 #[derive(Clone)]
 pub enum Transducers {
-    Map(Gc<SteelVal>),    // function
-    Filter(Gc<SteelVal>), // function
-    Take(Gc<SteelVal>),   // integer
+    Map(SteelVal),    // function
+    Filter(SteelVal), // function
+    Take(SteelVal),   // integer
 }
 
 impl Hash for SteelVal {
@@ -308,9 +311,8 @@ impl Hash for SteelVal {
             }
             IntV(i) => i.hash(state),
             CharV(c) => c.hash(state),
-            Pair(car, cdr) => {
-                car.hash(state);
-                cdr.hash(state);
+            Pair(cell) => {
+                cell.hash(state);
             }
             VectorV(v) => v.hash(state),
             Void => {
@@ -327,7 +329,7 @@ impl Hash for SteelVal {
             }
             Custom(_) => unimplemented!(),
             StructV(_) => unimplemented!(),
-            StructClosureV(_, _) => unimplemented!(),
+            StructClosureV(_) => unimplemented!(),
             PortV(_) => unimplemented!(),
             Closure(b) => b.hash(state),
             HashMapV(hm) => hm.hash(state),
@@ -339,11 +341,18 @@ impl Hash for SteelVal {
     }
 }
 
-pub struct Iter(Option<Gc<SteelVal>>);
+// pub struct Iter(Option<SteelVal>);
+
+pub struct Iter(Option<Gc<ConsCell>>);
 
 impl SteelVal {
-    pub fn iter(_self: Gc<SteelVal>) -> Iter {
-        Iter(Some(_self))
+    pub fn iter(_self: SteelVal) -> Iter {
+        // Iter(Some(_self))
+        if let SteelVal::Pair(cell) = _self {
+            Iter(Some(cell))
+        } else {
+            panic!("Cannot iterate over a non list");
+        }
     }
 
     pub fn is_truthy(&self) -> bool {
@@ -360,7 +369,7 @@ impl SteelVal {
             BoolV(_)
                 | IntV(_)
                 | CharV(_)
-                | Pair(_, _)
+                | Pair(_)
                 | VectorV(_)
                 | StringV(_)
                 | SymbolV(_)
@@ -372,7 +381,7 @@ impl SteelVal {
     pub fn is_function(&self) -> bool {
         matches!(
             self,
-            StructClosureV(_, _) | Closure(_) | FuncV(_) | ContractedFunction(_)
+            StructClosureV(_) | Closure(_) | FuncV(_) | ContractedFunction(_)
         )
     }
 
@@ -381,40 +390,18 @@ impl SteelVal {
     }
 }
 
+// impl Iterator for
+
+// Change this to not be option<steelval> but rather option<conscell>
+// pub struct Iter(Option<SteelVal>);
+
 impl Iterator for Iter {
-    type Item = Gc<SteelVal>;
+    type Item = SteelVal;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(_self) = &self.0 {
-            match _self.as_ref() {
-                SteelVal::Pair(car, cdr) => {
-                    match (car, cdr) {
-                        (first, Some(rest)) => {
-                            let ret_val = Some(Gc::clone(&first));
-                            self.0 = Some(Gc::clone(&rest));
-                            ret_val
-                        }
-                        (first, None) => {
-                            let ret_val = Some(Gc::clone(&first));
-                            self.0 = None;
-                            ret_val
-                        } // _ => None,
-                    }
-                }
-                SteelVal::VectorV(v) => {
-                    if v.is_empty() {
-                        None
-                    } else {
-                        let ret_val = Some(Gc::clone(&_self));
-                        self.0 = None;
-                        ret_val
-                    }
-                }
-                _ => {
-                    let ret_val = Some(Gc::clone(&_self));
-                    self.0 = None;
-                    ret_val
-                }
-            }
+            let ret_val = Some(_self.car.clone());
+            self.0 = _self.cdr.as_ref().map(Gc::clone);
+            ret_val
         } else {
             None
         }
@@ -447,9 +434,9 @@ impl SteelVal {
     pub fn vector_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<Vector<Gc<SteelVal>>, E> {
+    ) -> std::result::Result<Vector<SteelVal>, E> {
         match self {
-            Self::VectorV(v) => Ok(v.clone()),
+            Self::VectorV(v) => Ok(v.unwrap()),
             _ => Err(err()),
         }
     }
@@ -482,11 +469,10 @@ impl SteelVal {
         &self,
         err: F,
     ) -> std::result::Result<(&SteelStruct, &StructClosureSignature), E> {
-        match self {
-            Self::StructClosureV(steel_struct, struct_closure) => {
-                Ok((steel_struct, struct_closure))
-            }
-            _ => Err(err()),
+        if let Self::StructClosureV(s) = self {
+            Ok((&s.factory, &s.func))
+        } else {
+            Err(err())
         }
     }
 
@@ -526,19 +512,39 @@ impl SteelVal {
     }
 }
 
-impl Drop for SteelVal {
+#[derive(Clone, Hash, Debug)]
+pub struct ConsCell {
+    pub car: SteelVal,
+    pub cdr: Option<Gc<ConsCell>>,
+}
+
+impl ConsCell {
+    pub fn new(car: SteelVal, cdr: Option<Gc<ConsCell>>) -> Self {
+        ConsCell { car, cdr }
+    }
+
+    pub fn car(&self) -> SteelVal {
+        self.car.clone()
+    }
+
+    pub fn cdr(&self) -> &Option<Gc<ConsCell>> {
+        &self.cdr
+    }
+}
+
+impl Drop for ConsCell {
     // don't want to blow the stack with destructors,
     // but also don't want to walk the whole list.
     // So walk the list until we find a non-uniquely owned item
     fn drop(&mut self) {
-        let mut curr = match *self {
-            Pair(_, ref mut next) => next.take(),
-            _ => return,
-        };
+        let mut cur = self.cdr.take();
         loop {
-            match curr {
+            match cur {
                 Some(r) => match Gc::try_unwrap(r) {
-                    Ok(Pair(_, ref mut next)) => curr = next.take(),
+                    Ok(ConsCell {
+                        car: _,
+                        cdr: ref mut next,
+                    }) => cur = next.take(),
                     _ => return,
                 },
                 _ => return,
@@ -546,6 +552,27 @@ impl Drop for SteelVal {
         }
     }
 }
+
+// impl Drop for SteelVal {
+//     // don't want to blow the stack with destructors,
+//     // but also don't want to walk the whole list.
+//     // So walk the list until we find a non-uniquely owned item
+//     fn drop(&mut self) {
+//         let mut curr = match *self {
+//             Pair(_, ref mut next) => next.take(),
+//             _ => return,
+//         };
+//         loop {
+//             match curr {
+//                 Some(r) => match Gc::try_unwrap(r) {
+//                     Ok(Pair(_, ref mut next)) => curr = next.take(),
+//                     _ => return,
+//                 },
+//                 _ => return,
+//             }
+//         }
+//     }
+// }
 
 impl Eq for SteelVal {}
 
@@ -562,9 +589,7 @@ impl PartialEq for SteelVal {
             (VectorV(l), VectorV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
             (CharV(l), CharV(r)) => l == r,
-            (Pair(_, _), Pair(_, _)) => {
-                collect_pair_into_vector(self) == collect_pair_into_vector(other)
-            }
+            (Pair(_), Pair(_)) => collect_pair_into_vector(self) == collect_pair_into_vector(other),
             (HashSetV(l), HashSetV(r)) => l == r,
             (HashMapV(l), HashMapV(r)) => l == r,
             (StructV(l), StructV(r)) => l == r,
@@ -670,7 +695,7 @@ impl fmt::Display for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | Pair(_, _) => write!(f, "'")?,
+            SymbolV(_) | Pair(_) => write!(f, "'")?,
             VectorV(_) => write!(f, "'#")?,
             _ => (),
         };
@@ -683,7 +708,7 @@ impl fmt::Debug for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | Pair(_, _) => write!(f, "'")?,
+            SymbolV(_) | Pair(_) => write!(f, "'")?,
             VectorV(_) => write!(f, "'#")?,
             _ => (),
         };
@@ -719,12 +744,12 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, ")")
         }
         Custom(x) => write!(f, "#<{}>", x.display()?),
-        Pair(_, _) => {
+        Pair(_) => {
             let v = collect_pair_into_vector(val);
             display_helper(&v, f)
         }
         StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
-        StructClosureV(_, _) => write!(f, "#<struct-constructor>"),
+        StructClosureV(_) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
         HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm),
@@ -740,26 +765,27 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
     }
 }
 
-pub(crate) fn collect_pair_into_vector(mut p: &SteelVal) -> SteelVal {
-    let mut lst = Vector::new();
+pub(crate) fn collect_pair_into_vector(p: &SteelVal) -> SteelVal {
+    VectorV(Gc::new(SteelVal::iter(p.clone()).collect::<Vector<_>>()))
+    // let mut lst = Vector::new();
 
-    loop {
-        if let Pair(cons, cdr) = p {
-            lst.push_back(Gc::clone(cons));
-            match cdr.as_ref() {
-                Some(rest) => match rest.as_ref() {
-                    Pair(_, _) => p = rest,
-                    _ => {
-                        lst.push_back(Gc::clone(rest));
-                        return VectorV(lst);
-                    }
-                },
-                None => {
-                    return VectorV(lst);
-                }
-            }
-        }
-    }
+    // loop {
+    //     if let Pair(cons, cdr) = p {
+    //         lst.push_back(Gc::clone(cons));
+    //         match cdr.as_ref() {
+    //             Some(rest) => match rest.as_ref() {
+    //                 Pair(_, _) => p = rest,
+    //                 _ => {
+    //                     lst.push_back(Gc::clone(rest));
+    //                     return VectorV(Gc::new(lst));
+    //                 }
+    //             },
+    //             None => {
+    //                 return VectorV(Gc::new(lst));
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 #[cfg(test)]
@@ -894,18 +920,10 @@ mod or_else_tests {
 
     #[test]
     fn vector_or_else_test_good() {
-        let input = SteelVal::VectorV(
-            vector![SteelVal::IntV(1)]
-                .into_iter()
-                .map(Gc::new)
-                .collect(),
-        );
+        let input = SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(1)]));
         assert_eq!(
             input.vector_or_else(throw!(Generic => "test")).unwrap(),
             vector![SteelVal::IntV(1)]
-                .into_iter()
-                .map(Gc::new)
-                .collect()
         );
     }
 
@@ -923,13 +941,13 @@ mod or_else_tests {
 
     #[test]
     fn void_or_else_test_bad() {
-        let input = SteelVal::StringV("foo".to_string());
+        let input = SteelVal::StringV("foo".into());
         assert!(input.void_or_else(throw!(Generic => "test")).is_err());
     }
 
     #[test]
     fn string_or_else_test_good() {
-        let input = SteelVal::StringV("foo".to_string());
+        let input = SteelVal::StringV("foo".into());
         assert_eq!(
             input.string_or_else(throw!(Generic => "test")).unwrap(),
             "foo".to_string()
@@ -944,7 +962,7 @@ mod or_else_tests {
 
     #[test]
     fn symbol_or_else_test_good() {
-        let input = SteelVal::SymbolV("foo".to_string());
+        let input = SteelVal::SymbolV("foo".into());
         assert_eq!(
             input.symbol_or_else(throw!(Generic => "test")).unwrap(),
             "foo".to_string()

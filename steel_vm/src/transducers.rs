@@ -1,6 +1,5 @@
 use crate::evaluation_progress::EvaluationProgress;
 use steel::{
-    gc::Gc,
     parser::span::Span,
     primitives::{ListOperations, VectorOperations},
     rerrs::SteelErr,
@@ -15,40 +14,36 @@ use crate::lazy_stream::LazyStreamIter;
 pub trait TransducerExt {
     fn run<CT: ConstantTable>(
         &self,
-        root: Gc<SteelVal>,
+        root: SteelVal,
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
-        collection_type: Option<Gc<SteelVal>>,
-    ) -> Result<Gc<SteelVal>>;
+        collection_type: Option<SteelVal>,
+    ) -> Result<SteelVal>;
 
     fn transduce<CT: ConstantTable>(
         &self,
-        root: Gc<SteelVal>,
-        initial_value: Gc<SteelVal>,
-        reducer: Gc<SteelVal>,
+        root: SteelVal,
+        initial_value: SteelVal,
+        reducer: SteelVal,
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
-    ) -> Result<Gc<SteelVal>>;
+    ) -> Result<SteelVal>;
 }
 
 pub trait TransducersExt {
-    fn into_transducer<
-        'global,
-        I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
-        CT: ConstantTable,
-    >(
+    fn into_transducer<'global, I: Iterator<Item = Result<SteelVal>> + 'global, CT: ConstantTable>(
         &self,
         iter: I,
-        // stack_func: Gc<SteelVal>,
+        // stack_func: SteelVal,
         constants: &'global CT,
         cur_inst_span: &'global Span,
         repl: bool,
         callback: &'global EvaluationProgress,
-    ) -> Result<Box<dyn Iterator<Item = Result<Gc<SteelVal>>> + 'global>>;
+    ) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + 'global>>;
 }
 
 // This runs through the iterators  in sequence in the transducer
@@ -60,27 +55,27 @@ pub trait TransducersExt {
 impl TransducerExt for Transducer {
     fn run<CT: ConstantTable>(
         &self,
-        root: Gc<SteelVal>,
+        root: SteelVal,
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
-        collection_type: Option<Gc<SteelVal>>,
-    ) -> Result<Gc<SteelVal>> {
+        collection_type: Option<SteelVal>,
+    ) -> Result<SteelVal> {
         // if let Some(collection_type) = collection_type {
         //     match collection_type.as_ref() {}
         // }
 
-        let output_type = match root.as_ref() {
+        let output_type = match root {
             SteelVal::VectorV(_) => CollectionType::Vector,
             _ => CollectionType::List,
         };
 
-        let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
-            SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
-            SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
+        let mut my_iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
+            SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(|x| Ok(x))),
+            SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
             SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-                lazy_stream.clone(),
+                lazy_stream.unwrap(),
                 constants,
                 cur_inst_span,
                 repl,
@@ -94,7 +89,7 @@ impl TransducerExt for Transducer {
         }
 
         if let Some(collection_type) = collection_type {
-            if let SteelVal::SymbolV(n) = collection_type.as_ref() {
+            if let SteelVal::SymbolV(n) = collection_type {
                 match n.as_ref() {
                     "list" => ListOperations::built_in_list_normal_iter(my_iter),
                     "vector" => VectorOperations::vec_construct_iter(my_iter),
@@ -113,19 +108,19 @@ impl TransducerExt for Transducer {
 
     fn transduce<CT: ConstantTable>(
         &self,
-        root: Gc<SteelVal>,
-        initial_value: Gc<SteelVal>,
-        reducer: Gc<SteelVal>,
+        root: SteelVal,
+        initial_value: SteelVal,
+        reducer: SteelVal,
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
-    ) -> Result<Gc<SteelVal>> {
-        let mut my_iter: Box<dyn Iterator<Item = Result<Gc<SteelVal>>>> = match root.as_ref() {
-            SteelVal::VectorV(v) => Box::new(v.into_iter().map(|x| Ok(Gc::clone(x)))),
-            SteelVal::Pair(_, _) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
+    ) -> Result<SteelVal> {
+        let mut my_iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
+            SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(|x| Ok(x))),
+            SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
             SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-                lazy_stream.clone(),
+                lazy_stream.unwrap(),
                 constants,
                 cur_inst_span,
                 repl,
@@ -153,21 +148,21 @@ impl TransducerExt for Transducer {
 impl TransducersExt for Transducers {
     fn into_transducer<
         'global,
-        I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
+        I: Iterator<Item = Result<SteelVal>> + 'global,
         CT: ConstantTable,
     >(
         &self,
         iter: I,
-        // stack_func: Gc<SteelVal>,
+        // stack_func: SteelVal,
         constants: &'global CT,
         cur_inst_span: &'global Span,
         repl: bool,
         callback: &'global EvaluationProgress,
-    ) -> Result<Box<dyn Iterator<Item = Result<Gc<SteelVal>>> + 'global>> {
+    ) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + 'global>> {
         match self {
             Transducers::Map(func) => Ok(Box::new(inline_map_result_iter(
                 iter,
-                Gc::clone(func),
+                func.clone(),
                 constants,
                 cur_inst_span,
                 repl,
@@ -175,14 +170,14 @@ impl TransducersExt for Transducers {
             ))),
             Transducers::Filter(func) => Ok(Box::new(inline_filter_result_iter(
                 iter,
-                Gc::clone(func),
+                func.clone(),
                 constants,
                 cur_inst_span,
                 repl,
                 callback,
             ))),
             Transducers::Take(num) => {
-                if let SteelVal::IntV(num) = num.as_ref() {
+                if let SteelVal::IntV(num) = num {
                     if *num < 0 {
                         stop!(ContractViolation => "take transducer must have a position number"; *cur_inst_span)
                     }

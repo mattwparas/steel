@@ -18,25 +18,25 @@ use log::debug;
 pub trait ContractedFunctionExt {
     fn apply<CT: ConstantTable>(
         &self,
-        arguments: Vec<Gc<SteelVal>>,
+        arguments: Vec<SteelVal>,
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
-    ) -> Result<Gc<SteelVal>>;
+    ) -> Result<SteelVal>;
 }
 
 impl ContractedFunctionExt for ContractedFunction {
     fn apply<CT: ConstantTable>(
         &self,
-        arguments: Vec<Gc<SteelVal>>,
+        arguments: Vec<SteelVal>,
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
-    ) -> Result<Gc<SteelVal>> {
+    ) -> Result<SteelVal> {
         // Walk back and find the contracts to apply
         {
             let mut parent = self.contract.parent();
@@ -72,7 +72,7 @@ impl ContractedFunctionExt for ContractedFunction {
 pub trait FlatContractExt {
     fn apply<CT: ConstantTable>(
         &self,
-        arg: Gc<SteelVal>,
+        arg: SteelVal,
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
@@ -84,18 +84,18 @@ pub trait FlatContractExt {
 impl FlatContractExt for FlatContract {
     fn apply<CT: ConstantTable>(
         &self,
-        arg: Gc<SteelVal>,
+        arg: SteelVal,
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
     ) -> Result<()> {
-        let arg_vec = vec![Gc::clone(&arg)];
-        let output = match self.predicate().as_ref() {
+        let arg_vec = vec![arg.clone()];
+        let output = match self.predicate() {
             SteelVal::FuncV(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
-            SteelVal::StructClosureV(factory, func) => {
-                func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+            SteelVal::StructClosureV(sc) => {
+                (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => {
                 let parent_env = closure.sub_expression_env();
@@ -132,7 +132,7 @@ impl FlatContractExt for FlatContract {
             _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),
         }?;
 
-        if output.as_ref().is_truthy() {
+        if output.is_truthy() {
             Ok(())
         } else {
             stop!(ContractViolation => format!("Found in the application of a flat contract for {}: the given input: {} resulted in a contract violation", &self.name, arg); *cur_inst_span);
@@ -145,13 +145,13 @@ pub trait FunctionContractExt {
         &self,
         name: &Option<String>,
         function: &ByteCodeLambda,
-        arguments: &[Gc<SteelVal>],
+        arguments: &[SteelVal],
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
-    ) -> Result<Gc<SteelVal>>;
+    ) -> Result<SteelVal>;
 }
 
 impl FunctionContractExt for FunctionContract {
@@ -159,13 +159,13 @@ impl FunctionContractExt for FunctionContract {
         &self,
         name: &Option<String>,
         function: &ByteCodeLambda,
-        arguments: &[Gc<SteelVal>],
+        arguments: &[SteelVal],
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
-    ) -> Result<Gc<SteelVal>> {
+    ) -> Result<SteelVal> {
         let mut verified_args = Vec::new();
 
         for (i, (arg, contract)) in arguments
@@ -173,13 +173,13 @@ impl FunctionContractExt for FunctionContract {
             .zip(self.pre_conditions().iter())
             .enumerate()
         {
-            match contract {
+            match contract.as_ref() {
                 ContractType::Flat(f) => {
                     debug!("applying flat contract in pre condition: {}", f.name);
                     // unimplemented!();
 
                     if let Err(e) = f.apply(
-                        Gc::clone(&arg),
+                        arg.clone(),
                         local_heap,
                         constants,
                         cur_inst_span,
@@ -194,9 +194,9 @@ impl FunctionContractExt for FunctionContract {
                         stop!(ContractViolation => format!("This function call caused an error - an occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location); *cur_inst_span);
                     }
 
-                    verified_args.push(Gc::clone(arg));
+                    verified_args.push(arg.clone());
                 }
-                ContractType::Function(fc) => match arg.as_ref() {
+                ContractType::Function(fc) => match arg {
                     SteelVal::ContractedFunction(contracted_function) => {
                         let mut pre_parent = contracted_function.contract.clone();
                         pre_parent.set_attachment_location(contracted_function.name.clone());
@@ -221,16 +221,14 @@ impl FunctionContractExt for FunctionContract {
                         fc.set_attachment_location(contracted_function.name.clone());
 
                         // TODO Don't pass in None
-                        let new_arg =
-                            Gc::new(ContractedFunction::new(fc, func, name.clone()).into());
+                        let new_arg = ContractedFunction::new(fc, func, name.clone()).into();
 
                         verified_args.push(new_arg);
                     }
 
                     // TODO fix name, don't pass in None
-                    SteelVal::Closure(c) => verified_args.push(Gc::new(
-                        ContractedFunction::new(fc.clone(), c.clone(), name.clone()).into(),
-                    )),
+                    SteelVal::Closure(c) => verified_args
+                        .push(ContractedFunction::new(fc.clone(), c.clone(), name.clone()).into()),
                     _ => {
                         stop!(ContractViolation => "contracts not yet supported with non user defined"; *cur_inst_span)
                     }
@@ -275,7 +273,7 @@ impl FunctionContractExt for FunctionContract {
                 debug!("applying flat contract in post condition: {}", f.name);
 
                 if let Err(e) = f.apply(
-                    Gc::clone(&output),
+                    output.clone(),
                     local_heap,
                     constants,
                     cur_inst_span,
@@ -304,7 +302,7 @@ impl FunctionContractExt for FunctionContract {
 
                 Ok(output)
             }
-            ContractType::Function(fc) => match output.as_ref() {
+            ContractType::Function(fc) => match output {
                 SteelVal::ContractedFunction(contracted_function) => {
                     let mut pre_parent = contracted_function.contract.clone();
                     pre_parent.set_attachment_location(contracted_function.name.clone());
@@ -328,15 +326,15 @@ impl FunctionContractExt for FunctionContract {
                     );
 
                     // TODO Don't pass in None here
-                    let output = Gc::new(ContractedFunction::new(fc, func, name.clone()).into());
+                    let output = ContractedFunction::new(fc, func, name.clone()).into();
 
                     Ok(output)
                 }
 
                 // TODO don't pass in None
-                SteelVal::Closure(c) => Ok(Gc::new(
-                    ContractedFunction::new(fc.clone(), c.clone(), name.clone()).into(),
-                )),
+                SteelVal::Closure(c) => {
+                    Ok(ContractedFunction::new(fc.clone(), c.clone(), name.clone()).into())
+                }
                 _ => {
                     stop!(ContractViolation => "contracts not yet supported with non user defined"; *cur_inst_span)
                 }

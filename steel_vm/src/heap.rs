@@ -1,7 +1,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::rc::Weak;
-use steel::{env::Env, gc::{Gc, OBJECT_COUNT}, rvals::SteelVal};
+use steel::{
+    env::Env,
+    gc::{Gc, OBJECT_COUNT},
+    rvals::SteelVal,
+};
 
 use std::collections::HashMap;
 pub(crate) static HEAP_LIMIT: usize = 5000;
@@ -168,8 +172,8 @@ impl Heap {
     }
 
     // #[inline]
-    fn match_closure(&mut self, val: &Gc<SteelVal>) {
-        match val.as_ref() {
+    fn match_closure(&mut self, val: &SteelVal) {
+        match val {
             SteelVal::Closure(bytecode_lambda) => {
                 let p_env = bytecode_lambda.sub_expression_env().upgrade().unwrap();
 
@@ -179,9 +183,9 @@ impl Heap {
                     self.gather(&p_env);
                 }
             }
-            SteelVal::Pair(_, _) => {
+            SteelVal::Pair(_) => {
                 // println!("Getting here!");
-                SteelVal::iter(Gc::clone(val)).for_each(|x| self.match_closure(&x))
+                SteelVal::iter(val.clone()).for_each(|x| self.match_closure(&x))
             }
             SteelVal::VectorV(v) => v.iter().for_each(|x| self.match_closure(x)),
             _ => {} // SteelVal::Closure

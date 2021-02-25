@@ -9,7 +9,6 @@ use crate::{
 use crate::parser::ast::ExprKind;
 use crate::parser::visitors::VisitorMut;
 
-use crate::gc::Gc;
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
@@ -265,7 +264,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
     fn visit_quote(&mut self, quote: &crate::parser::ast::Quote) -> Self::Output {
         let converted = SteelVal::try_from(quote.expr.clone())?;
-        let idx = self.constant_map.add_or_get(Gc::new(converted));
+        let idx = self.constant_map.add_or_get(converted);
         self.push(Instruction::new_push_const(idx));
 
         Ok(())

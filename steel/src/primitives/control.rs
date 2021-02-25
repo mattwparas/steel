@@ -1,7 +1,6 @@
 // use crate::env::{FALSE, TRUE};
 use crate::rerrs::SteelErr;
 // use crate::rvals::SteelVal::*;
-use crate::gc::Gc;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
@@ -10,7 +9,7 @@ use crate::stop;
 pub struct ControlOperations {}
 impl ControlOperations {
     pub fn error() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             let mut error_message = String::new();
 
             if !args.is_empty() {

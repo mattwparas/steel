@@ -14,8 +14,6 @@ use std::iter::Iterator;
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 
-use crate::gc::Gc;
-
 use crate::parser::span::Span;
 
 use crate::parser::parser::{ParseError, Parser};
@@ -265,14 +263,14 @@ pub fn extract_constants<CT: ConstantTable>(
 }
 
 /// evaluates an atom expression in given environment
-fn eval_atom(t: &SyntaxObject) -> Result<Gc<SteelVal>> {
+fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
         // TokenType::Identifier(s) => env.borrow().lookup(&s),
-        TokenType::NumberLiteral(n) => Ok(Gc::new(SteelVal::NumV(*n))),
-        TokenType::StringLiteral(s) => Ok(Gc::new(SteelVal::StringV(s.clone()))),
-        TokenType::CharacterLiteral(c) => Ok(Gc::new(SteelVal::CharV(*c))),
-        TokenType::IntegerLiteral(n) => Ok(Gc::new(SteelVal::IntV(*n))),
+        TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
+        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
+        TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
+        TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
         what => {
             println!("getting here in the eval_atom");
             stop!(UnexpectedToken => what; t.span)

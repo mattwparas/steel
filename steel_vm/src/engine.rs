@@ -3,7 +3,6 @@ use std::{collections::HashMap, convert::TryFrom, io::Read, path::Path, rc::Rc};
 use crate::{evaluation_progress::Callback, vm::VirtualMachineCore};
 use steel::{
     core::instructions::DenseInstruction,
-    gc::Gc,
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser},
     primitives::ListOperations,
@@ -69,7 +68,7 @@ impl Engine {
         &mut self,
         bytecode: Rc<[DenseInstruction]>,
         constant_map: &ConstantMap,
-    ) -> Result<Gc<SteelVal>> {
+    ) -> Result<SteelVal> {
         self.virtual_machine.execute(bytecode, constant_map)
     }
 
@@ -77,7 +76,7 @@ impl Engine {
         self.compiler.emit_instructions(exprs)
     }
 
-    pub fn execute_program(&mut self, program: Program) -> Result<Vec<Gc<SteelVal>>> {
+    pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
         self.virtual_machine.execute_program(program)
     }
 
@@ -86,7 +85,7 @@ impl Engine {
         self.virtual_machine.insert_binding(idx, value);
     }
 
-    pub fn register_gc_value(&mut self, name: &str, value: Gc<SteelVal>) {
+    pub fn register_gc_value(&mut self, name: &str, value: SteelVal) {
         let idx = self.compiler.register(name);
         self.virtual_machine.insert_gc_binding(idx, value);
     }
@@ -116,15 +115,12 @@ impl Engine {
         T::try_from(self.extract_value(name)?)
     }
 
-    pub fn parse_and_execute_without_optimizations(
-        &mut self,
-        expr: &str,
-    ) -> Result<Vec<Gc<SteelVal>>> {
+    pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
         let program = self.compiler.compile_program(expr)?;
         self.virtual_machine.execute_program(program)
     }
 
-    pub fn parse_and_execute(&mut self, expr: &str) -> Result<Vec<Gc<SteelVal>>> {
+    pub fn parse_and_execute(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
         self.parse_and_execute_without_optimizations(expr)
     }
 
@@ -133,7 +129,7 @@ impl Engine {
     pub fn parse_and_execute_from_path<P: AsRef<Path>>(
         &mut self,
         path: P,
-    ) -> Result<Vec<Gc<SteelVal>>> {
+    ) -> Result<Vec<SteelVal>> {
         let mut file = std::fs::File::open(path)?;
         let mut exprs = String::new();
         file.read_to_string(&mut exprs)?;
@@ -142,10 +138,7 @@ impl Engine {
 
     // TODO come back to this please
 
-    pub fn parse_and_execute_with_optimizations(
-        &mut self,
-        expr: &str,
-    ) -> Result<Vec<Gc<SteelVal>>> {
+    pub fn parse_and_execute_with_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
         let mut results = Vec::new();
         let mut intern = HashMap::new();
 
@@ -197,11 +190,9 @@ impl Engine {
         // }
 
         // TODO
-        SteelVal::iter(Gc::clone(output.last().unwrap()))
+        SteelVal::iter(output.last().unwrap().clone())
             .into_iter()
-            .map(|x| {
-                ExprKind::try_from(x.as_ref()).map_err(|x| SteelErr::Generic(x.to_string(), None))
-            })
+            .map(|x| ExprKind::try_from(&x).map_err(|x| SteelErr::Generic(x.to_string(), None)))
             .collect::<Result<Vec<ExprKind>>>()
     }
 }

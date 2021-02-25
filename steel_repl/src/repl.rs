@@ -136,7 +136,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         let res = vm.parse_and_execute_without_optimizations(core);
 
         match res {
-            Ok(r) => r.iter().for_each(|x| match x.as_ref() {
+            Ok(r) => r.iter().for_each(|x| match x {
                 SteelVal::Void => {}
                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
             }),
@@ -200,7 +200,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         };
 
                         match res {
-                            Ok(r) => r.iter().for_each(|x| match x.as_ref() {
+                            Ok(r) => r.iter().for_each(|x| match x {
                                 SteelVal::Void => {}
                                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
                             }),
@@ -222,7 +222,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         };
 
                         match res {
-                            Ok(r) => r.iter().for_each(|x| match x.as_ref() {
+                            Ok(r) => r.iter().for_each(|x| match x {
                                 SteelVal::Void => {}
                                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
                             }),

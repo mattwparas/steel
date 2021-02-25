@@ -1,7 +1,4 @@
 use crate::rvals::{Result, SteelVal};
-// use std::rc::Rc;
-use crate::gc::Gc;
-// use crate::parser::{Expr, ParseError, Parser};
 
 use crate::parser::{
     ast::ExprKind,
@@ -16,7 +13,7 @@ use std::convert::TryFrom;
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ConstantMap(Vec<Gc<SteelVal>>);
+pub struct ConstantMap(Vec<SteelVal>);
 
 // #[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
 // struct ConstantExprMap {
@@ -29,11 +26,8 @@ impl ConstantMap {
     }
 
     fn to_constant_expr_map(&self) -> Vec<String> {
-        let result: std::result::Result<Vec<_>, _> = self
-            .0
-            .iter()
-            .map(|x| ExprKind::try_from(x.as_ref()))
-            .collect();
+        let result: std::result::Result<Vec<_>, _> =
+            self.0.iter().map(|x| ExprKind::try_from(x)).collect();
 
         result.unwrap().into_iter().map(|x| x.to_string()).collect()
     }
@@ -62,7 +56,7 @@ impl ConstantMap {
                     Parser::new(&x, &mut intern).collect();
                 let parsed = parsed?;
 
-                Ok(Gc::new(SteelVal::try_from(parsed[0].clone()).unwrap()))
+                Ok(SteelVal::try_from(parsed[0].clone()).unwrap())
             })
             .collect::<Result<Vec<_>>>()
             .map(ConstantMap)
@@ -74,24 +68,24 @@ impl ConstantMap {
 }
 
 impl ConstantTable for ConstantMap {
-    fn add(&mut self, val: Gc<SteelVal>) -> usize {
+    fn add(&mut self, val: SteelVal) -> usize {
         let idx = self.0.len();
         self.0.push(val);
         idx
     }
 
     // Fallible
-    fn get(&self, idx: usize) -> Gc<SteelVal> {
-        Gc::clone(&self.0[idx])
+    fn get(&self, idx: usize) -> SteelVal {
+        self.0[idx].clone()
     }
 
-    fn try_get(&self, idx: usize) -> Option<Gc<SteelVal>> {
-        self.0.get(idx).map(Gc::clone)
+    fn try_get(&self, idx: usize) -> Option<SteelVal> {
+        self.0.get(idx).cloned()
     }
 
-    fn add_or_get(&mut self, val: Gc<SteelVal>) -> usize {
+    fn add_or_get(&mut self, val: SteelVal) -> usize {
         // unimplemented!()
-        if let Some(idx) = self.0.iter().position(|x| Gc::clone(x) == val) {
+        if let Some(idx) = self.0.iter().position(|x| x == &val) {
             idx
         } else {
             self.add(val)
@@ -117,10 +111,10 @@ impl ConstantTable for ConstantMap {
 }
 
 pub trait ConstantTable {
-    fn add(&mut self, val: Gc<SteelVal>) -> usize;
-    fn get(&self, idx: usize) -> Gc<SteelVal>;
-    fn try_get(&self, idx: usize) -> Option<Gc<SteelVal>>;
-    fn add_or_get(&mut self, val: Gc<SteelVal>) -> usize;
+    fn add(&mut self, val: SteelVal) -> usize;
+    fn get(&self, idx: usize) -> SteelVal;
+    fn try_get(&self, idx: usize) -> Option<SteelVal>;
+    fn add_or_get(&mut self, val: SteelVal) -> usize;
     fn len(&self) -> usize;
     fn roll_back(&mut self, idx: usize);
     fn is_empty(&self) -> bool;
@@ -144,20 +138,20 @@ pub mod constant_table_tests {
 
     fn test_add<CT: ConstantTable>(instance: &mut CT) {
         assert_eq!(instance.len(), 0);
-        let val1 = Gc::new(SteelVal::BoolV(true));
-        let val2 = Gc::new(SteelVal::BoolV(false));
+        let val1 = SteelVal::BoolV(true);
+        let val2 = SteelVal::BoolV(false);
         assert_eq!(instance.add(val1), 0);
         assert_eq!(instance.add(val2), 1);
     }
 
     fn test_get<CT: ConstantTable>(instance: &mut CT) {
         assert_eq!(instance.len(), 0);
-        let val1 = Gc::new(SteelVal::BoolV(true));
-        let val2 = Gc::new(SteelVal::BoolV(false));
+        let val1 = SteelVal::BoolV(true);
+        let val2 = SteelVal::BoolV(false);
         assert_eq!(instance.add(val1), 0);
         assert_eq!(instance.add(val2), 1);
 
-        assert_eq!(instance.get(0), Gc::new(SteelVal::BoolV(true)));
-        assert_eq!(instance.get(1), Gc::new(SteelVal::BoolV(false)));
+        assert_eq!(instance.get(0), SteelVal::BoolV(true));
+        assert_eq!(instance.get(1), SteelVal::BoolV(false));
     }
 }

@@ -5,7 +5,6 @@ use crate::vm::vm;
 use std::cell::RefCell;
 use std::rc::Rc;
 use steel::env::Env;
-use steel::gc::Gc;
 use steel::parser::span::Span;
 use steel::rerrs::SteelErr;
 use steel::rvals::{Result, SteelVal};
@@ -14,27 +13,27 @@ use steel::stop;
 
 pub(crate) fn inline_reduce_iter<
     'global,
-    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
+    I: Iterator<Item = Result<SteelVal>> + 'global,
     CT: ConstantTable,
 >(
     iter: I,
-    initial_value: Gc<SteelVal>,
-    reducer: Gc<SteelVal>,
+    initial_value: SteelVal,
+    reducer: SteelVal,
     constants: &'global CT,
     cur_inst_span: &'global Span,
     repl: bool,
     callback: &'global EvaluationProgress,
-) -> Result<Gc<SteelVal>> {
+) -> Result<SteelVal> {
     // unimplemented!();
 
-    let switch_statement = move |acc, x| match reducer.as_ref() {
+    let switch_statement = move |acc, x| match &reducer {
         SteelVal::FuncV(func) => {
             let arg_vec = [acc?, x?];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
-        SteelVal::StructClosureV(factory, func) => {
+        SteelVal::StructClosureV(sc) => {
             let arg_vec = vec![acc?, x?];
-            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+            (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
         }
         SteelVal::ContractedFunction(cf) => {
             let arg_vec = vec![acc?, x?];
@@ -94,31 +93,31 @@ pub(crate) fn inline_reduce_iter<
 
 pub(crate) fn inline_map_result_iter<
     'global,
-    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
+    I: Iterator<Item = Result<SteelVal>> + 'global,
     // R: Iterator<Item = Result<Rc<SteelVal>>>,
     CT: ConstantTable,
 >(
     iter: I,
-    stack_func: Gc<SteelVal>,
+    stack_func: SteelVal,
     constants: &'global CT,
     cur_inst_span: &'global Span,
     repl: bool,
     callback: &'global EvaluationProgress,
-) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
+) -> impl Iterator<Item = Result<SteelVal>> + 'global {
     // unimplemented!();
 
     // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
 
     // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
     // TODO don't allocate this vec for just this
-    let switch_statement = move |arg| match stack_func.as_ref() {
+    let switch_statement = move |arg| match &stack_func {
         SteelVal::FuncV(func) => {
             let arg_vec = [arg?];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
-        SteelVal::StructClosureV(factory, func) => {
+        SteelVal::StructClosureV(sc) => {
             let arg_vec = vec![arg?];
-            func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span))
+            (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
         }
         SteelVal::ContractedFunction(cf) => {
             let arg_vec = vec![arg?];
@@ -177,31 +176,31 @@ pub(crate) fn inline_map_result_iter<
 
 pub(crate) fn inline_filter_result_iter<
     'global,
-    I: Iterator<Item = Result<Gc<SteelVal>>> + 'global,
+    I: Iterator<Item = Result<SteelVal>> + 'global,
     // R: Iterator<Item = Result<Rc<SteelVal>>>,
     CT: ConstantTable,
 >(
     iter: I,
-    stack_func: Gc<SteelVal>,
+    stack_func: SteelVal,
     constants: &'global CT,
     cur_inst_span: &'global Span,
     repl: bool,
     callback: &'global EvaluationProgress,
-) -> impl Iterator<Item = Result<Gc<SteelVal>>> + 'global {
+) -> impl Iterator<Item = Result<SteelVal>> + 'global {
     // unimplemented!();
 
     // let mut collected_results: Vec<Rc<SteelVal>> = Vec::new();
 
     // Maybe use dynamic dispatch (i.e. boxed closure or trait object) instead of this
     // TODO don't allocate this vec for just this
-    let switch_statement = move |arg: Result<Gc<SteelVal>>| match arg {
+    let switch_statement = move |arg: Result<SteelVal>| match arg {
         Ok(arg) => {
-            match stack_func.as_ref() {
+            match &stack_func {
                 SteelVal::FuncV(func) => {
-                    let arg_vec = [Gc::clone(&arg)];
+                    let arg_vec = [arg.clone()];
                     let res = func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
                     match res {
-                        Ok(k) => match k.as_ref() {
+                        Ok(k) => match k {
                             SteelVal::BoolV(true) => Some(Ok(arg)),
                             SteelVal::BoolV(false) => None,
                             _ => None,
@@ -211,7 +210,7 @@ pub(crate) fn inline_filter_result_iter<
                     }
                 }
                 SteelVal::ContractedFunction(cf) => {
-                    let arg_vec = vec![Gc::clone(&arg)];
+                    let arg_vec = vec![arg.clone()];
                     let mut local_heap = Heap::new();
                     let res = cf.apply(
                         arg_vec,
@@ -222,7 +221,7 @@ pub(crate) fn inline_filter_result_iter<
                         callback,
                     );
                     match res {
-                        Ok(k) => match k.as_ref() {
+                        Ok(k) => match k {
                             SteelVal::BoolV(true) => Some(Ok(arg)),
                             SteelVal::BoolV(false) => None,
                             _ => None,
@@ -230,11 +229,12 @@ pub(crate) fn inline_filter_result_iter<
                         Err(e) => Some(Err(e)),
                     }
                 }
-                SteelVal::StructClosureV(factory, func) => {
-                    let arg_vec = vec![Gc::clone(&arg)];
-                    let res = func(arg_vec, factory).map_err(|x| x.set_span(*cur_inst_span));
+                SteelVal::StructClosureV(sc) => {
+                    let arg_vec = vec![arg.clone()];
+                    let res =
+                        (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span));
                     match res {
-                        Ok(k) => match k.as_ref() {
+                        Ok(k) => match k {
                             SteelVal::BoolV(true) => Some(Ok(arg)),
                             SteelVal::BoolV(false) => None,
                             _ => None,
@@ -244,7 +244,7 @@ pub(crate) fn inline_filter_result_iter<
                 }
                 SteelVal::Closure(closure) => {
                     // ignore the stack limit here
-                    let args = vec![Gc::clone(&arg)];
+                    let args = vec![arg.clone()];
                     // if let Some()
 
                     let parent_env = closure.sub_expression_env();
@@ -280,7 +280,7 @@ pub(crate) fn inline_filter_result_iter<
                     );
 
                     match res {
-                        Ok(k) => match k.as_ref() {
+                        Ok(k) => match k {
                             SteelVal::BoolV(true) => Some(Ok(arg)),
                             SteelVal::BoolV(false) => None,
                             _ => None,

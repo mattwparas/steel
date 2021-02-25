@@ -1,6 +1,6 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal::*;
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{ConsCell, Result, SteelVal};
 use crate::stop;
 use crate::throw;
 use im_rc::Vector;
@@ -10,21 +10,30 @@ use crate::gc::Gc;
 pub struct ListOperations {}
 impl ListOperations {
     pub fn cons() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
                 stop!(ArityMismatch => "cons takes only two arguments")
             }
-            let mut args = args.iter().map(Gc::clone);
+            let mut args = args.iter().cloned();
             match (args.next(), args.next()) {
-                (Some(elem), Some(lst)) => match lst.as_ref() {
-                    SteelVal::VectorV(l) => {
+                (Some(elem), Some(lst)) => match lst {
+                    SteelVal::VectorV(ref l) => {
                         if l.is_empty() {
-                            Ok(Gc::new(SteelVal::Pair(elem, None)))
+                            Ok(SteelVal::Pair(Gc::new(ConsCell::new(elem, None))))
                         } else {
-                            Ok(Gc::new(SteelVal::Pair(elem, Some(lst))))
+                            Ok(SteelVal::Pair(Gc::new(ConsCell::new(
+                                elem,
+                                Some(Gc::new(ConsCell::new(lst, None))),
+                            ))))
                         }
                     }
-                    _ => Ok(Gc::new(SteelVal::Pair(elem, Some(lst)))),
+                    SteelVal::Pair(cdr) => {
+                        Ok(SteelVal::Pair(Gc::new(ConsCell::new(elem, Some(cdr)))))
+                    }
+                    _ => Ok(SteelVal::Pair(Gc::new(ConsCell::new(
+                        elem,
+                        Some(Gc::new(ConsCell::new(lst, None))),
+                    )))),
                 },
                 _ => stop!(ArityMismatch => "cons takes two arguments"),
             }
@@ -32,13 +41,13 @@ impl ListOperations {
     }
 
     pub fn car() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "car takes one argument");
             }
             if let Some(first) = args.iter().next() {
-                match first.as_ref() {
-                    Pair(car, _) => Ok(Gc::clone(car)),
+                match first {
+                    Pair(cell) => Ok(cell.car()),
                     e => {
                         stop!(TypeMismatch => "car takes a list, given: {}", e);
                     }
@@ -50,18 +59,15 @@ impl ListOperations {
     }
 
     pub fn cdr() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "cdr takes one argument");
             }
             if let Some(first) = args.iter().next() {
-                match first.as_ref() {
-                    Pair(_, cdr) => match cdr {
-                        Some(rest) => match rest.as_ref() {
-                            Pair(_, _) => Ok(Gc::clone(rest)),
-                            _ => Ok(Gc::new(SteelVal::Pair(Gc::clone(rest), None))), // Ok(Gc::clone(rest))
-                        },
-                        None => Ok(Gc::new(SteelVal::VectorV(Vector::new()))), // TODO
+                match first {
+                    Pair(cell) => match cell.cdr() {
+                        Some(rest) => Ok(SteelVal::Pair(Gc::clone(rest))),
+                        None => Ok(SteelVal::VectorV(Gc::new(Vector::new()))), // TODO
                     },
                     e => {
                         stop!(TypeMismatch => "cdr takes a list, given: {}", e);
@@ -80,11 +86,11 @@ impl ListOperations {
     // TODO fix this
     // This panics on non positive values
     pub fn range() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
                 stop!(ArityMismatch => "range takes two arguments")
             }
-            let mut args = args.into_iter().map(|x| (**x).clone());
+            let mut args = args.into_iter();
             match (args.next(), args.next()) {
                 (Some(elem), Some(lst)) => {
                     if let (IntV(lower), IntV(upper)) = (elem, lst) {
@@ -94,9 +100,9 @@ impl ListOperations {
                         // println!("{} {}", lower, upper);
 
                         Ok(Self::built_in_list_normal_iter_non_result(
-                            (lower as usize..upper as usize)
+                            (*lower as usize..*upper as usize)
                                 .into_iter()
-                                .map(|x| Gc::new(SteelVal::IntV(x as isize))),
+                                .map(|x| SteelVal::IntV(x as isize)),
                         ))
 
                     // for i in lower as usize..upper as usize {
@@ -114,16 +120,16 @@ impl ListOperations {
 
     // TODO fix the VectorV case
     pub fn reverse() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
-                match &args[0].as_ref() {
-                    SteelVal::Pair(_, _) => {
+                match &args[0] {
+                    SteelVal::Pair(_) => {
                         let mut lst = Self::collect_into_vec(&args[0])?;
                         lst.reverse();
                         Self::built_in_list_func_flat(&lst)
                     }
-                    SteelVal::VectorV(v) => Ok(Gc::new(SteelVal::VectorV(
-                        v.into_iter().rev().map(Gc::clone).collect(),
+                    SteelVal::VectorV(v) => Ok(SteelVal::VectorV(Gc::new(
+                        v.iter().rev().cloned().collect(),
                     ))),
                     _ => {
                         stop!(TypeMismatch => "reverse requires an iterable")
@@ -136,21 +142,21 @@ impl ListOperations {
     }
 
     pub fn list_to_string() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "list->string takes one argument");
             }
             if let Some(first) = args.into_iter().next() {
-                match first.as_ref() {
-                    Pair(_, _) => {
-                        let collected_string = SteelVal::iter(Gc::clone(first)).map(|x| {
+                match first {
+                    Pair(_) => {
+                        let collected_string = SteelVal::iter(first.clone()).map(|x| {
                             x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
                         })
                         .collect::<Result<String>>()?;
 
-                        Ok(Gc::new(SteelVal::StringV(collected_string)))
+                        Ok(SteelVal::StringV(collected_string.into()))
                     }
-                    VectorV(v) if v.len() == 0 => Ok(Gc::new(SteelVal::StringV("".to_string()))),
+                    VectorV(v) if v.len() == 0 => Ok(SteelVal::StringV("".into())),
                     e => {
                         stop!(TypeMismatch => "list->string takes a list, given: {}", e);
                     }
@@ -162,22 +168,22 @@ impl ListOperations {
     }
 
     pub fn push_back() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             // let mut lst = Vec::new();
             if args.len() != 2 {
                 stop!(ArityMismatch => "push-back expected 2 arguments");
             }
 
-            match args[0].as_ref() {
-                SteelVal::Pair(_, _) => {
-                    let mut lst: Vec<_> = SteelVal::iter(Gc::clone(&args[0])).collect();
-                    lst.push(Gc::clone(&args[1]));
-                    ListOperations::built_in_list_func()(&lst)
+            match &args[0] {
+                SteelVal::Pair(_) => {
+                    let mut lst: Vec<_> = SteelVal::iter(args[0].clone()).collect();
+                    lst.push(args[1].clone());
+                    ListOperations::built_in_list_func_flat(&lst)
                 }
                 SteelVal::VectorV(v) => {
                     if v.is_empty() {
-                        let lst = vec![Gc::clone(&args[1])];
-                        ListOperations::built_in_list_func()(&lst)
+                        let lst = vec![args[1].clone()];
+                        ListOperations::built_in_list_func_flat(&lst)
                     } else {
                         stop!(TypeMismatch => "push-back requires a list as the first argument")
                     }
@@ -190,12 +196,12 @@ impl ListOperations {
     }
 
     pub fn append() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             let mut lst = Vec::new();
             for arg in args {
-                match arg.as_ref() {
-                    SteelVal::Pair(_, _) => {
-                        for value in SteelVal::iter(Gc::clone(arg)) {
+                match arg {
+                    SteelVal::Pair(_) => {
+                        for value in SteelVal::iter(arg.clone()) {
                             // println!("{:?}", value);
                             lst.push(value);
                         }
@@ -226,7 +232,7 @@ impl ListOperations {
             //     .flatten()
             //     .collect::<Result<Vec<Gc<SteelVal>>>>();
 
-            Self::built_in_list_func()(&lst)
+            Self::built_in_list_func_flat(&lst)
         })
     }
 
@@ -265,9 +271,9 @@ impl ListOperations {
     // }
 
     pub fn list_to_vec() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
-                if let SteelVal::Pair(..) = &args[0].as_ref() {
+                if let SteelVal::Pair(..) = &args[0] {
                     // let iter = SteelVal::iter(Gc::clone(&args[0])).collect()
 
                     // let collected: Vec<SteelVal> = Self::collect_into_vec(&args[0])?
@@ -275,8 +281,8 @@ impl ListOperations {
                     //     .map(|x| (*x).clone())
                     //     .collect();
                     // let im_vec: Vector<SteelVal> = collected.into();
-                    Ok(Gc::new(SteelVal::VectorV(
-                        SteelVal::iter(Gc::clone(&args[0])).collect(),
+                    Ok(SteelVal::VectorV(Gc::new(
+                        SteelVal::iter(args[0].clone()).collect(),
                     )))
                 } else {
                     stop!(TypeMismatch => "list->vector expected list")
@@ -287,36 +293,57 @@ impl ListOperations {
         })
     }
 
-    pub fn collect_into_vec(mut p: &Gc<SteelVal>) -> Result<Vec<Gc<SteelVal>>> {
-        let mut lst = Vec::new();
-        loop {
-            match p.as_ref() {
-                SteelVal::Pair(cons, cdr) => {
-                    lst.push(Gc::clone(cons));
-                    match cdr.as_ref() {
-                        Some(rest) => match rest.as_ref() {
-                            Pair(_, _) => p = rest,
-                            _ => {
-                                lst.push(Gc::clone(rest));
-                                break;
-                            }
-                        },
-                        None => break,
-                    }
-                }
-                _ => stop!(TypeMismatch => "collect into vec expected a list"),
-            }
-        }
+    pub fn collect_into_vec(p: &SteelVal) -> Result<Vec<SteelVal>> {
+        // let mut lst = Vec::new();
 
-        Ok(lst)
+        Ok(SteelVal::iter(p.clone()).into_iter().collect())
+
+        // if let SteelVal::Pair(mut cell) = p {
+        //     let ConsCell { car, cdr } = cell;
+        //     loop {
+        //         lst.push(car.clone());
+        //         match cdr.as_ref() {
+        //             Some(rest) => match rest.as_ref() {
+        //                 ConsCell { .. } => cell = rest,
+        //                 _ => {
+        //                     lst.push(Gc::clone(rest));
+        //                     break;
+        //                 }
+        //             },
+        //             None => break,
+        //         }
+        //     }
+        // } else {
+        //     stop!(TypeMismatch => "collect into vec expected a list")
+        // }
+
+        // loop {
+        //     match p.as_ref() {
+        //         SteelVal::Pair(ConsCell { car, cdr }) => {
+        //             lst.push(car.clone());
+        //             match cdr.as_ref() {
+        //                 Some(rest) => match rest.as_ref() {
+        //                     ConsCell { .. } => p = rest,
+        //                     _ => {
+        //                         lst.push(Gc::clone(rest));
+        //                         break;
+        //                     }
+        //                 },
+        //                 None => break,
+        //             }
+        //         }
+        //         _ => stop!(TypeMismatch => "collect into vec expected a list"),
+        //     }
+        // }
+
+        // Ok(lst)
     }
 
-    pub fn built_in_list_normal_iter_non_result<I>(args: I) -> Gc<SteelVal>
+    pub fn built_in_list_normal_iter_non_result<I>(args: I) -> SteelVal
     where
-        I: Iterator<Item = Gc<SteelVal>>,
+        I: Iterator<Item = SteelVal>,
     {
-        let mut pairs: Vec<Gc<SteelVal>> =
-            args.map(|car| Gc::new(SteelVal::Pair(car, None))).collect();
+        let mut pairs: Vec<ConsCell> = args.map(|car| ConsCell::new(car, None)).collect();
 
         // let mut rev_iter = pairs.iter_mut().rev().enumerate();
 
@@ -325,27 +352,30 @@ impl ListOperations {
 
         for i in rev_iter {
             let prev = pairs.pop().unwrap();
-            if let Some(SteelVal::Pair(_, cdr)) = pairs.get_mut(i).map(Gc::get_mut).flatten() {
-                *cdr = Some(prev)
+            if let Some(ConsCell { cdr, .. }) = pairs.get_mut(i) {
+                *cdr = Some(Gc::new(prev))
             } else {
                 unreachable!()
             }
         }
 
-        pairs.pop().unwrap_or(Gc::new(VectorV(Vector::new())))
+        pairs
+            .pop()
+            .map(|x| SteelVal::Pair(Gc::new(x)))
+            .unwrap_or(VectorV(Gc::new(Vector::new())))
     }
 
-    pub fn built_in_list_normal_iter<I>(args: I) -> Result<Gc<SteelVal>>
+    pub fn built_in_list_normal_iter<I>(args: I) -> Result<SteelVal>
     where
-        I: Iterator<Item = Result<Gc<SteelVal>>>,
+        I: Iterator<Item = Result<SteelVal>>,
     {
         // unimplemented!();
 
         // let mut pairs = Vec::new();
 
-        let mut pairs: Vec<Gc<SteelVal>> = args
-            .map(|car| Ok(Gc::new(SteelVal::Pair(car?, None))))
-            .collect::<Result<Vec<Gc<SteelVal>>>>()?;
+        let mut pairs: Vec<Gc<ConsCell>> = args
+            .map(|car| Ok(Gc::new(ConsCell::new(car?, None))))
+            .collect::<Result<_>>()?;
 
         // let mut rev_iter = pairs.iter_mut().rev().enumerate();
 
@@ -354,7 +384,7 @@ impl ListOperations {
 
         for i in rev_iter {
             let prev = pairs.pop().unwrap();
-            if let Some(SteelVal::Pair(_, cdr)) = pairs.get_mut(i).map(Gc::get_mut).flatten() {
+            if let Some(ConsCell { car: _, cdr }) = pairs.get_mut(i).map(Gc::get_mut).flatten() {
                 *cdr = Some(prev)
             } else {
                 unreachable!()
@@ -363,6 +393,7 @@ impl ListOperations {
 
         pairs
             .pop()
+            .map(SteelVal::Pair)
             .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
 
         // rev_iter.next();
@@ -374,50 +405,52 @@ impl ListOperations {
         // unimplemented!()
     }
 
-    pub fn built_in_list_func_iter<I>(args: I) -> Result<Gc<SteelVal>>
+    pub fn built_in_list_func_iter<I>(args: I) -> Result<SteelVal>
     where
-        I: DoubleEndedIterator<Item = Gc<SteelVal>>,
+        I: DoubleEndedIterator<Item = SteelVal>,
     {
         let mut args = args.rev();
         let mut pairs = Vec::new();
         match args.next() {
             Some(car) => {
-                pairs.push(Gc::new(SteelVal::Pair(car, None)));
+                pairs.push(Gc::new(ConsCell::new(car, None)));
             }
             _ => {
-                return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+                return Ok(SteelVal::VectorV(Gc::new(Vector::new())));
             }
         }
 
         for (i, val) in args.enumerate() {
-            pairs.push(Gc::new(SteelVal::Pair(val, Some(Gc::clone(&pairs[i])))));
+            pairs.push(Gc::new(ConsCell::new(val, Some(Gc::clone(&pairs[i])))));
         }
         pairs
             .pop()
+            .map(SteelVal::Pair)
             .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
         // unimplemented!()
     }
 
-    pub fn built_in_list_func_iter_result<I>(args: I) -> Result<Gc<SteelVal>>
+    pub fn built_in_list_func_iter_result<I>(args: I) -> Result<SteelVal>
     where
-        I: DoubleEndedIterator<Item = Result<Gc<SteelVal>>>,
+        I: DoubleEndedIterator<Item = Result<SteelVal>>,
     {
         let mut args = args.rev();
         let mut pairs = Vec::new();
         match args.next() {
             Some(car) => {
-                pairs.push(Gc::new(SteelVal::Pair(car?, None)));
+                pairs.push(Gc::new(ConsCell::new(car?, None)));
             }
             _ => {
-                return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+                return Ok(SteelVal::VectorV(Gc::new(Vector::new())));
             }
         }
 
         for (i, val) in args.enumerate() {
-            pairs.push(Gc::new(SteelVal::Pair(val?, Some(Gc::clone(&pairs[i])))));
+            pairs.push(Gc::new(ConsCell::new(val?, Some(Gc::clone(&pairs[i])))));
         }
         pairs
             .pop()
+            .map(SteelVal::Pair)
             .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
         // unimplemented!()
     }
@@ -454,61 +487,69 @@ impl ListOperations {
     // TODO add a function that does the same but takes an iterator
     // This definitely needs to get looked at
     // This could lead to nasty speed ups for map/filter
-    pub fn built_in_list_func() -> fn(&[Gc<SteelVal>]) -> Result<Gc<SteelVal>> {
-        |args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            let mut args = args.into_iter().rev().map(Gc::clone);
+    pub fn built_in_list_func() -> fn(&[SteelVal]) -> Result<SteelVal> {
+        |args: &[SteelVal]| -> Result<SteelVal> {
+            let mut args = args.into_iter().rev();
             let mut pairs = Vec::new();
 
             match args.next() {
                 Some(car) => {
-                    pairs.push(Gc::new(SteelVal::Pair(car, None)));
+                    pairs.push(Gc::new(ConsCell::new(car.clone(), None)));
                 }
                 _ => {
-                    return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+                    return Ok(SteelVal::VectorV(Gc::new(Vector::new())));
                 }
             }
 
             for (i, val) in args.enumerate() {
-                pairs.push(Gc::new(SteelVal::Pair(val, Some(Gc::clone(&pairs[i])))));
+                pairs.push(Gc::new(ConsCell::new(
+                    val.clone(),
+                    Some(Gc::clone(&pairs[i])),
+                )));
             }
 
             pairs
                 .pop()
+                .map(SteelVal::Pair)
                 .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
         }
     }
 
-    pub fn built_in_list_func_flat(args: &[Gc<SteelVal>]) -> Result<Gc<SteelVal>> {
-        let mut args = args.into_iter().rev().map(Gc::clone);
+    pub fn built_in_list_func_flat(args: &[SteelVal]) -> Result<SteelVal> {
+        let mut args = args.into_iter().rev();
         let mut pairs = Vec::new();
 
         match args.next() {
             Some(car) => {
-                pairs.push(Gc::new(SteelVal::Pair(car, None)));
+                pairs.push(Gc::new(ConsCell::new(car.clone(), None)));
             }
             _ => {
-                return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+                return Ok(SteelVal::VectorV(Gc::new(Vector::new())));
             }
         }
 
         for (i, val) in args.enumerate() {
-            pairs.push(Gc::new(SteelVal::Pair(val, Some(Gc::clone(&pairs[i])))));
+            pairs.push(Gc::new(ConsCell::new(
+                val.clone(),
+                Some(Gc::clone(&pairs[i])),
+            )));
         }
 
         pairs
             .pop()
+            .map(SteelVal::Pair)
             .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
     }
 
     pub fn list_length() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
-                if let SteelVal::Pair(_, _) = &args[0].as_ref() {
+                if let SteelVal::Pair(_) = &args[0] {
                     let mut count: isize = 0;
-                    for _ in SteelVal::iter(Gc::clone(&args[0])) {
+                    for _ in SteelVal::iter(args[0].clone()) {
                         count += 1;
                     }
-                    Ok(Gc::new(SteelVal::IntV(count)))
+                    Ok(SteelVal::IntV(count))
                 } else {
                     stop!(TypeMismatch => "length expects a list")
                 }
@@ -518,25 +559,26 @@ impl ListOperations {
         })
     }
 
-    pub fn built_in_list_func_flat_non_gc(args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
-        let mut args = args.into_iter().rev().map(Gc::new);
+    pub fn built_in_list_func_flat_non_gc(args: Vec<SteelVal>) -> Result<SteelVal> {
+        let mut args = args.into_iter().rev();
         let mut pairs = Vec::new();
 
         match args.next() {
             Some(car) => {
-                pairs.push(Gc::new(SteelVal::Pair(car, None)));
+                pairs.push(Gc::new(ConsCell::new(car, None)));
             }
             _ => {
-                return Ok(Gc::new(SteelVal::VectorV(Vector::new())));
+                return Ok(SteelVal::VectorV(Gc::new(Vector::new())));
             }
         }
 
         for (i, val) in args.enumerate() {
-            pairs.push(Gc::new(SteelVal::Pair(val, Some(Gc::clone(&pairs[i])))));
+            pairs.push(Gc::new(ConsCell::new(val, Some(Gc::clone(&pairs[i])))));
         }
 
         pairs
             .pop()
+            .map(SteelVal::Pair)
             .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
     }
 }
@@ -548,8 +590,7 @@ mod list_operation_tests {
     use crate::throw;
     use im_rc::vector;
 
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<Gc<SteelVal>> {
-        let args: Vec<Gc<SteelVal>> = args.into_iter().map(|x| Gc::new(x)).collect();
+    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
         func.func_or_else(throw!(BadSyntax => "list tests"))
             .unwrap()(&args)
     }
@@ -558,10 +599,10 @@ mod list_operation_tests {
     fn cons_test_normal_input() {
         let args = vec![SteelVal::IntV(1), SteelVal::IntV(2)];
         let res = apply_function(ListOperations::cons(), args);
-        let expected = Gc::new(SteelVal::Pair(
-            Gc::new(SteelVal::IntV(1)),
-            Some(Gc::new(SteelVal::IntV(2))),
-        ));
+        let expected = SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::IntV(1),
+            Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
+        )));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -583,35 +624,36 @@ mod list_operation_tests {
 
     #[test]
     fn cons_with_empty_list() {
-        let args = vec![SteelVal::IntV(1), SteelVal::VectorV(Vector::new())];
+        let args = vec![SteelVal::IntV(1), SteelVal::VectorV(Gc::new(Vector::new()))];
         let res = apply_function(ListOperations::cons(), args);
-        let expected = Gc::new(SteelVal::Pair(Gc::new(SteelVal::IntV(1)), None));
+        let expected = SteelVal::Pair(Gc::new(ConsCell::new(SteelVal::IntV(1), None)));
         assert_eq!(res.unwrap(), expected);
     }
     #[test]
     fn cons_with_non_empty_vector() {
         let args = vec![
             SteelVal::IntV(1),
-            SteelVal::VectorV(vector![Gc::new(SteelVal::IntV(2))]),
+            SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(2)])),
         ];
         let res = apply_function(ListOperations::cons(), args);
-        let expected = Gc::new(SteelVal::Pair(
-            Gc::new(SteelVal::IntV(1)),
-            Some(Gc::new(SteelVal::VectorV(vector![Gc::new(
-                SteelVal::IntV(2)
-            )]))),
-        ));
+        let expected = SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::IntV(1),
+            Some(Gc::new(ConsCell::new(
+                SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(2)])),
+                None,
+            ))),
+        )));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn car_normal_input() {
-        let args = vec![SteelVal::Pair(
-            Gc::new(SteelVal::IntV(1)),
-            Some(Gc::new(SteelVal::IntV(2))),
-        )];
+        let args = vec![SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::IntV(1),
+            Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
+        )))];
         let res = apply_function(ListOperations::car(), args);
-        let expected = Gc::new(SteelVal::IntV(1));
+        let expected = SteelVal::IntV(1);
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -633,29 +675,29 @@ mod list_operation_tests {
 
     #[test]
     fn cdr_normal_input_2_elements() {
-        let args = vec![SteelVal::Pair(
-            Gc::new(SteelVal::IntV(1)),
-            Some(Gc::new(SteelVal::IntV(2))),
-        )];
+        let args = vec![SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::IntV(1),
+            Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
+        )))];
         let res = apply_function(ListOperations::cdr(), args);
-        let expected = Gc::new(Pair(Gc::new(SteelVal::IntV(2)), None));
+        let expected = SteelVal::Pair(Gc::new(ConsCell::new(SteelVal::IntV(2), None)));
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn cdr_normal_input_3_elements() {
-        let args = vec![SteelVal::Pair(
-            Gc::new(SteelVal::IntV(1)),
-            Some(Gc::new(SteelVal::Pair(
-                Gc::new(SteelVal::IntV(2)),
-                Some(Gc::new(SteelVal::IntV(3))),
+        let args = vec![SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::IntV(1),
+            Some(Gc::new(ConsCell::new(
+                SteelVal::IntV(2),
+                Some(Gc::new(ConsCell::new(SteelVal::IntV(3), None))),
             ))),
-        )];
+        )))];
         let res = apply_function(ListOperations::cdr(), args);
-        let expected = Gc::new(Pair(
-            Gc::new(SteelVal::IntV(2)),
-            Some(Gc::new(SteelVal::IntV(3))),
-        ));
+        let expected = SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::IntV(2),
+            Some(Gc::new(ConsCell::new(SteelVal::IntV(3), None))),
+        )));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -676,9 +718,12 @@ mod list_operation_tests {
 
     #[test]
     fn cdr_single_element_list() {
-        let args = vec![SteelVal::Pair(Gc::new(SteelVal::NumV(1.0)), None)];
+        let args = vec![SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::NumV(1.0),
+            None,
+        )))];
         let res = apply_function(ListOperations::cdr(), args);
-        let expected = Gc::new(SteelVal::VectorV(Vector::new()));
+        let expected = SteelVal::VectorV(Gc::new(Vector::new()));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -706,13 +751,13 @@ mod list_operation_tests {
     fn range_test_normal_input() {
         let args = vec![SteelVal::IntV(0), SteelVal::IntV(3)];
         let res = apply_function(ListOperations::range(), args);
-        let expected = Gc::new(SteelVal::Pair(
-            Gc::new(SteelVal::IntV(0)),
-            Some(Gc::new(SteelVal::Pair(
-                Gc::new(SteelVal::IntV(1)),
-                Some(Gc::new(SteelVal::IntV(2))),
+        let expected = SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::IntV(0),
+            Some(Gc::new(ConsCell::new(
+                SteelVal::IntV(1),
+                Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
             ))),
-        ));
+        )));
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -742,17 +787,12 @@ mod list_operation_tests {
 
     #[test]
     fn list_to_vec_normal() {
-        let args = vec![SteelVal::Pair(
-            Gc::new(SteelVal::IntV(1)),
-            Some(Gc::new(SteelVal::IntV(2))),
-        )];
+        let args = vec![SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::IntV(1),
+            Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
+        )))];
         let res = apply_function(ListOperations::list_to_vec(), args);
-        let expected = Gc::new(SteelVal::VectorV(
-            vector![SteelVal::IntV(1), SteelVal::IntV(2)]
-                .into_iter()
-                .map(Gc::new)
-                .collect(),
-        ));
+        let expected = SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(1), SteelVal::IntV(2)]));
         assert_eq!(res.unwrap(), expected);
     }
 }

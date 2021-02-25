@@ -67,7 +67,7 @@ impl TryFrom<ExprKind> for SteelVal {
     type Error = SteelErr;
 
     fn try_from(e: ExprKind) -> std::result::Result<Self, Self::Error> {
-        TryFromExprKindForSteelVal::try_from_expr_kind(e).map(|x| x.unwrap())
+        TryFromExprKindForSteelVal::try_from_expr_kind(e)
     }
 }
 
@@ -87,30 +87,26 @@ impl TryFrom<&SteelVal> for ExprKind {
                 IntegerLiteral(*x),
             )))),
             VectorV(lst) => {
-                let items: std::result::Result<Vec<Self>, Self::Error> = lst
-                    .into_iter()
-                    .map(|x| Self::try_from(x.as_ref()))
-                    .collect();
+                let items: std::result::Result<Vec<Self>, Self::Error> =
+                    lst.iter().map(|x| Self::try_from(x)).collect();
                 Ok(ExprKind::List(List::new(items?)))
             }
             Void => Err("Can't convert from Void to expression!"),
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                StringLiteral(x.clone()),
+                StringLiteral(x.unwrap()),
             )))),
             FuncV(_) => Err("Can't convert from Function to expression!"),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                Identifier(x.clone()),
+                Identifier(x.unwrap()),
             )))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
             // Pair(_, _) => Err("Can't convert from pair"), // TODO
-            Pair(_, _) => {
+            Pair(_) => {
                 if let VectorV(ref lst) = collect_pair_into_vector(r) {
-                    let items: std::result::Result<Vec<Self>, Self::Error> = lst
-                        .into_iter()
-                        .map(|x| Self::try_from(x.as_ref()))
-                        .collect();
+                    let items: std::result::Result<Vec<Self>, Self::Error> =
+                        lst.iter().map(|x| Self::try_from(x)).collect();
                     Ok(ExprKind::List(List::new(items?)))
                 } else {
                     Err("Couldn't convert from list to expression")
@@ -120,7 +116,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                 CharacterLiteral(*x),
             )))),
             StructV(_) => Err("Can't convert from Struct to expression!"),
-            StructClosureV(_, _) => Err("Can't convert from struct-function to expression!"),
+            StructClosureV(_) => Err("Can't convert from struct-function to expression!"),
             PortV(_) => Err("Can't convert from port to expression!"),
             Closure(_) => Err("Can't convert from bytecode closure to expression"),
             HashMapV(_) => Err("Can't convert from hashmap to expression!"),

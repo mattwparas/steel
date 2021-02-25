@@ -275,7 +275,10 @@
 ;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
 ;; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
 (define member (lambda (obj lst)     (fold (mem-helper (curry equal? obj) id) #f lst)))
-(define assq (lambda (obj alist)     (fold (mem-helper (curry eq? obj) car) #f alist)))
+
+;; TODO come back to this
+; (define assq (lambda (obj alist)     (fold (mem-helper (curry eq? obj) car) #f alist)))
+
 ;; (define assv (lambda (obj alist)     (fold (mem-helper (curry eqv? obj) car) #f alist)))
 ; (define assoc (lambda (obj alist)    (fold (mem-helper (curry equal? obj) car) #f alist)))
 

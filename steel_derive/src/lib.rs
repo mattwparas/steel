@@ -345,7 +345,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     Box::new((*self).clone())
                 }
                 fn new_steel_val(&self) -> SteelVal {
-                    SteelVal::Custom(Box::new(self.clone()))
+                    SteelVal::Custom(Gc::new(Box::new(self.clone())))
                 }
                 fn display(&self) -> std::result::Result<String, std::fmt::Error> {
                     let mut buf = String::new();
@@ -411,7 +411,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 Box::new((*self).clone())
             }
             fn new_steel_val(&self) -> SteelVal {
-                SteelVal::Custom(Box::new(self.clone()))
+                SteelVal::Custom(Gc::new(Box::new(self.clone())))
             }
             fn display(&self) -> std::result::Result<String, std::fmt::Error> {
                 let mut buf = String::new();
@@ -454,11 +454,11 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 // generate predicate
                 let name = concat!(stringify!(#name), "?").to_string();
                 let func =
-                        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>, SteelErr> {
+                        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal, SteelErr> {
                             if args.len() == 1 {
-                                let mut args_iter = args.into_iter().map(Gc::clone);
+                                let mut args_iter = args.into_iter();;
                                 if let Some(first) = args_iter.next() {
-                                    return Ok(Gc::new(SteelVal::BoolV(unwrap!((*first).clone(), #name).is_ok())));
+                                    return Ok(SteelVal::BoolV(unwrap!(first.clone(), #name).is_ok()));
                                 }
                                 stop!(ArityMismatch => concat!(stringify!(#name), "? expected one argument"));
                             }
@@ -469,21 +469,21 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 // generate constructor
                 let name = concat!(stringify!(#name)).to_string();
                 let func =
-                        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>, SteelErr> {
+                        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal, SteelErr> {
 
                             if args.len() != #number_of_fields {
                                 steel::stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", stringify!(#name), #number_of_fields.to_string(), args.len()))
                             }
 
-                            let mut args_iter = args.into_iter().map(Gc::clone);
+                            let mut args_iter = args.into_iter();
 
                             let new_struct = #name {
                                 #(
                                     #field_name2: {
                                     if let Some(arg) = args_iter.next() {
-                                        match arg.as_ref() {
-                                            SteelVal::Custom(_) => unwrap!((*arg).clone(), #field_type2)?,
-                                            _ => <#field_type2>::try_from(&(*arg).clone())?
+                                        match &arg {
+                                            SteelVal::Custom(_) => unwrap!(arg.clone(), #field_type2)?,
+                                            _ => <#field_type2>::try_from(&arg.clone())?
                                         }
                                     } else {
                                         stop!(ArityMismatch => concat!(stringify!(#name), "expected", stringify!(#number_of_fields),  "arguments"));
@@ -491,7 +491,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
 
                                 )*
                             };
-                            Ok(Gc::new(new_struct.new_steel_val()))
+                            Ok(new_struct.new_steel_val())
                         });
                 vec_binding.push((name, func));
 
@@ -499,25 +499,25 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     // generate setters
                     let name = concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!").to_string();
                     let func =
-                            SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>, SteelErr> {
+                            SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal, SteelErr> {
                             let arity = args.len();
 
                             if arity != 2 {
                                 stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!"), 2, arity));
                             }
 
-                            let mut args_iter = args.into_iter().map(Gc::clone);
+                            let mut args_iter = args.into_iter();
                             if let (Some(first), Some(second)) = (args_iter.next(), args_iter.next()) {
-                                let mut my_struct = unwrap!((*first).clone(), #name)?;
-                                my_struct.#field_name = match second.as_ref() {
+                                let mut my_struct = unwrap!(first.clone(), #name)?;
+                                my_struct.#field_name = match &second {
                                     SteelVal::Custom(_) => {
-                                        unwrap!((*second).clone(), #field_type)?
+                                        unwrap!(second.clone(), #field_type)?
                                     },
                                     _ => {
-                                        <#field_type>::try_from(&(*second).clone())?
+                                        <#field_type>::try_from(&second.clone())?
                                         }
                                 };
-                                return Ok(Gc::new(my_struct.new_steel_val()));
+                                return Ok(my_struct.new_steel_val());
                             } else {
                                 stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!("set-", stringify!(#name), "-", stringify!(#field_name), "!"), 2, arity));
                             }
@@ -527,16 +527,16 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                     // generate getters
                     let name = concat!(stringify!(#name), "-", stringify!(#field_name)).to_string();
                     let func =
-                            SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>, SteelErr> {
+                            SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal, SteelErr> {
                                 let arity = args.len();
                                 if arity != 1 {
                                     stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!(stringify!(#name), "-", stringify!(#field_name)), 1, arity));
                                 }
-                                let mut args_iter = args.into_iter().map(Gc::clone);
+                                let mut args_iter = args.into_iter();
                                 if let Some(first) = args_iter.next() {
-                                    let my_struct = unwrap!((*first).clone(), #name)?;
+                                    let my_struct = unwrap!(first.clone(), #name)?;
                                     let return_val: SteelVal = my_struct.#field_name.try_into()?; // TODO
-                                    return Ok(Gc::new(return_val));
+                                    return Ok(return_val);
                                 }
                                 stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!(stringify!(#name), "-", stringify!(#field_name)), 2, arity));
                         });
@@ -631,7 +631,7 @@ pub fn function(
     // };
     let ret_val = match return_type {
         ReturnType::Default => quote! {
-            Ok(Gc::new(SteelVal::Void))
+            Ok(SteelVal::Void)
         },
         ReturnType::Type(_, r) => {
             if let Type::Path(val) = *r {
@@ -641,7 +641,7 @@ pub fn function(
                         "Result" => quote! {
                             match res {
                                 Ok(x) => {
-                                    Ok(Gc::new(SteelVal::try_from(x)?))
+                                    Ok(SteelVal::try_from(x)?)
                                 }
                                 Err(e) => {
                                     Err(SteelErr::Generic(e.to_string(), None))
@@ -651,25 +651,25 @@ pub fn function(
                         "Option" => quote! { // TODO document
                             match res {
                                 Some(x) => {
-                                    Ok(Gc::new(SteelVal::try_from(x)?))
+                                    Ok(SteelVal::try_from(x)?)
                                 }
                                 None => {
-                                    Ok(Gc::new(SteelVal::BoolV(false)))
+                                    Ok(SteelVal::BoolV(false))
                                 }
                             }
                         },
                         _ => quote! {
-                            Ok(Gc::new(SteelVal::try_from(res)?))
+                            Ok(SteelVal::try_from(res)?)
                         },
                     }
                 } else {
                     quote! {
-                        Ok(Gc::new(SteelVal::Void))
+                        Ok(SteelVal::Void)
                     }
                 }
             } else {
                 quote! {
-                    Ok(Gc::new(SteelVal::try_from(res)?))
+                    Ok(SteelVal::try_from(res)?)
                 }
             }
         }
@@ -691,7 +691,7 @@ pub fn function(
     let function_name = sign.ident;
 
     let output = quote! {
-        pub fn #function_name(args: &[Gc<SteelVal>]) -> std::result::Result<Gc<SteelVal>, SteelErr> {
+        pub fn #function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, SteelErr> {
             #modified_input
 
             if args.len() != #arity_number {
@@ -700,7 +700,7 @@ pub fn function(
 
             let res = #function_name(
                 #(
-                    <#arg_type>::try_from((*(args[#arg_index])).clone())?,
+                    <#arg_type>::try_from(args[#arg_index].clone())?,
                 )*
             );
 
@@ -747,7 +747,7 @@ pub fn embedded_function(input: TokenStream) -> TokenStream {
     let function_name = arg_names.next().unwrap();
 
     let output = quote! {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> std::result::Result<Gc<SteelVal>, SteelErr> {
+        SteelVal::FuncV(|args: &[SteelVal]| -> std::result::Result<SteelVal, SteelErr> {
 
             if args.len() != #arity_number {
                 stop!(TypeMismatch => format!("{} expected takes {} arguments, found {}", args.len(), arity))
