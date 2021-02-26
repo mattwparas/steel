@@ -51,6 +51,7 @@ fn collect_defines_from_current_scope(
                     Some(SyntaxObject {
                         ty: TokenType::Identifier(s),
                         span: _sp,
+                        ..
                     }),
                 ..
             } => {

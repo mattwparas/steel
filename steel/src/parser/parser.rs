@@ -23,6 +23,7 @@ use super::ast;
 pub struct SyntaxObject {
     pub(crate) ty: TokenType,
     pub(crate) span: Span,
+    pub(crate) source: Option<String>,
 }
 
 impl PartialEq for SyntaxObject {
@@ -33,13 +34,18 @@ impl PartialEq for SyntaxObject {
 
 impl SyntaxObject {
     pub fn new(ty: TokenType, span: Span) -> Self {
-        SyntaxObject { ty, span }
+        SyntaxObject {
+            ty,
+            span,
+            source: None,
+        }
     }
 
     pub fn default(ty: TokenType) -> Self {
         SyntaxObject {
             ty,
             span: Span::new(0, 0),
+            source: None,
         }
     }
 

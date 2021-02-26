@@ -135,6 +135,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
                 SyntaxObject {
                     ty: TokenType::Identifier(s),
                     span: sp,
+                    ..
                 },
         })) = l.first()
         {

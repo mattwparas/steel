@@ -162,7 +162,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         ty: TokenType::Identifier(_),
                         ..
                     } => body_instructions.push(Instruction::new_bind(atom.syn.clone())),
-                    SyntaxObject { ty: _, span: sp } => {
+                    SyntaxObject {
+                        ty: _, span: sp, ..
+                    } => {
                         stop!(Generic => "lambda function requires list of identifiers"; *sp);
                     }
                 }
