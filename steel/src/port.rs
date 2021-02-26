@@ -8,7 +8,7 @@ use std::io::{BufReader, BufWriter, Stdin, Stdout};
 // use utils::chars::Chars;
 // use utils::{new_rc_ref_cell, RcRefCell};
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 
 // use crate::rvals::{new_rc_ref_cell, RcRefSteelVal};

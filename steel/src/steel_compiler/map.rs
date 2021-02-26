@@ -1,4 +1,4 @@
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 use crate::stop;
 use crate::{env::Env, structs::StructFuncBuilder};

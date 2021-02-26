@@ -4,7 +4,7 @@ use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
 // use crate::parser::span::Span;
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 
 use super::ast::Atom;

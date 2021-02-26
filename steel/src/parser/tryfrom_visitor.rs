@@ -1,7 +1,7 @@
 use crate::parser::ast::ExprKind;
 use crate::parser::visitors::ConsumingVisitorRef;
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 
 use super::ast::Atom;

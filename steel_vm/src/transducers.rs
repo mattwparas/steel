@@ -2,7 +2,7 @@ use crate::evaluation_progress::EvaluationProgress;
 use steel::{
     parser::span::Span,
     primitives::{ListOperations, VectorOperations},
-    rerrs::SteelErr,
+    rerrs::{ErrorKind, SteelErr},
     rvals::{CollectionType, Result, SteelVal, Transducer, Transducers},
     steel_compiler::constants::ConstantTable,
     stop,

@@ -1,8 +1,6 @@
-// use crate::env::{FALSE, TRUE};
-use crate::rerrs::SteelErr;
-// use crate::rvals::SteelVal::*;
 use crate::gc::Gc;
 use crate::port::SteelPort;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 

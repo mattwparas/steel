@@ -1,5 +1,5 @@
 use crate::gc::{get_object_count, Gc};
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 

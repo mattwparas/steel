@@ -1,7 +1,7 @@
 use crate::{
     gc::Gc,
     primitives::ListOperations,
-    rerrs::SteelErr,
+    rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     throw,
 };

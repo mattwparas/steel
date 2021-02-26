@@ -13,7 +13,7 @@ use crate::parser::ast::*;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
 
@@ -23,7 +23,7 @@ use super::ast;
 pub struct SyntaxObject {
     pub(crate) ty: TokenType,
     pub(crate) span: Span,
-    pub(crate) source: Option<String>,
+    pub(crate) source: Option<Rc<str>>,
 }
 
 impl PartialEq for SyntaxObject {
@@ -52,6 +52,14 @@ impl SyntaxObject {
     pub fn set_span(&mut self, span: Span) {
         self.span = span
     }
+
+    pub fn from_token_with_source(val: &Token, source: &Option<Rc<str>>) -> Self {
+        SyntaxObject {
+            ty: val.ty.clone(),
+            span: val.span,
+            source: source.as_ref().map(Rc::clone),
+        }
+    }
 }
 
 impl From<&Token<'_>> for SyntaxObject {
@@ -66,21 +74,37 @@ impl TryFrom<SyntaxObject> for SteelVal {
     fn try_from(e: SyntaxObject) -> std::result::Result<Self, Self::Error> {
         let span = e.span;
         match e.ty {
-            OpenParen => Err(SteelErr::UnexpectedToken("(".to_string(), Some(span))),
-            CloseParen => Err(SteelErr::UnexpectedToken(")".to_string(), Some(span))),
+            OpenParen => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "(".to_string()).with_span(span))
+            }
+            CloseParen => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, ")".to_string()).with_span(span))
+            }
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
             NumberLiteral(x) => Ok(NumV(x)),
             IntegerLiteral(x) => Ok(IntV(x)),
             StringLiteral(x) => Ok(StringV(x.into())),
-            QuoteTick => Err(SteelErr::UnexpectedToken("'".to_string(), Some(span))),
-            Unquote => Err(SteelErr::UnexpectedToken(",".to_string(), Some(span))),
-            QuasiQuote => Err(SteelErr::UnexpectedToken("`".to_string(), Some(span))),
-            UnquoteSplice => Err(SteelErr::UnexpectedToken(",@".to_string(), Some(span))),
-            Error => Err(SteelErr::UnexpectedToken("error".to_string(), Some(span))),
-            Comment => Err(SteelErr::UnexpectedToken("comment".to_string(), Some(span))),
-            Hash => Err(SteelErr::UnexpectedToken("#".to_string(), Some(span))),
+            QuoteTick => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string()).with_span(span))
+            }
+            Unquote => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, ",".to_string()).with_span(span))
+            }
+            QuasiQuote => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "`".to_string()).with_span(span))
+            }
+            UnquoteSplice => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, ",@".to_string()).with_span(span))
+            }
+            Error => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "error".to_string()).with_span(span))
+            }
+            Comment => Err(
+                SteelErr::new(ErrorKind::UnexpectedToken, "comment".to_string()).with_span(span),
+            ),
+            Hash => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#".to_string()).with_span(span)),
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),
@@ -140,8 +164,8 @@ pub struct Parser<'a> {
     tokenizer: TokenStream<'a>,
     intern: &'a mut HashMap<String, Rc<TokenType>>,
     quote_stack: Vec<usize>,
-    shorthand_quote_stack: Vec<usize>, // quote_ctx:
-                                       // span: String
+    shorthand_quote_stack: Vec<usize>,
+    source_name: Option<Rc<str>>,
 }
 
 impl<'a> Parser<'a> {
@@ -174,6 +198,21 @@ impl<'a> Parser<'a> {
             intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
+            source_name: None,
+        }
+    }
+
+    pub fn new_from_source(
+        input: &'a str,
+        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        source_name: &str,
+    ) -> Self {
+        Parser {
+            tokenizer: TokenStream::new(input, true),
+            intern,
+            quote_stack: Vec::new(),
+            shorthand_quote_stack: Vec::new(),
+            source_name: Some(Rc::from(source_name)),
         }
     }
 
@@ -363,8 +402,9 @@ impl<'a> Parser<'a> {
 
                             // println!("{}", token);
 
-                            current_frame
-                                .push(ExprKind::Atom(Atom::new(SyntaxObject::from(&token))))
+                            current_frame.push(ExprKind::Atom(Atom::new(
+                                SyntaxObject::from_token_with_source(&token, &self.source_name),
+                            )))
                         }
                     }
                 }

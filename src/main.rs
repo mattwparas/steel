@@ -8,7 +8,7 @@ extern crate steel_repl;
 use steel::unwrap;
 
 use std::any::Any;
-use steel::rerrs;
+use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
 // use steel::build_interpreter;
@@ -25,7 +25,7 @@ use std::process;
 
 // use std::rc::Rc;
 
-use steel::SteelErr;
+// use steel::SteelErr;
 
 use std::env::args;
 use std::fs;

@@ -445,7 +445,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                 use std::convert::TryFrom;
                 use std::convert::TryInto;
                 use steel::rvals::SteelVal;
-                use steel::rerrs::SteelErr;
+                use steel::rerrs::{SteelErr, ErrorKind};
                 use steel::unwrap;
                 use steel::stop;
                 use steel::gc::Gc;
@@ -644,7 +644,7 @@ pub fn function(
                                     Ok(SteelVal::try_from(x)?)
                                 }
                                 Err(e) => {
-                                    Err(SteelErr::Generic(e.to_string(), None))
+                                    Err(SteelErr::new(ErrorKind::Generic, e.to_string()))
                                 }
                             }
                         },

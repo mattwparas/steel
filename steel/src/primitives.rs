@@ -30,7 +30,7 @@ pub use symbols::SymbolOperations;
 pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{FunctionSignature, SteelVal};
 use im_rc::Vector;
 
@@ -48,7 +48,7 @@ macro_rules! try_from_impl {
                 fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
-                        _ => Err(SteelErr::ConversionError("Expected number".to_string(), None)),
+                        _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
                     }
                 }
             }
@@ -58,7 +58,7 @@ macro_rules! try_from_impl {
                 fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
-                        _ => Err(SteelErr::ConversionError("Expected number".to_string(), None)),
+                        _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
                     }
                 }
             }
@@ -104,9 +104,9 @@ impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
 
         match vec_vals {
             Ok(l) => ListOperations::built_in_list_func_flat(&l),
-            _ => Err(SteelErr::ConversionError(
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
                 "Could not convert vector of values to SteelVal list".to_string(),
-                None,
             )),
         }
     }
@@ -125,9 +125,9 @@ impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
                         .collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
-                    _ => Err(SteelErr::ConversionError(
+                    _ => Err(SteelErr::new(
+                        ErrorKind::ConversionError,
                         "Could not convert SteelVal list to Vector of values".to_string(),
-                        None,
                     )),
                 }
             }
@@ -136,15 +136,15 @@ impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
                     v.iter().map(|x| T::try_from(x.clone())).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
-                    _ => Err(SteelErr::ConversionError(
+                    _ => Err(SteelErr::new(
+                        ErrorKind::ConversionError,
                         "Could not convert SteelVal list to Vector of values".to_string(),
-                        None,
                     )),
                 }
             } // TODO
-            _ => Err(SteelErr::ConversionError(
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
                 "Could not convert SteelVal list to Vector of values".to_string(),
-                None,
             )),
         }
     }
@@ -163,9 +163,9 @@ impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
                         .collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
-                    _ => Err(SteelErr::ConversionError(
+                    _ => Err(SteelErr::new(
+                        ErrorKind::ConversionError,
                         "Could not convert SteelVal list to Vector of values".to_string(),
-                        None,
                     )),
                 }
             }
@@ -174,15 +174,15 @@ impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
                     v.iter().map(|x| T::try_from(x.clone())).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
-                    _ => Err(SteelErr::ConversionError(
+                    _ => Err(SteelErr::new(
+                        ErrorKind::ConversionError,
                         "Could not convert SteelVal list to Vector of values".to_string(),
-                        None,
                     )),
                 }
             } // TODO
-            _ => Err(SteelErr::ConversionError(
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
                 "Could not convert SteelVal list to Vector of values".to_string(),
-                None,
             )),
         }
     }
@@ -210,9 +210,9 @@ impl TryFrom<SteelVal> for String {
         match value {
             SteelVal::StringV(ref x) => Ok(x.unwrap()),
             SteelVal::SymbolV(ref x) => Ok(x.unwrap()),
-            _ => Err(SteelErr::ConversionError(
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
                 "Expected string".to_string(),
-                None,
             )),
         }
     }
@@ -236,9 +236,9 @@ impl TryFrom<&Gc<SteelVal>> for String {
         match value.as_ref() {
             SteelVal::StringV(x) => Ok(x.unwrap()),
             SteelVal::SymbolV(x) => Ok(x.unwrap()),
-            _ => Err(SteelErr::ConversionError(
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
                 "Expected string".to_string(),
-                None,
             )),
         }
     }
@@ -250,9 +250,9 @@ impl TryFrom<&SteelVal> for String {
         match value {
             SteelVal::StringV(x) => Ok(x.unwrap()),
             SteelVal::SymbolV(x) => Ok(x.unwrap()),
-            _ => Err(SteelErr::ConversionError(
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
                 "Expected string".to_string(),
-                None,
             )),
         }
     }
@@ -264,9 +264,9 @@ impl TryFrom<Vec<SteelVal>> for VecNumbers {
     fn try_from(value: Vec<SteelVal>) -> Result<Self, Self::Error> {
         let num_matcher = |val| match val {
             SteelVal::NumV(x) => Ok(x),
-            _ => Err(SteelErr::ConversionError(
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
                 "Expected number in vec".to_string(),
-                None,
             )),
         };
         let val_iter = value.into_iter();

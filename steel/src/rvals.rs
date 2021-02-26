@@ -7,7 +7,7 @@ use crate::{
     // parser::{tokens::TokenType::*, Expr, SyntaxObject},
     port::SteelPort,
     // primitives::ListOperations,
-    rerrs::SteelErr,
+    rerrs::{ErrorKind, SteelErr},
     structs::{SteelStruct, StructClosure},
 };
 
@@ -161,14 +161,14 @@ macro_rules! unwrap {
                     "Type Mismatch: Type of SteelVal did not match the given type: {}",
                     stringify!($body)
                 );
-                crate::rerrs::SteelErr::ConversionError(error_message, None)
+                SteelErr::new(ErrorKind::ConversionError, error_message)
             })
         } else {
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal did not match the given type: {}",
                 stringify!($body)
             );
-            Err(crate::rerrs::SteelErr::ConversionError(error_message, None))
+            Err(SteelErr::new(ErrorKind::ConversionError, error_message))
         }
     }};
 }

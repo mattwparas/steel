@@ -20,7 +20,7 @@ use steel::{
         span::Span,
     },
     primitives::ListOperations,
-    rerrs::SteelErr,
+    rerrs::{ErrorKind, SteelErr},
     rvals::{ByteCodeLambda, Result, SteelVal},
     stop,
     structs::SteelStruct,
@@ -431,7 +431,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         }
 
                         let ret_val = self.stack.try_pop().ok_or_else(|| {
-                            SteelErr::Generic("stack empty at pop".to_string(), Some(cur_inst.span))
+                            SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
+                                .with_span(cur_inst.span)
                         });
 
                         self.global_env.borrow_mut().set_binding_offset(false);

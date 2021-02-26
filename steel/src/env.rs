@@ -8,7 +8,7 @@ use crate::{
         StreamOperations, StringOperations, SymbolOperations, TransducerOperations,
         VectorOperations,
     },
-    rerrs::SteelErr,
+    rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     stop,
 };
@@ -57,9 +57,9 @@ macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
         |args: &[SteelVal]| -> Result<SteelVal> {
             let mut args_iter = args.iter();
-            let first = args_iter.next().ok_or(SteelErr::ArityMismatch(
+            let first = args_iter.next().ok_or(SteelErr::new(
+                ErrorKind::ArityMismatch,
                 "expected at least one argument".to_string(),
-                None,
             ))?;
             fn f<'a>(prev: &SteelVal, mut xs: impl Iterator<Item = &'a SteelVal>) -> bool {
                 match xs.next() {

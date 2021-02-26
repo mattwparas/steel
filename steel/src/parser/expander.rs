@@ -7,7 +7,7 @@ use crate::parser::tokens::TokenType;
 
 use crate::parser::span::Span;
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 use std::collections::HashMap;
 

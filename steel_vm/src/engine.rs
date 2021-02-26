@@ -6,7 +6,7 @@ use steel::{
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser},
     primitives::ListOperations,
-    rerrs::SteelErr,
+    rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     steel_compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
     throw,
@@ -192,7 +192,9 @@ impl Engine {
         // TODO
         SteelVal::iter(output.last().unwrap().clone())
             .into_iter()
-            .map(|x| ExprKind::try_from(&x).map_err(|x| SteelErr::Generic(x.to_string(), None)))
+            .map(|x| {
+                ExprKind::try_from(&x).map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
+            })
             .collect::<Result<Vec<ExprKind>>>()
     }
 }

@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use steel::env::Env;
 use steel::parser::span::Span;
-use steel::rerrs::SteelErr;
+use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{Result, SteelVal};
 use steel::steel_compiler::constants::ConstantTable;
 use steel::stop;
@@ -288,10 +288,11 @@ pub(crate) fn inline_filter_result_iter<
                         Err(e) => Some(Err(e)),
                     }
                 }
-                _ => Some(Err(SteelErr::TypeMismatch(
+                _ => Some(Err(SteelErr::new(
+                    ErrorKind::TypeMismatch,
                     "map expected a function".to_string(),
-                    Some(*cur_inst_span),
-                ))),
+                )
+                .with_span(*cur_inst_span))),
             }
         }
 

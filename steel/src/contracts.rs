@@ -1,4 +1,4 @@
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::{gc::Gc, rvals::ByteCodeLambda};
 use itertools::Itertools;

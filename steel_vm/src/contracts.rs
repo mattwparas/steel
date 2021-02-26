@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use steel::gc::Gc;
 use steel::parser::span::Span;
-use steel::rerrs::SteelErr;
+use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{Result, SteelVal};
 use steel::steel_compiler::constants::ConstantTable;
 use steel::stop;

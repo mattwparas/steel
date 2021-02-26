@@ -10,7 +10,7 @@ use crate::steel_derive::steel;
 use steel::unwrap;
 
 use std::any::Any;
-use steel::rerrs;
+use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{self, CustomType, SteelVal};
 
 use steel_derive::function;
@@ -21,8 +21,6 @@ use steel_derive::function;
 
 // use steel::gc::Gc;
 use steel::Gc;
-
-use steel::SteelErr;
 
 // use steel::PRELUDE;
 

@@ -11,7 +11,7 @@ use crate::steel_compiler::{
 use std::collections::{HashMap, HashSet};
 use std::iter::Iterator;
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 
 use crate::parser::span::Span;
