@@ -129,32 +129,44 @@ impl TryFrom<SyntaxObject> for SteelVal {
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum ParseError {
-    #[error("Parse: Error reading tokens: {0}")]
-    TokenError(#[from] TokenError),
+    // #[error("Parse: Error reading tokens: {0}")]
+    // TokenError(#[from] TokenError),
     #[error("Parse: Unexpected token: {0:?}")]
-    Unexpected(TokenType),
+    Unexpected(TokenType, Option<Rc<str>>),
     #[error("Parse: Unexpected EOF")]
-    UnexpectedEOF,
+    UnexpectedEOF(Option<Rc<str>>),
     #[error("Parse: Unexpected character: {0:?}")]
-    UnexpectedChar(char, Span),
+    UnexpectedChar(char, Span, Option<Rc<str>>),
     #[error("Parse: Incomplete String: {0}")]
-    IncompleteString(String, Span),
+    IncompleteString(String, Span, Option<Rc<str>>),
     #[error("Parse: Syntax Error: {0}")]
-    SyntaxError(String, Span),
+    SyntaxError(String, Span, Option<Rc<str>>),
     #[error("Parse: Arity mismatch: {0}")]
-    ArityMismatch(String, Span),
+    ArityMismatch(String, Span, Option<Rc<str>>),
 }
 
 impl ParseError {
     pub fn span(&self) -> Option<Span> {
         match self {
-            ParseError::TokenError(_) => None,
-            ParseError::Unexpected(_) => None,
-            ParseError::UnexpectedEOF => None,
-            ParseError::UnexpectedChar(_, s) => Some(*s),
-            ParseError::IncompleteString(_, s) => Some(*s),
-            ParseError::SyntaxError(_, s) => Some(*s),
-            ParseError::ArityMismatch(_, s) => Some(*s),
+            // ParseError::TokenError(_) => None,
+            ParseError::Unexpected(_, _) => None,
+            ParseError::UnexpectedEOF(_) => None,
+            ParseError::UnexpectedChar(_, s, _) => Some(*s),
+            ParseError::IncompleteString(_, s, _) => Some(*s),
+            ParseError::SyntaxError(_, s, _) => Some(*s),
+            ParseError::ArityMismatch(_, s, _) => Some(*s),
+        }
+    }
+
+    pub fn set_source(self, source: Option<Rc<str>>) -> Self {
+        use ParseError::*;
+        match self {
+            ParseError::Unexpected(l, _) => Unexpected(l, source),
+            ParseError::UnexpectedEOF(_) => UnexpectedEOF(source),
+            ParseError::UnexpectedChar(l, s, _) => UnexpectedChar(l, s, source),
+            ParseError::IncompleteString(l, s, _) => IncompleteString(l, s, source),
+            ParseError::SyntaxError(l, s, _) => SyntaxError(l, s, source),
+            ParseError::ArityMismatch(l, s, _) => ArityMismatch(l, s, source),
         }
     }
 }
@@ -182,12 +194,12 @@ fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
         println!("Found an error: {}", t);
 
         if t.source.starts_with('\"') {
-            ParseError::IncompleteString(t.source.to_string(), t.span)
+            ParseError::IncompleteString(t.source.to_string(), t.span, None)
         } else {
-            ParseError::UnexpectedChar(t.source.chars().next().unwrap(), t.span)
+            ParseError::UnexpectedChar(t.source.chars().next().unwrap(), t.span, None)
         }
     } else {
-        ParseError::UnexpectedEOF
+        ParseError::UnexpectedEOF(None)
     }
 }
 
@@ -302,7 +314,7 @@ impl<'a> Parser<'a> {
                             self.quote_stack.push(current_frame.len());
                             let quote_inner = self
                                 .next()
-                                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_quote(x, token.span));
                             self.quote_stack.pop();
 
@@ -311,28 +323,28 @@ impl<'a> Parser<'a> {
                         TokenType::Unquote => {
                             let quote_inner = self
                                 .next()
-                                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_unquote(x, token.span));
                             current_frame.push(quote_inner?);
                         }
                         TokenType::QuasiQuote => {
                             let quote_inner = self
                                 .next()
-                                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_quasiquote(x, token.span));
                             current_frame.push(quote_inner?);
                         }
                         TokenType::UnquoteSplice => {
                             let quote_inner = self
                                 .next()
-                                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_unquote_splicing(x, token.span));
                             current_frame.push(quote_inner?);
                         }
                         TokenType::Hash => {
                             let quote_inner = self
                                 .next()
-                                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_lambda_shorthand(x, token.span));
                             current_frame.push(quote_inner?);
                         }
@@ -364,7 +376,11 @@ impl<'a> Parser<'a> {
                                                         ..
                                                     },
                                             })) => {
-                                                prev_frame.push(ExprKind::try_from(current_frame)?);
+                                                prev_frame.push(
+                                                    ExprKind::try_from(current_frame).map_err(
+                                                        |x| x.set_source(self.source_name.clone()),
+                                                    )?,
+                                                );
                                             }
                                             _ => prev_frame
                                                 .push(ExprKind::List(List::new(current_frame))),
@@ -377,7 +393,11 @@ impl<'a> Parser<'a> {
                                         Some(_) => prev_frame
                                             .push(ExprKind::List(List::new(current_frame))),
                                         _ => {
-                                            prev_frame.push(ExprKind::try_from(current_frame)?);
+                                            prev_frame.push(
+                                                ExprKind::try_from(current_frame).map_err(|x| {
+                                                    x.set_source(self.source_name.clone())
+                                                })?,
+                                            );
                                         }
                                     },
                                 }
@@ -389,7 +409,10 @@ impl<'a> Parser<'a> {
                                         return Ok(ExprKind::List(List::new(current_frame)));
                                     }
 
-                                    _ => return ExprKind::try_from(current_frame),
+                                    _ => {
+                                        return ExprKind::try_from(current_frame)
+                                            .map_err(|x| x.set_source(self.source_name.clone()))
+                                    }
                                 }
                             }
                         }
@@ -403,13 +426,16 @@ impl<'a> Parser<'a> {
                             // println!("{}", token);
 
                             current_frame.push(ExprKind::Atom(Atom::new(
-                                SyntaxObject::from_token_with_source(&token, &self.source_name),
+                                SyntaxObject::from_token_with_source(
+                                    &token,
+                                    &self.source_name.clone(),
+                                ),
                             )))
                         }
                     }
                 }
 
-                None => return Err(ParseError::UnexpectedEOF),
+                None => return Err(ParseError::UnexpectedEOF(self.source_name.clone())),
             }
         }
     }
@@ -430,7 +456,7 @@ impl<'a> Iterator for Parser<'a> {
 
                 let value = self
                     .next()
-                    .unwrap_or(Err(ParseError::UnexpectedEOF))
+                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                     .map(|x| self.construct_quote_vec(x, res.span));
 
                 self.shorthand_quote_stack.pop();
@@ -442,22 +468,25 @@ impl<'a> Iterator for Parser<'a> {
             }
             TokenType::Unquote => self
                 .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                 .map(|x| self.construct_unquote(x, res.span)),
             TokenType::UnquoteSplice => self
                 .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                 .map(|x| self.construct_unquote_splicing(x, res.span)),
             TokenType::QuasiQuote => self
                 .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                 .map(|x| self.construct_quasiquote(x, res.span)),
             TokenType::Hash => self
                 .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF))
+                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                 .map(|x| self.construct_lambda_shorthand(x, res.span)),
             TokenType::OpenParen => self.read_from_tokens(),
-            TokenType::CloseParen => Err(ParseError::Unexpected(TokenType::CloseParen)),
+            TokenType::CloseParen => Err(ParseError::Unexpected(
+                TokenType::CloseParen,
+                self.source_name.clone().clone(),
+            )),
             TokenType::Error => Err(tokentype_error_to_parse_error(&res)),
             _ => Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res)))),
         })
@@ -593,15 +622,15 @@ mod parser_tests {
 
     #[test]
     fn test_error() {
-        assert_parse_err("(", ParseError::UnexpectedEOF);
-        assert_parse_err("(abc", ParseError::UnexpectedEOF);
-        assert_parse_err("(ab 1 2", ParseError::UnexpectedEOF);
-        assert_parse_err("((((ab 1 2) (", ParseError::UnexpectedEOF);
-        assert_parse_err("())", ParseError::Unexpected(TokenType::CloseParen));
-        assert_parse_err("() ((((", ParseError::UnexpectedEOF);
-        assert_parse_err("')", ParseError::Unexpected(TokenType::CloseParen));
-        assert_parse_err("(')", ParseError::Unexpected(TokenType::CloseParen));
-        assert_parse_err("('", ParseError::UnexpectedEOF);
+        assert_parse_err("(", ParseError::UnexpectedEOF(None));
+        assert_parse_err("(abc", ParseError::UnexpectedEOF(None));
+        assert_parse_err("(ab 1 2", ParseError::UnexpectedEOF(None));
+        assert_parse_err("((((ab 1 2) (", ParseError::UnexpectedEOF(None));
+        assert_parse_err("())", ParseError::Unexpected(TokenType::CloseParen, None));
+        assert_parse_err("() ((((", ParseError::UnexpectedEOF(None));
+        assert_parse_err("')", ParseError::Unexpected(TokenType::CloseParen, None));
+        assert_parse_err("(')", ParseError::Unexpected(TokenType::CloseParen, None));
+        assert_parse_err("('", ParseError::UnexpectedEOF(None));
     }
 
     #[test]

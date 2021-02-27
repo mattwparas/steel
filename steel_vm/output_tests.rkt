@@ -1,7 +1,7 @@
 1
 2
 #false
-Error: Parse error: Parse: Unexpected token: CloseParen
+Error: Parse: Parse: Unexpected token: CloseParen
 #<void>
 120
 #<void>

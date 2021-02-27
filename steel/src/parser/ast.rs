@@ -754,18 +754,21 @@ where
             ParseError::SyntaxError(
                 "if expects a test condition, found none".to_string(),
                 syn.span,
+                None,
             )
         })?,
         value_iter.next().ok_or_else(|| {
             ParseError::SyntaxError(
                 "if expects a then condition, found none".to_string(),
                 syn.span,
+                None,
             )
         })?,
         value_iter.next().ok_or_else(|| {
             ParseError::SyntaxError(
                 "if expects an else condition, found none".to_string(),
                 syn.span,
+                None,
             )
         })?,
         syn.clone(),
@@ -776,6 +779,7 @@ where
         Err(ParseError::SyntaxError(
             "if takes only 3 expressions".to_string(),
             syn.span,
+            None,
         ))
     } else {
         Ok(ret_value)
@@ -796,6 +800,7 @@ where
         ParseError::SyntaxError(
             "define expects an identifier, found none".to_string(),
             syn.span,
+            None,
         )
     })? {
         // TODO maybe add implicit begin here
@@ -805,6 +810,7 @@ where
                 ParseError::SyntaxError(
                     "define expected a function name, found none".to_string(),
                     syn.span,
+                    None,
                 )
             })?;
 
@@ -824,6 +830,7 @@ where
                                 ParseError::SyntaxError(
                                     "define statement expected a body, found none".to_string(),
                                     syn.span,
+                                    None,
                                 )
                             })?;
                             if value_iter.next().is_some() {
@@ -831,6 +838,7 @@ where
                                     "Define expected only one expression after the identifier"
                                         .to_string(),
                                     syn.span,
+                                    None,
                                 ));
                             }
                             v
@@ -846,6 +854,7 @@ where
                 ParseError::SyntaxError(
                     "define expected a function name, found none".to_string(),
                     syn.span,
+                    None,
                 )
             })?;
 
@@ -877,12 +886,14 @@ where
                     ParseError::SyntaxError(
                         "define statement expected a body, found none".to_string(),
                         syn.span,
+                        None,
                     )
                 })?;
                 if value_iter.next().is_some() {
                     return Err(ParseError::SyntaxError(
                         "Define expected only one expression after the identifier".to_string(),
                         syn.span,
+                        None,
                     ));
                 }
                 v
@@ -894,6 +905,7 @@ where
             "Define expects either an identifier or a list with the function name and arguments"
                 .to_string(),
             syn.span,
+            None,
         )),
     }
 }
@@ -910,6 +922,7 @@ where
             "let expected a list of variable bindings pairs in the second position, found none"
                 .to_string(),
             syn.span,
+            None,
         )
     })? {
         l.args
@@ -917,6 +930,7 @@ where
         return Err(ParseError::SyntaxError(
             "let expects a list of variable bindings pairs in the second position".to_string(),
             syn.span,
+            None,
         ));
     };
 
@@ -926,6 +940,7 @@ where
         return Err(ParseError::SyntaxError(
             "let expects an expression, found none".to_string(),
             syn.span,
+            None,
         ));
     }
 
@@ -952,7 +967,7 @@ where
                 return Err(ParseError::SyntaxError(
                     format!("let expected a list of variable binding pairs, found a pair with length {}",
                     pair.len()),
-                    syn.span
+                    syn.span, None
                 ));
             }
 
@@ -965,6 +980,7 @@ where
             return Err(ParseError::SyntaxError(
                 "let expected a list of variable binding pairs".to_string(),
                 syn.span,
+                None,
             ));
         }
     }
@@ -991,24 +1007,28 @@ where
             ParseError::SyntaxError(
                 "transducer expected a transducer, found none".to_string(),
                 syn.span,
+                None,
             )
         })?,
         value_iter.next().ok_or_else(|| {
             ParseError::SyntaxError(
                 "transducer expected a function, found none".to_string(),
                 syn.span,
+                None,
             )
         })?,
         value_iter.next().ok_or_else(|| {
             ParseError::SyntaxError(
                 "transducer expected a initial value, found none".to_string(),
                 syn.span,
+                None,
             )
         })?,
         value_iter.next().ok_or_else(|| {
             ParseError::SyntaxError(
                 "transducer expected an iterable, found none".to_string(),
                 syn.span,
+                None,
             )
         })?,
         syn.clone(),
@@ -1018,6 +1038,7 @@ where
         Err(ParseError::ArityMismatch(
             "Transduce expected 4 arguments".to_string(),
             syn.span,
+            None,
         ))
     } else {
         Ok(t.into())
@@ -1035,6 +1056,7 @@ where
         ParseError::ArityMismatch(
             "quote expected one argument, found none".to_string(),
             syn.span,
+            None,
         )
     })?;
 
@@ -1042,6 +1064,7 @@ where
         Err(ParseError::SyntaxError(
             "quote expects only one argument".to_string(),
             syn.span,
+            None,
         ))
     } else {
         Ok(Quote::new(quote, syn).into())
@@ -1058,9 +1081,9 @@ where
 {
     value_iter.next();
 
-    let transducer = value_iter.next().ok_or_else(|| ParseError::ArityMismatch("execute expects 2 (or possibly 3) arguments, and a transducer in the first position, found none".to_string(), syn.span))?;
+    let transducer = value_iter.next().ok_or_else(|| ParseError::ArityMismatch("execute expects 2 (or possibly 3) arguments, and a transducer in the first position, found none".to_string(), syn.span, None))?;
 
-    let collection = value_iter.next().ok_or_else(|| ParseError::ArityMismatch("execute expects 2 (or possibly 3) arguments, and a collection in the second position, found none".to_string(), syn.span))?;
+    let collection = value_iter.next().ok_or_else(|| ParseError::ArityMismatch("execute expects 2 (or possibly 3) arguments, and a collection in the second position, found none".to_string(), syn.span, None))?;
 
     let output_type = value_iter.next();
 
@@ -1068,6 +1091,7 @@ where
         Err(ParseError::SyntaxError(
             "execute takes at most 3 arguments".to_string(),
             syn.span,
+            None,
         ))
     } else {
         Ok(Execute::new(transducer, collection, output_type, syn).into())
@@ -1088,6 +1112,7 @@ where
         ParseError::ArityMismatch(
             "return expected one argument, found none".to_string(),
             syn.span,
+            None,
         )
     })?;
 
@@ -1095,6 +1120,7 @@ where
         Err(ParseError::SyntaxError(
             "return expects only one argument".to_string(),
             syn.span,
+            None,
         ))
     } else {
         Ok(Return::new(quote, syn).into())
@@ -1112,6 +1138,7 @@ where
         ParseError::ArityMismatch(
             "panic expected one argument, found none".to_string(),
             syn.span,
+            None,
         )
     })?;
 
@@ -1119,6 +1146,7 @@ where
         Err(ParseError::SyntaxError(
             "panic expects only one argument".to_string(),
             syn.span,
+            None,
         ))
     } else {
         Ok(Panic::new(quote, syn).into())
@@ -1147,6 +1175,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 return Err(ParseError::ArityMismatch(
                                     "eval expected an expression".to_string(),
                                     syn.span,
+                                    None,
                                 ));
                             }
 
@@ -1162,6 +1191,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 return Err(ParseError::ArityMismatch(
                                     "read expected an expression".to_string(),
                                     syn.span,
+                                    None,
                                 ));
                             }
 
@@ -1177,6 +1207,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 return Err(ParseError::ArityMismatch(
                                     "set! expects an identifier and an expression".to_string(),
                                     syn.span,
+                                    None,
                                 ));
                             }
 
@@ -1195,7 +1226,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 return Err(ParseError::ArityMismatch(
                                     format!(
                                         "apply expects a symbol (for a function) and a list of fields, found {} arguments instead",value.len()
-                                    ), syn.span
+                                    ), syn.span, None
                                 ));
                             }
 
@@ -1213,7 +1244,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 return Err(ParseError::ArityMismatch(
                                     format!(
                                         "struct expects a name and a list of fields, found {} arguments instead", value.len()
-                                    ), syn.span,
+                                    ), syn.span, None
                                 ));
                             }
 
@@ -1228,6 +1259,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 Err(ParseError::SyntaxError(
                                     "struct expected a list of field names".to_string(),
                                     syn.span,
+                                    None,
                                 ))
                             }
                         }
@@ -1247,7 +1279,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                         "lambda expected at least 2 arguments - the bindings list and one or more expressions, found {} instead",
                                         value.len()
                                     ),
-                                    syn.span,
+                                    syn.span, None
                                 ));
                             }
 
@@ -1267,6 +1299,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                             "lambda function expects a list of identifiers"
                                                 .to_string(),
                                             syn.span,
+                                            None,
                                         ));
                                     }
                                 }
@@ -1289,6 +1322,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 Err(ParseError::SyntaxError(
                                     "lambda function expected a list of identifiers".to_string(),
                                     syn.span,
+                                    None,
                                 ))
                             }
                         }
@@ -1297,7 +1331,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             if value.len() < 3 {
                                 return Err(ParseError::SyntaxError(
-                                    format!("define-syntax expects 2 arguments - the name of the macro and the syntax-rules, found {}", value.len()), syn.span
+                                    format!("define-syntax expects 2 arguments - the name of the macro and the syntax-rules, found {}", value.len()), syn.span, None
                                 ));
                             }
 
@@ -1313,6 +1347,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     return Err(ParseError::SyntaxError(
                                         "define-syntax expected a syntax-rules object".to_string(),
                                         syn.span,
+                                        None,
                                     ));
                                 };
 
@@ -1323,7 +1358,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             if value.len() < 3 {
                                 return Err(ParseError::SyntaxError(
-                                    format!("syntax-rules expects a list of introduced syntax, and at least one pattern-body pair, found {} arguments", value.len()), syn.span
+                                    format!("syntax-rules expects a list of introduced syntax, and at least one pattern-body pair, found {} arguments", value.len()), syn.span, None
                                 ));
                             }
 
@@ -1334,7 +1369,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 l.args
                             } else {
                                 return Err(ParseError::SyntaxError(
-                                    "syntax-rules expects a list of new syntax forms used in the macro".to_string(), syn.span));
+                                    "syntax-rules expects a list of new syntax forms used in the macro".to_string(), syn.span, None));
                             };
 
                             let mut pairs = Vec::new();
@@ -1347,6 +1382,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                             "syntax-rules requires only one pattern to one body"
                                                 .to_string(),
                                             syn.span,
+                                            None,
                                         ));
                                     }
 
@@ -1358,7 +1394,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     pairs.push(pair_object);
                                 } else {
                                     return Err(ParseError::SyntaxError(
-                                        "syntax-rules requires pattern to expressions to be in a list".to_string(), syn.span
+                                        "syntax-rules requires pattern to expressions to be in a list".to_string(), syn.span, None
                                     ));
                                 }
                             }

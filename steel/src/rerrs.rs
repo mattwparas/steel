@@ -10,37 +10,19 @@ use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 use crate::parser::span::Span;
 
 use std::fmt;
+use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
 struct Repr {
     pub kind: ErrorKind,
     pub message: String,
     pub span: Option<Span>,
-    pub source: Option<String>,
+    pub source: Option<Rc<str>>,
 }
 
 impl Repr {
-    pub fn new(kind: ErrorKind, message: String) -> Self {
-        Repr {
-            kind,
-            message,
-            span: None,
-            source: None,
-        }
-    }
-
     pub fn set_span(&mut self, span: Span) {
         self.span = Some(span);
-    }
-
-    pub fn with_span(mut self, span: Span) -> Self {
-        self.span = Some(span);
-        self
-    }
-
-    pub fn with_source(mut self, source: String) -> Self {
-        self.source = Some(source);
-        self
     }
 }
 
@@ -144,7 +126,21 @@ impl fmt::Display for ErrorKind {
 
 impl From<ParseError> for Repr {
     fn from(v: ParseError) -> Self {
-        unimplemented!()
+        // unimplemented!()
+        let (span, source) = match &v {
+            ParseError::Unexpected(_, source) | ParseError::UnexpectedEOF(source) => (None, source),
+            ParseError::UnexpectedChar(_, s, source) => (Some(*s), source),
+            ParseError::IncompleteString(_, s, source) => (Some(*s), source),
+            ParseError::SyntaxError(_, s, source) => (Some(*s), source),
+            ParseError::ArityMismatch(_, s, source) => (Some(*s), source),
+        };
+
+        Repr {
+            kind: ErrorKind::Parse,
+            message: v.to_string(),
+            span,
+            source: source.clone(),
+        }
     }
 }
 
@@ -291,8 +287,8 @@ impl SteelErr {
         self
     }
 
-    pub fn with_source(mut self, source: String) -> Self {
-        self.repr.source = Some(source);
+    pub fn with_source(mut self, source: Option<Rc<str>>) -> Self {
+        self.repr.source = source;
         self
     }
 
