@@ -8,8 +8,11 @@ use crate::steel_compiler::{
     program::Program,
 };
 
-use std::collections::{HashMap, HashSet};
 use std::iter::Iterator;
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
@@ -32,6 +35,7 @@ use crate::stop;
 // use crate::compiler::modules::ModuleManager;
 // use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
+use itertools::Itertools;
 use log::debug;
 
 use super::modules::ModuleManager;
@@ -341,24 +345,32 @@ impl Compiler {
         self.symbol_map.get(name).ok()
     }
 
-    pub fn compile_program(&mut self, expr_str: &str) -> Result<Program> {
-        let instructions = self.emit_instructions(expr_str)?;
+    pub fn compile_program(&mut self, expr_str: &str, path: PathBuf) -> Result<Program> {
+        let instructions = self.emit_instructions(expr_str, path)?;
 
         let program = Program::new(instructions, (&self.constant_map).to_bytes()?);
         Ok(program)
     }
 
-    pub fn emit_instructions(&mut self, expr_str: &str) -> Result<Vec<Vec<DenseInstruction>>> {
+    pub fn emit_instructions(
+        &mut self,
+        expr_str: &str,
+        path: PathBuf,
+    ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
 
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr_str, &mut intern).collect();
         let parsed = parsed?;
 
-        self.emit_instructions_from_exprs(parsed, false)
+        self.emit_instructions_from_exprs(parsed, false, path)
     }
 
-    pub fn expand_expressions(&mut self, exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
+    pub fn expand_expressions(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        path: PathBuf,
+    ) -> Result<Vec<ExprKind>> {
         // let non_macro_expressions = extract_macro_defs(exprs, &mut self.macro_env)?;
 
         // non_macro_expressions
@@ -366,8 +378,16 @@ impl Compiler {
         //     .map(|x| expand(x, &self.macro_env))
         //     .collect()
 
-        let output = ModuleManager::new(&mut self.macro_env).compile_main(exprs);
-        // println!("{:?}", output);
+        let output = ModuleManager::new(&mut self.macro_env).compile_main(exprs, path);
+        // println!(
+        //     "{:?}",
+        //     output
+        //         .clone()
+        //         .unwrap()
+        //         .iter()
+        //         .map(|x| x.to_string())
+        //         .join(" ")
+        // );
         output
     }
 
@@ -486,10 +506,11 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         _optimizations: bool,
+        path: PathBuf,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
 
-        let expanded_statements = self.expand_expressions(exprs)?;
+        let expanded_statements = self.expand_expressions(exprs, path)?;
 
         debug!(
             "Generating instructions for the expression: {:?}",

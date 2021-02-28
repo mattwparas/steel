@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use steel::steel_compiler::constants::ConstantMap;
 
-use std::rc::Rc;
+use std::{path::PathBuf, rc::Rc};
 use steel::stdlib::PRELUDE;
 use steel_vm::engine::Engine;
 
@@ -16,9 +16,10 @@ fn range(c: &mut Criterion) {
     //     false,
     // );
 
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
+    vm.parse_and_execute_without_optimizations(PRELUDE, PathBuf::from("test"))
+        .unwrap();
 
-    let program = vm.emit_program(&script).unwrap();
+    let program = vm.emit_program(&script, PathBuf::from("test")).unwrap();
     let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
@@ -42,13 +43,14 @@ fn map(c: &mut Criterion) {
     //     false,
     // );
 
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-
-    let warmup = "(define lst (range 0 5000)) (define a (lambda (a) 0))";
-    vm.parse_and_execute_without_optimizations(black_box(warmup))
+    vm.parse_and_execute_without_optimizations(PRELUDE, PathBuf::from("test"))
         .unwrap();
 
-    let program = vm.emit_program(&script).unwrap();
+    let warmup = "(define lst (range 0 5000)) (define a (lambda (a) 0))";
+    vm.parse_and_execute_without_optimizations(black_box(warmup), PathBuf::from("test"))
+        .unwrap();
+
+    let program = vm.emit_program(&script, PathBuf::from("test")).unwrap();
     let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
@@ -68,13 +70,14 @@ fn transducer_map(c: &mut Criterion) {
     //     false,
     // );
 
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-
-    let warmup = "(define lst (range 0 5000)) (define a (mapping (lambda (a) 0)))";
-    vm.parse_and_execute_without_optimizations(black_box(&warmup))
+    vm.parse_and_execute_without_optimizations(PRELUDE, PathBuf::from("test"))
         .unwrap();
 
-    let program = vm.emit_program(&script).unwrap();
+    let warmup = "(define lst (range 0 5000)) (define a (mapping (lambda (a) 0)))";
+    vm.parse_and_execute_without_optimizations(black_box(&warmup), PathBuf::from("test"))
+        .unwrap();
+
+    let program = vm.emit_program(&script, PathBuf::from("test")).unwrap();
     let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
@@ -97,13 +100,14 @@ fn filter(c: &mut Criterion) {
     //     false,
     // );
 
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-
-    let warmup = "(define lst (range 0 5000))";
-    vm.parse_and_execute_without_optimizations(black_box(&warmup))
+    vm.parse_and_execute_without_optimizations(PRELUDE, PathBuf::from("test"))
         .unwrap();
 
-    let program = vm.emit_program(&script).unwrap();
+    let warmup = "(define lst (range 0 5000))";
+    vm.parse_and_execute_without_optimizations(black_box(&warmup), PathBuf::from("test"))
+        .unwrap();
+
+    let program = vm.emit_program(&script, PathBuf::from("test")).unwrap();
     let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
@@ -117,11 +121,12 @@ fn ten_thousand_iterations(c: &mut Criterion) {
     let mut vm = Engine::new();
 
     let warmup = "(define test (lambda (x) (if (= x 10000) x (test (+ x 1)))))";
-    vm.parse_and_execute_without_optimizations(black_box(&warmup))
+    vm.parse_and_execute_without_optimizations(black_box(&warmup), PathBuf::from("test"))
         .unwrap();
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
+    vm.parse_and_execute_without_optimizations(PRELUDE, PathBuf::from("test"))
+        .unwrap();
 
-    let program = vm.emit_program(&script).unwrap();
+    let program = vm.emit_program(&script, PathBuf::from("test")).unwrap();
     let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
@@ -134,8 +139,9 @@ fn trie_sort_without_optimizations(c: &mut Criterion) {
     let mut vm = Engine::new();
     // interpreter.require(PRELUDE).unwrap();
     // require the trie sort library
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-    vm.parse_and_execute_without_optimizations(steel::stdlib::TRIESORT)
+    vm.parse_and_execute_without_optimizations(PRELUDE, PathBuf::from("test"))
+        .unwrap();
+    vm.parse_and_execute_without_optimizations(steel::stdlib::TRIESORT, PathBuf::from("test"))
         .unwrap();
 
     let warmup = "(define lst
@@ -156,11 +162,11 @@ fn trie_sort_without_optimizations(c: &mut Criterion) {
          \"notify\"
          \"star\"))";
 
-    vm.parse_and_execute_without_optimizations(black_box(&warmup))
+    vm.parse_and_execute_without_optimizations(black_box(&warmup), PathBuf::from("test"))
         .unwrap();
 
     let script = "(trie-sort lst)";
-    let program = vm.emit_program(&script).unwrap();
+    let program = vm.emit_program(&script, PathBuf::from("test")).unwrap();
     let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
@@ -173,8 +179,10 @@ fn trie_sort_with_optimizations(c: &mut Criterion) {
     let mut vm = Engine::new();
     // interpreter.require(PRELUDE).unwrap();
     // require the trie sort library
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-    vm.parse_and_execute(steel::stdlib::TRIESORT).unwrap();
+    vm.parse_and_execute_without_optimizations(PRELUDE, PathBuf::from("test"))
+        .unwrap();
+    vm.parse_and_execute(steel::stdlib::TRIESORT, PathBuf::from("test"))
+        .unwrap();
 
     let warmup = "(define lst
         (list
@@ -194,11 +202,11 @@ fn trie_sort_with_optimizations(c: &mut Criterion) {
          \"notify\"
          \"star\"))";
 
-    vm.parse_and_execute_without_optimizations(black_box(&warmup))
+    vm.parse_and_execute_without_optimizations(black_box(&warmup), PathBuf::from("test"))
         .unwrap();
 
     let script = "(trie-sort lst)";
-    let program = vm.emit_program(&script).unwrap();
+    let program = vm.emit_program(&script, PathBuf::from("test")).unwrap();
     let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
@@ -211,14 +219,16 @@ fn fib_28(c: &mut Criterion) {
     let mut vm = Engine::new();
     // interpreter.require(PRELUDE).unwrap();
     // require the trie sort library
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
+    vm.parse_and_execute_without_optimizations(PRELUDE, PathBuf::from("test"))
+        .unwrap();
     vm.parse_and_execute_without_optimizations(
         "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))",
+        PathBuf::from("test"),
     )
     .unwrap();
 
     let script = "(fib 28)";
-    let program = vm.emit_program(&script).unwrap();
+    let program = vm.emit_program(&script, PathBuf::from("test")).unwrap();
     let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 

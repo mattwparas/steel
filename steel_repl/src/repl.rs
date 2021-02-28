@@ -8,7 +8,7 @@ use rustyline::validate::{
 use rustyline::Editor;
 use rustyline::{hint::Hinter, CompletionType, Context};
 use rustyline_derive::Helper;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use steel::rvals::SteelVal;
 
 use rustyline::completion::Completer;
@@ -132,8 +132,10 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     // TODO make this better
     let core_libraries = &[PRELUDE, CONTRACTS];
 
+    let current_dir = std::env::current_dir()?;
+
     for core in core_libraries {
-        let res = vm.parse_and_execute_without_optimizations(core);
+        let res = vm.parse_and_execute_without_optimizations(core, current_dir.clone());
 
         match res {
             Ok(r) => r.iter().for_each(|x| match x {
@@ -194,9 +196,12 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         file.read_to_string(&mut exprs)?;
 
                         let res = if optimizations {
-                            vm.parse_and_execute(exprs.as_str())
+                            vm.parse_and_execute(exprs.as_str(), PathBuf::from(path))
                         } else {
-                            vm.parse_and_execute_without_optimizations(exprs.as_str())
+                            vm.parse_and_execute_without_optimizations(
+                                exprs.as_str(),
+                                PathBuf::from(path),
+                            )
                         };
 
                         match res {
@@ -216,9 +221,9 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         let now = Instant::now();
 
                         let res = if optimizations {
-                            vm.parse_and_execute(&line)
+                            vm.parse_and_execute(&line, current_dir.clone())
                         } else {
-                            vm.parse_and_execute_without_optimizations(&line)
+                            vm.parse_and_execute_without_optimizations(&line, current_dir.clone())
                         };
 
                         match res {

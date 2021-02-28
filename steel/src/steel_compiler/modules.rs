@@ -7,7 +7,7 @@ use crate::rvals::Result;
 
 use crate::rerrs::{ErrorKind, SteelErr};
 
-use std::{collections::HashMap, io::Read};
+use std::{collections::HashMap, io::Read, path::PathBuf};
 
 use crate::parser::expander::SteelMacro;
 use crate::stop;
@@ -27,7 +27,7 @@ use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
 pub struct ModuleManager<'a> {
     global_macro_map: &'a mut HashMap<String, SteelMacro>,
-    compiled_modules: HashMap<String, CompiledModule>,
+    compiled_modules: HashMap<PathBuf, CompiledModule>,
 }
 
 impl<'a> ModuleManager<'a> {
@@ -38,7 +38,7 @@ impl<'a> ModuleManager<'a> {
         }
     }
 
-    pub fn compile_main(&mut self, exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
+    pub fn compile_main(&mut self, exprs: Vec<ExprKind>, path: PathBuf) -> Result<Vec<ExprKind>> {
         let non_macro_expressions = extract_macro_defs(exprs, &mut self.global_macro_map)?;
 
         // let expanded: Vec<_> = non_macro_expressions
@@ -46,11 +46,8 @@ impl<'a> ModuleManager<'a> {
         //     .map(|x| expand(x, &self.global_macro_map))
         //     .collect::<Result<_>>()?;
 
-        let mut module_builder = ModuleBuilder::main(
-            "main".to_string(),
-            non_macro_expressions,
-            &mut self.compiled_modules,
-        );
+        let mut module_builder =
+            ModuleBuilder::main(path, non_macro_expressions, &mut self.compiled_modules);
 
         let mut module_statements = module_builder.compile()?;
 
@@ -64,7 +61,7 @@ impl<'a> ModuleManager<'a> {
 }
 
 pub struct CompiledModule {
-    name: String,
+    name: PathBuf,
     ast: Vec<ExprKind>,
 }
 
@@ -75,7 +72,7 @@ impl CompiledModule {
                 "module".to_string(),
             )))),
             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                "###".to_string() + &self.name,
+                "###".to_string() + self.name.to_str().unwrap(),
             )))),
         ];
 
@@ -87,19 +84,19 @@ impl CompiledModule {
 }
 
 pub struct ModuleBuilder<'a> {
-    name: String,
+    name: PathBuf,
     main: bool,
     source_ast: Vec<ExprKind>,
     macro_map: HashMap<String, SteelMacro>,
-    requires: Vec<String>,
-    compiled_modules: &'a mut HashMap<String, CompiledModule>,
+    requires: Vec<PathBuf>,
+    compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
 }
 
 impl<'a> ModuleBuilder<'a> {
     pub fn main(
-        name: String,
+        name: PathBuf,
         source_ast: Vec<ExprKind>,
-        compiled_modules: &'a mut HashMap<String, CompiledModule>,
+        compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
     ) -> Self {
         ModuleBuilder {
             name,
@@ -113,6 +110,11 @@ impl<'a> ModuleBuilder<'a> {
 
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
         self.collect_requires()?;
+
+        if !self.contains_provides() && !self.main {
+            return Ok(Vec::new());
+        }
+
         self.extract_macro_defs()?;
         let mut new_exprs = Vec::new();
 
@@ -139,6 +141,18 @@ impl<'a> ModuleBuilder<'a> {
         // println!("compiling: {}", self.name);
 
         return Ok(new_exprs);
+    }
+
+    fn contains_provides(&self) -> bool {
+        for expr in &self.source_ast {
+            if let ExprKind::List(l) = expr {
+                if let Some(provide) = l.first_ident() {
+                    return provide == "provide" && l.len() > 1;
+                }
+            }
+        }
+
+        false
     }
 
     fn into_compiled_module(&mut self) -> Result<ExprKind> {
@@ -192,7 +206,14 @@ impl<'a> ModuleBuilder<'a> {
                             },
                     } = atom
                     {
-                        self.requires.push(s.to_string())
+                        let mut current = self.name.clone();
+                        current.pop();
+                        current.push(s);
+
+                        println!("{:?}", current);
+
+                        // let new_path = PathBuf::new()
+                        self.requires.push(current)
                     } else {
                         stop!(Generic => "require expected a string literally referring to a file/module"; atom.syn.span; atom.syn.source.clone())
                     }
@@ -207,13 +228,13 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn new_from_path(
-        name: String,
-        compiled_modules: &'a mut HashMap<String, CompiledModule>,
+        name: PathBuf,
+        compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
     ) -> Result<Self> {
         ModuleBuilder::raw(name, compiled_modules).parse_from_path()
     }
 
-    fn raw(name: String, compiled_modules: &'a mut HashMap<String, CompiledModule>) -> Self {
+    fn raw(name: PathBuf, compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>) -> Self {
         ModuleBuilder {
             name,
             main: false,
@@ -231,7 +252,7 @@ impl<'a> ModuleBuilder<'a> {
 
         let mut intern = HashMap::new();
 
-        let parsed = Parser::new_from_source(&exprs, &mut intern, &self.name)
+        let parsed = Parser::new_from_source(&exprs, &mut intern, self.name.to_str().unwrap())
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;

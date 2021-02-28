@@ -1,4 +1,10 @@
-use std::{collections::HashMap, convert::TryFrom, io::Read, path::Path, rc::Rc};
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    io::Read,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use crate::{evaluation_progress::Callback, vm::VirtualMachineCore};
 use steel::{
@@ -60,8 +66,8 @@ impl Engine {
         vm
     }
 
-    pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
-        self.compiler.compile_program(expr)
+    pub fn emit_program(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
+        self.compiler.compile_program(expr, path)
     }
 
     pub fn execute(
@@ -72,8 +78,12 @@ impl Engine {
         self.virtual_machine.execute(bytecode, constant_map)
     }
 
-    pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
-        self.compiler.emit_instructions(exprs)
+    pub fn emit_instructions(
+        &mut self,
+        exprs: &str,
+        path: PathBuf,
+    ) -> Result<Vec<Vec<DenseInstruction>>> {
+        self.compiler.emit_instructions(exprs, path)
     }
 
     pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
@@ -115,30 +125,38 @@ impl Engine {
         T::try_from(self.extract_value(name)?)
     }
 
-    pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let program = self.compiler.compile_program(expr)?;
+    pub fn parse_and_execute_without_optimizations(
+        &mut self,
+        expr: &str,
+        path: PathBuf,
+    ) -> Result<Vec<SteelVal>> {
+        let program = self.compiler.compile_program(expr, path)?;
         self.virtual_machine.execute_program(program)
     }
 
-    pub fn parse_and_execute(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        self.parse_and_execute_without_optimizations(expr)
+    pub fn parse_and_execute(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
+        self.parse_and_execute_without_optimizations(expr, path)
     }
 
     // Read in the file from the given path and execute accordingly
     // Loads all the functions in from the given env
-    pub fn parse_and_execute_from_path<P: AsRef<Path>>(
-        &mut self,
-        path: P,
-    ) -> Result<Vec<SteelVal>> {
-        let mut file = std::fs::File::open(path)?;
-        let mut exprs = String::new();
-        file.read_to_string(&mut exprs)?;
-        self.parse_and_execute(exprs.as_str())
-    }
+    // pub fn parse_and_execute_from_path<P: AsRef<Path>>(
+    //     &mut self,
+    //     path: P,
+    // ) -> Result<Vec<SteelVal>> {
+    //     let mut file = std::fs::File::open(path)?;
+    //     let mut exprs = String::new();
+    //     file.read_to_string(&mut exprs)?;
+    //     self.parse_and_execute(exprs.as_str(), )
+    // }
 
     // TODO come back to this please
 
-    pub fn parse_and_execute_with_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    pub fn parse_and_execute_with_optimizations(
+        &mut self,
+        expr: &str,
+        path: PathBuf,
+    ) -> Result<Vec<SteelVal>> {
         let mut results = Vec::new();
         let mut intern = HashMap::new();
 
@@ -146,13 +164,13 @@ impl Engine {
             Parser::new(expr, &mut intern).collect();
         let parsed = parsed?;
 
-        let expanded_statements = self.compiler.expand_expressions(parsed)?;
+        let expanded_statements = self.compiler.expand_expressions(parsed, path.clone())?;
 
         let statements_without_structs = self
             .compiler
             .extract_structs(expanded_statements, &mut results)?;
 
-        let exprs_post_optimization = Self::optimize_exprs(statements_without_structs)?;
+        let exprs_post_optimization = Self::optimize_exprs(statements_without_structs, path)?;
 
         let compiled_instructions = self
             .compiler
@@ -169,7 +187,7 @@ impl Engine {
     // TODO come back to this
     pub fn optimize_exprs<I: IntoIterator<Item = ExprKind>>(
         exprs: I,
-        // ctx: &mut Ctx<ConstantMap>,
+        path: PathBuf, // ctx: &mut Ctx<ConstantMap>,
     ) -> Result<Vec<ExprKind>> {
         // println!("About to optimize the input program");
 
@@ -179,9 +197,9 @@ impl Engine {
         let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
 
         let mut vm = Engine::new_with_meta();
-        vm.parse_and_execute_without_optimizations(steel::stdlib::PRELUDE)?;
+        vm.parse_and_execute_without_optimizations(steel::stdlib::PRELUDE, path.clone())?;
         vm.register_gc_value("*program*", exprs);
-        let output = vm.parse_and_execute_without_optimizations(steel::stdlib::COMPILER)?;
+        let output = vm.parse_and_execute_without_optimizations(steel::stdlib::COMPILER, path)?;
 
         // println!("{:?}", output.last().unwrap());
 
