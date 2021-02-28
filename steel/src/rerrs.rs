@@ -415,6 +415,9 @@ macro_rules! stop {
     ($type:ident => $thing:expr; $span:expr) => {
         return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span));
     };
+    ($type:ident => $thing:expr; $span:expr; $source:expr) => {
+        return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source));
+    };
 }
 
 #[macro_export]

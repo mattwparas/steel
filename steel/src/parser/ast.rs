@@ -37,6 +37,7 @@ pub enum ExprKind {
     Eval(Box<Eval>),
     List(List),
     Set(Box<Set>),
+    Require(Require),
 }
 
 impl ExprKind {
@@ -154,6 +155,7 @@ impl fmt::Display for ExprKind {
             ExprKind::Eval(e) => write!(f, "{}", e),
             ExprKind::List(l) => write!(f, "{}", l),
             ExprKind::Set(s) => write!(f, "{}", s),
+            ExprKind::Require(r) => write!(f, "{}", r),
         }
     }
 }
@@ -364,6 +366,30 @@ impl From<Return> for ExprKind {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct Require {
+    pub modules: Vec<Atom>,
+    pub location: SyntaxObject,
+}
+
+impl Require {
+    pub fn new(modules: Vec<Atom>, location: SyntaxObject) -> Self {
+        Require { modules, location }
+    }
+}
+
+impl fmt::Display for Require {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(require {})", self.modules.iter().join(" "))
+    }
+}
+
+impl From<Require> for ExprKind {
+    fn from(val: Require) -> Self {
+        ExprKind::Require(val)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct List {
     pub args: Vec<ExprKind>,
 }
@@ -375,6 +401,21 @@ impl List {
 
     pub fn is_empty(&self) -> bool {
         self.args.is_empty()
+    }
+
+    pub fn first_ident(&self) -> Option<&str> {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(s),
+                    ..
+                },
+        })) = self.args.first()
+        {
+            Some(s)
+        } else {
+            None
+        }
     }
 }
 
@@ -1169,6 +1210,34 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::Quote => parse_quote(value.into_iter(), a.syn.clone()),
                         TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
                         TokenType::Return => parse_return(value.into_iter(), a.syn.clone()),
+                        TokenType::Require => {
+                            let syn = a.syn.clone();
+                            if value.len() != 2 {
+                                return Err(ParseError::ArityMismatch(
+                                    "require expects at least one identifier or string".to_string(),
+                                    syn.span,
+                                    a.syn.source,
+                                ));
+                            }
+
+                            let mut value_iter = value.into_iter();
+                            value_iter.next();
+                            let expressions = value_iter
+                                .map(|x| {
+                                    if let ExprKind::Atom(a) = x {
+                                        Ok(a)
+                                    } else {
+                                        Err(ParseError::SyntaxError(
+                                            "require expects atoms".to_string(),
+                                            syn.span,
+                                            a.syn.source.clone(),
+                                        ))
+                                    }
+                                })
+                                .collect::<Result<Vec<_>, Self::Error>>()?;
+
+                            Ok(ExprKind::Require(Require::new(expressions, syn)))
+                        }
                         TokenType::Eval => {
                             let syn = a.syn.clone();
                             if value.len() != 2 {

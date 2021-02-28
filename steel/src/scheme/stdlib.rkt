@@ -198,6 +198,23 @@
      ((lambda ()
         (letrec*-helper bindings body ...))))))
 
+
+(define-syntax module
+    (syntax-rules (provide gen-defines) 
+        [(module name (provide ids ...) funcs ...)
+         (begin
+            (define name 
+                ((lambda () funcs ... 
+                (module provide ids ...))))
+            (module gen-defines name ids ...))]
+        [(module provide name) (hash 'name name)]
+        [(module provide name rest ...)
+         (hash-insert (module provide rest ...) 'name name)]
+        [(module gen-defines mod name) (define name (hash-get mod 'name))]
+        [(module gen-defines mod name rest ...)
+         (begin (define name (hash-get mod 'name))
+            (module gen-defines mod rest ...))]))
+
 (define caar (lambda (pair) (car (car pair))))
 (define cadr (lambda (pair) (car (cdr pair))))
 (define cdar (lambda (pair) (cdr (car pair))))

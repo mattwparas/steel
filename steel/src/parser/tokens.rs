@@ -191,6 +191,9 @@ pub enum TokenType {
     #[token("eval")]
     Eval,
 
+    #[token("require")]
+    Require,
+
     #[token("#\\SPACE", |_| Some(' '))]
     #[token("#\\space", |_| Some(' '))]
     #[token("#\\\\", |_| Some('\\'))]
@@ -299,6 +302,7 @@ impl fmt::Display for TokenType {
             Set => write!(f, "set!"),
             Read => write!(f, "read"),
             Eval => write!(f, "eval"),
+            Require => write!(f, "require"),
         }
     }
 }

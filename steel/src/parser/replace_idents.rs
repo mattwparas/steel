@@ -269,6 +269,10 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         s.expr = self.visit(s.expr)?;
         Ok(ExprKind::Set(s))
     }
+
+    fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
+        stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
+    }
 }
 
 #[cfg(test)]

@@ -333,6 +333,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         }
         Ok(())
     }
+
+    fn visit_require(&mut self, r: &crate::parser::ast::Require) -> Self::Output {
+        stop!(BadSyntax => "unexpected require statement in code gen"; r.location.span)
+    }
 }
 
 fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &str) -> bool {

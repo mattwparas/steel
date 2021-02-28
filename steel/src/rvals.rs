@@ -7,7 +7,7 @@ use crate::{
     // parser::{tokens::TokenType::*, Expr, SyntaxObject},
     port::SteelPort,
     // primitives::ListOperations,
-    rerrs::{ErrorKind, SteelErr},
+    rerrs::SteelErr,
     structs::{SteelStruct, StructClosure},
 };
 
@@ -880,6 +880,7 @@ mod display_test {
 mod or_else_tests {
 
     use super::*;
+    use crate::rerrs::ErrorKind;
     use im_rc::vector;
 
     #[test]

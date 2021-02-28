@@ -163,6 +163,11 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         s.expr = self.visit(s.expr)?;
         Ok(ExprKind::Set(s))
     }
+
+    fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
+        Ok(ExprKind::Require(s))
+        // stop!(Generic => "unexpected require statement during expansion"; s.location.span)
+    }
 }
 
 #[cfg(test)]

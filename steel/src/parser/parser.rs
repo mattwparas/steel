@@ -1,5 +1,5 @@
 use crate::parser::lexer::TokenStream;
-use crate::parser::tokens::{Token, TokenError, TokenType, TokenType::*};
+use crate::parser::tokens::{Token, TokenType, TokenType::*};
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -123,6 +123,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Set => Ok(SymbolV("set!".into())),
             Read => Ok(SymbolV("read".into())),
             Eval => Ok(SymbolV("eval".into())),
+            Require => Ok(SymbolV("require".into())),
         }
     }
 }

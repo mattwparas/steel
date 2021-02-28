@@ -29,9 +29,12 @@ use crate::core::instructions::{densify, DenseInstruction};
 
 use crate::stop;
 
-use crate::parser::expand_visitor::{expand, extract_macro_defs};
+// use crate::compiler::modules::ModuleManager;
+// use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
 use log::debug;
+
+use super::modules::ModuleManager;
 
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?
@@ -356,12 +359,16 @@ impl Compiler {
     }
 
     pub fn expand_expressions(&mut self, exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
-        let non_macro_expressions = extract_macro_defs(exprs, &mut self.macro_env)?;
+        // let non_macro_expressions = extract_macro_defs(exprs, &mut self.macro_env)?;
 
-        non_macro_expressions
-            .into_iter()
-            .map(|x| expand(x, &self.macro_env))
-            .collect()
+        // non_macro_expressions
+        //     .into_iter()
+        //     .map(|x| expand(x, &self.macro_env))
+        //     .collect()
+
+        let output = ModuleManager::new(&mut self.macro_env).compile_main(exprs);
+        // println!("{:?}", output);
+        output
     }
 
     pub fn extract_structs(
@@ -475,15 +482,12 @@ impl Compiler {
         Ok(results)
     }
 
-    // pub fn expand_structs_extract_macros(&mut self, &mut ProgramBuilder)
-
     pub fn emit_instructions_from_exprs(
         &mut self,
         exprs: Vec<ExprKind>,
         _optimizations: bool,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
-        // let expanded_statements = self.extract_structs_and_expand_macros(exprs, &mut results)?;
 
         let expanded_statements = self.expand_expressions(exprs)?;
 
@@ -497,77 +501,6 @@ impl Compiler {
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
 
-        // let expanded_statements =
-
-        // let expanded_statements = expand_statements(extracted_statements, &mut self.macro_env)?;
-
-        // Mild hack...
-        // let expanded_statements = if optimizations {
-        //     VirtualMachine::optimize_exprs(expanded_statements)?
-        // } else {
-        //     expanded_statements
-        // };
-
-        // Collect global defines here first
-        // let (ndefs_new, ndefs_old, _not) =
-        //     count_and_collect_global_defines(&expanded_statements, &mut self.symbol_map);
-
-        // At the global level, let the defines shadow the old ones, but call `drop` on all of the old values
-
-        // Reserve the definitions in the global environment
-        // TODO find a better way to make sure that the definitions are reserved
-        // This works for the normal bytecode execution without the repl
-        // self.global_env
-        //     .borrow_mut()
-        //     .reserve_defs(if ndefs_new > 0 { ndefs_new - 1 } else { 0 }); // used to be ndefs - 1
-
-        // match (ndefs_old, ndefs_new) {
-        //     (_, _) if ndefs_old > 0 && ndefs_new == 0 => {
-        //         // println!("CASE 1: Popping last!!!!!!!!!");
-        //         self.global_env.borrow_mut().pop_last();
-        //     }
-        //     (_, _) if ndefs_new > 0 && ndefs_old == 0 => {
-        //         // println!("Doing nothing");
-        //     }
-        //     (_, _) if ndefs_new > 0 && ndefs_old > 0 => {
-        //         // println!("$$$$$$$$$$ GOT HERE $$$$$$$$");
-        //         self.global_env.borrow_mut().pop_last();
-        //     }
-        //     (_, _) => {}
-        // }
-
         self.generate_dense_instructions(statements_without_structs, results)
-
-        // TODO move this out into its thing
-        // fairly certain this isn't necessary to do this batching
-        // but it does work for now and I'll take it for now
-        // let mut instruction_buffer = Vec::new();
-        // let mut index_buffer = Vec::new();
-        // for expr in expanded_statements {
-        //     // TODO add printing out the expression as its own special function
-        //     // println!("{:?}", expr.to_string());
-        //     let mut instructions: Vec<Instruction> = Vec::new();
-
-        //     // TODO double check that arity map doesn't exist anymore
-        //     emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
-        //     instructions.push(Instruction::new_pop());
-        //     inject_heap_save_to_pop(&mut instructions);
-        //     index_buffer.push(instructions.len());
-        //     instruction_buffer.append(&mut instructions);
-        // }
-
-        // // println!("Got here!");
-
-        // insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
-        // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
-        // // coalesce_clears(&mut instruction_buffer);
-
-        // for idx in index_buffer {
-        //     let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
-        //     // pretty_print_instructions(extracted.as_slice());
-        //     results.push(densify(extracted));
-        // }
-
-        // Ok(results)
     }
 }
