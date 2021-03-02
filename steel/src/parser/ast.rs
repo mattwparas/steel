@@ -64,6 +64,10 @@ impl ExprKind {
     }
 }
 
+// pub fn try_from_exprkind(e: ExprKind) -> std::result::Result<SteelVal, SteelErr> {
+//     TryFromExprKindForSteelVal::try_from_expr_kind(e)
+// }
+
 impl TryFrom<ExprKind> for SteelVal {
     type Error = SteelErr;
 

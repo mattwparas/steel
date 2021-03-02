@@ -361,18 +361,18 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
             //     }
             // }
 
-            impl TryFrom<SteelVal> for #name {
-                type Error = SteelErr;
-                fn try_from(value: SteelVal) -> std::result::Result<#name, Self::Error> {
-                    unwrap!(value.clone(), #name)
-                }
-            }
-            impl TryFrom<&SteelVal> for #name {
-                type Error = SteelErr;
-                fn try_from(value: &SteelVal) -> std::result::Result<#name, Self::Error> {
-                    unwrap!(value.clone(), #name)
-                }
-            }
+            // impl TryFrom<SteelVal> for #name {
+            //     type Error = SteelErr;
+            //     fn try_from(value: SteelVal) -> std::result::Result<#name, Self::Error> {
+            //         unwrap!(value.clone(), #name)
+            //     }
+            // }
+            // impl TryFrom<&SteelVal> for #name {
+            //     type Error = SteelErr;
+            //     fn try_from(value: &SteelVal) -> std::result::Result<#name, Self::Error> {
+            //         unwrap!(value.clone(), #name)
+            //     }
+            // }
 
             impl crate::rvals::StructFunctions for #name {
                 fn generate_bindings() -> Vec<(String, SteelVal)> {
@@ -430,25 +430,25 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
         //     }
         // }
 
-        impl TryFrom<SteelVal> for #name {
-            type Error = SteelErr;
-            fn try_from(value: SteelVal) -> std::result::Result<#name, Self::Error> {
-                unwrap!(value.clone(), #name)
-            }
-        }
+        // impl TryFrom<SteelVal> for #name {
+        //     type Error = SteelErr;
+        //     fn try_from(value: SteelVal) -> std::result::Result<#name, Self::Error> {
+        //         unwrap!(value.clone(), #name)
+        //     }
+        // }
 
-        impl TryFrom<&SteelVal> for #name {
-            type Error = SteelErr;
-            fn try_from(value: &SteelVal) -> std::result::Result<#name, Self::Error> {
-                unwrap!(value.clone(), #name)
-            }
-        }
+        // impl TryFrom<&SteelVal> for #name {
+        //     type Error = SteelErr;
+        //     fn try_from(value: &SteelVal) -> std::result::Result<#name, Self::Error> {
+        //         unwrap!(value.clone(), #name)
+        //     }
+        // }
 
         impl crate::rvals::StructFunctions for #name {
             fn generate_bindings() -> Vec<(String, SteelVal)> {
                 use std::convert::TryFrom;
                 use std::convert::TryInto;
-                use steel::rvals::SteelVal;
+                use steel::rvals::{SteelVal, TryCast};
                 use steel::rerrs::{SteelErr, ErrorKind};
                 use steel::unwrap;
                 use steel::stop;
@@ -487,7 +487,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                     if let Some(arg) = args_iter.next() {
                                         match &arg {
                                             SteelVal::Custom(_) => unwrap!(arg.clone(), #field_type2)?,
-                                            _ => <#field_type2>::try_from(&arg.clone())?
+                                            _ => <#field_type2>::try_cast(&arg.clone())?
                                         }
                                     } else {
                                         stop!(ArityMismatch => concat!(stringify!(#name), "expected", stringify!(#number_of_fields),  "arguments"));
@@ -518,7 +518,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                         unwrap!(second.clone(), #field_type)?
                                     },
                                     _ => {
-                                        <#field_type>::try_from(&second.clone())?
+                                        <#field_type>::try_cast(second.clone())?
                                         }
                                 };
                                 return Ok(my_struct.new_steel_val());
@@ -539,7 +539,7 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
                                 let mut args_iter = args.into_iter();
                                 if let Some(first) = args_iter.next() {
                                     let my_struct = unwrap!(first.clone(), #name)?;
-                                    let return_val: SteelVal = my_struct.#field_name.try_into()?; // TODO
+                                    let return_val: SteelVal = SteelVal::try_cast(my_struct.#field_name)?; // TODO
                                     return Ok(return_val);
                                 }
                                 stop!(ArityMismatch => format!("{} expected {} argument(s), got {}", concat!(stringify!(#name), "-", stringify!(#field_name)), 2, arity));
@@ -645,7 +645,7 @@ pub fn function(
                         "Result" => quote! {
                             match res {
                                 Ok(x) => {
-                                    Ok(SteelVal::try_from(x)?)
+                                    Ok(x.into())
                                 }
                                 Err(e) => {
                                     Err(SteelErr::new(ErrorKind::Generic, e.to_string()))
@@ -655,7 +655,7 @@ pub fn function(
                         "Option" => quote! { // TODO document
                             match res {
                                 Some(x) => {
-                                    Ok(SteelVal::try_from(x)?)
+                                    Ok(x.into())
                                 }
                                 None => {
                                     Ok(SteelVal::BoolV(false))
@@ -663,7 +663,7 @@ pub fn function(
                             }
                         },
                         _ => quote! {
-                            Ok(SteelVal::try_from(res)?)
+                            Ok(res.into())
                         },
                     }
                 } else {
@@ -673,7 +673,7 @@ pub fn function(
                 }
             } else {
                 quote! {
-                    Ok(SteelVal::try_from(res)?)
+                    Ok(res.into())
                 }
             }
         }
@@ -704,7 +704,7 @@ pub fn function(
 
             let res = #function_name(
                 #(
-                    <#arg_type>::try_from(args[#arg_index].clone())?,
+                    <#arg_type>::try_cast(args[#arg_index].clone())?,
                 )*
             );
 

@@ -115,8 +115,10 @@ pub trait Custom {}
 mod private {
     /// A sealed trait that prevents other crates from implementing custom type
     pub trait Sealed {}
-
     impl<T: Clone> Sealed for T {}
+
+    pub trait Collections {}
+    impl<T: Clone> Collections for Vec<T> {}
 }
 
 pub trait CustomType {
@@ -141,7 +143,7 @@ impl From<Box<dyn CustomType>> for SteelVal {
     }
 }
 
-impl<T: Clone + private::Sealed + std::fmt::Debug + std::any::Any> CustomType for T {
+impl<T: Clone + Custom + std::fmt::Debug + std::any::Any> CustomType for T {
     fn box_clone(&self) -> Box<dyn CustomType> {
         Box::new((*self).clone())
     }
@@ -158,17 +160,15 @@ impl<T: Clone + private::Sealed + std::fmt::Debug + std::any::Any> CustomType fo
     }
 }
 
-impl<T: CustomType + Custom + std::any::Any> From<T> for SteelVal {
-    fn from(val: T) -> SteelVal {
+pub trait Cast<T>: Sized {
+    fn cast(value: T) -> Self;
+}
+
+impl<T: CustomType + Custom + std::any::Any> Cast<T> for SteelVal {
+    fn cast(val: T) -> SteelVal {
         val.new_steel_val()
     }
 }
-
-// pub trait Cast<T: Sized> {
-//     type Error;
-//     fn try_cast()
-
-// }
 
 pub trait TryCast<T>: Sized {
     type Error;
