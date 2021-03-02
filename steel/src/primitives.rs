@@ -39,8 +39,6 @@ use std::convert::TryInto;
 use std::result;
 
 use crate::gc::Gc;
-use crate::rvals::TryCast;
-// use crate::rvals::OutputWrapper;
 
 macro_rules! try_from_impl {
     ($type:ident => $($body:ty),*) => {
@@ -58,32 +56,6 @@ macro_rules! try_from_impl {
             impl TryFrom<&SteelVal> for $body {
                 type Error = SteelErr;
                 fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
-                    match value {
-                        SteelVal::$type(x) => Ok(x.clone() as $body),
-                        _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
-                    }
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! try_cast_impl {
-    ($type:ident => $($body:ty),*) => {
-        $(
-            impl TryCast<SteelVal> for $body {
-                type Error = SteelErr;
-                fn try_cast(value: SteelVal) -> result::Result<Self, Self::Error> {
-                    match value {
-                        SteelVal::$type(x) => Ok(x.clone() as $body),
-                        _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
-                    }
-                }
-            }
-
-            impl TryCast<&SteelVal> for $body {
-                type Error = SteelErr;
-                fn try_cast(value: &SteelVal) -> result::Result<Self, Self::Error> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
                         _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
@@ -124,24 +96,6 @@ impl From<char> for SteelVal {
     }
 }
 
-// TODO
-impl<T: Into<SteelVal>> TryCast<Vec<T>> for SteelVal {
-    type Error = SteelErr;
-    fn try_cast(val: Vec<T>) -> result::Result<Self, Self::Error> {
-        let vec_vals: Vec<SteelVal> = val.into_iter().map(|x| x.into()).collect();
-
-        ListOperations::built_in_list_func_flat(&vec_vals)
-
-        // match vec_vals {
-        //     Ok(l) => ListOperations::built_in_list_func_flat(&l),
-        //     _ => Err(SteelErr::new(
-        //         ErrorKind::ConversionError,
-        //         "Could not convert vector of values to SteelVal list".to_string(),
-        //     )),
-        // }
-    }
-}
-
 impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
     type Error = SteelErr;
     fn try_from(val: Vec<T>) -> result::Result<Self, Self::Error> {
@@ -153,47 +107,6 @@ impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
                 "Could not convert vector of values to SteelVal list".to_string(),
-            )),
-        }
-    }
-}
-
-// TODO implement this for the casting case as well
-// everywhere we do try_from we should use try_cast instead in the macro for genering code
-
-impl<T: TryCast<SteelVal>> TryCast<SteelVal> for Vec<T> {
-    type Error = SteelErr;
-    fn try_cast(val: SteelVal) -> result::Result<Self, Self::Error> {
-        match val {
-            SteelVal::Pair(_) => {
-                // let vec_vals = collect_pair_into_vector(&val);
-                let result_vec_vals: Result<Self, <T as TryCast<SteelVal>>::Error> =
-                    SteelVal::iter(val.clone())
-                        .into_iter()
-                        .map(T::try_cast)
-                        .collect();
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            }
-            SteelVal::VectorV(v) => {
-                let result_vec_vals: Result<Self, <T as TryCast<SteelVal>>::Error> =
-                    v.iter().map(|x| T::try_cast(x.clone())).collect();
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            } // TODO
-            _ => Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Could not convert SteelVal list to Vector of values".to_string(),
             )),
         }
     }
@@ -221,44 +134,6 @@ impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
             SteelVal::VectorV(v) => {
                 let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
                     v.iter().map(|x| T::try_from(x.clone())).collect();
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            } // TODO
-            _ => Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Could not convert SteelVal list to Vector of values".to_string(),
-            )),
-        }
-    }
-}
-
-impl<T: TryCast<SteelVal>> TryCast<&SteelVal> for Vec<T> {
-    type Error = SteelErr;
-    fn try_cast(val: &SteelVal) -> result::Result<Self, Self::Error> {
-        match val {
-            SteelVal::Pair(_) => {
-                // let vec_vals = collect_pair_into_vector(&val);
-                let result_vec_vals: Result<Self, <T as TryCast<SteelVal>>::Error> =
-                    SteelVal::iter(val.clone())
-                        .into_iter()
-                        .map(T::try_cast)
-                        .collect();
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            }
-            SteelVal::VectorV(v) => {
-                let result_vec_vals: Result<Self, <T as TryCast<SteelVal>>::Error> =
-                    v.iter().map(|x| T::try_cast(x.clone())).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
@@ -329,26 +204,9 @@ from_for_isize!(i32, i16, i8, u8, u16, u32, u64, usize, isize);
 try_from_impl!(NumV => f64, f32);
 try_from_impl!(IntV => i64, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 
-try_cast_impl!(NumV => f64, f32);
-try_cast_impl!(IntV => i64, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-
 impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
     fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
-        match value {
-            SteelVal::StringV(ref x) => Ok(x.unwrap()),
-            SteelVal::SymbolV(ref x) => Ok(x.unwrap()),
-            _ => Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Expected string".to_string(),
-            )),
-        }
-    }
-}
-
-impl TryCast<SteelVal> for String {
-    type Error = SteelErr;
-    fn try_cast(value: SteelVal) -> result::Result<Self, Self::Error> {
         match value {
             SteelVal::StringV(ref x) => Ok(x.unwrap()),
             SteelVal::SymbolV(ref x) => Ok(x.unwrap()),

@@ -2,11 +2,12 @@ use crate::{
     contracts::{ContractType, ContractedFunction},
     core::instructions::DenseInstruction,
     env::Env,
-    functions::BoxedFunctionSignature,
     gc::Gc,
     lazy_stream::LazyStream,
+    // parser::{tokens::TokenType::*, Expr, SyntaxObject},
     port::SteelPort,
-    rerrs::{ErrorKind, SteelErr},
+    // primitives::ListOperations,
+    rerrs::SteelErr,
     structs::{SteelStruct, StructClosure},
 };
 
@@ -30,7 +31,6 @@ use im_rc::{HashMap, HashSet, Vector};
 
 use futures::future::Shared;
 use futures::FutureExt;
-use std::fmt::Write;
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
@@ -110,17 +110,6 @@ pub trait StructFunctions {
     fn generate_bindings() -> Vec<(String, SteelVal)>;
 }
 
-pub trait Custom {}
-
-mod private {
-    /// A sealed trait that prevents other crates from implementing custom type
-    pub trait Sealed {}
-    impl<T: Clone> Sealed for T {}
-
-    pub trait Collections {}
-    impl<T: Clone> Collections for Vec<T> {}
-}
-
 pub trait CustomType {
     fn box_clone(&self) -> Box<dyn CustomType>;
     fn as_any(&self) -> Box<dyn Any>;
@@ -143,94 +132,10 @@ impl From<Box<dyn CustomType>> for SteelVal {
     }
 }
 
-impl<T: Clone + Custom + std::fmt::Debug + std::any::Any> CustomType for T {
-    fn box_clone(&self) -> Box<dyn CustomType> {
-        Box::new((*self).clone())
-    }
-    fn as_any(&self) -> Box<dyn Any> {
-        Box::new((*self).clone())
-    }
-    fn new_steel_val(&self) -> SteelVal {
-        SteelVal::Custom(Gc::new(Box::new(self.clone())))
-    }
-    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-        let mut buf = String::new();
-        write!(buf, "{:?}", &self)?;
-        Ok(buf)
-    }
-}
-
-pub trait Cast<T>: Sized {
-    fn cast(value: T) -> Self;
-}
-
-impl<T: CustomType + Custom + std::any::Any> Cast<T> for SteelVal {
-    fn cast(val: T) -> SteelVal {
-        val.new_steel_val()
-    }
-}
-
-pub trait TryCast<T>: Sized {
-    type Error;
-
-    fn try_cast(value: T) -> std::result::Result<Self, Self::Error>;
-}
-
-// pub trait TryIntoCast<T>: Sized {
-
-// }
-
-impl<T: CustomType + Custom + Clone + Any> TryCast<SteelVal> for T {
-    type Error = SteelErr;
-    fn try_cast(value: SteelVal) -> std::result::Result<Self, Self::Error> {
-        if let crate::rvals::SteelVal::Custom(ref v) = value {
-            let name = v.name();
-            let left_type = (*v).as_any();
-            let left = left_type.downcast_ref::<T>().cloned();
-            left.ok_or_else(|| {
-                let error_message = format!(
-                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
-                    name
-                );
-                SteelErr::new(ErrorKind::ConversionError, error_message)
-            })
-        } else {
-            let error_message =
-                format!("Type Mismatch: Type of SteelVal did not match the given type");
-            Err(SteelErr::new(ErrorKind::ConversionError, error_message))
-        }
-    }
-}
-
-impl<T: CustomType + Custom + Clone + Any> TryCast<&SteelVal> for T {
-    type Error = SteelErr;
-    fn try_cast(value: &SteelVal) -> std::result::Result<Self, Self::Error> {
-        T::try_cast(value.clone())
-    }
-}
-
-// impl<T: CustomType + Custom + Clone + Any> TryCastInto<SteelVal> for T {
-//     type Error = SteelErr;
-//     fn try_cast_into(self) -> std::result::Result<SteelVal, Self::Error> {
-//         unimplemented!()
-//     }
-// }
-
-// impl<T: TryCast<SteelVal>> TryFrom<SteelVal> for T {
-//     type Error = SteelErr;
-//     fn try_from(val: SteelVal) -> std::result::Result<Self, Self::Error> {
-//         T::try_cast(val)
-//     }
-// }
-
-// impl<T> TryFrom<SteelVal> for T where T: CustomType + Custom + Clone + 'static {
-
-// }
-
-// impl<T: CustomType + Clone + Custom + 'static> crate::rvals::StructFunctions for T {
-//     fn generate_bindings() -> Vec<(String, SteelVal)> {
-//         Vec::new()
-//     }
+// macro_rules! ok_val {
+//     ($variant:ty, $value:expr) => {
+//         Ok(Rc::new(SteelVal::$variant($value)));
+//     };
 // }
 
 /// Unwraps the `SteelVal::Custom` with the given type. The type must implement the `CustomType` trait.
@@ -333,8 +238,6 @@ pub enum SteelVal {
     Contract(Gc<ContractType>),
     /// Contracted Function
     ContractedFunction(Gc<ContractedFunction>),
-    // Boxed closure
-    BoxedFunction(BoxedFunctionSignature),
 }
 
 // TODO come back to this for the constant map
@@ -859,7 +762,6 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         BoxV(b) => write!(f, "#<box {:?}>", b.borrow()),
         Contract(_) => write!(f, "#<contract>"),
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
-        BoxedFunction(_) => write!(f, "#<function>"),
     }
 }
 

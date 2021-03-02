@@ -64,10 +64,6 @@ impl ExprKind {
     }
 }
 
-// pub fn try_from_exprkind(e: ExprKind) -> std::result::Result<SteelVal, SteelErr> {
-//     TryFromExprKindForSteelVal::try_from_expr_kind(e)
-// }
-
 impl TryFrom<ExprKind> for SteelVal {
     type Error = SteelErr;
 
@@ -134,7 +130,6 @@ impl TryFrom<&SteelVal> for ExprKind {
             BoxV(_) => Err("Can't convert from box to expression!"),
             Contract(_) => Err("Can't convert from contract to expression!"),
             ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
-            BoxedFunction(_) => Err("Can't convert from function to expression!"),
         }
     }
 }

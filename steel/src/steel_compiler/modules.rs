@@ -1,4 +1,4 @@
-// use itertools::Itertools;
+use itertools::Itertools;
 
 use crate::parser::{
     ast::{Atom, ExprKind, List},
@@ -216,17 +216,17 @@ impl<'a> ModuleBuilder<'a> {
         return Ok(new_exprs);
     }
 
-    // fn contains_provides(&self) -> bool {
-    //     for expr in &self.source_ast {
-    //         if let ExprKind::List(l) = expr {
-    //             if let Some(provide) = l.first_ident() {
-    //                 return provide == "provide" && l.len() > 1;
-    //             }
-    //         }
-    //     }
+    fn contains_provides(&self) -> bool {
+        for expr in &self.source_ast {
+            if let ExprKind::List(l) = expr {
+                if let Some(provide) = l.first_ident() {
+                    return provide == "provide" && l.len() > 1;
+                }
+            }
+        }
 
-    //     false
-    // }
+        false
+    }
 
     fn into_compiled_module(&mut self) -> Result<ExprKind> {
         // let expanded = ;

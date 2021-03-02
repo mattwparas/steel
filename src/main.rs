@@ -7,7 +7,7 @@ extern crate steel_repl;
 
 use steel::unwrap;
 
-use std::path::PathBuf;
+use std::{any::Any, path::PathBuf};
 use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
@@ -19,7 +19,7 @@ use steel_repl::repl::repl_base;
 use steel_vm::build_engine;
 use steel_vm::engine::Engine;
 
-// use steel::Gc;
+use steel::Gc;
 
 use std::process;
 
@@ -32,9 +32,8 @@ use std::fs;
 // use steel::PRELUDE;
 
 use std::convert::TryFrom;
-use steel::rvals::{Cast, TryCast};
 
-// use std::fmt::Write;
+use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
 use std::cell::RefCell;
@@ -155,19 +154,19 @@ fn finish(result: Result<(), std::io::Error>) -> ! {
     process::exit(code);
 }
 
-// #[steel]
+#[steel]
 pub struct MyStruct {
     pub field: usize,
     pub stays_the_same: usize,
     pub name: String,
 }
 
-// #[steel]
+#[steel]
 pub struct VecStruct {
     pub field: Vec<CoolTest>,
 }
 
-// #[steel]
+#[steel]
 #[derive(PartialEq)]
 pub struct CoolTest {
     pub val: f64,
@@ -189,7 +188,7 @@ impl CoolTest {
 #[derive(PartialEq)]
 pub struct UnnamedFields(pub usize);
 
-// #[steel]
+#[steel]
 #[derive(PartialEq)]
 pub struct Foo {
     pub f: UnnamedFields,
@@ -198,7 +197,7 @@ pub struct Foo {
 #[steel]
 pub struct Mutation(pub Rc<RefCell<usize>>);
 
-// #[function]
+#[function]
 pub fn new_mutation() -> Mutation {
     Mutation(Rc::new(RefCell::new(0)))
 }
@@ -213,12 +212,12 @@ pub fn mutation_inner(value: Mutation) {
 #[steel]
 pub struct MutexWrapper(pub Arc<Mutex<usize>>);
 
-// #[function]
+#[function]
 pub fn new_mutex_wrapper(val: usize) -> MutexWrapper {
     MutexWrapper(Arc::new(Mutex::new(val)))
 }
 
-// #[function]
+#[function]
 pub fn add_cool_tests(arg1: CoolTest, arg2: CoolTest) -> CoolTest {
     let res = CoolTest {
         val: arg1.val + arg2.val,
@@ -227,10 +226,10 @@ pub fn add_cool_tests(arg1: CoolTest, arg2: CoolTest) -> CoolTest {
     res
 }
 
-// #[function]
-// pub fn pretty_print_cool_test(arg: CoolTest) {
-//     println!("{:?}", arg);
-// }
+#[function]
+pub fn pretty_print_cool_test(arg: CoolTest) {
+    println!("{:?}", arg);
+}
 
 #[function]
 pub fn multiple_types(val: u64) -> u64 {
@@ -260,7 +259,7 @@ pub fn test_result(input: usize) -> std::result::Result<usize, String> {
     }
 }
 
-// #[function]
+#[function]
 pub fn mutation_test(arg: CoolTest) -> CoolTest {
     let mut arg = arg;
     arg.val = 10000.0;
@@ -288,7 +287,7 @@ pub fn mutation_test(arg: CoolTest) -> CoolTest {
 #[steel]
 pub struct Levenshtein(Rc<RefCell<EditDistance>>);
 
-// #[function]
+#[function]
 pub fn new_levenshtein() -> Levenshtein {
     Levenshtein(Rc::new(RefCell::new(EditDistance::new(15))))
 }
@@ -431,29 +430,29 @@ impl EditDistance {
 
 pub fn test_repl() -> std::io::Result<()> {
     let vm = build_engine! {
-        // Structs => {
-        //     MyStruct,
-        //     CoolTest,
-        //     Foo,
-        //     MutexWrapper,
-        //     VecStruct,
-        //     Levenshtein
-        // }
-        // Functions => {
-        //     "add-cool-tests" => add_cool_tests,
-        //     "multiple-types" => multiple_types,
-        //     "new-mutex-wrapper" => new_mutex_wrapper,
-        //     "display-cool-test" => pretty_print_cool_test,
-        //     "test-result" => test_result,
-        //     "test-option" => test_option,
-        //     "panic-time" => panic_time,
-        //     "do-a-call" => do_a_call,
-        //     "blargh" => CoolTest::blargh,
-        //     "new-mutation" => new_mutation,
-        //     "mutation-inner!" => mutation_inner,
-        //     "new-levenshtein" => new_levenshtein,
-        //     "edit-distance" => edit_distance,
-        // }
+        Structs => {
+            MyStruct,
+            CoolTest,
+            Foo,
+            MutexWrapper,
+            VecStruct,
+            Levenshtein
+        }
+        Functions => {
+            "add-cool-tests" => add_cool_tests,
+            "multiple-types" => multiple_types,
+            "new-mutex-wrapper" => new_mutex_wrapper,
+            "display-cool-test" => pretty_print_cool_test,
+            "test-result" => test_result,
+            "test-option" => test_option,
+            "panic-time" => panic_time,
+            "do-a-call" => do_a_call,
+            "blargh" => CoolTest::blargh,
+            "new-mutation" => new_mutation,
+            "mutation-inner!" => mutation_inner,
+            "new-levenshtein" => new_levenshtein,
+            "edit-distance" => edit_distance,
+        }
     };
 
     // vm.on_progress(|count| {
@@ -470,29 +469,29 @@ pub fn test_repl() -> std::io::Result<()> {
 
 pub fn test_repl_with_progress() -> std::io::Result<()> {
     let mut vm = build_engine! {
-        // Structs => {
-        //     MyStruct,
-        //     CoolTest,
-        //     Foo,
-        //     MutexWrapper,
-        //     VecStruct,
-        //     Levenshtein
-        // }
-        // Functions => {
-        //     "add-cool-tests" => add_cool_tests,
-        //     "multiple-types" => multiple_types,
-        //     "new-mutex-wrapper" => new_mutex_wrapper,
-        //     "display-cool-test" => pretty_print_cool_test,
-        //     "test-result" => test_result,
-        //     "test-option" => test_option,
-        //     "panic-time" => panic_time,
-        //     "do-a-call" => do_a_call,
-        //     "blargh" => CoolTest::blargh,
-        //     "new-mutation" => new_mutation,
-        //     "mutation-inner!" => mutation_inner,
-        //     "new-levenshtein" => new_levenshtein,
-        //     "edit-distance" => edit_distance,
-        // }
+        Structs => {
+            MyStruct,
+            CoolTest,
+            Foo,
+            MutexWrapper,
+            VecStruct,
+            Levenshtein
+        }
+        Functions => {
+            "add-cool-tests" => add_cool_tests,
+            "multiple-types" => multiple_types,
+            "new-mutex-wrapper" => new_mutex_wrapper,
+            "display-cool-test" => pretty_print_cool_test,
+            "test-result" => test_result,
+            "test-option" => test_option,
+            "panic-time" => panic_time,
+            "do-a-call" => do_a_call,
+            "blargh" => CoolTest::blargh,
+            "new-mutation" => new_mutation,
+            "mutation-inner!" => mutation_inner,
+            "new-levenshtein" => new_levenshtein,
+            "edit-distance" => edit_distance,
+        }
     };
 
     vm.on_progress(|count| {
@@ -509,9 +508,9 @@ pub fn test_repl_with_progress() -> std::io::Result<()> {
 
 pub fn my_repl() -> std::io::Result<()> {
     build_repl! {
-        // MyStruct,
-        // CoolTest,
-        // Foo
+        MyStruct,
+        CoolTest,
+        Foo
     }
 }
 
@@ -522,8 +521,6 @@ pub fn test_result2(input: usize) -> std::result::Result<usize, String> {
         Err("We got an error".to_string())
     }
 }
-
-/*
 
 // TODO come back and flesh this out
 #[test]
@@ -595,12 +592,12 @@ fn build_interpreter_and_modify() {
     match interpreter.parse_and_execute_without_optimizations(&script, PathBuf::from("test")) {
         Ok(_) => {
             let ret_val: CoolTest =
-                CoolTest::try_cast(interpreter.extract_value("return-val").unwrap()).unwrap();
+                CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
             assert_eq!(ret_val, CoolTest { val: 200.0 });
             let ret_val2 =
-                UnnamedFields::try_cast(interpreter.extract_value("unnamed").unwrap()).unwrap();
+                UnnamedFields::try_from(interpreter.extract_value("unnamed").unwrap()).unwrap();
             assert_eq!(ret_val2, UnnamedFields(100));
-            let ret_val3 = Foo::try_cast(interpreter.extract_value("foo-test").unwrap()).unwrap();
+            let ret_val3 = Foo::try_from(interpreter.extract_value("foo-test").unwrap()).unwrap();
             assert_eq!(
                 ret_val3,
                 Foo {
@@ -608,7 +605,7 @@ fn build_interpreter_and_modify() {
                 }
             );
             let ret_val4 =
-                CoolTest::try_cast(interpreter.extract_value("sum-test").unwrap()).unwrap();
+                CoolTest::try_from(interpreter.extract_value("sum-test").unwrap()).unwrap();
             assert_eq!(ret_val4, CoolTest { val: 300.0 })
         }
         Err(e) => {
@@ -616,4 +613,3 @@ fn build_interpreter_and_modify() {
         }
     }
 }
-*/
