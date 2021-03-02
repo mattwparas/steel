@@ -12,6 +12,7 @@ pub mod stdlib;
 #[macro_use]
 pub mod gc;
 pub mod contracts;
+pub mod functions;
 pub mod json_vals;
 pub mod lazy_stream;
 pub mod parser;

@@ -15,7 +15,7 @@ use steel::{
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     steel_compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
-    throw,
+    stop, throw,
 };
 
 #[macro_export]
@@ -150,6 +150,17 @@ impl Engine {
     //     self.parse_and_execute(exprs.as_str(), )
     // }
 
+    pub fn parse_and_execute_from_path<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<Vec<SteelVal>> {
+        let path_buf = PathBuf::from(path.as_ref());
+        let mut file = std::fs::File::open(path)?;
+        let mut exprs = String::new();
+        file.read_to_string(&mut exprs)?;
+        self.parse_and_execute(exprs.as_str(), path_buf)
+    }
+
     // TODO come back to this please
 
     pub fn parse_and_execute_with_optimizations(
@@ -214,5 +225,52 @@ impl Engine {
                 ExprKind::try_from(&x).map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
             })
             .collect::<Result<Vec<ExprKind>>>()
+    }
+}
+
+pub trait RegisterFn<FN, ARGS> {
+    fn register_fn(&mut self, name: &'static str, func: FN);
+}
+
+impl<
+        A: Clone + TryFrom<SteelVal, Error = SteelErr> + Into<SteelVal>,
+        B: Into<SteelVal>,
+        FN: Fn(A) -> B + 'static,
+    > RegisterFn<FN, (A, B)> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) {
+        // unimplemented!()
+        // register_value(&mut self, name: &str, value: SteelVal)
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
+            }
+
+            let res = func(A::try_from(args[0].clone())?);
+
+            Ok(res.into())
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
+
+impl<FN: Fn() -> () + 'static> RegisterFn<FN, ()> for Engine {
+    fn register_fn(&mut self, name: &'static str, func: FN) {
+        // unimplemented!()
+        // register_value(&mut self, name: &str, value: SteelVal)
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 0 {
+                stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
+            }
+
+            func();
+
+            Ok(SteelVal::Void)
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }

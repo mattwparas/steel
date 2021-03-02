@@ -2,11 +2,10 @@ use crate::{
     contracts::{ContractType, ContractedFunction},
     core::instructions::DenseInstruction,
     env::Env,
+    functions::BoxedFunctionSignature,
     gc::Gc,
     lazy_stream::LazyStream,
-    // parser::{tokens::TokenType::*, Expr, SyntaxObject},
     port::SteelPort,
-    // primitives::ListOperations,
     rerrs::SteelErr,
     structs::{SteelStruct, StructClosure},
 };
@@ -238,6 +237,8 @@ pub enum SteelVal {
     Contract(Gc<ContractType>),
     /// Contracted Function
     ContractedFunction(Gc<ContractedFunction>),
+    /// Custom closure
+    BoxedFunction(BoxedFunctionSignature),
 }
 
 // TODO come back to this for the constant map
@@ -762,6 +763,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         BoxV(b) => write!(f, "#<box {:?}>", b.borrow()),
         Contract(_) => write!(f, "#<contract>"),
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
+        BoxedFunction(_) => write!(f, "#<function>"),
     }
 }
 

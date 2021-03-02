@@ -43,6 +43,8 @@ use std::collections::HashMap;
 
 use std::cmp::{max, min};
 
+use steel_vm::engine::RegisterFn;
+
 // use env_logger::Builder;
 // use log::LevelFilter;
 
@@ -91,6 +93,12 @@ fn do_a_call() {
     println!("{:?}", ARRAY.lock().unwrap());
 }
 
+fn test_test(_input: usize) -> usize {
+    10
+}
+
+fn no_args_return_empty() {}
+
 fn main() {
     env_logger::init();
 
@@ -113,6 +121,9 @@ fn main() {
         let path = &args[1];
 
         let mut vm = build_engine! {};
+
+        vm.register_fn("test-test", test_test);
+        vm.register_fn("no-args", no_args_return_empty);
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
 
