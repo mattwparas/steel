@@ -2,7 +2,7 @@ use crate::{
     gc::Gc,
     primitives::ListOperations,
     rerrs::{ErrorKind, SteelErr},
-    rvals::{Result, SteelVal},
+    rvals::{Result, SteelVal, TryCast},
     throw,
 };
 use im_rc::HashMap;
@@ -34,7 +34,7 @@ pub fn serialize_val_to_string() -> SteelVal {
             stop!(ArityMismatch => "serialize value takes one argument");
         } else {
             let arg = args[0].clone();
-            let serde_value: Value = arg.try_into()?;
+            let serde_value: Value = steelval_to_value(arg)?;
             let serialized_value = serde_value.to_string();
             Ok(SteelVal::StringV(serialized_value.into()))
         }
@@ -106,60 +106,110 @@ impl TryFrom<Number> for SteelVal {
     }
 }
 
+fn steelval_to_value(val: SteelVal) -> Result<Value> {
+    match val {
+        SteelVal::BoolV(b) => Ok(Value::Bool(b)),
+        SteelVal::NumV(n) => Ok(Value::Number(Number::from_f64(n).unwrap())),
+        SteelVal::IntV(n) => Ok(Value::Number(Number::from(n))),
+        SteelVal::CharV(c) => Ok(Value::String(c.to_string())),
+        SteelVal::Pair(_) => Ok(Value::Array(
+            SteelVal::iter(val)
+                .map(|x| steelval_to_value(x.clone()))
+                .collect::<Result<Vec<_>>>()?,
+        )),
+        SteelVal::VectorV(v) => Ok(Value::Array(
+            v.iter()
+                .map(|x| steelval_to_value(x.clone()))
+                .collect::<Result<Vec<_>>>()?,
+        )),
+        SteelVal::Void => stop!(Generic => "void not serializable"),
+        SteelVal::StringV(s) => Ok(Value::String(s.unwrap())),
+        SteelVal::FuncV(_) => stop!(Generic => "function not serializable"),
+        // SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
+        // SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
+        SteelVal::SymbolV(s) => Ok(Value::String(s.unwrap())),
+        SteelVal::Custom(_) => stop!(Generic => "generic struct not serializable"),
+        SteelVal::HashMapV(hm) => {
+            let mut map: Map<String, Value> = Map::new();
+            for (key, value) in hm.iter() {
+                map.insert(
+                    String::try_cast(key.clone())?,
+                    steelval_to_value(value.clone())?,
+                );
+            }
+            Ok(Value::Object(map))
+        }
+        SteelVal::HashSetV(hs) => Ok(Value::Array(
+            hs.iter()
+                .map(|x| steelval_to_value(x.clone()))
+                .collect::<Result<Vec<_>>>()?,
+        )),
+        SteelVal::StructV(_) => stop!(Generic => "built in struct not serializable yet"),
+        _ => stop!(Generic => "type not serializable"),
+        // SteelVal::StructClosureV(_, _) => {}
+        // SteelVal::PortV(_) => {}
+        // SteelVal::Closure(_) => {}
+        // SteelVal::IterV(_) => {}
+        // SteelVal::FutureFunc(_) => {}
+        // SteelVal::FutureV(_) => {}
+        // SteelVal::StreamV(_) => {}
+    }
+}
+
 // Attempt to serialize to json?
 // It would be better to straight implement the deserialize method
 // Honestly... this is not great
-impl TryFrom<SteelVal> for Value {
-    type Error = SteelErr;
-    fn try_from(val: SteelVal) -> std::result::Result<Self, Self::Error> {
-        match val {
-            SteelVal::BoolV(b) => Ok(Value::Bool(b)),
-            SteelVal::NumV(n) => Ok(Value::Number(Number::from_f64(n).unwrap())),
-            SteelVal::IntV(n) => Ok(Value::Number(Number::from(n))),
-            SteelVal::CharV(c) => Ok(Value::String(c.to_string())),
-            SteelVal::Pair(_) => Ok(Value::Array(
-                SteelVal::iter(val)
-                    .map(|x| x.try_into())
-                    .collect::<Result<Vec<_>>>()?,
-            )),
-            SteelVal::VectorV(v) => Ok(Value::Array(
-                v.iter()
-                    .map(|x| x.clone().try_into())
-                    .collect::<Result<Vec<_>>>()?,
-            )),
-            SteelVal::Void => stop!(Generic => "void not serializable"),
-            SteelVal::StringV(s) => Ok(Value::String(s.unwrap())),
-            SteelVal::FuncV(_) => stop!(Generic => "function not serializable"),
-            // SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
-            // SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
-            SteelVal::SymbolV(s) => Ok(Value::String(s.unwrap())),
-            SteelVal::Custom(_) => stop!(Generic => "generic struct not serializable"),
-            SteelVal::HashMapV(hm) => {
-                let mut map: Map<String, Value> = Map::new();
-                for (key, value) in hm.iter() {
-                    map.insert(key.clone().try_into()?, value.clone().try_into()?);
-                }
-                Ok(Value::Object(map))
-            }
-            SteelVal::HashSetV(hs) => Ok(Value::Array(
-                hs.iter()
-                    .map(|x| x.clone().try_into())
-                    .collect::<Result<Vec<_>>>()?,
-            )),
-            SteelVal::StructV(_) => stop!(Generic => "built in struct not serializable yet"),
-            _ => stop!(Generic => "type not serializable"),
-            // SteelVal::StructClosureV(_, _) => {}
-            // SteelVal::PortV(_) => {}
-            // SteelVal::Closure(_) => {}
-            // SteelVal::IterV(_) => {}
-            // SteelVal::FutureFunc(_) => {}
-            // SteelVal::FutureV(_) => {}
-            // SteelVal::StreamV(_) => {}
-        }
+// impl TryFrom<SteelVal> for Value {
+//     type Error = SteelErr;
+//     fn try_from(val: SteelVal) -> std::result::Result<Self, Self::Error> {
+//         match val {
+//             SteelVal::BoolV(b) => Ok(Value::Bool(b)),
+//             SteelVal::NumV(n) => Ok(Value::Number(Number::from_f64(n).unwrap())),
+//             SteelVal::IntV(n) => Ok(Value::Number(Number::from(n))),
+//             SteelVal::CharV(c) => Ok(Value::String(c.to_string())),
+//             SteelVal::Pair(_) => Ok(Value::Array(
+//                 SteelVal::iter(val)
+//                     .map(|x| x.try_into())
+//                     .collect::<Result<Vec<_>>>()?,
+//             )),
+//             SteelVal::VectorV(v) => Ok(Value::Array(
+//                 v.iter()
+//                     .map(|x| x.clone().try_into())
+//                     .collect::<Result<Vec<_>>>()?,
+//             )),
+//             SteelVal::Void => stop!(Generic => "void not serializable"),
+//             SteelVal::StringV(s) => Ok(Value::String(s.unwrap())),
+//             SteelVal::FuncV(_) => stop!(Generic => "function not serializable"),
+//             // SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
+//             // SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
+//             SteelVal::SymbolV(s) => Ok(Value::String(s.unwrap())),
+//             SteelVal::Custom(_) => stop!(Generic => "generic struct not serializable"),
+//             SteelVal::HashMapV(hm) => {
+//                 let mut map: Map<String, Value> = Map::new();
+//                 for (key, value) in hm.iter() {
+//                     map.insert(key.clone().try_into()?, value.clone().try_into()?);
+//                 }
+//                 Ok(Value::Object(map))
+//             }
+//             SteelVal::HashSetV(hs) => Ok(Value::Array(
+//                 hs.iter()
+//                     .map(|x| x.clone().try_into())
+//                     .collect::<Result<Vec<_>>>()?,
+//             )),
+//             SteelVal::StructV(_) => stop!(Generic => "built in struct not serializable yet"),
+//             _ => stop!(Generic => "type not serializable"),
+//             // SteelVal::StructClosureV(_, _) => {}
+//             // SteelVal::PortV(_) => {}
+//             // SteelVal::Closure(_) => {}
+//             // SteelVal::IterV(_) => {}
+//             // SteelVal::FutureFunc(_) => {}
+//             // SteelVal::FutureV(_) => {}
+//             // SteelVal::StreamV(_) => {}
+//         }
 
-        // unimplemented!()
-    }
-}
+//         // unimplemented!()
+//     }
+// }
 
 #[cfg(test)]
 mod json_tests {

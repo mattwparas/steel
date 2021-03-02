@@ -140,15 +140,16 @@ impl Engine {
 
     // Read in the file from the given path and execute accordingly
     // Loads all the functions in from the given env
-    // pub fn parse_and_execute_from_path<P: AsRef<Path>>(
-    //     &mut self,
-    //     path: P,
-    // ) -> Result<Vec<SteelVal>> {
-    //     let mut file = std::fs::File::open(path)?;
-    //     let mut exprs = String::new();
-    //     file.read_to_string(&mut exprs)?;
-    //     self.parse_and_execute(exprs.as_str(), )
-    // }
+    pub fn parse_and_execute_from_path<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<Vec<SteelVal>> {
+        let path_buf = PathBuf::from(path.as_ref());
+        let mut file = std::fs::File::open(path)?;
+        let mut exprs = String::new();
+        file.read_to_string(&mut exprs)?;
+        self.parse_and_execute(exprs.as_str(), path_buf)
+    }
 
     // TODO come back to this please
 

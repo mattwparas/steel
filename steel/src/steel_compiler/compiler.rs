@@ -35,7 +35,7 @@ use crate::stop;
 // use crate::compiler::modules::ModuleManager;
 // use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
-use itertools::Itertools;
+// use itertools::Itertools;
 use log::debug;
 
 use super::modules::ModuleManager;
@@ -314,6 +314,7 @@ pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub constant_map: ConstantMap,
     pub(crate) macro_env: HashMap<String, SteelMacro>,
+    pub files: HashSet<PathBuf>,
 }
 
 impl Compiler {
@@ -321,11 +322,13 @@ impl Compiler {
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
         macro_env: HashMap<String, SteelMacro>,
+        files: HashSet<PathBuf>,
     ) -> Compiler {
         Compiler {
             symbol_map,
             constant_map,
             macro_env,
+            files,
         }
     }
 
@@ -334,6 +337,7 @@ impl Compiler {
             SymbolMap::default_from_env(),
             ConstantMap::new(),
             HashMap::new(),
+            HashSet::new(),
         )
     }
 
@@ -371,24 +375,7 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: PathBuf,
     ) -> Result<Vec<ExprKind>> {
-        // let non_macro_expressions = extract_macro_defs(exprs, &mut self.macro_env)?;
-
-        // non_macro_expressions
-        //     .into_iter()
-        //     .map(|x| expand(x, &self.macro_env))
-        //     .collect()
-
-        let output = ModuleManager::new(&mut self.macro_env).compile_main(exprs, path);
-        // println!(
-        //     "{:?}",
-        //     output
-        //         .clone()
-        //         .unwrap()
-        //         .iter()
-        //         .map(|x| x.to_string())
-        //         .join(" ")
-        // );
-        output
+        ModuleManager::new(&mut self.macro_env).compile_main(exprs, path)
     }
 
     pub fn extract_structs(

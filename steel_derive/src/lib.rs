@@ -337,27 +337,29 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
     {
         let gen = quote! {
 
-            impl crate::rvals::CustomType for #name {
-                fn box_clone(&self) -> Box<dyn CustomType> {
-                    Box::new((*self).clone())
-                }
-                fn as_any(&self) -> Box<dyn Any> {
-                    Box::new((*self).clone())
-                }
-                fn new_steel_val(&self) -> SteelVal {
-                    SteelVal::Custom(Gc::new(Box::new(self.clone())))
-                }
-                fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-                    let mut buf = String::new();
-                    write!(buf, "{:?}", &self)?;
-                    Ok(buf)
-                }
-            }
-            impl From<#name> for SteelVal {
-                fn from(val: #name) -> SteelVal {
-                    val.new_steel_val()
-                }
-            }
+            impl crate::rvals::Custom for #name {}
+
+            // impl crate::rvals::CustomType for #name {
+            //     fn box_clone(&self) -> Box<dyn CustomType> {
+            //         Box::new((*self).clone())
+            //     }
+            //     fn as_any(&self) -> Box<dyn Any> {
+            //         Box::new((*self).clone())
+            //     }
+            //     fn new_steel_val(&self) -> SteelVal {
+            //         SteelVal::Custom(Gc::new(Box::new(self.clone())))
+            //     }
+            //     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+            //         let mut buf = String::new();
+            //         write!(buf, "{:?}", &self)?;
+            //         Ok(buf)
+            //     }
+            // }
+            // impl From<#name> for SteelVal {
+            //     fn from(val: #name) -> SteelVal {
+            //         val.new_steel_val()
+            //     }
+            // }
 
             impl TryFrom<SteelVal> for #name {
                 type Error = SteelErr;
@@ -403,28 +405,30 @@ pub fn derive_scheme(input: TokenStream) -> TokenStream {
 
     let gen = quote! {
 
-        impl crate::rvals::CustomType for #name {
-            fn box_clone(&self) -> Box<dyn CustomType> {
-                Box::new((*self).clone())
-            }
-            fn as_any(&self) -> Box<dyn Any> {
-                Box::new((*self).clone())
-            }
-            fn new_steel_val(&self) -> SteelVal {
-                SteelVal::Custom(Gc::new(Box::new(self.clone())))
-            }
-            fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-                let mut buf = String::new();
-                write!(buf, "{:?}", &self)?;
-                Ok(buf)
-            }
-        }
+        impl crate::rvals::Custom for #name {}
 
-        impl From<#name> for SteelVal {
-            fn from(val: #name) -> SteelVal {
-                val.new_steel_val()
-            }
-        }
+        // impl crate::rvals::CustomType for #name {
+        //     fn box_clone(&self) -> Box<dyn CustomType> {
+        //         Box::new((*self).clone())
+        //     }
+        //     fn as_any(&self) -> Box<dyn Any> {
+        //         Box::new((*self).clone())
+        //     }
+        //     fn new_steel_val(&self) -> SteelVal {
+        //         SteelVal::Custom(Gc::new(Box::new(self.clone())))
+        //     }
+        //     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        //         let mut buf = String::new();
+        //         write!(buf, "{:?}", &self)?;
+        //         Ok(buf)
+        //     }
+        // }
+
+        // impl From<#name> for SteelVal {
+        //     fn from(val: #name) -> SteelVal {
+        //         val.new_steel_val()
+        //     }
+        // }
 
         impl TryFrom<SteelVal> for #name {
             type Error = SteelErr;

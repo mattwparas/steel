@@ -9,7 +9,7 @@ use crate::steel_derive::steel;
 
 use steel::unwrap;
 
-use std::any::Any;
+// use std::any::Any;
 use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{self, CustomType, SteelVal};
 
@@ -20,13 +20,13 @@ use steel_derive::function;
 // use std::rc::Rc;
 
 // use steel::gc::Gc;
-use steel::Gc;
+// use steel::Gc;
 
 // use steel::PRELUDE;
 
 use std::convert::TryFrom;
 
-use std::fmt::Write;
+// use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
 #[steel]

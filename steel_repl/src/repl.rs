@@ -134,8 +134,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     let current_dir = std::env::current_dir()?;
 
-    println!("{:?}", current_dir);
-
     for core in core_libraries {
         let res = vm.parse_and_execute_without_optimizations(core, current_dir.clone());
 

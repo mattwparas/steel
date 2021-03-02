@@ -7,7 +7,7 @@ extern crate steel_repl;
 
 use steel::unwrap;
 
-use std::{any::Any, path::PathBuf};
+use std::path::PathBuf;
 use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
@@ -19,7 +19,7 @@ use steel_repl::repl::repl_base;
 use steel_vm::build_engine;
 use steel_vm::engine::Engine;
 
-use steel::Gc;
+// use steel::Gc;
 
 use std::process;
 
@@ -33,7 +33,7 @@ use std::fs;
 
 use std::convert::TryFrom;
 
-use std::fmt::Write;
+// use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
 use std::cell::RefCell;
