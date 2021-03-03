@@ -131,6 +131,14 @@ impl From<Box<dyn CustomType>> for SteelVal {
     }
 }
 
+pub trait IntoSteelVal: Sized {
+    fn into_steelval(self) -> SteelVal;
+}
+
+pub trait FromSteelVal: Sized {
+    fn from_steelval(val: SteelVal) -> Result<Self>;
+}
+
 // macro_rules! ok_val {
 //     ($variant:ty, $value:expr) => {
 //         Ok(Rc::new(SteelVal::$variant($value)));

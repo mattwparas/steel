@@ -44,6 +44,7 @@ use std::collections::HashMap;
 use std::cmp::{max, min};
 
 use steel_vm::engine::RegisterFn;
+use steel_vm::engine::RegisterNoArgFn;
 
 // use env_logger::Builder;
 // use log::LevelFilter;
@@ -123,7 +124,7 @@ fn main() {
         let mut vm = build_engine! {};
 
         vm.register_fn("test-test", test_test);
-        vm.register_fn("no-args", no_args_return_empty);
+        vm.register_no_arg_fn("no-args", no_args_return_empty);
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
 

@@ -38,6 +38,8 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::result;
 
+use crate::rvals::{FromSteelVal, IntoSteelVal};
+
 use crate::gc::Gc;
 
 macro_rules! try_from_impl {
@@ -62,6 +64,16 @@ macro_rules! try_from_impl {
                     }
                 }
             }
+
+            impl FromSteelVal for $body {
+                fn from_steelval(value: SteelVal) -> result::Result<Self, SteelErr> {
+                    match value {
+                        SteelVal::$type(x) => Ok(x.clone() as $body),
+                        _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
+                    }
+                }
+            }
+
         )*
     };
 }
@@ -72,6 +84,12 @@ macro_rules! from_f64 {
             impl From<$body> for SteelVal {
                 fn from(val: $body) -> SteelVal {
                     SteelVal::NumV(val as f64)
+                }
+            }
+
+            impl IntoSteelVal for $body {
+                fn into_steelval(self) -> SteelVal {
+                    SteelVal::NumV(self as f64)
                 }
             }
         )*
@@ -86,6 +104,12 @@ macro_rules! from_for_isize {
                     SteelVal::IntV(val as isize)
                 }
             }
+
+            impl IntoSteelVal for $body {
+                fn into_steelval(self) -> SteelVal {
+                    SteelVal::IntV(self as isize)
+                }
+            }
         )*
     };
 }
@@ -96,6 +120,12 @@ impl From<char> for SteelVal {
     }
 }
 
+impl IntoSteelVal for char {
+    fn into_steelval(self) -> SteelVal {
+        SteelVal::CharV(self)
+    }
+}
+
 impl<T: Into<SteelVal>> From<Option<T>> for SteelVal {
     fn from(val: Option<T>) -> SteelVal {
         if let Some(s) = val {
@@ -103,6 +133,38 @@ impl<T: Into<SteelVal>> From<Option<T>> for SteelVal {
         } else {
             SteelVal::BoolV(true)
         }
+    }
+}
+
+impl<T: IntoSteelVal> IntoSteelVal for Option<T> {
+    fn into_steelval(self) -> SteelVal {
+        if let Some(s) = self {
+            s.into_steelval()
+        } else {
+            SteelVal::BoolV(true)
+        }
+    }
+}
+
+impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
+    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
+        unimplemented!()
+    }
+}
+
+impl FromSteelVal for () {
+    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
+        if let SteelVal::Void = val {
+            Ok(())
+        } else {
+            crate::stop!(ConversionError => "could not convert value to unit type")
+        }
+    }
+}
+
+impl IntoSteelVal for () {
+    fn into_steelval(self) -> SteelVal {
+        SteelVal::Void
     }
 }
 

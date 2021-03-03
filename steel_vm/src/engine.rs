@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     io::Read,
+    marker::PhantomData,
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -13,7 +14,7 @@ use steel::{
     parser::parser::{ParseError, Parser},
     primitives::ListOperations,
     rerrs::{ErrorKind, SteelErr},
-    rvals::{Result, SteelVal},
+    rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     steel_compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
     stop, throw,
 };
@@ -228,33 +229,140 @@ impl Engine {
     }
 }
 
-pub trait RegisterFn<FN, ARGS> {
+pub trait RegisterFn<FN, ARGS, RET> {
     fn register_fn(&mut self, name: &'static str, func: FN);
 }
 
-impl<
-        A: Clone + TryFrom<SteelVal, Error = SteelErr> + Into<SteelVal>,
-        B: Into<SteelVal>,
-        FN: Fn(A) -> B + 'static,
-    > RegisterFn<FN, (A, B)> for Engine
-{
-    fn register_fn(&mut self, name: &'static str, func: FN) {
-        // unimplemented!()
-        // register_value(&mut self, name: &str, value: SteelVal)
+pub trait RegisterNoArgFn<FN, RET> {
+    fn register_no_arg_fn(&mut self, name: &'static str, func: FN);
+}
 
+impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterNoArgFn<FN, RET> for Engine {
+    fn register_no_arg_fn(&mut self, name: &'static str, func: FN) {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
             }
 
-            let res = func(A::try_from(args[0].clone())?);
+            let res = func();
 
-            Ok(res.into())
+            Ok(res.into_steelval())
         };
 
         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }
+
+struct Wrapper<ARGS>(PhantomData<ARGS>);
+
+impl<A: FromSteelVal, RET: IntoSteelVal, FN: Fn(A) -> RET + 'static> RegisterFn<FN, A, RET>
+    for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
+            }
+
+            let res = func(A::from_steelval(args[0].clone())?);
+
+            Ok(res.into_steelval())
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
+
+impl<A: FromSteelVal, B: FromSteelVal, RET: IntoSteelVal, FN: Fn(A, B) -> RET + 'static>
+    RegisterFn<FN, Wrapper<(A, B)>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
+            }
+
+            let res = func(
+                A::from_steelval(args[0].clone())?,
+                B::from_steelval(args[1].clone())?,
+            );
+
+            Ok(res.into_steelval())
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
+
+impl<
+        A: FromSteelVal,
+        B: FromSteelVal,
+        C: FromSteelVal,
+        RET: IntoSteelVal,
+        FN: Fn(A, B, C) -> RET + 'static,
+    > RegisterFn<FN, Wrapper<(A, B, C)>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
+            }
+
+            let res = func(
+                A::from_steelval(args[0].clone())?,
+                B::from_steelval(args[1].clone())?,
+                C::from_steelval(args[1].clone())?,
+            );
+
+            Ok(res.into_steelval())
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
+
+// impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, (), RET> for Engine {
+//     fn register_fn(&mut self, name: &'static str, func: FN) {
+//         // unimplemented!()
+//         // register_value(&mut self, name: &str, value: SteelVal)
+
+//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+//             if args.len() != 1 {
+//                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
+//             }
+
+//             let res = func();
+
+//             Ok(res.into_steelval())
+//         };
+
+//         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+//     }
+// }
+
+// impl<
+//         A: Clone + TryFrom<SteelVal, Error = SteelErr> + Into<SteelVal>,
+//         B: Into<SteelVal>,
+//         FN: Fn(A) -> B + 'static,
+//     > RegisterFn<FN, (A, B)> for Engine
+// {
+//     fn register_fn(&mut self, name: &'static str, func: FN) {
+//         // unimplemented!()
+//         // register_value(&mut self, name: &str, value: SteelVal)
+
+//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+//             if args.len() != 1 {
+//                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
+//             }
+
+//             let res = func(A::try_from(args[0].clone())?);
+
+//             Ok(res.into())
+//         };
+
+//         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+//     }
+// }
 
 // impl<B: Into<SteelVal>, FN: Fn() -> B + 'static> RegisterFn<FN, ((), B)> for Engine {
 //     fn register_fn(&mut self, name: &'static str, func: FN) {
@@ -272,21 +380,21 @@ impl<
 //     }
 // }
 
-impl<FN: Fn() -> () + 'static> RegisterFn<FN, ()> for Engine {
-    fn register_fn(&mut self, name: &'static str, func: FN) {
-        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 0 {
-                stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
-            }
+// impl<FN: Fn() -> () + 'static> RegisterFn<FN, ()> for Engine {
+//     fn register_fn(&mut self, name: &'static str, func: FN) {
+//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+//             if args.len() != 0 {
+//                 stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
+//             }
 
-            func();
+//             func();
 
-            Ok(SteelVal::Void)
-        };
+//             Ok(SteelVal::Void)
+//         };
 
-        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-    }
-}
+//         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+//     }
+// }
 
 // impl<
 //         A: Clone + TryFrom<SteelVal, Error = SteelErr> + Into<SteelVal>,
