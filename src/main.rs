@@ -93,8 +93,8 @@ fn do_a_call() {
     println!("{:?}", ARRAY.lock().unwrap());
 }
 
-fn test_test(_input: usize) -> usize {
-    10
+fn test_test(_input: usize) -> Option<usize> {
+    Some(10)
 }
 
 fn no_args_return_empty() {}

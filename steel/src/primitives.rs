@@ -96,6 +96,33 @@ impl From<char> for SteelVal {
     }
 }
 
+impl<T: Into<SteelVal>> From<Option<T>> for SteelVal {
+    fn from(val: Option<T>) -> SteelVal {
+        if let Some(s) = val {
+            s.into()
+        } else {
+            SteelVal::BoolV(true)
+        }
+    }
+}
+
+impl From<()> for SteelVal {
+    fn from(_: ()) -> SteelVal {
+        SteelVal::Void
+    }
+}
+
+// TODO add explicit result type for handling results?
+// impl<T: Into<SteelVal>, E> From<std::result::Result<T>, E> for SteelVal {
+//     fn from(val: std::result::Result<T, E>) -> SteelVal {
+//         if let Ok(s) = val {
+//             s.into()
+//         } else {
+//             SteelVal::BoolV(true)
+//         }
+//     }
+// }
+
 impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
     type Error = SteelErr;
     fn try_from(val: Vec<T>) -> result::Result<Self, Self::Error> {

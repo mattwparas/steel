@@ -256,11 +256,24 @@ impl<
     }
 }
 
+// impl<B: Into<SteelVal>, FN: Fn() -> B + 'static> RegisterFn<FN, ((), B)> for Engine {
+//     fn register_fn(&mut self, name: &'static str, func: FN) {
+//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+//             if args.len() != 1 {
+//                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
+//             }
+
+//             let res = func();
+
+//             Ok(res.into())
+//         };
+
+//         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+//     }
+// }
+
 impl<FN: Fn() -> () + 'static> RegisterFn<FN, ()> for Engine {
     fn register_fn(&mut self, name: &'static str, func: FN) {
-        // unimplemented!()
-        // register_value(&mut self, name: &str, value: SteelVal)
-
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 0 {
                 stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
@@ -274,3 +287,31 @@ impl<FN: Fn() -> () + 'static> RegisterFn<FN, ()> for Engine {
         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }
+
+// impl<
+//         A: Clone + TryFrom<SteelVal, Error = SteelErr> + Into<SteelVal>,
+//         B: Into<SteelVal>,
+//         FN: Fn(A) -> Option<B> + 'static,
+//     > RegisterFn<FN, (A, B)> for Engine
+// {
+//     fn register_fn(&mut self, name: &'static str, func: FN) {
+//         // unimplemented!()
+//         // register_value(&mut self, name: &str, value: SteelVal)
+
+//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+//             if args.len() != 1 {
+//                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
+//             }
+
+//             let res = func(A::try_from(args[0].clone())?);
+
+//             if let Some(res) = res {
+//                 Ok(res.into())
+//             } else {
+//                 Ok(SteelVal::BoolV(false))
+//             }
+//         };
+
+//         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+//     }
+// }
