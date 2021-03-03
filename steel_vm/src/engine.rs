@@ -233,15 +233,11 @@ pub trait RegisterFn<FN, ARGS, RET> {
     fn register_fn(&mut self, name: &'static str, func: FN);
 }
 
-pub trait RegisterNoArgFn<FN, RET> {
-    fn register_no_arg_fn(&mut self, name: &'static str, func: FN);
-}
-
-impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterNoArgFn<FN, RET> for Engine {
-    fn register_no_arg_fn(&mut self, name: &'static str, func: FN) {
+impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, RET> for Engine {
+    fn register_fn(&mut self, name: &'static str, func: FN) {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
+                stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
             }
 
             let res = func();
@@ -253,173 +249,45 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterNoArgFn<FN, RET> for 
     }
 }
 
-struct Wrapper<ARGS>(PhantomData<ARGS>);
+pub struct Wrapper<ARGS>(PhantomData<ARGS>);
 
-impl<A: FromSteelVal, RET: IntoSteelVal, FN: Fn(A) -> RET + 'static> RegisterFn<FN, A, RET>
-    for Engine
-{
-    fn register_fn(&mut self, name: &'static str, func: FN) {
-        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
+macro_rules! impl_register_fn {
+    ($arg_count:expr => $($param:ident: $idx:expr),*) => {
+        impl<
+            $($param: FromSteelVal,)*
+            FN: Fn($($param),*) -> RET + 'static,
+            RET: IntoSteelVal
+        > RegisterFn<FN, Wrapper<($($param,)*)>, RET> for Engine {
+            fn register_fn(&mut self, name: &'static str, func: FN) {
+                let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+                    if args.len() != $arg_count {
+                        stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
+                    }
+
+                    let res = func($(<$param>::from_steelval(args[$idx].clone())?,)*);
+
+                    Ok(res.into_steelval())
+                };
+
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
             }
-
-            let res = func(A::from_steelval(args[0].clone())?);
-
-            Ok(res.into_steelval())
-        };
-
-        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-    }
+        }
+    };
 }
 
-impl<A: FromSteelVal, B: FromSteelVal, RET: IntoSteelVal, FN: Fn(A, B) -> RET + 'static>
-    RegisterFn<FN, Wrapper<(A, B)>, RET> for Engine
-{
-    fn register_fn(&mut self, name: &'static str, func: FN) {
-        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
-            }
-
-            let res = func(
-                A::from_steelval(args[0].clone())?,
-                B::from_steelval(args[1].clone())?,
-            );
-
-            Ok(res.into_steelval())
-        };
-
-        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-    }
-}
-
-impl<
-        A: FromSteelVal,
-        B: FromSteelVal,
-        C: FromSteelVal,
-        RET: IntoSteelVal,
-        FN: Fn(A, B, C) -> RET + 'static,
-    > RegisterFn<FN, Wrapper<(A, B, C)>, RET> for Engine
-{
-    fn register_fn(&mut self, name: &'static str, func: FN) {
-        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
-            }
-
-            let res = func(
-                A::from_steelval(args[0].clone())?,
-                B::from_steelval(args[1].clone())?,
-                C::from_steelval(args[1].clone())?,
-            );
-
-            Ok(res.into_steelval())
-        };
-
-        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-    }
-}
-
-// impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, (), RET> for Engine {
-//     fn register_fn(&mut self, name: &'static str, func: FN) {
-//         // unimplemented!()
-//         // register_value(&mut self, name: &str, value: SteelVal)
-
-//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//             if args.len() != 1 {
-//                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
-//             }
-
-//             let res = func();
-
-//             Ok(res.into_steelval())
-//         };
-
-//         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-//     }
-// }
-
-// impl<
-//         A: Clone + TryFrom<SteelVal, Error = SteelErr> + Into<SteelVal>,
-//         B: Into<SteelVal>,
-//         FN: Fn(A) -> B + 'static,
-//     > RegisterFn<FN, (A, B)> for Engine
-// {
-//     fn register_fn(&mut self, name: &'static str, func: FN) {
-//         // unimplemented!()
-//         // register_value(&mut self, name: &str, value: SteelVal)
-
-//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//             if args.len() != 1 {
-//                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
-//             }
-
-//             let res = func(A::try_from(args[0].clone())?);
-
-//             Ok(res.into())
-//         };
-
-//         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-//     }
-// }
-
-// impl<B: Into<SteelVal>, FN: Fn() -> B + 'static> RegisterFn<FN, ((), B)> for Engine {
-//     fn register_fn(&mut self, name: &'static str, func: FN) {
-//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//             if args.len() != 1 {
-//                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
-//             }
-
-//             let res = func();
-
-//             Ok(res.into())
-//         };
-
-//         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-//     }
-// }
-
-// impl<FN: Fn() -> () + 'static> RegisterFn<FN, ()> for Engine {
-//     fn register_fn(&mut self, name: &'static str, func: FN) {
-//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//             if args.len() != 0 {
-//                 stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
-//             }
-
-//             func();
-
-//             Ok(SteelVal::Void)
-//         };
-
-//         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-//     }
-// }
-
-// impl<
-//         A: Clone + TryFrom<SteelVal, Error = SteelErr> + Into<SteelVal>,
-//         B: Into<SteelVal>,
-//         FN: Fn(A) -> Option<B> + 'static,
-//     > RegisterFn<FN, (A, B)> for Engine
-// {
-//     fn register_fn(&mut self, name: &'static str, func: FN) {
-//         // unimplemented!()
-//         // register_value(&mut self, name: &str, value: SteelVal)
-
-//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//             if args.len() != 1 {
-//                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", name, args.len()));
-//             }
-
-//             let res = func(A::try_from(args[0].clone())?);
-
-//             if let Some(res) = res {
-//                 Ok(res.into())
-//             } else {
-//                 Ok(SteelVal::BoolV(false))
-//             }
-//         };
-
-//         self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-//     }
-// }
+impl_register_fn!(1 => A:0);
+impl_register_fn!(2 => A:0, B:1);
+impl_register_fn!(3 => A:0, B:1, C:2);
+impl_register_fn!(4 => A:0, B:1, C:2, D:3);
+impl_register_fn!(5 => A:0, B:1, C:2, D:3, E:4);
+impl_register_fn!(6 => A:0, B:1, C:2, D:3, E:4, F:5);
+impl_register_fn!(7 => A:0, B:1, C:2, D:3, E:4, F:5, G:6);
+impl_register_fn!(8 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
+impl_register_fn!(9 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8);
+impl_register_fn!(10 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9);
+impl_register_fn!(11 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10);
+impl_register_fn!(12 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11);
+impl_register_fn!(13 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12);
+impl_register_fn!(14 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13);
+impl_register_fn!(15 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14);
+impl_register_fn!(16 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 14, O: 14, P: 15);
