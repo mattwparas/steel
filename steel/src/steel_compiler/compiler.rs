@@ -31,7 +31,6 @@ use crate::structs::SteelStruct;
 use crate::core::instructions::{densify, DenseInstruction};
 
 use crate::stop;
-use std::time::SystemTime;
 
 // use crate::compiler::modules::ModuleManager;
 // use crate::parser::expand_visitor::{expand, extract_macro_defs};
@@ -39,7 +38,7 @@ use std::time::SystemTime;
 // use itertools::Itertools;
 use log::debug;
 
-use super::modules::{CompiledModule, ModuleManager};
+use super::modules::ModuleManager;
 
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?

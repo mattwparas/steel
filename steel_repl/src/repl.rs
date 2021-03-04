@@ -102,6 +102,7 @@ fn display_help() {
         :? | :help  -- displays help dialog
         :o          -- toggles optimizations
         :quit       -- exits the REPL
+        :pwd        -- displays the current working directory
         "#
     );
 }
@@ -133,8 +134,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     let core_libraries = &[PRELUDE, CONTRACTS];
 
     let current_dir = std::env::current_dir()?;
-
-    println!("{:?}", current_dir);
 
     for core in core_libraries {
         let res = vm.parse_and_execute_without_optimizations(core);
@@ -170,6 +169,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                             print_time.to_string().bright_green()
                         );
                     }
+                    ":pwd" => println!("{:#?}", current_dir),
                     ":o" => {
                         optimizations = !optimizations;
                         println!(

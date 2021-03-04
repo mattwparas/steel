@@ -2,7 +2,6 @@ use crate::{
     contracts::{ContractType, ContractedFunction},
     core::instructions::DenseInstruction,
     env::Env,
-    functions::BoxedFunctionSignature,
     gc::Gc,
     lazy_stream::LazyStream,
     port::SteelPort,
@@ -40,6 +39,7 @@ pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 // pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type StructClosureSignature = fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>;
+pub type BoxedFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>;
 
 // This would mean we would have to rewrite literally everything to not return Gc'd values,
 // but it would also make linked lists like impossible to use
