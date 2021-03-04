@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use steel::steel_compiler::constants::ConstantMap;
 
-use std::{path::PathBuf, rc::Rc};
+use std::rc::Rc;
 use steel::stdlib::PRELUDE;
 use steel_vm::engine::Engine;
 

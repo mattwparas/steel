@@ -1,10 +1,10 @@
 use crate::parser::lexer::TokenStream;
 use crate::parser::tokens::{Token, TokenType, TokenType::*};
 
-use std::collections::HashMap;
 use std::rc::Rc;
 use std::result;
 use std::str;
+use std::{collections::HashMap, path::PathBuf};
 use thiserror::Error;
 
 use crate::parser::span::Span;
@@ -23,7 +23,7 @@ use super::ast;
 pub struct SyntaxObject {
     pub(crate) ty: TokenType,
     pub(crate) span: Span,
-    pub(crate) source: Option<Rc<str>>,
+    pub(crate) source: Option<Rc<PathBuf>>,
 }
 
 impl PartialEq for SyntaxObject {
@@ -53,7 +53,7 @@ impl SyntaxObject {
         self.span = span
     }
 
-    pub fn from_token_with_source(val: &Token, source: &Option<Rc<str>>) -> Self {
+    pub fn from_token_with_source(val: &Token, source: &Option<Rc<PathBuf>>) -> Self {
         SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
@@ -133,17 +133,17 @@ pub enum ParseError {
     // #[error("Parse: Error reading tokens: {0}")]
     // TokenError(#[from] TokenError),
     #[error("Parse: Unexpected token: {0:?}")]
-    Unexpected(TokenType, Option<Rc<str>>),
+    Unexpected(TokenType, Option<Rc<PathBuf>>),
     #[error("Parse: Unexpected EOF")]
-    UnexpectedEOF(Option<Rc<str>>),
+    UnexpectedEOF(Option<Rc<PathBuf>>),
     #[error("Parse: Unexpected character: {0:?}")]
-    UnexpectedChar(char, Span, Option<Rc<str>>),
+    UnexpectedChar(char, Span, Option<Rc<PathBuf>>),
     #[error("Parse: Incomplete String: {0}")]
-    IncompleteString(String, Span, Option<Rc<str>>),
+    IncompleteString(String, Span, Option<Rc<PathBuf>>),
     #[error("Parse: Syntax Error: {0}")]
-    SyntaxError(String, Span, Option<Rc<str>>),
+    SyntaxError(String, Span, Option<Rc<PathBuf>>),
     #[error("Parse: Arity mismatch: {0}")]
-    ArityMismatch(String, Span, Option<Rc<str>>),
+    ArityMismatch(String, Span, Option<Rc<PathBuf>>),
 }
 
 impl ParseError {
@@ -159,7 +159,7 @@ impl ParseError {
         }
     }
 
-    pub fn set_source(self, source: Option<Rc<str>>) -> Self {
+    pub fn set_source(self, source: Option<Rc<PathBuf>>) -> Self {
         use ParseError::*;
         match self {
             ParseError::Unexpected(l, _) => Unexpected(l, source),
@@ -178,7 +178,7 @@ pub struct Parser<'a> {
     intern: &'a mut HashMap<String, Rc<TokenType>>,
     quote_stack: Vec<usize>,
     shorthand_quote_stack: Vec<usize>,
-    source_name: Option<Rc<str>>,
+    source_name: Option<Rc<PathBuf>>,
 }
 
 impl<'a> Parser<'a> {
@@ -218,7 +218,7 @@ impl<'a> Parser<'a> {
     pub fn new_from_source(
         input: &'a str,
         intern: &'a mut HashMap<String, Rc<TokenType>>,
-        source_name: &str,
+        source_name: PathBuf,
     ) -> Self {
         Parser {
             tokenizer: TokenStream::new(input, true),

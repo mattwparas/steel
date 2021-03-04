@@ -1,7 +1,4 @@
 #[cfg(test)]
-use std::path::PathBuf;
-
-#[cfg(test)]
 use crate::engine::Engine;
 #[cfg(test)]
 use steel::stdlib::{CONTRACTS, PRELUDE};

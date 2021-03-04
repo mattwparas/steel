@@ -1,5 +1,6 @@
 mod helpers;
 extern crate steel_vm;
+
 use std::path::PathBuf;
 
 use crate::steel_vm::engine::Engine;
@@ -9,6 +10,18 @@ use steel::PRELUDE;
 #[test]
 fn basic_test() {
     test_from_files("input_tests.rkt", "output_tests.rkt");
+}
+
+#[test]
+fn module_test() {
+    let mut evaluator = Engine::new();
+    evaluator.parse_and_execute(PRELUDE).unwrap();
+    evaluator
+        .parse_and_execute_from_path(PathBuf::from("modules/main.rkt"))
+        .unwrap();
+    test_line("(a 10)", &["127"], &mut evaluator);
+    test_line("(b 20)", &["47"], &mut evaluator);
+    evaluator.parse_and_execute("b-private").unwrap_err();
 }
 
 #[test]

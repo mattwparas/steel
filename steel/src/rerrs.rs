@@ -1,5 +1,5 @@
 use crate::parser::parser::ParseError;
-use std::{convert::Infallible, fmt::Formatter};
+use std::{convert::Infallible, fmt::Formatter, path::PathBuf};
 use thiserror::Error;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
@@ -17,7 +17,7 @@ struct Repr {
     pub kind: ErrorKind,
     pub message: String,
     pub span: Option<Span>,
-    pub source: Option<Rc<str>>,
+    pub source: Option<Rc<PathBuf>>,
 }
 
 impl Repr {
@@ -287,7 +287,7 @@ impl SteelErr {
         self
     }
 
-    pub fn with_source(mut self, source: Option<Rc<str>>) -> Self {
+    pub fn with_source(mut self, source: Option<Rc<PathBuf>>) -> Self {
         self.repr.source = source;
         self
     }

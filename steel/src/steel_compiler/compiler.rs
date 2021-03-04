@@ -365,7 +365,7 @@ impl Compiler {
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
-            Parser::new_from_source(expr_str, &mut intern, p.to_str().unwrap()).collect()
+            Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
         } else {
             Parser::new(expr_str, &mut intern).collect()
         };

@@ -8,7 +8,7 @@ use rustyline::validate::{
 use rustyline::Editor;
 use rustyline::{hint::Hinter, CompletionType, Context};
 use rustyline_derive::Helper;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use steel::rvals::SteelVal;
 
 use rustyline::completion::Completer;

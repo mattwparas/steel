@@ -415,7 +415,7 @@ impl<'a> ModuleBuilder<'a> {
 
         let mut intern = HashMap::new();
 
-        let parsed = Parser::new_from_source(&exprs, &mut intern, self.name.to_str().unwrap())
+        let parsed = Parser::new_from_source(&exprs, &mut intern, self.name.clone())
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;

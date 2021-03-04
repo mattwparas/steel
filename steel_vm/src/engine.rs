@@ -191,7 +191,7 @@ impl Engine {
         let mut intern = HashMap::new();
 
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new_from_source(expr, &mut intern, path.to_str().unwrap()).collect();
+            Parser::new_from_source(expr, &mut intern, path.clone()).collect();
         let parsed = parsed?;
 
         let expanded_statements = self
