@@ -350,7 +350,7 @@ impl Compiler {
         self.symbol_map.get(name).ok()
     }
 
-    pub fn compile_program(&mut self, expr_str: &str, path: PathBuf) -> Result<Program> {
+    pub fn compile_program(&mut self, expr_str: &str, path: Option<PathBuf>) -> Result<Program> {
         let instructions = self.emit_instructions(expr_str, path)?;
 
         let program = Program::new(instructions, (&self.constant_map).to_bytes()?);
@@ -360,12 +360,17 @@ impl Compiler {
     pub fn emit_instructions(
         &mut self,
         expr_str: &str,
-        path: PathBuf,
+        path: Option<PathBuf>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
 
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr_str, &mut intern).collect();
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
+            Parser::new_from_source(expr_str, &mut intern, p.to_str().unwrap()).collect()
+        } else {
+            Parser::new(expr_str, &mut intern).collect()
+        };
+
         let parsed = parsed?;
 
         self.emit_instructions_from_exprs(parsed, false, path)
@@ -374,7 +379,7 @@ impl Compiler {
     pub fn expand_expressions(
         &mut self,
         exprs: Vec<ExprKind>,
-        path: PathBuf,
+        path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
         self.module_manager
             .compile_main(&mut self.macro_env, exprs, path)
@@ -505,7 +510,7 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         _optimizations: bool,
-        path: PathBuf,
+        path: Option<PathBuf>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
 

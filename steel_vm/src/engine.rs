@@ -67,8 +67,12 @@ impl Engine {
         vm
     }
 
-    pub fn emit_program(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
-        self.compiler.compile_program(expr, path)
+    pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
+        self.compiler.compile_program(expr, Some(path))
+    }
+
+    pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
+        self.compiler.compile_program(expr, None)
     }
 
     pub fn execute(
@@ -79,12 +83,16 @@ impl Engine {
         self.virtual_machine.execute(bytecode, constant_map)
     }
 
-    pub fn emit_instructions(
+    pub fn emit_instructions_with_path(
         &mut self,
         exprs: &str,
         path: PathBuf,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
-        self.compiler.emit_instructions(exprs, path)
+        self.compiler.emit_instructions(exprs, Some(path))
+    }
+
+    pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
+        self.compiler.emit_instructions(exprs, None)
     }
 
     pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
@@ -97,19 +105,22 @@ impl Engine {
         self
     }
 
-    pub fn register_gc_value(&mut self, name: &str, value: SteelVal) {
+    pub fn register_gc_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
         let idx = self.compiler.register(name);
         self.virtual_machine.insert_gc_binding(idx, value);
+        self
     }
 
-    pub fn register_values(&mut self, values: Vec<(String, SteelVal)>) {
+    pub fn register_values(&mut self, values: Vec<(String, SteelVal)>) -> &mut Self {
         for (name, value) in values {
             self.register_value(name.as_str(), value);
         }
+        self
     }
 
-    pub fn on_progress(&mut self, callback: Callback) {
+    pub fn on_progress(&mut self, callback: Callback) -> &mut Self {
         self.virtual_machine.on_progress(callback);
+        self
     }
 
     pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
@@ -127,17 +138,23 @@ impl Engine {
         T::try_from(self.extract_value(name)?)
     }
 
-    pub fn parse_and_execute_without_optimizations(
-        &mut self,
-        expr: &str,
-        path: PathBuf,
-    ) -> Result<Vec<SteelVal>> {
-        let program = self.compiler.compile_program(expr, path)?;
+    pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+        let program = self.compiler.compile_program(expr, None)?;
         self.virtual_machine.execute_program(program)
     }
 
-    pub fn parse_and_execute(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
-        self.parse_and_execute_without_optimizations(expr, path)
+    pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
+        let program = self.compiler.compile_program(expr, Some(path))?;
+        self.virtual_machine.execute_program(program)
+    }
+
+    pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+        let program = self.compiler.compile_program(expr, None)?;
+        self.virtual_machine.execute_program(program)
+    }
+
+    pub fn parse_and_execute(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+        self.parse_and_execute_without_optimizations(expr)
     }
 
     // Read in the file from the given path and execute accordingly
@@ -160,7 +177,7 @@ impl Engine {
         let mut file = std::fs::File::open(path)?;
         let mut exprs = String::new();
         file.read_to_string(&mut exprs)?;
-        self.parse_and_execute(exprs.as_str(), path_buf)
+        self.run_with_path(exprs.as_str(), path_buf)
     }
 
     // TODO come back to this please
@@ -174,16 +191,18 @@ impl Engine {
         let mut intern = HashMap::new();
 
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr, &mut intern).collect();
+            Parser::new_from_source(expr, &mut intern, path.to_str().unwrap()).collect();
         let parsed = parsed?;
 
-        let expanded_statements = self.compiler.expand_expressions(parsed, path.clone())?;
+        let expanded_statements = self
+            .compiler
+            .expand_expressions(parsed, Some(path.clone()))?;
 
         let statements_without_structs = self
             .compiler
             .extract_structs(expanded_statements, &mut results)?;
 
-        let exprs_post_optimization = Self::optimize_exprs(statements_without_structs, path)?;
+        let exprs_post_optimization = Self::optimize_exprs(statements_without_structs)?;
 
         let compiled_instructions = self
             .compiler
@@ -198,10 +217,7 @@ impl Engine {
     }
 
     // TODO come back to this
-    pub fn optimize_exprs<I: IntoIterator<Item = ExprKind>>(
-        exprs: I,
-        path: PathBuf, // ctx: &mut Ctx<ConstantMap>,
-    ) -> Result<Vec<ExprKind>> {
+    pub fn optimize_exprs<I: IntoIterator<Item = ExprKind>>(exprs: I) -> Result<Vec<ExprKind>> {
         // println!("About to optimize the input program");
 
         let converted: Result<Vec<_>> = exprs.into_iter().map(|x| SteelVal::try_from(x)).collect();
@@ -210,9 +226,9 @@ impl Engine {
         let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
 
         let mut vm = Engine::new_with_meta();
-        vm.parse_and_execute_without_optimizations(steel::stdlib::PRELUDE, path.clone())?;
+        vm.parse_and_execute_without_optimizations(steel::stdlib::PRELUDE)?;
         vm.register_gc_value("*program*", exprs);
-        let output = vm.parse_and_execute_without_optimizations(steel::stdlib::COMPILER, path)?;
+        let output = vm.parse_and_execute_without_optimizations(steel::stdlib::COMPILER)?;
 
         // println!("{:?}", output.last().unwrap());
 

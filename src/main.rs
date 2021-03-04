@@ -7,7 +7,7 @@ extern crate steel_repl;
 
 use steel::unwrap;
 
-use std::{any::Any, path::PathBuf};
+use std::any::Any;
 use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
@@ -153,10 +153,8 @@ fn main() {
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
 
-        let core_path = std::env::current_dir().unwrap();
-
         for core in core_libraries {
-            let res = vm.parse_and_execute_without_optimizations(core, core_path.clone());
+            let res = vm.parse_and_execute_without_optimizations(core);
             if let Err(e) = res {
                 eprintln!("{}", e);
                 return;
@@ -165,7 +163,7 @@ fn main() {
 
         let contents = fs::read_to_string(path).expect("Something went wrong reading the file");
         // let now = Instant::now();
-        let res = vm.parse_and_execute_without_optimizations(&contents, PathBuf::from(path));
+        let res = vm.parse_and_execute_without_optimizations(&contents);
 
         // println!("{:?}", now.elapsed());
 
@@ -592,17 +590,13 @@ fn embed_functions_and_verify_results() {
     (define result-res-false (test-result 2))
     ";
 
-    assert!(interp
-        .parse_and_execute(&script, PathBuf::from("test"))
-        .is_err());
+    assert!(interp.parse_and_execute(&script).is_err());
 
     let script = "
     (define option-res-good (test-option 1))
     (define option-res-bad (test-option 2))
     ";
-    assert!(interp
-        .parse_and_execute(&script, PathBuf::from("test"))
-        .is_ok());
+    assert!(interp.parse_and_execute(&script).is_ok());
 }
 
 #[test]
@@ -633,7 +627,7 @@ fn build_interpreter_and_modify() {
     ";
 
     // get the values back out
-    match interpreter.parse_and_execute_without_optimizations(&script, PathBuf::from("test")) {
+    match interpreter.parse_and_execute_without_optimizations(&script) {
         Ok(_) => {
             let ret_val: CoolTest =
                 CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();

@@ -67,7 +67,7 @@ impl ModuleManager {
         &mut self,
         global_macro_map: &mut HashMap<String, SteelMacro>,
         exprs: Vec<ExprKind>,
-        path: PathBuf,
+        path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
@@ -80,7 +80,7 @@ impl ModuleManager {
             &mut self.compiled_modules,
             &mut self.visited,
             &mut self.file_metadata,
-        );
+        )?;
 
         let mut module_statements = module_builder.compile()?;
 
@@ -134,14 +134,24 @@ pub struct ModuleBuilder<'a> {
 
 impl<'a> ModuleBuilder<'a> {
     pub fn main(
-        name: PathBuf,
+        name: Option<PathBuf>,
         source_ast: Vec<ExprKind>,
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
         visited: &'a mut HashSet<PathBuf>,
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
-    ) -> Self {
-        ModuleBuilder {
-            name: std::fs::canonicalize(&name).unwrap_or(name),
+    ) -> Result<Self> {
+        // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
+        // change the path to not always be required
+        // if its not required we know its not coming in
+
+        let name = if let Some(p) = name {
+            std::fs::canonicalize(&p)?
+        } else {
+            std::env::current_dir()?
+        };
+
+        Ok(ModuleBuilder {
+            name,
             main: true,
             source_ast,
             macro_map: HashMap::new(),
@@ -150,7 +160,7 @@ impl<'a> ModuleBuilder<'a> {
             compiled_modules,
             visited,
             file_metadata,
-        }
+        })
     }
 
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
@@ -161,6 +171,10 @@ impl<'a> ModuleBuilder<'a> {
         if !self.provides.is_empty() && !self.main {
             return Ok(Vec::new());
         }
+
+        // if self.provides.is_empty() {
+        //     return Ok(Vec::new());
+        // }
 
         if self.visited.contains(&self.name) {
             stop!(Generic => format!("circular dependency found during module resolution with: {:?}", self.name))
@@ -195,7 +209,9 @@ impl<'a> ModuleBuilder<'a> {
         if self.requires.is_empty() && !self.main {
             // We're at a leaf, put into the cache
             // println!("putting {:?} in the cache", self.name);
-            new_exprs.push(self.into_compiled_module()?);
+            if !self.provides.is_empty() {
+                new_exprs.push(self.into_compiled_module()?);
+            }
         } else {
             // At this point, requires should be fully qualified (absolute) paths
             for module in &self.requires {
@@ -256,7 +272,9 @@ impl<'a> ModuleBuilder<'a> {
                 ast.append(&mut module_exprs);
                 new_module.source_ast = ast;
 
-                new_exprs.push(new_module.into_compiled_module()?);
+                if !new_module.provides.is_empty() {
+                    new_exprs.push(new_module.into_compiled_module()?);
+                }
             }
         }
 

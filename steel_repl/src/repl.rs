@@ -137,7 +137,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     println!("{:?}", current_dir);
 
     for core in core_libraries {
-        let res = vm.parse_and_execute_without_optimizations(core, current_dir.clone());
+        let res = vm.parse_and_execute_without_optimizations(core);
 
         match res {
             Ok(r) => r.iter().for_each(|x| match x {
@@ -198,12 +198,9 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         file.read_to_string(&mut exprs)?;
 
                         let res = if optimizations {
-                            vm.parse_and_execute(exprs.as_str(), PathBuf::from(path))
+                            vm.parse_and_execute(exprs.as_str())
                         } else {
-                            vm.parse_and_execute_without_optimizations(
-                                exprs.as_str(),
-                                PathBuf::from(path),
-                            )
+                            vm.parse_and_execute_without_optimizations(exprs.as_str())
                         };
 
                         match res {
@@ -223,9 +220,9 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         let now = Instant::now();
 
                         let res = if optimizations {
-                            vm.parse_and_execute(&line, current_dir.clone())
+                            vm.parse_and_execute(&line)
                         } else {
-                            vm.parse_and_execute_without_optimizations(&line, current_dir.clone())
+                            vm.parse_and_execute_without_optimizations(&line)
                         };
 
                         match res {

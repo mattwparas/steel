@@ -18,9 +18,7 @@ pub fn test_from_files(input_path: &str, output_path: &str) {
 
 pub fn test_lines(input: impl BufRead, output: impl BufRead) {
     let mut evaluator = Engine::new();
-    evaluator
-        .parse_and_execute(PRELUDE, PathBuf::from("test"))
-        .unwrap();
+    evaluator.parse_and_execute(PRELUDE).unwrap();
 
     let io_lines = input.lines().zip(output.lines());
     for (line_in, line_out) in io_lines {
@@ -31,7 +29,7 @@ pub fn test_lines(input: impl BufRead, output: impl BufRead) {
 }
 
 pub fn test_line(input: &str, output: &[&str], evaluator: &mut Engine) {
-    let result = evaluator.parse_and_execute_without_optimizations(input, PathBuf::from("test"));
+    let result = evaluator.parse_and_execute_without_optimizations(input);
     match result {
         Ok(vals) => {
             assert_eq!(output.len(), vals.len());
