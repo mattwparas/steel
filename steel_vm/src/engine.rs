@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     io::Read,
-    marker::PhantomData,
     path::{Path, PathBuf},
     rc::Rc,
 };

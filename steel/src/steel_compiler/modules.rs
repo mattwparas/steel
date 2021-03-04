@@ -1,5 +1,3 @@
-use itertools::Itertools;
-
 use crate::parser::{
     ast::{Atom, ExprKind, List},
     parser::{ParseError, Parser, SyntaxObject},

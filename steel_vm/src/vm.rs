@@ -824,21 +824,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
-    fn call_struct_func(
-        &mut self,
-        factory: &SteelStruct,
-        func: &fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>,
-        payload_size: usize,
-        span: &Span,
-    ) -> Result<()> {
-        let args = self.stack.split_off(self.stack.len() - payload_size);
-        let result = func(&args, factory).map_err(|x| x.set_span(*span))?;
-        self.stack.push(result);
-        self.ip += 1;
-        Ok(())
-    }
-
-    #[inline(always)]
     fn call_primitive_func(
         &mut self,
         f: &fn(&[SteelVal]) -> Result<SteelVal>,
