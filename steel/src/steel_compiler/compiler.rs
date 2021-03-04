@@ -31,6 +31,7 @@ use crate::structs::SteelStruct;
 use crate::core::instructions::{densify, DenseInstruction};
 
 use crate::stop;
+use std::time::SystemTime;
 
 // use crate::compiler::modules::ModuleManager;
 // use crate::parser::expand_visitor::{expand, extract_macro_defs};
@@ -38,7 +39,7 @@ use crate::stop;
 // use itertools::Itertools;
 use log::debug;
 
-use super::modules::ModuleManager;
+use super::modules::{CompiledModule, ModuleManager};
 
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?
@@ -314,6 +315,7 @@ pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub constant_map: ConstantMap,
     pub(crate) macro_env: HashMap<String, SteelMacro>,
+    module_manager: ModuleManager,
 }
 
 impl Compiler {
@@ -321,11 +323,13 @@ impl Compiler {
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
         macro_env: HashMap<String, SteelMacro>,
+        module_manager: ModuleManager,
     ) -> Compiler {
         Compiler {
             symbol_map,
             constant_map,
             macro_env,
+            module_manager,
         }
     }
 
@@ -334,6 +338,7 @@ impl Compiler {
             SymbolMap::default_from_env(),
             ConstantMap::new(),
             HashMap::new(),
+            ModuleManager::default(),
         )
     }
 
@@ -371,14 +376,8 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: PathBuf,
     ) -> Result<Vec<ExprKind>> {
-        // let non_macro_expressions = extract_macro_defs(exprs, &mut self.macro_env)?;
-
-        // non_macro_expressions
-        //     .into_iter()
-        //     .map(|x| expand(x, &self.macro_env))
-        //     .collect()
-
-        let output = ModuleManager::new(&mut self.macro_env).compile_main(exprs, path);
+        self.module_manager
+            .compile_main(&mut self.macro_env, exprs, path)
         // println!(
         //     "{:?}",
         //     output
@@ -388,7 +387,7 @@ impl Compiler {
         //         .map(|x| x.to_string())
         //         .join(" ")
         // );
-        output
+        // output
     }
 
     pub fn extract_structs(

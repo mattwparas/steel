@@ -18,6 +18,10 @@ use std::{
 use crate::parser::expander::SteelMacro;
 use crate::stop;
 
+use std::time::SystemTime;
+
+// use std::fs::Metadata;
+
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
 // pub fn extract_macro_defs(
@@ -31,35 +35,52 @@ use crate::parser::expand_visitor::{expand, extract_macro_defs};
 //     Expander { map }.visit(expr)
 // }
 
-pub struct ModuleManager<'a> {
-    global_macro_map: &'a mut HashMap<String, SteelMacro>,
+// #[derive(Clone, PartialEq, Hash)]
+// pub struct FilePath {
+//     absolute_path: PathBuf,
+//     last_modified: SystemTime,
+// }
+
+pub struct ModuleManager {
     compiled_modules: HashMap<PathBuf, CompiledModule>,
+    file_metadata: HashMap<PathBuf, SystemTime>,
     visited: HashSet<PathBuf>,
 }
 
-impl<'a> ModuleManager<'a> {
-    pub fn new(global_macro_map: &'a mut HashMap<String, SteelMacro>) -> Self {
+impl ModuleManager {
+    pub fn new(
+        compiled_modules: HashMap<PathBuf, CompiledModule>,
+        file_metadata: HashMap<PathBuf, SystemTime>,
+    ) -> Self {
         ModuleManager {
-            global_macro_map,
-            compiled_modules: HashMap::new(),
+            compiled_modules,
+            file_metadata,
             visited: HashSet::new(),
         }
     }
 
-    pub fn compile_main(&mut self, exprs: Vec<ExprKind>, path: PathBuf) -> Result<Vec<ExprKind>> {
-        let non_macro_expressions = extract_macro_defs(exprs, &mut self.global_macro_map)?;
+    pub fn default() -> Self {
+        Self::new(HashMap::new(), HashMap::new())
+    }
 
-        // let expanded: Vec<_> = non_macro_expressions
-        //     .into_iter()
-        //     .map(|x| expand(x, &self.global_macro_map))
-        //     .collect::<Result<_>>()?;
+    pub fn compile_main(
+        &mut self,
+        global_macro_map: &mut HashMap<String, SteelMacro>,
+        exprs: Vec<ExprKind>,
+        path: PathBuf,
+    ) -> Result<Vec<ExprKind>> {
+        // Wipe the visited set on entry
+        self.visited.clear();
+
+        let non_macro_expressions = extract_macro_defs(exprs, global_macro_map)?;
 
         let mut module_builder = ModuleBuilder::main(
             path,
             non_macro_expressions,
             &mut self.compiled_modules,
             &mut self.visited,
-        );
+            &mut self.file_metadata,
+        )?;
 
         let mut module_statements = module_builder.compile()?;
 
@@ -67,7 +88,7 @@ impl<'a> ModuleManager<'a> {
 
         module_statements
             .into_iter()
-            .map(|x| expand(x, &self.global_macro_map))
+            .map(|x| expand(x, global_macro_map))
             .collect::<Result<_>>()
     }
 }
@@ -108,6 +129,7 @@ pub struct ModuleBuilder<'a> {
     provides: Vec<ExprKind>,
     compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
     visited: &'a mut HashSet<PathBuf>,
+    file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -116,9 +138,10 @@ impl<'a> ModuleBuilder<'a> {
         source_ast: Vec<ExprKind>,
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
         visited: &'a mut HashSet<PathBuf>,
-    ) -> Self {
-        ModuleBuilder {
-            name,
+        file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+    ) -> Result<Self> {
+        Ok(ModuleBuilder {
+            name: std::fs::canonicalize(&name)?,
             main: true,
             source_ast,
             macro_map: HashMap::new(),
@@ -126,7 +149,8 @@ impl<'a> ModuleBuilder<'a> {
             provides: Vec::new(),
             compiled_modules,
             visited,
-        }
+            file_metadata,
+        })
     }
 
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
@@ -173,59 +197,72 @@ impl<'a> ModuleBuilder<'a> {
             // println!("putting {:?} in the cache", self.name);
             new_exprs.push(self.into_compiled_module()?);
         } else {
+            // At this point, requires should be fully qualified (absolute) paths
             for module in &self.requires {
                 // println!("Inside: {:?}, visiting {:?}", self.name, module);
 
-                // If we already have compiled this module, get it from the cache
-                if let Some(m) = self.compiled_modules.get(module) {
-                    // println!("Already found in the cache: {:?}", module);
-                    new_exprs.push(m.to_module_ast_node());
+                let last_modified = std::fs::metadata(module)?.modified()?;
+
+                // Check if we should compile based on the last time modified
+                // If we're unable to get information, we want to compile
+                let should_recompile = if let Some(cached_modified) = self.file_metadata.get(module)
+                {
+                    let result = &last_modified == cached_modified;
+
+                    if result {
+                        println!("already compiled this file: {:?}, continuing", module);
+                    } else {
+                        println!("don't need to recompile: {:?}", module);
+                    }
+                    !result
                 } else {
-                    let mut new_module = ModuleBuilder::new_from_path(
-                        module.clone(),
-                        &mut self.compiled_modules,
-                        &mut self.visited,
-                    )?;
+                    true
+                };
 
-                    // Walk the tree and compile any dependencies
-                    // This will eventually put the module in the cache
-                    let mut module_exprs = new_module.compile()?;
-
-                    // println!("Inside {:?} - append {:?}", self.name, module);
-
-                    // println!(
-                    //     "appending with {:?}",
-                    //     module_exprs.iter().map(|x| x.to_string()).join(" ")
-                    // );
-
-                    // TODO evaluate this
-
-                    let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
-                    ast.append(&mut module_exprs);
-                    new_module.source_ast = ast;
-
-                    new_exprs.push(new_module.into_compiled_module()?);
-
-                    // new_exprs.append(&mut module_exprs);
+                // We've established nothing has changed with this file
+                // Check to see if its in the cache first
+                // Otherwise go ahead and compile
+                if !should_recompile {
+                    // If we already have compiled this module, get it from the cache
+                    if let Some(m) = self.compiled_modules.get(module) {
+                        // println!("Already found in the cache: {:?}", module);
+                        new_exprs.push(m.to_module_ast_node());
+                        // No need to do anything
+                        continue;
+                    }
                 }
+
+                let mut new_module = ModuleBuilder::new_from_path(
+                    module.clone(),
+                    &mut self.compiled_modules,
+                    &mut self.visited,
+                    &mut self.file_metadata,
+                )?;
+
+                // Walk the tree and compile any dependencies
+                // This will eventually put the module in the cache
+                let mut module_exprs = new_module.compile()?;
+
+                // println!("Inside {:?} - append {:?}", self.name, module);
+
+                // println!(
+                //     "appending with {:?}",
+                //     module_exprs.iter().map(|x| x.to_string()).join(" ")
+                // );
+
+                // TODO evaluate this
+
+                let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
+                ast.append(&mut module_exprs);
+                new_module.source_ast = ast;
+
+                new_exprs.push(new_module.into_compiled_module()?);
             }
         }
 
         // println!("compiling: {}", self.name);
 
         return Ok(new_exprs);
-    }
-
-    fn contains_provides(&self) -> bool {
-        for expr in &self.source_ast {
-            if let ExprKind::List(l) = expr {
-                if let Some(provide) = l.first_ident() {
-                    return provide == "provide" && l.len() > 1;
-                }
-            }
-        }
-
-        false
     }
 
     fn into_compiled_module(&mut self) -> Result<ExprKind> {
@@ -324,8 +361,8 @@ impl<'a> ModuleBuilder<'a> {
                         }
                         current.push(s);
 
-                        // println!("{:?}", current);
-
+                        // Get the absolute path and store that
+                        // current = std::fs::canonicalize(&current)?;
                         // let new_path = PathBuf::new()
                         self.requires.push(current)
                     } else {
@@ -347,14 +384,16 @@ impl<'a> ModuleBuilder<'a> {
         name: PathBuf,
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
         visited: &'a mut HashSet<PathBuf>,
+        file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
     ) -> Result<Self> {
-        ModuleBuilder::raw(name, compiled_modules, visited).parse_from_path()
+        ModuleBuilder::raw(name, compiled_modules, visited, file_metadata).parse_from_path()
     }
 
     fn raw(
         name: PathBuf,
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
         visited: &'a mut HashSet<PathBuf>,
+        file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
     ) -> Self {
         ModuleBuilder {
             name,
@@ -365,11 +404,14 @@ impl<'a> ModuleBuilder<'a> {
             provides: Vec::new(),
             compiled_modules,
             visited,
+            file_metadata,
         }
     }
 
     fn parse_from_path(mut self) -> Result<Self> {
         let mut file = std::fs::File::open(&self.name)?;
+        self.file_metadata
+            .insert(self.name.clone(), file.metadata()?.modified()?);
         let mut exprs = String::new();
         file.read_to_string(&mut exprs)?;
 
