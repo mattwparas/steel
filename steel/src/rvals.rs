@@ -7,7 +7,7 @@ use crate::{
     lazy_stream::LazyStream,
     port::SteelPort,
     rerrs::SteelErr,
-    structs::{SteelStruct, StructClosure},
+    structs::SteelStruct,
 };
 
 use std::{
@@ -132,7 +132,7 @@ impl From<Box<dyn CustomType>> for SteelVal {
 }
 
 pub trait IntoSteelVal: Sized {
-    fn into_steelval(self) -> SteelVal;
+    fn into_steelval(self) -> Result<SteelVal>;
 }
 
 pub trait FromSteelVal: Sized {
@@ -217,9 +217,9 @@ pub enum SteelVal {
     HashSetV(Gc<HashSet<SteelVal>>), // TODO wrap in GC
     /// Represents a scheme-only struct
     StructV(Gc<SteelStruct>),
-    /// Represents a special rust closure
+    // Represents a special rust closure
     // StructClosureV(Box<SteelStruct>, StructClosureSignature),
-    StructClosureV(Box<StructClosure>),
+    // StructClosureV(Box<StructClosure>),
     /// Represents a port object
     PortV(Gc<SteelPort>),
     /// Represents a bytecode closure
@@ -338,7 +338,7 @@ impl Hash for SteelVal {
             }
             Custom(_) => unimplemented!(),
             StructV(_) => unimplemented!(),
-            StructClosureV(_) => unimplemented!(),
+            // StructClosureV(_) => unimplemented!(),
             PortV(_) => unimplemented!(),
             Closure(b) => b.hash(state),
             HashMapV(hm) => hm.hash(state),
@@ -390,7 +390,7 @@ impl SteelVal {
     pub fn is_function(&self) -> bool {
         matches!(
             self,
-            StructClosureV(_) | Closure(_) | FuncV(_) | ContractedFunction(_)
+            BoxedFunction(_) | Closure(_) | FuncV(_) | ContractedFunction(_)
         )
     }
 
@@ -474,16 +474,26 @@ impl SteelVal {
         }
     }
 
-    pub fn struct_func_or_else<E, F: FnOnce() -> E>(
+    pub fn boxed_func_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<(&SteelStruct, &StructClosureSignature), E> {
-        if let Self::StructClosureV(s) = self {
-            Ok((&s.factory, &s.func))
-        } else {
-            Err(err())
+    ) -> std::result::Result<&BoxedFunctionSignature, E> {
+        match self {
+            Self::BoxedFunction(v) => Ok(&v),
+            _ => Err(err()),
         }
     }
+
+    // pub fn struct_func_or_else<E, F: FnOnce() -> E>(
+    //     &self,
+    //     err: F,
+    // ) -> std::result::Result<(&SteelStruct, &StructClosureSignature), E> {
+    //     if let Self::StructClosureV(s) = self {
+    //         Ok((&s.factory, &s.func))
+    //     } else {
+    //         Err(err())
+    //     }
+    // }
 
     pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
         match self {
@@ -758,7 +768,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             display_helper(&v, f)
         }
         StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
-        StructClosureV(_) => write!(f, "#<struct-constructor>"),
+        // StructClosureV(_) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
         HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm),

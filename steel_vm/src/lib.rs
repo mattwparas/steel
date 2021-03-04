@@ -4,6 +4,7 @@ pub mod evaluation_progress;
 pub mod heap;
 pub mod inline_iter;
 pub mod lazy_stream;
+pub mod register_fn;
 pub mod stack;
 mod test_util;
 mod tests;

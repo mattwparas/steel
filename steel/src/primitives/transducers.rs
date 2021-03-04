@@ -31,7 +31,7 @@ impl TransducerOperations {
             }
 
             match &args[0] {
-                Closure(_) | FuncV(_) | StructClosureV(_) => {
+                Closure(_) | FuncV(_) | BoxedFunction(_) | ContractedFunction(_) => {
                     let mut transducer = Transducer::new();
                     transducer.push(Transducers::Map(args[0].clone()));
                     Ok(SteelVal::IterV(Gc::new(transducer)))
@@ -48,7 +48,7 @@ impl TransducerOperations {
             }
 
             match &args[0] {
-                Closure(_) | FuncV(_) | StructClosureV(_) => {
+                Closure(_) | FuncV(_) | BoxedFunction(_) | ContractedFunction(_) => {
                     let mut transducer = Transducer::new();
                     transducer.push(Transducers::Filter(args[0].clone()));
                     Ok(SteelVal::IterV(Gc::new(transducer)))

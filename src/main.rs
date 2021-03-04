@@ -43,7 +43,7 @@ use std::collections::HashMap;
 
 use std::cmp::{max, min};
 
-use steel_vm::engine::RegisterFn;
+use steel_vm::register_fn::RegisterFn;
 // use steel_vm::engine::RegisterNoArgFn;
 
 // use env_logger::Builder;
@@ -94,15 +94,34 @@ fn do_a_call() {
     println!("{:?}", ARRAY.lock().unwrap());
 }
 
-fn test_test(_input: usize) -> Option<usize> {
-    Some(10)
+fn do_a_call_two() {
+    ARRAY.lock().unwrap().push(1);
+    println!("{:?}", ARRAY.lock().unwrap());
+}
+
+fn test_test(input: usize) -> Option<usize> {
+    if input == 69 {
+        None
+    } else {
+        Some(10)
+    }
+}
+
+fn test_result_error(input: usize) -> std::result::Result<usize, String> {
+    if input == 10 {
+        Ok(10)
+    } else {
+        Err("can't be doin that now".to_string())
+    }
 }
 
 fn test_two_args(arg1: usize, arg2: usize) -> usize {
     arg1 + arg2
 }
 
-fn no_args_return_empty() {}
+fn no_args_return_empty() {
+    println!("hello world!");
+}
 
 fn main() {
     env_logger::init();
@@ -127,9 +146,10 @@ fn main() {
 
         let mut vm = build_engine! {};
 
-        vm.register_fn("test-test", test_test);
-        vm.register_fn("blagh", test_two_args);
-        vm.register_fn("no-args", no_args_return_empty);
+        vm.register_fn("test-test", test_test)
+            .register_fn("blagh", test_two_args)
+            .register_fn("no-args", no_args_return_empty)
+            .register_fn("do-a-call-2", do_a_call_two);
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
 
@@ -446,7 +466,7 @@ impl EditDistance {
 }
 
 pub fn test_repl() -> std::io::Result<()> {
-    let vm = build_engine! {
+    let mut vm = build_engine! {
         Structs => {
             MyStruct,
             CoolTest,
@@ -456,21 +476,28 @@ pub fn test_repl() -> std::io::Result<()> {
             Levenshtein
         }
         Functions => {
-            "add-cool-tests" => add_cool_tests,
-            "multiple-types" => multiple_types,
-            "new-mutex-wrapper" => new_mutex_wrapper,
-            "display-cool-test" => pretty_print_cool_test,
-            "test-result" => test_result,
-            "test-option" => test_option,
-            "panic-time" => panic_time,
-            "do-a-call" => do_a_call,
-            "blargh" => CoolTest::blargh,
-            "new-mutation" => new_mutation,
-            "mutation-inner!" => mutation_inner,
-            "new-levenshtein" => new_levenshtein,
-            "edit-distance" => edit_distance,
+            // "add-cool-tests" => add_cool_tests,
+            // "multiple-types" => multiple_types,
+            // "new-mutex-wrapper" => new_mutex_wrapper,
+            // "display-cool-test" => pretty_print_cool_test,
+            // "test-result" => test_result,
+            // "test-option" => test_option,
+            // "panic-time" => panic_time,
+            // "do-a-call" => do_a_call,
+            // "blargh" => CoolTest::blargh,
+            // "new-mutation" => new_mutation,
+            // "mutation-inner!" => mutation_inner,
+            // "new-levenshtein" => new_levenshtein,
+            // "edit-distance" => edit_distance,
         }
     };
+
+    vm.register_fn("test-test", test_test)
+        .register_fn("blagh", test_two_args)
+        .register_fn("no-args", no_args_return_empty)
+        .register_fn("do-a-call-2", do_a_call_two)
+        .register_fn("test-two-args", test_two_args)
+        .register_fn("test-result-error", test_result_error);
 
     // vm.on_progress(|count| {
     //     // parameter is 'u64' - number of operations already performed

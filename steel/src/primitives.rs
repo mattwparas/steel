@@ -88,8 +88,8 @@ macro_rules! from_f64 {
             }
 
             impl IntoSteelVal for $body {
-                fn into_steelval(self) -> SteelVal {
-                    SteelVal::NumV(self as f64)
+                fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+                    Ok(SteelVal::NumV(self as f64))
                 }
             }
         )*
@@ -106,8 +106,8 @@ macro_rules! from_for_isize {
             }
 
             impl IntoSteelVal for $body {
-                fn into_steelval(self) -> SteelVal {
-                    SteelVal::IntV(self as isize)
+                fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+                    Ok(SteelVal::IntV(self as isize))
                 }
             }
         )*
@@ -121,8 +121,8 @@ impl From<char> for SteelVal {
 }
 
 impl IntoSteelVal for char {
-    fn into_steelval(self) -> SteelVal {
-        SteelVal::CharV(self)
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        Ok(SteelVal::CharV(self))
     }
 }
 
@@ -137,18 +137,24 @@ impl<T: Into<SteelVal>> From<Option<T>> for SteelVal {
 }
 
 impl<T: IntoSteelVal> IntoSteelVal for Option<T> {
-    fn into_steelval(self) -> SteelVal {
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         if let Some(s) = self {
             s.into_steelval()
         } else {
-            SteelVal::BoolV(true)
+            Ok(SteelVal::BoolV(false))
         }
     }
 }
 
-impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
-    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
-        unimplemented!()
+// TODO make intosteelval return a result type
+// This allows errors to propagate
+
+impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        match self {
+            Ok(s) => s.into_steelval(),
+            Err(e) => crate::stop!(Generic => format!("{:?}", e)),
+        }
     }
 }
 
@@ -163,8 +169,8 @@ impl FromSteelVal for () {
 }
 
 impl IntoSteelVal for () {
-    fn into_steelval(self) -> SteelVal {
-        SteelVal::Void
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        Ok(SteelVal::Void)
     }
 }
 

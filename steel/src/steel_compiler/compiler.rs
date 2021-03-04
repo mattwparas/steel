@@ -35,7 +35,7 @@ use crate::stop;
 // use crate::compiler::modules::ModuleManager;
 // use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
-use itertools::Itertools;
+// use itertools::Itertools;
 use log::debug;
 
 use super::modules::ModuleManager;

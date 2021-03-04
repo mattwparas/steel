@@ -744,9 +744,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {
-            StructClosureV(sc) => {
-                self.call_struct_func(&sc.factory, &sc.func, payload_size, span)?
-            }
+            // StructClosureV(sc) => {
+            //     self.call_struct_func(&sc.factory, &sc.func, payload_size, span)?
+            // }
+            BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size),
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
@@ -802,6 +803,23 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             }
         }
 
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn call_boxed_func(
+        &mut self,
+        func: &Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>,
+        payload_size: usize,
+        span: &Span,
+    ) -> Result<()> {
+        let result = func(self.stack.peek_range(self.stack.len() - payload_size..))
+            .map_err(|x| x.set_span(*span))?;
+
+        self.stack.truncate(self.stack.len() - payload_size);
+
+        self.stack.push(result);
+        self.ip += 1;
         Ok(())
     }
 
@@ -881,9 +899,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {
-            StructClosureV(sc) => {
-                self.call_struct_func(&sc.factory, &sc.func, payload_size, span)?
-            }
+            // StructClosureV(sc) => {
+            //     self.call_struct_func(&sc.factory, &sc.func, payload_size, span)?
+            // }
+            BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size),
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
@@ -979,12 +998,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         };
 
         match &func {
-            SteelVal::StructClosureV(sc) => {
-                let result = (sc.func)(&args, &sc.factory).map_err(|x| x.set_span(span))?;
+            SteelVal::FuncV(f) => {
+                let result = f(&args).map_err(|x| x.set_span(span))?;
                 self.stack.push(result);
                 self.ip += 1;
             }
-            SteelVal::FuncV(f) => {
+            SteelVal::BoxedFunction(f) => {
                 let result = f(&args).map_err(|x| x.set_span(span))?;
                 self.stack.push(result);
                 self.ip += 1;
