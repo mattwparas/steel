@@ -17,7 +17,7 @@ fn module_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     evaluator
-        .parse_and_execute_from_path(PathBuf::from("modules/main.rkt"))
+        .parse_and_execute_from_path(PathBuf::from("tests/modules/main.rkt"))
         .unwrap();
     test_line("(a 10)", &["127"], &mut evaluator);
     test_line("(b 20)", &["47"], &mut evaluator);
