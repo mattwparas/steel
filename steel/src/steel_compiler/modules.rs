@@ -80,7 +80,7 @@ impl ModuleManager {
             &mut self.compiled_modules,
             &mut self.visited,
             &mut self.file_metadata,
-        )?;
+        );
 
         let mut module_statements = module_builder.compile()?;
 
@@ -139,9 +139,9 @@ impl<'a> ModuleBuilder<'a> {
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
         visited: &'a mut HashSet<PathBuf>,
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
-    ) -> Result<Self> {
-        Ok(ModuleBuilder {
-            name: std::fs::canonicalize(&name)?,
+    ) -> Self {
+        ModuleBuilder {
+            name: std::fs::canonicalize(&name).unwrap_or(name),
             main: true,
             source_ast,
             macro_map: HashMap::new(),
@@ -150,7 +150,7 @@ impl<'a> ModuleBuilder<'a> {
             compiled_modules,
             visited,
             file_metadata,
-        })
+        }
     }
 
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
