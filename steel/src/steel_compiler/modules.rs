@@ -20,26 +20,9 @@ use crate::stop;
 
 use std::time::SystemTime;
 
-// use std::fs::Metadata;
-
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
-// pub fn extract_macro_defs(
-//     exprs: Vec<ExprKind>,
-//     macro_map: &mut HashMap<String, SteelMacro>,
-// ) -> Result<Vec<ExprKind>> {
-
-// }
-
-// pub fn expand(expr: ExprKind, map: &HashMap<String, SteelMacro>) -> Result<ExprKind> {
-//     Expander { map }.visit(expr)
-// }
-
-// #[derive(Clone, PartialEq, Hash)]
-// pub struct FilePath {
-//     absolute_path: PathBuf,
-//     last_modified: SystemTime,
-// }
+use log::debug;
 
 pub struct ModuleManager {
     compiled_modules: HashMap<PathBuf, CompiledModule>,
@@ -223,14 +206,7 @@ impl<'a> ModuleBuilder<'a> {
                 // If we're unable to get information, we want to compile
                 let should_recompile = if let Some(cached_modified) = self.file_metadata.get(module)
                 {
-                    let result = &last_modified == cached_modified;
-
-                    if result {
-                        println!("already compiled this file: {:?}, continuing", module);
-                    } else {
-                        println!("don't need to recompile: {:?}", module);
-                    }
-                    !result
+                    &last_modified != cached_modified
                 } else {
                     true
                 };
@@ -241,6 +217,7 @@ impl<'a> ModuleBuilder<'a> {
                 if !should_recompile {
                     // If we already have compiled this module, get it from the cache
                     if let Some(m) = self.compiled_modules.get(module) {
+                        debug!("Getting {:?} from the module cache", module);
                         // println!("Already found in the cache: {:?}", module);
                         new_exprs.push(m.to_module_ast_node());
                         // No need to do anything
@@ -302,6 +279,9 @@ impl<'a> ModuleBuilder<'a> {
         //     "Into compiled module inserted into the cache: {:?}",
         //     self.name
         // );
+
+        debug!("Adding {:?} to the module cache", self.name);
+
         self.compiled_modules.insert(self.name.clone(), module);
         Ok(result)
     }

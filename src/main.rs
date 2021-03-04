@@ -46,8 +46,8 @@ use std::cmp::{max, min};
 use steel_vm::register_fn::RegisterFn;
 // use steel_vm::engine::RegisterNoArgFn;
 
-// use env_logger::Builder;
-// use log::LevelFilter;
+use env_logger::Builder;
+use log::LevelFilter;
 
 // extern crate reqwest;
 
@@ -124,18 +124,18 @@ fn no_args_return_empty() {
 }
 
 fn main() {
-    env_logger::init();
+    // env_logger::init();
 
-    // let mut builder = Builder::new();
+    let mut builder = Builder::new();
 
-    // builder
-    // .filter(Some("steel_vm::contracts"), LevelFilter::Trace)
-    //     // .filter(Some("steel_vm"), LevelFilter::Trace)
-    //     // .filter(None, LevelFilter::Error)
-    //     // .filter(None, LevelFilter::Warn)
-    //     // .filter(None, LevelFilter)
-    //     .write_style(WriteStyle::Always)
-    // .init();
+    builder
+        .filter(Some("steel::steel_compiler::modules"), LevelFilter::Trace)
+        // .filter(Some("steel_vm"), LevelFilter::Trace)
+        // .filter(None, LevelFilter::Error)
+        // .filter(None, LevelFilter::Warn)
+        // .filter(None, LevelFilter)
+        // .write_style(WriteStyle::Always)
+        .init();
 
     let args = args().collect::<Vec<_>>();
 

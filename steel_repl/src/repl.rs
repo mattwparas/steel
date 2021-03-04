@@ -198,9 +198,10 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         file.read_to_string(&mut exprs)?;
 
                         let res = if optimizations {
-                            vm.parse_and_execute(exprs.as_str())
+                            vm.run_with_path(exprs.as_str(), path.to_path_buf())
                         } else {
-                            vm.parse_and_execute_without_optimizations(exprs.as_str())
+                            vm.run_with_path(exprs.as_str(), path.to_path_buf())
+                            // vm.parse_and_execute_without_optimizations(exprs.as_str())
                         };
 
                         match res {
