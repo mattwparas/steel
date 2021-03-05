@@ -357,6 +357,10 @@ impl Env {
         self.parent.is_none() && self.sub_expression.is_none()
     }
 
+    // TODO
+    // HACK
+    // Just figure out something better than this but at least it solves
+    // the problem
     pub fn add_child(&mut self, child: Weak<RefCell<Env>>) {
         self.children.push(child);
 
