@@ -20,6 +20,7 @@ use std::{
 };
 
 use ahash::RandomState;
+use smallvec::SmallVec;
 
 // use crate::rvals::FutureResult;
 
@@ -194,7 +195,7 @@ pub struct Env {
     offset: usize,
     parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
-    children: Vec<Weak<RefCell<Env>>>,
+    children: SmallVec<[Weak<RefCell<Env>>; 4]>,
     // heap: Vec<Rc<RefCell<Env>>>,
     is_binding_context: bool,
     is_binding_offset: bool,
@@ -243,7 +244,7 @@ impl Env {
             offset,
             parent: Some(Rc::clone(&parent)),
             sub_expression: None,
-            children: Vec::new(),
+            children: SmallVec::new(),
             is_binding_context: false,
             is_binding_offset: false,
             // module: Vec::new(),
@@ -323,7 +324,7 @@ impl Env {
             offset,
             parent: None,
             sub_expression: Some(sub_expression),
-            children: Vec::new(),
+            children: SmallVec::new(),
             is_binding_context: false,
             is_binding_offset: false,
             // module: Vec::new(),
@@ -357,12 +358,24 @@ impl Env {
     }
 
     pub fn add_child(&mut self, child: Weak<RefCell<Env>>) {
-        self.children.push(child)
+        self.children.push(child);
+
+        if self.children.len() > 3 {
+            self.children.retain(|x| Weak::weak_count(x) > 0);
+        }
+
+        // TODO kinda bad but makes sure the children don't grow unbounded
+        // Fixes the memory leak problem but makes other problems for performance
+        // Find a better place / mechanism to store references like this so that
+        // this isn't a dumping ground for weak references
+        // if self.children.len() > 10 {
+        //     self.children.retain(|x| Weak::weak_count(x) > 0);
+        // }
     }
 
-    pub fn children(&self) -> &[Weak<RefCell<Env>>] {
-        &self.children
-    }
+    // pub fn children(&self) -> &[Weak<RefCell<Env>>] {
+    //     &self.children
+    // }
 
     /// top level global env has no parent
     pub fn root() -> Self {
@@ -373,7 +386,7 @@ impl Env {
             offset: 0,
             parent: None,
             sub_expression: None,
-            children: Vec::new(),
+            children: SmallVec::new(),
             is_binding_context: false,
             is_binding_offset: false,
             // module: Vec::new(),

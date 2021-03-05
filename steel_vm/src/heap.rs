@@ -32,6 +32,12 @@ impl Default for Heap {
     }
 }
 
+impl Drop for Heap {
+    fn drop(&mut self) {
+        self.heap.clear();
+    }
+}
+
 impl Heap {
     pub fn new() -> Self {
         Heap {
@@ -58,40 +64,40 @@ impl Heap {
         self.heap.clear()
     }
 
-    fn root(&self) -> &Option<Weak<RefCell<Env>>> {
-        &self.root
-    }
+    // fn root(&self) -> &Option<Weak<RefCell<Env>>> {
+    //     &self.root
+    // }
 
     pub fn limit(&self) -> usize {
         self.limit
     }
 
-    fn walk(&mut self, node: &Weak<RefCell<Env>>) {
-        // let reachable = p_env.borrow().is_reachable();
-        if let Some(upgraded) = node.upgrade() {
-            let reachable = upgraded.borrow().is_reachable();
-            if !reachable {
-                self.add(Rc::clone(&upgraded));
-                println!("Adding an env by walking from the root");
-                for child in upgraded.borrow().children() {
-                    self.walk(child)
-                }
-            }
-        }
-    }
+    // fn walk(&mut self, node: &Weak<RefCell<Env>>) {
+    //     // let reachable = p_env.borrow().is_reachable();
+    //     if let Some(upgraded) = node.upgrade() {
+    //         let reachable = upgraded.borrow().is_reachable();
+    //         if !reachable {
+    //             self.add(Rc::clone(&upgraded));
+    //             println!("Adding an env by walking from the root");
+    //             for child in upgraded.borrow().children() {
+    //                 self.walk(child)
+    //             }
+    //         }
+    //     }
+    // }
 
     // Should be infallible
-    pub fn gather_and_mark_from_global_root(&mut self) {
-        let mut heap = Heap::new();
+    // pub fn gather_and_mark_from_global_root(&mut self) {
+    //     let mut heap = Heap::new();
 
-        if let Some(root) = self.root() {
-            for child in root.upgrade().unwrap().borrow().children() {
-                heap.walk(child)
-            }
-        }
+    //     if let Some(root) = self.root() {
+    //         for child in root.upgrade().unwrap().borrow().children() {
+    //             heap.walk(child)
+    //         }
+    //     }
 
-        heap.mark();
-    }
+    //     heap.mark();
+    // }
 
     pub fn inspect_heap(&self) {
         println!("heap length: {}", self.heap.len());
