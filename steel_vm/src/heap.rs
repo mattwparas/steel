@@ -171,6 +171,8 @@ impl Heap {
         //     .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) > 1);
 
         self.heap.retain(|x| Rc::weak_count(x) > 1);
+        // Drop the heap size back down to conserve memory
+        self.heap.shrink_to_fit();
 
         // self.heap.retain(|x| Rc::strong_count(x) > 1);
     }
@@ -257,6 +259,7 @@ impl Heap {
         heap.gather(leaf1);
         heap.gather(leaf2);
         heap.mark();
+        heap.clear();
     }
 
     pub fn gather_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {

@@ -207,6 +207,8 @@ pub struct Env {
 impl Drop for Env {
     fn drop(&mut self) {
         // self.bindings_vec.clear();
+        // println!("dropping env");
+        // self.parent.take();
         self.bindings_map.clear();
         // self.heap.clear();
     }
