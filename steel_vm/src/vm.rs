@@ -702,7 +702,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         };
 
         // set the number of definitions for the environment
-        capture_env.borrow_mut().set_ndefs(ndefs as usize);
+        // capture_env.borrow_mut().set_ndefs(ndefs as usize);
 
         // println!("Adding the capture_env to the heap!");
         self.heap.add(Rc::clone(&capture_env));

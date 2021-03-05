@@ -195,18 +195,17 @@ pub struct Env {
     parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
     children: Vec<Weak<RefCell<Env>>>,
-    heap: Vec<Rc<RefCell<Env>>>,
+    // heap: Vec<Rc<RefCell<Env>>>,
     is_binding_context: bool,
     is_binding_offset: bool,
     // module: Vec<AST>,
-    is_module_context: bool,
-    ndefs: usize,
+    // is_module_context: bool,
+    // ndefs: usize,
     reachable: bool,
 }
 
 impl Drop for Env {
     fn drop(&mut self) {
-        self.heap.clear();
         // self.bindings_vec.clear();
         self.bindings_map.clear();
         // self.heap.clear();
@@ -243,12 +242,10 @@ impl Env {
             parent: Some(Rc::clone(&parent)),
             sub_expression: None,
             children: Vec::new(),
-            heap: Vec::new(),
             is_binding_context: false,
             is_binding_offset: false,
             // module: Vec::new(),
-            is_module_context: false,
-            ndefs: 0,
+            // ndefs: 0,
             reachable: false,
         }
     }
@@ -277,19 +274,19 @@ impl Env {
         self.offset
     }
 
-    pub fn ndefs(&self) -> usize {
-        self.ndefs
-    }
+    // pub fn ndefs(&self) -> usize {
+    //     self.ndefs
+    // }
 
-    pub fn parent_ndefs(&self) -> usize {
-        if let Some(p) = &self.parent {
-            p.borrow().ndefs()
-        } else if let Some(p) = &self.sub_expression {
-            p.upgrade().unwrap().borrow().ndefs()
-        } else {
-            0
-        }
-    }
+    // pub fn parent_ndefs(&self) -> usize {
+    //     if let Some(p) = &self.parent {
+    //         p.borrow().ndefs()
+    //     } else if let Some(p) = &self.sub_expression {
+    //         p.upgrade().unwrap().borrow().ndefs()
+    //     } else {
+    //         0
+    //     }
+    // }
 
     pub fn offset(&self) -> usize {
         // let parent_offset =
@@ -325,19 +322,17 @@ impl Env {
             parent: None,
             sub_expression: Some(sub_expression),
             children: Vec::new(),
-            heap: Vec::new(),
             is_binding_context: false,
             is_binding_offset: false,
             // module: Vec::new(),
-            is_module_context: false,
-            ndefs: 0,
+            // ndefs: 0,
             reachable: false,
         }
     }
 
-    pub fn set_ndefs(&mut self, ndefs: usize) {
-        self.ndefs = ndefs
-    }
+    // pub fn set_ndefs(&mut self, ndefs: usize) {
+    //     self.ndefs = ndefs
+    // }
 
     pub fn is_binding_context(&self) -> bool {
         self.is_binding_context
@@ -353,14 +348,6 @@ impl Env {
 
     pub fn set_binding_offset(&mut self, b: bool) {
         self.is_binding_offset = b;
-    }
-
-    pub fn is_module_context(&self) -> bool {
-        self.is_module_context
-    }
-
-    pub fn set_module_context(&mut self, b: bool) {
-        self.is_module_context = b;
     }
 
     pub fn is_root(&self) -> bool {
@@ -385,26 +372,16 @@ impl Env {
             parent: None,
             sub_expression: None,
             children: Vec::new(),
-            heap: Vec::new(),
             is_binding_context: false,
             is_binding_offset: false,
             // module: Vec::new(),
-            is_module_context: false,
-            ndefs: 0,
+            // ndefs: 0,
             reachable: true,
         }
     }
 
-    pub fn heap(&self) -> &[Rc<RefCell<Env>>] {
-        &self.heap
-    }
-
     pub fn parent(&self) -> &Option<Rc<RefCell<Env>>> {
         &self.parent
-    }
-
-    pub fn add_to_heap(&mut self, val: Rc<RefCell<Env>>) {
-        self.heap.push(val);
     }
 
     // pub fn get_modules(&self) -> &[AST] {

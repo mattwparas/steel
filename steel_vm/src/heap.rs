@@ -165,10 +165,14 @@ impl Heap {
     }
 
     pub fn drop_large_refs(&mut self) {
-        debug!("Dropping envs with a weak count of 0 and a strong count more than 1");
+        debug!("Dropping envs with a weak count of 0");
 
-        self.heap
-            .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) > 1);
+        // self.heap
+        //     .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) > 1);
+
+        self.heap.retain(|x| Rc::weak_count(x) > 1);
+
+        // self.heap.retain(|x| Rc::strong_count(x) > 1);
     }
 
     // #[inline]

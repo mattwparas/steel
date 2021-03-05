@@ -47,10 +47,10 @@
                   (>>= computation-2 (lambda (b)
                   (return (list a b))))))))
     (begin
-      (display "Result: ")
+      ; (display "Result: ")
       (define result (eval-stack composed initial-stack))
-      (display result)
-      (newline)
+      ; (display result)
+      ; (newline)
       result)))
 
 (define (test x)
