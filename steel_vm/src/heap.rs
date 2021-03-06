@@ -8,7 +8,7 @@ use steel::{
 };
 
 use std::collections::HashMap;
-pub(crate) static HEAP_LIMIT: usize = 500;
+pub(crate) static HEAP_LIMIT: usize = 100;
 
 use log::debug;
 
@@ -26,7 +26,7 @@ impl Default for Heap {
             heap: Vec::new(),
             root: None,
             limit: HEAP_LIMIT,
-            max_double: 4,
+            max_double: 2,
             current_double: 0,
         }
     }
@@ -160,10 +160,13 @@ impl Heap {
                 self.limit *= 2;
                 self.current_double += 1;
             } else {
+                std::thread::sleep(std::time::Duration::new(3, 0));
                 println!("******************************************************");
                 println!("******************* RESET ****************************");
                 println!("******************************************************");
-                self.limit = self.limit / self.max_double;
+                self.limit = HEAP_LIMIT;
+                self.current_double = 0;
+                std::thread::sleep(std::time::Duration::new(3, 0));
             }
             self.profile_heap();
 
