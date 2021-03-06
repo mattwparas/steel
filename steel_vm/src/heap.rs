@@ -147,6 +147,8 @@ impl Heap {
     }
 
     pub fn collect_garbage(&mut self) {
+        println!("Calling garbage collection");
+
         if self.len() > self.limit {
             std::thread::sleep(std::time::Duration::new(3, 0));
             debug!(

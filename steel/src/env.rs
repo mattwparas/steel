@@ -195,6 +195,7 @@ pub struct Env {
     offset: usize,
     parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
+    weak_count: usize,
     children: SmallVec<[Weak<RefCell<Env>>; 4]>,
     // children: HashSet<Weak<RefCell<Env>
     // heap: Vec<Rc<RefCell<Env>>>,
@@ -245,6 +246,7 @@ impl Env {
             offset,
             parent: Some(Rc::clone(&parent)),
             sub_expression: None,
+            weak_count: 0,
             children: SmallVec::new(),
             // children: HashSet::new(),
             is_binding_context: false,
@@ -326,6 +328,7 @@ impl Env {
             offset,
             parent: None,
             sub_expression: Some(sub_expression),
+            weak_count: 0,
             children: SmallVec::new(),
             // children: HashSet::new(),
             is_binding_context: false,
@@ -364,15 +367,27 @@ impl Env {
         self.children.pop();
     }
 
+    pub fn increment_weak_count(&mut self) {
+        self.weak_count += 1;
+    }
+
     // TODO
     // HACK
     // Just figure out something better than this but at least it solves
     // the problem
     pub fn add_child(&mut self, child: Weak<RefCell<Env>>) {
-        println!("----------------------------------------");
+        // println!("----------------------------------------");
         println!(
             "current weak count list length before purging: {}",
             self.children.len()
+        );
+
+        println!(
+            "weak count list before: {:?}",
+            self.children
+                .iter()
+                .map(Weak::weak_count)
+                .collect::<Vec<_>>()
         );
 
         // Drop any old children before adding the new one
@@ -396,9 +411,9 @@ impl Env {
 
         // self.children.retain(|x| Weak::strong_count(x) > 1);
 
-        if self.children.len() > 3 {
+        if self.children.len() > 8 {
             // Drop any old children before adding the new one
-            println!("Retaining here...");
+            // println!("Retaining here...");
             // values of 0 can 100% be dropped, but large refs should also be dropped
             self.children.retain(|x| Weak::weak_count(x) > 0);
             // self.children.retain(|x| Weak::weak_count(x) < 3);
@@ -421,10 +436,10 @@ impl Env {
         // Drop any old children before adding the new one
         // self.children.retain(|x| Weak::weak_count(x) > 0);
 
-        println!(
-            "Weak count of child being added: {:?}",
-            Weak::weak_count(&child)
-        );
+        // println!(
+        //     "Weak count of child being added: {:?}",
+        //     Weak::weak_count(&child)
+        // );
 
         // Go ahead and check if it the vector contains any of the same allocation already
         // if !self.children.iter().any(|x| Weak::ptr_eq(x, &child)) {
@@ -442,13 +457,13 @@ impl Env {
             "current weak count list length after purging: {}",
             self.children.len()
         );
-        // println!(
-        //     "weak count list: {:?}",
-        //     self.children
-        //         .iter()
-        //         .map(Weak::weak_count)
-        //         .collect::<Vec<_>>()
-        // );
+        println!(
+            "weak count list: {:?}",
+            self.children
+                .iter()
+                .map(Weak::weak_count)
+                .collect::<Vec<_>>()
+        );
         println!("----------------------------------------")
 
         // Adding weak refs to the
@@ -478,6 +493,7 @@ impl Env {
             offset: 0,
             parent: None,
             sub_expression: None,
+            weak_count: 0,
             children: SmallVec::new(),
             is_binding_context: false,
             is_binding_offset: false,

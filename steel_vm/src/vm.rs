@@ -716,7 +716,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // set the number of definitions for the environment
         // capture_env.borrow_mut().set_ndefs(ndefs as usize);
 
-        println!("Adding the capture_env to the heap!");
+        // println!("Adding the capture_env to the heap!");
         self.heap.add(Rc::clone(&capture_env));
         // inspect_heap(&heap);
         let constructed_lambda = ByteCodeLambda::new(
@@ -915,6 +915,21 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     stop!(Generic => "stack overflowed!"; *span);
                 }
 
+                println!("heap length: {}", self.heap.len());
+
+                println!("##################### Env Stack ######################");
+                for env in self.env_stack.as_slice() {
+                    println!(
+                        "Env stack children: {:?}",
+                        env.borrow()
+                            .children()
+                            .iter()
+                            .map(std::rc::Weak::weak_count)
+                            .collect::<Vec<_>>()
+                    );
+                }
+                println!("####################################################");
+
                 // Use smallvec here?
                 let args = self.stack.split_off(self.stack.len() - payload_size);
 
@@ -930,11 +945,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 )));
 
                 // add this closure to the list of children
-                println!("############ Adding child in handle function call ##########");
-                println!(
-                    "defining context: {}",
-                    parent_env.upgrade().unwrap().borrow().is_binding_context()
-                );
                 // println!("instructions: ");
                 // pretty_print_dense_instructions(&self.instructions);
                 // println!("Environment is root: {}")
