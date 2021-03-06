@@ -8,7 +8,7 @@ use steel::{
 };
 
 use std::collections::HashMap;
-pub(crate) static HEAP_LIMIT: usize = 5000;
+pub(crate) static HEAP_LIMIT: usize = 500;
 
 use log::debug;
 
@@ -64,40 +64,53 @@ impl Heap {
         self.heap.clear()
     }
 
-    // fn root(&self) -> &Option<Weak<RefCell<Env>>> {
-    //     &self.root
-    // }
+    fn root(&self) -> &Option<Weak<RefCell<Env>>> {
+        &self.root
+    }
 
     pub fn limit(&self) -> usize {
         self.limit
     }
 
-    // fn walk(&mut self, node: &Weak<RefCell<Env>>) {
-    //     // let reachable = p_env.borrow().is_reachable();
-    //     if let Some(upgraded) = node.upgrade() {
-    //         let reachable = upgraded.borrow().is_reachable();
-    //         if !reachable {
-    //             self.add(Rc::clone(&upgraded));
-    //             println!("Adding an env by walking from the root");
-    //             for child in upgraded.borrow().children() {
-    //                 self.walk(child)
-    //             }
-    //         }
-    //     }
-    // }
+    fn walk(&mut self, node: &Weak<RefCell<Env>>) {
+        // let reachable = p_env.borrow().is_reachable();
+        if let Some(upgraded) = node.upgrade() {
+            let reachable = upgraded.borrow().is_reachable();
+            if !reachable {
+                self.add(Rc::clone(&upgraded));
+                println!("Adding an env by walking from the root");
+                for child in upgraded.borrow().children() {
+                    self.walk(child)
+                }
+            }
+        }
+    }
 
     // Should be infallible
-    // pub fn gather_and_mark_from_global_root(&mut self) {
-    //     let mut heap = Heap::new();
+    pub fn gather_and_mark_from_global_root(&mut self) {
+        let mut heap = Heap::new();
 
-    //     if let Some(root) = self.root() {
-    //         for child in root.upgrade().unwrap().borrow().children() {
-    //             heap.walk(child)
-    //         }
-    //     }
+        if let Some(root) = self.root() {
+            for child in root.upgrade().unwrap().borrow().children() {
+                heap.walk(child)
+            }
+        }
 
-    //     heap.mark();
-    // }
+        println!(
+            "//////////// heap length before global root traversal: {}",
+            self.len()
+        );
+
+        heap.mark();
+        heap.clear();
+        // heap.sweep();
+        self.sweep();
+
+        println!(
+            "//////////// heap length after global root traversal: {}",
+            self.len()
+        );
+    }
 
     pub fn inspect_heap(&self) {
         println!("heap length: {}", self.heap.len());
@@ -135,6 +148,7 @@ impl Heap {
 
     pub fn collect_garbage(&mut self) {
         if self.len() > self.limit {
+            std::thread::sleep(std::time::Duration::new(3, 0));
             debug!(
                 "Before mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
                 self.len(),
@@ -145,6 +159,11 @@ impl Heap {
             if self.current_double < self.max_double {
                 self.limit *= 2;
                 self.current_double += 1;
+            } else {
+                println!("******************************************************");
+                println!("******************* RESET ****************************");
+                println!("******************************************************");
+                self.limit = self.limit / self.max_double;
             }
             self.profile_heap();
 
@@ -155,6 +174,7 @@ impl Heap {
             );
 
             debug!("Heap limit doubled to: {}", self.limit);
+            std::thread::sleep(std::time::Duration::new(3, 0));
         }
     }
 

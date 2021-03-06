@@ -446,12 +446,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         let prev_state = self.instruction_stack.pop().unwrap();
 
                         if !prev_state.instrs_ref().is_empty() {
-                            println!("not empty case");
+                            // println!("not empty case");
                             self.global_env = self.env_stack.pop().unwrap();
                             self.ip = prev_state.0;
                             self.instructions = prev_state.instrs();
                         } else {
-                            println!("################## empty case ##################");
+                            // println!("################## empty case ##################");
                             self.ip += 1;
                         }
 
@@ -931,8 +931,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 // add this closure to the list of children
                 println!("############ Adding child in handle function call ##########");
-                println!("instructions: ");
-                pretty_print_dense_instructions(&self.instructions);
+                println!(
+                    "defining context: {}",
+                    parent_env.upgrade().unwrap().borrow().is_binding_context()
+                );
+                // println!("instructions: ");
+                // pretty_print_dense_instructions(&self.instructions);
                 // println!("Environment is root: {}")
 
                 // if parent_env.upgrade().unwrap().borrow().is_binding_context() {
@@ -979,6 +983,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.stacks.push(stack);
                 self.instructions = closure.body_exp();
                 self.ip = 0;
+
+                // Throw this in for now??????
+                // self.heap.gather_and_mark_from_global_root();
 
                 // TODO idk maybe remove stuff?
                 // self.heap.collect_garbage();

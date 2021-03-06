@@ -128,14 +128,14 @@ fn main() {
 
     let mut builder = Builder::new();
 
-    // builder
-    //     .filter(Some("steel_vm"), LevelFilter::Trace)
-    //     // .filter(Some("steel_vm"), LevelFilter::Trace)
-    //     // .filter(None, LevelFilter::Error)
-    //     // .filter(None, LevelFilter::Warn)
-    //     // .filter(None, LevelFilter)
-    //     // .write_style(WriteStyle::Always)
-    //     .init();
+    builder
+        .filter(Some("steel_vm"), LevelFilter::Trace)
+        // .filter(Some("steel_vm"), LevelFilter::Trace)
+        // .filter(None, LevelFilter::Error)
+        // .filter(None, LevelFilter::Warn)
+        // .filter(None, LevelFilter)
+        // .write_style(WriteStyle::Always)
+        .init();
 
     let args = args().collect::<Vec<_>>();
 

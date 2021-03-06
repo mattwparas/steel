@@ -442,13 +442,13 @@ impl Env {
             "current weak count list length after purging: {}",
             self.children.len()
         );
-        println!(
-            "weak count list: {:?}",
-            self.children
-                .iter()
-                .map(Weak::weak_count)
-                .collect::<Vec<_>>()
-        );
+        // println!(
+        //     "weak count list: {:?}",
+        //     self.children
+        //         .iter()
+        //         .map(Weak::weak_count)
+        //         .collect::<Vec<_>>()
+        // );
         println!("----------------------------------------")
 
         // Adding weak refs to the
@@ -465,9 +465,9 @@ impl Env {
         // }
     }
 
-    // pub fn children(&self) -> &[Weak<RefCell<Env>>] {
-    //     &self.children
-    // }
+    pub fn children(&self) -> &[Weak<RefCell<Env>>] {
+        &self.children
+    }
 
     /// top level global env has no parent
     pub fn root() -> Self {
