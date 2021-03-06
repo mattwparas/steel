@@ -196,6 +196,7 @@ pub struct Env {
     parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
     children: SmallVec<[Weak<RefCell<Env>>; 4]>,
+    // children: HashSet<Weak<RefCell<Env>
     // heap: Vec<Rc<RefCell<Env>>>,
     is_binding_context: bool,
     is_binding_offset: bool,
@@ -245,6 +246,7 @@ impl Env {
             parent: Some(Rc::clone(&parent)),
             sub_expression: None,
             children: SmallVec::new(),
+            // children: HashSet::new(),
             is_binding_context: false,
             is_binding_offset: false,
             // module: Vec::new(),
@@ -325,6 +327,7 @@ impl Env {
             parent: None,
             sub_expression: Some(sub_expression),
             children: SmallVec::new(),
+            // children: HashSet::new(),
             is_binding_context: false,
             is_binding_offset: false,
             // module: Vec::new(),
@@ -357,16 +360,101 @@ impl Env {
         self.parent.is_none() && self.sub_expression.is_none()
     }
 
+    pub fn pop_child(&mut self) {
+        self.children.pop();
+    }
+
     // TODO
     // HACK
     // Just figure out something better than this but at least it solves
     // the problem
     pub fn add_child(&mut self, child: Weak<RefCell<Env>>) {
-        self.children.push(child);
+        println!("----------------------------------------");
+        println!(
+            "current weak count list length before purging: {}",
+            self.children.len()
+        );
+
+        // Drop any old children before adding the new one
+        // self.children.retain(|x| Weak::weak_count(x) > 0);
+
+        // Try to go backards rather than forwards to reduce the amount of values purged
+        // This depth is going to be large regardless, minimize the amount of iteration we have to do
+        loop {
+            let last = self.children.last();
+            if let Some(last) = last {
+                let count = Weak::weak_count(last);
+                if count == 0 {
+                    self.children.pop();
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        // self.children.retain(|x| Weak::strong_count(x) > 1);
 
         if self.children.len() > 3 {
+            // Drop any old children before adding the new one
+            println!("Retaining here...");
+            // values of 0 can 100% be dropped, but large refs should also be dropped
             self.children.retain(|x| Weak::weak_count(x) > 0);
+            // self.children.retain(|x| Weak::weak_count(x) < 3);
         }
+
+        // loop {
+        //     let last = self.children.last();
+        //     if let Some(last) = last {
+        //         let count = Weak::weak_count(last);
+        //         if count > 1 {
+        //             self.children.pop();
+        //         } else {
+        //             break;
+        //         }
+        //     } else {
+        //         break;
+        //     }
+        // }
+
+        // Drop any old children before adding the new one
+        // self.children.retain(|x| Weak::weak_count(x) > 0);
+
+        println!(
+            "Weak count of child being added: {:?}",
+            Weak::weak_count(&child)
+        );
+
+        // Go ahead and check if it the vector contains any of the same allocation already
+        // if !self.children.iter().any(|x| Weak::ptr_eq(x, &child)) {
+        //     self.children.push(child);
+        // }
+
+        self.children.push(child);
+
+        // self.children.push(child);
+
+        // Drop any old children
+        // self.children.retain(|x| Weak::weak_count(x) > 0);
+
+        println!(
+            "current weak count list length after purging: {}",
+            self.children.len()
+        );
+        println!(
+            "weak count list: {:?}",
+            self.children
+                .iter()
+                .map(Weak::weak_count)
+                .collect::<Vec<_>>()
+        );
+        println!("----------------------------------------")
+
+        // Adding weak refs to the
+        // if self.children.len() > 3 {
+        //     self.children.retain(|x| Weak::weak_count(x) > 0);
+        // }
 
         // TODO kinda bad but makes sure the children don't grow unbounded
         // Fixes the memory leak problem but makes other problems for performance

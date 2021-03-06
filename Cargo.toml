@@ -23,3 +23,7 @@ members = [
     "steel_repl",
     "steel_vm"
 ]
+
+[profile.release]
+debug = true
+

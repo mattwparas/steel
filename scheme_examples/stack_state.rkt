@@ -69,6 +69,12 @@
   (main)
   (foo x))
 
+(define (foo2)
+  (bar2))
+
+(define (bar2)
+  (foo2))
+
 (define (test-2)
   (define (foo) (main) (bar))
   (define (bar) (main) (foo))

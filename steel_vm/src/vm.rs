@@ -2,7 +2,10 @@ use crate::stack::{CallStack, EnvStack, Stack, StackFrame};
 use crate::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
 use steel::{
     contracts::ContractedFunction,
-    core::{instructions::DenseInstruction, opcode::OpCode},
+    core::{
+        instructions::{pretty_print_dense_instructions, DenseInstruction},
+        opcode::OpCode,
+    },
     rvals::FutureResult,
     steel_compiler::{
         constants::{ConstantMap, ConstantTable},
@@ -443,15 +446,24 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         let prev_state = self.instruction_stack.pop().unwrap();
 
                         if !prev_state.instrs_ref().is_empty() {
+                            println!("not empty case");
                             self.global_env = self.env_stack.pop().unwrap();
                             self.ip = prev_state.0;
                             self.instructions = prev_state.instrs();
                         } else {
+                            println!("################## empty case ##################");
                             self.ip += 1;
                         }
 
+                        // Idk maybe?
+                        // self.global_env.borrow_mut().pop_child();
+
+                        // println!("inside here");
+
                         self.stack = self.stacks.pop().unwrap();
                         self.stack.push(ret_val);
+
+                        // println!("stack length: {}", self.stack.len());
                     }
                 }
                 OpCode::BIND => self.handle_bind(cur_inst.payload_size as usize),
@@ -704,7 +716,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // set the number of definitions for the environment
         // capture_env.borrow_mut().set_ndefs(ndefs as usize);
 
-        // println!("Adding the capture_env to the heap!");
+        println!("Adding the capture_env to the heap!");
         self.heap.add(Rc::clone(&capture_env));
         // inspect_heap(&heap);
         let constructed_lambda = ByteCodeLambda::new(
@@ -774,11 +786,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     offset,
                 )));
 
-                parent_env
-                    .upgrade()
-                    .unwrap()
-                    .borrow_mut()
-                    .add_child(Rc::downgrade(&inner_env));
+                // TODO perhaps don't add a child here
+                // parent_env
+                //     .upgrade()
+                //     .unwrap()
+                //     .borrow_mut()
+                //     .add_child(Rc::downgrade(&inner_env));
 
                 // TODO future me to figure out with offsets
                 inner_env
@@ -917,11 +930,24 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 )));
 
                 // add this closure to the list of children
+                println!("############ Adding child in handle function call ##########");
+                println!("instructions: ");
+                pretty_print_dense_instructions(&self.instructions);
+                // println!("Environment is root: {}")
+
+                // if parent_env.upgrade().unwrap().borrow().is_binding_context() {
                 parent_env
                     .upgrade()
                     .unwrap()
                     .borrow_mut()
                     .add_child(Rc::downgrade(&inner_env));
+                // }
+
+                // parent_env
+                //     .upgrade()
+                //     .unwrap()
+                //     .borrow_mut()
+                //     .add_child(Rc::downgrade(&inner_env));
 
                 // TODO future me figure out offsets
                 inner_env
@@ -931,6 +957,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     } else {
                         0
                     });
+
+                // self.heap
+                //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+                // self.heap.collect_garbage();
 
                 // let result =
                 // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
@@ -949,6 +979,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.stacks.push(stack);
                 self.instructions = closure.body_exp();
                 self.ip = 0;
+
+                // TODO idk maybe remove stuff?
+                // self.heap.collect_garbage();
             }
             _ => {
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);
