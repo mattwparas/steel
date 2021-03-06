@@ -128,9 +128,7 @@ fn main() {
 
     let mut builder = Builder::new();
 
-    // builder
-    //     .filter(Some("steel_vm"), LevelFilter::Trace)
-    //     .init();
+    // builder.filter(Some("steel_vm"), LevelFilter::Trace).init();
 
     let args = args().collect::<Vec<_>>();
 

@@ -147,10 +147,10 @@ impl Heap {
     }
 
     pub fn collect_garbage(&mut self) {
-        println!("Calling garbage collection");
+        // println!("Calling garbage collection");
 
         if self.len() > self.limit {
-            std::thread::sleep(std::time::Duration::new(3, 0));
+            // std::thread::sleep(std::time::Duration::new(3, 0));
             debug!(
                 "Before mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
                 self.len(),
@@ -162,13 +162,13 @@ impl Heap {
                 self.limit *= 2;
                 self.current_double += 1;
             } else {
-                std::thread::sleep(std::time::Duration::new(3, 0));
-                println!("******************************************************");
-                println!("******************* RESET ****************************");
-                println!("******************************************************");
+                // std::thread::sleep(std::time::Duration::new(3, 0));
+                // println!("******************************************************");
+                // println!("******************* RESET ****************************");
+                // println!("******************************************************");
                 self.limit = HEAP_LIMIT;
                 self.current_double = 0;
-                std::thread::sleep(std::time::Duration::new(3, 0));
+                // std::thread::sleep(std::time::Duration::new(3, 0));
             }
             self.profile_heap();
 
@@ -178,8 +178,8 @@ impl Heap {
                 OBJECT_COUNT
             );
 
-            debug!("Heap limit doubled to: {}", self.limit);
-            std::thread::sleep(std::time::Duration::new(3, 0));
+            debug!("Heap limit set to: {}", self.limit);
+            // std::thread::sleep(std::time::Duration::new(3, 0));
         }
     }
 
@@ -201,7 +201,8 @@ impl Heap {
         // self.heap
         //     .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) > 1);
 
-        self.heap.retain(|x| Rc::weak_count(x) > 1);
+        self.heap
+            .retain(|x| (Rc::weak_count(x) + x.borrow().weak_count()) > 1);
         // Drop the heap size back down to conserve memory
         self.heap.shrink_to_fit();
 
@@ -263,9 +264,23 @@ impl Heap {
     }
 
     pub fn sweep(&mut self) {
-        &self
-            .heap
-            .retain(|x| x.borrow().is_reachable() || Rc::weak_count(x) > 1);
+        // std::thread::sleep(std::time::Duration::new(5, 0));
+        // println!(
+        //     "env currently at sweep: {:?}",
+        //     self.heap
+        //         .iter()
+        //         .map(|x| (
+        //             x.borrow().is_reachable(),
+        //             Rc::weak_count(x),
+        //             x.borrow().weak_count()
+        //         ))
+        //         .collect::<Vec<_>>()
+        // );
+        // std::thread::sleep(std::time::Duration::new(5, 0));
+
+        &self.heap.retain(|x| {
+            x.borrow().is_reachable() || (Rc::weak_count(x) + x.borrow().weak_count()) > 1
+        });
         // .retain(|x| x.borrow().is_reachable());
     }
 
@@ -299,6 +314,9 @@ impl Heap {
     }
 
     pub fn gather_mark_and_sweep_2(&mut self, leaf1: &Rc<RefCell<Env>>, leaf2: &Rc<RefCell<Env>>) {
+        // println!(
+        //     "!!!!!!!!!!! ############# gather, mark and sweep ############### !!!!!!!!!!!!!!!"
+        // );
         Self::gather_and_mark_2(leaf1, leaf2);
         self.sweep();
         // self.add(Rc::clone(leaf1));

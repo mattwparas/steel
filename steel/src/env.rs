@@ -371,6 +371,10 @@ impl Env {
         self.weak_count += 1;
     }
 
+    pub fn weak_count(&self) -> usize {
+        self.weak_count
+    }
+
     // TODO
     // HACK
     // Just figure out something better than this but at least it solves

@@ -915,20 +915,20 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     stop!(Generic => "stack overflowed!"; *span);
                 }
 
-                println!("heap length: {}", self.heap.len());
+                // println!("heap length: {}", self.heap.len());
 
-                println!("##################### Env Stack ######################");
-                for env in self.env_stack.as_slice() {
-                    println!(
-                        "Env stack children: {:?}",
-                        env.borrow()
-                            .children()
-                            .iter()
-                            .map(std::rc::Weak::weak_count)
-                            .collect::<Vec<_>>()
-                    );
-                }
-                println!("####################################################");
+                // println!("##################### Env Stack ######################");
+                // for env in self.env_stack.as_slice() {
+                //     println!(
+                //         "Env stack children: {:?}",
+                //         env.borrow()
+                //             .children()
+                //             .iter()
+                //             .map(std::rc::Weak::weak_count)
+                //             .collect::<Vec<_>>()
+                //     );
+                // }
+                // println!("####################################################");
 
                 // Use smallvec here?
                 let args = self.stack.split_off(self.stack.len() - payload_size);
@@ -944,18 +944,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     offset,
                 )));
 
-                // add this closure to the list of children
-                // println!("instructions: ");
-                // pretty_print_dense_instructions(&self.instructions);
-                // println!("Environment is root: {}")
+                inner_env.borrow_mut().increment_weak_count();
 
-                // if parent_env.upgrade().unwrap().borrow().is_binding_context() {
-                parent_env
-                    .upgrade()
-                    .unwrap()
-                    .borrow_mut()
-                    .add_child(Rc::downgrade(&inner_env));
-                // }
+                // Adds a pointer from parent -> child
+                // weak reference taken by downgrading the strong reference on inner env
 
                 // parent_env
                 //     .upgrade()
