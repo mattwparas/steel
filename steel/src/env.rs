@@ -364,6 +364,28 @@ impl Env {
         }
     }
 
+    pub fn new_subexpression_with_capacity_without_offset(
+        sub_expression: Weak<RefCell<Self>>,
+    ) -> Self {
+        Env {
+            // bindings: HashMap::new(),
+            bindings_vec: Vec::new(),
+            // bindings_map: HashMap::with_capacity_and_hasher(capacity, RandomState::new()),
+            bindings_map: BTreeMap::default(),
+            offset: 0,
+            // parent: None,
+            sub_expression: Some(sub_expression),
+            // weak_count: 0,
+            // children: SmallVec::new(),
+            // children: HashSet::new(),
+            is_binding_context: false,
+            is_binding_offset: false,
+            // module: Vec::new(),
+            // ndefs: 0,
+            reachable: false,
+        }
+    }
+
     // pub fn set_ndefs(&mut self, ndefs: usize) {
     //     self.ndefs = ndefs
     // }

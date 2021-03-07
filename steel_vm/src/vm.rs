@@ -665,13 +665,17 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // awful awful awful hack to fix the repl environment noise
         // cur_inst.payload_size as usize
 
-        if self.repl {
-            let value = self.global_env.borrow().repl_lookup_idx(index)?;
-            self.stack.push(value);
-        } else {
-            let value = self.global_env.borrow().lookup_idx(index)?;
-            self.stack.push(value);
-        }
+        let value = self.global_env.borrow().repl_lookup_idx(index)?;
+        self.stack.push(value);
+
+        // TODO handle the offset situation
+        // if self.repl {
+        //     let value = self.global_env.borrow().repl_lookup_idx(index)?;
+        //     self.stack.push(value);
+        // } else {
+        //     let value = self.global_env.borrow().lookup_idx(index)?;
+        //     self.stack.push(value);
+        // }
 
         self.ip += 1;
         Ok(())
@@ -727,17 +731,22 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_bind(&mut self, payload_size: usize) {
-        if self.repl {
-            self.global_env
-                .borrow_mut()
-                .repl_define_idx(payload_size, self.stack.pop().unwrap());
-        } else {
-            let offset = self.global_env.borrow().local_offset();
+        self.global_env
+            .borrow_mut()
+            .repl_define_idx(payload_size, self.stack.pop().unwrap());
 
-            self.global_env
-                .borrow_mut()
-                .define_idx(payload_size - offset, self.stack.pop().unwrap());
-        }
+        // TODO handle the offset situation
+        // if self.repl {
+        //     self.global_env
+        //         .borrow_mut()
+        //         .repl_define_idx(payload_size, self.stack.pop().unwrap());
+        // } else {
+        //     let offset = self.global_env.borrow().local_offset();
+
+        //     self.global_env
+        //         .borrow_mut()
+        //         .define_idx(payload_size - offset, self.stack.pop().unwrap());
+        // }
 
         self.ip += 1;
     }
@@ -910,18 +919,18 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 let parent_env = closure.sub_expression_env();
 
                 // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+                // TODO see if this offset is even necessary
+                // let offset =
+                //     closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
                 // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
                 //     parent_env.clone(),
                 //     offset,
                 // )));
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression_with_capacity(
-                    parent_env.clone(),
-                    offset,
-                )));
+                let inner_env = Rc::new(RefCell::new(
+                    Env::new_subexpression_with_capacity_without_offset(parent_env.clone()),
+                ));
 
                 // inner_env.borrow_mut().increment_weak_count();
 
@@ -1027,13 +1036,16 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 let parent_env = closure.sub_expression_env();
 
                 // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+                // TODO figure out the offset business
+                // let offset =
+                //     closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                    parent_env.clone(),
-                    offset,
-                )));
+                let inner_env = Rc::new(RefCell::new(
+                    Env::new_subexpression_with_capacity_without_offset(
+                        parent_env.clone(),
+                        // offset,
+                    ),
+                ));
 
                 // add this closure to the list of children
                 // parent_env
@@ -1045,13 +1057,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // inner_env.borrow_mut().increment_weak_count();
 
                 // TODO future me figure out offsets
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+                // More offset nonsense
+                // inner_env
+                //     .borrow_mut()
+                //     .reserve_defs(if closure.ndef_body() > 0 {
+                //         closure.ndef_body() - 1
+                //     } else {
+                //         0
+                //     });
 
                 // let result =
                 // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
