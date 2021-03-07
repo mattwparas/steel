@@ -318,6 +318,7 @@ impl Heap {
         // println!(
         //     "!!!!!!!!!!! ############# gather, mark and sweep ############### !!!!!!!!!!!!!!!"
         // );
+        debug!("Running mark and sweep");
         Self::gather_and_mark_2(leaf1, leaf2);
         self.sweep();
         // self.add(Rc::clone(leaf1));
