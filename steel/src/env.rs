@@ -20,7 +20,6 @@ use std::{
 };
 
 use ahash::RandomState;
-use smallvec::SmallVec;
 
 // use crate::rvals::FutureResult;
 

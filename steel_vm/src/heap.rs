@@ -64,9 +64,9 @@ impl Heap {
         self.heap.clear()
     }
 
-    fn root(&self) -> &Option<Weak<RefCell<Env>>> {
-        &self.root
-    }
+    // fn root(&self) -> &Option<Weak<RefCell<Env>>> {
+    //     &self.root
+    // }
 
     pub fn limit(&self) -> usize {
         self.limit

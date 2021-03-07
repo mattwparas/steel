@@ -2,10 +2,7 @@ use crate::stack::{CallStack, EnvStack, Stack, StackFrame};
 use crate::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
 use steel::{
     contracts::ContractedFunction,
-    core::{
-        instructions::{pretty_print_dense_instructions, DenseInstruction},
-        opcode::OpCode,
-    },
+    core::{instructions::DenseInstruction, opcode::OpCode},
     rvals::FutureResult,
     steel_compiler::{
         constants::{ConstantMap, ConstantTable},
@@ -668,11 +665,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // awful awful awful hack to fix the repl environment noise
         // cur_inst.payload_size as usize
 
-        // println!("pushing");
-
-        // let value = self.global_env.borrow().repl_lookup_idx(index)?;
-        // self.stack.push(value);
-
         if self.repl {
             let value = self.global_env.borrow().repl_lookup_idx(index)?;
             self.stack.push(value);
@@ -756,9 +748,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {
-            // StructClosureV(sc) => {
-            //     self.call_struct_func(&sc.factory, &sc.func, payload_size, span)?
-            // }
             BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size),
@@ -794,13 +783,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 //     .add_child(Rc::downgrade(&inner_env));
 
                 // TODO future me to figure out with offsets
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+                // inner_env
+                //     .borrow_mut()
+                //     .reserve_defs(if closure.ndef_body() > 0 {
+                //         closure.ndef_body() - 1
+                //     } else {
+                //         0
+                //     });
 
                 self.heap
                     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
