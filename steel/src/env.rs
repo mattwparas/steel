@@ -193,7 +193,7 @@ pub struct Env {
     // bindings_map: HashMap<usize, SteelVal, RandomState>,
     bindings_map: BTreeMap<usize, SteelVal>,
     offset: usize,
-    parent: Option<Rc<RefCell<Env>>>,
+    // parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
     // weak_count: usize,
     // children: SmallVec<[Weak<RefCell<Env>>; 4]>,
@@ -245,7 +245,7 @@ impl Env {
             // bindings_map: HashMap::default(),
             bindings_map: BTreeMap::default(),
             offset,
-            parent: Some(Rc::clone(&parent)),
+            // parent: Some(Rc::clone(&parent)),
             sub_expression: None,
             // weak_count: 0,
             // children: SmallVec::new(),
@@ -296,24 +296,24 @@ impl Env {
     //     }
     // }
 
-    pub fn offset(&self) -> usize {
-        // let parent_offset =
+    // pub fn offset(&self) -> usize {
+    //     // let parent_offset =
 
-        let parent_offset = if let Some(p) = &self.parent {
-            println!("Getting here!");
-            p.borrow().local_offset()
-        } else if let Some(p) = &self.sub_expression {
-            // println!("---------Inside this one----------");
-            p.upgrade().unwrap().borrow().offset()
-        } else {
-            println!("else case");
-            0
-        };
+    //     let parent_offset = if let Some(p) = &self.parent {
+    //         println!("Getting here!");
+    //         p.borrow().local_offset()
+    //     } else if let Some(p) = &self.sub_expression {
+    //         // println!("---------Inside this one----------");
+    //         p.upgrade().unwrap().borrow().offset()
+    //     } else {
+    //         println!("else case");
+    //         0
+    //     };
 
-        println!("Parent offset: {}", parent_offset);
+    //     println!("Parent offset: {}", parent_offset);
 
-        self.offset + parent_offset
-    }
+    //     self.offset + parent_offset
+    // }
 
     // pub fn parent_ndef(&self) -> usize {
     //     if let Some(p) = &self.parent {
@@ -328,7 +328,7 @@ impl Env {
             // bindings_map: HashMap::default(),
             bindings_map: BTreeMap::default(),
             offset,
-            parent: None,
+            // parent: None,
             sub_expression: Some(sub_expression),
             // weak_count: 0,
             // children: SmallVec::new(),
@@ -344,7 +344,6 @@ impl Env {
     pub fn new_subexpression_with_capacity(
         sub_expression: Weak<RefCell<Self>>,
         offset: usize,
-        capacity: usize,
     ) -> Self {
         Env {
             // bindings: HashMap::new(),
@@ -352,7 +351,7 @@ impl Env {
             // bindings_map: HashMap::with_capacity_and_hasher(capacity, RandomState::new()),
             bindings_map: BTreeMap::default(),
             offset,
-            parent: None,
+            // parent: None,
             sub_expression: Some(sub_expression),
             // weak_count: 0,
             // children: SmallVec::new(),
@@ -386,7 +385,7 @@ impl Env {
     }
 
     pub fn is_root(&self) -> bool {
-        self.parent.is_none() && self.sub_expression.is_none()
+        self.sub_expression.is_none()
     }
 
     // pub fn pop_child(&mut self) {
@@ -522,7 +521,7 @@ impl Env {
             // bindings_map: HashMap::default(),
             bindings_map: BTreeMap::default(),
             offset: 0,
-            parent: None,
+            // parent: None,
             sub_expression: None,
             // weak_count: 0,
             // children: SmallVec::new(),
@@ -534,9 +533,9 @@ impl Env {
         }
     }
 
-    pub fn parent(&self) -> &Option<Rc<RefCell<Env>>> {
-        &self.parent
-    }
+    // pub fn parent(&self) -> &Option<Rc<RefCell<Env>>> {
+    //     &self.parent
+    // }
 
     // pub fn get_modules(&self) -> &[AST] {
     //     &self.module
@@ -746,35 +745,52 @@ impl Env {
             //     }
             // }
 
-            if self.parent.is_some() {
-                match &self.parent {
-                    Some(par) => par.borrow().repl_lookup_idx(idx),
+            match &self.sub_expression {
+                Some(par) => match par.upgrade() {
+                    Some(x) => x.borrow().repl_lookup_idx(idx),
                     None => {
-                        println!(
-                            "Keys at lookup: {:?}",
-                            self.bindings_map.keys().collect::<Vec<&usize>>()
-                        );
-                        stop!(FreeIdentifier => idx); // Err(SteelErr::FreeIdentifier(name.to_string())),
+                        println!("Bindings at quit: {:?}", self.bindings_map());
+                        stop!(Generic => "Parent subexpression was dropped looking for {} repl_lookup_idx", idx)
                     }
-                }
-            } else {
-                match &self.sub_expression {
-                    Some(par) => match par.upgrade() {
-                        Some(x) => x.borrow().repl_lookup_idx(idx),
-                        None => {
-                            println!("Bindings at quit: {:?}", self.bindings_map());
-                            stop!(Generic => "Parent subexpression was dropped looking for {} repl_lookup_idx", idx)
-                        }
-                    },
-                    None => {
-                        println!(
-                            "Keys at lookup: {:?}",
-                            self.bindings_map.keys().collect::<Vec<&usize>>()
-                        );
-                        stop!(FreeIdentifier => idx);
-                    }
+                },
+                None => {
+                    println!(
+                        "Keys at lookup: {:?}",
+                        self.bindings_map.keys().collect::<Vec<&usize>>()
+                    );
+                    stop!(FreeIdentifier => idx);
                 }
             }
+
+            // if self.parent.is_some() {
+            //     match &self.parent {
+            //         Some(par) => par.borrow().repl_lookup_idx(idx),
+            //         None => {
+            //             println!(
+            //                 "Keys at lookup: {:?}",
+            //                 self.bindings_map.keys().collect::<Vec<&usize>>()
+            //             );
+            //             stop!(FreeIdentifier => idx); // Err(SteelErr::FreeIdentifier(name.to_string())),
+            //         }
+            //     }
+            // } else {
+            //     match &self.sub_expression {
+            //         Some(par) => match par.upgrade() {
+            //             Some(x) => x.borrow().repl_lookup_idx(idx),
+            //             None => {
+            //                 println!("Bindings at quit: {:?}", self.bindings_map());
+            //                 stop!(Generic => "Parent subexpression was dropped looking for {} repl_lookup_idx", idx)
+            //             }
+            //         },
+            //         None => {
+            //             println!(
+            //                 "Keys at lookup: {:?}",
+            //                 self.bindings_map.keys().collect::<Vec<&usize>>()
+            //             );
+            //             stop!(FreeIdentifier => idx);
+            //         }
+            //     }
+            // }
         }
     }
 
@@ -849,24 +865,34 @@ impl Env {
             //     }
             // }
 
-            if self.parent.is_some() {
-                match &self.parent {
-                    Some(par) => par.borrow().lookup_idx(idx),
+            match &self.sub_expression {
+                Some(par) => match par.upgrade() {
+                    Some(x) => x.borrow().lookup_idx(idx),
                     None => {
-                        stop!(FreeIdentifier => idx); // Err(SteelErr::FreeIdentifier(name.to_string())),
+                        stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
                     }
-                }
-            } else {
-                match &self.sub_expression {
-                    Some(par) => match par.upgrade() {
-                        Some(x) => x.borrow().lookup_idx(idx),
-                        None => {
-                            stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
-                        }
-                    },
-                    None => stop!(FreeIdentifier => idx),
-                }
+                },
+                None => stop!(FreeIdentifier => idx),
             }
+
+            // if self.parent.is_some() {
+            //     match &self.parent {
+            //         Some(par) => par.borrow().lookup_idx(idx),
+            //         None => {
+            //             stop!(FreeIdentifier => idx); // Err(SteelErr::FreeIdentifier(name.to_string())),
+            //         }
+            //     }
+            // } else {
+            //     match &self.sub_expression {
+            //         Some(par) => match par.upgrade() {
+            //             Some(x) => x.borrow().lookup_idx(idx),
+            //             None => {
+            //                 stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
+            //             }
+            //         },
+            //         None => stop!(FreeIdentifier => idx),
+            //     }
+            // }
         }
     }
 

@@ -227,6 +227,29 @@ fn fib_28(c: &mut Criterion) {
     });
 }
 
+// This will include the definition inside the bench
+// just to match against the Rhai benchmarks
+fn fib_20(c: &mut Criterion) {
+    let mut vm = Engine::new();
+    // interpreter.require(PRELUDE).unwrap();
+    // require the trie sort library
+    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
+
+    let script = "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))) (fib 20)";
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+
+    let definition = Rc::from(program.instructions[0].clone().into_boxed_slice());
+    let bytecode = Rc::from(program.instructions[1].clone().into_boxed_slice());
+
+    c.bench_function("fib-20", |b| {
+        b.iter(|| {
+            vm.execute(Rc::clone(&definition), &constant_map).unwrap();
+            vm.execute(Rc::clone(&bytecode), &constant_map)
+        })
+    });
+}
+
 /*
 
 fn trie_sort(c: &mut Criterion) {
@@ -395,7 +418,8 @@ criterion_group!(
     ten_thousand_iterations,
     trie_sort_without_optimizations,
     trie_sort_with_optimizations,
-    fib_28 // trie_sort,
+    fib_28,
+    fib_20 // trie_sort,
            // merge_sort,
            // struct_construct,
            // struct_construct_bigger,

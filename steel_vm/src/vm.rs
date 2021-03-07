@@ -921,7 +921,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 let inner_env = Rc::new(RefCell::new(Env::new_subexpression_with_capacity(
                     parent_env.clone(),
                     offset,
-                    closure.ndef_body(),
                 )));
 
                 // inner_env.borrow_mut().increment_weak_count();
