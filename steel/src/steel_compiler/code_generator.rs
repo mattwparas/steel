@@ -132,7 +132,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // Clean up the defining context state
             self.defining_context = None;
         } else {
-            panic!("Complex defines not supported in bytecode generation")
+            panic!(
+                "Complex defines not supported in bytecode generation: {}",
+                (define.name).to_string()
+            )
         }
 
         Ok(())

@@ -222,7 +222,7 @@ pub enum TokenType {
     // /// An identifier literal.
     // #[regex(r#"(?&ident)"#)]
     // Identifier(String),
-    #[regex(r#"[_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#, callback = |lex| lex.slice().parse())]
+    #[regex(r#"[_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#, callback = |lex| lex.slice().parse())]
     // "
     Identifier(String),
 

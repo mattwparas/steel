@@ -198,6 +198,47 @@
      ((lambda ()
         (letrec*-helper bindings body ...))))))
 
+(define-syntax ->/c
+  (syntax-rules ()
+    [(->/c r)
+     (make-function/c (make/c r 'r))]
+    [(->/c a b)
+     (make-function/c (make/c a 'a) (make/c b 'b))]
+    [(->/c a b c)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c))]
+    [(->/c a b c d)
+     (make-function/c (make/c a 'a) (make/c b 'b)
+                      (make/c c 'c) (make/c d 'd))]
+    [(->/c a b c d e)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c)
+                      (make/c d 'd) (make/c e 'e))]
+    [(->/c a b c d e f)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c)
+                      (make/c d 'd) (make/c e 'e) (make/c f 'f))]
+    [(->/c a b c d e f g)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c)
+                      (make/c d 'd) (make/c e 'e) (make/c f 'f)
+                      (make/c g 'g))]
+    [(->/c a b c d e f g h)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c)
+                      (make/c d 'd) (make/c e 'e) (make/c f 'f)
+                      (make/c g 'g) (make/c h 'h))]
+    [(->/c a b c d e f g h i)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c)
+                      (make/c d 'd) (make/c e 'e) (make/c f 'f)
+                      (make/c g 'g) (make/c h 'h) (make/c i 'i))]))
+
+;; Macro for basic usage of contracts
+(define-syntax define/contract
+  (syntax-rules ()
+    [(define/contract (name args ...)
+       contract
+       body ...)
+     (define name (bind/c contract (lambda (args ...) body ...) 'name))]
+    [(define/contract name contract expr)
+     (define name ((bind/c
+                      (make-function/c (make/c contract 'contract))
+                      (lambda () expr))))]))
 
 (define-syntax module
     (syntax-rules (provide gen-defines) 
@@ -207,9 +248,30 @@
                 ((lambda () funcs ... 
                 (module provide ids ...))))
             (module gen-defines name ids ...))]
+        
+        ;; in the contract case, ignore the contract in the hash
+        [(module provide (name contract)) (hash 'name name)]
+        ;; Normal case
         [(module provide name) (hash 'name name)]
+
+        ;; in the contract case, ignore the contract in the hash
+        [(module provide (name contract) rest ...)
+         (hash-insert (module provide rest ...) 'name name)]
+
+        ;; Normal case
         [(module provide name rest ...)
          (hash-insert (module provide rest ...) 'name name)]
+
+
+        ;; Module contract provides
+        [(module gen-defines mod (name contract))
+         (define name (bind/c contract (hash-get mod 'name)))]
+        [(module gen-defines mod (name contract) rest ...)
+         (begin (define name (bind/c contract (hash-get mod 'name)))
+            (module gen-defines mod rest ...))]
+
+
+        ;; Normal provides
         [(module gen-defines mod name) (define name (hash-get mod 'name))]
         [(module gen-defines mod name rest ...)
          (begin (define name (hash-get mod 'name))

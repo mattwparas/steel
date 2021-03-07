@@ -213,7 +213,7 @@ impl ContractedFunction {
         };
 
         if contract.arity() != function.arity() {
-            stop!(TypeMismatch => "contract did not match function arity");
+            stop!(TypeMismatch => format!("contract did not match function arity: function has arity: {}, contract has arity: {}", function.arity(), contract.arity()));
         }
 
         Ok(ContractedFunction::new(contract, function, name).into())

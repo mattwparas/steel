@@ -15,11 +15,11 @@ use crate::{
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     rc::{Rc, Weak},
 };
 
-use ahash::RandomState;
+// use ahash::RandomState;
 
 // use crate::rvals::FutureResult;
 
@@ -238,7 +238,7 @@ pub trait MacroEnv {
 impl Env {
     /// Make a new `Env` from
     /// another parent `Env`.
-    pub fn new(parent: &Rc<RefCell<Self>>, offset: usize) -> Self {
+    pub fn new(offset: usize) -> Self {
         Env {
             // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
@@ -1002,6 +1002,7 @@ impl Env {
     //     sm
     // }
 
+    #[inline]
     pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
         self.bindings_map.insert(idx, val);
     }
