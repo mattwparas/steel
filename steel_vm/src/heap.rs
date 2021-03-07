@@ -72,45 +72,45 @@ impl Heap {
         self.limit
     }
 
-    fn walk(&mut self, node: &Weak<RefCell<Env>>) {
-        // let reachable = p_env.borrow().is_reachable();
-        if let Some(upgraded) = node.upgrade() {
-            let reachable = upgraded.borrow().is_reachable();
-            if !reachable {
-                self.add(Rc::clone(&upgraded));
-                println!("Adding an env by walking from the root");
-                for child in upgraded.borrow().children() {
-                    self.walk(child)
-                }
-            }
-        }
-    }
+    // fn walk(&mut self, node: &Weak<RefCell<Env>>) {
+    //     // let reachable = p_env.borrow().is_reachable();
+    //     if let Some(upgraded) = node.upgrade() {
+    //         let reachable = upgraded.borrow().is_reachable();
+    //         if !reachable {
+    //             self.add(Rc::clone(&upgraded));
+    //             println!("Adding an env by walking from the root");
+    //             for child in upgraded.borrow().children() {
+    //                 self.walk(child)
+    //             }
+    //         }
+    //     }
+    // }
 
-    // Should be infallible
-    pub fn gather_and_mark_from_global_root(&mut self) {
-        let mut heap = Heap::new();
+    // // Should be infallible
+    // pub fn gather_and_mark_from_global_root(&mut self) {
+    //     let mut heap = Heap::new();
 
-        if let Some(root) = self.root() {
-            for child in root.upgrade().unwrap().borrow().children() {
-                heap.walk(child)
-            }
-        }
+    //     if let Some(root) = self.root() {
+    //         for child in root.upgrade().unwrap().borrow().children() {
+    //             heap.walk(child)
+    //         }
+    //     }
 
-        println!(
-            "//////////// heap length before global root traversal: {}",
-            self.len()
-        );
+    //     println!(
+    //         "//////////// heap length before global root traversal: {}",
+    //         self.len()
+    //     );
 
-        heap.mark();
-        heap.clear();
-        // heap.sweep();
-        self.sweep();
+    //     heap.mark();
+    //     heap.clear();
+    //     // heap.sweep();
+    //     self.sweep();
 
-        println!(
-            "//////////// heap length after global root traversal: {}",
-            self.len()
-        );
-    }
+    //     println!(
+    //         "//////////// heap length after global root traversal: {}",
+    //         self.len()
+    //     );
+    // }
 
     pub fn inspect_heap(&self) {
         println!("heap length: {}", self.heap.len());
@@ -201,8 +201,9 @@ impl Heap {
         // self.heap
         //     .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) > 1);
 
-        self.heap
-            .retain(|x| (Rc::weak_count(x) + x.borrow().weak_count()) > 1);
+        // self.heap
+        //     .retain(|x| (Rc::weak_count(x) + x.borrow().weak_count()) > 1);
+        self.heap.retain(|x| Rc::weak_count(x) > 0);
         // Drop the heap size back down to conserve memory
         self.heap.shrink_to_fit();
 
@@ -278,9 +279,9 @@ impl Heap {
         // );
         // std::thread::sleep(std::time::Duration::new(5, 0));
 
-        &self.heap.retain(|x| {
-            x.borrow().is_reachable() || (Rc::weak_count(x) + x.borrow().weak_count()) > 1
-        });
+        &self
+            .heap
+            .retain(|x| x.borrow().is_reachable() || Rc::weak_count(x) > 0);
         // .retain(|x| x.borrow().is_reachable());
     }
 

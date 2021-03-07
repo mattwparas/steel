@@ -15,7 +15,7 @@ use crate::{
 
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     rc::{Rc, Weak},
 };
 
@@ -191,12 +191,13 @@ impl CoreModuleConfig {
 pub struct Env {
     // bindings: HashMap<String, Gc<SteelVal>>,
     bindings_vec: Vec<SteelVal>,
-    bindings_map: HashMap<usize, SteelVal, RandomState>,
+    // bindings_map: HashMap<usize, SteelVal, RandomState>,
+    bindings_map: BTreeMap<usize, SteelVal>,
     offset: usize,
     parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
-    weak_count: usize,
-    children: SmallVec<[Weak<RefCell<Env>>; 4]>,
+    // weak_count: usize,
+    // children: SmallVec<[Weak<RefCell<Env>>; 4]>,
     // children: HashSet<Weak<RefCell<Env>
     // heap: Vec<Rc<RefCell<Env>>>,
     is_binding_context: bool,
@@ -242,12 +243,13 @@ impl Env {
         Env {
             // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
-            bindings_map: HashMap::default(),
+            // bindings_map: HashMap::default(),
+            bindings_map: BTreeMap::default(),
             offset,
             parent: Some(Rc::clone(&parent)),
             sub_expression: None,
-            weak_count: 0,
-            children: SmallVec::new(),
+            // weak_count: 0,
+            // children: SmallVec::new(),
             // children: HashSet::new(),
             is_binding_context: false,
             is_binding_offset: false,
@@ -324,12 +326,37 @@ impl Env {
         Env {
             // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
-            bindings_map: HashMap::default(),
+            // bindings_map: HashMap::default(),
+            bindings_map: BTreeMap::default(),
             offset,
             parent: None,
             sub_expression: Some(sub_expression),
-            weak_count: 0,
-            children: SmallVec::new(),
+            // weak_count: 0,
+            // children: SmallVec::new(),
+            // children: HashSet::new(),
+            is_binding_context: false,
+            is_binding_offset: false,
+            // module: Vec::new(),
+            // ndefs: 0,
+            reachable: false,
+        }
+    }
+
+    pub fn new_subexpression_with_capacity(
+        sub_expression: Weak<RefCell<Self>>,
+        offset: usize,
+        capacity: usize,
+    ) -> Self {
+        Env {
+            // bindings: HashMap::new(),
+            bindings_vec: Vec::new(),
+            // bindings_map: HashMap::with_capacity_and_hasher(capacity, RandomState::new()),
+            bindings_map: BTreeMap::default(),
+            offset,
+            parent: None,
+            sub_expression: Some(sub_expression),
+            // weak_count: 0,
+            // children: SmallVec::new(),
             // children: HashSet::new(),
             is_binding_context: false,
             is_binding_offset: false,
@@ -363,142 +390,143 @@ impl Env {
         self.parent.is_none() && self.sub_expression.is_none()
     }
 
-    pub fn pop_child(&mut self) {
-        self.children.pop();
-    }
+    // pub fn pop_child(&mut self) {
+    //     self.children.pop();
+    // }
 
-    pub fn increment_weak_count(&mut self) {
-        self.weak_count += 1;
-    }
+    // pub fn increment_weak_count(&mut self) {
+    //     self.weak_count += 1;
+    // }
 
-    pub fn weak_count(&self) -> usize {
-        self.weak_count
-    }
+    // pub fn weak_count(&self) -> usize {
+    //     self.weak_count
+    // }
 
     // TODO
     // HACK
     // Just figure out something better than this but at least it solves
     // the problem
-    pub fn add_child(&mut self, child: Weak<RefCell<Env>>) {
-        // println!("----------------------------------------");
-        println!(
-            "current weak count list length before purging: {}",
-            self.children.len()
-        );
+    // pub fn add_child(&mut self, child: Weak<RefCell<Env>>) {
+    //     // println!("----------------------------------------");
+    //     println!(
+    //         "current weak count list length before purging: {}",
+    //         self.children.len()
+    //     );
 
-        println!(
-            "weak count list before: {:?}",
-            self.children
-                .iter()
-                .map(Weak::weak_count)
-                .collect::<Vec<_>>()
-        );
+    //     println!(
+    //         "weak count list before: {:?}",
+    //         self.children
+    //             .iter()
+    //             .map(Weak::weak_count)
+    //             .collect::<Vec<_>>()
+    //     );
 
-        // Drop any old children before adding the new one
-        // self.children.retain(|x| Weak::weak_count(x) > 0);
+    //     // Drop any old children before adding the new one
+    //     // self.children.retain(|x| Weak::weak_count(x) > 0);
 
-        // Try to go backards rather than forwards to reduce the amount of values purged
-        // This depth is going to be large regardless, minimize the amount of iteration we have to do
-        loop {
-            let last = self.children.last();
-            if let Some(last) = last {
-                let count = Weak::weak_count(last);
-                if count == 0 {
-                    self.children.pop();
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
+    //     // Try to go backards rather than forwards to reduce the amount of values purged
+    //     // This depth is going to be large regardless, minimize the amount of iteration we have to do
+    //     loop {
+    //         let last = self.children.last();
+    //         if let Some(last) = last {
+    //             let count = Weak::weak_count(last);
+    //             if count == 0 {
+    //                 self.children.pop();
+    //             } else {
+    //                 break;
+    //             }
+    //         } else {
+    //             break;
+    //         }
+    //     }
 
-        // self.children.retain(|x| Weak::strong_count(x) > 1);
+    //     // self.children.retain(|x| Weak::strong_count(x) > 1);
 
-        if self.children.len() > 8 {
-            // Drop any old children before adding the new one
-            // println!("Retaining here...");
-            // values of 0 can 100% be dropped, but large refs should also be dropped
-            self.children.retain(|x| Weak::weak_count(x) > 0);
-            // self.children.retain(|x| Weak::weak_count(x) < 3);
-        }
+    //     if self.children.len() > 8 {
+    //         // Drop any old children before adding the new one
+    //         // println!("Retaining here...");
+    //         // values of 0 can 100% be dropped, but large refs should also be dropped
+    //         self.children.retain(|x| Weak::weak_count(x) > 0);
+    //         // self.children.retain(|x| Weak::weak_count(x) < 3);
+    //     }
 
-        // loop {
-        //     let last = self.children.last();
-        //     if let Some(last) = last {
-        //         let count = Weak::weak_count(last);
-        //         if count > 1 {
-        //             self.children.pop();
-        //         } else {
-        //             break;
-        //         }
-        //     } else {
-        //         break;
-        //     }
-        // }
+    //     // loop {
+    //     //     let last = self.children.last();
+    //     //     if let Some(last) = last {
+    //     //         let count = Weak::weak_count(last);
+    //     //         if count > 1 {
+    //     //             self.children.pop();
+    //     //         } else {
+    //     //             break;
+    //     //         }
+    //     //     } else {
+    //     //         break;
+    //     //     }
+    //     // }
 
-        // Drop any old children before adding the new one
-        // self.children.retain(|x| Weak::weak_count(x) > 0);
+    //     // Drop any old children before adding the new one
+    //     // self.children.retain(|x| Weak::weak_count(x) > 0);
 
-        // println!(
-        //     "Weak count of child being added: {:?}",
-        //     Weak::weak_count(&child)
-        // );
+    //     // println!(
+    //     //     "Weak count of child being added: {:?}",
+    //     //     Weak::weak_count(&child)
+    //     // );
 
-        // Go ahead and check if it the vector contains any of the same allocation already
-        // if !self.children.iter().any(|x| Weak::ptr_eq(x, &child)) {
-        //     self.children.push(child);
-        // }
+    //     // Go ahead and check if it the vector contains any of the same allocation already
+    //     // if !self.children.iter().any(|x| Weak::ptr_eq(x, &child)) {
+    //     //     self.children.push(child);
+    //     // }
 
-        self.children.push(child);
+    //     self.children.push(child);
 
-        // self.children.push(child);
+    //     // self.children.push(child);
 
-        // Drop any old children
-        // self.children.retain(|x| Weak::weak_count(x) > 0);
+    //     // Drop any old children
+    //     // self.children.retain(|x| Weak::weak_count(x) > 0);
 
-        println!(
-            "current weak count list length after purging: {}",
-            self.children.len()
-        );
-        println!(
-            "weak count list: {:?}",
-            self.children
-                .iter()
-                .map(Weak::weak_count)
-                .collect::<Vec<_>>()
-        );
-        println!("----------------------------------------")
+    //     println!(
+    //         "current weak count list length after purging: {}",
+    //         self.children.len()
+    //     );
+    //     println!(
+    //         "weak count list: {:?}",
+    //         self.children
+    //             .iter()
+    //             .map(Weak::weak_count)
+    //             .collect::<Vec<_>>()
+    //     );
+    //     println!("----------------------------------------")
 
-        // Adding weak refs to the
-        // if self.children.len() > 3 {
-        //     self.children.retain(|x| Weak::weak_count(x) > 0);
-        // }
+    //     // Adding weak refs to the
+    //     // if self.children.len() > 3 {
+    //     //     self.children.retain(|x| Weak::weak_count(x) > 0);
+    //     // }
 
-        // TODO kinda bad but makes sure the children don't grow unbounded
-        // Fixes the memory leak problem but makes other problems for performance
-        // Find a better place / mechanism to store references like this so that
-        // this isn't a dumping ground for weak references
-        // if self.children.len() > 10 {
-        //     self.children.retain(|x| Weak::weak_count(x) > 0);
-        // }
-    }
+    //     // TODO kinda bad but makes sure the children don't grow unbounded
+    //     // Fixes the memory leak problem but makes other problems for performance
+    //     // Find a better place / mechanism to store references like this so that
+    //     // this isn't a dumping ground for weak references
+    //     // if self.children.len() > 10 {
+    //     //     self.children.retain(|x| Weak::weak_count(x) > 0);
+    //     // }
+    // }
 
-    pub fn children(&self) -> &[Weak<RefCell<Env>>] {
-        &self.children
-    }
+    // pub fn children(&self) -> &[Weak<RefCell<Env>>] {
+    //     &self.children
+    // }
 
     /// top level global env has no parent
     pub fn root() -> Self {
         Env {
             // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
-            bindings_map: HashMap::default(),
+            // bindings_map: HashMap::default(),
+            bindings_map: BTreeMap::default(),
             offset: 0,
             parent: None,
             sub_expression: None,
-            weak_count: 0,
-            children: SmallVec::new(),
+            // weak_count: 0,
+            // children: SmallVec::new(),
             is_binding_context: false,
             is_binding_offset: false,
             // module: Vec::new(),
@@ -519,7 +547,11 @@ impl Env {
         &self.sub_expression
     }
 
-    pub fn bindings_map(&self) -> &HashMap<usize, SteelVal, RandomState> {
+    // pub fn bindings_map(&self) -> &HashMap<usize, SteelVal, RandomState> {
+    //     &self.bindings_map
+    // }
+
+    pub fn bindings_map(&self) -> &BTreeMap<usize, SteelVal> {
         &self.bindings_map
     }
 

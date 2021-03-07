@@ -915,21 +915,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     stop!(Generic => "stack overflowed!"; *span);
                 }
 
-                // println!("heap length: {}", self.heap.len());
-
-                // println!("##################### Env Stack ######################");
-                // for env in self.env_stack.as_slice() {
-                //     println!(
-                //         "Env stack children: {:?}",
-                //         env.borrow()
-                //             .children()
-                //             .iter()
-                //             .map(std::rc::Weak::weak_count)
-                //             .collect::<Vec<_>>()
-                //     );
-                // }
-                // println!("####################################################");
-
                 // Use smallvec here?
                 let args = self.stack.split_off(self.stack.len() - payload_size);
 
@@ -939,12 +924,18 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 let offset =
                     closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                //     parent_env.clone(),
+                //     offset,
+                // )));
+
+                let inner_env = Rc::new(RefCell::new(Env::new_subexpression_with_capacity(
                     parent_env.clone(),
                     offset,
+                    closure.ndef_body(),
                 )));
 
-                inner_env.borrow_mut().increment_weak_count();
+                // inner_env.borrow_mut().increment_weak_count();
 
                 // Adds a pointer from parent -> child
                 // weak reference taken by downgrading the strong reference on inner env
@@ -956,13 +947,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 //     .add_child(Rc::downgrade(&inner_env));
 
                 // TODO future me figure out offsets
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+                // Leave here until I figure out the offset problem
+                // inner_env
+                //     .borrow_mut()
+                //     .reserve_defs(if closure.ndef_body() > 0 {
+                //         closure.ndef_body() - 1
+                //     } else {
+                //         0
+                //     });
 
                 // self.heap
                 //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
@@ -1056,11 +1048,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 )));
 
                 // add this closure to the list of children
-                parent_env
-                    .upgrade()
-                    .unwrap()
-                    .borrow_mut()
-                    .add_child(Rc::downgrade(&inner_env));
+                // parent_env
+                //     .upgrade()
+                //     .unwrap()
+                //     .borrow_mut()
+                //     .add_child(Rc::downgrade(&inner_env));
+
+                // inner_env.borrow_mut().increment_weak_count();
 
                 // TODO future me figure out offsets
                 inner_env

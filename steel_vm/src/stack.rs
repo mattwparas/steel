@@ -12,18 +12,22 @@ pub type EnvStack = Stack<Rc<RefCell<Env>>>;
 pub struct Stack<T>(Vec<T>);
 
 impl<T> Stack<T> {
+    // #[inline(always)]
     pub fn new() -> Stack<T> {
         Stack(Vec::new())
     }
 
+    // #[inline(always)]
     pub fn pop(&mut self) -> Option<T> {
         self.0.pop()
     }
 
+    // #[inline(always)]
     pub fn try_pop(&mut self) -> Option<T> {
         self.0.pop()
     }
 
+    // #[inline(always)]
     pub fn push(&mut self, value: T) {
         self.0.push(value);
     }
