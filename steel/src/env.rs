@@ -748,6 +748,7 @@ impl Env {
     // }
 
     // TODO could be better
+    // #[inline]
     pub fn repl_lookup_idx(&self, idx: usize) -> Result<SteelVal> {
         // unimplemented!()
         // println!("{:?}", self.bindings.keys());
@@ -816,6 +817,7 @@ impl Env {
         }
     }
 
+    #[inline]
     pub fn repl_define_idx(&mut self, idx: usize, val: SteelVal) {
         self.bindings_map.insert(idx, val);
         // unimplemented!()
