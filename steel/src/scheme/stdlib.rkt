@@ -241,7 +241,7 @@
                       (lambda () expr))))]))
 
 (define-syntax module
-    (syntax-rules (provide gen-defines) 
+    (syntax-rules (provide gen-defines contract/out) 
         [(module name (provide ids ...) funcs ...)
          (begin
             (define name 
@@ -250,12 +250,12 @@
             (module gen-defines name ids ...))]
         
         ;; in the contract case, ignore the contract in the hash
-        [(module provide (name contract)) (hash 'name name)]
+        [(module provide (contract/out name contract)) (hash 'name name)]
         ;; Normal case
         [(module provide name) (hash 'name name)]
 
         ;; in the contract case, ignore the contract in the hash
-        [(module provide (name contract) rest ...)
+        [(module provide (contract/out name contract) rest ...)
          (hash-insert (module provide rest ...) 'name name)]
 
         ;; Normal case
@@ -264,9 +264,9 @@
 
 
         ;; Module contract provides
-        [(module gen-defines mod (name contract))
+        [(module gen-defines mod (contract/out name contract))
          (define name (bind/c contract (hash-get mod 'name)))]
-        [(module gen-defines mod (name contract) rest ...)
+        [(module gen-defines mod (contract/out name contract) rest ...)
          (begin (define name (bind/c contract (hash-get mod 'name)))
             (module gen-defines mod rest ...))]
 
