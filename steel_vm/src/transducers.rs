@@ -62,15 +62,13 @@ impl TransducerExt for Transducer {
         callback: &EvaluationProgress,
         collection_type: Option<SteelVal>,
     ) -> Result<SteelVal> {
-        // if let Some(collection_type) = collection_type {
-        //     match collection_type.as_ref() {}
-        // }
-
+        // By default, match the output type to the input type
         let output_type = match root {
             SteelVal::VectorV(_) => CollectionType::Vector,
             _ => CollectionType::List,
         };
 
+        // Initialize the iterator to be the iterator over whatever is given, stop if its not iterable
         let mut my_iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
             SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(|x| Ok(x))),
             SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
@@ -81,13 +79,16 @@ impl TransducerExt for Transducer {
                 repl,
                 callback,
             )),
+            SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
+        // Chain the iterators together
         for t in &self.ops {
             my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
         }
 
+        // If an output type is given, use that one
         if let Some(collection_type) = collection_type {
             if let SteelVal::SymbolV(n) = collection_type {
                 match n.as_ref() {
@@ -126,6 +127,7 @@ impl TransducerExt for Transducer {
                 repl,
                 callback,
             )),
+            SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 

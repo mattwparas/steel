@@ -381,7 +381,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     // For now, only allow structs at the top level
                     // In the future, allow structs to be also available in a nested scope
                     self.handle_struct(cur_inst.payload_size as usize)?;
-                    return Ok(SteelVal::Void);
+                    self.stack.push(SteelVal::Void);
+                    self.ip += 1;
+                    // return Ok(SteelVal::Void);
                 }
                 OpCode::READ => self.handle_read(&cur_inst.span)?,
                 OpCode::COLLECT => self.handle_collect(&cur_inst.span)?,

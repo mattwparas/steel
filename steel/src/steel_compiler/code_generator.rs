@@ -1,9 +1,13 @@
 use std::convert::TryFrom;
 
-use super::constants::{ConstantMap, ConstantTable};
+use super::{
+    constants::{ConstantMap, ConstantTable},
+    map::SymbolMap,
+};
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::{ast::Atom, parser::SyntaxObject, span_visitor::get_span, tokens::TokenType},
+    structs::SteelStruct,
 };
 
 use crate::parser::ast::ExprKind;
@@ -21,25 +25,29 @@ pub struct CodeGenerator<'a> {
     instructions: Vec<Instruction>,
     constant_map: &'a mut ConstantMap,
     defining_context: Option<String>,
+    symbol_map: &'a mut SymbolMap,
 }
 
 impl<'a> CodeGenerator<'a> {
-    pub fn new(constant_map: &'a mut ConstantMap) -> Self {
+    pub fn new(constant_map: &'a mut ConstantMap, symbol_map: &'a mut SymbolMap) -> Self {
         CodeGenerator {
             instructions: Vec::new(),
             constant_map,
             defining_context: None,
+            symbol_map,
         }
     }
 
     pub fn new_from_body_instructions(
         constant_map: &'a mut ConstantMap,
+        symbol_map: &'a mut SymbolMap,
         instructions: Vec<Instruction>,
     ) -> Self {
         CodeGenerator {
             instructions,
             constant_map,
             defining_context: None,
+            symbol_map,
         }
     }
 
@@ -179,9 +187,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         }
 
         // make recursive call with "fresh" vector so that offsets are correct
-        body_instructions =
-            CodeGenerator::new_from_body_instructions(&mut self.constant_map, body_instructions)
-                .compile(&lambda_function.body)?;
+        body_instructions = CodeGenerator::new_from_body_instructions(
+            &mut self.constant_map,
+            &mut self.symbol_map,
+            body_instructions,
+        )
+        .compile(&lambda_function.body)?;
 
         body_instructions.push(Instruction::new_pop());
         if let Some(ctx) = &self.defining_context {
@@ -276,7 +287,22 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_struct(&mut self, s: &crate::parser::ast::Struct) -> Self::Output {
-        stop!(BadSyntax => "struct definition only allowed at top level"; s.location.span)
+        let builder = SteelStruct::generate_from_ast(&s)?;
+
+        // Add the eventual function names to the symbol map
+        let indices = self.symbol_map.insert_struct_function_names(&builder);
+
+        // Get the value we're going to add to the constant map for eventual use
+        // Throw the bindings in as well
+        let constant_values = builder.to_constant_val(indices);
+        let idx = self.constant_map.add_or_get(constant_values);
+
+        self.push(Instruction::new_struct(idx));
+        // self.push(Instruction::new());
+
+        Ok(())
+
+        // stop!(BadSyntax => "struct definition only allowed at top level"; s.location.span)
     }
 
     fn visit_macro(&mut self, m: &crate::parser::ast::Macro) -> Self::Output {

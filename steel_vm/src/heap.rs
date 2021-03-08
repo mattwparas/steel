@@ -12,6 +12,8 @@ pub(crate) static HEAP_LIMIT: usize = 100;
 
 use log::debug;
 
+/// Garbage collection central
+/// The purpose of this is simply to hold environments that get allocated
 pub struct Heap {
     heap: Vec<Rc<RefCell<Env>>>,
     root: Option<Weak<RefCell<Env>>>,

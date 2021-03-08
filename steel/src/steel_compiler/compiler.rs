@@ -390,6 +390,8 @@ impl Compiler {
         // output
     }
 
+    // This only works at the top level
+    // structs then cannot work inside nested scoped
     pub fn extract_structs(
         &mut self,
         exprs: Vec<ExprKind>,
@@ -409,15 +411,20 @@ impl Compiler {
                 let constant_values = builder.to_constant_val(indices);
                 let idx = self.constant_map.add_or_get(constant_values);
 
-                struct_instructions.push(Instruction::new_struct(idx));
+                struct_instructions
+                    .push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
             } else {
                 non_structs.push(expr);
             }
         }
 
-        for instruction in densify(struct_instructions) {
-            results.push(vec![instruction])
+        for instruction_set in struct_instructions {
+            results.push(densify(instruction_set))
         }
+
+        // for instruction in densify(struct_instructions) {
+        //     results.push(vec![instruction])
+        // }
 
         Ok(non_structs)
     }
@@ -475,7 +482,8 @@ impl Compiler {
             // println!("{:?}", expr.to_string());
             // let mut instructions: Vec<Instruction> = Vec::new();
 
-            let mut instructions = CodeGenerator::new(&mut self.constant_map).compile(&expr)?;
+            let mut instructions =
+                CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(&expr)?;
 
             // TODO double check that arity map doesn't exist anymore
             // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
