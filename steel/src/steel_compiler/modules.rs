@@ -327,11 +327,6 @@ impl<'a> ModuleBuilder<'a> {
 
         self.source_ast = non_provides;
         Ok(())
-
-        // println!(
-        //     "source ast after collecting provides: {:?}",
-        //     self.source_ast
-        // )
     }
 
     fn collect_requires(&mut self) -> Result<()> {
