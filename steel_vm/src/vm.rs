@@ -418,7 +418,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 }
                 OpCode::JMP => {
                     self.ip = cur_inst.payload_size as usize;
-                    // HACk
+                    // HACK
                     if self.ip == 0 && self.heap.len() > self.heap.limit() {
                         self.heap.collect_garbage();
                     }
@@ -897,9 +897,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {
-            // StructClosureV(sc) => {
-            //     self.call_struct_func(&sc.factory, &sc.func, payload_size, span)?
-            // }
             BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size),
@@ -976,12 +973,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.stacks.push(stack);
                 self.instructions = closure.body_exp();
                 self.ip = 0;
-
-                // Throw this in for now??????
-                // self.heap.gather_and_mark_from_global_root();
-
-                // TODO idk maybe remove stuff?
-                // self.heap.collect_garbage();
             }
             _ => {
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);
