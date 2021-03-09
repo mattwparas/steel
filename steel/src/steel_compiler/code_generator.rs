@@ -297,12 +297,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let constant_values = builder.to_constant_val(indices);
         let idx = self.constant_map.add_or_get(constant_values);
 
+        // Inside some nested scope, so these don't need anything more than the instruction
         self.push(Instruction::new_struct(idx));
-        // self.push(Instruction::new());
 
         Ok(())
-
-        // stop!(BadSyntax => "struct definition only allowed at top level"; s.location.span)
     }
 
     fn visit_macro(&mut self, m: &crate::parser::ast::Macro) -> Self::Output {
