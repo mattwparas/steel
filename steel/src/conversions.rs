@@ -21,7 +21,7 @@ impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
     }
 }
 
-impl<T: FromSteelVal + std::fmt::Debug> FromSteelVal for Vec<T> {
+impl<T: FromSteelVal> FromSteelVal for Vec<T> {
     fn from_steelval(val: SteelVal) -> Result<Self> {
         match val {
             SteelVal::Pair(_) => {
