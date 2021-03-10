@@ -123,6 +123,23 @@ fn no_args_return_empty() {
     println!("hello world!");
 }
 
+#[derive(Clone, Debug, Steel)]
+struct WrapperStruct(usize);
+
+impl WrapperStruct {
+    fn new(val: usize) -> Self {
+        WrapperStruct(val)
+    }
+
+    fn method_by_value(self) -> usize {
+        self.0
+    }
+}
+
+fn takes_wrapper(arg1: WrapperStruct) -> usize {
+    arg1.0
+}
+
 fn main() {
     // env_logger::init();
 
@@ -142,7 +159,11 @@ fn main() {
         vm.register_fn("test-test", test_test)
             .register_fn("blagh", test_two_args)
             .register_fn("no-args", no_args_return_empty)
-            .register_fn("do-a-call-2", do_a_call_two);
+            .register_fn("do-a-call-2", do_a_call_two)
+            .register_fn("takes-wrapper", takes_wrapper)
+            .register_type::<WrapperStruct>("WrapperStruct?")
+            .register_fn("Wrapper", WrapperStruct)
+            .register_fn("self-by-ref", WrapperStruct::method_by_value);
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
 

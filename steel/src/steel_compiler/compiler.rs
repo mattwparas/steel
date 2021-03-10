@@ -242,7 +242,7 @@ fn insert_debruijn_indices(
     Ok(())
 }
 
-pub fn extract_constants<CT: ConstantTable>(
+fn extract_constants<CT: ConstantTable>(
     instructions: &mut [Instruction],
     constants: &mut CT,
 ) -> Result<()> {

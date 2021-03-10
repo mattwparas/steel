@@ -13,9 +13,9 @@ use steel::{
     parser::parser::{ParseError, Parser},
     primitives::ListOperations,
     rerrs::{ErrorKind, SteelErr},
-    rvals::{Result, SteelVal},
+    rvals::{Custom, FromSteelVal, IntoSteelVal, Result, SteelVal},
     steel_compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
-    throw,
+    stop, throw, CustomType,
 };
 
 #[macro_export]
@@ -117,6 +117,25 @@ impl Engine {
         self
     }
 
+    /// Registers a predicate for a given type
+    /// This lets you be able to register
+    pub fn register_type<T: FromSteelVal + IntoSteelVal>(
+        &mut self,
+        predicate_name: &'static str,
+    ) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", predicate_name, args.len()));
+            }
+
+            Ok(SteelVal::BoolV(T::from_steelval(args[0].clone()).is_ok()))
+        };
+
+        self.register_value(predicate_name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+
+    /// Registers a callback function
+    /// If registered, this callback will be called on every instruction
     pub fn on_progress(&mut self, callback: Callback) -> &mut Self {
         self.virtual_machine.on_progress(callback);
         self
@@ -133,8 +152,8 @@ impl Engine {
             ))
     }
 
-    pub fn extract<T: TryFrom<SteelVal, Error = SteelErr>>(&self, name: &str) -> Result<T> {
-        T::try_from(self.extract_value(name)?)
+    pub fn extract<T: FromSteelVal>(&self, name: &str) -> Result<T> {
+        T::from_steelval(self.extract_value(name)?)
     }
 
     pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {

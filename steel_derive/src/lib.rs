@@ -321,6 +321,22 @@ pub fn derive_schenum(input: TokenStream) -> TokenStream {
 
 */
 
+#[proc_macro_derive(Steel)]
+pub fn derive_steel(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    if let Data::Struct(_) = &input.data {
+        let gen = quote! {
+            impl crate::rvals::Custom for #name {}
+        };
+
+        return gen.into();
+    };
+
+    let output = quote! { #input };
+    output.into()
+}
+
 /// Derives the `CustomType` trait for the given struct, and also implements the
 /// `StructFunctions` trait, which generates the predicate, constructor, and the getters
 /// and setters for using the struct inside the interpreter.
