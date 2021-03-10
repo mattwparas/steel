@@ -11,6 +11,8 @@ use steel::rvals::{Result, SteelVal};
 use steel::steel_compiler::constants::ConstantTable;
 use steel::stop;
 
+/// Function to inline the reducer function
+/// Used for the accumulating a result by wrapping the fold iterator
 pub(crate) fn inline_reduce_iter<
     'global,
     I: Iterator<Item = Result<SteelVal>> + 'global,
@@ -308,10 +310,4 @@ pub(crate) fn inline_filter_result_iter<
     };
 
     iter.filter_map(switch_statement)
-
-    // for val in iter {
-    //     collected_results.push(switch_statement(val)?);
-    // }
-
-    // Ok(collected_results)
 }

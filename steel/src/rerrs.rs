@@ -95,18 +95,6 @@ impl From<ParseError> for SteelErr {
     }
 }
 
-// mod inner {
-//     use super::*;
-//     impl<T> From<T> for SteelErr
-//     where
-//         T: Into<Repr>,
-//     {
-//         fn from(v: T) -> Self {
-//             SteelErr::_new(v.into())
-//         }
-//     }
-// }
-
 impl From<Infallible> for Repr {
     fn from(v: Infallible) -> Self {
         Repr {
@@ -155,109 +143,7 @@ impl fmt::Display for SteelErr {
     }
 }
 
-// fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//     // at the top level, print a ' if we are
-//     // trying to print a symbol or list
-//     match self {
-//         SymbolV(_) | Pair(_) => write!(f, "'")?,
-//         VectorV(_) => write!(f, "'#")?,
-//         _ => (),
-//     };
-//     display_helper(self, f)
-// }
-
-// #[derive(Debug, Error)]
-// pub enum SteelErr {
-//     #[error("Error: Arity Mismatch: {0}")]
-//     ArityMismatch(SError),
-//     #[error("Error: Free Identifier: {0}")]
-//     FreeIdentifier(SError),
-//     #[error("Error: Expected {0}")]
-//     TypeMismatch(SError),
-//     #[error("Error: Unexpected Token {0}")]
-//     UnexpectedToken(SError),
-//     #[error("Error: Contract Violation: {0}")]
-//     ContractViolation(SError),
-//     #[error("Error: Bad Syntax: {0}")]
-//     BadSyntax(SError),
-//     #[error("Error: Conversion Error: {0}")]
-//     ConversionError(SError),
-//     #[error("Error: IO error")]
-//     Io(#[from] std::io::Error),
-//     #[error("Error: Parse error: {0}")]
-//     Parse(#[from] ParseError),
-//     #[error("Error: Infallible")]
-//     Infallible(#[from] Infallible),
-//     #[error("Error: Generic Error: {0}")]
-//     Generic(SError),
-// }
-
-// impl Clone for SteelErr {
-//     fn clone(&self) -> SteelErr {
-//         match self {
-//             SteelErr::ArityMismatch(s) => SteelErr::ArityMismatch(s.clone()),
-//             SteelErr::FreeIdentifier(s) => SteelErr::FreeIdentifier(s.clone()),
-//             SteelErr::TypeMismatch(s) => SteelErr::TypeMismatch(s.clone()),
-//             SteelErr::UnexpectedToken(s) => SteelErr::UnexpectedToken(s.clone()),
-//             SteelErr::ContractViolation(s) => SteelErr::ContractViolation(s.clone()),
-//             SteelErr::BadSyntax(s) => SteelErr::BadSyntax(s.clone()),
-//             SteelErr::ConversionError(s) => SteelErr::ConversionError(s.clone()),
-//             SteelErr::Io(_) => {
-//                 SteelErr::Io(std::io::Error::new(std::io::ErrorKind::Other, "io error"))
-//             }
-//             SteelErr::Parse(p) => SteelErr::Parse(p.clone()),
-//             SteelErr::Infallible(s) => SteelErr::Infallible(*s),
-//             SteelErr::Generic(s) => SteelErr::Generic(s.clone()),
-//         }
-//     }
-// }
-
-// impl PartialEq for SteelErr {
-//     fn eq(&self, other: &Self) -> bool {
-//         use SteelErr::*;
-//         match (self, other) {
-//             (ArityMismatch(l), ArityMismatch(r)) => l == r,
-//             (FreeIdentifier(l), FreeIdentifier(r)) => l == r,
-//             (TypeMismatch(l), TypeMismatch(r)) => l == r,
-//             (UnexpectedToken(l), UnexpectedToken(r)) => l == r,
-//             (ContractViolation(l), ContractViolation(r)) => l == r,
-//             (BadSyntax(l), BadSyntax(r)) => l == r,
-//             (ConversionError(l), ConversionError(r)) => l == r,
-//             (Generic(l), Generic(r)) => l == r,
-//             _ => false,
-//         }
-//     }
-// }
-
-// #[derive(Debug, StructOpt)]
-// #[structopt(name = "emit")]
-// struct Opts {
-//     #[structopt(long = "color",
-//         parse(try_from_str),
-//         default_value = "auto",
-//         possible_values = ColorArg::VARIANTS,
-//         case_insensitive = true
-//     )]
-//     color: ColorArg,
-// }
-
 impl SteelErr {
-    // pub fn set_span(self, span: Span) -> Self {
-    //     match self {
-    //         Self::ArityMismatch(m) => Self::ArityMismatch(m.with_span(span)),
-    //         Self::FreeIdentifier(m) => Self::FreeIdentifier(m.with_span(span)),
-    //         Self::TypeMismatch(m) => Self::TypeMismatch(m.with_span(span)),
-    //         Self::UnexpectedToken(m) => Self::UnexpectedToken(m.with_span(span)),
-    //         Self::ContractViolation(m) => Self::ContractViolation(m.with_span(span)),
-    //         Self::BadSyntax(m) => Self::BadSyntax(m.with_span(span)),
-    //         Self::ConversionError(m) => Self::ConversionError(m.with_span(span)),
-    //         Self::Generic(m) => Self::Generic(m.with_span(span)),
-    //         Self::Io(m) => Self::Io(m),
-    //         Self::Parse(m) => Self::Parse(m),
-    //         Self::Infallible(m) => Self::Infallible(m),
-    //     }
-    // }
-
     fn _new(repr: Repr) -> Self {
         SteelErr { repr }
     }
@@ -321,83 +207,6 @@ impl SteelErr {
                 self.repr.span.unwrap_or(_error_span),
             )
             .with_message(&self.repr.message)])
-
-        // match self {
-        //     Self::ArityMismatch(m, error_span) => Diagnostic::error()
-        //         .with_code("E01")
-        //         .with_message("arity mismatch")
-        //         .with_labels(vec![
-        //             Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
-        //         ]),
-        //     Self::FreeIdentifier(m, error_span) => Diagnostic::error()
-        //         .with_code("E02")
-        //         .with_message("free identifier")
-        //         .with_labels(vec![
-        //             Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
-        //         ]),
-        //     Self::TypeMismatch(m, error_span) => Diagnostic::error()
-        //         .with_code("E03")
-        //         .with_message("type mismatch")
-        //         .with_labels(vec![
-        //             Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
-        //         ]),
-        //     Self::UnexpectedToken(m, error_span) => Diagnostic::error()
-        //         .with_code("E04")
-        //         .with_message("unexpected token")
-        //         .with_labels(vec![
-        //             Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
-        //         ]),
-        //     Self::ContractViolation(m, error_span) => Diagnostic::error()
-        //         .with_code("E05")
-        //         .with_message("contract violation")
-        //         .with_labels(vec![
-        //             Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
-        //         ]),
-        //     Self::BadSyntax(m, error_span) => Diagnostic::error()
-        //         .with_code("E06")
-        //         .with_message("bad syntax")
-        //         .with_labels(vec![
-        //             Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
-        //         ]),
-        //     Self::ConversionError(m, error_span) => Diagnostic::error()
-        //         .with_code("E07")
-        //         .with_message("conversion error")
-        //         .with_labels(vec![
-        //             Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
-        //         ]),
-        //     Self::Io(m) => Diagnostic::error()
-        //         .with_code("E08")
-        //         .with_message("io error")
-        //         .with_labels(vec![
-        //             Label::primary((), _error_span).with_message(m.to_string())
-        //         ]),
-        //     Self::Parse(m) => {
-        //         let reporting_span = if let Some(s) = m.span() {
-        //             s
-        //         } else {
-        //             _error_span
-        //         };
-
-        //         Diagnostic::error()
-        //             .with_code("E09")
-        //             .with_message("parse error")
-        //             .with_labels(vec![
-        //                 Label::primary((), reporting_span).with_message(m.to_string())
-        //             ])
-        //     }
-        //     Self::Infallible(m) => Diagnostic::error()
-        //         .with_code("E10")
-        //         .with_message("infallible")
-        //         .with_labels(vec![
-        //             Label::primary((), _error_span).with_message(m.to_string())
-        //         ]),
-        //     Self::Generic(m, error_span) => Diagnostic::error()
-        //         .with_code("E11")
-        //         .with_message("general")
-        //         .with_labels(vec![
-        //             Label::primary((), error_span.unwrap_or(_error_span)).with_message(m)
-        //         ]),
-        // }
     }
 }
 

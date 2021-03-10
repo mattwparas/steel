@@ -1,20 +1,19 @@
-use crate::evaluation_progress::EvaluationProgress;
-use crate::heap::Heap;
-use crate::vm::vm;
-use std::cell::RefCell;
-use std::rc::Rc;
-use steel::gc::Gc;
-use steel::parser::span::Span;
-use steel::rerrs::{ErrorKind, SteelErr};
-use steel::rvals::{Result, SteelVal};
-use steel::steel_compiler::constants::ConstantTable;
-use steel::stop;
-use steel::{env::Env, rvals::ByteCodeLambda};
-
-use steel::contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract};
+use crate::{evaluation_progress::EvaluationProgress, heap::Heap, vm::vm};
+use std::{cell::RefCell, rc::Rc};
+use steel::{
+    contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract},
+    env::Env,
+    gc::Gc,
+    parser::span::Span,
+    rerrs::{ErrorKind, SteelErr},
+    rvals::{ByteCodeLambda, Result, SteelVal},
+    steel_compiler::constants::ConstantTable,
+    stop,
+};
 
 use log::debug;
 
+/// Extension trait for the application of contracted functions
 pub trait ContractedFunctionExt {
     fn apply<CT: ConstantTable>(
         &self,
@@ -69,6 +68,7 @@ impl ContractedFunctionExt for ContractedFunction {
     }
 }
 
+/// Extension trait for the application of flat contracts
 pub trait FlatContractExt {
     fn apply<CT: ConstantTable>(
         &self,
@@ -138,6 +138,7 @@ impl FlatContractExt for FlatContract {
     }
 }
 
+/// Extension trait for the application of function contracts
 pub trait FunctionContractExt {
     fn apply<CT: ConstantTable>(
         &self,
