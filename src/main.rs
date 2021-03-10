@@ -123,16 +123,25 @@ fn no_args_return_empty() {
     println!("hello world!");
 }
 
+fn accept_vector(vector: Vec<WrapperStruct>) -> Option<usize> {
+    if vector.len() == 2 {
+        None
+    } else {
+        Some(vector.len())
+    }
+}
+
 #[derive(Clone, Debug, Steel)]
 struct WrapperStruct(usize);
 
 impl WrapperStruct {
-    fn new(val: usize) -> Self {
-        WrapperStruct(val)
-    }
-
     fn method_by_value(self) -> usize {
         self.0
+    }
+
+    fn set_num(mut self, number: usize) -> Self {
+        self.0 = number;
+        self
     }
 }
 
@@ -163,7 +172,9 @@ fn main() {
             .register_fn("takes-wrapper", takes_wrapper)
             .register_type::<WrapperStruct>("WrapperStruct?")
             .register_fn("Wrapper", WrapperStruct)
-            .register_fn("self-by-ref", WrapperStruct::method_by_value);
+            .register_fn("self-by-ref", WrapperStruct::method_by_value)
+            .register_fn("set-Wrapper-num!", WrapperStruct::set_num)
+            .register_fn("accept-vector", accept_vector);
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
 
@@ -508,8 +519,12 @@ pub fn test_repl() -> std::io::Result<()> {
         .register_fn("blagh", test_two_args)
         .register_fn("no-args", no_args_return_empty)
         .register_fn("do-a-call-2", do_a_call_two)
-        .register_fn("test-two-args", test_two_args)
-        .register_fn("test-result-error", test_result_error);
+        .register_fn("takes-wrapper", takes_wrapper)
+        .register_type::<WrapperStruct>("WrapperStruct?")
+        .register_fn("Wrapper", WrapperStruct)
+        .register_fn("self-by-ref", WrapperStruct::method_by_value)
+        .register_fn("set-Wrapper-num!", WrapperStruct::set_num)
+        .register_fn("accept-vector", accept_vector);
 
     // vm.on_progress(|count| {
     //     // parameter is 'u64' - number of operations already performed

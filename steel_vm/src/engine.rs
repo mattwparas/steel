@@ -13,9 +13,9 @@ use steel::{
     parser::parser::{ParseError, Parser},
     primitives::ListOperations,
     rerrs::{ErrorKind, SteelErr},
-    rvals::{Custom, FromSteelVal, IntoSteelVal, Result, SteelVal},
+    rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     steel_compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
-    stop, throw, CustomType,
+    stop, throw,
 };
 
 #[macro_export]
@@ -64,6 +64,26 @@ impl Engine {
         let mut vm = Engine::new();
         vm.register_value("*env*", steel::env::Env::constant_env_to_hashmap());
         vm
+    }
+
+    pub fn with_prelude(mut self) -> Result<Self> {
+        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+
+        for core in core_libraries {
+            self.parse_and_execute_without_optimizations(core)?;
+        }
+
+        Ok(self)
+    }
+
+    pub fn register_prelude(&mut self) -> Result<&mut Self> {
+        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+
+        for core in core_libraries {
+            self.parse_and_execute_without_optimizations(core)?;
+        }
+
+        Ok(self)
     }
 
     pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {

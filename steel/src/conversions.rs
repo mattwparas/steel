@@ -21,15 +21,22 @@ impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
     }
 }
 
-impl<T: FromSteelVal> FromSteelVal for Vec<T> {
+impl<T: FromSteelVal + std::fmt::Debug> FromSteelVal for Vec<T> {
     fn from_steelval(val: SteelVal) -> Result<Self> {
         match val {
             SteelVal::Pair(_) => {
+                println!("inside here");
+
                 // let vec_vals = collect_pair_into_vector(&val);
                 let result_vec_vals: Result<Self> = SteelVal::iter(val.clone())
                     .into_iter()
-                    .map(FromSteelVal::from_steelval)
+                    .map(|x| {
+                        let output = FromSteelVal::from_steelval(x);
+                        println!("{:?}", output);
+                        output
+                    })
                     .collect();
+
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
