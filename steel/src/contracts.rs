@@ -4,11 +4,13 @@ use crate::{gc::Gc, rvals::ByteCodeLambda};
 use itertools::Itertools;
 use std::fmt;
 
+/// Flat contracts are simply predicates to apply to a value. These can be immediately applied
+/// at attachment to a value.
 #[derive(Clone, PartialEq)]
 pub struct FlatContract {
-    // function of any kind
+    /// Steel Function of any kind
     predicate: SteelVal,
-    // name of the function for blaming purposes
+    /// Name of the function for blaming purposes
     pub name: String,
 }
 
@@ -45,15 +47,18 @@ impl From<FlatContract> for SteelVal {
     }
 }
 
+/// Struct for function contracts. Contains all of the necessary information
+/// for contract evaluation and blaming, including the pre and post conditions, the contract
+/// attachment location, and the parent contract from which this contract was derived (if any)
 #[derive(Clone, PartialEq)]
 pub struct FunctionContract {
-    // List of pre conditions, required to be list of ContractType
+    /// List of pre conditions, required to be list of ContractType
     pre_conditions: Box<[Gc<ContractType>]>,
-    // Post condition, required to be a contract type
+    /// Post condition, required to be a contract type
     post_condition: Gc<ContractType>,
-    // Location/Name of contract attachment
+    /// Location/Name of contract attachment
     pub contract_attachment_location: Option<String>,
-    // Stack of function contracts to also abide by, checked at application
+    /// Stack of function contracts to also abide by, checked at application
     parent: Option<Gc<FunctionContract>>,
 }
 
@@ -139,6 +144,8 @@ impl From<FunctionContract> for SteelVal {
     }
 }
 
+/// The contract type. `Flat` contracts apply to reified values (non functions)
+/// `Function` contracts apply to exactly that - functions.
 #[derive(Clone, PartialEq)]
 pub enum ContractType {
     Flat(FlatContract),
@@ -154,6 +161,8 @@ impl fmt::Display for ContractType {
     }
 }
 
+/// Represents a Steel function wrapped with a contract
+/// Contains the contract, the function, and the name of the contract (for blaming)
 #[derive(Clone)]
 pub struct ContractedFunction {
     pub contract: FunctionContract,

@@ -230,59 +230,6 @@ impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
     }
 }
 
-impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
-    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-        let vec_vals: Result<Vec<SteelVal>, SteelErr> =
-            self.into_iter().map(|x| x.into_steelval()).collect();
-
-        match vec_vals {
-            Ok(l) => ListOperations::built_in_list_func_flat(&l),
-            _ => Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Could not convert vector of values to SteelVal list".to_string(),
-            )),
-        }
-    }
-}
-
-impl<T: FromSteelVal> FromSteelVal for Vec<T> {
-    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
-        match val {
-            SteelVal::Pair(_) => {
-                // let vec_vals = collect_pair_into_vector(&val);
-                let result_vec_vals: Result<Self, SteelErr> = SteelVal::iter(val.clone())
-                    .into_iter()
-                    .map(FromSteelVal::from_steelval)
-                    .collect();
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            }
-            SteelVal::VectorV(v) => {
-                let result_vec_vals: Result<Self, SteelErr> = v
-                    .iter()
-                    .map(|x| FromSteelVal::from_steelval(x.clone()))
-                    .collect();
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            } // TODO
-            _ => Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Could not convert SteelVal list to Vector of values".to_string(),
-            )),
-        }
-    }
-}
-
 impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
     type Error = SteelErr;
     fn try_from(val: SteelVal) -> result::Result<Self, Self::Error> {
@@ -366,7 +313,6 @@ impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
 // from_f64!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 
 from_f64!(f64, f32);
-
 from_for_isize!(i32, i16, i8, u8, u16, u32, u64, usize, isize);
 
 // from_usize!(u64, u32);

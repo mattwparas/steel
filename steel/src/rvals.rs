@@ -5,7 +5,7 @@ use crate::{
     gc::Gc,
     lazy_stream::LazyStream,
     port::SteelPort,
-    rerrs::SteelErr,
+    rerrs::{ErrorKind, SteelErr},
     structs::SteelStruct,
 };
 
@@ -15,6 +15,7 @@ use std::{
     cmp::Ordering,
     // convert::TryFrom,
     fmt,
+    fmt::Write,
     future::Future,
     hash::{Hash, Hasher},
     pin::Pin,
@@ -105,6 +106,8 @@ there is some overhead here but I think it might be worth it?
 
 // Box<Fn(i32) -> i32>
 
+pub trait Custom {}
+
 pub trait StructFunctions {
     fn generate_bindings() -> Vec<(String, SteelVal)>;
 }
@@ -131,10 +134,61 @@ impl From<Box<dyn CustomType>> for SteelVal {
     }
 }
 
+impl<T: Custom + Clone + 'static + std::fmt::Debug> CustomType for T {
+    fn box_clone(&self) -> Box<dyn CustomType> {
+        Box::new((*self).clone())
+    }
+    fn as_any(&self) -> Box<dyn Any> {
+        Box::new((*self).clone())
+    }
+    fn new_steel_val(&self) -> SteelVal {
+        SteelVal::Custom(Gc::new(Box::new(self.clone())))
+    }
+    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        let mut buf = String::new();
+        write!(buf, "{:?}", &self)?;
+        Ok(buf)
+    }
+}
+
+impl<T: CustomType> IntoSteelVal for T {
+    fn into_steelval(self) -> Result<SteelVal> {
+        Ok(self.new_steel_val())
+    }
+}
+
+impl<T: CustomType + Clone + 'static> FromSteelVal for T {
+    fn from_steelval(val: SteelVal) -> Result<Self> {
+        if let SteelVal::Custom(v) = val {
+            let left_type = v.as_any();
+            let left: Option<T> = left_type.downcast_ref::<T>().cloned();
+            left.ok_or_else(|| {
+                let error_message =
+                    format!("Type Mismatch: Type of SteelVal did not match the given type");
+                SteelErr::new(ErrorKind::ConversionError, error_message)
+            })
+        } else {
+            let error_message =
+                "Type Mismatch: Type of SteelVal did not match the given type".to_string();
+            Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+        }
+    }
+}
+
+/// The entry point for turning values into SteelVals
+/// The is implemented for most primitives and collections
+/// You can also manually implement this for any type, or can optionally
+/// get this implementation for a custom struct by using the custom
+/// steel derive.
 pub trait IntoSteelVal: Sized {
     fn into_steelval(self) -> Result<SteelVal>;
 }
 
+/// The exit point for turning SteelVals into outside world values
+/// This is implement for most primitives and collections
+/// You can also manually implement this for any type, or can optionally
+/// get this implementation for a custom struct by using the custom
+/// steel derive.
 pub trait FromSteelVal: Sized {
     fn from_steelval(val: SteelVal) -> Result<Self>;
 }
@@ -274,8 +328,6 @@ pub enum SteelVal {
 //         }
 //     }
 // }
-
-pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
 
 pub enum CollectionType {
     List,
