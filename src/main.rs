@@ -123,7 +123,7 @@ fn no_args_return_empty() {
     println!("hello world!");
 }
 
-fn accept_vector(vector: Vec<WrapperStruct>) -> Option<usize> {
+fn accept_vector(vector: Vec<usize>) -> Option<usize> {
     if vector.len() == 2 {
         None
     } else {

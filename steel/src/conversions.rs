@@ -25,16 +25,9 @@ impl<T: FromSteelVal + std::fmt::Debug> FromSteelVal for Vec<T> {
     fn from_steelval(val: SteelVal) -> Result<Self> {
         match val {
             SteelVal::Pair(_) => {
-                println!("inside here");
-
-                // let vec_vals = collect_pair_into_vector(&val);
                 let result_vec_vals: Result<Self> = SteelVal::iter(val.clone())
                     .into_iter()
-                    .map(|x| {
-                        let output = FromSteelVal::from_steelval(x);
-                        println!("{:?}", output);
-                        output
-                    })
+                    .map(FromSteelVal::from_steelval)
                     .collect();
 
                 match result_vec_vals {
