@@ -294,7 +294,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                             optimizations.to_string().bright_green()
                         );
                     }
-                    // TODO come back
                     // ":env" => vm.print_bindings(),
                     ":?" | ":help" => display_help(),
                     line if line.contains(":load") => {
@@ -323,42 +322,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         );
 
                         rt.block_on(action)
-
-                        // let res = if optimizations {
-                        //     vm.lock()
-                        //         .unwrap()
-                        //         .run_with_path(exprs.as_str(), path.to_path_buf())
-                        // } else {
-                        //     vm.lock()
-                        //         .unwrap()
-                        //         .run_with_path(exprs.as_str(), path.to_path_buf())
-                        //     // vm.parse_and_execute_without_optimizations(exprs.as_str())
-                        // };
-
-                        // match res {
-                        //     Ok(r) => r.iter().for_each(|x| match x {
-                        //         SteelVal::Void => {}
-                        //         _ => println!("{} {}", "=>".bright_blue().bold(), x),
-                        //     }),
-                        //     Err(e) => {
-                        //         e.emit_result(file_name.as_str(), exprs.as_str());
-                        //         eprintln!("{}", e.to_string().bright_red());
-                        //     }
-                        // }
-
-                        // let action = finish_load_or_interrupt(
-                        //     Arc::clone(&vm),
-                        //     exprs,
-                        //     path.to_path_buf(),
-                        //     optimizations,
-                        // );
-
-                        // match rt.block_on(action) {
-                        //     Ok(_) => {}
-                        //     Err(_) => {
-                        //         println!("INTERRUPT")
-                        //     }
-                        // }
                     }
                     _ => {
                         // TODO also include this for loading files
@@ -385,9 +348,4 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     }
 
     Ok(())
-}
-
-pub fn repl() -> std::io::Result<()> {
-    unimplemented!()
-    // repl_base(interpreter::SteelInterpreter::new())
 }
