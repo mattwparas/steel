@@ -377,6 +377,11 @@ impl ListOperations {
             .map(|car| Ok(Gc::new(ConsCell::new(car?, None))))
             .collect::<Result<_>>()?;
 
+        // use this as empty for now
+        if pairs.is_empty() {
+            return Ok(SteelVal::VectorV(Gc::new(Vector::new())));
+        }
+
         // let mut rev_iter = pairs.iter_mut().rev().enumerate();
 
         let mut rev_iter = (0..pairs.len()).into_iter().rev();
@@ -391,10 +396,12 @@ impl ListOperations {
             }
         }
 
-        pairs
-            .pop()
-            .map(SteelVal::Pair)
-            .ok_or_else(|| SteelErr::new(ErrorKind::Generic, "list-pair broke".to_string()))
+        pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                "list-pair broke inside build_in_list_normal_ier".to_string(),
+            )
+        })
 
         // rev_iter.next();
 
@@ -423,10 +430,12 @@ impl ListOperations {
         for (i, val) in args.enumerate() {
             pairs.push(Gc::new(ConsCell::new(val, Some(Gc::clone(&pairs[i])))));
         }
-        pairs
-            .pop()
-            .map(SteelVal::Pair)
-            .ok_or_else(|| SteelErr::new(ErrorKind::Generic, "list-pair broke".to_string()))
+        pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                "list-pair broke inside built_in_list_func_iter".to_string(),
+            )
+        })
         // unimplemented!()
     }
 
@@ -448,10 +457,12 @@ impl ListOperations {
         for (i, val) in args.enumerate() {
             pairs.push(Gc::new(ConsCell::new(val?, Some(Gc::clone(&pairs[i])))));
         }
-        pairs
-            .pop()
-            .map(SteelVal::Pair)
-            .ok_or_else(|| SteelErr::new(ErrorKind::Generic, "list-pair broke".to_string()))
+        pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                "list-pair broke in built_in_list_func_iter_result".to_string(),
+            )
+        })
         // unimplemented!()
     }
 
@@ -508,10 +519,12 @@ impl ListOperations {
                 )));
             }
 
-            pairs
-                .pop()
-                .map(SteelVal::Pair)
-                .ok_or_else(|| SteelErr::new(ErrorKind::Generic, "list-pair broke".to_string()))
+            pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+                SteelErr::new(
+                    ErrorKind::Generic,
+                    "list-pair broke inside built_in_list_func".to_string(),
+                )
+            })
         }
     }
 
@@ -535,10 +548,12 @@ impl ListOperations {
             )));
         }
 
-        pairs
-            .pop()
-            .map(SteelVal::Pair)
-            .ok_or_else(|| SteelErr::new(ErrorKind::Generic, "list-pair broke".to_string()))
+        pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                "list-pair broke inside built_in_list_func_flat".to_string(),
+            )
+        })
     }
 
     pub fn list_length() -> SteelVal {
@@ -576,10 +591,12 @@ impl ListOperations {
             pairs.push(Gc::new(ConsCell::new(val, Some(Gc::clone(&pairs[i])))));
         }
 
-        pairs
-            .pop()
-            .map(SteelVal::Pair)
-            .ok_or_else(|| SteelErr::new(ErrorKind::Generic, "list-pair broke".to_string()))
+        pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                "list-pair broke inside built_in_list_func_flat_non_gc".to_string(),
+            )
+        })
     }
 }
 

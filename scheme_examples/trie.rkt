@@ -140,16 +140,16 @@
 ;;         (loop (+ x 1)))))
 
 ; (define trie1 (build-trie-from-list-of-words empty-trie test-list))
-; (displayln (trie-sort test-list))
+(displayln (trie-sort test-list))
 
 ;; (loop 0)
 
 ; (displayln (- (current-inexact-milliseconds) start))
 
 
-(define (loop x)
-  (if (equal? x 10000)
-      x
-      (begin
-        (trie-sort test-list)
-        (loop (+ x 1)))))
+; (define (loop x)
+;   (if (equal? x 10000)
+;       x
+;       (begin
+;         (trie-sort test-list)
+;         (loop (+ x 1)))))

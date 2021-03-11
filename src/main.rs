@@ -88,7 +88,7 @@ use once_cell::sync::Lazy; // 1.3.1
 
 static ARRAY: Lazy<Mutex<Vec<u8>>> = Lazy::new(|| Mutex::new(vec![]));
 
-#[function]
+// #[function]
 fn do_a_call() {
     ARRAY.lock().unwrap().push(1);
     println!("{:?}", ARRAY.lock().unwrap());
@@ -149,6 +149,13 @@ fn takes_wrapper(arg1: WrapperStruct) -> usize {
     arg1.0
 }
 
+#[derive(Clone, Debug, Steel)]
+struct NormalStruct {
+    val: usize,
+    test: f64,
+    thing: bool,
+}
+
 fn main() {
     // env_logger::init();
 
@@ -174,7 +181,8 @@ fn main() {
             .register_fn("Wrapper", WrapperStruct)
             .register_fn("self-by-ref", WrapperStruct::method_by_value)
             .register_fn("set-Wrapper-num!", WrapperStruct::set_num)
-            .register_fn("accept-vector", accept_vector);
+            .register_fn("accept-vector", accept_vector)
+            .register_type::<NormalStruct>("normal-struct?");
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
 
@@ -214,19 +222,19 @@ fn finish(result: Result<(), std::io::Error>) -> ! {
     process::exit(code);
 }
 
-#[steel]
+// #[steel]
 pub struct MyStruct {
     pub field: usize,
     pub stays_the_same: usize,
     pub name: String,
 }
 
-#[steel]
+// #[steel]
 pub struct VecStruct {
     pub field: Vec<CoolTest>,
 }
 
-#[steel]
+// #[steel]
 #[derive(PartialEq)]
 pub struct CoolTest {
     pub val: f64,
@@ -238,46 +246,46 @@ impl CoolTest {
         println!("Inside a method of CoolTest!");
     }
 
-    #[function]
+    // #[function]
     pub fn blargh() {
         println!("do some stuff");
     }
 }
 
-#[steel]
+// #[steel]
 #[derive(PartialEq)]
 pub struct UnnamedFields(pub usize);
 
-#[steel]
+// #[steel]
 #[derive(PartialEq)]
 pub struct Foo {
     pub f: UnnamedFields,
 }
 
-#[steel]
+// #[steel]
 pub struct Mutation(pub Rc<RefCell<usize>>);
 
-#[function]
+// #[function]
 pub fn new_mutation() -> Mutation {
     Mutation(Rc::new(RefCell::new(0)))
 }
 
-#[function]
+// #[function]
 pub fn mutation_inner(value: Mutation) {
     *value.0.borrow_mut() += 1;
 }
 
 // By design, tuple structs with unnamed fields are not given constructors or accessors
 // constructors or accessors must be defined outside the macro
-#[steel]
+// #[steel]
 pub struct MutexWrapper(pub Arc<Mutex<usize>>);
 
-#[function]
+// #[function]
 pub fn new_mutex_wrapper(val: usize) -> MutexWrapper {
     MutexWrapper(Arc::new(Mutex::new(val)))
 }
 
-#[function]
+// #[function]
 pub fn add_cool_tests(arg1: CoolTest, arg2: CoolTest) -> CoolTest {
     let res = CoolTest {
         val: arg1.val + arg2.val,
@@ -286,17 +294,17 @@ pub fn add_cool_tests(arg1: CoolTest, arg2: CoolTest) -> CoolTest {
     res
 }
 
-#[function]
-pub fn pretty_print_cool_test(arg: CoolTest) {
-    println!("{:?}", arg);
-}
+// #[function]
+// pub fn pretty_print_cool_test(arg: CoolTest) {
+//     println!("{:?}", arg);
+// }
 
-#[function]
+// #[function]
 pub fn multiple_types(val: u64) -> u64 {
     val + 25
 }
 
-#[function]
+// #[function]
 pub fn test_option(input: usize) -> Option<usize> {
     if input == 1 {
         Some(1)
@@ -305,12 +313,12 @@ pub fn test_option(input: usize) -> Option<usize> {
     }
 }
 
-#[function]
+// #[function]
 pub fn panic_time() {
     panic!("What do I do?")
 }
 
-#[function]
+// #[function]
 pub fn test_result(input: usize) -> std::result::Result<usize, String> {
     if input == 1 {
         Ok(1)
@@ -319,7 +327,7 @@ pub fn test_result(input: usize) -> std::result::Result<usize, String> {
     }
 }
 
-#[function]
+// #[function]
 pub fn mutation_test(arg: CoolTest) -> CoolTest {
     let mut arg = arg;
     arg.val = 10000.0;
@@ -344,15 +352,15 @@ pub fn mutation_test(arg: CoolTest) -> CoolTest {
 //     cache.0.borrow().get(&key).map(|x| Gc::clone(x))
 // }
 
-#[steel]
+// #[steel]
 pub struct Levenshtein(Rc<RefCell<EditDistance>>);
 
-#[function]
+// #[function]
 pub fn new_levenshtein() -> Levenshtein {
     Levenshtein(Rc::new(RefCell::new(EditDistance::new(15))))
 }
 
-#[function]
+// #[function]
 pub fn edit_distance(l: Levenshtein, one: String, two: String) -> usize {
     l.0.borrow_mut()
         .get_edit_distance(one.as_str(), two.as_str())
@@ -489,31 +497,7 @@ impl EditDistance {
 }
 
 pub fn test_repl() -> std::io::Result<()> {
-    let mut vm = build_engine! {
-        Structs => {
-            MyStruct,
-            CoolTest,
-            Foo,
-            MutexWrapper,
-            VecStruct,
-            Levenshtein
-        }
-        Functions => {
-            // "add-cool-tests" => add_cool_tests,
-            // "multiple-types" => multiple_types,
-            // "new-mutex-wrapper" => new_mutex_wrapper,
-            // "display-cool-test" => pretty_print_cool_test,
-            // "test-result" => test_result,
-            // "test-option" => test_option,
-            // "panic-time" => panic_time,
-            // "do-a-call" => do_a_call,
-            // "blargh" => CoolTest::blargh,
-            // "new-mutation" => new_mutation,
-            // "mutation-inner!" => mutation_inner,
-            // "new-levenshtein" => new_levenshtein,
-            // "edit-distance" => edit_distance,
-        }
-    };
+    let mut vm = build_engine! {};
 
     vm.register_fn("test-test", test_test)
         .register_fn("blagh", test_two_args)
@@ -539,31 +523,7 @@ pub fn test_repl() -> std::io::Result<()> {
 }
 
 pub fn test_repl_with_progress() -> std::io::Result<()> {
-    let mut vm = build_engine! {
-        Structs => {
-            MyStruct,
-            CoolTest,
-            Foo,
-            MutexWrapper,
-            VecStruct,
-            Levenshtein
-        }
-        Functions => {
-            "add-cool-tests" => add_cool_tests,
-            "multiple-types" => multiple_types,
-            "new-mutex-wrapper" => new_mutex_wrapper,
-            "display-cool-test" => pretty_print_cool_test,
-            "test-result" => test_result,
-            "test-option" => test_option,
-            "panic-time" => panic_time,
-            "do-a-call" => do_a_call,
-            "blargh" => CoolTest::blargh,
-            "new-mutation" => new_mutation,
-            "mutation-inner!" => mutation_inner,
-            "new-levenshtein" => new_levenshtein,
-            "edit-distance" => edit_distance,
-        }
-    };
+    let mut vm = build_engine! {};
 
     vm.on_progress(|count| {
         // parameter is 'u64' - number of operations already performed
@@ -578,11 +538,7 @@ pub fn test_repl_with_progress() -> std::io::Result<()> {
 }
 
 pub fn my_repl() -> std::io::Result<()> {
-    build_repl! {
-        MyStruct,
-        CoolTest,
-        Foo
-    }
+    build_repl! {}
 }
 
 pub fn test_result2(input: usize) -> std::result::Result<usize, String> {
@@ -596,87 +552,87 @@ pub fn test_result2(input: usize) -> std::result::Result<usize, String> {
 // TODO come back and flesh this out
 #[test]
 fn embed_functions_and_verify_results() {
-    let mut interp = build_engine! {
-        Structs => {
-            MyStruct,
-            CoolTest,
-            Foo,
-            MutexWrapper,
-            VecStruct
-        }
-        Functions => {
-            "add-cool-tests" => add_cool_tests,
-            "multiple-types" => multiple_types,
-            "new-mutex-wrapper" => new_mutex_wrapper,
-            "test-result" => test_result,
-            "test-option" => test_option,
-            "do-a-call" => do_a_call,
-        }
-    };
+    // let mut interp = build_engine! {
+    //     Structs => {
+    //         MyStruct,
+    //         CoolTest,
+    //         Foo,
+    //         MutexWrapper,
+    //         VecStruct
+    //     }
+    //     Functions => {
+    //         "add-cool-tests" => add_cool_tests,
+    //         "multiple-types" => multiple_types,
+    //         "new-mutex-wrapper" => new_mutex_wrapper,
+    //         "test-result" => test_result,
+    //         "test-option" => test_option,
+    //         "do-a-call" => do_a_call,
+    //     }
+    // };
 
-    let script = "
-    (define result-res-good (test-result 1))
-    (define result-res-false (test-result 2))
-    ";
+    // let script = "
+    // (define result-res-good (test-result 1))
+    // (define result-res-false (test-result 2))
+    // ";
 
-    assert!(interp.parse_and_execute(&script).is_err());
+    // assert!(interp.parse_and_execute(&script).is_err());
 
-    let script = "
-    (define option-res-good (test-option 1))
-    (define option-res-bad (test-option 2))
-    ";
-    assert!(interp.parse_and_execute(&script).is_ok());
+    // let script = "
+    // (define option-res-good (test-option 1))
+    // (define option-res-bad (test-option 2))
+    // ";
+    // assert!(interp.parse_and_execute(&script).is_ok());
 }
 
 #[test]
 fn build_interpreter_and_modify() {
-    // Construct interpreter with 3 custom structs
-    // each has now getters, setters, a predicate and constructor
-    let mut interpreter = build_engine! {
-        MyStruct,
-        CoolTest,
-        Foo
-    };
+    // // Construct interpreter with 3 custom structs
+    // // each has now getters, setters, a predicate and constructor
+    // let mut interpreter = build_engine! {
+    //     MyStruct,
+    //     CoolTest,
+    //     Foo
+    // };
 
-    // define value outside of interpreter to embed
-    let test = UnnamedFields(100);
-    // embed the value
-    interpreter.register_value("unnamed", test.new_steel_val());
-    interpreter.register_value("add_cool_tests", SteelVal::FuncV(add_cool_tests));
-    interpreter.register_value("multiple_types", SteelVal::FuncV(multiple_types));
+    // // define value outside of interpreter to embed
+    // let test = UnnamedFields(100);
+    // // embed the value
+    // interpreter.register_value("unnamed", test.new_steel_val());
+    // interpreter.register_value("add_cool_tests", SteelVal::FuncV(add_cool_tests));
+    // interpreter.register_value("multiple_types", SteelVal::FuncV(multiple_types));
 
-    // write a quick script
-    let script = "
-        (define cool-test (CoolTest 100.0))
-        (define cool-test2 (CoolTest 200.0))
-        (define return-val (set-CoolTest-val! cool-test 200.0))
-        (define foo-test (Foo unnamed))
-        (define sum-test (add_cool_tests cool-test cool-test2))
-        (define mt (multiple_types 25))
-    ";
+    // // write a quick script
+    // let script = "
+    //     (define cool-test (CoolTest 100.0))
+    //     (define cool-test2 (CoolTest 200.0))
+    //     (define return-val (set-CoolTest-val! cool-test 200.0))
+    //     (define foo-test (Foo unnamed))
+    //     (define sum-test (add_cool_tests cool-test cool-test2))
+    //     (define mt (multiple_types 25))
+    // ";
 
-    // get the values back out
-    match interpreter.parse_and_execute_without_optimizations(&script) {
-        Ok(_) => {
-            let ret_val: CoolTest =
-                CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
-            assert_eq!(ret_val, CoolTest { val: 200.0 });
-            let ret_val2 =
-                UnnamedFields::try_from(interpreter.extract_value("unnamed").unwrap()).unwrap();
-            assert_eq!(ret_val2, UnnamedFields(100));
-            let ret_val3 = Foo::try_from(interpreter.extract_value("foo-test").unwrap()).unwrap();
-            assert_eq!(
-                ret_val3,
-                Foo {
-                    f: UnnamedFields(100)
-                }
-            );
-            let ret_val4 =
-                CoolTest::try_from(interpreter.extract_value("sum-test").unwrap()).unwrap();
-            assert_eq!(ret_val4, CoolTest { val: 300.0 })
-        }
-        Err(e) => {
-            panic!(e.to_string());
-        }
-    }
+    // // get the values back out
+    // match interpreter.parse_and_execute_without_optimizations(&script) {
+    //     Ok(_) => {
+    //         let ret_val: CoolTest =
+    //             CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
+    //         assert_eq!(ret_val, CoolTest { val: 200.0 });
+    //         let ret_val2 =
+    //             UnnamedFields::try_from(interpreter.extract_value("unnamed").unwrap()).unwrap();
+    //         assert_eq!(ret_val2, UnnamedFields(100));
+    //         let ret_val3 = Foo::try_from(interpreter.extract_value("foo-test").unwrap()).unwrap();
+    //         assert_eq!(
+    //             ret_val3,
+    //             Foo {
+    //                 f: UnnamedFields(100)
+    //             }
+    //         );
+    //         let ret_val4 =
+    //             CoolTest::try_from(interpreter.extract_value("sum-test").unwrap()).unwrap();
+    //         assert_eq!(ret_val4, CoolTest { val: 300.0 })
+    //     }
+    //     Err(e) => {
+    //         panic!(e.to_string());
+    //     }
+    // }
 }

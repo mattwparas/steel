@@ -181,8 +181,8 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                     // TODO come back
                     // ":env" => vm.print_bindings(),
                     ":?" | ":help" => display_help(),
-                    line if line.contains(":require") => {
-                        let line = line.trim_start_matches(":require").trim();
+                    line if line.contains(":load") => {
+                        let line = line.trim_start_matches(":load").trim();
                         let path = Path::new(line);
 
                         let file = std::fs::File::open(path);
