@@ -7,7 +7,8 @@ use std::{
 use steel_vm::engine::Engine;
 use steel_vm::register_fn::RegisterFn;
 
-use steel_derive::Steel;
+use once_cell::sync::Lazy;
+use steel_derive::Steel; // 1.3.1
 
 // Since Steel is a functional language, we can perform mutation by using the interior mutability pattern
 // We expose an Rc<RefCell<T>> (or, in a multi thread environment an Arc<Mutex<T>>) and expose
@@ -34,6 +35,15 @@ pub fn mutex_increment(value: MutexWrapper) {
     *value.0.lock().unwrap() += 1;
 }
 
+// Optionally, you can also provide functions which hold references to static global
+// variables
+static ARRAY: Lazy<Mutex<Vec<u8>>> = Lazy::new(|| Mutex::new(vec![]));
+
+fn push_global_vector() {
+    ARRAY.lock().unwrap().push(1);
+    println!("{:?}", ARRAY.lock().unwrap());
+}
+
 pub fn main() {
     let mut vm = Engine::new();
 
@@ -42,7 +52,8 @@ pub fn main() {
         .register_fn("new-rc-refcell", new_rc_ref_cell)
         .register_fn("rc-refcell-inc", rc_refcell_increment)
         .register_fn("new-mutex-wrapper", new_mutex_wrapper)
-        .register_fn("mutex-inc", mutex_increment);
+        .register_fn("mutex-inc", mutex_increment)
+        .register_fn("push-global-vector", push_global_vector);
 
     vm.run(
         r#"
@@ -60,6 +71,10 @@ pub fn main() {
         (mutex-inc mutex)
         (mutex-inc mutex)
         (mutex-inc mutex)
+
+        ;; Will print out twice with a growing vector
+        (push-global-vector)
+        (push-global-vector)
     "#,
     )
     .unwrap();
