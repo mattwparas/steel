@@ -24,21 +24,6 @@ use steel::stdlib::{CONTRACTS, PRELUDE};
 
 use std::time::Instant;
 
-#[macro_export]
-macro_rules! build_repl {
-    ($($type:ty),*) => {
-        {
-            use crate::build_engine;
-            let mut interpreter = build_engine!{
-                $(
-                    $type
-                ),*
-            };
-            repl_base(interpreter)
-        }
-    };
-}
-
 impl Completer for RustylineHelper {
     type Candidate = Pair;
 }
