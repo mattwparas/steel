@@ -188,32 +188,18 @@ impl CoreModuleConfig {
 
 #[derive(Debug)]
 pub struct Env {
-    // bindings: HashMap<String, Gc<SteelVal>>,
     bindings_vec: Vec<SteelVal>,
-    // bindings_map: HashMap<usize, SteelVal, RandomState>,
     bindings_map: BTreeMap<usize, SteelVal>,
     offset: usize,
-    // parent: Option<Rc<RefCell<Env>>>,
     sub_expression: Option<Weak<RefCell<Env>>>,
-    // weak_count: usize,
-    // children: SmallVec<[Weak<RefCell<Env>>; 4]>,
-    // children: HashSet<Weak<RefCell<Env>
-    // heap: Vec<Rc<RefCell<Env>>>,
     is_binding_context: bool,
     is_binding_offset: bool,
-    // module: Vec<AST>,
-    // is_module_context: bool,
-    // ndefs: usize,
     reachable: bool,
 }
 
 impl Drop for Env {
     fn drop(&mut self) {
-        // self.bindings_vec.clear();
-        // println!("dropping env");
-        // self.parent.take();
         self.bindings_map.clear();
-        // self.heap.clear();
     }
 }
 
@@ -221,39 +207,17 @@ pub trait MacroEnv {
     fn validate_identifier(&self, name: &str) -> bool;
 }
 
-// Don't love this one, but for now it'll suffice
-// TODO
-// impl MacroEnv for Rc<RefCell<Env>> {
-//     fn validate_identifier(&self, name: &str) -> bool {
-//         self.borrow().lookup(name).is_ok()
-//     }
-// }
-
-// impl MacroEnv for &Rc<RefCell<Env>> {
-//     fn validate_identifier(&self, name: &str) -> bool {
-//         self.borrow().lookup(name).is_ok()
-//     }
-// }
-
 impl Env {
     /// Make a new `Env` from
     /// another parent `Env`.
     pub fn new(offset: usize) -> Self {
         Env {
-            // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
-            // bindings_map: HashMap::default(),
             bindings_map: BTreeMap::default(),
             offset,
-            // parent: Some(Rc::clone(&parent)),
             sub_expression: None,
-            // weak_count: 0,
-            // children: SmallVec::new(),
-            // children: HashSet::new(),
             is_binding_context: false,
             is_binding_offset: false,
-            // module: Vec::new(),
-            // ndefs: 0,
             reachable: false,
         }
     }
@@ -270,10 +234,6 @@ impl Env {
         self.bindings_map.get(&idx).cloned()
     }
 
-    // pub fn add_module(&mut self, new_mod: AST) {
-    //     self.module.push(new_mod)
-    // }
-
     pub fn len(&self) -> usize {
         self.bindings_vec.len()
     }
@@ -281,45 +241,6 @@ impl Env {
     pub fn local_offset(&self) -> usize {
         self.offset
     }
-
-    // pub fn ndefs(&self) -> usize {
-    //     self.ndefs
-    // }
-
-    // pub fn parent_ndefs(&self) -> usize {
-    //     if let Some(p) = &self.parent {
-    //         p.borrow().ndefs()
-    //     } else if let Some(p) = &self.sub_expression {
-    //         p.upgrade().unwrap().borrow().ndefs()
-    //     } else {
-    //         0
-    //     }
-    // }
-
-    // pub fn offset(&self) -> usize {
-    //     // let parent_offset =
-
-    //     let parent_offset = if let Some(p) = &self.parent {
-    //         println!("Getting here!");
-    //         p.borrow().local_offset()
-    //     } else if let Some(p) = &self.sub_expression {
-    //         // println!("---------Inside this one----------");
-    //         p.upgrade().unwrap().borrow().offset()
-    //     } else {
-    //         println!("else case");
-    //         0
-    //     };
-
-    //     println!("Parent offset: {}", parent_offset);
-
-    //     self.offset + parent_offset
-    // }
-
-    // pub fn parent_ndef(&self) -> usize {
-    //     if let Some(p) = &self.parent {
-    //         p.borrow().ndef_body()
-    //     }
-    // }
 
     pub fn new_subexpression(sub_expression: Weak<RefCell<Self>>, offset: usize) -> Self {
         Env {
@@ -628,14 +549,6 @@ impl Env {
 
         env
     }
-
-    // pub fn default_symbol_map() -> SymbolMap {
-    //     let mut sm = SymbolMap::new();
-    //     for val in Env::default_bindings() {
-    //         sm.add(val.0);
-    //     }
-    //     sm
-    // }
 
     #[inline]
     pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {

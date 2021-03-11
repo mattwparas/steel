@@ -22,14 +22,18 @@ use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
 use log::debug;
 
-pub struct ModuleManager {
+/// Manages the modules
+/// keeps some visited state on the manager for traversal
+/// Also keeps track of the metadata for each file in order to determine
+/// if it needs to be recompiled
+pub(crate) struct ModuleManager {
     compiled_modules: HashMap<PathBuf, CompiledModule>,
     file_metadata: HashMap<PathBuf, SystemTime>,
     visited: HashSet<PathBuf>,
 }
 
 impl ModuleManager {
-    pub fn new(
+    pub(crate) fn new(
         compiled_modules: HashMap<PathBuf, CompiledModule>,
         file_metadata: HashMap<PathBuf, SystemTime>,
     ) -> Self {
@@ -40,11 +44,11 @@ impl ModuleManager {
         }
     }
 
-    pub fn default() -> Self {
+    pub(crate) fn default() -> Self {
         Self::new(HashMap::new(), HashMap::new())
     }
 
-    pub fn compile_main(
+    pub(crate) fn compile_main(
         &mut self,
         global_macro_map: &mut HashMap<String, SteelMacro>,
         exprs: Vec<ExprKind>,
@@ -101,7 +105,7 @@ impl CompiledModule {
     }
 }
 
-pub struct ModuleBuilder<'a> {
+struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
     source_ast: Vec<ExprKind>,
@@ -114,7 +118,7 @@ pub struct ModuleBuilder<'a> {
 }
 
 impl<'a> ModuleBuilder<'a> {
-    pub fn main(
+    fn main(
         name: Option<PathBuf>,
         source_ast: Vec<ExprKind>,
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,

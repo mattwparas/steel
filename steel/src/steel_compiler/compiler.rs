@@ -314,7 +314,7 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    pub fn new(
+    fn new(
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
         macro_env: HashMap<String, SteelMacro>,
@@ -337,14 +337,18 @@ impl Compiler {
         )
     }
 
+    /// Registers a name in the underlying symbol map and returns the idx that it maps to
     pub fn register(&mut self, name: &str) -> usize {
         self.symbol_map.add(name)
     }
 
+    /// Get the index associated with a name in the underlying symbol map
+    /// If the name hasn't been registered, this will return `None`
     pub fn get_idx(&self, name: &str) -> Option<usize> {
         self.symbol_map.get(name).ok()
     }
 
+    /// Given a program and (optionally) a path to that program, compile and emit the program
     pub fn compile_program(&mut self, expr_str: &str, path: Option<PathBuf>) -> Result<Program> {
         let instructions = self.emit_instructions(expr_str, path)?;
 
