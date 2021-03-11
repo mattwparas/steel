@@ -107,6 +107,8 @@ fn display_help() {
     );
 }
 
+/// Entire point for the repl
+/// Automatically adds the prelude and contracts for the core library
 pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     println!(
         "{}",

@@ -118,6 +118,15 @@ impl Engine {
         self.virtual_machine.execute_program(program)
     }
 
+    pub fn register_external_value<T: FromSteelVal + IntoSteelVal>(
+        &mut self,
+        name: &str,
+        value: T,
+    ) -> Result<&mut Self> {
+        let converted = value.into_steelval()?;
+        Ok(self.register_value(name, converted))
+    }
+
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
         let idx = self.compiler.register(name);
         self.virtual_machine.insert_binding(idx, value);

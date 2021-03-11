@@ -347,6 +347,19 @@ impl From<Gc<SteelVal>> for SteelVal {
     }
 }
 
+impl FromSteelVal for String {
+    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
+        if let SteelVal::StringV(s) = val {
+            Ok(s.unwrap())
+        } else {
+            Err(SteelErr::new(
+                ErrorKind::ConversionError,
+                "Expected string".to_string(),
+            ))
+        }
+    }
+}
+
 impl TryFrom<&Gc<SteelVal>> for String {
     type Error = SteelErr;
     fn try_from(value: &Gc<SteelVal>) -> result::Result<Self, Self::Error> {

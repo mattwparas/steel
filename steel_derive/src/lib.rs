@@ -327,7 +327,7 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
     let name = &input.ident;
     if let Data::Struct(_) = &input.data {
         let gen = quote! {
-            impl crate::rvals::Custom for #name {}
+            impl steel::rvals::Custom for #name {}
         };
 
         return gen.into();

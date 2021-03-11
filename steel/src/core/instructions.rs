@@ -4,6 +4,9 @@ use crate::parser::span::Span;
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 
+/// Instruction loaded with lots of information prior to being condensed
+/// Includes the opcode and the payload size, plus some information
+/// used for locating spans and pretty error messages
 #[derive(Clone, Debug, PartialEq)]
 pub struct Instruction {
     pub op_code: OpCode,

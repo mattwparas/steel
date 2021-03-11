@@ -1,7 +1,6 @@
 ;; ----------- Levenshtein Distance Stuff ------------
 
-
-
+;; Get a globally accessibly levenshtein object for holding edit distance
 (define *levenshtein-obj* (new-levenshtein))
 (define (levenshtein l r)
   (edit-distance *levenshtein-obj* l r))
@@ -109,15 +108,7 @@
 (define *bktree* (generate empty-bk-tree get-next-word!))
 (displayln "Done!")
 
-;; (define *corpus* (read-port-to-string *corpus-port*))
-
-;; (define *corpus-list* (read-to-list '()))
-
-;; (define *bktree* (reduce insert-word empty-bk-tree *corpus*))
 
 
 (define (suggest word)
   (query *edit-distance* word *bktree*))
-
-;; (define (q? word)
-;;   (query *edit-distance* word *bktree*))
