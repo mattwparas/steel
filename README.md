@@ -245,7 +245,7 @@ Here we can see if we were to run `main` that it would include the contents of `
 
 A few notes on modules:
 * Cyclical dependencies are not allowed
-* Modules will be only compiled once and used across multiple files. If `A` requires `B` and `C`, and `B` requires `C`, `C` will be compiled once and shared between `A` and `C`. 
+* Modules will be only compiled once and used across multiple files. If `A` requires `B` and `C`, and `B` requires `C`, `C` will be compiled once and shared between `A` and `B`. 
 * Modules will be recompiled when changed, and any dependent files will also be recompiled as necessary
 
 ## Examples of embedding Rust values in the virtual machine
