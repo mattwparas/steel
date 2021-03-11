@@ -31,6 +31,10 @@ use steel_vm::register_fn::RegisterFn;
 /// in general, I opted to include this as an example
 /// Note: It is possible to implement the levenshtein distance in Steel, however at scale
 /// it proves to be cumbersome and slows down the spell checking greatly.
+///
+///
+/// This will launch a repl instance after building the spellchecker
+/// see `spellcheck.rkt` for the exact script
 fn main() {
     let mut vm = configure_engine();
 
