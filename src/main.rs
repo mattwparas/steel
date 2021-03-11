@@ -1,5 +1,4 @@
 extern crate steel;
-#[macro_use]
 extern crate steel_derive;
 extern crate steel_repl;
 
@@ -10,13 +9,13 @@ use std::env::args;
 use std::fs;
 use std::process;
 
-use env_logger::Builder;
-use log::LevelFilter;
+// use env_logger::Builder;
+// use log::LevelFilter;
 
 fn main() {
-    // env_logger::init();
+    env_logger::init();
 
-    let mut builder = Builder::new();
+    // let mut builder = Builder::new();
 
     // builder.filter(Some("steel_vm"), LevelFilter::Trace).init();
 
