@@ -12,8 +12,8 @@ use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{self, CustomType, SteelVal, StructFunctions};
 
 // use steel::build_interpreter;
-use steel_derive::function;
-use steel_derive::steel;
+// use steel_derive::function;
+// use steel_derive::steel;
 use steel_repl::build_repl;
 use steel_repl::repl::repl_base;
 use steel_vm::build_engine;
