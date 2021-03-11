@@ -16,3 +16,9 @@ criterion = "0.3.3"
 [[bench]]
 name = "my_benchmark"
 harness = false
+
+# [profile.bench]
+# debug = true
+
+# [profile.release]
+# debug = true

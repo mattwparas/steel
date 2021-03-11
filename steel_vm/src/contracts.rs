@@ -1,20 +1,19 @@
-use crate::evaluation_progress::EvaluationProgress;
-use crate::heap::Heap;
-use crate::vm::vm;
-use std::cell::RefCell;
-use std::rc::Rc;
-use steel::gc::Gc;
-use steel::parser::span::Span;
-use steel::rerrs::SteelErr;
-use steel::rvals::{Result, SteelVal};
-use steel::steel_compiler::constants::ConstantTable;
-use steel::stop;
-use steel::{env::Env, rvals::ByteCodeLambda};
-
-use steel::contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract};
+use crate::{evaluation_progress::EvaluationProgress, heap::Heap, vm::vm};
+use std::{cell::RefCell, rc::Rc};
+use steel::{
+    contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract},
+    env::Env,
+    gc::Gc,
+    parser::span::Span,
+    rerrs::{ErrorKind, SteelErr},
+    rvals::{ByteCodeLambda, Result, SteelVal},
+    steel_compiler::constants::ConstantTable,
+    stop,
+};
 
 use log::debug;
 
+/// Extension trait for the application of contracted functions
 pub trait ContractedFunctionExt {
     fn apply<CT: ConstantTable>(
         &self,
@@ -69,6 +68,7 @@ impl ContractedFunctionExt for ContractedFunction {
     }
 }
 
+/// Extension trait for the application of flat contracts
 pub trait FlatContractExt {
     fn apply<CT: ConstantTable>(
         &self,
@@ -94,9 +94,7 @@ impl FlatContractExt for FlatContract {
         let arg_vec = vec![arg.clone()];
         let output = match self.predicate() {
             SteelVal::FuncV(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
-            SteelVal::StructClosureV(sc) => {
-                (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
-            }
+            SteelVal::BoxedFunction(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
             SteelVal::Closure(closure) => {
                 let parent_env = closure.sub_expression_env();
 
@@ -140,6 +138,7 @@ impl FlatContractExt for FlatContract {
     }
 }
 
+/// Extension trait for the application of function contracts
 pub trait FunctionContractExt {
     fn apply<CT: ConstantTable>(
         &self,

@@ -160,6 +160,10 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
         self.visit(&mut s.variable);
         self.visit(&mut s.expr);
     }
+
+    fn visit_require(&mut self, _s: &mut super::ast::Require) -> Self::Output {
+        todo!()
+    }
 }
 
 #[cfg(test)]

@@ -1,44 +1,6 @@
 ;;; Simple 'Tree' implementation in Steel
 ;;; Relies on the use of bindings to the file system through Rust
-
-;;; Define a merge sort for sake of simplicity
-(define (merge-lists l1 l2)
-  (cond [(null? l1) l2]
-        [(null? l2) l1]
-        [(< (car l1) (car l2))
-         (cons (car l1) (merge-lists (cdr l1) l2))]
-        [else
-         (cons (car l2) (merge-lists (cdr l2) l1))]))
-
-;;; -------------------------------------------------------------------
-;;; Given list l, output those tokens of l which are in even positions
-
-(define (even-numbers l)
-  (cond [(null? l) '()]
-        [(null? (cdr l)) '()]
-        [else
-         (cons (car (cdr l)) (even-numbers (cdr (cdr l))))]))
-
-;;; -------------------------------------------------------------------
-;;; Given list l, output those tokens of l which are in odd positions
-
-(define (odd-numbers l)
-  (cond [(null? l) '()]
-        [(null? (cdr l)) (list (car l))]
-        [else
-         (cons (car l) (odd-numbers (cdr (cdr l))))]))
-
-;;; ---------------------------------------------------------------------
-;;; Use the procedures above to create a simple and efficient merge-sort
-
-(define (merge-sort l)
-  (cond [(null? l) l]
-        [(null? (cdr l)) l]
-        [else
-         (merge-lists
-          (merge-sort (odd-numbers l))
-          (merge-sort (even-numbers l)))]))
-
+(require "sort.rkt")
 
 (define (flatten x)
   (cond [(null? x) '()]
@@ -63,9 +25,9 @@
   (flatten (tree-rec p "")))
 
 
-(define p "/Users/mwparas/Documents/MatSci201")
+; (define p "/Users/mwparas/Documents/MatSci201")
 
-(tree p)
+; (tree p)
 
 ;; MatSci201
 ;;     Midterm #1

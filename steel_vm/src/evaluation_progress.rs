@@ -22,9 +22,10 @@ impl EvaluationProgress {
 
     pub fn callback(&self) -> Option<bool> {
         if let Some(callback) = &self.callback {
-            return Some(callback(self.instruction_count.get()));
+            Some(callback(self.instruction_count.get()))
+        } else {
+            None
         }
-        None
     }
 
     pub fn increment(&self) {

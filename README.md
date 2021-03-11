@@ -212,172 +212,202 @@ By default, execute outputs to the same type that was passed in. In other words,
 (fn (x) (+ x 1))
 ```
 
+## Modules
+
+In order to support a growing codebase, Steel has module support for projects spanning multiple files. Steel files can `provide` values (with contracts attached) and `require` modules from other files:
+
+```scheme
+;; main.stl
+(require "provide.stl")
+
+(even->odd 10)
+
+
+;; provide.stl
+(provide 
+    (contract/out even->odd (->/c even? odd?))
+    no-contract
+    flat-value)
+
+(define (even->odd x) 
+    (+ x 1))
+
+(define (accept-number x) (+ x 10))
+
+(define (no-contract) "cool cool cool")
+(define flat-value 15)
+
+(displayln "Calling even->odd with some bad inputs but its okay")
+(displayln (even->odd 1))
+```
+
+Here we can see if we were to run `main` that it would include the contents of `provide`, and only provided values would be accessible from `main`. The contract is attached at the contract boundary, so inside the `provide` module, you can violate the contract, but outside the module the contract will be applied.
+
+A few notes on modules:
+* Cyclical dependencies are not allowed
+* Modules will be only compiled once and used across multiple files. If `A` requires `B` and `C`, and `B` requires `C`, `C` will be compiled once and shared between `A` and `B`. 
+* Modules will be recompiled when changed, and any dependent files will also be recompiled as necessary
+
 ## Examples of embedding Rust values in the virtual machine
 
-Rust is easily embeddable due to the use of some helpful attribute macros
+Rust values, types, and functions are easily embedded into Steel. Using the `register_fn` call, you can embed functions easily:
 
 ```rust
-[steel]
-pub struct MyStruct {
-    pub field: usize,
-    pub stays_the_same: usize,
-    pub name: String,
+use steel_vm::engine::Engine;
+use steel_vm::register_fn::RegisterFn;
+
+fn external_function(arg1: usize, arg2: usize) -> usize {
+    arg1 + arg2
 }
 
-#[steel]
-pub struct CoolTest {
-    pub val: f64,
+fn option_function(arg1: Option<String>) -> Option<String> {
+    arg1
 }
 
-#[steel]
-pub struct UnnamedFields(pub usize);
-
-#[steel]
-pub struct Foo {
-    pub f: UnnamedFields,
-}
-
-pub fn build_interpreter_and_modify() {
-    // Construct interpreter with 3 custom structs
-    // each has now getters, setters, a predicate and constructor
-    let mut interpreter = build_engine! {
-        MyStruct,
-        CoolTest,
-        Foo
-    };
-
-    // define value outside of interpreter to embed
-    let test = UnnamedFields(100);
-    // embed the value
-    interpreter.register_value("unnamed", test.new_steel_val());
-
-    // write a quick script
-    let script = "
-    (define cool-test (CoolTest 100))
-    (define return-val (set-CoolTest-val! cool-test 200))
-    (define foo-test (Foo unnamed))
-    ";
-
-    // get the values back out
-    if let Ok(_) = interpreter.parse_and_execute_without_optimizations(script) {
-        let ret_val = CoolTest::try_from(interpreter.extract_value("return-val").unwrap()).unwrap();
-        println!("{:?}", ret_val); // Should be "CoolTest { val: 200.0 }"
-        let ret_val2 =
-            UnnamedFields::try_from(interpreter.extract_value("unnamed").unwrap()).unwrap();
-        println!("{:?}", ret_val2); // Should be "UnnamedFields(100)"
-        let ret_val3 = Foo::try_from(interpreter.extract_value("foo-test").unwrap()).unwrap();
-        println!("{:?}", ret_val3); // Should be Foo { f: UnnamedFields(100) }
-    };
-}
-```
-
-## Attribute Macros
-
-The `steel_derive` crate contains a number of procedural macros designed to make your life easier while using `Steel`. The macros are as follows:
-
-* `#[steel]`
-* `#[function]`
-
-The `#[steel]` attribute operates on structs currently (enums are not yet supported). It derives the `CustomType` and `StructFunctions` trait, which allows for embedding inside the interpreter with constructors, predicates, getters, and setters, automatically defined. For example, the follow code snippet:
-
-```rust
-#[steel]
-pub struct Foo {
-    pub bar: usize
-}
-```
-
-Would result in bindings for the following scheme functions:
-
-```scheme
-Foo
-Foo?
-set-Foo-bar!
-Foo-bar
-```
-
-Example usage:
-
-```scheme
-(define my-foo (Foo 10)) ;; #<void>
-(Foo? my-foo) ;; #t
-(set-Foo-bar! my-foo 25) ;; 10
-(Foo-bar my-foo) ;; 25
-```
-
-The `#[function]` attribute macro operates on functions. It _transforms_ the function from a normal rust function into a function that matches the form used inside the `Steel` interpreter. Functions inside the `Steel` interpreter have the following signature:
-
-```rust
-fn(&[SteelVal]) -> Result<SteelVal>
-```
-
-This macro attempts to remove a great deal of the boilerplate with respect to transferring values in and out of the semantics of the interpreter. However, this means that a function tagged with the `#[function]` attribute **_cannot_** be used as a standard Rust function with the original signature. For a rough idea of what this function does, let's look at a function and its resultant expansion:
-
-Example function:
-
-```rust
-#[function]
-pub fn multiple_types(val: u64) -> u64 {
-    val + 25
-}
-```
-
-Expands to:
-
-```rust
-pub fn multiple_types(args: &[SteelVal]) -> Result<SteelVal, SteelErr>
-{
-    pub fn multiple_types(val: u64) -> u64 { val + 25 }
-    if args.len () != 1usize {
-        steel::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", stringify!(multiple_types), 1usize.to_string (), args.len()))
-    }
-    let res = multiple_types(unwrap!((*(args [0usize])).clone(), u64)?);
-    Ok(SteelVal::try_from(res)?)
-}
-```
-
-The macro operates by defining a wrapper function arounds the original definition. The original definition shadows the wrapper, which allows us to call the original function with some boilerplate for going in and out of `SteelVals`.
-
-## VM Macro
-
-So now that we've defined some structs and functions, how do we get them into the interpreter? There is a helpful interpreter macro that is given to build and embed the functions into the interpreter (to then pass into the repl). Here is an example of the macro usage:
-
-```rust
-build_vm! {
-    Structs => {
-        MyStruct,
-        CoolTest,
-        Foo,
-        MutexWrapper
-    }
-    Functions => {
-        "add-cool-tests" => add_cool_tests,
-        "multiple-types" => multiple_types,
-        "new-mutex-wrapper" => new_mutex_wrapper
+fn result_function(arg1: Option<String>) -> Result<String, String> {
+    if let Some(inner) = arg1 {
+        Ok(inner)
+    } else {
+        Err("Got a none".to_string())
     }
 }
+
+pub fn main() {
+    let mut vm = Engine::new();
+
+    // Here we can register functions
+    // Any function can accept parameters that implement `FromSteelVal` and
+    // return values that implement `IntoSteelVal`
+    vm.register_fn("external-function", external_function);
+
+    // See the docs for more information about `FromSteelVal` and `IntoSteelVal`
+    // but we can see even functions that accept/return Option<T> or Result<T,E>
+    // can be registered
+    vm.register_fn("option-function", option_function);
+
+    // Result values will map directly to errors in the VM and bubble back up
+    vm.register_fn("result-function", result_function);
+
+    vm.run(
+        r#"
+        (define foo (external-function 10 25))
+        (define bar (option-function "applesauce"))
+        (define baz (result-function "bananas"))
+    "#,
+    )
+    .unwrap();
+
+    let foo = vm.extract::<usize>("foo").unwrap();
+    println!("foo: {}", foo);
+    assert_eq!(35, foo);
+
+    // Can also extract a value by specifying the type on the variable
+    let bar: String = vm.extract("bar").unwrap();
+    println!("bar: {}", bar);
+    assert_eq!("applesauce".to_string(), bar);
+
+    let baz: String = vm.extract("baz").unwrap();
+    println!("baz: {}", baz);
+    assert_eq!("bananas".to_string(), baz);
+}
 ```
 
-This builds a mutable interpreter with all of the relevant bindings for the structs (getters, setters, constructors and predicates), and all of the functions that are given with the relevant bindings.
-
-You can launch a repl by passing the result of `build_vm!` into `repl_base`, as follows:
+We can also embed structs themselves:
 
 ```rust
-repl_base(build_engine!{...})
+use steel_vm::engine::Engine;
+use steel_vm::register_fn::RegisterFn;
+
+use steel_derive::Steel;
+
+// In order to register a type with Steel,
+// it must implement Clone, Debug, and Steel
+#[derive(Clone, Debug, Steel, PartialEq)]
+pub struct ExternalStruct {
+    foo: usize,
+    bar: String,
+    baz: f64,
+}
+
+impl ExternalStruct {
+    pub fn new(foo: usize, bar: String, baz: f64) -> Self {
+        ExternalStruct { foo, bar, baz }
+    }
+
+    // Embedding functions that take self must take by value
+    pub fn method_by_value(self) -> usize {
+        self.foo
+    }
+
+    // Setters should update the value and return a new instance (functional set)
+    pub fn set_foo(mut self, foo: usize) -> Self {
+        self.foo = foo;
+        self
+    }
+}
+
+pub fn main() {
+    let mut vm = Engine::new();
+
+    // Registering a type gives access to a predicate for the type
+    vm.register_type::<ExternalStruct>("ExternalStruct?");
+
+    // Structs in steel typically have a constructor that is the name of the struct
+    vm.register_fn("ExternalStruct", ExternalStruct::new);
+
+    // register_fn can be chained
+    vm.register_fn("method-by-value", ExternalStruct::method_by_value)
+        .register_fn("set-foo", ExternalStruct::set_foo);
+
+    let external_struct = ExternalStruct::new(1, "foo".to_string(), 12.4);
+
+    // Registering an external value is fallible if the conversion fails for some reason
+    // For instance, registering an Err(T) is fallible. However, most implementation outside of manual
+    // ones should not fail
+    vm.register_external_value("external-struct", external_struct)
+        .unwrap();
+
+    let output = vm
+        .run(
+            r#"
+            (define new-external-struct (set-foo external-struct 100))
+            (define get-output (method-by-value external-struct))
+            (define second-new-external-struct (ExternalStruct 50 "bananas" 72.6))
+            "last-result"
+        "#,
+        )
+        .unwrap();
+
+    let new_external_struct = vm.extract::<ExternalStruct>("new-external-struct").unwrap();
+    println!("new_external_struct: {:?}", new_external_struct);
+    assert_eq!(
+        ExternalStruct::new(100, "foo".to_string(), 12.4),
+        new_external_struct
+    );
+
+    // Can also extract a value by specifying the type on the variable
+    let get_output: usize = vm.extract("get-output").unwrap();
+    println!("get_output: {}", get_output);
+    assert_eq!(1, get_output);
+
+    let second_new_external_struct: ExternalStruct =
+        vm.extract("second-new-external-struct").unwrap();
+    println!(
+        "second_new_external_struct: {:?}",
+        second_new_external_struct
+    );
+    assert_eq!(
+        ExternalStruct::new(50, "bananas".to_string(), 72.6),
+        second_new_external_struct
+    );
+
+    // We also get the output of the VM as the value of every expression run
+    // we can inspect the results just by printing like so
+    println!("{:?}", output);
+}
 ```
 
-From here, these would be valid calls:
-
-```scheme
-> (define cool-test-1 (CoolTest 1))
-> (define cool-test-2 (CoolTest 2))
-> (define cool-test-3 (add-cool-tests cool-test-1 cool-test-2))
-> (CoolTest-val cool-test-3)
-3
-> (multiple-types 25)
-50
-```
-
+See the examples folder for more examples on embedding values and interacting with the outside world.
 
 
 ## License

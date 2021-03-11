@@ -6,11 +6,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use steel::env::Env;
 use steel::parser::span::Span;
-use steel::rerrs::SteelErr;
+use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{Result, SteelVal};
 use steel::steel_compiler::constants::ConstantTable;
 use steel::stop;
 
+/// Function to inline the reducer function
+/// Used for the accumulating a result by wrapping the fold iterator
 pub(crate) fn inline_reduce_iter<
     'global,
     I: Iterator<Item = Result<SteelVal>> + 'global,
@@ -31,10 +33,14 @@ pub(crate) fn inline_reduce_iter<
             let arg_vec = [acc?, x?];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
-        SteelVal::StructClosureV(sc) => {
-            let arg_vec = vec![acc?, x?];
-            (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
+        SteelVal::BoxedFunction(func) => {
+            let arg_vec = [acc?, x?];
+            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
+        // SteelVal::StructClosureV(sc) => {
+        //     let arg_vec = vec![acc?, x?];
+        //     (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
+        // }
         SteelVal::ContractedFunction(cf) => {
             let arg_vec = vec![acc?, x?];
             let mut local_heap = Heap::new();
@@ -115,10 +121,14 @@ pub(crate) fn inline_map_result_iter<
             let arg_vec = [arg?];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
-        SteelVal::StructClosureV(sc) => {
-            let arg_vec = vec![arg?];
-            (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
+        SteelVal::BoxedFunction(func) => {
+            let arg_vec = [arg?];
+            func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
+        // SteelVal::StructClosureV(sc) => {
+        //     let arg_vec = vec![arg?];
+        //     (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
+        // }
         SteelVal::ContractedFunction(cf) => {
             let arg_vec = vec![arg?];
             let mut local_heap = Heap::new();
@@ -209,6 +219,19 @@ pub(crate) fn inline_filter_result_iter<
                         // _ => None,
                     }
                 }
+                SteelVal::BoxedFunction(func) => {
+                    let arg_vec = [arg.clone()];
+                    let res = func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
+                    match res {
+                        Ok(k) => match k {
+                            SteelVal::BoolV(true) => Some(Ok(arg)),
+                            SteelVal::BoolV(false) => None,
+                            _ => None,
+                        },
+                        Err(e) => Some(Err(e)),
+                        // _ => None,
+                    }
+                }
                 SteelVal::ContractedFunction(cf) => {
                     let arg_vec = vec![arg.clone()];
                     let mut local_heap = Heap::new();
@@ -220,19 +243,6 @@ pub(crate) fn inline_filter_result_iter<
                         repl,
                         callback,
                     );
-                    match res {
-                        Ok(k) => match k {
-                            SteelVal::BoolV(true) => Some(Ok(arg)),
-                            SteelVal::BoolV(false) => None,
-                            _ => None,
-                        },
-                        Err(e) => Some(Err(e)),
-                    }
-                }
-                SteelVal::StructClosureV(sc) => {
-                    let arg_vec = vec![arg.clone()];
-                    let res =
-                        (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span));
                     match res {
                         Ok(k) => match k {
                             SteelVal::BoolV(true) => Some(Ok(arg)),
@@ -288,10 +298,11 @@ pub(crate) fn inline_filter_result_iter<
                         Err(e) => Some(Err(e)),
                     }
                 }
-                _ => Some(Err(SteelErr::TypeMismatch(
+                _ => Some(Err(SteelErr::new(
+                    ErrorKind::TypeMismatch,
                     "map expected a function".to_string(),
-                    Some(*cur_inst_span),
-                ))),
+                )
+                .with_span(*cur_inst_span))),
             }
         }
 
@@ -299,10 +310,4 @@ pub(crate) fn inline_filter_result_iter<
     };
 
     iter.filter_map(switch_statement)
-
-    // for val in iter {
-    //     collected_results.push(switch_statement(val)?);
-    // }
-
-    // Ok(collected_results)
 }

@@ -1,4 +1,4 @@
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
 use crate::stop;
 use std::ops::Deref;
@@ -87,7 +87,7 @@ impl<T: Clone> Gc<T> {
         let inner = Rc::clone(&this.0);
         drop(this);
         Rc::try_unwrap(inner)
-            .map_err(|_| SteelErr::Generic("value still has reference".to_string(), None))
+            .map_err(|_| SteelErr::new(ErrorKind::Generic, "value still has reference".to_string()))
             .map(|x| {
                 OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
                 x

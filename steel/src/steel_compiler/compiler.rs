@@ -8,10 +8,13 @@ use crate::steel_compiler::{
     program::Program,
 };
 
-use std::collections::{HashMap, HashSet};
 use std::iter::Iterator;
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 
 use crate::parser::span::Span;
@@ -29,9 +32,9 @@ use crate::core::instructions::{densify, DenseInstruction};
 
 use crate::stop;
 
-use crate::parser::expand_visitor::{expand, extract_macro_defs};
-
 use log::debug;
+
+use super::modules::ModuleManager;
 
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?
@@ -51,6 +54,7 @@ fn collect_defines_from_current_scope(
                     Some(SyntaxObject {
                         ty: TokenType::Identifier(s),
                         span: _sp,
+                        ..
                     }),
                 ..
             } => {
@@ -238,7 +242,7 @@ fn insert_debruijn_indices(
     Ok(())
 }
 
-pub fn extract_constants<CT: ConstantTable>(
+fn extract_constants<CT: ConstantTable>(
     instructions: &mut [Instruction],
     constants: &mut CT,
 ) -> Result<()> {
@@ -306,18 +310,21 @@ pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub constant_map: ConstantMap,
     pub(crate) macro_env: HashMap<String, SteelMacro>,
+    module_manager: ModuleManager,
 }
 
 impl Compiler {
-    pub fn new(
+    fn new(
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
         macro_env: HashMap<String, SteelMacro>,
+        module_manager: ModuleManager,
     ) -> Compiler {
         Compiler {
             symbol_map,
             constant_map,
             macro_env,
+            module_manager,
         }
     }
 
@@ -326,43 +333,69 @@ impl Compiler {
             SymbolMap::default_from_env(),
             ConstantMap::new(),
             HashMap::new(),
+            ModuleManager::default(),
         )
     }
 
+    /// Registers a name in the underlying symbol map and returns the idx that it maps to
     pub fn register(&mut self, name: &str) -> usize {
         self.symbol_map.add(name)
     }
 
+    /// Get the index associated with a name in the underlying symbol map
+    /// If the name hasn't been registered, this will return `None`
     pub fn get_idx(&self, name: &str) -> Option<usize> {
         self.symbol_map.get(name).ok()
     }
 
-    pub fn compile_program(&mut self, expr_str: &str) -> Result<Program> {
-        let instructions = self.emit_instructions(expr_str)?;
+    /// Given a program and (optionally) a path to that program, compile and emit the program
+    pub fn compile_program(&mut self, expr_str: &str, path: Option<PathBuf>) -> Result<Program> {
+        let instructions = self.emit_instructions(expr_str, path)?;
 
         let program = Program::new(instructions, (&self.constant_map).to_bytes()?);
         Ok(program)
     }
 
-    pub fn emit_instructions(&mut self, expr_str: &str) -> Result<Vec<Vec<DenseInstruction>>> {
+    pub fn emit_instructions(
+        &mut self,
+        expr_str: &str,
+        path: Option<PathBuf>,
+    ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
 
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr_str, &mut intern).collect();
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
+            Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
+        } else {
+            Parser::new(expr_str, &mut intern).collect()
+        };
+
         let parsed = parsed?;
 
-        self.emit_instructions_from_exprs(parsed, false)
+        self.emit_instructions_from_exprs(parsed, false, path)
     }
 
-    pub fn expand_expressions(&mut self, exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
-        let non_macro_expressions = extract_macro_defs(exprs, &mut self.macro_env)?;
-
-        non_macro_expressions
-            .into_iter()
-            .map(|x| expand(x, &self.macro_env))
-            .collect()
+    pub fn expand_expressions(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        path: Option<PathBuf>,
+    ) -> Result<Vec<ExprKind>> {
+        self.module_manager
+            .compile_main(&mut self.macro_env, exprs, path)
+        // println!(
+        //     "{:?}",
+        //     output
+        //         .clone()
+        //         .unwrap()
+        //         .iter()
+        //         .map(|x| x.to_string())
+        //         .join(" ")
+        // );
+        // output
     }
 
+    // This only works at the top level
+    // structs then cannot work inside nested scoped
     pub fn extract_structs(
         &mut self,
         exprs: Vec<ExprKind>,
@@ -382,15 +415,20 @@ impl Compiler {
                 let constant_values = builder.to_constant_val(indices);
                 let idx = self.constant_map.add_or_get(constant_values);
 
-                struct_instructions.push(Instruction::new_struct(idx));
+                struct_instructions
+                    .push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
             } else {
                 non_structs.push(expr);
             }
         }
 
-        for instruction in densify(struct_instructions) {
-            results.push(vec![instruction])
+        for instruction_set in struct_instructions {
+            results.push(densify(instruction_set))
         }
+
+        // for instruction in densify(struct_instructions) {
+        //     results.push(vec![instruction])
+        // }
 
         Ok(non_structs)
     }
@@ -448,7 +486,8 @@ impl Compiler {
             // println!("{:?}", expr.to_string());
             // let mut instructions: Vec<Instruction> = Vec::new();
 
-            let mut instructions = CodeGenerator::new(&mut self.constant_map).compile(&expr)?;
+            let mut instructions =
+                CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(&expr)?;
 
             // TODO double check that arity map doesn't exist anymore
             // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
@@ -474,17 +513,15 @@ impl Compiler {
         Ok(results)
     }
 
-    // pub fn expand_structs_extract_macros(&mut self, &mut ProgramBuilder)
-
     pub fn emit_instructions_from_exprs(
         &mut self,
         exprs: Vec<ExprKind>,
         _optimizations: bool,
+        path: Option<PathBuf>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
-        // let expanded_statements = self.extract_structs_and_expand_macros(exprs, &mut results)?;
 
-        let expanded_statements = self.expand_expressions(exprs)?;
+        let expanded_statements = self.expand_expressions(exprs, path)?;
 
         debug!(
             "Generating instructions for the expression: {:?}",
@@ -496,77 +533,6 @@ impl Compiler {
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
 
-        // let expanded_statements =
-
-        // let expanded_statements = expand_statements(extracted_statements, &mut self.macro_env)?;
-
-        // Mild hack...
-        // let expanded_statements = if optimizations {
-        //     VirtualMachine::optimize_exprs(expanded_statements)?
-        // } else {
-        //     expanded_statements
-        // };
-
-        // Collect global defines here first
-        // let (ndefs_new, ndefs_old, _not) =
-        //     count_and_collect_global_defines(&expanded_statements, &mut self.symbol_map);
-
-        // At the global level, let the defines shadow the old ones, but call `drop` on all of the old values
-
-        // Reserve the definitions in the global environment
-        // TODO find a better way to make sure that the definitions are reserved
-        // This works for the normal bytecode execution without the repl
-        // self.global_env
-        //     .borrow_mut()
-        //     .reserve_defs(if ndefs_new > 0 { ndefs_new - 1 } else { 0 }); // used to be ndefs - 1
-
-        // match (ndefs_old, ndefs_new) {
-        //     (_, _) if ndefs_old > 0 && ndefs_new == 0 => {
-        //         // println!("CASE 1: Popping last!!!!!!!!!");
-        //         self.global_env.borrow_mut().pop_last();
-        //     }
-        //     (_, _) if ndefs_new > 0 && ndefs_old == 0 => {
-        //         // println!("Doing nothing");
-        //     }
-        //     (_, _) if ndefs_new > 0 && ndefs_old > 0 => {
-        //         // println!("$$$$$$$$$$ GOT HERE $$$$$$$$");
-        //         self.global_env.borrow_mut().pop_last();
-        //     }
-        //     (_, _) => {}
-        // }
-
         self.generate_dense_instructions(statements_without_structs, results)
-
-        // TODO move this out into its thing
-        // fairly certain this isn't necessary to do this batching
-        // but it does work for now and I'll take it for now
-        // let mut instruction_buffer = Vec::new();
-        // let mut index_buffer = Vec::new();
-        // for expr in expanded_statements {
-        //     // TODO add printing out the expression as its own special function
-        //     // println!("{:?}", expr.to_string());
-        //     let mut instructions: Vec<Instruction> = Vec::new();
-
-        //     // TODO double check that arity map doesn't exist anymore
-        //     emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
-        //     instructions.push(Instruction::new_pop());
-        //     inject_heap_save_to_pop(&mut instructions);
-        //     index_buffer.push(instructions.len());
-        //     instruction_buffer.append(&mut instructions);
-        // }
-
-        // // println!("Got here!");
-
-        // insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
-        // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
-        // // coalesce_clears(&mut instruction_buffer);
-
-        // for idx in index_buffer {
-        //     let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
-        //     // pretty_print_instructions(extracted.as_slice());
-        //     results.push(densify(extracted));
-        // }
-
-        // Ok(results)
     }
 }

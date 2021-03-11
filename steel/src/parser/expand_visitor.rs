@@ -4,7 +4,7 @@ use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
 // use crate::parser::span::Span;
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 
 use super::ast::Atom;
@@ -135,6 +135,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
                 SyntaxObject {
                     ty: TokenType::Identifier(s),
                     span: sp,
+                    ..
                 },
         })) = l.first()
         {
@@ -161,6 +162,11 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         s.variable = self.visit(s.variable)?;
         s.expr = self.visit(s.expr)?;
         Ok(ExprKind::Set(s))
+    }
+
+    fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
+        Ok(ExprKind::Require(s))
+        // stop!(Generic => "unexpected require statement during expansion"; s.location.span)
     }
 }
 

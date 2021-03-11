@@ -191,6 +191,9 @@ pub enum TokenType {
     #[token("eval")]
     Eval,
 
+    #[token("require")]
+    Require,
+
     #[token("#\\SPACE", |_| Some(' '))]
     #[token("#\\space", |_| Some(' '))]
     #[token("#\\\\", |_| Some('\\'))]
@@ -219,7 +222,7 @@ pub enum TokenType {
     // /// An identifier literal.
     // #[regex(r#"(?&ident)"#)]
     // Identifier(String),
-    #[regex(r#"[_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#, callback = |lex| lex.slice().parse())]
+    #[regex(r#"[_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#, callback = |lex| lex.slice().parse())]
     // "
     Identifier(String),
 
@@ -299,6 +302,7 @@ impl fmt::Display for TokenType {
             Set => write!(f, "set!"),
             Read => write!(f, "read"),
             Eval => write!(f, "eval"),
+            Require => write!(f, "require"),
         }
     }
 }

@@ -4,11 +4,9 @@ use crate::{
     env::Env,
     gc::Gc,
     lazy_stream::LazyStream,
-    // parser::{tokens::TokenType::*, Expr, SyntaxObject},
     port::SteelPort,
-    // primitives::ListOperations,
-    rerrs::SteelErr,
-    structs::{SteelStruct, StructClosure},
+    rerrs::{ErrorKind, SteelErr},
+    structs::SteelStruct,
 };
 
 use std::{
@@ -17,6 +15,7 @@ use std::{
     cmp::Ordering,
     // convert::TryFrom,
     fmt,
+    fmt::Write,
     future::Future,
     hash::{Hash, Hasher},
     pin::Pin,
@@ -41,6 +40,7 @@ pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 // pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type StructClosureSignature = fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>;
+pub type BoxedFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>;
 
 // This would mean we would have to rewrite literally everything to not return Gc'd values,
 // but it would also make linked lists like impossible to use
@@ -106,6 +106,8 @@ there is some overhead here but I think it might be worth it?
 
 // Box<Fn(i32) -> i32>
 
+pub trait Custom {}
+
 pub trait StructFunctions {
     fn generate_bindings() -> Vec<(String, SteelVal)>;
 }
@@ -130,6 +132,65 @@ impl From<Box<dyn CustomType>> for SteelVal {
     fn from(val: Box<dyn CustomType>) -> SteelVal {
         val.new_steel_val()
     }
+}
+
+impl<T: Custom + Clone + 'static + std::fmt::Debug> CustomType for T {
+    fn box_clone(&self) -> Box<dyn CustomType> {
+        Box::new((*self).clone())
+    }
+    fn as_any(&self) -> Box<dyn Any> {
+        Box::new((*self).clone())
+    }
+    fn new_steel_val(&self) -> SteelVal {
+        SteelVal::Custom(Gc::new(Box::new(self.clone())))
+    }
+    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        let mut buf = String::new();
+        write!(buf, "{:?}", &self)?;
+        Ok(buf)
+    }
+}
+
+impl<T: CustomType> IntoSteelVal for T {
+    fn into_steelval(self) -> Result<SteelVal> {
+        Ok(self.new_steel_val())
+    }
+}
+
+impl<T: CustomType + Clone + 'static> FromSteelVal for T {
+    fn from_steelval(val: SteelVal) -> Result<Self> {
+        if let SteelVal::Custom(v) = val {
+            let left_type = v.as_any();
+            let left: Option<T> = left_type.downcast_ref::<T>().cloned();
+            left.ok_or_else(|| {
+                let error_message =
+                    format!("Type Mismatch: Type of SteelVal did not match the given type");
+                SteelErr::new(ErrorKind::ConversionError, error_message)
+            })
+        } else {
+            let error_message =
+                "Type Mismatch: Type of SteelVal did not match the given type".to_string();
+            Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+        }
+    }
+}
+
+/// The entry point for turning values into SteelVals
+/// The is implemented for most primitives and collections
+/// You can also manually implement this for any type, or can optionally
+/// get this implementation for a custom struct by using the custom
+/// steel derive.
+pub trait IntoSteelVal: Sized {
+    fn into_steelval(self) -> Result<SteelVal>;
+}
+
+/// The exit point for turning SteelVals into outside world values
+/// This is implement for most primitives and collections
+/// You can also manually implement this for any type, or can optionally
+/// get this implementation for a custom struct by using the custom
+/// steel derive.
+pub trait FromSteelVal: Sized {
+    fn from_steelval(val: SteelVal) -> Result<Self>;
 }
 
 // macro_rules! ok_val {
@@ -161,14 +222,14 @@ macro_rules! unwrap {
                     "Type Mismatch: Type of SteelVal did not match the given type: {}",
                     stringify!($body)
                 );
-                crate::rerrs::SteelErr::ConversionError(error_message, None)
+                SteelErr::new(ErrorKind::ConversionError, error_message)
             })
         } else {
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal did not match the given type: {}",
                 stringify!($body)
             );
-            Err(crate::rerrs::SteelErr::ConversionError(error_message, None))
+            Err(SteelErr::new(ErrorKind::ConversionError, error_message))
         }
     }};
 }
@@ -210,9 +271,9 @@ pub enum SteelVal {
     HashSetV(Gc<HashSet<SteelVal>>), // TODO wrap in GC
     /// Represents a scheme-only struct
     StructV(Gc<SteelStruct>),
-    /// Represents a special rust closure
+    // Represents a special rust closure
     // StructClosureV(Box<SteelStruct>, StructClosureSignature),
-    StructClosureV(Box<StructClosure>),
+    // StructClosureV(Box<StructClosure>),
     /// Represents a port object
     PortV(Gc<SteelPort>),
     /// Represents a bytecode closure
@@ -238,6 +299,8 @@ pub enum SteelVal {
     Contract(Gc<ContractType>),
     /// Contracted Function
     ContractedFunction(Gc<ContractedFunction>),
+    /// Custom closure
+    BoxedFunction(BoxedFunctionSignature),
 }
 
 // TODO come back to this for the constant map
@@ -265,8 +328,6 @@ pub enum SteelVal {
 //         }
 //     }
 // }
-
-pub struct SIterator(Box<dyn IntoIterator<IntoIter = Iter, Item = Result<Gc<SteelVal>>>>);
 
 pub enum CollectionType {
     List,
@@ -329,7 +390,7 @@ impl Hash for SteelVal {
             }
             Custom(_) => unimplemented!(),
             StructV(_) => unimplemented!(),
-            StructClosureV(_) => unimplemented!(),
+            // StructClosureV(_) => unimplemented!(),
             PortV(_) => unimplemented!(),
             Closure(b) => b.hash(state),
             HashMapV(hm) => hm.hash(state),
@@ -381,7 +442,7 @@ impl SteelVal {
     pub fn is_function(&self) -> bool {
         matches!(
             self,
-            StructClosureV(_) | Closure(_) | FuncV(_) | ContractedFunction(_)
+            BoxedFunction(_) | Closure(_) | FuncV(_) | ContractedFunction(_)
         )
     }
 
@@ -465,16 +526,26 @@ impl SteelVal {
         }
     }
 
-    pub fn struct_func_or_else<E, F: FnOnce() -> E>(
+    pub fn boxed_func_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<(&SteelStruct, &StructClosureSignature), E> {
-        if let Self::StructClosureV(s) = self {
-            Ok((&s.factory, &s.func))
-        } else {
-            Err(err())
+    ) -> std::result::Result<&BoxedFunctionSignature, E> {
+        match self {
+            Self::BoxedFunction(v) => Ok(&v),
+            _ => Err(err()),
         }
     }
+
+    // pub fn struct_func_or_else<E, F: FnOnce() -> E>(
+    //     &self,
+    //     err: F,
+    // ) -> std::result::Result<(&SteelStruct, &StructClosureSignature), E> {
+    //     if let Self::StructClosureV(s) = self {
+    //         Ok((&s.factory, &s.func))
+    //     } else {
+    //         Err(err())
+    //     }
+    // }
 
     pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
         match self {
@@ -749,7 +820,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             display_helper(&v, f)
         }
         StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
-        StructClosureV(_) => write!(f, "#<struct-constructor>"),
+        // StructClosureV(_) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
         HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm),
@@ -762,6 +833,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         BoxV(b) => write!(f, "#<box {:?}>", b.borrow()),
         Contract(_) => write!(f, "#<contract>"),
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
+        BoxedFunction(_) => write!(f, "#<function>"),
     }
 }
 
@@ -880,6 +952,7 @@ mod display_test {
 mod or_else_tests {
 
     use super::*;
+    use crate::rerrs::ErrorKind;
     use im_rc::vector;
 
     #[test]

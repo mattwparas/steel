@@ -1,7 +1,7 @@
 use crate::parser::ast::ExprKind;
 use crate::parser::visitors::ConsumingVisitorRef;
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 
 use super::ast::Atom;
@@ -164,5 +164,9 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
     fn visit_set(&self, s: Box<super::ast::Set>) -> Self::Output {
         let expr = [SteelVal::try_from(s.location)?, self.visit(s.expr)?];
         ListOperations::built_in_list_func_flat(&expr)
+    }
+
+    fn visit_require(&self, _s: super::ast::Require) -> Self::Output {
+        stop!(Generic => "internal compiler error - could not translate require to steel value")
     }
 }

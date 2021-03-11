@@ -15,6 +15,8 @@ impl ProgramBuilder {
     }
 }
 
+/// Represents a Steel program
+/// The program holds the instructions and the constant map, serialized to bytes
 #[derive(Serialize, Deserialize)]
 pub struct Program {
     pub instructions: Vec<Vec<DenseInstruction>>,

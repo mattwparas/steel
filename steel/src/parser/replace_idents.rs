@@ -4,7 +4,7 @@ use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
 
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 
 use super::ast::Atom;
@@ -268,6 +268,10 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         s.variable = self.visit(s.variable)?;
         s.expr = self.visit(s.expr)?;
         Ok(ExprKind::Set(s))
+    }
+
+    fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
+        stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
     }
 }
 

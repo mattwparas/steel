@@ -1,5 +1,8 @@
 mod helpers;
 extern crate steel_vm;
+
+use std::path::PathBuf;
+
 use crate::steel_vm::engine::Engine;
 use helpers::*;
 use steel::PRELUDE;
@@ -10,6 +13,18 @@ fn basic_test() {
 }
 
 #[test]
+fn module_test() {
+    let mut evaluator = Engine::new();
+    evaluator.parse_and_execute(PRELUDE).unwrap();
+    evaluator
+        .parse_and_execute_from_path(PathBuf::from("tests/modules/main.rkt"))
+        .unwrap();
+    test_line("(a 10)", &["127"], &mut evaluator);
+    test_line("(b 20)", &["47"], &mut evaluator);
+    evaluator.parse_and_execute("b-private").unwrap_err();
+}
+
+#[test]
 fn if_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
@@ -17,22 +32,22 @@ fn if_test() {
     test_line("(if 'a 'b 1)", &["'b"], &mut evaluator);
     test_line(
         "(if (= 1 2) a 2)",
-        &["Error: Free Identifier: a"],
+        &["Error: FreeIdentifier: a"],
         &mut evaluator,
     );
     test_line(
         "(if (= 1 1) a 2)",
-        &["Error: Free Identifier: a"],
+        &["Error: FreeIdentifier: a"],
         &mut evaluator,
     );
     test_line(
         "(if (= 1 1))",
-        &["Error: Parse error: Parse: Syntax Error: if expects a then condition, found none"],
+        &["Error: Parse: Parse: Syntax Error: if expects a then condition, found none"],
         &mut evaluator,
     );
     test_line(
         "(if 1 2 3 4)",
-        &["Error: Parse error: Parse: Syntax Error: if takes only 3 expressions"],
+        &["Error: Parse: Parse: Syntax Error: if takes only 3 expressions"],
         &mut evaluator,
     );
 }
@@ -42,15 +57,15 @@ fn define_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("a", &["Error: Free Identifier: a"], e);
+    test_line("a", &["Error: FreeIdentifier: a"], e);
     test_line(
         "(define a (lambda (x) (+ x 1)) wat)",
-        &["Error: Parse error: Parse: Syntax Error: Define expected only one expression after the identifier"],
+        &["Error: Parse: Parse: Syntax Error: Define expected only one expression after the identifier"],
         e,
     );
     test_line(
         "(define a)",
-        &["Error: Parse error: Parse: Syntax Error: define statement expected a body, found none"],
+        &["Error: Parse: Parse: Syntax Error: define statement expected a body, found none"],
         e,
     );
     test_line("(define a (lambda (x) (+ x 1)))", &["#<void>"], e);
@@ -60,7 +75,7 @@ fn define_test() {
     test_line("(b 10 20 30)", &["60"], e);
     test_line("(define b 10)", &["#<void>"], e);
     test_line("b", &["10"], e);
-    test_line("a1", &["Error: Free Identifier: a1"], e);
+    test_line("a1", &["Error: FreeIdentifier: a1"], e);
 }
 
 #[test]
@@ -69,7 +84,11 @@ fn lambda_test() {
     evaluator.parse_and_execute(PRELUDE).unwrap();
     let e = &mut evaluator;
     test_line("(lambda (x) 1 2)", &["#<bytecode-closure>"], e);
-    test_line("(lambda x 1)", &["Error: Parse error: Parse: Syntax Error: lambda function expected a list of identifiers"], e);
+    test_line(
+        "(lambda x 1)",
+        &["Error: Parse: Parse: Syntax Error: lambda function expected a list of identifiers"],
+        e,
+    );
     test_line("(lambda () 1)", &["#<bytecode-closure>"], e);
     test_line(
         "(lambda () (lambda () (lambda () (lambda () 1))))",
@@ -89,15 +108,15 @@ fn set_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("(set! x 10)", &["Error: Free Identifier: x"], e);
+    test_line("(set! x 10)", &["Error: FreeIdentifier: x"], e);
     test_line(
         "(set! x)",
-        &["Error: Parse error: Parse: Arity mismatch: set! expects an identifier and an expression"],
+        &["Error: Parse: Parse: Arity mismatch: set! expects an identifier and an expression"],
         e,
     );
     test_line(
         "(set! x 1 2)",
-        &["Error: Parse error: Parse: Arity mismatch: set! expects an identifier and an expression"],
+        &["Error: Parse: Parse: Arity mismatch: set! expects an identifier and an expression"],
         e,
     );
     test_line(
@@ -127,17 +146,17 @@ fn let_test() {
     test_line("(let () 1)", &["1"], e);
     test_line(
         "(let ((1)) x)",
-        &["Error: Parse error: Parse: Syntax Error: let expected a list of variable binding pairs, found a pair with length 1"],
+        &["Error: Parse: Parse: Syntax Error: let expected a list of variable binding pairs, found a pair with length 1"],
         e,
     );
     test_line(
         "(let ((x 1) (1)) x)",
-        &["Error: Parse error: Parse: Syntax Error: let expected a list of variable binding pairs, found a pair with length 1"],
+        &["Error: Parse: Parse: Syntax Error: let expected a list of variable binding pairs, found a pair with length 1"],
         e,
     );
     test_line(
         "(let ((x 1)))",
-        &["Error: Parse error: Parse: Syntax Error: let expects an expression, found none"],
+        &["Error: Parse: Parse: Syntax Error: let expects an expression, found none"],
         e,
     );
     test_line("(let ((x 1)) 1 2 3 4)", &["4"], e);
@@ -150,11 +169,11 @@ fn and_test() {
     let e = &mut evaluator;
     test_line("(and #t #f)", &["#false"], e);
     test_line("(and #t #t)", &["#true"], e);
-    test_line("(and a #t)", &["Error: Free Identifier: a"], e);
-    test_line("(and #f a)", &["Error: Free Identifier: a"], e);
+    test_line("(and a #t)", &["Error: FreeIdentifier: a"], e);
+    test_line("(and #f a)", &["Error: FreeIdentifier: a"], e);
     test_line(
         "(and (= 1 1) (= 1 2) who are you)",
-        &["Error: Free Identifier: who"],
+        &["Error: FreeIdentifier: who"],
         e,
     );
     test_line("(and (= 1 1) (= (+ 1 1) 2) (< 3 4))", &["#true"], e);
@@ -168,11 +187,11 @@ fn or_test() {
     test_line("(or #t #f)", &["#true"], e);
     test_line("(or #t #t)", &["#true"], e);
     test_line("(or #f #t)", &["#true"], e);
-    test_line("(or #f a)", &["Error: Free Identifier: a"], e);
-    test_line("(or #t a)", &["Error: Free Identifier: a"], e);
+    test_line("(or #f a)", &["Error: FreeIdentifier: a"], e);
+    test_line("(or #t a)", &["Error: FreeIdentifier: a"], e);
     test_line(
         "(or #t whatever you want idk)",
-        &["Error: Free Identifier: whatever"],
+        &["Error: FreeIdentifier: whatever"],
         e,
     );
     test_line("(or (> 3 4) (> 4 5) (> 5 6) (= 1 1))", &["#true"], e);

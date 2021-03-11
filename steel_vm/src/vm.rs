@@ -20,7 +20,7 @@ use steel::{
         span::Span,
     },
     primitives::ListOperations,
-    rerrs::SteelErr,
+    rerrs::{ErrorKind, SteelErr},
     rvals::{ByteCodeLambda, Result, SteelVal},
     stop,
     structs::SteelStruct,
@@ -381,7 +381,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     // For now, only allow structs at the top level
                     // In the future, allow structs to be also available in a nested scope
                     self.handle_struct(cur_inst.payload_size as usize)?;
-                    return Ok(SteelVal::Void);
+                    self.stack.push(SteelVal::Void);
+                    self.ip += 1;
+                    // return Ok(SteelVal::Void);
                 }
                 OpCode::READ => self.handle_read(&cur_inst.span)?,
                 OpCode::COLLECT => self.handle_collect(&cur_inst.span)?,
@@ -416,7 +418,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 }
                 OpCode::JMP => {
                     self.ip = cur_inst.payload_size as usize;
-                    // HACk
+                    // HACK
                     if self.ip == 0 && self.heap.len() > self.heap.limit() {
                         self.heap.collect_garbage();
                     }
@@ -431,7 +433,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         }
 
                         let ret_val = self.stack.try_pop().ok_or_else(|| {
-                            SteelErr::Generic("stack empty at pop".to_string(), Some(cur_inst.span))
+                            SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
+                                .with_span(cur_inst.span)
                         });
 
                         self.global_env.borrow_mut().set_binding_offset(false);
@@ -442,15 +445,24 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         let prev_state = self.instruction_stack.pop().unwrap();
 
                         if !prev_state.instrs_ref().is_empty() {
+                            // println!("not empty case");
                             self.global_env = self.env_stack.pop().unwrap();
                             self.ip = prev_state.0;
                             self.instructions = prev_state.instrs();
                         } else {
+                            // println!("################## empty case ##################");
                             self.ip += 1;
                         }
 
+                        // Idk maybe?
+                        // self.global_env.borrow_mut().pop_child();
+
+                        // println!("inside here");
+
                         self.stack = self.stacks.pop().unwrap();
                         self.stack.push(ret_val);
+
+                        // println!("stack length: {}", self.stack.len());
                     }
                 }
                 OpCode::BIND => self.handle_bind(cur_inst.payload_size as usize),
@@ -655,18 +667,17 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // awful awful awful hack to fix the repl environment noise
         // cur_inst.payload_size as usize
 
-        // println!("pushing");
+        let value = self.global_env.borrow().repl_lookup_idx(index)?;
+        self.stack.push(value);
 
-        // let value = self.global_env.borrow().repl_lookup_idx(index)?;
-        // self.stack.push(value);
-
-        if self.repl {
-            let value = self.global_env.borrow().repl_lookup_idx(index)?;
-            self.stack.push(value);
-        } else {
-            let value = self.global_env.borrow().lookup_idx(index)?;
-            self.stack.push(value);
-        }
+        // TODO handle the offset situation
+        // if self.repl {
+        //     let value = self.global_env.borrow().repl_lookup_idx(index)?;
+        //     self.stack.push(value);
+        // } else {
+        //     let value = self.global_env.borrow().lookup_idx(index)?;
+        //     self.stack.push(value);
+        // }
 
         self.ip += 1;
         Ok(())
@@ -701,7 +712,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         };
 
         // set the number of definitions for the environment
-        capture_env.borrow_mut().set_ndefs(ndefs as usize);
+        // capture_env.borrow_mut().set_ndefs(ndefs as usize);
 
         // println!("Adding the capture_env to the heap!");
         self.heap.add(Rc::clone(&capture_env));
@@ -722,17 +733,22 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_bind(&mut self, payload_size: usize) {
-        if self.repl {
-            self.global_env
-                .borrow_mut()
-                .repl_define_idx(payload_size, self.stack.pop().unwrap());
-        } else {
-            let offset = self.global_env.borrow().local_offset();
+        self.global_env
+            .borrow_mut()
+            .repl_define_idx(payload_size, self.stack.pop().unwrap());
 
-            self.global_env
-                .borrow_mut()
-                .define_idx(payload_size - offset, self.stack.pop().unwrap());
-        }
+        // TODO handle the offset situation
+        // if self.repl {
+        //     self.global_env
+        //         .borrow_mut()
+        //         .repl_define_idx(payload_size, self.stack.pop().unwrap());
+        // } else {
+        //     let offset = self.global_env.borrow().local_offset();
+
+        //     self.global_env
+        //         .borrow_mut()
+        //         .define_idx(payload_size - offset, self.stack.pop().unwrap());
+        // }
 
         self.ip += 1;
     }
@@ -743,9 +759,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {
-            StructClosureV(sc) => {
-                self.call_struct_func(&sc.factory, &sc.func, payload_size, span)?
-            }
+            BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size),
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
@@ -772,20 +786,21 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     offset,
                 )));
 
-                parent_env
-                    .upgrade()
-                    .unwrap()
-                    .borrow_mut()
-                    .add_child(Rc::downgrade(&inner_env));
+                // TODO perhaps don't add a child here
+                // parent_env
+                //     .upgrade()
+                //     .unwrap()
+                //     .borrow_mut()
+                //     .add_child(Rc::downgrade(&inner_env));
 
                 // TODO future me to figure out with offsets
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+                // inner_env
+                //     .borrow_mut()
+                //     .reserve_defs(if closure.ndef_body() > 0 {
+                //         closure.ndef_body() - 1
+                //     } else {
+                //         0
+                //     });
 
                 self.heap
                     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
@@ -805,15 +820,17 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
-    fn call_struct_func(
+    fn call_boxed_func(
         &mut self,
-        factory: &SteelStruct,
-        func: &fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>,
+        func: &Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>,
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        let args = self.stack.split_off(self.stack.len() - payload_size);
-        let result = func(&args, factory).map_err(|x| x.set_span(*span))?;
+        let result = func(self.stack.peek_range(self.stack.len() - payload_size..))
+            .map_err(|x| x.set_span(*span))?;
+
+        self.stack.truncate(self.stack.len() - payload_size);
+
         self.stack.push(result);
         self.ip += 1;
         Ok(())
@@ -880,9 +897,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {
-            StructClosureV(sc) => {
-                self.call_struct_func(&sc.factory, &sc.func, payload_size, span)?
-            }
+            BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size),
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
@@ -903,29 +918,43 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 let parent_env = closure.sub_expression_env();
 
                 // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+                // TODO see if this offset is even necessary
+                // let offset =
+                //     closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                    parent_env.clone(),
-                    offset,
-                )));
+                // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                //     parent_env.clone(),
+                //     offset,
+                // )));
 
-                // add this closure to the list of children
-                parent_env
-                    .upgrade()
-                    .unwrap()
-                    .borrow_mut()
-                    .add_child(Rc::downgrade(&inner_env));
+                let inner_env = Rc::new(RefCell::new(
+                    Env::new_subexpression_with_capacity_without_offset(parent_env.clone()),
+                ));
+
+                // inner_env.borrow_mut().increment_weak_count();
+
+                // Adds a pointer from parent -> child
+                // weak reference taken by downgrading the strong reference on inner env
+
+                // parent_env
+                //     .upgrade()
+                //     .unwrap()
+                //     .borrow_mut()
+                //     .add_child(Rc::downgrade(&inner_env));
 
                 // TODO future me figure out offsets
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+                // Leave here until I figure out the offset problem
+                // inner_env
+                //     .borrow_mut()
+                //     .reserve_defs(if closure.ndef_body() > 0 {
+                //         closure.ndef_body() - 1
+                //     } else {
+                //         0
+                //     });
+
+                // self.heap
+                //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+                // self.heap.collect_garbage();
 
                 // let result =
                 // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
@@ -978,12 +1007,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         };
 
         match &func {
-            SteelVal::StructClosureV(sc) => {
-                let result = (sc.func)(&args, &sc.factory).map_err(|x| x.set_span(span))?;
+            SteelVal::FuncV(f) => {
+                let result = f(&args).map_err(|x| x.set_span(span))?;
                 self.stack.push(result);
                 self.ip += 1;
             }
-            SteelVal::FuncV(f) => {
+            SteelVal::BoxedFunction(f) => {
                 let result = f(&args).map_err(|x| x.set_span(span))?;
                 self.stack.push(result);
                 self.ip += 1;
@@ -1000,29 +1029,35 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 let parent_env = closure.sub_expression_env();
 
                 // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+                // TODO figure out the offset business
+                // let offset =
+                //     closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                    parent_env.clone(),
-                    offset,
-                )));
+                let inner_env = Rc::new(RefCell::new(
+                    Env::new_subexpression_with_capacity_without_offset(
+                        parent_env.clone(),
+                        // offset,
+                    ),
+                ));
 
                 // add this closure to the list of children
-                parent_env
-                    .upgrade()
-                    .unwrap()
-                    .borrow_mut()
-                    .add_child(Rc::downgrade(&inner_env));
+                // parent_env
+                //     .upgrade()
+                //     .unwrap()
+                //     .borrow_mut()
+                //     .add_child(Rc::downgrade(&inner_env));
+
+                // inner_env.borrow_mut().increment_weak_count();
 
                 // TODO future me figure out offsets
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+                // More offset nonsense
+                // inner_env
+                //     .borrow_mut()
+                //     .reserve_defs(if closure.ndef_body() > 0 {
+                //         closure.ndef_body() - 1
+                //     } else {
+                //         0
+                //     });
 
                 // let result =
                 // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;

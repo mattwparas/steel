@@ -8,10 +8,12 @@ use steel::{
 };
 
 use std::collections::HashMap;
-pub(crate) static HEAP_LIMIT: usize = 5000;
+pub(crate) static HEAP_LIMIT: usize = 100;
 
 use log::debug;
 
+/// Garbage collection central
+/// The purpose of this is simply to hold environments that get allocated
 pub struct Heap {
     heap: Vec<Rc<RefCell<Env>>>,
     root: Option<Weak<RefCell<Env>>>,
@@ -26,9 +28,15 @@ impl Default for Heap {
             heap: Vec::new(),
             root: None,
             limit: HEAP_LIMIT,
-            max_double: 4,
+            max_double: 2,
             current_double: 0,
         }
+    }
+}
+
+impl Drop for Heap {
+    fn drop(&mut self) {
+        self.heap.clear();
     }
 }
 
@@ -58,39 +66,8 @@ impl Heap {
         self.heap.clear()
     }
 
-    fn root(&self) -> &Option<Weak<RefCell<Env>>> {
-        &self.root
-    }
-
     pub fn limit(&self) -> usize {
         self.limit
-    }
-
-    fn walk(&mut self, node: &Weak<RefCell<Env>>) {
-        // let reachable = p_env.borrow().is_reachable();
-        if let Some(upgraded) = node.upgrade() {
-            let reachable = upgraded.borrow().is_reachable();
-            if !reachable {
-                self.add(Rc::clone(&upgraded));
-                println!("Adding an env by walking from the root");
-                for child in upgraded.borrow().children() {
-                    self.walk(child)
-                }
-            }
-        }
-    }
-
-    // Should be infallible
-    pub fn gather_and_mark_from_global_root(&mut self) {
-        let mut heap = Heap::new();
-
-        if let Some(root) = self.root() {
-            for child in root.upgrade().unwrap().borrow().children() {
-                heap.walk(child)
-            }
-        }
-
-        heap.mark();
     }
 
     pub fn inspect_heap(&self) {
@@ -128,7 +105,10 @@ impl Heap {
     }
 
     pub fn collect_garbage(&mut self) {
+        // println!("Calling garbage collection");
+
         if self.len() > self.limit {
+            // std::thread::sleep(std::time::Duration::new(3, 0));
             debug!(
                 "Before mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
                 self.len(),
@@ -139,6 +119,14 @@ impl Heap {
             if self.current_double < self.max_double {
                 self.limit *= 2;
                 self.current_double += 1;
+            } else {
+                // std::thread::sleep(std::time::Duration::new(3, 0));
+                // println!("******************************************************");
+                // println!("******************* RESET ****************************");
+                // println!("******************************************************");
+                self.limit = HEAP_LIMIT;
+                self.current_double = 0;
+                // std::thread::sleep(std::time::Duration::new(3, 0));
             }
             self.profile_heap();
 
@@ -148,7 +136,8 @@ impl Heap {
                 OBJECT_COUNT
             );
 
-            debug!("Heap limit doubled to: {}", self.limit);
+            debug!("Heap limit set to: {}", self.limit);
+            // std::thread::sleep(std::time::Duration::new(3, 0));
         }
     }
 
@@ -165,10 +154,18 @@ impl Heap {
     }
 
     pub fn drop_large_refs(&mut self) {
-        debug!("Dropping envs with a weak count of 0 and a strong count more than 1");
+        debug!("Dropping envs with a weak count of 0");
 
-        self.heap
-            .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) > 1);
+        // self.heap
+        //     .retain(|x| Rc::weak_count(x) > 1 && Rc::strong_count(x) > 1);
+
+        // self.heap
+        //     .retain(|x| (Rc::weak_count(x) + x.borrow().weak_count()) > 1);
+        self.heap.retain(|x| Rc::weak_count(x) > 0);
+        // Drop the heap size back down to conserve memory
+        self.heap.shrink_to_fit();
+
+        // self.heap.retain(|x| Rc::strong_count(x) > 1);
     }
 
     // #[inline]
@@ -226,9 +223,23 @@ impl Heap {
     }
 
     pub fn sweep(&mut self) {
+        // std::thread::sleep(std::time::Duration::new(5, 0));
+        // println!(
+        //     "env currently at sweep: {:?}",
+        //     self.heap
+        //         .iter()
+        //         .map(|x| (
+        //             x.borrow().is_reachable(),
+        //             Rc::weak_count(x),
+        //             x.borrow().weak_count()
+        //         ))
+        //         .collect::<Vec<_>>()
+        // );
+        // std::thread::sleep(std::time::Duration::new(5, 0));
+
         &self
             .heap
-            .retain(|x| x.borrow().is_reachable() || Rc::weak_count(x) > 1);
+            .retain(|x| x.borrow().is_reachable() || Rc::weak_count(x) > 0);
         // .retain(|x| x.borrow().is_reachable());
     }
 
@@ -253,6 +264,7 @@ impl Heap {
         heap.gather(leaf1);
         heap.gather(leaf2);
         heap.mark();
+        heap.clear();
     }
 
     pub fn gather_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {
@@ -261,6 +273,10 @@ impl Heap {
     }
 
     pub fn gather_mark_and_sweep_2(&mut self, leaf1: &Rc<RefCell<Env>>, leaf2: &Rc<RefCell<Env>>) {
+        // println!(
+        //     "!!!!!!!!!!! ############# gather, mark and sweep ############### !!!!!!!!!!!!!!!"
+        // );
+        debug!("Running mark and sweep");
         Self::gather_and_mark_2(leaf1, leaf2);
         self.sweep();
         // self.add(Rc::clone(leaf1));

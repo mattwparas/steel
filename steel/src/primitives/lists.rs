@@ -1,4 +1,4 @@
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal::*;
 use crate::rvals::{ConsCell, Result, SteelVal};
 use crate::stop;
@@ -377,6 +377,11 @@ impl ListOperations {
             .map(|car| Ok(Gc::new(ConsCell::new(car?, None))))
             .collect::<Result<_>>()?;
 
+        // use this as empty for now
+        if pairs.is_empty() {
+            return Ok(SteelVal::VectorV(Gc::new(Vector::new())));
+        }
+
         // let mut rev_iter = pairs.iter_mut().rev().enumerate();
 
         let mut rev_iter = (0..pairs.len()).into_iter().rev();
@@ -391,10 +396,12 @@ impl ListOperations {
             }
         }
 
-        pairs
-            .pop()
-            .map(SteelVal::Pair)
-            .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
+        pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                "list-pair broke inside build_in_list_normal_ier".to_string(),
+            )
+        })
 
         // rev_iter.next();
 
@@ -423,10 +430,12 @@ impl ListOperations {
         for (i, val) in args.enumerate() {
             pairs.push(Gc::new(ConsCell::new(val, Some(Gc::clone(&pairs[i])))));
         }
-        pairs
-            .pop()
-            .map(SteelVal::Pair)
-            .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
+        pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                "list-pair broke inside built_in_list_func_iter".to_string(),
+            )
+        })
         // unimplemented!()
     }
 
@@ -448,10 +457,12 @@ impl ListOperations {
         for (i, val) in args.enumerate() {
             pairs.push(Gc::new(ConsCell::new(val?, Some(Gc::clone(&pairs[i])))));
         }
-        pairs
-            .pop()
-            .map(SteelVal::Pair)
-            .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
+        pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                "list-pair broke in built_in_list_func_iter_result".to_string(),
+            )
+        })
         // unimplemented!()
     }
 
@@ -508,10 +519,12 @@ impl ListOperations {
                 )));
             }
 
-            pairs
-                .pop()
-                .map(SteelVal::Pair)
-                .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
+            pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+                SteelErr::new(
+                    ErrorKind::Generic,
+                    "list-pair broke inside built_in_list_func".to_string(),
+                )
+            })
         }
     }
 
@@ -535,10 +548,12 @@ impl ListOperations {
             )));
         }
 
-        pairs
-            .pop()
-            .map(SteelVal::Pair)
-            .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
+        pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                "list-pair broke inside built_in_list_func_flat".to_string(),
+            )
+        })
     }
 
     pub fn list_length() -> SteelVal {
@@ -576,10 +591,12 @@ impl ListOperations {
             pairs.push(Gc::new(ConsCell::new(val, Some(Gc::clone(&pairs[i])))));
         }
 
-        pairs
-            .pop()
-            .map(SteelVal::Pair)
-            .ok_or_else(|| SteelErr::ContractViolation("list-pair broke".to_string(), None))
+        pairs.pop().map(SteelVal::Pair).ok_or_else(|| {
+            SteelErr::new(
+                ErrorKind::Generic,
+                "list-pair broke inside built_in_list_func_flat_non_gc".to_string(),
+            )
+        })
     }
 }
 
@@ -587,6 +604,7 @@ impl ListOperations {
 mod list_operation_tests {
 
     use super::*;
+    use crate::rerrs::ErrorKind;
     use crate::throw;
     use im_rc::vector;
 
@@ -610,16 +628,16 @@ mod list_operation_tests {
     fn cons_single_input() {
         let args = vec![SteelVal::IntV(1)];
         let res = apply_function(ListOperations::cons(), args);
-        let expected = SteelErr::ArityMismatch("cons takes only two arguments".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
     fn cons_no_input() {
         let args = vec![];
         let res = apply_function(ListOperations::cons(), args);
-        let expected = SteelErr::ArityMismatch("cons takes only two arguments".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
@@ -661,16 +679,16 @@ mod list_operation_tests {
     fn car_bad_input() {
         let args = vec![SteelVal::IntV(1)];
         let res = apply_function(ListOperations::car(), args);
-        let expected = SteelErr::TypeMismatch("car takes a list, given: 1".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::TypeMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
     fn car_too_many_args() {
         let args = vec![SteelVal::IntV(1), SteelVal::IntV(2)];
         let res = apply_function(ListOperations::car(), args);
-        let expected = SteelErr::ArityMismatch("car takes one argument".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
@@ -705,15 +723,15 @@ mod list_operation_tests {
     fn cdr_bad_input() {
         let args = vec![SteelVal::IntV(1)];
         let res = apply_function(ListOperations::cdr(), args);
-        let expected = SteelErr::TypeMismatch("cdr takes a list, given: 1".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::TypeMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
     #[test]
     fn cdr_too_many_args() {
         let args = vec![SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
         let res = apply_function(ListOperations::cdr(), args);
-        let expected = SteelErr::ArityMismatch("cdr takes one argument".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
@@ -731,8 +749,8 @@ mod list_operation_tests {
     fn range_tests_arity_too_few() {
         let args = vec![SteelVal::NumV(1.0)];
         let res = apply_function(ListOperations::range(), args);
-        let expected = SteelErr::ArityMismatch("range takes two arguments".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
@@ -743,8 +761,8 @@ mod list_operation_tests {
             SteelVal::NumV(3.0),
         ];
         let res = apply_function(ListOperations::range(), args);
-        let expected = SteelErr::ArityMismatch("range takes two arguments".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
@@ -765,24 +783,24 @@ mod list_operation_tests {
     fn list_to_vec_arity_too_few() {
         let args = vec![];
         let res = apply_function(ListOperations::list_to_vec(), args);
-        let expected = SteelErr::ArityMismatch("list->vector takes one argument".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
     fn list_to_vec_arity_too_many() {
         let args = vec![SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
         let res = apply_function(ListOperations::list_to_vec(), args);
-        let expected = SteelErr::ArityMismatch("list->vector takes one argument".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
     fn list_to_vec_bad_arg() {
         let args = vec![SteelVal::NumV(1.0)];
         let res = apply_function(ListOperations::list_to_vec(), args);
-        let expected = SteelErr::TypeMismatch("list->vector expected list".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::TypeMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]

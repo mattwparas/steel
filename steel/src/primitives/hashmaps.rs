@@ -1,6 +1,5 @@
 use crate::gc::Gc;
-use crate::rerrs::SteelErr;
-// use crate::rvals::SteelVal::*;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use im_rc::HashMap;
@@ -93,7 +92,7 @@ impl HashMapOperations {
             if let SteelVal::HashMapV(hm) = hashmap {
                 match hm.get(key) {
                     Some(v) => Ok(v.clone()),
-                    None => Ok(SteelVal::BoolV(true)),
+                    None => Ok(SteelVal::BoolV(false)),
                 }
             } else {
                 stop!(TypeMismatch => "hm-insert takes a hashmap")

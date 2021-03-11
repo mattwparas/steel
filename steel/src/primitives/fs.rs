@@ -1,5 +1,5 @@
 use crate::primitives::lists::ListOperations;
-use crate::rerrs::SteelErr;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use std::env::current_dir;

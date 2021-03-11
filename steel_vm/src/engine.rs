@@ -1,4 +1,10 @@
-use std::{collections::HashMap, convert::TryFrom, io::Read, path::Path, rc::Rc};
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    io::Read,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use crate::{evaluation_progress::Callback, vm::VirtualMachineCore};
 use steel::{
@@ -6,10 +12,10 @@ use steel::{
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser},
     primitives::ListOperations,
-    rerrs::SteelErr,
-    rvals::{Result, SteelVal},
+    rerrs::{ErrorKind, SteelErr},
+    rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     steel_compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
-    throw,
+    stop, throw,
 };
 
 #[macro_export]
@@ -60,8 +66,32 @@ impl Engine {
         vm
     }
 
+    pub fn with_prelude(mut self) -> Result<Self> {
+        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+
+        for core in core_libraries {
+            self.parse_and_execute_without_optimizations(core)?;
+        }
+
+        Ok(self)
+    }
+
+    pub fn register_prelude(&mut self) -> Result<&mut Self> {
+        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+
+        for core in core_libraries {
+            self.parse_and_execute_without_optimizations(core)?;
+        }
+
+        Ok(self)
+    }
+
+    pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
+        self.compiler.compile_program(expr, Some(path))
+    }
+
     pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
-        self.compiler.compile_program(expr)
+        self.compiler.compile_program(expr, None)
     }
 
     pub fn execute(
@@ -72,32 +102,72 @@ impl Engine {
         self.virtual_machine.execute(bytecode, constant_map)
     }
 
+    pub fn emit_instructions_with_path(
+        &mut self,
+        exprs: &str,
+        path: PathBuf,
+    ) -> Result<Vec<Vec<DenseInstruction>>> {
+        self.compiler.emit_instructions(exprs, Some(path))
+    }
+
     pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
-        self.compiler.emit_instructions(exprs)
+        self.compiler.emit_instructions(exprs, None)
     }
 
     pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
         self.virtual_machine.execute_program(program)
     }
 
-    pub fn register_value(&mut self, name: &str, value: SteelVal) {
+    pub fn register_external_value<T: FromSteelVal + IntoSteelVal>(
+        &mut self,
+        name: &str,
+        value: T,
+    ) -> Result<&mut Self> {
+        let converted = value.into_steelval()?;
+        Ok(self.register_value(name, converted))
+    }
+
+    pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
         let idx = self.compiler.register(name);
         self.virtual_machine.insert_binding(idx, value);
+        self
     }
 
-    pub fn register_gc_value(&mut self, name: &str, value: SteelVal) {
+    pub fn register_gc_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
         let idx = self.compiler.register(name);
         self.virtual_machine.insert_gc_binding(idx, value);
+        self
     }
 
-    pub fn register_values(&mut self, values: Vec<(String, SteelVal)>) {
+    pub fn register_values(&mut self, values: Vec<(String, SteelVal)>) -> &mut Self {
         for (name, value) in values {
             self.register_value(name.as_str(), value);
         }
+        self
     }
 
-    pub fn on_progress(&mut self, callback: Callback) {
+    /// Registers a predicate for a given type
+    /// This lets you be able to register
+    pub fn register_type<T: FromSteelVal + IntoSteelVal>(
+        &mut self,
+        predicate_name: &'static str,
+    ) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", predicate_name, args.len()));
+            }
+
+            Ok(SteelVal::BoolV(T::from_steelval(args[0].clone()).is_ok()))
+        };
+
+        self.register_value(predicate_name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+
+    /// Registers a callback function
+    /// If registered, this callback will be called on every instruction
+    pub fn on_progress(&mut self, callback: Callback) -> &mut Self {
         self.virtual_machine.on_progress(callback);
+        self
     }
 
     pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
@@ -111,12 +181,22 @@ impl Engine {
             ))
     }
 
-    pub fn extract<T: TryFrom<SteelVal, Error = SteelErr>>(&self, name: &str) -> Result<T> {
-        T::try_from(self.extract_value(name)?)
+    pub fn extract<T: FromSteelVal>(&self, name: &str) -> Result<T> {
+        T::from_steelval(self.extract_value(name)?)
+    }
+
+    pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+        let program = self.compiler.compile_program(expr, None)?;
+        self.virtual_machine.execute_program(program)
+    }
+
+    pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
+        let program = self.compiler.compile_program(expr, Some(path))?;
+        self.virtual_machine.execute_program(program)
     }
 
     pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let program = self.compiler.compile_program(expr)?;
+        let program = self.compiler.compile_program(expr, None)?;
         self.virtual_machine.execute_program(program)
     }
 
@@ -126,27 +206,44 @@ impl Engine {
 
     // Read in the file from the given path and execute accordingly
     // Loads all the functions in from the given env
+    // pub fn parse_and_execute_from_path<P: AsRef<Path>>(
+    //     &mut self,
+    //     path: P,
+    // ) -> Result<Vec<SteelVal>> {
+    //     let mut file = std::fs::File::open(path)?;
+    //     let mut exprs = String::new();
+    //     file.read_to_string(&mut exprs)?;
+    //     self.parse_and_execute(exprs.as_str(), )
+    // }
+
     pub fn parse_and_execute_from_path<P: AsRef<Path>>(
         &mut self,
         path: P,
     ) -> Result<Vec<SteelVal>> {
+        let path_buf = PathBuf::from(path.as_ref());
         let mut file = std::fs::File::open(path)?;
         let mut exprs = String::new();
         file.read_to_string(&mut exprs)?;
-        self.parse_and_execute(exprs.as_str())
+        self.run_with_path(exprs.as_str(), path_buf)
     }
 
     // TODO come back to this please
 
-    pub fn parse_and_execute_with_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    pub fn parse_and_execute_with_optimizations(
+        &mut self,
+        expr: &str,
+        path: PathBuf,
+    ) -> Result<Vec<SteelVal>> {
         let mut results = Vec::new();
         let mut intern = HashMap::new();
 
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr, &mut intern).collect();
+            Parser::new_from_source(expr, &mut intern, path.clone()).collect();
         let parsed = parsed?;
 
-        let expanded_statements = self.compiler.expand_expressions(parsed)?;
+        let expanded_statements = self
+            .compiler
+            .expand_expressions(parsed, Some(path.clone()))?;
 
         let statements_without_structs = self
             .compiler
@@ -167,10 +264,7 @@ impl Engine {
     }
 
     // TODO come back to this
-    pub fn optimize_exprs<I: IntoIterator<Item = ExprKind>>(
-        exprs: I,
-        // ctx: &mut Ctx<ConstantMap>,
-    ) -> Result<Vec<ExprKind>> {
+    pub fn optimize_exprs<I: IntoIterator<Item = ExprKind>>(exprs: I) -> Result<Vec<ExprKind>> {
         // println!("About to optimize the input program");
 
         let converted: Result<Vec<_>> = exprs.into_iter().map(|x| SteelVal::try_from(x)).collect();
@@ -192,7 +286,9 @@ impl Engine {
         // TODO
         SteelVal::iter(output.last().unwrap().clone())
             .into_iter()
-            .map(|x| ExprKind::try_from(&x).map_err(|x| SteelErr::Generic(x.to_string(), None)))
+            .map(|x| {
+                ExprKind::try_from(&x).map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
+            })
             .collect::<Result<Vec<ExprKind>>>()
     }
 }

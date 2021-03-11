@@ -1,10 +1,6 @@
-// use crate::env::{FALSE, TRUE};
-use crate::rerrs::SteelErr;
-// use crate::rvals::SteelVal::*;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-
-// use crate::primitives::lists::ListOperations;
 
 pub struct ControlOperations {}
 impl ControlOperations {

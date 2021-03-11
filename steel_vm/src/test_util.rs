@@ -1,6 +1,4 @@
-#[cfg(test)]
 use crate::engine::Engine;
-#[cfg(test)]
 use steel::stdlib::{CONTRACTS, PRELUDE};
 
 #[test]

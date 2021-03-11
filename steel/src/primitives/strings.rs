@@ -1,6 +1,4 @@
-// use crate::env::{FALSE, TRUE};
-use crate::rerrs::SteelErr;
-// use crate::rvals::SteelVal::*;
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
@@ -182,6 +180,7 @@ impl StringOperations {
 mod string_operation_tests {
     use super::*;
     use crate::gc::Gc;
+    use crate::rerrs::ErrorKind;
     use crate::rvals::ConsCell;
     use crate::throw;
     use im_rc::Vector;
@@ -197,8 +196,8 @@ mod string_operation_tests {
                         SteelVal::StringV("BAR".into()),
                     ];
                     let res = apply_function($func.clone(), args);
-                    let expected = SteelErr::ArityMismatch(format!("{} takes one argument", $name), None);
-                    assert_eq!(res.unwrap_err(), expected);
+                    let expected = ErrorKind::ArityMismatch;
+                    assert_eq!(res.unwrap_err().kind(), expected);
                 }
             )*
         };
@@ -211,8 +210,8 @@ mod string_operation_tests {
                 pub fn $symbol() {
                     let args = vec![];
                     let res = apply_function($func.clone(), args);
-                    let expected = SteelErr::ArityMismatch(format!("{} takes one argument", $name), None);
-                    assert_eq!(res.unwrap_err(), expected);
+                    let expected = ErrorKind::ArityMismatch;
+                    assert_eq!(res.unwrap_err().kind(), expected);
                 }
             )*
         };
@@ -225,8 +224,8 @@ mod string_operation_tests {
                 pub fn $symbol() {
                     let args = vec![SteelVal::NumV(10.0)];
                     let res = apply_function($func.clone(), args);
-                    let expected = SteelErr::TypeMismatch(format!("{} expected a string", $name), None);
-                    assert_eq!(res.unwrap_err(), expected);
+                    let expected = ErrorKind::TypeMismatch;
+                    assert_eq!(res.unwrap_err().kind(), expected);
                 }
             )*
         };
@@ -282,9 +281,8 @@ mod string_operation_tests {
     fn string_append_test_arity_mismatch_too_few() {
         let args = vec![SteelVal::StringV("foo".into())];
         let res = apply_function(StringOperations::string_append(), args);
-        let expected =
-            SteelErr::ArityMismatch("string-append takes two arguments".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
@@ -295,18 +293,16 @@ mod string_operation_tests {
             SteelVal::StringV("baz".into()),
         ];
         let res = apply_function(StringOperations::string_append(), args);
-        let expected =
-            SteelErr::ArityMismatch("string-append takes two arguments".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
     fn string_append_test_takes_string() {
         let args = vec![SteelVal::CharV('a'), SteelVal::CharV('b')];
         let res = apply_function(StringOperations::string_append(), args);
-        let expected =
-            SteelErr::TypeMismatch("string-append expected two strings".to_string(), None);
-        assert_eq!(res.unwrap_err(), expected);
+        let expected = ErrorKind::TypeMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
