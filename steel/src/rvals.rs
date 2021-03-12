@@ -108,10 +108,6 @@ there is some overhead here but I think it might be worth it?
 
 pub trait Custom {}
 
-pub trait StructFunctions {
-    fn generate_bindings() -> Vec<(String, SteelVal)>;
-}
-
 pub trait CustomType {
     fn box_clone(&self) -> Box<dyn CustomType>;
     fn as_any(&self) -> Box<dyn Any>;
@@ -191,47 +187,6 @@ pub trait IntoSteelVal: Sized {
 /// steel derive.
 pub trait FromSteelVal: Sized {
     fn from_steelval(val: SteelVal) -> Result<Self>;
-}
-
-// macro_rules! ok_val {
-//     ($variant:ty, $value:expr) => {
-//         Ok(Rc::new(SteelVal::$variant($value)));
-//     };
-// }
-
-/// Unwraps the `SteelVal::Custom` with the given type. The type must implement the `CustomType` trait.
-/// If the type does not match, then
-/// the macro returns a `SteelErr::ConverstionError`. If the type does match, return the
-/// underlying value.
-///
-/// # Example
-/// ```rust
-///
-///
-///
-/// ```
-///
-#[macro_export]
-macro_rules! unwrap {
-    ($x:expr, $body:ty) => {{
-        if let crate::rvals::SteelVal::Custom(ref v) = $x {
-            let left_type = (*v).as_any();
-            let left = left_type.downcast_ref::<$body>();
-            left.map(|x| x.clone()).ok_or_else(|| {
-                let error_message = format!(
-                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
-                    stringify!($body)
-                );
-                SteelErr::new(ErrorKind::ConversionError, error_message)
-            })
-        } else {
-            let error_message = format!(
-                "Type Mismatch: Type of SteelVal did not match the given type: {}",
-                stringify!($body)
-            );
-            Err(SteelErr::new(ErrorKind::ConversionError, error_message))
-        }
-    }};
 }
 
 #[derive(Clone)]
@@ -535,17 +490,6 @@ impl SteelVal {
             _ => Err(err()),
         }
     }
-
-    // pub fn struct_func_or_else<E, F: FnOnce() -> E>(
-    //     &self,
-    //     err: F,
-    // ) -> std::result::Result<(&SteelStruct, &StructClosureSignature), E> {
-    //     if let Self::StructClosureV(s) = self {
-    //         Ok((&s.factory, &s.func))
-    //     } else {
-    //         Err(err())
-    //     }
-    // }
 
     pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
         match self {

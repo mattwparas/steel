@@ -19,6 +19,8 @@ mod register_fn_tests {
         }
     }
 
+    fn empty_function() {}
+
     #[test]
     fn test_register_fn() {
         let mut vm = Engine::new();
@@ -36,11 +38,15 @@ mod register_fn_tests {
         // Result values will map directly to errors in the VM and bubble back up
         vm.register_fn("result-function", result_function);
 
+        // functions that return () return void
+        vm.register_fn("empty-function", empty_function);
+
         vm.run(
             r#"
         (define foo (external-function 10 25))
         (define bar (option-function "applesauce"))
         (define baz (result-function "bananas"))
+        (empty-function)
     "#,
         )
         .unwrap();
@@ -427,6 +433,38 @@ mod transducer_tests {
     }
 
     #[test]
+    fn generic_transducer_with_different_functions() {
+        let script = r#"
+            (define x (mapping (fn (x) x))) ;; identity
+            (define y (filtering even?)) ;; get only even ones
+            (define z (taking 15)) ;; take the first 15 from the range
+            (define xf (compose x y z))
+            (define reduce-func (lambda (accum next) (+ accum next)))
+            (assert! 
+                (equal? 
+                    (transduce xf reduce-func 0 (range 0 100)) ;; => 210
+                    210))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn generic_transducer_with_different_functions_and_closures() {
+        let script = r#"
+            (define x (mapping (fn (x) x))) ;; identity
+            (define y (filtering (fn (x) (even? x)))) ;; get only even ones
+            (define z (taking 15)) ;; take the first 15 from the range
+            (define xf (compose x y z))
+            (define reduce-func (lambda (accum next) (+ accum next)))
+            (assert! 
+                (equal? 
+                    (transduce xf reduce-func 0 (range 0 100)) ;; => 210
+                    210))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
     fn generic_execution() {
         let script = r#"
         (define x (mapping (fn (x) x))) ;; identity
@@ -741,6 +779,241 @@ mod apply_tests {
         let script = r#"
         (define result (apply map (list (lambda (x) 10) (list 1 2 3 4))))
         (assert! (equal? result (list 10 10 10 10)))
+        "#;
+        assert_script(script);
+    }
+}
+
+#[cfg(test)]
+mod dfs_test {
+    use crate::test_util::assert_script;
+
+    #[test]
+    fn test_dfs() {
+        let script = r#"
+        ;; implementation of a dfs in steel
+
+        ;; Given a node and a graph
+        ;; node -> 'a
+        ;; graph -> '((a b c) (b d) (e f))
+        ;;
+        ;; returns the neighbors
+        ;; ex.
+        ;; (get-neighbors 'a graph) => '(b c)
+        ;;
+        (define (get-neighbors node graph)
+        (define found-neighbors (assoc node graph))
+        (if found-neighbors
+            (cdr found-neighbors)
+            '()))
+
+        (define (longest  lst)
+        (foldr (λ (a b) (if (> (length a) (length b)) a b))
+                '()
+                lst))
+
+        (define (reverse ls)
+        (define (my-reverse-2 ls acc)
+            (if (null? ls)
+                acc
+            (my-reverse-2 (cdr ls) (cons (car ls) acc))))
+        (my-reverse-2 ls '()))
+
+        (define (first-step curr end graph)
+        (define neighbors (get-neighbors curr graph))
+        (longest (map (lambda (x) (dfs x end '() '() graph)) neighbors)))
+
+
+        (define (member? x los)
+        (cond
+            ((null? los) #f)
+            ((equal? x (car los)) #t)
+            (else (member? x (cdr los)))))
+
+        ;; iteratively tries each neighbor
+        ;; quits when the length is worse
+        (define (try-all-neighbors neighbors best-path end new-path graph)
+        (if (not (empty? neighbors))
+            (let* ((next-neighbor (car neighbors))
+                    (found-path (dfs next-neighbor end new-path best-path graph)))
+                (if (> (length found-path) (length best-path))
+                    (try-all-neighbors (cdr neighbors) found-path end new-path graph)
+                    (try-all-neighbors (cdr neighbors) best-path end new-path graph)))
+            best-path))
+
+        (define (dfs curr end path best-path graph)
+        (define neighbors (get-neighbors curr graph))
+        (define new-path (cons curr path))
+        (cond ((equal? curr end)
+                (cons curr path))
+                ((member? curr path)
+                '())
+                (neighbors
+                (try-all-neighbors neighbors best-path end (cons curr path) graph))
+                (else '())))
+
+        (define (longest-path start end graph)
+        (define found-path (reverse (first-step start end graph)))
+        (cond ((empty? found-path)
+                (if (equal? start end)
+                    (list start)
+                    '()))
+                ((and (equal? (car found-path) start) (not (equal? start end)))
+                found-path)
+                (else (cons start found-path))))
+
+
+        (longest-path 'a 'c '((a b) (b c))) ;; '(a b c)
+        (longest-path 'a 'c '((a b) (b a c))) ;; '(a b c)
+        (longest-path 'a 'c '((a d e f g b) (b a c))) ;; '(a b c)
+        (longest-path 'a 'a '((a b) (b a c))) ;; '(a b a)
+        (longest-path 'a 'c '((a b) (b a) (c))) ;; '()
+        (longest-path 'a 'f '((a b c) (b f) (c d) (d e) (e f))) ;; '(a c d e f)
+        (longest-path 'a 'f '((a b c a) (b c d) (c e a) (d e f) (e d f))) ;; '(a b c e d f)
+        (longest-path 'a 'a '((a b c a) (b c d) (c e a) (d e f) (e d f))) ;; '(a b c a)
+        (longest-path 'a 'a '((a b) (b c))) ;; '(a)
+        (longest-path 'a 'a '((a a b) (b c))) ;; '(a a)
+        (longest-path 'a 'a '((a b a) (b c))) ;; '(a a)
+        (longest-path 'a 'b '((a b) (b c) (c b))) ;; '(a b)
+        (longest-path 'a 'b '((a b c) (b c) (c b))) ;; '(a c b)
+
+        (assert! (equal? (longest-path 'a 'c '((a b) (b c))) '(a b c)))
+        (assert! (equal? (longest-path 'a 'c '((a b) (b a c))) '(a b c)))
+        (assert! (equal? (longest-path 'a 'c '((a d e f g b) (b a c))) '(a b c)))
+        (assert! (equal? (longest-path 'a 'a '((a b) (b a c))) '(a b a)))
+        (assert! (equal? (longest-path 'a 'c '((a b) (b a) (c))) '()))
+        (assert! (equal? (longest-path 'a 'f '((a b c) (b f) (c d) (d e) (e f))) '(a c d e f)))
+        (assert! (equal? (longest-path 'a 'f '((a b c a) (b c d) (c e a) (d e f) (e d f))) '(a b c e d f)))
+        (assert! (equal? (longest-path 'a 'a '((a b c a) (b c d) (c e a) (d e f) (e d f))) '(a b c a)))
+        (assert! (equal? (longest-path 'a 'a '((a b) (b c))) '(a)))
+        (assert! (equal? (longest-path 'a 'a '((a a b) (b c))) '(a a)))
+        (assert! (equal? (longest-path 'a 'a '((a b a) (b c))) '(a a)))
+        (assert! (equal? (longest-path 'a 'b '((a b) (b c) (c b))) '(a b)))
+        (assert! (equal? (longest-path 'a 'b '((a b c) (b c) (c b))) '(a c b)))
+        "#;
+        assert_script(script);
+    }
+}
+
+#[cfg(test)]
+mod sieve_test {
+    use crate::test_util::assert_script;
+
+    #[test]
+    fn sieve_test() {
+        let script = r#"
+        (define (sieve n)
+        (define (aux u v)
+            (let ((p (car v)))
+            (if (> (* p p) n)
+                (rev-append u v)
+                (aux (cons p u)
+                (wheel '() (cdr v) (* p p) p)))))
+        (aux '(2)
+            (range-s '() (if (odd? n) n (- n 1)))))
+
+
+        (define (wheel u v a p)
+            (cond ((null? v) (reverse u))
+                            ((= (car v) a) (wheel u (cdr v) (+ a p) p))
+                            ((> (car v) a) (wheel u v (+ a p) p))
+                            (else (wheel (cons (car v) u) (cdr v) a p))))
+
+        (define (rev-append u v)
+            (if (null? u) v (rev-append (cdr u) (cons (car u) v))))
+
+        (define (range-s v k)
+            (if (< k 3) v (range-s (cons k v) (- k 2))))
+
+        (assert! (equal? 168 (length (sieve 1000))))
+        "#;
+        assert_script(script);
+    }
+}
+
+#[cfg(test)]
+mod calculator_test {
+    use crate::test_util::assert_script;
+
+    #[test]
+    fn calculator_test() {
+        let script = r#"
+        (struct node (datum children))
+
+        (define (parse expr)
+        (parse-helper expr '() '()))
+
+        (define (parse-helper expr operators operands)
+        (cond ((null? expr)
+                (if (null? operators)
+                    (car operands)
+                    (handle-op '() operators operands)))
+                ((number? (car expr))
+                (parse-helper (cdr expr)
+                            operators
+                            (cons (node (car expr) '()) operands)))
+                ((list? (car expr))
+                (parse-helper (cdr expr)
+                            operators
+                            (cons (parse (car expr)) operands)))
+                (else (if (or (null? operators)
+                            (> (precedence (car expr))
+                                (precedence (car operators))))
+                        (parse-helper (cdr expr)
+                                        (cons (car expr) operators)
+                                        operands)
+                        (handle-op expr operators operands)))))
+
+        (define (handle-op expr operators operands)
+        (parse-helper expr
+                        (cdr operators)
+                        (cons (node (car operators)
+                                        (list (cadr operands) (car operands)))
+                            (cddr operands))))
+
+        (define (member? x los)
+        (cond
+            ((null? los) #f)
+            ((equal? x (car los)) #t)
+            (else (member? x (cdr los)))))
+
+
+        (define (precedence oper)
+        (if (member? oper '(+ -))
+            1
+            2))
+
+
+        (define (compute tree)
+        (if (number? (node-datum tree))
+            (node-datum tree)
+            ((function-named-by (node-datum tree))
+            (compute (car (node-children tree)))
+            (compute (cadr (node-children tree))))))
+
+        (define (function-named-by oper)
+        (cond ((equal? oper '+) +)
+                ((equal? oper '-) -)
+                ((equal? oper '*) *)
+                ((equal? oper '/) /)
+                (else (error! "no such operator as" oper))))
+
+        
+        (assert! (equal? 10 (compute (parse '(1 + 2 + 3 + 4))))) ;; => 10
+        "#;
+        assert_script(script);
+    }
+}
+
+#[cfg(test)]
+mod read_test {
+    use crate::test_util::assert_script;
+
+    #[test]
+    fn test_basic_read() {
+        let script = r#"
+            (define read-value (read "1 2 3 4 5"))
+            (assert! (equal? '(1 2 3 4 5) read-value))
         "#;
         assert_script(script);
     }

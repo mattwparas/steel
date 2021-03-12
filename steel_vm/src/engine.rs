@@ -133,12 +133,6 @@ impl Engine {
         self
     }
 
-    pub fn register_gc_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
-        let idx = self.compiler.register(name);
-        self.virtual_machine.insert_gc_binding(idx, value);
-        self
-    }
-
     pub fn register_values(&mut self, values: Vec<(String, SteelVal)>) -> &mut Self {
         for (name, value) in values {
             self.register_value(name.as_str(), value);
@@ -274,7 +268,7 @@ impl Engine {
 
         let mut vm = Engine::new_with_meta();
         vm.parse_and_execute_without_optimizations(steel::stdlib::PRELUDE)?;
-        vm.register_gc_value("*program*", exprs);
+        vm.register_value("*program*", exprs);
         let output = vm.parse_and_execute_without_optimizations(steel::stdlib::COMPILER)?;
 
         // println!("{:?}", output.last().unwrap());
