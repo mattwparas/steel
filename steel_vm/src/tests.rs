@@ -1004,3 +1004,17 @@ mod calculator_test {
         assert_script(script);
     }
 }
+
+#[cfg(test)]
+mod read_test {
+    use crate::test_util::assert_script;
+
+    #[test]
+    fn test_basic_read() {
+        let script = r#"
+            (define read-value (read "1 2 3 4 5"))
+            (assert! (equal? '(1 2 3 4 5) read-value))
+        "#;
+        assert_script(script);
+    }
+}
