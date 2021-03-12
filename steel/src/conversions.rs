@@ -145,3 +145,109 @@ impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
 //         todo!()
 //     }
 // }
+
+#[cfg(test)]
+mod conversion_tests {
+    use super::*;
+    use crate::rvals::ConsCell;
+    use im_rc::vector;
+
+    #[test]
+    fn vec_into_list() {
+        let input_vec = vec![1, 2];
+        let expected = SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::IntV(1),
+            Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
+        )));
+
+        assert_eq!(input_vec.into_steelval().unwrap(), expected)
+    }
+
+    #[test]
+    fn vec_from_list() {
+        let input_list = SteelVal::Pair(Gc::new(ConsCell::new(
+            SteelVal::IntV(1),
+            Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
+        )));
+
+        let expected = vec![1, 2];
+        let result = <Vec<i32>>::from_steelval(input_list).unwrap();
+
+        assert_eq!(result, expected)
+    }
+
+    #[test]
+    fn vec_from_vector() {
+        let input_vector =
+            SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(1), SteelVal::IntV(2)]));
+
+        let expected = vec![1, 2];
+        let result = <Vec<i32>>::from_steelval(input_vector).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn vec_from_steelval_error() {
+        let input = SteelVal::IntV(2);
+        assert!(<Vec<i32>>::from_steelval(input).is_err());
+    }
+
+    #[test]
+    fn hashmap_into_steelval() {
+        let mut input = HashMap::new();
+        input.insert("foo".to_string(), "bar".to_string());
+        input.insert("foo2".to_string(), "bar2".to_string());
+
+        let expected = SteelVal::HashMapV(Gc::new(im_rc::hashmap! {
+            SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
+            SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
+        }));
+
+        assert_eq!(input.into_steelval().unwrap(), expected);
+    }
+
+    #[test]
+    fn hashmap_from_steelval_hashmap() {
+        let input = SteelVal::HashMapV(Gc::new(im_rc::hashmap! {
+            SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
+            SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
+        }));
+
+        let mut expected = HashMap::new();
+        expected.insert("foo".to_string(), "bar".to_string());
+        expected.insert("foo2".to_string(), "bar2".to_string());
+
+        assert_eq!(
+            <HashMap<String, String>>::from_steelval(input).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn hashset_into_steelval() {
+        let mut input = HashSet::new();
+        input.insert("foo".to_string());
+        input.insert("bar".to_string());
+
+        let expected = SteelVal::HashSetV(Gc::new(im_rc::hashset! {
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("bar".into())
+        }));
+
+        assert_eq!(input.into_steelval().unwrap(), expected);
+    }
+
+    #[test]
+    fn hashset_from_steelval_hashset() {
+        let input = SteelVal::HashSetV(Gc::new(im_rc::hashset! {
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("bar".into())
+        }));
+
+        let mut expected = HashSet::new();
+        expected.insert("foo".to_string());
+        expected.insert("bar".to_string());
+
+        assert_eq!(<HashSet<String>>::from_steelval(input).unwrap(), expected);
+    }
+}
