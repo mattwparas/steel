@@ -190,6 +190,16 @@ impl TransducersExt for Transducers {
                     stop!(TypeMismatch => "take transducer takes an integer"; *cur_inst_span)
                 }
             }
+            Transducers::Drop(num) => {
+                if let SteelVal::IntV(num) = num {
+                    if *num < 0 {
+                        stop!(ContractViolation => "drop transducer must have a position number"; *cur_inst_span)
+                    }
+                    Ok(Box::new(iter.skip(*num as usize)))
+                } else {
+                    stop!(TypeMismatch => "drop transducer takes an integer"; *cur_inst_span)
+                }
+            }
         }
     }
 }

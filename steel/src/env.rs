@@ -729,6 +729,7 @@ impl Env {
             ("mapping", TransducerOperations::map()),
             ("filtering", TransducerOperations::filter()),
             ("taking", TransducerOperations::take()),
+            ("dropping", TransducerOperations::dropping()),
             ("memory-address", MetaOperations::memory_address()),
             // ("async-test-func", SteelVal::FutureFunc(test_function)),
             ("async-exec", MetaOperations::exec_async()),

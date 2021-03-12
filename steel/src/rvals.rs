@@ -316,6 +316,7 @@ pub enum Transducers {
     Map(SteelVal),    // function
     Filter(SteelVal), // function
     Take(SteelVal),   // integer
+    Drop(SteelVal),   // integer
 }
 
 impl Hash for SteelVal {

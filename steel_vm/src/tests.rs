@@ -481,6 +481,22 @@ mod transducer_tests {
     }
 
     #[test]
+    fn generic_execution_dropping() {
+        let script = r#"
+        (define x (mapping (fn (x) x))) ;; identity
+        (define y (filtering even?)) ;; get only even ones
+        (define z (dropping 15)) ;; drop the first 15 from the range
+        (define xf (compose x y z))
+        (define result
+            (execute xf (range 0 20)))
+        
+        (define expected '(30 32 34 36 38))
+        (assert! (equal? result expected))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
     fn generic_execution_output_different_type() {
         let script = r#"
         (define x (mapping (fn (x) x))) ;; identity
