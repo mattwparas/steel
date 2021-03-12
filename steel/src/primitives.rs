@@ -35,7 +35,6 @@ use crate::rvals::{FunctionSignature, SteelVal};
 use im_rc::Vector;
 
 use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::result;
 
 use crate::rvals::{FromSteelVal, IntoSteelVal};
@@ -203,98 +202,6 @@ impl From<()> for SteelVal {
     }
 }
 
-impl<T: TryInto<SteelVal>> TryFrom<Vec<T>> for SteelVal {
-    type Error = SteelErr;
-    fn try_from(val: Vec<T>) -> result::Result<Self, Self::Error> {
-        let vec_vals: Result<Vec<Self>, <T as std::convert::TryInto<SteelVal>>::Error> =
-            val.into_iter().map(|x| x.try_into()).collect();
-
-        match vec_vals {
-            Ok(l) => ListOperations::built_in_list_func_flat(&l),
-            _ => Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Could not convert vector of values to SteelVal list".to_string(),
-            )),
-        }
-    }
-}
-
-impl<T: TryFrom<SteelVal>> TryFrom<SteelVal> for Vec<T> {
-    type Error = SteelErr;
-    fn try_from(val: SteelVal) -> result::Result<Self, Self::Error> {
-        match val {
-            SteelVal::Pair(_) => {
-                // let vec_vals = collect_pair_into_vector(&val);
-                let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    SteelVal::iter(val.clone())
-                        .into_iter()
-                        .map(T::try_from)
-                        .collect();
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            }
-            SteelVal::VectorV(v) => {
-                let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    v.iter().map(|x| T::try_from(x.clone())).collect();
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            } // TODO
-            _ => Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Could not convert SteelVal list to Vector of values".to_string(),
-            )),
-        }
-    }
-}
-
-impl<T: TryFrom<SteelVal>> TryFrom<&SteelVal> for Vec<T> {
-    type Error = SteelErr;
-    fn try_from(val: &SteelVal) -> result::Result<Self, Self::Error> {
-        match val {
-            SteelVal::Pair(_) => {
-                // let vec_vals = collect_pair_into_vector(&val);
-                let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    SteelVal::iter(val.clone())
-                        .into_iter()
-                        .map(T::try_from)
-                        .collect();
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            }
-            SteelVal::VectorV(v) => {
-                let result_vec_vals: Result<Self, <T as std::convert::TryFrom<SteelVal>>::Error> =
-                    v.iter().map(|x| T::try_from(x.clone())).collect();
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            } // TODO
-            _ => Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Could not convert SteelVal list to Vector of values".to_string(),
-            )),
-        }
-    }
-}
-
 // fn collect_pair_into_vector(p: &SteelVal) -> Vec<SteelVal> {
 //     SteelVal::iter(p.clone()).collect()
 // }
@@ -349,20 +256,6 @@ impl FromSteelVal for String {
     }
 }
 
-impl TryFrom<&Gc<SteelVal>> for String {
-    type Error = SteelErr;
-    fn try_from(value: &Gc<SteelVal>) -> result::Result<Self, Self::Error> {
-        match value.as_ref() {
-            SteelVal::StringV(x) => Ok(x.unwrap()),
-            SteelVal::SymbolV(x) => Ok(x.unwrap()),
-            _ => Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Expected string".to_string(),
-            )),
-        }
-    }
-}
-
 impl TryFrom<&SteelVal> for String {
     type Error = SteelErr;
     fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
@@ -374,23 +267,6 @@ impl TryFrom<&SteelVal> for String {
                 "Expected string".to_string(),
             )),
         }
-    }
-}
-
-pub struct VecNumbers(Vec<f64>);
-impl TryFrom<Vec<SteelVal>> for VecNumbers {
-    type Error = SteelErr;
-    fn try_from(value: Vec<SteelVal>) -> Result<Self, Self::Error> {
-        let num_matcher = |val| match val {
-            SteelVal::NumV(x) => Ok(x),
-            _ => Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Expected number in vec".to_string(),
-            )),
-        };
-        let val_iter = value.into_iter();
-        let converted: Result<Vec<f64>, Self::Error> = val_iter.map(num_matcher).collect();
-        converted.map(Self)
     }
 }
 
@@ -440,71 +316,6 @@ impl From<FunctionSignature> for SteelVal {
 mod try_from_tests {
 
     use super::*;
-    use crate::rvals::ConsCell;
-    use im_rc::vector;
-
-    #[test]
-    fn try_from_vec_usize() {
-        let input: Vec<usize> = vec![0, 1];
-        let res = SteelVal::try_from(input);
-        let expected = SteelVal::Pair(Gc::new(ConsCell::new(
-            SteelVal::IntV(0),
-            Some(Gc::new(ConsCell::new(SteelVal::IntV(1), None))),
-        )));
-        assert_eq!(res.unwrap(), expected);
-    }
-
-    #[test]
-    fn try_from_steelval_list_to_vec_usize() {
-        let input = SteelVal::Pair(Gc::new(ConsCell::new(
-            SteelVal::IntV(0),
-            Some(Gc::new(ConsCell::new(SteelVal::IntV(1), None))),
-        )));
-        let res = <Vec<usize>>::try_from(input);
-        let expected: Vec<usize> = vec![0, 1];
-        assert_eq!(res.unwrap(), expected);
-    }
-
-    #[test]
-    fn try_from_steelval_list_to_vec_bad() {
-        let input = SteelVal::StringV("foo".into());
-        let res = <Vec<usize>>::try_from(input);
-        assert!(res.is_err());
-    }
-
-    #[test]
-    fn try_from_steelval_list_ref_to_vec_bad() {
-        let input = SteelVal::StringV("foo".into());
-        let res = <Vec<usize>>::try_from(&input);
-        assert!(res.is_err());
-    }
-
-    #[test]
-    fn try_from_steelval_vec_to_vec_usize() {
-        let input = SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(0), SteelVal::IntV(1)]));
-        let res = <Vec<usize>>::try_from(input);
-        let expected: Vec<usize> = vec![0, 1];
-        assert_eq!(res.unwrap(), expected);
-    }
-
-    #[test]
-    fn try_from_ref_steelval_list_to_vec_usize() {
-        let input = SteelVal::Pair(Gc::new(ConsCell::new(
-            SteelVal::IntV(0),
-            Some(Gc::new(ConsCell::new(SteelVal::IntV(1), None))),
-        )));
-        let res = <Vec<usize>>::try_from(&input);
-        let expected: Vec<usize> = vec![0, 1];
-        assert_eq!(res.unwrap(), expected);
-    }
-
-    #[test]
-    fn try_from_steelval_ref_vec_to_vec_usize() {
-        let input = SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(0), SteelVal::IntV(1)]));
-        let res = <Vec<usize>>::try_from(&input);
-        let expected: Vec<usize> = vec![0, 1];
-        assert_eq!(res.unwrap(), expected);
-    }
 
     #[test]
     fn from_char() {

@@ -559,14 +559,16 @@ impl ListOperations {
     pub fn list_length() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
-                if let SteelVal::Pair(_) = &args[0] {
-                    let mut count: isize = 0;
-                    for _ in SteelVal::iter(args[0].clone()) {
-                        count += 1;
+                match &args[0] {
+                    SteelVal::VectorV(v) => Ok(SteelVal::IntV(v.len() as isize)),
+                    SteelVal::Pair(_) => {
+                        let mut count: isize = 0;
+                        for _ in SteelVal::iter(args[0].clone()) {
+                            count += 1;
+                        }
+                        Ok(SteelVal::IntV(count))
                     }
-                    Ok(SteelVal::IntV(count))
-                } else {
-                    stop!(TypeMismatch => "length expects a list")
+                    _ => stop!(TypeMismatch => "length expects a list"),
                 }
             } else {
                 stop!(ArityMismatch => "length takes one argument");

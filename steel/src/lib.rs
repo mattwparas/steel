@@ -19,9 +19,4 @@ pub mod parser;
 pub mod port;
 pub mod structs;
 
-pub use self::{
-    gc::Gc,
-    rerrs::SteelErr,
-    rvals::{CustomType, SteelVal, StructFunctions},
-    stdlib::PRELUDE,
-};
+pub use self::{gc::Gc, rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};
