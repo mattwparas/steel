@@ -18,35 +18,6 @@ use steel::{
     stop, throw,
 };
 
-#[macro_export]
-macro_rules! build_engine {
-
-    ($($type:ty),* $(,)?) => {
-        {
-            let mut interpreter = Engine::new();
-            $ (
-                interpreter.register_values(<$type>::generate_bindings());
-            ) *
-            interpreter
-        }
-    };
-
-    (Structs => {$($type:ty),* $(,)?} Functions => {$($binding:expr => $func:expr),* $(,)?}) => {
-        {
-            let mut interpreter = Engine::new();
-            $ (
-                interpreter.register_values(<$type>::generate_bindings());
-            ) *
-
-            $ (
-                interpreter.register_value($binding.to_string().as_str(), SteelVal::FuncV($func));
-            ) *
-
-            interpreter
-        }
-    };
-}
-
 pub struct Engine {
     virtual_machine: VirtualMachineCore,
     compiler: Compiler,

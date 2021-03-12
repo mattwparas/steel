@@ -85,6 +85,7 @@ pub struct CompiledModule {
 }
 
 impl CompiledModule {
+    // Turn the module into the AST node that represents the macro module in the stdlib
     fn to_module_ast_node(&self) -> ExprKind {
         let mut body = vec![
             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(

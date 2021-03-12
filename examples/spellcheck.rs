@@ -7,22 +7,12 @@ use steel_derive::Steel;
 use steel_repl::repl::repl_base;
 use steel_vm::engine::Engine;
 
-use std::process;
-
-// use std::env::args;
-// use std::fs;
-
 use std::cell::RefCell;
-use std::rc::Rc;
-
-use std::collections::HashMap;
-
 use std::cmp::{max, min};
-
+use std::collections::HashMap;
+use std::process;
+use std::rc::Rc;
 use steel_vm::register_fn::RegisterFn;
-
-// use env_logger::Builder;
-// use log::LevelFilter;
 
 /// An implementation of a spell check in steel, with the levenshtein distance calculated
 /// via Rust, and a BKTree implementation in steel
