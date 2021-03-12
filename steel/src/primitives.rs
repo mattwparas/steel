@@ -323,6 +323,31 @@ mod try_from_tests {
     }
 
     #[test]
+    fn from_steelval_char() {
+        assert_eq!(char::from_steelval(SteelVal::CharV('c')).unwrap(), 'c')
+    }
+
+    #[test]
+    fn into_steelval_char() {
+        assert_eq!('c'.into_steelval().unwrap(), SteelVal::CharV('c'))
+    }
+
+    #[test]
+    fn from_steelval_usize() {
+        assert_eq!(usize::from_steelval(SteelVal::IntV(10)).unwrap(), 10)
+    }
+
+    #[test]
+    fn from_steelval_i32() {
+        assert_eq!(i32::from_steelval(SteelVal::IntV(32)).unwrap(), 32)
+    }
+
+    #[test]
+    fn into_steelval_i32() {
+        assert_eq!(32.into_steelval().unwrap(), SteelVal::IntV(32))
+    }
+
+    #[test]
     fn from_bool() {
         assert_eq!(SteelVal::from(true), SteelVal::BoolV(true));
     }
