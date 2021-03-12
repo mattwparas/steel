@@ -23,7 +23,7 @@
 (define (range-s v k)
     (if (< k 3) v (range-s (cons k v) (- k 2))))
 
-; (displayln (length (sieve 1000000)))
+(displayln (length (sieve 1000)))
 
 ; (let fac ([n 10])
 ;     (if (zero? n)

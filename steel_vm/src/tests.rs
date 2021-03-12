@@ -894,3 +894,113 @@ mod dfs_test {
         assert_script(script);
     }
 }
+
+#[cfg(test)]
+mod sieve_test {
+    use crate::test_util::assert_script;
+
+    #[test]
+    fn sieve_test() {
+        let script = r#"
+        (define (sieve n)
+        (define (aux u v)
+            (let ((p (car v)))
+            (if (> (* p p) n)
+                (rev-append u v)
+                (aux (cons p u)
+                (wheel '() (cdr v) (* p p) p)))))
+        (aux '(2)
+            (range-s '() (if (odd? n) n (- n 1)))))
+
+
+        (define (wheel u v a p)
+            (cond ((null? v) (reverse u))
+                            ((= (car v) a) (wheel u (cdr v) (+ a p) p))
+                            ((> (car v) a) (wheel u v (+ a p) p))
+                            (else (wheel (cons (car v) u) (cdr v) a p))))
+
+        (define (rev-append u v)
+            (if (null? u) v (rev-append (cdr u) (cons (car u) v))))
+
+        (define (range-s v k)
+            (if (< k 3) v (range-s (cons k v) (- k 2))))
+
+        (assert! (equal? 168 (length (sieve 1000))))
+        "#;
+        assert_script(script);
+    }
+}
+
+#[cfg(test)]
+mod calculator_test {
+    use crate::test_util::assert_script;
+
+    #[test]
+    fn calculator_test() {
+        let script = r#"
+        (struct node (datum children))
+
+        (define (parse expr)
+        (parse-helper expr '() '()))
+
+        (define (parse-helper expr operators operands)
+        (cond ((null? expr)
+                (if (null? operators)
+                    (car operands)
+                    (handle-op '() operators operands)))
+                ((number? (car expr))
+                (parse-helper (cdr expr)
+                            operators
+                            (cons (node (car expr) '()) operands)))
+                ((list? (car expr))
+                (parse-helper (cdr expr)
+                            operators
+                            (cons (parse (car expr)) operands)))
+                (else (if (or (null? operators)
+                            (> (precedence (car expr))
+                                (precedence (car operators))))
+                        (parse-helper (cdr expr)
+                                        (cons (car expr) operators)
+                                        operands)
+                        (handle-op expr operators operands)))))
+
+        (define (handle-op expr operators operands)
+        (parse-helper expr
+                        (cdr operators)
+                        (cons (node (car operators)
+                                        (list (cadr operands) (car operands)))
+                            (cddr operands))))
+
+        (define (member? x los)
+        (cond
+            ((null? los) #f)
+            ((equal? x (car los)) #t)
+            (else (member? x (cdr los)))))
+
+
+        (define (precedence oper)
+        (if (member? oper '(+ -))
+            1
+            2))
+
+
+        (define (compute tree)
+        (if (number? (node-datum tree))
+            (node-datum tree)
+            ((function-named-by (node-datum tree))
+            (compute (car (node-children tree)))
+            (compute (cadr (node-children tree))))))
+
+        (define (function-named-by oper)
+        (cond ((equal? oper '+) +)
+                ((equal? oper '-) -)
+                ((equal? oper '*) *)
+                ((equal? oper '/) /)
+                (else (error! "no such operator as" oper))))
+
+        
+        (assert! (equal? 10 (compute (parse '(1 + 2 + 3 + 4))))) ;; => 10
+        "#;
+        assert_script(script);
+    }
+}
