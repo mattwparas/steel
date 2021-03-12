@@ -19,6 +19,8 @@ mod register_fn_tests {
         }
     }
 
+    fn empty_function() {}
+
     #[test]
     fn test_register_fn() {
         let mut vm = Engine::new();
@@ -36,11 +38,15 @@ mod register_fn_tests {
         // Result values will map directly to errors in the VM and bubble back up
         vm.register_fn("result-function", result_function);
 
+        // functions that return () return void
+        vm.register_fn("empty-function", empty_function);
+
         vm.run(
             r#"
         (define foo (external-function 10 25))
         (define bar (option-function "applesauce"))
         (define baz (result-function "bananas"))
+        (empty-function)
     "#,
         )
         .unwrap();
@@ -421,6 +427,38 @@ mod transducer_tests {
             (assert! 
                 (equal? 
                     (transduce xf + 0 (range 0 100)) ;; => 210
+                    210))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn generic_transducer_with_different_functions() {
+        let script = r#"
+            (define x (mapping (fn (x) x))) ;; identity
+            (define y (filtering even?)) ;; get only even ones
+            (define z (taking 15)) ;; take the first 15 from the range
+            (define xf (compose x y z))
+            (define reduce-func (lambda (accum next) (+ accum next)))
+            (assert! 
+                (equal? 
+                    (transduce xf reduce-func 0 (range 0 100)) ;; => 210
+                    210))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn generic_transducer_with_different_functions_and_closures() {
+        let script = r#"
+            (define x (mapping (fn (x) x))) ;; identity
+            (define y (filtering (fn (x) (even? x)))) ;; get only even ones
+            (define z (taking 15)) ;; take the first 15 from the range
+            (define xf (compose x y z))
+            (define reduce-func (lambda (accum next) (+ accum next)))
+            (assert! 
+                (equal? 
+                    (transduce xf reduce-func 0 (range 0 100)) ;; => 210
                     210))
         "#;
         assert_script(script);
