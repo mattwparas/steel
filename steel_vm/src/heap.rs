@@ -169,7 +169,7 @@ impl Heap {
     }
 
     // #[inline]
-    fn match_closure(&mut self, val: &SteelVal) {
+    fn _match_closure(&mut self, val: &SteelVal) {
         match val {
             SteelVal::Closure(bytecode_lambda) => {
                 let p_env = bytecode_lambda.sub_expression_env().upgrade().unwrap();
@@ -182,9 +182,9 @@ impl Heap {
             }
             SteelVal::Pair(_) => {
                 // println!("Getting here!");
-                SteelVal::iter(val.clone()).for_each(|x| self.match_closure(&x))
+                SteelVal::iter(val.clone()).for_each(|x| self._match_closure(&x))
             }
-            SteelVal::VectorV(v) => v.iter().for_each(|x| self.match_closure(x)),
+            SteelVal::VectorV(v) => v.iter().for_each(|x| self._match_closure(x)),
             _ => {} // SteelVal::Closure
         }
     }
@@ -205,9 +205,11 @@ impl Heap {
                 let e = Rc::clone(&upgraded_env);
                 self.add(Rc::clone(&e));
                 // See if this works...
-                for value in e.borrow().bindings_map().values() {
-                    self.match_closure(value);
-                }
+                // TODO come back to this
+                // MATCH CLOSURE PROBLEM
+                // for value in e.borrow().bindings_map().values() {
+                //     self.match_closure(value);
+                // }
 
                 env = upgraded_env;
             } else {

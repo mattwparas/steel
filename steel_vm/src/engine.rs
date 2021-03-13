@@ -24,11 +24,22 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new() -> Self {
+    pub fn new_raw() -> Self {
         Engine {
             virtual_machine: VirtualMachineCore::new(),
             compiler: Compiler::default(),
         }
+    }
+
+    pub fn new() -> Self {
+        let mut vm = Engine::new_raw();
+        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+
+        for core in core_libraries {
+            vm.parse_and_execute_without_optimizations(core).unwrap();
+        }
+
+        vm
     }
 
     pub fn new_with_meta() -> Engine {

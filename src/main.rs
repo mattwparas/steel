@@ -13,11 +13,11 @@ use std::process;
 // use log::LevelFilter;
 
 fn main() {
-    env_logger::init();
+    // env_logger::init();
 
     // let mut builder = Builder::new();
 
-    // builder.filter(Some("steel_vm"), LevelFilter::Trace).init();
+    // builder.filter(Some("steel"), LevelFilter::Trace).init();
 
     let args = args().collect::<Vec<_>>();
 
@@ -64,6 +64,6 @@ fn finish(result: Result<(), std::io::Error>) -> ! {
 }
 
 pub fn configure_engine() -> Engine {
-    let vm = Engine::new();
+    let vm = Engine::new_raw();
     vm
 }

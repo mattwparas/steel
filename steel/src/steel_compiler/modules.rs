@@ -81,6 +81,7 @@ impl ModuleManager {
 pub struct CompiledModule {
     name: PathBuf,
     provides: Vec<ExprKind>,
+    requires: Vec<ExprKind>,
     ast: Vec<ExprKind>,
 }
 
@@ -98,6 +99,9 @@ impl CompiledModule {
 
         // Put any provides at the top
         body.append(&mut self.provides.clone());
+
+        // Include any dependencies here
+        body.append(&mut self.requires.clone());
 
         // Put the ast nodes inside the macro
         body.append(&mut self.ast.clone());
@@ -154,13 +158,10 @@ impl<'a> ModuleBuilder<'a> {
         // let contains_provides = self.contains_provides();
         self.collect_provides()?;
 
-        if !self.provides.is_empty() && !self.main {
+        if self.provides.is_empty() && !self.main {
+            self.visited.insert(self.name.clone());
             return Ok(Vec::new());
         }
-
-        // if self.provides.is_empty() {
-        //     return Ok(Vec::new());
-        // }
 
         if self.visited.contains(&self.name) {
             stop!(Generic => format!("circular dependency found during module resolution with: {:?}", self.name))
@@ -190,8 +191,6 @@ impl<'a> ModuleBuilder<'a> {
         self.extract_macro_defs()?;
         let mut new_exprs = Vec::new();
 
-        // println!("Requires in {:?}, {:?}", self.name, self.requires);
-
         if self.requires.is_empty() && !self.main {
             // We're at a leaf, put into the cache
             // println!("putting {:?} in the cache", self.name);
@@ -201,8 +200,6 @@ impl<'a> ModuleBuilder<'a> {
         } else {
             // At this point, requires should be fully qualified (absolute) paths
             for module in &self.requires {
-                // println!("Inside: {:?}, visiting {:?}", self.name, module);
-
                 let last_modified = std::fs::metadata(module)?.modified()?;
 
                 // Check if we should compile based on the last time modified
@@ -269,9 +266,22 @@ impl<'a> ModuleBuilder<'a> {
         // TODO use std::mem::swap or something here
         let ast = std::mem::replace(&mut self.source_ast, Vec::new());
         let provides = std::mem::replace(&mut self.provides, Vec::new());
+
+        let mut requires = Vec::new();
+
+        for require in &self.requires {
+            let m = self
+                .compiled_modules
+                .get(require)
+                .unwrap()
+                .to_module_ast_node();
+            requires.push(m);
+        }
+
         let module = CompiledModule {
             name: self.name.clone(),
             provides,
+            requires,
             ast: ast
                 .into_iter()
                 .map(|x| expand(x, &self.macro_map))
@@ -286,6 +296,7 @@ impl<'a> ModuleBuilder<'a> {
         debug!("Adding {:?} to the module cache", self.name);
 
         self.compiled_modules.insert(self.name.clone(), module);
+
         Ok(result)
     }
 
