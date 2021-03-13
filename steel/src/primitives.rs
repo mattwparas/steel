@@ -12,6 +12,7 @@ mod streams;
 mod strings;
 mod symbols;
 mod transducers;
+mod utils;
 mod vectors;
 
 pub use contracts::ContractOperations;

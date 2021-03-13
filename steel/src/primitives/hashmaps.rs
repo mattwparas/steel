@@ -7,6 +7,8 @@ use im_rc::HashMap;
 use crate::primitives::ListOperations;
 use crate::primitives::VectorOperations;
 
+use crate::primitives::utils::SliceExt;
+
 pub struct HashMapOperations {}
 
 impl HashMapOperations {
@@ -42,9 +44,9 @@ impl HashMapOperations {
                 stop!(ArityMismatch => "hm insert takes 3 arguments")
             }
 
-            let hashmap = args[0].clone();
-            let key = args[1].clone();
-            let value = args[2].clone();
+            let hashmap = args.get_clone(0);
+            let key = args.get_clone(1);
+            let value = args.get_clone(2);
 
             if let SteelVal::HashMapV(hm) = hashmap {
                 let mut hm = hm.unwrap();

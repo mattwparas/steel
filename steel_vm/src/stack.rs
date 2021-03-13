@@ -1,6 +1,6 @@
-use std::cell::RefCell;
 use std::ops::RangeFrom;
 use std::rc::Rc;
+use std::{cell::RefCell, ops::Deref};
 use steel::env::Env;
 use steel::rvals::SteelVal;
 
@@ -44,21 +44,21 @@ impl<T> Stack<T> {
         self.0.truncate(idx)
     }
 
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
     pub fn clear(&mut self) {
         self.0.clear();
-    }
-
-    pub fn as_slice(&self) -> &[T] {
-        self.0.as_slice()
     }
 }
 
 impl<T> From<Vec<T>> for Stack<T> {
     fn from(val: Vec<T>) -> Stack<T> {
         Stack(val)
+    }
+}
+
+impl<T> Deref for Stack<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        &self.0
     }
 }

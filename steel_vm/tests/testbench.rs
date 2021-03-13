@@ -25,6 +25,19 @@ fn module_test() {
 }
 
 #[test]
+fn module_test_chain() {
+    let mut vm = Engine::new();
+    vm.run(
+        r#"
+        (require "tests/modules/sort_export.rkt")
+
+        (define sorted (sort '(1000 342 1 5534 34243 223 23495)))
+    "#,
+    )
+    .unwrap();
+}
+
+#[test]
 fn if_test() {
     let mut evaluator = Engine::new();
     evaluator.parse_and_execute(PRELUDE).unwrap();
