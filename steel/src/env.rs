@@ -25,12 +25,6 @@ use std::{
 
 // use std::mem;
 
-thread_local! {
-    pub static VOID: Gc<SteelVal> = Gc::new(SteelVal::Void);
-    pub static TRUE: Gc<SteelVal> = Gc::new(SteelVal::BoolV(true));
-    pub static FALSE: Gc<SteelVal> = Gc::new(SteelVal::BoolV(false));
-}
-
 pub fn new_void() -> SteelVal {
     // VOID.with(Gc::clone)
     SteelVal::Void
@@ -535,9 +529,9 @@ impl Env {
         //         .map(|x| (x.0.to_string(), Gc::new(x.1))),
         // );
 
-        for (idx, val) in Env::default_bindings().into_iter().enumerate() {
-            env.define_idx(idx, val.1);
-        }
+        // for (idx, val) in Env::default_bindings().into_iter().enumerate() {
+        //     env.define_idx(idx, val.1);
+        // }
 
         for (idx, val) in Env::default_bindings().into_iter().enumerate() {
             env.repl_define_idx(idx, val.1);

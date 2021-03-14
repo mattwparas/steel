@@ -47,7 +47,7 @@ pub struct VirtualMachineCore {
 impl VirtualMachineCore {
     pub fn new() -> VirtualMachineCore {
         VirtualMachineCore {
-            global_env: Rc::new(RefCell::new(Env::default_env())),
+            global_env: Rc::new(RefCell::new(Env::root())),
             global_heap: Heap::new(),
             callback: EvaluationProgress::new(),
         }

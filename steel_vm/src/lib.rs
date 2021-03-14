@@ -4,6 +4,7 @@ pub mod evaluation_progress;
 pub mod heap;
 pub mod inline_iter;
 pub mod lazy_stream;
+mod primitives;
 pub mod register_fn;
 pub mod stack;
 #[cfg(test)]

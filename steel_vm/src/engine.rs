@@ -6,7 +6,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::{evaluation_progress::Callback, vm::VirtualMachineCore};
+use crate::{evaluation_progress::Callback, primitives::embed_primitives, vm::VirtualMachineCore};
 use steel::{
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
@@ -33,6 +33,10 @@ impl Engine {
 
     pub fn new() -> Self {
         let mut vm = Engine::new_raw();
+
+        // Embed any primitives that we want to use
+        embed_primitives(&mut vm);
+
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
 
         for core in core_libraries {

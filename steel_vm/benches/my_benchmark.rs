@@ -3,7 +3,7 @@ use steel::steel_compiler::constants::ConstantMap;
 
 use std::rc::Rc;
 use steel::stdlib::PRELUDE;
-use steel_vm::engine::Engine;
+use steel_vm::{engine::Engine, register_fn::RegisterFn};
 
 fn range(c: &mut Criterion) {
     let script = "(range 0 5000)";
@@ -250,6 +250,21 @@ fn fib_20(c: &mut Criterion) {
     });
 }
 
+fn engine_creation(c: &mut Criterion) {
+    c.bench_function("engine-creation", |b| b.iter(|| Engine::new()));
+}
+
+fn register_function(c: &mut Criterion) {
+    let mut vm = Engine::new();
+    let f: fn(usize, usize) -> usize = |a: usize, b: usize| a + b;
+    let name: &'static str = "addition";
+    c.bench_function("register-fn", |b| {
+        b.iter(|| {
+            let _ = vm.register_fn(name, f);
+        })
+    });
+}
+
 /*
 
 fn trie_sort(c: &mut Criterion) {
@@ -419,12 +434,14 @@ criterion_group!(
     trie_sort_without_optimizations,
     trie_sort_with_optimizations,
     fib_28,
-    fib_20 // trie_sort,
-           // merge_sort,
-           // struct_construct,
-           // struct_construct_bigger,
-           // struct_get,
-           // struct_set
+    fib_20,
+    engine_creation,
+    register_function, // trie_sort,
+                       // merge_sort,
+                       // struct_construct,
+                       // struct_construct_bigger,
+                       // struct_get,
+                       // struct_set
 );
 
 criterion_main!(benches);
