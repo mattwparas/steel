@@ -3,10 +3,7 @@
 use crate::{
     gc::Gc,
     primitives::{
-        ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
-        IoFunctions, ListOperations, MetaOperations, NumOperations, PortOperations,
-        StreamOperations, StringOperations, SymbolOperations, TransducerOperations,
-        VectorOperations,
+        ListOperations, NumOperations, StringOperations, SymbolOperations, VectorOperations,
     },
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
@@ -25,17 +22,17 @@ use std::{
 
 // use std::mem;
 
-pub fn new_void() -> SteelVal {
+pub const fn new_void() -> SteelVal {
     // VOID.with(Gc::clone)
     SteelVal::Void
 }
 
-pub fn new_true() -> SteelVal {
+pub const fn new_true() -> SteelVal {
     // TRUE.with(Gc::clone)
     SteelVal::BoolV(true)
 }
 
-pub fn new_false() -> SteelVal {
+pub const fn new_false() -> SteelVal {
     SteelVal::BoolV(false)
     // FALSE.with(Gc::clone)
 }
@@ -517,33 +514,6 @@ impl Env {
         }
     }
 
-    /// default environment contains bindings for
-    /// implementations of constants and things like
-    /// `car`, `cdr`, `+`
-    pub fn default_env() -> Env {
-        let mut env = Env::root();
-
-        // env.define_zipped(
-        //     Env::default_bindings()
-        //         .into_iter()
-        //         .map(|x| (x.0.to_string(), Gc::new(x.1))),
-        // );
-
-        // for (idx, val) in Env::default_bindings().into_iter().enumerate() {
-        //     env.define_idx(idx, val.1);
-        // }
-
-        for (idx, val) in Env::default_bindings().into_iter().enumerate() {
-            env.repl_define_idx(idx, val.1);
-        }
-
-        // for (idx, val) in Env::default_bindings().iter().enumerate() {
-        //     env.define_idx(val)
-        // }
-
-        env
-    }
-
     #[inline]
     pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
         self.bindings_map.insert(idx, val);
@@ -613,138 +583,6 @@ impl Env {
             ("string->int", StringOperations::string_to_int()),
             ("even?", NumOperations::even()),
             ("odd?", NumOperations::odd()),
-        ]
-    }
-
-    pub fn default_bindings() -> Vec<(&'static str, SteelVal)> {
-        vec![
-            ("+", NumOperations::adder()),
-            // ("i+", NumOperations::integer_add()),
-            ("f+", NumOperations::float_add()),
-            ("*", NumOperations::multiply()),
-            ("/", NumOperations::divide()),
-            ("-", NumOperations::subtract()),
-            // ("i-", NumOperations::integer_sub()),
-            ("list", ListOperations::list()),
-            ("car", ListOperations::car()),
-            ("cdr", ListOperations::cdr()),
-            ("first", ListOperations::car()),
-            ("rest", ListOperations::cdr()),
-            ("cons", ListOperations::cons()),
-            ("append", ListOperations::append()),
-            ("push-back", ListOperations::push_back()),
-            ("range", ListOperations::range()),
-            ("length", ListOperations::list_length()),
-            ("reverse", ListOperations::reverse()),
-            ("list->vector", ListOperations::list_to_vec()),
-            ("vector", VectorOperations::vec_construct()),
-            ("push-front", VectorOperations::vec_cons()),
-            ("pop-front", VectorOperations::vec_car()),
-            ("vec-rest", VectorOperations::vec_cdr()),
-            ("null?", VectorOperations::list_vec_null()),
-            ("push", VectorOperations::vec_push()),
-            ("range-vec", VectorOperations::vec_range()),
-            ("vec-append", VectorOperations::vec_append()),
-            ("int?", gen_pred!(IntV)),
-            ("float?", gen_pred!(NumV)),
-            ("number?", gen_pred!(NumV, IntV)),
-            ("string?", gen_pred!(StringV)),
-            ("symbol?", gen_pred!(SymbolV)),
-            ("vector?", gen_pred!(VectorV)),
-            ("list?", gen_pred!(Pair)),
-            ("integer?", gen_pred!(IntV)),
-            ("boolean?", gen_pred!(BoolV)),
-            ("function?", gen_pred!(Closure, FuncV)),
-            ("=", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
-            ("equal?", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b))),
-            // (
-            //     "eq?",
-            //     SteelVal::FuncV(ensure_tonicity_pointer_equality!(|a, b| Gc::ptr_eq(a, b))),
-            // ),
-            (">", SteelVal::FuncV(ensure_tonicity!(|a, b| a > b))),
-            (">=", SteelVal::FuncV(ensure_tonicity!(|a, b| a >= b))),
-            ("<", SteelVal::FuncV(ensure_tonicity!(|a, b| a < b))),
-            ("<=", SteelVal::FuncV(ensure_tonicity!(|a, b| a <= b))),
-            ("display", IoFunctions::display()),
-            ("newline", IoFunctions::newline()),
-            ("read-to-string", IoFunctions::read_to_string()),
-            ("string-append", StringOperations::string_append()),
-            ("string->list", StringOperations::string_to_list()),
-            ("string-upcase", StringOperations::string_to_upper()),
-            ("string-lowercase", StringOperations::string_to_lower()),
-            ("string-length", StringOperations::string_length()),
-            ("trim", StringOperations::trim()),
-            ("trim-start", StringOperations::trim_start()),
-            ("trim-end", StringOperations::trim_end()),
-            ("split-whitespace", StringOperations::split_whitespace()),
-            ("void", SteelVal::Void),
-            ("list->string", ListOperations::list_to_string()),
-            ("open-input-file", PortOperations::open_input_file()),
-            ("read-port-to-string", PortOperations::read_port_to_string()),
-            ("read-line-from-port", PortOperations::read_line_to_string()),
-            ("concat-symbols", SymbolOperations::concat_symbols()),
-            ("error!", ControlOperations::error()),
-            ("symbol->string", SymbolOperations::symbol_to_string()),
-            ("random-int", NumOperations::random_int()),
-            ("string->int", StringOperations::string_to_int()),
-            // ("flatten", ListOperations::flatten()),
-            ("even?", NumOperations::even()),
-            ("odd?", NumOperations::odd()),
-            ("is-dir?", FsFunctions::is_dir()),
-            ("is-file?", FsFunctions::is_file()),
-            ("read-dir", FsFunctions::read_dir()),
-            ("path-exists?", FsFunctions::path_exists()),
-            ("file-name", FsFunctions::file_name()),
-            ("current-directory", FsFunctions::current_dir()),
-            ("inspect-bytecode", MetaOperations::inspect_bytecode()),
-            ("hash", HashMapOperations::hm_construct()),
-            ("hash-insert", HashMapOperations::hm_insert()),
-            ("hash-get", HashMapOperations::hm_get()),
-            ("hash-try-get", HashMapOperations::hm_try_get()),
-            ("hash-length", HashMapOperations::hm_length()),
-            ("hash-contains?", HashMapOperations::hm_contains()),
-            ("hash-keys->list", HashMapOperations::keys_to_list()),
-            ("hash-keys->vector", HashMapOperations::keys_to_vector()),
-            ("hash-values->list", HashMapOperations::values_to_list()),
-            ("hash-values->vector", HashMapOperations::values_to_vector()),
-            ("hashset", HashSetOperations::hs_construct()),
-            ("hashset-contains?", HashSetOperations::hs_contains()),
-            ("hashset-insert", HashSetOperations::hs_insert()),
-            ("hashset->list", HashSetOperations::keys_to_list()),
-            ("hashset->vector", HashSetOperations::keys_to_vector()),
-            ("hashset-clear", HashSetOperations::clear()),
-            ("list->hashset", HashSetOperations::list_to_hashset()),
-            ("hash-clear", HashMapOperations::clear()),
-            ("compose", TransducerOperations::compose()),
-            ("mapping", TransducerOperations::map()),
-            ("filtering", TransducerOperations::filter()),
-            ("taking", TransducerOperations::take()),
-            ("dropping", TransducerOperations::dropping()),
-            ("memory-address", MetaOperations::memory_address()),
-            // ("async-test-func", SteelVal::FutureFunc(test_function)),
-            ("async-exec", MetaOperations::exec_async()),
-            // ("async-get", SteelVal::FutureFunc(get)),
-            ("stream-cons", StreamOperations::stream_cons()),
-            ("empty-stream", StreamOperations::empty_stream()),
-            ("stream-empty?", StreamOperations::stream_empty_huh()),
-            ("stream-car", StreamOperations::stream_car()),
-            ("stream-cdr'", StreamOperations::stream_cdr()),
-            ("string->jsexpr", crate::json_vals::string_to_jsexpr()),
-            (
-                "value->jsexpr-string",
-                crate::json_vals::serialize_val_to_string(),
-            ),
-            ("assert!", MetaOperations::assert_truthy()),
-            ("box", MetaOperations::new_box()),
-            ("unbox", MetaOperations::unbox()),
-            ("set-box!", MetaOperations::set_box()),
-            ("active-object-count", MetaOperations::active_objects()),
-            ("bind/c", ContractOperations::bind_contract_to_function()),
-            ("make-flat/c", ContractOperations::make_flat_contract()),
-            ("make-function/c", ContractOperations::make_function_contract()),
-            ("make/c", ContractOperations::make_c())
-            // ("time.clock", TimeOperations::time_clock()),
-            // ("time.elapsed", TimeOperations::time_elapsed()),
         ]
     }
 }

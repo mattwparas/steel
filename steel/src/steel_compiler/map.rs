@@ -1,7 +1,7 @@
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 use crate::stop;
-use crate::{env::Env, structs::StructFuncBuilder};
+use crate::structs::StructFuncBuilder;
 
 #[derive(Debug, PartialEq)]
 pub struct SymbolMap(Vec<String>);
@@ -13,14 +13,6 @@ impl SymbolMap {
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
-    }
-
-    pub fn default_from_env() -> SymbolMap {
-        let mut sm = SymbolMap::new();
-        for val in Env::default_bindings() {
-            sm.add(val.0);
-        }
-        sm
     }
 
     pub fn add(&mut self, ident: &str) -> usize {

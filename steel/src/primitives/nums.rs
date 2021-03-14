@@ -31,15 +31,8 @@ impl NumOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "even? takes one argument")
             }
-
             if let SteelVal::IntV(n) = &args[0] {
-                // let is_odd = |x: i32| x & 1 == 1;
-                // let is_even = |x: i32| x & 1 == 0;
-                if n & 1 == 0 {
-                    Ok(SteelVal::BoolV(true))
-                } else {
-                    Ok(SteelVal::BoolV(false))
-                }
+                Ok(SteelVal::BoolV(n & 1 == 0))
             } else {
                 stop!(TypeMismatch => "even? requires an integer")
             }
@@ -53,13 +46,7 @@ impl NumOperations {
             }
 
             if let SteelVal::IntV(n) = &args[0] {
-                // let is_odd = |x: i32| x & 1 == 1;
-                // let is_even = |x: i32| x & 1 == 0;
-                if n & 1 == 1 {
-                    Ok(SteelVal::BoolV(true))
-                } else {
-                    Ok(SteelVal::BoolV(false))
-                }
+                Ok(SteelVal::BoolV(n & 1 == 1))
             } else {
                 stop!(TypeMismatch => "odd? requires an integer")
             }

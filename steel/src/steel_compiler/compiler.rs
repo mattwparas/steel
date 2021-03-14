@@ -330,7 +330,7 @@ impl Compiler {
 
     pub fn default() -> Self {
         Compiler::new(
-            SymbolMap::default_from_env(),
+            SymbolMap::new(),
             ConstantMap::new(),
             HashMap::new(),
             ModuleManager::default(),
