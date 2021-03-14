@@ -20,6 +20,7 @@ use std::time::SystemTime;
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
+use itertools::Itertools;
 use log::debug;
 
 /// Manages the modules
@@ -154,12 +155,15 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
+        debug!("Visiting: {:?}", self.name);
+
         self.collect_requires()?;
         // let contains_provides = self.contains_provides();
         self.collect_provides()?;
 
         if self.provides.is_empty() && !self.main {
             self.visited.insert(self.name.clone());
+            println!("getting inside here!");
             return Ok(Vec::new());
         }
 
@@ -172,7 +176,6 @@ impl<'a> ModuleBuilder<'a> {
         if self.main {
             let exprs = std::mem::replace(&mut self.source_ast, Vec::new());
 
-            // println!("source ast before filtering: {:?}", exprs);
             self.source_ast = exprs
                 .into_iter()
                 .filter(|x| {
@@ -184,8 +187,6 @@ impl<'a> ModuleBuilder<'a> {
                     true
                 })
                 .collect();
-
-            // println!("source_ast: {:?}", self.source_ast);
         }
 
         self.extract_macro_defs()?;
@@ -236,18 +237,19 @@ impl<'a> ModuleBuilder<'a> {
                 // This will eventually put the module in the cache
                 let mut module_exprs = new_module.compile()?;
 
-                // println!("Inside {:?} - append {:?}", self.name, module);
+                debug!("Inside {:?} - append {:?}", self.name, module);
+                debug!(
+                    "appending with {:?}",
+                    module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
+                );
 
-                // println!(
-                //     "appending with {:?}",
-                //     module_exprs.iter().map(|x| x.to_string()).join(" ")
-                // );
+                new_exprs.append(&mut module_exprs);
 
                 // TODO evaluate this
 
-                let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
-                ast.append(&mut module_exprs);
-                new_module.source_ast = ast;
+                // let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
+                // ast.append(&mut module_exprs);
+                // new_module.source_ast = ast;
 
                 if !new_module.provides.is_empty() {
                     new_exprs.push(new_module.into_compiled_module()?);
@@ -256,6 +258,11 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         // println!("compiling: {}", self.name);
+
+        // println!(
+        //     "Exiting with {:?}",
+        //     new_exprs.iter().map(|x| x.to_string()).collect::<Vec<_>>()
+        // );
 
         return Ok(new_exprs);
     }

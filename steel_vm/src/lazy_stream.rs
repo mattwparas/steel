@@ -12,7 +12,8 @@ use steel::stop;
 
 use steel::lazy_stream::LazyStream;
 
-pub struct LazyStreamIter<'global, CT: ConstantTable> {
+// Used for inlining stream iterators
+pub(crate) struct LazyStreamIter<'global, CT: ConstantTable> {
     stream: LazyStream,
     constants: &'global CT,
     cur_inst_span: &'global Span,

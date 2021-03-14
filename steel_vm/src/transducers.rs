@@ -12,7 +12,7 @@ use crate::inline_iter::*;
 use crate::lazy_stream::LazyStreamIter;
 
 /// Entry point for executing a transducer
-pub trait TransducerExt {
+pub(crate) trait TransducerExt {
     fn run<CT: ConstantTable>(
         &self,
         root: SteelVal,
@@ -36,7 +36,7 @@ pub trait TransducerExt {
 }
 
 /// Entry point for turning an individual transducer into an Iterator
-pub trait TransducersExt {
+pub(crate) trait TransducersExt {
     fn into_transducer<'global, I: Iterator<Item = Result<SteelVal>> + 'global, CT: ConstantTable>(
         &self,
         iter: I,

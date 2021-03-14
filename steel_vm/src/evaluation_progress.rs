@@ -3,7 +3,7 @@ use std::cell::Cell;
 pub type Callback = fn(usize) -> bool;
 
 #[derive(Clone)]
-pub struct EvaluationProgress {
+pub(crate) struct EvaluationProgress {
     instruction_count: Cell<usize>,
     callback: Option<Callback>,
 }

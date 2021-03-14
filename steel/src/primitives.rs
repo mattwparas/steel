@@ -203,18 +203,8 @@ impl From<()> for SteelVal {
     }
 }
 
-// fn collect_pair_into_vector(p: &SteelVal) -> Vec<SteelVal> {
-//     SteelVal::iter(p.clone()).collect()
-// }
-
-// from_f64!(f64, f32, i32, i16, i8, u8, u16, u32, u64, usize, isize);
-
 from_f64!(f64, f32);
 from_for_isize!(i32, i16, i8, u8, u16, u32, u64, usize, isize);
-
-// from_usize!(u64, u32);
-
-// from_f64!(f64, f32);
 try_from_impl!(NumV => f64, f32);
 try_from_impl!(IntV => i64, i32, i16, i8, u8, u16, u32, u64, usize, isize);
 

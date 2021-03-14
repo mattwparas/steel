@@ -14,7 +14,7 @@ use steel::{
 use log::debug;
 
 /// Extension trait for the application of contracted functions
-pub trait ContractedFunctionExt {
+pub(crate) trait ContractedFunctionExt {
     fn apply<CT: ConstantTable>(
         &self,
         arguments: Vec<SteelVal>,
@@ -69,7 +69,7 @@ impl ContractedFunctionExt for ContractedFunction {
 }
 
 /// Extension trait for the application of flat contracts
-pub trait FlatContractExt {
+pub(crate) trait FlatContractExt {
     fn apply<CT: ConstantTable>(
         &self,
         arg: SteelVal,
@@ -139,7 +139,7 @@ impl FlatContractExt for FlatContract {
 }
 
 /// Extension trait for the application of function contracts
-pub trait FunctionContractExt {
+pub(crate) trait FunctionContractExt {
     fn apply<CT: ConstantTable>(
         &self,
         name: &Option<String>,

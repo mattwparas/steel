@@ -31,11 +31,16 @@ impl Engine {
         }
     }
 
-    pub fn new() -> Self {
+    #[inline]
+    pub fn new_base() -> Self {
         let mut vm = Engine::new_raw();
-
         // Embed any primitives that we want to use
         embed_primitives(&mut vm);
+        vm
+    }
+
+    pub fn new() -> Self {
+        let mut vm = Engine::new_base();
 
         let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
 

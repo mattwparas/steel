@@ -1081,7 +1081,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 }
 
 #[inline(always)]
-pub fn vm<CT: ConstantTable>(
+pub(crate) fn vm<CT: ConstantTable>(
     instructions: Rc<[DenseInstruction]>,
     stack: StackFrame,
     heap: &mut Heap,
