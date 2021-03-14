@@ -555,10 +555,6 @@ impl Env {
         self.bindings_map.insert(idx, val);
     }
 
-    pub fn add_gc_root_value(&mut self, idx: usize, val: SteelVal) {
-        self.bindings_map.insert(idx, val);
-    }
-
     // bit of a quality of life hack
     pub fn constant_env_to_hashmap() -> SteelVal {
         let mut hm = crate::im_rc::HashMap::new();

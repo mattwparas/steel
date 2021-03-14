@@ -42,11 +42,6 @@ pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type StructClosureSignature = fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>;
 pub type BoxedFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>;
 
-// This would mean we would have to rewrite literally everything to not return Gc'd values,
-// but it would also make linked lists like impossible to use
-// Because the internals of the linked list wouldn't be as easy to use with easy shared usage
-pub type PossibleOtherFunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
-
 // Do something like this:
 // vector of async functions
 // then for a wait group, make a closure that looks something like this:
@@ -159,13 +154,18 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
             let left_type = v.as_any();
             let left: Option<T> = left_type.downcast_ref::<T>().cloned();
             left.ok_or_else(|| {
-                let error_message =
-                    format!("Type Mismatch: Type of SteelVal did not match the given type");
+                let error_message = format!(
+                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                    std::any::type_name::<Self>()
+                );
                 SteelErr::new(ErrorKind::ConversionError, error_message)
             })
         } else {
-            let error_message =
-                "Type Mismatch: Type of SteelVal did not match the given type".to_string();
+            let error_message = format!(
+                "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                std::any::type_name::<Self>()
+            );
+
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
         }
     }
