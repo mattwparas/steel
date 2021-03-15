@@ -21,7 +21,6 @@ use rustyline::completion::Completer;
 use rustyline::completion::Pair;
 
 use std::borrow::Cow;
-// use steel::vm::VirtualMachine;
 
 use steel_vm::engine::Engine;
 
