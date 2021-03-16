@@ -30,4 +30,5 @@ pub enum OpCode {
     READ,
     COLLECTTO,
     METALOOKUP,
+    CALLCC,
 }

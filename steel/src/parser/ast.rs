@@ -38,6 +38,7 @@ pub enum ExprKind {
     List(List),
     Set(Box<Set>),
     Require(Require),
+    CallCC(Box<CallCC>),
 }
 
 impl ExprKind {
@@ -157,7 +158,32 @@ impl fmt::Display for ExprKind {
             ExprKind::List(l) => write!(f, "{}", l),
             ExprKind::Set(s) => write!(f, "{}", s),
             ExprKind::Require(r) => write!(f, "{}", r),
+            ExprKind::CallCC(cc) => write!(f, "{}", cc),
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CallCC {
+    pub expr: ExprKind,
+    pub location: SyntaxObject,
+}
+
+impl CallCC {
+    pub fn new(expr: ExprKind, location: SyntaxObject) -> Self {
+        CallCC { expr, location }
+    }
+}
+
+impl fmt::Display for CallCC {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(call/cc {})", self.expr)
+    }
+}
+
+impl From<CallCC> for ExprKind {
+    fn from(val: CallCC) -> Self {
+        ExprKind::CallCC(Box::new(val))
     }
 }
 
@@ -1211,9 +1237,25 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::Quote => parse_quote(value.into_iter(), a.syn.clone()),
                         TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
                         TokenType::Return => parse_return(value.into_iter(), a.syn.clone()),
-                        TokenType::Require => {
+                        TokenType::CallCC => {
                             let syn = a.syn.clone();
                             if value.len() != 2 {
+                                return Err(ParseError::ArityMismatch(
+                                    "call/cc expects one argument".to_string(),
+                                    syn.span,
+                                    a.syn.source.clone(),
+                                ));
+                            }
+
+                            let mut value_iter = value.into_iter();
+                            value_iter.next();
+                            let expression = value_iter.next().unwrap();
+
+                            Ok(ExprKind::CallCC(Box::new(CallCC::new(expression, syn))))
+                        }
+                        TokenType::Require => {
+                            let syn = a.syn.clone();
+                            if value.len() < 2 {
                                 return Err(ParseError::ArityMismatch(
                                     "require expects at least one identifier or string".to_string(),
                                     syn.span,

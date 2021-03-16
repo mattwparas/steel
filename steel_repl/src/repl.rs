@@ -33,10 +33,7 @@ use std::time::Instant;
 pub(crate) static INTERRUPT_CHANNEL: Lazy<(Arc<Mutex<Sender<()>>>, Arc<Mutex<Receiver<()>>>)> =
     Lazy::new(|| {
         let (sender, receiver) = channel::<()>();
-        (
-            Arc::new(Mutex::new(sender)),
-            (Arc::new(Mutex::new(receiver))),
-        )
+        (Arc::new(Mutex::new(sender)), Arc::new(Mutex::new(receiver)))
     });
 
 impl Completer for RustylineHelper {

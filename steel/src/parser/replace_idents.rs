@@ -273,6 +273,11 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
     fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
         stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
     }
+
+    fn visit_callcc(&mut self, mut cc: Box<super::ast::CallCC>) -> Self::Output {
+        cc.expr = self.visit(cc.expr)?;
+        Ok(ExprKind::CallCC(cc))
+    }
 }
 
 #[cfg(test)]

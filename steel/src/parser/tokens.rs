@@ -194,6 +194,9 @@ pub enum TokenType {
     #[token("require")]
     Require,
 
+    #[token("call/cc")]
+    CallCC,
+
     #[token("#\\SPACE", |_| Some(' '))]
     #[token("#\\space", |_| Some(' '))]
     #[token("#\\\\", |_| Some('\\'))]
@@ -303,6 +306,7 @@ impl fmt::Display for TokenType {
             Read => write!(f, "read"),
             Eval => write!(f, "eval"),
             Require => write!(f, "require"),
+            CallCC => write!(f, "call/cc"),
         }
     }
 }

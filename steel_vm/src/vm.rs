@@ -381,6 +381,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     self.ip += 1;
                     // return Ok(SteelVal::Void);
                 }
+                OpCode::CALLCC => {
+                    todo!("Handling call/cc not yet implemented");
+                }
                 OpCode::READ => self.handle_read(&cur_inst.span)?,
                 OpCode::COLLECT => self.handle_collect(&cur_inst.span)?,
                 OpCode::COLLECTTO => self.handle_collect_to(&cur_inst.span)?,
