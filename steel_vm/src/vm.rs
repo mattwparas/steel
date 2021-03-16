@@ -757,7 +757,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         match &stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
-            FutureFunc(f) => self.call_future_func(f, payload_size),
+            FutureFunc(f) => self.call_future_func(f, payload_size)?,
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             Closure(closure) => {
                 if self.stacks.len() == STACK_LIMIT {
@@ -876,15 +876,22 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
+    // &Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>
+
     #[inline(always)]
-    fn call_future_func(&mut self, f: &fn(&[SteelVal]) -> FutureResult, payload_size: usize) {
+    fn call_future_func(
+        &mut self,
+        f: &Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>,
+        payload_size: usize,
+    ) -> Result<()> {
         let result = SteelVal::FutureV(Gc::new(f(self
             .stack
-            .peek_range(self.stack.len() - payload_size..))));
+            .peek_range(self.stack.len() - payload_size..))?));
 
         self.stack.truncate(self.stack.len() - payload_size);
         self.stack.push(result);
         self.ip += 1;
+        Ok(())
     }
 
     #[inline(always)]
@@ -895,7 +902,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         match &stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
-            FutureFunc(f) => self.call_future_func(f, payload_size),
+            FutureFunc(f) => self.call_future_func(f, payload_size)?,
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             Closure(closure) => {
                 if closure.arity() != payload_size {

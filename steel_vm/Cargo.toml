@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 steel = { path = "../steel" }
 log = "0.4.11"
+futures = "0.3.13"
 
 [dev-dependencies]
 criterion = "0.3.3"

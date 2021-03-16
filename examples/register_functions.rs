@@ -1,6 +1,8 @@
 use steel_vm::engine::Engine;
 use steel_vm::register_fn::RegisterFn;
 
+use steel_vm::register_fn::RegisterAsyncFn;
+
 fn external_function(arg1: usize, arg2: usize) -> usize {
     arg1 + arg2
 }
@@ -15,6 +17,10 @@ fn result_function(arg1: Option<String>) -> Result<String, String> {
     } else {
         Err("Got a none".to_string())
     }
+}
+
+async fn test_function() -> usize {
+    10
 }
 
 pub fn main() {
@@ -32,6 +38,9 @@ pub fn main() {
 
     // Result values will map directly to errors in the VM and bubble back up
     vm.register_fn("result-function", result_function);
+
+    // You can even register async finctions
+    vm.register_async_fn("test", test_function);
 
     vm.run(
         r#"

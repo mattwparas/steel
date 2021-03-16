@@ -1215,6 +1215,7 @@ name = "steel_vm"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "futures",
  "log",
  "steel",
 ]

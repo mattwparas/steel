@@ -42,6 +42,8 @@ pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type StructClosureSignature = fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>;
 pub type BoxedFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>;
 
+pub type BoxedAsyncFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>;
+
 // Do something like this:
 // vector of async functions
 // then for a wait group, make a closure that looks something like this:
@@ -238,7 +240,7 @@ pub enum SteelVal {
     // Generic IntoIter wrapper
     // Promise(Gc<SteelVal>),
     /// Async Function wrapper
-    FutureFunc(AsyncSignature),
+    FutureFunc(BoxedAsyncFunctionSignature),
     // Boxed Future Result
     FutureV(Gc<FutureResult>),
     // Mutable Box
