@@ -321,6 +321,13 @@ pub struct Continuation {
     pop_count: usize,
 }
 
+// Just in case, let's wipe this out manually
+impl Drop for Continuation {
+    fn drop(&mut self) {
+        self.env_stack.clear();
+    }
+}
+
 struct VmCore<'a, CT: ConstantTable> {
     instructions: Rc<[DenseInstruction]>,
     stack: StackFrame,
@@ -374,7 +381,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             instructions: Rc::clone(&self.instructions),
             instruction_stack: self.instruction_stack.clone(),
             global_env: Rc::clone(&self.global_env),
-            env_stack: self.env_stack.clone(),
+            env_stack: self.env_stack.clone(), // I am concerned that this will lead to a memory leak
             ip: self.ip,
             pop_count: self.pop_count,
         }
