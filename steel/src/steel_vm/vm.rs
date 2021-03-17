@@ -328,6 +328,19 @@ impl Drop for Continuation {
     }
 }
 
+#[inline(always)]
+fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
+    if let SteelVal::Closure(c) = function {
+        if c.arity() != 1 {
+            stop!(Generic => "function arity in call/cc must be 1"; span)
+        }
+    } else {
+        stop!(Generic => "call/cc expects a function"; span)
+    }
+
+    Ok(())
+}
+
 struct VmCore<'a, CT: ConstantTable> {
     instructions: Rc<[DenseInstruction]>,
     stack: StackFrame,
@@ -388,6 +401,18 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
+    fn set_state_from_continuation(&mut self, continuation: Continuation) {
+        self.stack = continuation.stack;
+        self.stacks = continuation.stacks;
+        self.instructions = continuation.instructions;
+        self.instruction_stack = continuation.instruction_stack;
+        self.global_env = continuation.global_env;
+        self.env_stack = continuation.env_stack;
+        self.ip = continuation.ip;
+        self.pop_count = continuation.pop_count;
+    }
+
+    #[inline(always)]
     fn construct_continuation_function(&self) -> SteelVal {
         let captured_continuation = self.new_continuation_from_state();
         SteelVal::ContinuationFunction(Gc::new(captured_continuation))
@@ -421,7 +446,59 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     // return Ok(SteelVal::Void);
                 }
                 OpCode::CALLCC => {
-                    todo!("Handling call/cc not yet implemented");
+                    /*
+
+                    Here's what I need to do
+                    - Construct the continuation
+                    - Get the function that has been passed in (off the stack)
+                    - Apply the function with the continuation
+                    - Handle continuation function call separately in the handle_func_call
+                    */
+
+                    let function = self.stack.pop().unwrap();
+
+                    validate_closure_for_call_cc(&function, cur_inst.span)?;
+
+                    let continuation = self.construct_continuation_function();
+
+                    if let SteelVal::Closure(closure) = function {
+                        if self.stacks.len() == STACK_LIMIT {
+                            // println!("stacks at exit: {:?}", stacks);
+                            println!("stack frame at exit: {:?}", self.stack);
+                            stop!(Generic => "stack overflowed!"; cur_inst.span);
+                        }
+
+                        // put continuation as the thing
+                        let args = vec![continuation];
+
+                        let parent_env = closure.sub_expression_env();
+
+                        let inner_env = Rc::new(RefCell::new(
+                            Env::new_subexpression_with_capacity_without_offset(parent_env.clone()),
+                        ));
+
+                        // let result =
+                        // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
+                        // closure_stack.push(Rc::clone(&stack_func));
+                        // TODO this is where the memory leak is
+                        self.env_stack.push(Rc::clone(&self.global_env));
+
+                        self.global_env = inner_env;
+                        self.instruction_stack.push(InstructionPointer::new(
+                            self.ip + 1,
+                            Rc::clone(&self.instructions),
+                        ));
+                        self.pop_count += 1;
+                        // Move args into the stack, push stack onto stacks
+                        let stack = std::mem::replace(&mut self.stack, args.into());
+                        self.stacks.push(stack);
+                        self.instructions = closure.body_exp();
+                        self.ip = 0;
+                    } else {
+                        stop!(Generic => "something broke in call/cc");
+                    }
+
+                    // todo!("Handling call/cc not yet implemented");
                 }
                 OpCode::READ => self.handle_read(&cur_inst.span)?,
                 OpCode::COLLECT => self.handle_collect(&cur_inst.span)?,
@@ -937,6 +1014,16 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
+    fn call_continuation(
+        &mut self,
+        continuation: &Continuation,
+        payload_size: usize,
+        span: &Span,
+    ) -> Result<()> {
+        // unimplemented!("continuations are not implemented yet")
+    }
+
+    #[inline(always)]
     fn handle_function_call(&mut self, payload_size: usize, span: &Span) -> Result<()> {
         use SteelVal::*;
         let stack_func = self.stack.pop().unwrap();
@@ -946,6 +1033,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
+            ContinuationFunction(cc) => self.call_continuation(cc, payload_size, span)?,
             Closure(closure) => {
                 if closure.arity() != payload_size {
                     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
