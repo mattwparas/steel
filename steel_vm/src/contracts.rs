@@ -1,7 +1,6 @@
 use crate::{evaluation_progress::EvaluationProgress, heap::Heap, vm::vm};
 use std::{cell::RefCell, rc::Rc};
 use steel::{
-    contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract},
     env::Env,
     gc::Gc,
     parser::span::Span,
@@ -9,6 +8,7 @@ use steel::{
     rvals::{ByteCodeLambda, Result, SteelVal},
     steel_compiler::constants::ConstantTable,
     stop,
+    values::contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract},
 };
 
 use log::debug;

@@ -11,12 +11,8 @@ pub mod rvals;
 pub mod stdlib;
 #[macro_use]
 pub mod gc;
-pub mod contracts;
 pub mod conversions;
-pub mod json_vals;
-pub mod lazy_stream;
 pub mod parser;
-pub mod port;
-pub mod structs;
+pub mod values;
 
 pub use self::{gc::Gc, rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};

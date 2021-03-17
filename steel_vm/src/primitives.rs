@@ -302,10 +302,13 @@ pub(crate) fn register_meta_functions(engine: &mut Engine) {
 #[inline(always)]
 pub(crate) fn register_json_functions(engine: &mut Engine) {
     engine
-        .register_value("string->jsexpr", steel::json_vals::string_to_jsexpr())
+        .register_value(
+            "string->jsexpr",
+            steel::values::json_vals::string_to_jsexpr(),
+        )
         .register_value(
             "value->jsexpr-string",
-            steel::json_vals::serialize_val_to_string(),
+            steel::values::json_vals::serialize_val_to_string(),
         );
 }
 

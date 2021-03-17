@@ -7,7 +7,7 @@ use super::{
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::{ast::Atom, parser::SyntaxObject, span_visitor::get_span, tokens::TokenType},
-    structs::SteelStruct,
+    values::structs::SteelStruct,
 };
 
 use crate::parser::ast::ExprKind;

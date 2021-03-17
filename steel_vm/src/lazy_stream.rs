@@ -10,7 +10,7 @@ use steel::rvals::{Result, SteelVal};
 use steel::steel_compiler::constants::ConstantTable;
 use steel::stop;
 
-use steel::lazy_stream::LazyStream;
+use steel::values::lazy_stream::LazyStream;
 
 // Used for inlining stream iterators
 pub(crate) struct LazyStreamIter<'global, CT: ConstantTable> {

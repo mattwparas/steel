@@ -3,7 +3,7 @@ use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
-use crate::lazy_stream::LazyStream;
+use crate::values::lazy_stream::LazyStream;
 
 pub struct StreamOperations {}
 impl StreamOperations {

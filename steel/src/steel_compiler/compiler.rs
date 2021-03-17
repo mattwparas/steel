@@ -26,7 +26,7 @@ use crate::parser::expander::SteelMacro;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::tokens::TokenType;
 
-use crate::structs::SteelStruct;
+use crate::values::structs::SteelStruct;
 
 use crate::core::instructions::{densify, DenseInstruction};
 

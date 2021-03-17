@@ -1,7 +1,7 @@
-use crate::contracts::*;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
+use crate::values::contracts::*;
 
 pub struct ContractOperations {}
 

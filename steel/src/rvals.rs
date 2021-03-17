@@ -1,12 +1,14 @@
 use crate::{
-    contracts::{ContractType, ContractedFunction},
     core::instructions::DenseInstruction,
     env::Env,
     gc::Gc,
-    lazy_stream::LazyStream,
-    port::SteelPort,
     rerrs::{ErrorKind, SteelErr},
-    structs::SteelStruct,
+    values::port::SteelPort,
+    values::structs::SteelStruct,
+    values::{
+        contracts::{ContractType, ContractedFunction},
+        lazy_stream::LazyStream,
+    },
 };
 
 use std::{
@@ -258,7 +260,11 @@ pub enum SteelVal {
     ContractedFunction(Gc<ContractedFunction>),
     /// Custom closure
     BoxedFunction(BoxedFunctionSignature),
+    // Continuation
+    // Continuation(Gc<Box<dyn Continuation>>),
 }
+
+// pub trait Continuation: Clone {}
 
 // TODO come back to this for the constant map
 

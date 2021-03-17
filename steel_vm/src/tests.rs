@@ -152,9 +152,9 @@ mod stream_tests {
     use crate::evaluation_progress::EvaluationProgress;
     use crate::lazy_stream::LazyStreamIter;
     use crate::test_util::assert_script;
-    use steel::lazy_stream::LazyStream;
     use steel::parser::span::Span;
     use steel::steel_compiler::constants::ConstantMap;
+    use steel::values::lazy_stream::LazyStream;
 
     #[test]
     fn test_empty_stream_creates_no_iter() {

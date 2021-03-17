@@ -1,13 +1,13 @@
 use crate::stack::{CallStack, EnvStack, Stack, StackFrame};
 use crate::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
 use steel::{
-    contracts::ContractedFunction,
     core::{instructions::DenseInstruction, opcode::OpCode},
     rvals::FutureResult,
     steel_compiler::{
         constants::{ConstantMap, ConstantTable},
         program::Program,
     },
+    values::contracts::ContractedFunction,
 };
 
 use std::{cell::RefCell, collections::HashMap, convert::TryFrom, iter::Iterator, rc::Rc, result};
@@ -23,7 +23,7 @@ use steel::{
     rerrs::{ErrorKind, SteelErr},
     rvals::{ByteCodeLambda, Result, SteelVal},
     stop,
-    structs::SteelStruct,
+    values::structs::SteelStruct,
 };
 
 use crate::evaluation_progress::EvaluationProgress;

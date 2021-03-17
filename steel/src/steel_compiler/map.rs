@@ -1,7 +1,7 @@
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 use crate::stop;
-use crate::structs::StructFuncBuilder;
+use crate::values::structs::StructFuncBuilder;
 
 #[derive(Debug, PartialEq)]
 pub struct SymbolMap(Vec<String>);
