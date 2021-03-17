@@ -387,8 +387,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         }
     }
 
+    #[inline(always)]
     fn construct_continuation_function(&self) -> SteelVal {
-        unimplemented!()
+        let captured_continuation = self.new_continuation_from_state();
+        SteelVal::ContinuationFunction(Gc::new(captured_continuation))
     }
 
     fn vm(mut self) -> Result<SteelVal> {
