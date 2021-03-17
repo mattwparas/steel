@@ -322,11 +322,11 @@ pub struct Continuation {
 }
 
 // Just in case, let's wipe this out manually
-impl Drop for Continuation {
-    fn drop(&mut self) {
-        self.env_stack.clear();
-    }
-}
+// impl Drop for Continuation {
+//     fn drop(&mut self) {
+//         self.env_stack.clear();
+//     }
+// }
 
 #[inline(always)]
 fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
@@ -335,6 +335,7 @@ fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
             stop!(Generic => "function arity in call/cc must be 1"; span)
         }
     } else {
+        println!("{:?}", function);
         stop!(Generic => "call/cc expects a function"; span)
     }
 
@@ -388,6 +389,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn new_continuation_from_state(&self) -> Continuation {
+        println!("stacks at continuation: {:?}", self.stacks);
+        println!("stack at continuation: {:?}", self.stack);
+
         Continuation {
             stack: self.stack.clone(),
             stacks: self.stacks.clone(),
@@ -458,6 +462,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     let function = self.stack.pop().unwrap();
 
                     validate_closure_for_call_cc(&function, cur_inst.span)?;
+
+                    // println!("getting here");
+                    // self.ip += 1;
 
                     let continuation = self.construct_continuation_function();
 
@@ -1020,6 +1027,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
+        let last = self.stack.pop().unwrap();
+        self.set_state_from_continuation(continuation.clone());
+        self.ip += 1;
+        self.stack.push(last);
+        Ok(())
         // unimplemented!("continuations are not implemented yet")
     }
 

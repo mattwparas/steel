@@ -371,6 +371,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     fn visit_callcc(&mut self, cc: &crate::parser::ast::CallCC) -> Self::Output {
         self.visit(&cc.expr)?;
         self.push(Instruction::new_call_cc());
+        // self.push(Instruction::new_pop());
         Ok(())
     }
 }
