@@ -9,7 +9,7 @@ use steel::PRELUDE;
 
 #[test]
 fn basic_test() {
-    test_from_files("input_tests.rkt", "output_tests.rkt");
+    test_from_files("test_files/input_tests.rkt", "test_files/output_tests.rkt");
 }
 
 #[test]
