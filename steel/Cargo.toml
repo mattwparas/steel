@@ -15,11 +15,9 @@ codespan-reporting = "0.11.0"
 structopt = "0.3.21"
 unindent = "0.1.7"
 logos = "0.11.4"
-# generational-arena = "0.2"
 itertools = "0.10.0"
 log = "0.4.11"
 futures = "0.3.13"
-# reqwest = { version = "0.10", features = ["json"] }
 async-compat = "0.1.4"
 serde_json = "1.0.61"
 serde = { version = "1.0.118", features = ["derive", "rc"] }
@@ -29,8 +27,13 @@ ahash = "0.6.3"
 
 [dev-dependencies]
 proptest = "0.10.1"
+criterion = "0.3.3"
 
 [features]
 # this effectively enable the feature `no-color` of colored when testing with
 # `cargo test --features colors_off`
 colors_off = ["colored/no-color"]
+
+[[bench]]
+name = "my_benchmark"
+harness = false

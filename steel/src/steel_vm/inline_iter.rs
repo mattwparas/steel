@@ -1,15 +1,15 @@
-use crate::contracts::ContractedFunctionExt;
-use crate::evaluation_progress::EvaluationProgress;
-use crate::heap::Heap;
-use crate::vm::vm;
+use super::contracts::ContractedFunctionExt;
+use super::evaluation_progress::EvaluationProgress;
+use super::heap::Heap;
+use super::vm::vm;
+use crate::compiler::constants::ConstantTable;
+use crate::env::Env;
+use crate::parser::span::Span;
+use crate::rerrs::{ErrorKind, SteelErr};
+use crate::rvals::{Result, SteelVal};
+use crate::stop;
 use std::cell::RefCell;
 use std::rc::Rc;
-use steel::compiler::constants::ConstantTable;
-use steel::env::Env;
-use steel::parser::span::Span;
-use steel::rerrs::{ErrorKind, SteelErr};
-use steel::rvals::{Result, SteelVal};
-use steel::stop;
 
 /// Function to inline the reducer function
 /// Used for the accumulating a result by wrapping the fold iterator

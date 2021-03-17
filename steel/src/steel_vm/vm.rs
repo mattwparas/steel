@@ -1,6 +1,6 @@
-use crate::stack::{CallStack, EnvStack, Stack, StackFrame};
-use crate::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
-use steel::{
+use super::stack::{CallStack, EnvStack, Stack, StackFrame};
+use super::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
+use crate::{
     compiler::{
         constants::{ConstantMap, ConstantTable},
         program::Program,
@@ -10,8 +10,7 @@ use steel::{
     values::contracts::ContractedFunction,
 };
 
-use std::{cell::RefCell, collections::HashMap, convert::TryFrom, iter::Iterator, rc::Rc, result};
-use steel::{
+use crate::{
     env::Env,
     gc::Gc,
     parser::{
@@ -25,8 +24,9 @@ use steel::{
     stop,
     values::structs::SteelStruct,
 };
+use std::{cell::RefCell, collections::HashMap, convert::TryFrom, iter::Iterator, rc::Rc, result};
 
-use crate::evaluation_progress::EvaluationProgress;
+use super::evaluation_progress::EvaluationProgress;
 
 pub type Callback = fn(usize) -> bool;
 
@@ -489,7 +489,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             self.ip,
             self.instructions.len()
         );
-        steel::core::instructions::pretty_print_dense_instructions(&self.instructions);
+        crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
         panic!("Out of bounds instruction")
     }
 

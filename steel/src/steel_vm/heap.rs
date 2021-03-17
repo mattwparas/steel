@@ -1,11 +1,11 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::rc::Weak;
-use steel::{
+use crate::{
     env::Env,
     gc::{Gc, OBJECT_COUNT},
     rvals::SteelVal,
 };
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::rc::Weak;
 
 use std::collections::HashMap;
 pub(crate) static HEAP_LIMIT: usize = 100;

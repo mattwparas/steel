@@ -4,15 +4,15 @@ extern crate steel_repl;
 
 use steel_derive::Steel;
 
+use steel::steel_vm::engine::Engine;
 use steel_repl::repl::repl_base;
-use steel_vm::engine::Engine;
 
 use std::cell::RefCell;
 use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::process;
 use std::rc::Rc;
-use steel_vm::register_fn::RegisterFn;
+use steel::steel_vm::register_fn::RegisterFn;
 
 /// An implementation of a spell check in steel, with the levenshtein distance calculated
 /// via Rust, and a BKTree implementation in steel

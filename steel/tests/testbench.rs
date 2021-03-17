@@ -1,10 +1,10 @@
 mod helpers;
-extern crate steel_vm;
+extern crate steel;
 
 use std::path::PathBuf;
 
-use crate::steel_vm::engine::Engine;
 use helpers::*;
+use steel::steel_vm::engine::Engine;
 use steel::PRELUDE;
 
 #[test]

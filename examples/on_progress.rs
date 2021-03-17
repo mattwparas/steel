@@ -1,4 +1,4 @@
-use steel_vm::engine::Engine;
+use steel::steel_vm::engine::Engine;
 
 // It's possible to add a function that will get fun on every instruction call
 // For instance, if you wanted to see how far you were getting in the evaluation of a program

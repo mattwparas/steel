@@ -1,4 +1,4 @@
-use steel_vm::engine::Engine;
+use steel::steel_vm::engine::Engine;
 
 // Steel allows for flexibility with modules as well. If you wanted to
 // expose a module with a clean api, you can do so using the `provide` syntax.

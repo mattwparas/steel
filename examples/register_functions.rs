@@ -1,7 +1,7 @@
-use steel_vm::engine::Engine;
-use steel_vm::register_fn::RegisterFn;
+use steel::steel_vm::engine::Engine;
+use steel::steel_vm::register_fn::RegisterFn;
 
-use steel_vm::register_fn::RegisterAsyncFn;
+use steel::steel_vm::register_fn::RegisterAsyncFn;
 
 fn external_function(arg1: usize, arg2: usize) -> usize {
     arg1 + arg2

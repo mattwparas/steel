@@ -1,5 +1,5 @@
-use crate::evaluation_progress::EvaluationProgress;
-use steel::{
+use super::evaluation_progress::EvaluationProgress;
+use crate::{
     compiler::constants::ConstantTable,
     parser::span::Span,
     primitives::{ListOperations, VectorOperations},
@@ -8,8 +8,8 @@ use steel::{
     stop,
 };
 
-use crate::inline_iter::*;
-use crate::lazy_stream::LazyStreamIter;
+use super::inline_iter::*;
+use super::lazy_stream::LazyStreamIter;
 
 /// Entry point for executing a transducer
 pub(crate) trait TransducerExt {

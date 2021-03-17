@@ -1,16 +1,16 @@
-use crate::evaluation_progress::EvaluationProgress;
-use crate::heap::Heap;
-use crate::vm::vm;
+use super::evaluation_progress::EvaluationProgress;
+use super::heap::Heap;
+use super::vm::vm;
+use crate::compiler::constants::ConstantTable;
+use crate::env::Env;
+use crate::parser::span::Span;
+use crate::rerrs::{ErrorKind, SteelErr};
+use crate::rvals::{Result, SteelVal};
+use crate::stop;
 use std::cell::RefCell;
 use std::rc::Rc;
-use steel::compiler::constants::ConstantTable;
-use steel::env::Env;
-use steel::parser::span::Span;
-use steel::rerrs::{ErrorKind, SteelErr};
-use steel::rvals::{Result, SteelVal};
-use steel::stop;
 
-use steel::values::lazy_stream::LazyStream;
+use crate::values::lazy_stream::LazyStream;
 
 // Used for inlining stream iterators
 pub(crate) struct LazyStreamIter<'global, CT: ConstantTable> {
@@ -138,8 +138,8 @@ fn exec_func<CT: ConstantTable>(
 #[cfg(test)]
 mod stream_tests {
     use super::*;
-    use crate::test_util::assert_script;
-    use steel::compiler::constants::ConstantMap;
+    use crate::compiler::constants::ConstantMap;
+    use crate::steel_vm::test_util::assert_script;
 
     #[test]
     fn test_empty_stream_creates_no_iter() {

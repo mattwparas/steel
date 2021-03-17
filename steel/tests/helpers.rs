@@ -1,11 +1,11 @@
-extern crate steel_vm;
+extern crate steel;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 // use steel::interpreter::evaluator::Evaluator;
 // use steel::parser::*;
+use steel::steel_vm::engine::Engine;
 use steel::PRELUDE;
-use steel_vm::engine::Engine;
 
 // use std::collections::HashMap;
 

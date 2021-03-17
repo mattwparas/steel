@@ -3,7 +3,7 @@ use steel::compiler::constants::ConstantMap;
 
 use std::rc::Rc;
 use steel::stdlib::PRELUDE;
-use steel_vm::{engine::Engine, register_fn::RegisterFn};
+use steel::steel_vm::{engine::Engine, register_fn::RegisterFn};
 
 fn range(c: &mut Criterion) {
     let script = "(range 0 5000)";

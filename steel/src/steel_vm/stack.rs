@@ -1,8 +1,8 @@
+use crate::env::Env;
+use crate::rvals::SteelVal;
 use std::ops::RangeFrom;
 use std::rc::Rc;
 use std::{cell::RefCell, ops::Deref};
-use steel::env::Env;
-use steel::rvals::SteelVal;
 
 pub type CallStack = Stack<Stack<SteelVal>>;
 pub type StackFrame = Stack<SteelVal>;

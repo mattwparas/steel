@@ -13,6 +13,7 @@ pub mod stdlib;
 pub mod gc;
 pub mod conversions;
 pub mod parser;
+pub mod steel_vm;
 pub mod values;
 
 pub use self::{gc::Gc, rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};

@@ -1,5 +1,5 @@
-use crate::engine::Engine;
-use steel::stdlib::{CONTRACTS, PRELUDE};
+use super::engine::Engine;
+use crate::stdlib::{CONTRACTS, PRELUDE};
 
 #[test]
 fn prelude_parses() {

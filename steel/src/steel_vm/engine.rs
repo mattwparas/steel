@@ -6,8 +6,8 @@ use std::{
     rc::Rc,
 };
 
-use crate::{evaluation_progress::Callback, primitives::embed_primitives, vm::VirtualMachineCore};
-use steel::{
+use super::{evaluation_progress::Callback, primitives::embed_primitives, vm::VirtualMachineCore};
+use crate::{
     compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
@@ -42,7 +42,7 @@ impl Engine {
     pub fn new() -> Self {
         let mut vm = Engine::new_base();
 
-        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
 
         for core in core_libraries {
             vm.parse_and_execute_without_optimizations(core).unwrap();
@@ -53,12 +53,12 @@ impl Engine {
 
     pub fn new_with_meta() -> Engine {
         let mut vm = Engine::new();
-        vm.register_value("*env*", steel::env::Env::constant_env_to_hashmap());
+        vm.register_value("*env*", crate::env::Env::constant_env_to_hashmap());
         vm
     }
 
     pub fn with_prelude(mut self) -> Result<Self> {
-        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
 
         for core in core_libraries {
             self.parse_and_execute_without_optimizations(core)?;
@@ -68,7 +68,7 @@ impl Engine {
     }
 
     pub fn register_prelude(&mut self) -> Result<&mut Self> {
-        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
 
         for core in core_libraries {
             self.parse_and_execute_without_optimizations(core)?;
@@ -258,9 +258,9 @@ impl Engine {
         let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
 
         let mut vm = Engine::new_with_meta();
-        vm.parse_and_execute_without_optimizations(steel::stdlib::PRELUDE)?;
+        vm.parse_and_execute_without_optimizations(crate::stdlib::PRELUDE)?;
         vm.register_value("*program*", exprs);
-        let output = vm.parse_and_execute_without_optimizations(steel::stdlib::COMPILER)?;
+        let output = vm.parse_and_execute_without_optimizations(crate::stdlib::COMPILER)?;
 
         // println!("{:?}", output.last().unwrap());
 

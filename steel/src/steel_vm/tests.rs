@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod register_fn_tests {
-    use crate::engine::Engine;
-    use crate::register_fn::RegisterFn;
+    use crate::steel_vm::engine::Engine;
+    use crate::steel_vm::register_fn::RegisterFn;
 
     fn external_function(arg1: usize, arg2: usize) -> usize {
         arg1 + arg2
@@ -65,8 +65,8 @@ mod register_fn_tests {
 
 #[cfg(test)]
 mod register_type_tests {
-    use crate::engine::Engine;
-    use crate::register_fn::RegisterFn;
+    use crate::steel_vm::engine::Engine;
+    use crate::steel_vm::register_fn::RegisterFn;
 
     // In order to register a type with Steel,
     // it must implement Clone, Debug, and Steel
@@ -77,7 +77,7 @@ mod register_type_tests {
         baz: f64,
     }
 
-    impl steel::rvals::Custom for ExternalStruct {}
+    impl crate::rvals::Custom for ExternalStruct {}
 
     impl ExternalStruct {
         pub fn new(foo: usize, bar: String, baz: f64) -> Self {
@@ -149,12 +149,12 @@ mod register_type_tests {
 
 #[cfg(test)]
 mod stream_tests {
-    use crate::evaluation_progress::EvaluationProgress;
-    use crate::lazy_stream::LazyStreamIter;
-    use crate::test_util::assert_script;
-    use steel::compiler::constants::ConstantMap;
-    use steel::parser::span::Span;
-    use steel::values::lazy_stream::LazyStream;
+    use crate::compiler::constants::ConstantMap;
+    use crate::parser::span::Span;
+    use crate::steel_vm::evaluation_progress::EvaluationProgress;
+    use crate::steel_vm::lazy_stream::LazyStreamIter;
+    use crate::steel_vm::test_util::assert_script;
+    use crate::values::lazy_stream::LazyStream;
 
     #[test]
     fn test_empty_stream_creates_no_iter() {
@@ -283,7 +283,7 @@ mod stream_tests {
 
 #[cfg(test)]
 mod struct_integration_tests {
-    use crate::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script;
 
     #[test]
     fn test_trie_sort() {
@@ -415,7 +415,7 @@ mod struct_integration_tests {
 
 #[cfg(test)]
 mod transducer_tests {
-    use crate::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script;
 
     #[test]
     fn generic_transducer() {
@@ -527,7 +527,7 @@ mod transducer_tests {
 
 #[cfg(test)]
 mod stack_tests {
-    use crate::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script;
 
     #[test]
     fn stack_test_with_contract() {
@@ -779,7 +779,7 @@ mod stack_tests {
 
 #[cfg(test)]
 mod apply_tests {
-    use crate::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script;
 
     #[test]
     fn basic_apply() {
@@ -802,7 +802,7 @@ mod apply_tests {
 
 #[cfg(test)]
 mod dfs_test {
-    use crate::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script;
 
     #[test]
     fn test_dfs() {
@@ -913,7 +913,7 @@ mod dfs_test {
 
 #[cfg(test)]
 mod sieve_test {
-    use crate::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script;
 
     #[test]
     fn sieve_test() {
@@ -949,7 +949,7 @@ mod sieve_test {
 
 #[cfg(test)]
 mod calculator_test {
-    use crate::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script;
 
     #[test]
     fn calculator_test() {
@@ -1023,7 +1023,7 @@ mod calculator_test {
 
 #[cfg(test)]
 mod read_test {
-    use crate::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script;
 
     #[test]
     fn test_basic_read() {

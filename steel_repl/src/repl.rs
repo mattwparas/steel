@@ -22,7 +22,7 @@ use rustyline::completion::Pair;
 
 use std::borrow::Cow;
 
-use steel_vm::engine::Engine;
+use steel::steel_vm::engine::Engine;
 
 use std::io::Read;
 use steel::stdlib::{CONTRACTS, PRELUDE};

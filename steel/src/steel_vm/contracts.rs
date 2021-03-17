@@ -1,6 +1,5 @@
-use crate::{evaluation_progress::EvaluationProgress, heap::Heap, vm::vm};
-use std::{cell::RefCell, rc::Rc};
-use steel::{
+use super::{evaluation_progress::EvaluationProgress, heap::Heap, vm::vm};
+use crate::{
     compiler::constants::ConstantTable,
     env::Env,
     gc::Gc,
@@ -10,6 +9,7 @@ use steel::{
     stop,
     values::contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract},
 };
+use std::{cell::RefCell, rc::Rc};
 
 use log::debug;
 
@@ -344,7 +344,7 @@ impl FunctionContractExt for FunctionContract {
 
 #[cfg(test)]
 mod contract_tests {
-    use crate::test_util::{assert_script, assert_script_error};
+    use crate::steel_vm::test_util::{assert_script, assert_script_error};
 
     #[test]
     fn simple_flat_contract() {

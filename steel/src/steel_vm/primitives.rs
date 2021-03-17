@@ -1,11 +1,11 @@
-use crate::engine::Engine;
-use steel::primitives::{
+use super::engine::Engine;
+use crate::primitives::{
     ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
     IoFunctions, ListOperations, MetaOperations, NumOperations, PortOperations, StreamOperations,
     StringOperations, SymbolOperations, TransducerOperations, VectorOperations,
 };
-use steel::rerrs::{ErrorKind, SteelErr};
-use steel::rvals::{Result, SteelVal};
+use crate::rerrs::{ErrorKind, SteelErr};
+use crate::rvals::{Result, SteelVal};
 
 #[macro_use]
 macro_rules! ensure_tonicity {
@@ -304,11 +304,11 @@ pub(crate) fn register_json_functions(engine: &mut Engine) {
     engine
         .register_value(
             "string->jsexpr",
-            steel::values::json_vals::string_to_jsexpr(),
+            crate::values::json_vals::string_to_jsexpr(),
         )
         .register_value(
             "value->jsexpr-string",
-            steel::values::json_vals::serialize_val_to_string(),
+            crate::values::json_vals::serialize_val_to_string(),
         );
 }
 

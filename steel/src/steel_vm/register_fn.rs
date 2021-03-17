@@ -1,13 +1,13 @@
 use std::{future::Future, marker::PhantomData, rc::Rc};
 
-use crate::engine::Engine;
-use futures::FutureExt;
-use steel::rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal};
-use steel::stop;
-use steel::{
+use super::engine::Engine;
+use crate::rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal};
+use crate::stop;
+use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::FutureResult,
 };
+use futures::FutureExt;
 
 /// Trait for allowing any function that satisfies the `Fn` trait to be embedded in the engine
 /// This allows for clean embedding of function pointers as well as closures that capture immutable environments
