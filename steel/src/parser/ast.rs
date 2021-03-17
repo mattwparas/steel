@@ -132,6 +132,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             Contract(_) => Err("Can't convert from contract to expression!"),
             ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
             BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
+            ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
         }
     }
 }

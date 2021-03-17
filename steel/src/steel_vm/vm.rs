@@ -287,7 +287,7 @@ impl VirtualMachineCore {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InstructionPointer(usize, Rc<[DenseInstruction]>);
 
 impl InstructionPointer {
@@ -307,6 +307,18 @@ impl InstructionPointer {
     pub fn instrs(self) -> Rc<[DenseInstruction]> {
         self.1
     }
+}
+
+#[derive(Clone)]
+pub struct Continuation {
+    stack: StackFrame,
+    stacks: CallStack,
+    instructions: Rc<[DenseInstruction]>,
+    instruction_stack: Stack<InstructionPointer>,
+    global_env: Rc<RefCell<Env>>,
+    env_stack: EnvStack,
+    ip: usize,
+    pop_count: usize,
 }
 
 struct VmCore<'a, CT: ConstantTable> {
@@ -352,6 +364,24 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             pop_count: 1,
             env_stack: Stack::new(),
         })
+    }
+
+    #[inline(always)]
+    fn new_continuation_from_state(&self) -> Continuation {
+        Continuation {
+            stack: self.stack.clone(),
+            stacks: self.stacks.clone(),
+            instructions: Rc::clone(&self.instructions),
+            instruction_stack: self.instruction_stack.clone(),
+            global_env: Rc::clone(&self.global_env),
+            env_stack: self.env_stack.clone(),
+            ip: self.ip,
+            pop_count: self.pop_count,
+        }
+    }
+
+    fn construct_continuation_function(&self) -> SteelVal {
+        unimplemented!()
     }
 
     fn vm(mut self) -> Result<SteelVal> {

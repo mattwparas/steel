@@ -8,7 +8,7 @@ pub type CallStack = Stack<Stack<SteelVal>>;
 pub type StackFrame = Stack<SteelVal>;
 pub type EnvStack = Stack<Rc<RefCell<Env>>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Stack<T>(Vec<T>);
 
 impl<T> Stack<T> {

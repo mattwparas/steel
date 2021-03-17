@@ -3,6 +3,7 @@ use crate::{
     env::Env,
     gc::Gc,
     rerrs::{ErrorKind, SteelErr},
+    steel_vm::vm::Continuation,
     values::port::SteelPort,
     values::structs::SteelStruct,
     values::{
@@ -261,7 +262,7 @@ pub enum SteelVal {
     /// Custom closure
     BoxedFunction(BoxedFunctionSignature),
     // Continuation
-    // Continuation(Gc<Box<dyn Continuation>>),
+    ContinuationFunction(Gc<Continuation>),
 }
 
 // pub trait Continuation: Clone {}
@@ -766,6 +767,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         Contract(_) => write!(f, "#<contract>"),
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
         BoxedFunction(_) => write!(f, "#<function>"),
+        ContinuationFunction(_) => write!(f, "#<continuation>"),
     }
 }
 
