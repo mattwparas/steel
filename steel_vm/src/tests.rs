@@ -152,8 +152,8 @@ mod stream_tests {
     use crate::evaluation_progress::EvaluationProgress;
     use crate::lazy_stream::LazyStreamIter;
     use crate::test_util::assert_script;
+    use steel::compiler::constants::ConstantMap;
     use steel::parser::span::Span;
-    use steel::steel_compiler::constants::ConstantMap;
     use steel::values::lazy_stream::LazyStream;
 
     #[test]

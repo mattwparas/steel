@@ -3,8 +3,8 @@ extern crate im_rc;
 pub mod env;
 #[macro_use]
 pub mod core;
+pub mod compiler;
 pub mod primitives;
-pub mod steel_compiler;
 #[macro_use]
 pub mod rerrs;
 pub mod rvals;

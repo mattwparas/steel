@@ -4,11 +4,11 @@ use crate::heap::Heap;
 use crate::vm::vm;
 use std::cell::RefCell;
 use std::rc::Rc;
+use steel::compiler::constants::ConstantTable;
 use steel::env::Env;
 use steel::parser::span::Span;
 use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{Result, SteelVal};
-use steel::steel_compiler::constants::ConstantTable;
 use steel::stop;
 
 /// Function to inline the reducer function

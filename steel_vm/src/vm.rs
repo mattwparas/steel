@@ -1,12 +1,12 @@
 use crate::stack::{CallStack, EnvStack, Stack, StackFrame};
 use crate::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
 use steel::{
-    core::{instructions::DenseInstruction, opcode::OpCode},
-    rvals::FutureResult,
-    steel_compiler::{
+    compiler::{
         constants::{ConstantMap, ConstantTable},
         program::Program,
     },
+    core::{instructions::DenseInstruction, opcode::OpCode},
+    rvals::FutureResult,
     values::contracts::ContractedFunction,
 };
 

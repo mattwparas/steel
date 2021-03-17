@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use steel::steel_compiler::constants::ConstantMap;
+use steel::compiler::constants::ConstantMap;
 
 use std::rc::Rc;
 use steel::stdlib::PRELUDE;

@@ -1,10 +1,10 @@
 use crate::evaluation_progress::EvaluationProgress;
 use steel::{
+    compiler::constants::ConstantTable,
     parser::span::Span,
     primitives::{ListOperations, VectorOperations},
     rerrs::{ErrorKind, SteelErr},
     rvals::{CollectionType, Result, SteelVal, Transducer, Transducers},
-    steel_compiler::constants::ConstantTable,
     stop,
 };
 

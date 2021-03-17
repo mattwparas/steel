@@ -1,6 +1,6 @@
+use crate::compiler::constants::ConstantMap;
 use crate::core::instructions::DenseInstruction;
 use crate::rvals::Result;
-use crate::steel_compiler::constants::ConstantMap;
 use serde::{Deserialize, Serialize};
 
 pub struct ProgramBuilder(Vec<Vec<DenseInstruction>>);

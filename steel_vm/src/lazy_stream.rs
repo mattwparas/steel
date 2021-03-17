@@ -3,11 +3,11 @@ use crate::heap::Heap;
 use crate::vm::vm;
 use std::cell::RefCell;
 use std::rc::Rc;
+use steel::compiler::constants::ConstantTable;
 use steel::env::Env;
 use steel::parser::span::Span;
 use steel::rerrs::{ErrorKind, SteelErr};
 use steel::rvals::{Result, SteelVal};
-use steel::steel_compiler::constants::ConstantTable;
 use steel::stop;
 
 use steel::values::lazy_stream::LazyStream;
@@ -139,7 +139,7 @@ fn exec_func<CT: ConstantTable>(
 mod stream_tests {
     use super::*;
     use crate::test_util::assert_script;
-    use steel::steel_compiler::constants::ConstantMap;
+    use steel::compiler::constants::ConstantMap;
 
     #[test]
     fn test_empty_stream_creates_no_iter() {

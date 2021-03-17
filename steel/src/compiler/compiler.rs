@@ -1,5 +1,4 @@
-use crate::core::{instructions::Instruction, opcode::OpCode};
-use crate::steel_compiler::{
+use crate::compiler::{
     // codegen::emit_loop,
     code_generator::CodeGenerator,
     constants::{ConstantMap, ConstantTable},
@@ -7,6 +6,7 @@ use crate::steel_compiler::{
     map::SymbolMap,
     program::Program,
 };
+use crate::core::{instructions::Instruction, opcode::OpCode};
 
 use std::iter::Iterator;
 use std::{

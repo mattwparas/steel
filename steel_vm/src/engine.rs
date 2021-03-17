@@ -8,13 +8,13 @@ use std::{
 
 use crate::{evaluation_progress::Callback, primitives::embed_primitives, vm::VirtualMachineCore};
 use steel::{
+    compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser},
     primitives::ListOperations,
     rerrs::{ErrorKind, SteelErr},
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
-    steel_compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
     stop, throw,
 };
 
