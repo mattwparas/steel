@@ -389,8 +389,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn new_continuation_from_state(&self) -> Continuation {
-        println!("stacks at continuation: {:?}", self.stacks);
-        println!("stack at continuation: {:?}", self.stack);
+        // println!("stacks at continuation: {:?}", self.stacks);
+        // println!("stack at continuation: {:?}", self.stack);
 
         Continuation {
             stack: self.stack.clone(),
