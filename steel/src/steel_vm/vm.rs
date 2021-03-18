@@ -330,13 +330,17 @@ pub struct Continuation {
 
 #[inline(always)]
 fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
-    if let SteelVal::Closure(c) = function {
-        if c.arity() != 1 {
-            stop!(Generic => "function arity in call/cc must be 1"; span)
+    match function {
+        SteelVal::Closure(c) => {
+            if c.arity() != 1 {
+                stop!(Generic => "function arity in call/cc must be 1"; span)
+            }
         }
-    } else {
-        println!("{:?}", function);
-        stop!(Generic => "call/cc expects a function"; span)
+        SteelVal::ContinuationFunction(_) => {}
+        _ => {
+            println!("{:?}", function);
+            stop!(Generic => "call/cc expects a function"; span)
+        }
     }
 
     Ok(())
@@ -468,41 +472,54 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                     let continuation = self.construct_continuation_function();
 
-                    if let SteelVal::Closure(closure) = function {
-                        if self.stacks.len() == STACK_LIMIT {
-                            // println!("stacks at exit: {:?}", stacks);
-                            println!("stack frame at exit: {:?}", self.stack);
-                            stop!(Generic => "stack overflowed!"; cur_inst.span);
+                    match function {
+                        SteelVal::Closure(closure) => {
+                            if self.stacks.len() == STACK_LIMIT {
+                                // println!("stacks at exit: {:?}", stacks);
+                                println!("stack frame at exit: {:?}", self.stack);
+                                stop!(Generic => "stack overflowed!"; cur_inst.span);
+                            }
+
+                            // put continuation as the thing
+                            let args = vec![continuation];
+
+                            let parent_env = closure.sub_expression_env();
+
+                            let inner_env = Rc::new(RefCell::new(
+                                Env::new_subexpression_with_capacity_without_offset(
+                                    parent_env.clone(),
+                                ),
+                            ));
+
+                            // let result =
+                            // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
+                            // closure_stack.push(Rc::clone(&stack_func));
+                            // TODO this is where the memory leak is
+                            self.env_stack.push(Rc::clone(&self.global_env));
+
+                            self.global_env = inner_env;
+                            self.instruction_stack.push(InstructionPointer::new(
+                                self.ip + 1,
+                                Rc::clone(&self.instructions),
+                            ));
+                            self.pop_count += 1;
+                            // Move args into the stack, push stack onto stacks
+                            let stack = std::mem::replace(&mut self.stack, args.into());
+                            self.stacks.push(stack);
+                            self.instructions = closure.body_exp();
+                            self.ip = 0;
+                        }
+                        SteelVal::ContinuationFunction(cc) => {
+                            // let last = self.stack.pop().unwrap();
+                            // println!("Calling continuation inside call/cc");
+                            self.set_state_from_continuation(cc.unwrap());
+                            self.ip += 1;
+                            self.stack.push(continuation);
                         }
 
-                        // put continuation as the thing
-                        let args = vec![continuation];
-
-                        let parent_env = closure.sub_expression_env();
-
-                        let inner_env = Rc::new(RefCell::new(
-                            Env::new_subexpression_with_capacity_without_offset(parent_env.clone()),
-                        ));
-
-                        // let result =
-                        // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
-                        // closure_stack.push(Rc::clone(&stack_func));
-                        // TODO this is where the memory leak is
-                        self.env_stack.push(Rc::clone(&self.global_env));
-
-                        self.global_env = inner_env;
-                        self.instruction_stack.push(InstructionPointer::new(
-                            self.ip + 1,
-                            Rc::clone(&self.instructions),
-                        ));
-                        self.pop_count += 1;
-                        // Move args into the stack, push stack onto stacks
-                        let stack = std::mem::replace(&mut self.stack, args.into());
-                        self.stacks.push(stack);
-                        self.instructions = closure.body_exp();
-                        self.ip = 0;
-                    } else {
-                        stop!(Generic => "something broke in call/cc");
+                        _ => {
+                            stop!(Generic => "something broke in call/cc");
+                        }
                     }
 
                     // todo!("Handling call/cc not yet implemented");
@@ -885,6 +902,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
+            ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => {
                 if self.stacks.len() == STACK_LIMIT {
                     println!("stacks at exit: {:?}", self.stacks);
@@ -1021,12 +1039,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
-    fn call_continuation(
-        &mut self,
-        continuation: &Continuation,
-        payload_size: usize,
-        span: &Span,
-    ) -> Result<()> {
+    fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
         let last = self.stack.pop().unwrap();
         self.set_state_from_continuation(continuation.clone());
         self.ip += 1;
@@ -1045,7 +1058,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
-            ContinuationFunction(cc) => self.call_continuation(cc, payload_size, span)?,
+            ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => {
                 if closure.arity() != payload_size {
                     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);

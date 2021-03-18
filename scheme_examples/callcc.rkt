@@ -1,18 +1,9 @@
-; (define (inv v)
-;   (call/cc (lambda (returning)
-;     (displayln "doing things")
-;     (if (= v 0) 
-;         (returning 0)
-;         (begin
-;             (displayln "otherwise doing other things")
-;             (/ 1 v)))))) ; special case for v = 0
-
-
 (define (for-each func lst)
     (if (null? lst) 
         void
         (begin
             (func (car lst))
+            (when (null? lst) (return! void))
             (for-each func (cdr lst)))))
 
 ; (for-each (lambda (x) (displayln x)) '(1 2 3 4 5))
@@ -49,6 +40,7 @@
   (generate-one-element-at-a-time '(0 1 2)))
 
 (generate-digit) ;; 0
-; (generate-digit) ;; 1
-; (generate-digit) ;; 2
-; (generate-digit) ;; you-fell-off-the-end
+(generate-digit) ;; 1
+(generate-digit) ;; 2
+(generate-digit) ;; you-fell-off-the-end
+(generate-digit) ;; you-fell-off-the-end
