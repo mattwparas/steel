@@ -14,6 +14,7 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, HashSet},
     rc::{Rc, Weak},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 // use ahash::RandomState;
@@ -42,6 +43,8 @@ pub const fn new_false() -> SteelVal {
 //         SteelVal::BoolV(b)
 //     }
 // }
+
+pub static ENV_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[macro_use]
 macro_rules! ensure_tonicity {
@@ -186,10 +189,15 @@ pub struct Env {
     is_binding_context: bool,
     is_binding_offset: bool,
     reachable: bool,
+    id: usize,
 }
 
 impl Drop for Env {
     fn drop(&mut self) {
+        // println!(
+        //     "############### Dropping env with ID: {} #############",
+        //     self.id
+        // );
         self.bindings_map.clear();
     }
 }
@@ -210,6 +218,7 @@ impl Env {
             is_binding_context: false,
             is_binding_offset: false,
             reachable: false,
+            id: ENV_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -250,6 +259,7 @@ impl Env {
             // module: Vec::new(),
             // ndefs: 0,
             reachable: false,
+            id: ENV_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -273,6 +283,7 @@ impl Env {
             // module: Vec::new(),
             // ndefs: 0,
             reachable: false,
+            id: ENV_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -295,6 +306,7 @@ impl Env {
             // module: Vec::new(),
             // ndefs: 0,
             reachable: false,
+            id: ENV_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -339,6 +351,7 @@ impl Env {
             // module: Vec::new(),
             // ndefs: 0,
             reachable: true,
+            id: ENV_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -426,6 +439,7 @@ impl Env {
                     Some(x) => x.borrow().repl_lookup_idx(idx),
                     None => {
                         println!("Bindings at quit: {:?}", self.bindings_map());
+                        println!("Current Env ID: {}", self.id);
                         stop!(Generic => "Parent subexpression was dropped looking for {} repl_lookup_idx", idx)
                     }
                 },

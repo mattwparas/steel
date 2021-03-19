@@ -77,14 +77,15 @@ macro_rules! gen_pred {
         })
     }};
 
-    ($variant1:ident, $variant2:ident, $variant3:ident, $variant4:ident) => {{
+    ($variant1:ident, $variant2:ident, $variant3:ident, $variant4:ident, $variant5:ident) => {{
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if let Some(first) = args.first() {
                 match first {
                     SteelVal::$variant1(..)
                     | SteelVal::$variant2(..)
                     | SteelVal::$variant3(..)
-                    | SteelVal::$variant4(..) => {
+                    | SteelVal::$variant4(..)
+                    | SteelVal::$variant5(..) => {
                         return Ok(SteelVal::BoolV(true));
                     }
                     _ => {}
@@ -179,11 +180,29 @@ pub(crate) fn register_identity_predicates(engine: &mut Engine) {
         .register_value("symbol?", gen_pred!(SymbolV))
         .register_value("vector?", gen_pred!(VectorV))
         .register_value("list?", gen_pred!(Pair))
+        .register_value("pair?", gen_pred!(Pair))
         .register_value("integer?", gen_pred!(IntV))
         .register_value("boolean?", gen_pred!(BoolV))
+        .register_value("continuation?", gen_pred!(ContinuationFunction))
         .register_value(
             "function?",
-            gen_pred!(Closure, FuncV, ContractedFunction, BoxedFunction),
+            gen_pred!(
+                Closure,
+                FuncV,
+                ContractedFunction,
+                BoxedFunction,
+                ContinuationFunction
+            ),
+        )
+        .register_value(
+            "procedure?",
+            gen_pred!(
+                Closure,
+                FuncV,
+                ContractedFunction,
+                BoxedFunction,
+                ContinuationFunction
+            ),
         );
 }
 

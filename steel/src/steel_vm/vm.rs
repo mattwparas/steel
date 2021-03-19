@@ -148,7 +148,7 @@ impl VirtualMachineCore {
 
         let constant_map = ConstantMap::from_bytes(&constant_map)?;
 
-        instructions
+        let output = instructions
             .into_iter()
             .map(|x| {
                 let code = Rc::from(x.into_boxed_slice());
@@ -157,7 +157,27 @@ impl VirtualMachineCore {
                 // println!("{:?}", now.elapsed());
                 res
             })
-            .collect()
+            .collect();
+
+        // TODO come back and fix this
+        // self.global_heap.clear();
+
+        // self.global_heap.profile_heap();
+
+        // self.global_heap.collect_garbage();
+
+        // self.global_heap.drop_large_refs();
+
+        self.global_heap.profile_heap();
+
+        self.global_heap.drop_large_refs();
+        self.global_heap.gather_big_mark_and_sweep(&self.global_env);
+
+        self.global_heap.profile_heap();
+
+        // println!("Global heap length: {}", self.global_heap.len());
+
+        output
     }
 
     pub fn execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<SteelVal>> {
@@ -276,12 +296,30 @@ impl VirtualMachineCore {
         );
 
         if self.global_env.borrow().is_binding_context() {
-            self.global_heap.append(&mut heap);
+            // self.global_heap.append(&mut heap);
             self.global_env.borrow_mut().set_binding_context(false);
         }
 
-        heap.clear();
-        heap.reset_limit();
+        self.global_heap.append(&mut heap);
+
+        // println!(
+        //     "###################### Global heap length: {}",
+        //     self.global_heap.len()
+        // );
+
+        // TODO collect garbage
+        self.global_heap.collect_garbage();
+
+        // self.global_heap.drop_large_refs();
+
+        // println!(
+        //     "###################### Global heap length: {}",
+        //     self.global_heap.len()
+        // );
+
+        // println!("Clearing heap");
+        // heap.clear();
+        // heap.reset_limit();
 
         result
     }
@@ -396,6 +434,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // println!("stacks at continuation: {:?}", self.stacks);
         // println!("stack at continuation: {:?}", self.stack);
 
+        // dbg!("Creating a continuation");
+
         Continuation {
             stack: self.stack.clone(),
             stacks: self.stacks.clone(),
@@ -410,6 +450,20 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn set_state_from_continuation(&mut self, continuation: Continuation) {
+        // dbg!("Setting state from continuation");
+
+        // println!("Env stack length: {}", self.env_stack.len());
+
+        // See if this fixes the problem
+        // self.continuation_stack
+        //     .push(self.new_continuation_from_state());
+
+        // dbg!("Adding env to the heap");
+        // self.heap.add(Rc::clone(&self.global_env));
+
+        // dbg!(&self.global_env);
+        // dbg!(&continuation.global_env);
+
         self.stack = continuation.stack;
         self.stacks = continuation.stacks;
         self.instructions = continuation.instructions;
@@ -418,6 +472,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.env_stack = continuation.env_stack;
         self.ip = continuation.ip;
         self.pop_count = continuation.pop_count;
+
+        // dbg!("Done setting state from continuation");
     }
 
     #[inline(always)]
@@ -474,6 +530,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                     match function {
                         SteelVal::Closure(closure) => {
+                            // dbg!("Calling closoure from call/cc");
+
                             if self.stacks.len() == STACK_LIMIT {
                                 // println!("stacks at exit: {:?}", stacks);
                                 println!("stack frame at exit: {:?}", self.stack);
@@ -497,6 +555,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             // TODO this is where the memory leak is
                             self.env_stack.push(Rc::clone(&self.global_env));
 
+                            // added this here
+                            // self.heap.add(Rc::clone(&self.global_env));
+
                             self.global_env = inner_env;
                             self.instruction_stack.push(InstructionPointer::new(
                                 self.ip + 1,
@@ -511,7 +572,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         }
                         SteelVal::ContinuationFunction(cc) => {
                             // let last = self.stack.pop().unwrap();
-                            // println!("Calling continuation inside call/cc");
+                            // dbg!("Calling continuation inside call/cc");
+                            // self.env_stack.push(Rc::clone(&self.global_env));
                             self.set_state_from_continuation(cc.unwrap());
                             self.ip += 1;
                             self.stack.push(continuation);
@@ -578,6 +640,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                         self.global_env.borrow_mut().set_binding_offset(false);
 
+                        // println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
+
                         return ret_val;
                     } else {
                         let ret_val = self.stack.pop().unwrap();
@@ -585,6 +649,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                         if !prev_state.instrs_ref().is_empty() {
                             // println!("not empty case");
+                            // self.heap.add(Rc::clone(&self.global_env));
                             self.global_env = self.env_stack.pop().unwrap();
                             self.ip = prev_state.0;
                             self.instructions = prev_state.instrs();
@@ -806,6 +871,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // awful awful awful hack to fix the repl environment noise
         // cur_inst.payload_size as usize
 
+        // println!("###################################################");
+
+        // dbg!(&self.env_stack);
+        // dbg!(&self.global_env);
+
         let value = self.global_env.borrow().repl_lookup_idx(index)?;
         self.stack.push(value);
 
@@ -914,6 +984,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
                 }
 
+                // dbg!(&self.env_stack);
+                // dbg!(&self.global_env);
+
                 let args = self.stack.split_off(self.stack.len() - payload_size);
 
                 let parent_env = closure.sub_expression_env();
@@ -945,6 +1018,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.heap
                     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
                 self.heap.collect_garbage();
+
+                // Added this one as well
+                // self.heap.add(Rc::clone(&self.global_env));
 
                 self.global_env = inner_env;
                 self.instructions = closure.body_exp();
@@ -1040,8 +1116,21 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
+        // dbg!("Calling continuation from inside call_continuation");
+
         let last = self.stack.pop().unwrap();
+
+        // self.env_stack.push(Rc::clone(&self.global_env));
+
+        // let local_env = Rc::clone(&self.global_env);
+
+        // TODO come back and revisit this
+        // self.heap.add(Rc::clone(&self.global_env));
+
         self.set_state_from_continuation(continuation.clone());
+
+        // self.global_env = local_env;
+
         self.ip += 1;
         self.stack.push(last);
         Ok(())
@@ -1069,6 +1158,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     println!("stack frame at exit: {:?}", self.stack);
                     stop!(Generic => "stack overflowed!"; *span);
                 }
+
+                // dbg!(&self.env_stack);
+                // dbg!(&self.global_env);
 
                 // Use smallvec here?
                 let args = self.stack.split_off(self.stack.len() - payload_size);
@@ -1119,6 +1211,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // closure_stack.push(Rc::clone(&stack_func));
                 // TODO this is where the memory leak is
                 self.env_stack.push(Rc::clone(&self.global_env));
+
+                // Added this one here too
+                // self.heap.add(Rc::clone(&self.global_env));
 
                 self.global_env = inner_env;
                 self.instruction_stack.push(InstructionPointer::new(
@@ -1222,6 +1317,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // closure_stack.push(Rc::clone(&stack_func));
                 // TODO this is where the memory leak is
                 self.env_stack.push(Rc::clone(&self.global_env));
+
+                // Added this here too
+                // self.heap.add(Rc::clone(&self.global_env));
 
                 self.global_env = inner_env;
                 self.instruction_stack.push(InstructionPointer::new(

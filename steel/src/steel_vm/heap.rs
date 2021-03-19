@@ -46,7 +46,7 @@ impl Heap {
             heap: Vec::new(),
             root: None,
             limit: HEAP_LIMIT,
-            max_double: 4,
+            max_double: 2,
             current_double: 0,
         }
     }
@@ -114,7 +114,7 @@ impl Heap {
                 self.len(),
                 OBJECT_COUNT
             );
-            self.profile_heap();
+            // self.profile_heap();
             self.drop_large_refs();
             if self.current_double < self.max_double {
                 self.limit *= 2;
@@ -128,7 +128,7 @@ impl Heap {
                 self.current_double = 0;
                 // std::thread::sleep(std::time::Duration::new(3, 0));
             }
-            self.profile_heap();
+            // self.profile_heap();
 
             debug!(
                 "After mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
@@ -169,23 +169,56 @@ impl Heap {
     }
 
     // #[inline]
-    fn _match_closure(&mut self, val: &SteelVal) {
+    fn match_closure(&mut self, val: &SteelVal) {
         match val {
             SteelVal::Closure(bytecode_lambda) => {
                 let p_env = bytecode_lambda.sub_expression_env().upgrade().unwrap();
 
+                self.big_gather(&p_env);
+
                 let reachable = p_env.borrow().is_reachable();
 
                 if !reachable {
-                    self.gather(&p_env);
+                    self.big_gather(&p_env);
                 }
             }
             SteelVal::Pair(_) => {
                 // println!("Getting here!");
-                SteelVal::iter(val.clone()).for_each(|x| self._match_closure(&x))
+                SteelVal::iter(val.clone()).for_each(|x| self.match_closure(&x))
             }
-            SteelVal::VectorV(v) => v.iter().for_each(|x| self._match_closure(x)),
+            SteelVal::VectorV(v) => v.iter().for_each(|x| self.match_closure(x)),
+            SteelVal::HashMapV(hm) => hm.values().for_each(|x| self.match_closure(x)),
+            SteelVal::HashSetV(hs) => hs.iter().for_each(|x| self.match_closure(x)),
             _ => {} // SteelVal::Closure
+        }
+    }
+
+    pub fn big_gather(&mut self, leaf: &Rc<RefCell<Env>>) {
+        self.add(Rc::clone(leaf));
+
+        if leaf.borrow().is_root() {
+            return;
+        }
+
+        let mut env = Rc::clone(leaf);
+        // let mut heap = vec![Rc::clone(leaf)];
+
+        while let Some(parent_env) = Rc::clone(&env).borrow().sub_expression() {
+            let upgraded_env = parent_env.upgrade().unwrap();
+            if !upgraded_env.borrow().is_root() {
+                let e = Rc::clone(&upgraded_env);
+                self.add(Rc::clone(&e));
+                // See if this works...
+                // TODO come back to this
+                // MATCH CLOSURE PROBLEM
+                for value in e.borrow().bindings_map().values() {
+                    self.match_closure(value);
+                }
+
+                env = upgraded_env;
+            } else {
+                break;
+            }
         }
     }
 
@@ -222,6 +255,16 @@ impl Heap {
         self.heap
             .iter()
             .for_each(|x| x.borrow_mut().set_reachable(true));
+    }
+
+    pub fn reset(&self) {
+        self.heap
+            .iter()
+            .for_each(|x| x.borrow_mut().set_reachable(false));
+    }
+
+    pub fn drop_unreachable(&mut self) {
+        &self.heap.retain(|x| x.borrow().is_reachable());
     }
 
     pub fn sweep(&mut self) {
@@ -272,6 +315,20 @@ impl Heap {
     pub fn gather_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {
         Self::gather_and_mark(leaf);
         self.sweep()
+    }
+
+    pub fn gather_big_mark_and_sweep(&mut self, root: &Rc<RefCell<Env>>) {
+        {
+            let mut heap = Self::new();
+            for value in root.borrow().bindings_map().values() {
+                heap.match_closure(value);
+            }
+            heap.mark();
+            // dbg!(&heap.heap);
+        }
+        // dbg!(&self.heap);
+        self.drop_unreachable();
+        self.reset();
     }
 
     pub fn gather_mark_and_sweep_2(&mut self, leaf1: &Rc<RefCell<Env>>, leaf2: &Rc<RefCell<Env>>) {
