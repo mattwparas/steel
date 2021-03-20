@@ -18,8 +18,11 @@ pub struct Heap {
     heap: Vec<Rc<RefCell<Env>>>,
     root: Option<Weak<RefCell<Env>>>,
     limit: usize,
-    max_double: usize,
-    current_double: usize,
+    max_double: u8,
+    current_double: u8,
+    // Use for deciding when to run a full traversal
+    purge_count: u8,
+    purge_max: u8,
 }
 
 impl Default for Heap {
@@ -30,6 +33,8 @@ impl Default for Heap {
             limit: HEAP_LIMIT,
             max_double: 2,
             current_double: 0,
+            purge_count: 0,
+            purge_max: 5,
         }
     }
 }
@@ -48,6 +53,8 @@ impl Heap {
             limit: HEAP_LIMIT,
             max_double: 2,
             current_double: 0,
+            purge_count: 0,
+            purge_max: 5,
         }
     }
 
@@ -130,6 +137,8 @@ impl Heap {
             }
             // self.profile_heap();
 
+            self.purge_count += 1;
+
             debug!(
                 "After mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
                 self.len(),
@@ -137,6 +146,15 @@ impl Heap {
             );
 
             debug!("Heap limit set to: {}", self.limit);
+
+            if self.purge_count == self.purge_max {
+                if let Some(root) = &self.root {
+                    let root = root.upgrade().unwrap();
+                    self.gather_big_mark_and_sweep(&root);
+                }
+                self.purge_count = 0;
+            }
+
             // std::thread::sleep(std::time::Duration::new(3, 0));
         }
     }
