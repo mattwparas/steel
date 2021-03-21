@@ -13,14 +13,12 @@
 ; await : future -> value
 ; yield the current thread and loop until the value is completed
 (define (await future)
-    (define (loop future)
-        (define output (poll! future))
-        (if output
-            output
-            (begin
-                (yield)
-                (loop future))))
-    (loop future))
+    (define output (poll! future))
+    (if output
+        output
+        (begin
+            (yield)
+            (await future))))
 
 ; spawn : (-> anything) -> void
 (define (spawn thunk)
@@ -64,7 +62,7 @@
 
 
 ;; Example cooperatively threaded program
-(define counter 10)
+(define counter 2)
 
 (define (make-thread-thunk name)
   (define (loop)

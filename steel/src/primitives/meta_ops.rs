@@ -147,7 +147,7 @@ impl MetaOperations {
                 let ready = poll_future(fut.into_shared());
                 match ready {
                     Some(v) => v,
-                    None => Ok(SteelVal::BoolV(true)),
+                    None => Ok(SteelVal::BoolV(false)),
                 }
             } else {
                 stop!(Generic => "poll! accepts futures only");

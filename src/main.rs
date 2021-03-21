@@ -2,7 +2,7 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use steel::steel_vm::engine::Engine;
+use steel::steel_vm::{engine::Engine, register_fn::RegisterAsyncFn};
 use steel_repl::repl::repl_base;
 
 use std::env::args;
@@ -63,7 +63,17 @@ fn finish(result: Result<(), std::io::Error>) -> ! {
     process::exit(code);
 }
 
+async fn test() -> Result<(), Box<dyn std::error::Error>> {
+    let resp = reqwest::get("https://httpbin.org/ip")
+        .await?
+        .json::<std::collections::HashMap<String, String>>()
+        .await?;
+    println!("{:#?}", resp);
+    Ok(())
+}
+
 pub fn configure_engine() -> Engine {
-    let vm = Engine::new_base();
+    let mut vm = Engine::new_base();
+    vm.register_async_fn("test", test);
     vm
 }
