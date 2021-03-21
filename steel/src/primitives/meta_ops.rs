@@ -1,12 +1,16 @@
-use crate::gc::{get_object_count, Gc};
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{poll_future, Result, SteelVal};
 use crate::stop;
+use crate::{
+    gc::{get_object_count, Gc},
+    rvals::FutureResult,
+};
 
 use futures::{executor::LocalPool, future::join_all};
 
 use async_compat::Compat;
 
+use futures::FutureExt;
 use std::cell::RefCell;
 
 pub struct MetaOperations {}
@@ -154,4 +158,29 @@ impl MetaOperations {
             }
         })
     }
+
+    // pub fn join_futures() -> SteelVal {
+    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+    //         if args.len() != 0 {
+    //             stop!(Generic => "join! requires at least one argument");
+    //         }
+
+    //         let joined_futures: Vec<_> = args
+    //             .into_iter()
+    //             .map(|x| {
+    //                 if let SteelVal::FutureV(f) = x {
+    //                     Ok(f.unwrap().into_shared())
+    //                 } else {
+    //                     stop!(TypeMismatch => "join! given non future")
+    //                 }
+    //             })
+    //             .collect::<Result<im_rc::Vec<_>>>()?;
+
+    //         let futures = join_all(joined_futures);
+
+    //         Ok(SteelVal::FutureV(Gc::new(FutureResult::new(Box::pin(
+    //             futures.map(|x| SteelVal::VectorV(x.into_iter().map(|x| x.map(|x|)))),
+    //         )))))
+    //     })
+    // }
 }
