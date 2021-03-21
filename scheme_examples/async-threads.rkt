@@ -55,10 +55,9 @@
           (set! halt (lambda () (cc #f)))
           (if (null? *thread-queue*)
               void
-              (begin
-                (let ((next-thread (car *thread-queue*)))
-                  (set! *thread-queue* (cdr *thread-queue*))
-                  (next-thread 'resume)))))
+              (let ((next-thread (car *thread-queue*)))
+                    (set! *thread-queue* (cdr *thread-queue*))
+                    (next-thread 'resume))))
         void)))
 
 
