@@ -332,10 +332,13 @@ impl Heap {
 
     pub fn gather_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {
         Self::gather_and_mark(leaf);
-        self.sweep()
+        self.sweep();
+        self.reset();
     }
 
     pub fn gather_big_mark_and_sweep(&mut self, root: &Rc<RefCell<Env>>) {
+        debug!("Running full mark and sweep");
+
         {
             let mut heap = Self::new();
             for value in root.borrow().bindings_map().values() {
@@ -356,6 +359,7 @@ impl Heap {
         debug!("Running mark and sweep");
         Self::gather_and_mark_2(leaf1, leaf2);
         self.sweep();
+        self.reset();
         // self.add(Rc::clone(leaf1));
         // self.add(Rc::clone(leaf2));
     }

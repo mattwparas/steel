@@ -16,7 +16,6 @@ use std::{
     any::Any,
     cell::RefCell,
     cmp::Ordering,
-    // convert::TryFrom,
     fmt,
     fmt::Write,
     future::Future,
@@ -24,6 +23,8 @@ use std::{
     pin::Pin,
     rc::{Rc, Weak},
     result,
+    sync::Arc,
+    task::Context,
 };
 
 // use std::any::Any;
@@ -31,8 +32,11 @@ use SteelVal::*;
 
 use im_rc::{HashMap, HashSet, Vector};
 
-use futures::future::Shared;
-use futures::FutureExt;
+use futures::{
+    future::Shared,
+    task::{noop_waker_ref, ArcWake},
+};
+use futures::{lock::Mutex, FutureExt};
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
@@ -76,6 +80,29 @@ impl FutureResult {
 
     pub fn into_shared(self) -> Shared<BoxedFutureResult> {
         self.0
+    }
+}
+
+// This is an attempt to one off poll a future
+// This should enable us to use embedded async functions
+// Will require using call/cc w/ a thread queue in steel, however it should be possible
+pub(crate) fn poll_future(mut fut: Shared<BoxedFutureResult>) -> Option<Result<SteelVal>> {
+    // If the future has already been awaited (by somebody) get that value instead
+    if let Some(output) = fut.peek() {
+        return Some(output.clone());
+    }
+
+    // Otherwise, go ahead and poll the value to see if its ready
+    // The context is going to exist exclusively in Steel, hidden behind an `await`
+    let waker = noop_waker_ref();
+    let context = &mut Context::from_waker(&*waker);
+
+    // Polling requires a pinned future - TODO make sure this is correct
+    let mut_fut = Pin::new(&mut fut);
+
+    match Future::poll(mut_fut, context) {
+        std::task::Poll::Ready(r) => Some(r),
+        std::task::Poll::Pending => None,
     }
 }
 
