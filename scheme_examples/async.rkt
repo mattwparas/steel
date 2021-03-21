@@ -10,6 +10,18 @@
    (lambda (cc)
      (cc cc))))
 
+; await : future -> value
+; yield the current thread and loop until the value is completed
+(define (await future)
+    (define (loop future)
+        (define output (poll! future))
+        (if output
+            output
+            (begin
+                (yield)
+                (loop future))))
+    (loop future))
+
 ; spawn : (-> anything) -> void
 (define (spawn thunk)
   (let ((cc (current-continuation)))
@@ -64,6 +76,10 @@
         (display counter)
         (newline)
         (set! counter (- counter 1))
+        (define output (await (test))) ;; block the execution of this thread on this future
+        (display "Future done!: ")
+        (display output)
+        (newline)
         (yield)
         (loop))
   loop)
