@@ -315,7 +315,8 @@ pub(crate) fn register_meta_functions(engine: &mut Engine) {
         .register_value("active-object-count", MetaOperations::active_objects())
         .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
         .register_value("memory-address", MetaOperations::memory_address())
-        .register_value("async-exec", MetaOperations::exec_async());
+        .register_value("async-exec", MetaOperations::exec_async())
+        .register_value("poll!", MetaOperations::poll_value());
 }
 
 #[inline(always)]

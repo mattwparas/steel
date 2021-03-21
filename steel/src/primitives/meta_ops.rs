@@ -1,6 +1,6 @@
 use crate::gc::{get_object_count, Gc};
 use crate::rerrs::{ErrorKind, SteelErr};
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{poll_future, Result, SteelVal};
 use crate::stop;
 
 use futures::{executor::LocalPool, future::join_all};
@@ -133,6 +133,25 @@ impl MetaOperations {
                     .into_iter()
                     .collect::<Result<_>>()?,
             )))
+        })
+    }
+
+    pub fn poll_value() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(Generic => "poll! only takes one argument");
+            }
+
+            if let SteelVal::FutureV(fut) = args[0].clone() {
+                let fut = fut.unwrap();
+                let ready = poll_future(fut.into_shared());
+                match ready {
+                    Some(v) => v,
+                    None => Ok(SteelVal::BoolV(true)),
+                }
+            } else {
+                stop!(Generic => "poll! accepts futures only");
+            }
         })
     }
 }
