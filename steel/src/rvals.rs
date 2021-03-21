@@ -407,7 +407,7 @@ impl SteelVal {
     pub fn is_truthy(&self) -> bool {
         match &self {
             SteelVal::BoolV(false) => false,
-            SteelVal::VectorV(v) => v.is_empty(),
+            SteelVal::VectorV(v) => !v.is_empty(),
             _ => true,
         }
     }

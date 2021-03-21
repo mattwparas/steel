@@ -161,7 +161,7 @@ impl MetaOperations {
 
     pub fn join_futures() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 0 {
+            if args.len() == 0 {
                 stop!(Generic => "join! requires at least one argument");
             }
 
@@ -182,21 +182,9 @@ impl MetaOperations {
                     .map(|x| SteelVal::VectorV(Gc::new(x)))
             });
 
-            // futures.into_iter().collect::<Result<im_rc::Vector<_>>>()?
-
-            // unimplemented!()
-
             Ok(SteelVal::FutureV(Gc::new(FutureResult::new(Box::pin(
                 futures,
             )))))
-
-            // Ok(SteelVal::FutureV(Gc::new(FutureResult::new(Box::pin(
-            //     futures,
-            // )))))
-
-            // Ok(SteelVal::FutureV(Gc::new(FutureResult::new(Box::pin(
-            //     futures.map(|x| SteelVal::VectorV(x.into_iter().map(|x| x.map(|x|)))),
-            // )))))
         })
     }
 }
