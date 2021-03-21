@@ -23,7 +23,6 @@ use std::{
     pin::Pin,
     rc::{Rc, Weak},
     result,
-    sync::Arc,
     task::Context,
 };
 
@@ -32,11 +31,8 @@ use SteelVal::*;
 
 use im_rc::{HashMap, HashSet, Vector};
 
-use futures::{
-    future::Shared,
-    task::{noop_waker_ref, ArcWake},
-};
-use futures::{lock::Mutex, FutureExt};
+use futures::FutureExt;
+use futures::{future::Shared, task::noop_waker_ref};
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
