@@ -68,7 +68,6 @@
         (loop))
   loop)
 
-; ((make-thread-thunk 'a))
 (spawn (make-thread-thunk 'a))
 (spawn (make-thread-thunk 'b))
 (spawn (make-thread-thunk 'c))
