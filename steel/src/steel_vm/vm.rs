@@ -57,12 +57,6 @@ impl VirtualMachineCore {
         self.global_env.borrow_mut().add_root_value(idx, value);
     }
 
-    pub fn insert_bindings(&mut self, vals: Vec<(usize, SteelVal)>) {
-        for (idx, value) in vals {
-            self.global_env.borrow_mut().add_root_value(idx, value);
-        }
-    }
-
     pub fn extract_value(&self, idx: usize) -> Option<SteelVal> {
         self.global_env.borrow().extract(idx)
     }
@@ -95,17 +89,17 @@ impl VirtualMachineCore {
         &self.callback.with_callback(callback);
     }
 
-    pub fn print_bindings(&self) {
-        println!(
-            "Env length: {}",
-            self.global_env.borrow().bindings_map().len()
-        );
-        println!("{:?}", self.global_env.borrow().bindings_map());
-    }
+    // pub fn print_bindings(&self) {
+    //     println!(
+    //         "Env length: {}",
+    //         self.global_env.borrow().bindings_map().len()
+    //     );
+    //     println!("{:?}", self.global_env.borrow().bindings_map());
+    // }
 
-    pub fn roll_back(&mut self, _idx: usize) {
-        unimplemented!()
-    }
+    // pub fn roll_back(&mut self, _idx: usize) {
+    //     unimplemented!()
+    // }
 
     // Read in the file from the given path and execute accordingly
     // Loads all the functions in from the given env
@@ -180,7 +174,7 @@ impl VirtualMachineCore {
         output
     }
 
-    pub fn execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<SteelVal>> {
+    pub fn _execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<SteelVal>> {
         // unimplemented!()
 
         let Program {

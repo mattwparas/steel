@@ -11,7 +11,7 @@ pub struct FlatContract {
     /// Steel Function of any kind
     predicate: SteelVal,
     /// Name of the function for blaming purposes
-    pub name: String,
+    pub(crate) name: String,
 }
 
 impl fmt::Display for FlatContract {
@@ -57,7 +57,7 @@ pub struct FunctionContract {
     /// Post condition, required to be a contract type
     post_condition: Gc<ContractType>,
     /// Location/Name of contract attachment
-    pub contract_attachment_location: Option<String>,
+    pub(crate) contract_attachment_location: Option<String>,
     /// Stack of function contracts to also abide by, checked at application
     parent: Option<Gc<FunctionContract>>,
 }

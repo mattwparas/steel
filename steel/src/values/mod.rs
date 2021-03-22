@@ -1,5 +1,5 @@
-pub mod contracts;
-pub mod json_vals;
-pub mod lazy_stream;
-pub mod port;
-pub mod structs;
+pub(crate) mod contracts;
+pub(crate) mod json_vals;
+pub(crate) mod lazy_stream;
+pub(crate) mod port;
+pub(crate) mod structs;

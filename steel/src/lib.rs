@@ -1,6 +1,6 @@
 extern crate im_rc;
 #[macro_use]
-pub mod env;
+mod env;
 #[macro_use]
 pub mod core;
 pub mod compiler;
@@ -14,6 +14,6 @@ pub mod gc;
 pub mod conversions;
 pub mod parser;
 pub mod steel_vm;
-pub mod values;
+pub(crate) mod values;
 
 pub use self::{gc::Gc, rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};
