@@ -63,17 +63,12 @@ fn finish(result: Result<(), std::io::Error>) -> ! {
     process::exit(code);
 }
 
-async fn test() -> Result<(), Box<dyn std::error::Error>> {
-    let resp = reqwest::get("https://httpbin.org/ip")
-        .await?
-        .json::<std::collections::HashMap<String, String>>()
-        .await?;
-    println!("{:#?}", resp);
-    Ok(())
+async fn test_async_function() -> usize {
+    10
 }
 
 pub fn configure_engine() -> Engine {
     let mut vm = Engine::new_base();
-    vm.register_async_fn("test", test);
+    vm.register_async_fn("test", test_async_function);
     vm
 }
