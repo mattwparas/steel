@@ -60,21 +60,34 @@
                     (next-thread 'resume))))
         void)))
 
+;; Define an entry point 
+(define-syntax async-main
+  (syntax-rules ()
+    [(async-main main-func)
+    (begin main-func (spawn main) (start-threads))]))
 
-;; Example cooperatively threaded program
-(define counter 10)
+;; Use a macro to make it a little bit prettier
+(async-main
+  (define (main)
+      (displayln "Starting the main thread now!")
+      (define fut-1 (test))
+      (define fut-2 (test))
+      (define fut-3 (test))
+      ;; we're just going to block on the three different async calls
+      (await 
+          (join! fut-1 fut-2 fut-3))))
 
-(define (main)
-    (displayln "Starting the main thread now!")
-    (define fut-1 (test))
-    (define fut-2 (test))
-    (define fut-3 (test))
-    ;; we're just going to block on the three different async calls
-    (await 
-        (join! fut-1 fut-2 fut-3)))
+;; Alternatively, we could just do this normally
+; (define (main)
+;     (displayln "Starting the main thread now!")
+;     (define fut-1 (test))
+;     (define fut-2 (test))
+;     (define fut-3 (test))
+;     ;; we're just going to block on the three different async calls
+;     (await 
+;         (join! fut-1 fut-2 fut-3)))
+; ;; Start one 'thread' for main
+; (spawn main)
 
-;; Start one 'thread' for main
-(spawn main)
-
-;; Kick off the execution
-(start-threads)
+; ;; Kick off the execution
+; (start-threads)
