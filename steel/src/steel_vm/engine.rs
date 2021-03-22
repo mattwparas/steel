@@ -24,6 +24,16 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// Instantiates a raw engine instance. Includes no primitives or prelude.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// let mut vm = Engine::new_raw();
+    /// assert!(vm.run("(+ 1 2 3").is_err()); // + is a free identifier
+    /// ```
     pub fn new_raw() -> Self {
         Engine {
             virtual_machine: VirtualMachineCore::new(),
@@ -31,6 +41,18 @@ impl Engine {
         }
     }
 
+    /// Instantiates a new engine instance with all primitive functions enabled.
+    /// This excludes the prelude and contract files.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// let mut vm = Engine::new_base();
+    /// // map is found in the prelude, so this will fail
+    /// assert!(vm.run(r#"(map (lambda (x) 10) (list 1 2 3 4 5))"#).is_err());
+    /// ```
     #[inline]
     pub fn new_base() -> Self {
         let mut vm = Engine::new_raw();
@@ -39,6 +61,18 @@ impl Engine {
         vm
     }
 
+    /// Instantiates a new engine instance with all the primitive functions enabled.
+    /// This is the most general engine entry point, and includes both the contract and
+    /// prelude files in the root.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// let mut vm = Engine::new();
+    /// vm.run(r#"(+ 1 2 3)"#).unwrap();
+    /// ```
     pub fn new() -> Self {
         let mut vm = Engine::new_base();
 
@@ -57,6 +91,17 @@ impl Engine {
         vm
     }
 
+    /// Consumes the current `Engine` and emits a new `Engine` with the prelude added
+    /// to the environment. The prelude won't work unless the primitives are also enabled.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// let mut vm = Engine::new_base().with_prelude().unwrap();
+    /// vm.run("(+ 1 2 3)").unwrap();
+    /// ```
     pub fn with_prelude(mut self) -> Result<Self> {
         let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
 
@@ -67,6 +112,18 @@ impl Engine {
         Ok(self)
     }
 
+    /// Registers the prelude to the environment of the given Engine.
+    /// The prelude won't work unless the primitives are also enabled.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// let mut vm = Engine::new_base();
+    /// vm.register_prelude().unwrap();
+    /// vm.run("(+ 1 2 3)").unwrap();
+    /// ```
     pub fn register_prelude(&mut self) -> Result<&mut Self> {
         let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
 
@@ -124,15 +181,36 @@ impl Engine {
         self
     }
 
-    pub fn register_values(&mut self, values: Vec<(String, SteelVal)>) -> &mut Self {
+    pub fn register_values(
+        &mut self,
+        values: impl Iterator<Item = (String, SteelVal)>,
+    ) -> &mut Self {
         for (name, value) in values {
             self.register_value(name.as_str(), value);
         }
         self
     }
 
-    /// Registers a predicate for a given type
-    /// This lets you be able to register
+    /// Registers a predicate for a given type. When embedding external values, it is convenient
+    /// to be able to have a predicate to test if the given value is the specified type.
+    /// In order to be registered, a type must implement [`FromSteelVal`](crate::rvals::FromSteelVal)
+    /// and [`IntoSteelVal`](crate::rvals::IntoSteelVal)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// use steel::steel_vm::register_fn::RegisterFn;
+    /// fn foo() -> usize {
+    ///    10
+    /// }
+    ///
+    /// let mut vm = Engine::new();
+    /// vm.register_fn("foo", foo);
+    ///
+    /// vm.run(r#"(foo)"#).unwrap(); // Returns vec![10]
+    /// ```
     pub fn register_type<T: FromSteelVal + IntoSteelVal>(
         &mut self,
         predicate_name: &'static str,

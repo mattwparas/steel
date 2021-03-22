@@ -1,8 +1,4 @@
-use crate::{
-    env::Env,
-    gc::{Gc, OBJECT_COUNT},
-    rvals::SteelVal,
-};
+use crate::{env::Env, gc::OBJECT_COUNT, rvals::SteelVal};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::rc::Weak;
@@ -77,7 +73,7 @@ impl Heap {
         self.limit
     }
 
-    pub fn inspect_heap(&self) {
+    pub fn _inspect_heap(&self) {
         println!("heap length: {}", self.heap.len());
         self.heap.iter().for_each(|x| {
             println!(
@@ -99,13 +95,13 @@ impl Heap {
         self.heap.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.heap.is_empty()
-    }
+    // pub fn is_empty(&self) -> bool {
+    //     self.heap.is_empty()
+    // }
 
-    pub fn reset_limit(&mut self) {
-        self.limit = 5000;
-    }
+    // pub fn reset_limit(&mut self) {
+    //     self.limit = 5000;
+    // }
 
     pub fn append(&mut self, other: &mut Self) {
         self.heap.append(&mut other.heap)
@@ -306,21 +302,21 @@ impl Heap {
         // .retain(|x| x.borrow().is_reachable());
     }
 
-    pub fn mark_and_sweep(&mut self) {
-        self.mark();
-        self.sweep();
-    }
+    // pub fn mark_and_sweep(&mut self) {
+    //     self.mark();
+    //     self.sweep();
+    // }
 
-    pub fn collect_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {
-        self.gather(leaf);
-        self.mark_and_sweep();
-    }
+    // pub fn collect_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {
+    //     self.gather(leaf);
+    //     self.mark_and_sweep();
+    // }
 
-    pub fn gather_and_mark(leaf: &Rc<RefCell<Env>>) {
-        let mut heap = Self::new();
-        heap.gather(leaf);
-        heap.mark();
-    }
+    // pub fn gather_and_mark(leaf: &Rc<RefCell<Env>>) {
+    //     let mut heap = Self::new();
+    //     heap.gather(leaf);
+    //     heap.mark();
+    // }
 
     pub fn gather_and_mark_2(leaf1: &Rc<RefCell<Env>>, leaf2: &Rc<RefCell<Env>>) {
         let mut heap = Self::new();
@@ -330,11 +326,11 @@ impl Heap {
         heap.clear();
     }
 
-    pub fn gather_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {
-        Self::gather_and_mark(leaf);
-        self.sweep();
-        self.reset();
-    }
+    // pub fn gather_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {
+    //     Self::gather_and_mark(leaf);
+    //     self.sweep();
+    //     self.reset();
+    // }
 
     pub fn gather_big_mark_and_sweep(&mut self, root: &Rc<RefCell<Env>>) {
         debug!("Running full mark and sweep");
@@ -364,12 +360,12 @@ impl Heap {
         // self.add(Rc::clone(leaf2));
     }
 
-    pub fn gather_from_slice(&mut self, args: &[Gc<SteelVal>]) {
-        for arg in args {
-            if let SteelVal::Closure(closure) = arg.as_ref() {
-                let parent_env = closure.sub_expression_env().upgrade().unwrap();
-                self.gather(&parent_env)
-            }
-        }
-    }
+    // pub fn gather_from_slice(&mut self, args: &[Gc<SteelVal>]) {
+    //     for arg in args {
+    //         if let SteelVal::Closure(closure) = arg.as_ref() {
+    //             let parent_env = closure.sub_expression_env().upgrade().unwrap();
+    //             self.gather(&parent_env)
+    //         }
+    //     }
+    // }
 }
