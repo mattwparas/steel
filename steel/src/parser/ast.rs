@@ -1115,32 +1115,6 @@ where
 }
 
 #[inline]
-fn parse_quote<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
-where
-    I: Iterator<Item = ExprKind>,
-{
-    value_iter.next();
-
-    let quote = value_iter.next().ok_or_else(|| {
-        ParseError::ArityMismatch(
-            "quote expected one argument, found none".to_string(),
-            syn.span,
-            None,
-        )
-    })?;
-
-    if value_iter.next().is_some() {
-        Err(ParseError::SyntaxError(
-            "quote expects only one argument".to_string(),
-            syn.span,
-            None,
-        ))
-    } else {
-        Ok(Quote::new(quote, syn).into())
-    }
-}
-
-#[inline]
 fn parse_execute<I>(
     mut value_iter: I,
     syn: SyntaxObject,
@@ -1168,18 +1142,20 @@ where
 }
 
 #[inline]
-fn parse_return<I>(
+fn parse_single_argument<I>(
     mut value_iter: I,
     syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
+    name: &'static str,
+    constructor: fn(ExprKind, SyntaxObject) -> ExprKind,
+) -> Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
     value_iter.next();
 
-    let quote = value_iter.next().ok_or_else(|| {
+    let func = value_iter.next().ok_or_else(|| {
         ParseError::ArityMismatch(
-            "return expected one argument, found none".to_string(),
+            format!("{} expected one argument, found none", name),
             syn.span,
             None,
         )
@@ -1187,38 +1163,12 @@ where
 
     if value_iter.next().is_some() {
         Err(ParseError::SyntaxError(
-            "return expects only one argument".to_string(),
+            format!("{} expects only one argument", name),
             syn.span,
             None,
         ))
     } else {
-        Ok(Return::new(quote, syn).into())
-    }
-}
-
-#[inline]
-fn parse_panic<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
-where
-    I: Iterator<Item = ExprKind>,
-{
-    value_iter.next();
-
-    let quote = value_iter.next().ok_or_else(|| {
-        ParseError::ArityMismatch(
-            "panic expected one argument, found none".to_string(),
-            syn.span,
-            None,
-        )
-    })?;
-
-    if value_iter.next().is_some() {
-        Err(ParseError::SyntaxError(
-            "panic expects only one argument".to_string(),
-            syn.span,
-            None,
-        ))
-    } else {
-        Ok(Panic::new(quote, syn).into())
+        Ok(constructor(func, syn))
     }
 }
 
@@ -1235,25 +1185,25 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::Define => parse_define(value.into_iter(), a.syn.clone()),
                         TokenType::Let => parse_let(value.into_iter(), a.syn.clone()),
                         TokenType::Transduce => parse_transduce(value.into_iter(), a.syn.clone()),
-                        TokenType::Quote => parse_quote(value.into_iter(), a.syn.clone()),
+                        TokenType::Quote => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "quote",
+                            |expr, syn| Quote::new(expr, syn).into(),
+                        ),
                         TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
-                        TokenType::Return => parse_return(value.into_iter(), a.syn.clone()),
-                        TokenType::CallCC => {
-                            let syn = a.syn.clone();
-                            if value.len() != 2 {
-                                return Err(ParseError::ArityMismatch(
-                                    "call/cc expects one argument".to_string(),
-                                    syn.span,
-                                    a.syn.source.clone(),
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            let expression = value_iter.next().unwrap();
-
-                            Ok(ExprKind::CallCC(Box::new(CallCC::new(expression, syn))))
-                        }
+                        TokenType::Return => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "return",
+                            |expr, syn| Return::new(expr, syn).into(),
+                        ),
+                        TokenType::CallCC => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "call/cc",
+                            |expr, syn| CallCC::new(expr, syn).into(),
+                        ),
                         TokenType::Require => {
                             let syn = a.syn.clone();
                             if value.len() < 2 {
@@ -1282,38 +1232,18 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             Ok(ExprKind::Require(Require::new(expressions, syn)))
                         }
-                        TokenType::Eval => {
-                            let syn = a.syn.clone();
-                            if value.len() != 2 {
-                                return Err(ParseError::ArityMismatch(
-                                    "eval expected an expression".to_string(),
-                                    syn.span,
-                                    None,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            let expression = value_iter.next().unwrap();
-
-                            Ok(ExprKind::Eval(Box::new(Eval::new(expression, syn))))
-                        }
-                        TokenType::Read => {
-                            let syn = a.syn.clone();
-                            if value.len() != 2 {
-                                return Err(ParseError::ArityMismatch(
-                                    "read expected an expression".to_string(),
-                                    syn.span,
-                                    None,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            let expression = value_iter.next().unwrap();
-
-                            Ok(ExprKind::Read(Box::new(Read::new(expression, syn))))
-                        }
+                        TokenType::Eval => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "eval",
+                            |expr, syn| Eval::new(expr, syn).into(),
+                        ),
+                        TokenType::Read => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "read",
+                            |expr, syn| Read::new(expr, syn).into(),
+                        ),
                         TokenType::Set => {
                             let syn = a.syn.clone();
                             if value.len() != 3 {
@@ -1382,7 +1312,12 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                             value_iter.next();
                             Ok(ExprKind::Begin(Begin::new(value_iter.collect(), syn)))
                         }
-                        TokenType::Panic => parse_panic(value.into_iter(), a.syn.clone()),
+                        TokenType::Panic => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "panic!",
+                            |expr, syn| Panic::new(expr, syn).into(),
+                        ),
                         TokenType::Lambda => {
                             let syn = a.syn.clone();
 

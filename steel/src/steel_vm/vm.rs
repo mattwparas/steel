@@ -34,10 +34,6 @@ use log::error;
 
 const STACK_LIMIT: usize = 100000;
 
-// lazy_static! {
-//     static ref CALL_STACK: Mutex<Vec<u8>> = Mutex::new(vec![]);
-// }
-
 pub struct VirtualMachineCore {
     global_env: Rc<RefCell<Env>>,
     global_heap: Heap,
@@ -60,30 +56,6 @@ impl VirtualMachineCore {
     pub fn extract_value(&self, idx: usize) -> Option<SteelVal> {
         self.global_env.borrow().extract(idx)
     }
-
-    // pub fn new_with_meta() -> VirtualMachine {
-    //     let mut vm = VirtualMachineCore::new();
-    //     vm.insert_binding("*env*".to_string(), Env::constant_env_to_hashmap());
-    //     vm
-    // }
-
-    // pub fn insert_binding(&mut self, name: String, value: SteelVal) {
-    //     self.global_env
-    //         .borrow_mut()
-    //         .add_rooted_value(&mut self.ctx.symbol_map, (name.as_str(), value));
-    // }
-
-    // pub fn insert_gc_binding(&mut self, name: String, value: SteelVal) {
-    //     self.global_env
-    //         .borrow_mut()
-    //         .add_rooted_gc_value(&mut self.ctx.symbol_map, (name.as_str(), value));
-    // }
-
-    // pub fn insert_bindings(&mut self, vals: Vec<(String, SteelVal)>) {
-    //     self.global_env
-    //         .borrow_mut()
-    //         .repl_define_zipped_rooted(&mut self.ctx.symbol_map, vals.into_iter());
-    // }
 
     pub fn on_progress(&mut self, callback: Callback) {
         &self.callback.with_callback(callback);
@@ -444,20 +416,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn set_state_from_continuation(&mut self, continuation: Continuation) {
-        // dbg!("Setting state from continuation");
-
-        // println!("Env stack length: {}", self.env_stack.len());
-
-        // See if this fixes the problem
-        // self.continuation_stack
-        //     .push(self.new_continuation_from_state());
-
-        // dbg!("Adding env to the heap");
-        // self.heap.add(Rc::clone(&self.global_env));
-
-        // dbg!(&self.global_env);
-        // dbg!(&continuation.global_env);
-
         self.stack = continuation.stack;
         self.stacks = continuation.stacks;
         self.instructions = continuation.instructions;
@@ -466,8 +424,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.env_stack = continuation.env_stack;
         self.ip = continuation.ip;
         self.pop_count = continuation.pop_count;
-
-        // dbg!("Done setting state from continuation");
     }
 
     #[inline(always)]
@@ -863,12 +819,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn handle_push(&mut self, index: usize) -> Result<()> {
         // TODO future me figure out the annoying offset issue
         // awful awful awful hack to fix the repl environment noise
-        // cur_inst.payload_size as usize
-
-        // println!("###################################################");
-
-        // dbg!(&self.env_stack);
-        // dbg!(&self.global_env);
 
         let value = self.global_env.borrow().repl_lookup_idx(index)?;
         self.stack.push(value);

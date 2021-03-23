@@ -1,6 +1,120 @@
 #[cfg(test)]
 mod call_cc_tests {
+    use crate::steel_vm::engine::Engine;
+    use crate::steel_vm::register_fn::RegisterAsyncFn;
     use crate::steel_vm::test_util::assert_script;
+
+    #[test]
+    fn test_async() {
+        async fn test_function() -> usize {
+            10 + await_within().await
+        }
+
+        async fn await_within() -> usize {
+            25
+        }
+
+        let mut vm = Engine::new();
+
+        // You can even register async finctions
+        vm.register_async_fn("test", test_function);
+
+        let contents = r#"
+        ; *thread-queue* : list[continuation]
+        (define *thread-queue* '())
+
+        ; halt : continuation
+        (define halt #f)
+
+        ; current-continuation : -> continuation
+        (define (current-continuation)
+        (call/cc
+        (lambda (cc)
+            (cc cc))))
+
+        ; await : future -> value
+        ; yield the current thread and loop until the value is completed
+        (define (await future)
+            (define output (poll! future))
+            (if output
+                output
+                (begin
+                    (yield)
+                    (await future))))
+
+        ; spawn : (-> anything) -> void
+        (define (spawn thunk)
+        (let ((cc (current-continuation)))
+            (if (continuation? cc)
+                (set! *thread-queue* (append *thread-queue* (list cc)))
+                (begin 
+                    (thunk)
+                    (quit)))))
+
+        ; yield : value -> void
+        (define (yield)
+        (let ((cc (current-continuation)))
+            (if (and (continuation? cc) (pair? *thread-queue*))
+                (let ((next-thread (car *thread-queue*)))
+                (set! *thread-queue* (append (cdr *thread-queue*) (list cc)))
+                (next-thread 'resume))
+                void)))
+
+        ; quit : -> ...
+        (define (quit)
+        (if (pair? *thread-queue*)
+            (let ((next-thread (car *thread-queue*)))
+                (set! *thread-queue* (cdr *thread-queue*))
+                (next-thread 'resume))
+            (halt)))
+        
+        ; start-threads : -> ...
+        (define (start-threads)
+        (let ((cc (current-continuation)))
+            (if cc
+                (begin
+                (set! halt (lambda () (cc #f)))
+                (if (null? *thread-queue*)
+                    void
+                    (begin
+                        (let ((next-thread (car *thread-queue*)))
+                        (set! *thread-queue* (cdr *thread-queue*))
+                        (next-thread 'resume)))))
+                void)))
+
+
+        ;; Example cooperatively threaded program
+        (define counter 10)
+
+        (define (make-thread-thunk name)
+        (define (loop)
+                (when (< counter 0)
+                    (quit))
+                (display "in thread ")
+                (display name)
+                (display "; counter = ")
+                (display counter)
+                (newline)
+                (set! counter (- counter 1))
+                (define output (await (test))) ;; block the execution of this thread on this future
+                (display "Future done!: ")
+                (display output)
+                (newline)
+                (yield)
+                (loop))
+        loop)
+
+        (spawn (make-thread-thunk 'a))
+        (spawn (make-thread-thunk 'b))
+        (spawn (make-thread-thunk 'c))
+
+        (start-threads)
+        "#;
+
+        vm.run(contents).unwrap();
+
+        assert_eq!(vm.extract::<isize>("counter").unwrap(), -1);
+    }
 
     #[test]
     fn test_generator() {
