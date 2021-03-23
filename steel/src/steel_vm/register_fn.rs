@@ -42,7 +42,6 @@ impl<
         };
 
         self.register_value(name, SteelVal::FutureFunc(Rc::new(f)))
-        // unimplemented!()
     }
 }
 
