@@ -12,37 +12,28 @@ use crate::{
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashSet},
-    rc::{Rc, Weak},
+    collections::BTreeMap,
+    rc::Weak,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-// use ahash::RandomState;
-
-// use crate::rvals::FutureResult;
-
-// use std::mem;
-
-pub const fn new_void() -> SteelVal {
+// TODO
+pub const fn _new_void() -> SteelVal {
     // VOID.with(Gc::clone)
     SteelVal::Void
 }
 
-pub const fn new_true() -> SteelVal {
+// TODO
+pub const fn _new_true() -> SteelVal {
     // TRUE.with(Gc::clone)
     SteelVal::BoolV(true)
 }
 
-pub const fn new_false() -> SteelVal {
+// TODO
+pub const fn _new_false() -> SteelVal {
     SteelVal::BoolV(false)
     // FALSE.with(Gc::clone)
 }
-
-// impl From<bool> for SteelVal {
-//     fn from(b: bool) -> Self {
-//         SteelVal::BoolV(b)
-//     }
-// }
 
 pub static ENV_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -117,68 +108,10 @@ macro_rules! gen_pred {
     }};
 }
 
-pub type RcRefCell<T> = Rc<RefCell<T>>;
+// pub type RcRefCell<T> = Rc<RefCell<T>>;
 // pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
 //     Rc::new(RefCell::new(x))
 // }
-
-#[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
-enum CoreModules {
-    Core,
-    Network,
-    FileSystem,
-}
-
-impl CoreModules {
-    pub fn to_functions(self) -> Vec<(&'static str, SteelVal)> {
-        match self {
-            Self::Core => unimplemented!(),
-            Self::Network => unimplemented!(),
-            Self::FileSystem => unimplemented!(),
-        }
-    }
-}
-
-pub struct CoreModuleConfig {
-    modules: HashSet<CoreModules>,
-}
-
-impl CoreModuleConfig {
-    pub fn new() -> Self {
-        CoreModuleConfig {
-            modules: HashSet::new(),
-        }
-    }
-
-    pub fn new_core() -> Self {
-        let mut m = HashSet::new();
-        m.insert(CoreModules::Core);
-        CoreModuleConfig { modules: m }
-    }
-
-    pub fn with_network(mut self) -> Self {
-        &self.modules.insert(CoreModules::Network);
-        self
-    }
-
-    pub fn with_file_system(mut self) -> Self {
-        &self.modules.insert(CoreModules::FileSystem);
-        self
-    }
-
-    pub fn new_full() -> Self {
-        CoreModuleConfig::new_core()
-            .with_file_system()
-            .with_network()
-    }
-
-    pub fn to_functions(self) -> Vec<(&'static str, SteelVal)> {
-        self.modules
-            .into_iter()
-            .flat_map(|x| x.to_functions())
-            .collect()
-    }
-}
 
 #[derive(Debug)]
 pub struct Env {

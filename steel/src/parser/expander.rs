@@ -3,7 +3,6 @@ use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
 use crate::parser::replace_idents::replace_identifiers;
 use crate::parser::tokens::TokenType;
-// use crate::parser::visitors::VisitorMutRef;
 
 use crate::parser::span::Span;
 
@@ -13,8 +12,6 @@ use std::collections::HashMap;
 
 use log::{debug, error, info};
 
-// use std::convert::TryFrom;
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct SteelMacro {
     name: String,
@@ -23,6 +20,7 @@ pub struct SteelMacro {
 }
 
 impl SteelMacro {
+    #[cfg(test)]
     pub fn new(name: String, special_forms: Vec<String>, cases: Vec<MacroCase>) -> Self {
         SteelMacro {
             name,
@@ -114,6 +112,7 @@ pub struct MacroCase {
 // }
 
 impl MacroCase {
+    #[cfg(test)]
     pub fn new(args: Vec<MacroPattern>, body: ExprKind) -> Self {
         MacroCase { args, body }
     }

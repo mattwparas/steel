@@ -183,6 +183,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    #[cfg(test)]
     pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {
         let mut intern = HashMap::new();
         Parser::new(expr, &mut intern).collect()

@@ -10,10 +10,10 @@ pub mod rerrs;
 pub mod rvals;
 pub mod stdlib;
 #[macro_use]
-pub mod gc;
-pub mod conversions;
-pub mod parser;
+pub(crate) mod gc;
+mod conversions;
+pub(crate) mod parser;
 pub mod steel_vm;
 pub(crate) mod values;
 
-pub use self::{gc::Gc, rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};
+pub use self::{rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};

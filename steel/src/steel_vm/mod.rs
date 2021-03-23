@@ -1,6 +1,6 @@
 mod contracts;
 pub mod engine;
-pub mod evaluation_progress;
+mod evaluation_progress;
 pub(crate) mod heap;
 mod inline_iter;
 mod lazy_stream;

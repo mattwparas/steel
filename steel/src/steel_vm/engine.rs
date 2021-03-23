@@ -226,13 +226,59 @@ impl Engine {
         self.register_value(predicate_name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 
-    /// Registers a callback function
-    /// If registered, this callback will be called on every instruction
+    /// Registers a callback function. If registered, this callback will be called on every instruction
+    /// Allows for the introspection of the currently running process. The callback here takes as an argument the current instruction number.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// let mut vm = Engine::new();
+    /// vm.on_progress(|count| {
+    ///     // parameter is 'usize' - number of instructions performed up to this point
+    ///     if count % 1000 == 0 {
+    ///         // print out a progress log every 1000 operations
+    ///         println!("Number of instructions up to this point: {}", count);
+    ///         // Returning false here would quit the evaluation of the function
+    ///         return true;
+    ///     }
+    ///     true
+    /// });
+    /// // This should end with "Number of instructions up to this point: 12000"
+    /// vm.run(
+    ///     r#"
+    ///     (define (loop x)
+    ///         (if (equal? x 1000)
+    ///             x
+    ///             (loop (+ x 1))))
+    ///     (loop 0)
+    /// "#,
+    /// )
+    /// .unwrap();
+    /// ```
     pub fn on_progress(&mut self, callback: Callback) -> &mut Self {
         self.virtual_machine.on_progress(callback);
         self
     }
 
+    /// Extracts a value with the given identifier `name` from the internal environment.
+    /// If a script calculated some series of bound values, then it can be extracted this way.
+    /// This will return the [`SteelVal`](crate::rvals::SteelVal), not the underlying data.
+    /// To unwrap the value, use the [`extract`](crate::steel_vm::engine::Engine::extract) method and pass the type parameter.
+    ///
+    /// The function will return an error if the `name` is not currently bound in the `Engine`'s internal environment.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// use steel::rvals::SteelVal;
+    /// let mut vm = Engine::new();
+    /// vm.run("(define a 10)").unwrap();
+    /// assert_eq!(vm.extract_value("a").unwrap(), SteelVal::IntV(10));
+    /// ```
     pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
         let idx = self.compiler.get_idx(name).ok_or_else(throw!(
             Generic => format!("free identifier: {} - identifier given cannot be found in the global environment", name)
@@ -244,6 +290,19 @@ impl Engine {
             ))
     }
 
+    /// Extracts a value with the given identifier `name` from the internal environment, and attempts to coerce it to the
+    /// given type. This will return an error if the `name` is not currently bound in the `Engine`'s internal environment, or
+    /// if the type passed in does not match the value (and thus the coercion using [`FromSteelVal`](crate::rvals::FromSteelVal) fails)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// let mut vm = Engine::new();
+    /// vm.run("(define a 10)").unwrap();
+    /// assert_eq!(vm.extract::<usize>("a").unwrap(), 10);
+    /// ```
     pub fn extract<T: FromSteelVal>(&self, name: &str) -> Result<T> {
         T::from_steelval(self.extract_value(name)?)
     }
@@ -291,7 +350,6 @@ impl Engine {
     }
 
     // TODO come back to this please
-
     pub fn parse_and_execute_with_optimizations(
         &mut self,
         expr: &str,
