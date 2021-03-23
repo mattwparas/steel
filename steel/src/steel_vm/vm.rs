@@ -488,6 +488,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 stop!(Generic => "stack overflowed!"; cur_inst.span);
                             }
 
+                            if closure.arity() != 1 {
+                                stop!(Generic => "call/cc expects a function with arity 1");
+                            }
+
                             // put continuation as the thing
                             let args = vec![continuation];
 
@@ -530,7 +534,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         }
 
                         _ => {
-                            stop!(Generic => "something broke in call/cc");
+                            stop!(Generic => "call/cc expects a function");
                         }
                     }
 

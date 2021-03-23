@@ -166,6 +166,10 @@ impl Engine {
         self.virtual_machine.execute_program(program)
     }
 
+    // TODO add example
+    /// Registers an external value of any type as long as it implements [`FromSteelVal`](crate::rvals::FromSteelVal) and
+    /// [`IntoSteelVal`](crate::rvals::IntoSteelVal). This method does the coercion to embed the type into the `Engine`'s
+    /// environment with the name `name`. This function can fail only if the conversion from `T` to [`SteelVal`](crate::rvals::SteelVal) fails.
     pub fn register_external_value<T: FromSteelVal + IntoSteelVal>(
         &mut self,
         name: &str,
