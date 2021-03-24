@@ -85,6 +85,10 @@ impl Engine {
         vm
     }
 
+    /// Creates an engine with meta information embedded inside a hashmap. With this engine, there is a variable
+    /// `*env*` containing a hashmap of `symbol? -> function?` containing all primitive functions that can be
+    /// run at compile time. This is for performing optimization passes over the program for constant evaluation
+    /// if desired.
     pub fn new_with_meta() -> Engine {
         let mut vm = Engine::new();
         vm.register_value("*env*", crate::env::Env::constant_env_to_hashmap());
@@ -134,14 +138,17 @@ impl Engine {
         Ok(self)
     }
 
+    /// Emits a program with path information embedded for error messaging.
     pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
         self.compiler.compile_program(expr, Some(path))
     }
 
+    /// Emits a program for a given `expr` directly without providing any error messaging for the path.
     pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
         self.compiler.compile_program(expr, None)
     }
 
+    /// Execute bytecode with a constant map directly.
     pub fn execute(
         &mut self,
         bytecode: Rc<[DenseInstruction]>,
@@ -150,6 +157,7 @@ impl Engine {
         self.virtual_machine.execute(bytecode, constant_map)
     }
 
+    /// Emit the bytecode directly, with a path provided.
     pub fn emit_instructions_with_path(
         &mut self,
         exprs: &str,
@@ -158,10 +166,12 @@ impl Engine {
         self.compiler.emit_instructions(exprs, Some(path))
     }
 
+    /// Emit instructions directly, without a path for error messaging.
     pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
         self.compiler.emit_instructions(exprs, None)
     }
 
+    /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
     pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
         self.virtual_machine.execute_program(program)
     }
@@ -189,12 +199,26 @@ impl Engine {
         Ok(self.register_value(name, converted))
     }
 
+    /// Registers a [`SteelVal`](crate::rvals::SteelVal) under the name `name` in the `Engine`'s internal environment.
+    ///
+    /// # Examples
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// use steel::rvals::SteelVal;
+    ///
+    /// let mut vm = Engine::new();
+    /// let external_value = SteelVal::StringV("hello-world".to_string());
+    /// vm.register_value("hello-world", external_value);
+    /// vm.run("hello-world").unwrap(); // Will return the string
+    /// ```
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
         let idx = self.compiler.register(name);
         self.virtual_machine.insert_binding(idx, value);
         self
     }
 
+    /// Registers multiple values at once
     pub fn register_values(
         &mut self,
         values: impl Iterator<Item = (String, SteelVal)>,
@@ -321,11 +345,29 @@ impl Engine {
         T::from_steelval(self.extract_value(name)?)
     }
 
+    /// Execute a program given as the `expr`, and computes a `Vec<SteelVal>` corresponding to the output of each expression given.
+    /// This method contains no path information used for error reporting, and simply runs the expression as is. Modules will be
+    /// imported with the root directory as wherever the executable was started.
+    /// Any parsing, compilation, or runtime error will be reflected here, ideally with span information as well. The error will not
+    /// be reported automatically.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// use steel::rvals::SteelVal;
+    /// let mut vm = Engine::new();
+    /// let output = vm.run("(+ 1 2) (* 5 5) (- 10 5)").unwrap();
+    /// assert_eq!(output, vec![SteelVal::IntV(3), SteelVal::IntV(25), SteelVal::IntV(5)]);
+    /// ```
     pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
         let program = self.compiler.compile_program(expr, None)?;
         self.virtual_machine.execute_program(program)
     }
 
+    /// Similar to [`run`](crate::steel_vm::engine::Engine::run), however it includes path information
+    /// for error reporting purposes.
     pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
         let program = self.compiler.compile_program(expr, Some(path))?;
         self.virtual_machine.execute_program(program)
