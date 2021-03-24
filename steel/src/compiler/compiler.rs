@@ -17,13 +17,11 @@ use std::{
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 
-use crate::parser::span::Span;
-
-use crate::parser::parser::{ParseError, Parser};
-
 use crate::parser::ast::ExprKind;
 use crate::parser::expander::SteelMacro;
 use crate::parser::parser::SyntaxObject;
+use crate::parser::parser::{ParseError, Parser};
+use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 
 use crate::values::structs::SteelStruct;
@@ -308,7 +306,7 @@ fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
 
 pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
-    pub constant_map: ConstantMap,
+    pub(crate) constant_map: ConstantMap,
     pub(crate) macro_env: HashMap<String, SteelMacro>,
     module_manager: ModuleManager,
 }
@@ -352,7 +350,8 @@ impl Compiler {
     pub fn compile_program(&mut self, expr_str: &str, path: Option<PathBuf>) -> Result<Program> {
         let instructions = self.emit_instructions(expr_str, path)?;
 
-        let program = Program::new(instructions, (&self.constant_map).to_bytes()?);
+        // TODO Perhaps use a different representation for the constant map
+        let program = Program::new(instructions, self.constant_map.clone());
         Ok(program)
     }
 

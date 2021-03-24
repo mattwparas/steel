@@ -432,10 +432,7 @@ impl Engine {
             .compiler
             .generate_dense_instructions(exprs_post_optimization, results)?;
 
-        let program = Program::new(
-            compiled_instructions,
-            (&self.compiler.constant_map).to_bytes()?,
-        );
+        let program = Program::new(compiled_instructions, self.compiler.constant_map.clone());
 
         self.virtual_machine.execute_program(program)
     }

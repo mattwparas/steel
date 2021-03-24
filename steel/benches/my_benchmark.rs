@@ -1,5 +1,4 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use steel::compiler::constants::ConstantMap;
 
 use std::rc::Rc;
 use steel::stdlib::PRELUDE;
@@ -19,7 +18,7 @@ fn range(c: &mut Criterion) {
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
 
     let program = vm.emit_program(&script).unwrap();
-    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let constant_map = program.constant_map;
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     // let bytecode = vm.emit_program(&script).unwrap();
@@ -49,7 +48,7 @@ fn map(c: &mut Criterion) {
         .unwrap();
 
     let program = vm.emit_program(&script).unwrap();
-    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let constant_map = program.constant_map;
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("map-big", |b| {
@@ -75,7 +74,7 @@ fn transducer_map(c: &mut Criterion) {
         .unwrap();
 
     let program = vm.emit_program(&script).unwrap();
-    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let constant_map = program.constant_map;
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("transducer-map", |b| {
@@ -104,7 +103,7 @@ fn filter(c: &mut Criterion) {
         .unwrap();
 
     let program = vm.emit_program(&script).unwrap();
-    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let constant_map = program.constant_map;
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("filter-big", |b| {
@@ -122,7 +121,7 @@ fn ten_thousand_iterations(c: &mut Criterion) {
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
 
     let program = vm.emit_program(&script).unwrap();
-    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let constant_map = program.constant_map;
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("ten-thousand-iterations", |b| {
@@ -161,7 +160,7 @@ fn trie_sort_without_optimizations(c: &mut Criterion) {
 
     let script = "(trie-sort lst)";
     let program = vm.emit_program(&script).unwrap();
-    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let constant_map = program.constant_map;
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("trie-sort-without-optimizations", |b| {
@@ -199,7 +198,7 @@ fn trie_sort_with_optimizations(c: &mut Criterion) {
 
     let script = "(trie-sort lst)";
     let program = vm.emit_program(&script).unwrap();
-    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let constant_map = program.constant_map;
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("trie-sort-with-optimizations", |b| {
@@ -219,7 +218,7 @@ fn fib_28(c: &mut Criterion) {
 
     let script = "(fib 28)";
     let program = vm.emit_program(&script).unwrap();
-    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let constant_map = program.constant_map;
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
     c.bench_function("fib-28", |b| {
@@ -237,7 +236,7 @@ fn fib_20(c: &mut Criterion) {
 
     let script = "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))) (fib 20)";
     let program = vm.emit_program(&script).unwrap();
-    let constant_map = ConstantMap::from_bytes(&program.constant_map).unwrap();
+    let constant_map = program.constant_map;
 
     let definition = Rc::from(program.instructions[0].clone().into_boxed_slice());
     let bytecode = Rc::from(program.instructions[1].clone().into_boxed_slice());

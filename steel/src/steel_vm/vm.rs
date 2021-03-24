@@ -112,8 +112,6 @@ impl VirtualMachineCore {
             constant_map,
         } = program;
 
-        let constant_map = ConstantMap::from_bytes(&constant_map)?;
-
         let output = instructions
             .into_iter()
             .map(|x| {
@@ -154,7 +152,6 @@ impl VirtualMachineCore {
             constant_map,
         } = program;
 
-        let constant_map = ConstantMap::from_bytes(&constant_map)?;
         let instructions: Vec<_> = instructions
             .clone()
             .into_iter()

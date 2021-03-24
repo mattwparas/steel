@@ -15,29 +15,13 @@ impl ProgramBuilder {
     }
 }
 
-/// Represents a Steel program
-/// The program holds the instructions and the constant map, serialized to bytes
 #[derive(Serialize, Deserialize)]
-pub struct Program {
+pub struct SerializableProgram {
     pub instructions: Vec<Vec<DenseInstruction>>,
     pub constant_map: Vec<u8>,
 }
 
-impl Program {
-    pub fn new(instructions: Vec<Vec<DenseInstruction>>, constant_map: Vec<u8>) -> Self {
-        Program {
-            instructions,
-            constant_map,
-        }
-    }
-
-    pub fn new_from_map(
-        instructions: Vec<Vec<DenseInstruction>>,
-        constant_map: ConstantMap,
-    ) -> Result<Self> {
-        Ok(Program::new(instructions, constant_map.to_bytes()?))
-    }
-
+impl SerializableProgram {
     pub fn write_to_file(&self, filename: &str) -> Result<()> {
         use std::fs::File;
         use std::io::prelude::*;
@@ -60,8 +44,31 @@ impl Program {
 
         let _ = file.read(&mut buffer).unwrap();
 
-        let program: Program = bincode::deserialize(&buffer).unwrap();
+        let program: SerializableProgram = bincode::deserialize(&buffer).unwrap();
 
         Ok(program)
+    }
+}
+
+/// Represents a Steel program
+/// The program holds the instructions and the constant map, serialized to bytes
+pub struct Program {
+    pub instructions: Vec<Vec<DenseInstruction>>,
+    pub constant_map: ConstantMap,
+}
+
+impl Program {
+    pub fn new(instructions: Vec<Vec<DenseInstruction>>, constant_map: ConstantMap) -> Self {
+        Program {
+            instructions,
+            constant_map,
+        }
+    }
+
+    pub fn into_serializable_program(self) -> Result<SerializableProgram> {
+        Ok(SerializableProgram {
+            instructions: self.instructions,
+            constant_map: self.constant_map.to_bytes()?,
+        })
     }
 }
