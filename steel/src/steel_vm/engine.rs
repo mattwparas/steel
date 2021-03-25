@@ -76,9 +76,9 @@ impl Engine {
     pub fn new() -> Self {
         let mut vm = Engine::new_base();
 
-        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
 
-        for core in core_libraries {
+        for core in std::array::IntoIter::new(core_libraries) {
             vm.parse_and_execute_without_optimizations(core).unwrap();
         }
 

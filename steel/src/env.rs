@@ -51,7 +51,7 @@ macro_rules! ensure_tonicity {
                     Some(x) => $check_fn(prev, x) && f(x, xs),
                     None => true,
                 }
-            };
+            }
             let res = f(&first, args_iter);
             Ok(SteelVal::BoolV(res))
         }
