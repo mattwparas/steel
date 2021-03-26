@@ -4,7 +4,7 @@ use std::ops::RangeFrom;
 use std::rc::Rc;
 use std::{cell::RefCell, ops::Deref};
 
-pub type CallStack = Stack<Stack<SteelVal>>;
+// pub type CallStack = Stack<Stack<SteelVal>>;
 pub type StackFrame = Stack<SteelVal>;
 pub type EnvStack = Stack<Rc<RefCell<Env>>>;
 
@@ -46,6 +46,14 @@ impl<T> Stack<T> {
 
     pub fn clear(&mut self) {
         self.0.clear();
+    }
+
+    pub fn append_vec(&mut self, other: &mut Vec<T>) {
+        self.0.append(other)
+    }
+
+    pub fn drain<R: std::ops::RangeBounds<usize>>(&mut self, range: R) {
+        self.0.drain(range);
     }
 }
 

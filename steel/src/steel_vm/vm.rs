@@ -1,4 +1,4 @@
-use super::stack::{CallStack, EnvStack, Stack, StackFrame};
+use super::stack::{EnvStack, Stack, StackFrame};
 use super::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
 use crate::{
     compiler::{
@@ -313,9 +313,10 @@ impl InstructionPointer {
 #[derive(Clone)]
 pub struct Continuation {
     stack: StackFrame,
-    stacks: CallStack,
+    // stacks: CallStack,
     instructions: Rc<[DenseInstruction]>,
     instruction_stack: Stack<InstructionPointer>,
+    stack_index: Stack<usize>,
     global_env: Rc<RefCell<Env>>,
     env_stack: EnvStack,
     ip: usize,
@@ -353,7 +354,8 @@ struct VmCore<'a, CT: ConstantTable> {
     heap: &'a mut Heap,
     global_env: Rc<RefCell<Env>>,
     instruction_stack: Stack<InstructionPointer>,
-    stacks: CallStack,
+    // stacks: CallStack,
+    stack_index: Stack<usize>,
     repl: bool,
     callback: &'a EvaluationProgress,
     constants: &'a CT,
@@ -382,7 +384,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             heap,
             global_env,
             instruction_stack: Stack::new(),
-            stacks: Stack::new(),
+            // stacks: Stack::new(),
+            stack_index: Stack::new(),
             repl,
             callback,
             constants,
@@ -401,9 +404,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         Continuation {
             stack: self.stack.clone(),
-            stacks: self.stacks.clone(),
+            // stacks: self.stacks.clone(),
             instructions: Rc::clone(&self.instructions),
             instruction_stack: self.instruction_stack.clone(),
+            stack_index: self.stack_index.clone(),
             global_env: Rc::clone(&self.global_env),
             env_stack: self.env_stack.clone(), // I am concerned that this will lead to a memory leak
             ip: self.ip,
@@ -414,13 +418,16 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     #[inline(always)]
     fn set_state_from_continuation(&mut self, continuation: Continuation) {
         self.stack = continuation.stack;
-        self.stacks = continuation.stacks;
+        // self.stacks = continuation.stacks;
         self.instructions = continuation.instructions;
         self.instruction_stack = continuation.instruction_stack;
         self.global_env = continuation.global_env;
         self.env_stack = continuation.env_stack;
         self.ip = continuation.ip;
         self.pop_count = continuation.pop_count;
+
+        // Set the state
+        self.stack_index = continuation.stack_index;
     }
 
     #[inline(always)]
@@ -479,7 +486,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         SteelVal::Closure(closure) => {
                             // dbg!("Calling closoure from call/cc");
 
-                            if self.stacks.len() == STACK_LIMIT {
+                            if self.stack_index.len() == STACK_LIMIT {
                                 // println!("stacks at exit: {:?}", stacks);
                                 println!("stack frame at exit: {:?}", self.stack);
                                 stop!(Generic => "stack overflowed!"; cur_inst.span);
@@ -489,8 +496,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 stop!(Generic => "call/cc expects a function with arity 1");
                             }
 
+                            // println!("Pushing onto stack_index: {}", self.stack.len());
+                            self.stack_index.push(self.stack.len());
+
                             // put continuation as the thing
-                            let args = vec![continuation];
+                            // let args = vec![continuation];
+
+                            // Put the continuation as the argument
+                            self.stack.push(continuation);
 
                             let parent_env = closure.sub_expression_env();
 
@@ -515,9 +528,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 Rc::clone(&self.instructions),
                             ));
                             self.pop_count += 1;
+
+                            // println!("Pushing onto stack_index: {}", self.stack.len());
+                            // self.stack_index.push(self.stack.len());
+
                             // Move args into the stack, push stack onto stacks
-                            let stack = std::mem::replace(&mut self.stack, args.into());
-                            self.stacks.push(stack);
+                            // let stack = std::mem::replace(&mut self.stack, args.into());
+                            // self.stacks.push(stack);
                             self.instructions = closure.body_exp();
                             self.ip = 0;
                         }
@@ -614,7 +631,16 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                         // println!("inside here");
 
-                        self.stack = self.stacks.pop().unwrap();
+                        let rollback_index = self.stack_index.pop().unwrap();
+
+                        // println!("rollback: {}", rollback_index);
+                        // println!("stack length: {}", self.stack.len());
+
+                        // self.stack = self.stack
+
+                        self.stack.truncate(rollback_index);
+
+                        // self.stack = self.stacks.pop().unwrap();
                         self.stack.push(ret_val);
 
                         // println!("stack length: {}", self.stack.len());
@@ -919,8 +945,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => {
-                if self.stacks.len() == STACK_LIMIT {
-                    println!("stacks at exit: {:?}", self.stacks);
+                if self.stack_index.len() == STACK_LIMIT {
+                    // println!("stacks at exit: {:?}", self.stacks);
                     println!("stack frame at exit: {:?}", self.stack);
                     stop!(Generic => "stack overflowed!"; *span);
                 }
@@ -932,7 +958,20 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // dbg!(&self.env_stack);
                 // dbg!(&self.global_env);
 
-                let args = self.stack.split_off(self.stack.len() - payload_size);
+                // println!("stack index: {:?}", self.stack_index);
+                // println!("stack: {:?}", self.stack);
+
+                // TODO check if this is even necessary
+                // I think so, just because then the previous stack is explicitly dropped
+                // let mut args = self.stack.split_off(self.stack.len() - payload_size);
+
+                self.stack.drain(
+                    self.stack_index.last().copied().unwrap_or(0)..self.stack.len() - payload_size,
+                );
+
+                // self.stack.truncate(*self.stack_index.last().unwrap_or(0));
+
+                // self.stack.append_vec(&mut args);
 
                 let parent_env = closure.sub_expression_env();
                 // TODO remove this unwrap
@@ -969,7 +1008,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 self.global_env = inner_env;
                 self.instructions = closure.body_exp();
-                self.stack = args.into();
+                // self.stack = args.into();
+
+                // Wipe the stack index at this point?
+                // self.stack_index.clear();
+
                 self.ip = 0;
             }
             _ => {
@@ -1098,7 +1141,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
                 }
 
-                if self.stacks.len() == STACK_LIMIT {
+                if self.stack_index.len() == STACK_LIMIT {
                     // println!("stacks at exit: {:?}", stacks);
                     println!("stack frame at exit: {:?}", self.stack);
                     stop!(Generic => "stack overflowed!"; *span);
@@ -1107,8 +1150,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // dbg!(&self.env_stack);
                 // dbg!(&self.global_env);
 
+                // println!("Pushing onto stack_index: {}", self.stack.len());
+                self.stack_index.push(self.stack.len() - payload_size);
+
                 // Use smallvec here?
-                let args = self.stack.split_off(self.stack.len() - payload_size);
+                // let args = self.stack.split_off(self.stack.len() - payload_size);
 
                 let parent_env = closure.sub_expression_env();
 
@@ -1166,9 +1212,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     Rc::clone(&self.instructions),
                 ));
                 self.pop_count += 1;
+
                 // Move args into the stack, push stack onto stacks
-                let stack = std::mem::replace(&mut self.stack, args.into());
-                self.stacks.push(stack);
+                // let stack = std::mem::replace(&mut self.stack, args.into());
+                // self.stacks.push(stack);
+
                 self.instructions = closure.body_exp();
                 self.ip = 0;
             }
@@ -1186,8 +1234,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.global_env.borrow_mut().set_binding_context(true);
         self.global_env.borrow_mut().set_binding_offset(false);
 
-        let stack = std::mem::replace(&mut self.stack, Stack::new());
-        self.stacks.push(stack);
+        // println!("Pushing onto stack_index: {}", self.stack.len());
+        self.stack_index.push(self.stack.len());
+
+        // let stack = std::mem::replace(&mut self.stack, Stack::new());
+        // self.stacks.push(stack);
 
         // placeholder on the instruction_stack
         self.instruction_stack.push(InstructionPointer::new_raw());
@@ -1199,7 +1250,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let list = self.stack.pop().unwrap();
         let func = self.stack.pop().unwrap();
 
-        let args = match ListOperations::collect_into_vec(&list) {
+        let mut args = match ListOperations::collect_into_vec(&list) {
             Ok(args) => args,
             Err(_) => stop!(TypeMismatch => "apply expected a list"; span),
         };
@@ -1216,7 +1267,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.ip += 1;
             }
             SteelVal::Closure(closure) => {
-                if self.stacks.len() == STACK_LIMIT {
+                if self.stack_index.len() == STACK_LIMIT {
                     // println!("stacks at exit: {:?}", stacks);
                     println!("stack frame at exit: {:?}", self.stack);
                     stop!(Generic => "stack overflowed!"; span);
@@ -1272,8 +1323,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     Rc::clone(&self.instructions),
                 ));
                 self.pop_count += 1;
-                let stack = std::mem::replace(&mut self.stack, args.into());
-                self.stacks.push(stack);
+
+                self.stack.append_vec(&mut args);
+
+                // println!("Pushing onto stack_index: {}", self.stack.len());
+                self.stack_index.push(self.stack.len() - 1);
+
+                // let stack = std::mem::replace(&mut self.stack, args.into());
+                // self.stacks.push(stack);
                 self.instructions = closure.body_exp();
                 self.ip = 0;
             }
