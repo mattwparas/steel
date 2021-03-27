@@ -61,20 +61,19 @@ pub(crate) fn inline_reduce_iter<
             let parent_env = closure.sub_expression_env();
 
             // TODO remove this unwrap
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+            // let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
+            let inner_env = Rc::new(RefCell::new(
+                Env::new_subexpression_with_capacity_without_offset(parent_env.clone()),
+            ));
 
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
+            // inner_env
+            //     .borrow_mut()
+            //     .reserve_defs(if closure.ndef_body() > 0 {
+            //         closure.ndef_body() - 1
+            //     } else {
+            //         0
+            //     });
 
             let mut local_heap = Heap::new();
 
@@ -91,7 +90,7 @@ pub(crate) fn inline_reduce_iter<
             )
         }
 
-        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
+        _ => stop!(TypeMismatch => "reduce expected a function"; *cur_inst_span),
     };
 
     iter.fold(Ok(initial_value), switch_statement)

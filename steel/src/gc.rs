@@ -11,6 +11,20 @@ use std::{ffi::OsStr, fmt};
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
+// pub(crate) trait Allocate {
+//     fn accept<V: Visitor>(&self, visitor: &mut V) {
+//         visitor.visit(self)
+//     }
+// }
+
+// pub(crate) trait Visitor {
+//     fn visit(&mut self, value: &SteelVal) {
+//         match value {
+
+//         }
+//     }
+// }
+
 /// This is simply a newtype around the `Rc` type
 /// When enabled, this allows for complete sandboxing of data types
 /// It does not expose the full functionality of the `Rc` type

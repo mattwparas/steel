@@ -125,15 +125,15 @@ pub struct Env {
     id: usize,
 }
 
-impl Drop for Env {
-    fn drop(&mut self) {
-        // println!(
-        //     "############### Dropping env with ID: {} #############",
-        //     self.id
-        // );
-        self.bindings_map.clear();
-    }
-}
+// impl Drop for Env {
+//     fn drop(&mut self) {
+//         // println!(
+//         //     "############### Dropping env with ID: {} #############",
+//         //     self.id
+//         // );
+//         self.bindings_map.clear();
+//     }
+// }
 
 pub trait MacroEnv {
     fn validate_identifier(&self, name: &str) -> bool;

@@ -144,6 +144,7 @@ impl Heap {
             debug!("Heap limit set to: {}", self.limit);
 
             if self.purge_count == self.purge_max {
+                println!("big purge");
                 if let Some(root) = &self.root {
                     let root = root.upgrade().unwrap();
                     self.gather_big_mark_and_sweep(&root);
@@ -323,7 +324,6 @@ impl Heap {
         heap.gather(leaf1);
         heap.gather(leaf2);
         heap.mark();
-        heap.clear();
     }
 
     // pub fn gather_mark_and_sweep(&mut self, leaf: &Rc<RefCell<Env>>) {
@@ -348,14 +348,78 @@ impl Heap {
         self.reset();
     }
 
+    pub fn collect_garbage_with_leaves(
+        &mut self,
+        leaf1: &Rc<RefCell<Env>>,
+        leaf2: &Rc<RefCell<Env>>,
+    ) {
+        // println!("Calling garbage collection");
+
+        if self.len() > self.limit {
+            self.gather_mark_and_sweep_2(leaf1, leaf2);
+
+            // std::thread::sleep(std::time::Duration::new(3, 0));
+            debug!(
+                "Before mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
+                self.len(),
+                OBJECT_COUNT
+            );
+            // self.profile_heap();
+            self.drop_large_refs();
+            if self.current_double < self.max_double {
+                self.limit *= 2;
+                self.current_double += 1;
+            } else {
+                // std::thread::sleep(std::time::Duration::new(3, 0));
+                // println!("******************************************************");
+                // println!("******************* RESET ****************************");
+                // println!("******************************************************");
+                self.limit = HEAP_LIMIT;
+                self.current_double = 0;
+                // std::thread::sleep(std::time::Duration::new(3, 0));
+            }
+            // self.profile_heap();
+
+            self.purge_count += 1;
+
+            debug!(
+                "After mark and sweep - Heap-length: {}, Active-Object-Count: {:?}",
+                self.len(),
+                OBJECT_COUNT
+            );
+
+            debug!("Heap limit set to: {}", self.limit);
+
+            if self.purge_count == self.purge_max {
+                println!("big purge");
+
+                if let Some(root) = &self.root {
+                    let root = root.upgrade().unwrap();
+                    self.gather_big_mark_and_sweep(&root);
+                }
+                self.purge_count = 0;
+            }
+
+            // std::thread::sleep(std::time::Duration::new(3, 0));
+        }
+    }
+
     pub fn gather_mark_and_sweep_2(&mut self, leaf1: &Rc<RefCell<Env>>, leaf2: &Rc<RefCell<Env>>) {
         // println!(
         //     "!!!!!!!!!!! ############# gather, mark and sweep ############### !!!!!!!!!!!!!!!"
         // );
+
         debug!("Running mark and sweep");
         Self::gather_and_mark_2(leaf1, leaf2);
-        self.sweep();
-        self.reset();
+        // self.sweep();
+
+        // if self.len() > self.limit {
+        //     debug!("Running mark and sweep");
+        //     Self::gather_and_mark_2(leaf1, leaf2);
+        //     self.sweep();
+        //     self.reset();
+        // }
+
         // self.add(Rc::clone(leaf1));
         // self.add(Rc::clone(leaf2));
     }

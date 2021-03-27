@@ -239,7 +239,8 @@ pub(crate) fn register_number_functions(engine: &mut Engine) {
         .register_value("/", NumOperations::divide())
         .register_value("-", NumOperations::subtract())
         .register_value("even?", NumOperations::even())
-        .register_value("odd?", NumOperations::odd());
+        .register_value("odd?", NumOperations::odd())
+        .register_value("arithmetic-shift", NumOperations::arithmetic_shift());
 }
 
 #[inline(always)]

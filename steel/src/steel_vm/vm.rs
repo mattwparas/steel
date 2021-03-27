@@ -999,8 +999,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 //         0
                 //     });
 
+                // inner_env.borrow_mut().set_reachable(true);
+
+                // // TODO
                 self.heap
                     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+
                 self.heap.collect_garbage();
 
                 // Added this one as well
