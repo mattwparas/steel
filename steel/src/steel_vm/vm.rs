@@ -566,6 +566,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 }
                 OpCode::PUSH => self.handle_push(cur_inst.payload_size as usize)?,
                 OpCode::READLOCAL => self.handle_local(cur_inst.payload_size as usize)?,
+                OpCode::BINDLOCAL => self.handle_bind_local(cur_inst.payload_size as usize),
                 OpCode::APPLY => self.handle_apply(cur_inst.span)?,
                 OpCode::CLEAR => {
                     self.ip += 1;
@@ -642,6 +643,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         self.stack.truncate(rollback_index);
 
                         // self.stack = self.stacks.pop().unwrap();
+
+                        // println!("Getting here");
+
                         self.stack.push(ret_val);
 
                         // println!("stack length: {}", self.stack.len());
@@ -848,7 +852,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // TODO future me figure out the annoying offset issue
         // awful awful awful hack to fix the repl environment noise
 
+        // println!("Looking up: {}", index);
+
         let value = self.global_env.borrow().repl_lookup_idx(index)?;
+
+        // println!("pushing: {}", value);
         self.stack.push(value);
 
         // TODO handle the offset situation
@@ -872,7 +880,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // println!("Stack end: {}, stack index: {}", end, index);
         // println!("Stack: {:?}", self.stack);
 
-        let value = self.stack[index].clone();
+        let offset = self.stack_index.last().unwrap();
+
+        let value = self.stack[index + offset].clone();
+
+        // println!("Pushing onto the stack: {}", value);
+
         self.stack.push(value);
         self.ip += 1;
         Ok(())
@@ -933,6 +946,34 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.global_env
             .borrow_mut()
             .repl_define_idx(payload_size, self.stack.pop().unwrap());
+
+        // TODO handle the offset situation
+        // if self.repl {
+        //     self.global_env
+        //         .borrow_mut()
+        //         .repl_define_idx(payload_size, self.stack.pop().unwrap());
+        // } else {
+        //     let offset = self.global_env.borrow().local_offset();
+
+        //     self.global_env
+        //         .borrow_mut()
+        //         .define_idx(payload_size - offset, self.stack.pop().unwrap());
+        // }
+
+        self.ip += 1;
+    }
+
+    #[inline(always)]
+    fn handle_bind_local(&mut self, _payload_size: usize) {
+        // unimplemented!();
+
+        println!("Binding local, leaving it on the top of the stack");
+
+        // let func = self.stack.pop();
+
+        // self.global_env
+        //     .borrow_mut()
+        //     .repl_define_idx(payload_size, self.stack.pop().unwrap());
 
         // TODO handle the offset situation
         // if self.repl {
@@ -1037,6 +1078,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.ip = 0;
             }
             _ => {
+                println!("stack: {:?}", self.stack);
+                println!("func: {:?}", stack_func);
                 stop!(BadSyntax => "TailCall - Application not a procedure or function type not supported"; *span);
             }
         }
@@ -1068,10 +1111,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        println!(
-            "function args: {:?}",
-            self.stack.peek_range(self.stack.len() - payload_size..)
-        );
+        // println!(
+        //     "function args: {:?}",
+        //     self.stack.peek_range(self.stack.len() - payload_size..)
+        // );
 
         let result = f(self.stack.peek_range(self.stack.len() - payload_size..))
             .map_err(|x| x.set_span(*span))?;

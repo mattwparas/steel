@@ -32,4 +32,5 @@ pub enum OpCode {
     METALOOKUP,
     CALLCC,
     READLOCAL,
+    BINDLOCAL,
 }

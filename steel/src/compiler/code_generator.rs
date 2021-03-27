@@ -142,7 +142,25 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 stop!(Generic => "out of bounds closure len");
             }
 
-            self.push(Instruction::new_bind(name.syn.clone()));
+            // TODO pick up from here
+            if self.depth == 0 {
+                println!("binding global: {}", name);
+                self.push(Instruction::new_bind(name.syn.clone()));
+            } else {
+                println!("binding local: {}", name);
+                // let ident = &self.defining_context;
+
+                // self.locals.push(ident.clone().unwrap());
+                // // Throw in a dummy value for where voids are going to be
+                // self.locals.push("#####".to_string()); // TODO get rid of this dummy value
+
+                // let binding_index = self.locals.len() - 2;
+
+                // println!("Binding it to index: {}", binding_index);
+
+                // Do late bound for locals as well
+                self.push(Instruction::new_bind_local(0, name.syn.clone()));
+            }
 
             self.push(Instruction::new_void());
 
@@ -198,6 +216,35 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 stop!(Generic => "lambda function requires list of identifiers");
             }
         }
+
+        fn collect_defines_from_scope(locals: &mut Vec<String>, expr: &ExprKind) {
+            // Collect defines for body here
+            if let ExprKind::Begin(b) = expr {
+                for expr in &b.exprs {
+                    match expr {
+                        ExprKind::Define(d) => {
+                            if let ExprKind::Atom(name) = &d.name {
+                                if let TokenType::Identifier(ident) = &name.syn.ty {
+                                    locals.push(ident.clone());
+                                    // TODO insert dummy value for offset calculation
+                                    locals.push("#####".to_string());
+                                } else {
+                                    panic!("define requires an identifier")
+                                }
+                            }
+                        }
+                        ExprKind::Begin(b) => {
+                            for expr in &b.exprs {
+                                collect_defines_from_scope(locals, &expr);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        collect_defines_from_scope(&mut self.locals, &lambda_function.body);
 
         // make recursive call with "fresh" vector so that offsets are correct
         body_instructions = CodeGenerator::new_from_body_instructions(
@@ -329,7 +376,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_atom(&mut self, a: &crate::parser::ast::Atom) -> Self::Output {
-        println!("visiting atom: {}", a);
+        // println!("visiting atom: {}", a);
 
         let ident = if let SyntaxObject {
             ty: TokenType::Identifier(i),
@@ -338,16 +385,24 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         {
             i
         } else {
-            println!("pushing constant");
-            self.push(Instruction::new(OpCode::PUSH, 0, a.syn.clone(), true));
+            // println!("pushing constant");
+
+            let value = eval_atom(&a.syn)?;
+            let idx = self.constant_map.add_or_get(value);
+            self.push(Instruction::new(
+                OpCode::PUSHCONST,
+                idx,
+                a.syn.clone(),
+                true,
+            ));
             return Ok(());
         };
 
         if let Some(idx) = self.locals.iter().position(|x| x == ident) {
-            println!("pushing local");
+            // println!("pushing local");
             self.push(Instruction::new_local(idx, a.syn.clone()))
         } else {
-            println!("pushing global");
+            // println!("pushing global");
             self.push(Instruction::new(OpCode::PUSH, 0, a.syn.clone(), true));
         }
 
@@ -458,6 +513,7 @@ fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &s
                     transformed = true;
 
                     info!("Tail call optimization performed for: {}", defining_context);
+                    println!("Tail call optimization perfored for: {}", defining_context);
                 }
             }
             _ => {}
@@ -515,4 +571,44 @@ fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> boo
     }
 
     transformed
+}
+
+// fn extract_constants<CT: ConstantTable>(
+//     instructions: &mut [Instruction],
+//     constants: &mut CT,
+// ) -> Result<()> {
+//     for i in 0..instructions.len() {
+//         let inst = &instructions[i];
+//         if let OpCode::PUSH = inst.op_code {
+//             // let idx = constants.len();
+//             if inst.constant {
+//                 let value = eval_atom(&inst.contents.as_ref().unwrap())?;
+//                 let idx = constants.add_or_get(value);
+//                 // constants.push(eval_atom(&inst.contents.as_ref().unwrap())?);
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.op_code = OpCode::PUSHCONST;
+//                     x.payload_size = idx;
+//                     x.contents = None;
+//                 }
+//             }
+//         }
+//     }
+
+//     Ok(())
+// }
+
+/// evaluates an atom expression in given environment
+fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
+    match &t.ty {
+        TokenType::BooleanLiteral(b) => Ok((*b).into()),
+        // TokenType::Identifier(s) => env.borrow().lookup(&s),
+        TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
+        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
+        TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
+        TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
+        what => {
+            println!("getting here in the eval_atom");
+            stop!(UnexpectedToken => what; t.span)
+        }
+    }
 }

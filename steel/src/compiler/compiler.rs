@@ -40,6 +40,8 @@ fn collect_defines_from_current_scope(
     instructions: &[Instruction],
     symbol_map: &mut SymbolMap,
 ) -> Result<usize> {
+    return Ok(0);
+
     let mut def_stack: usize = 0;
     let mut count = 0;
     let mut bindings: HashSet<&str> = HashSet::new();
@@ -168,15 +170,18 @@ fn insert_debruijn_indices(
                     }),
                 ..
             } => {
-                let idx = symbol_map.get(s).map_err(|x| {
-                    let sp = if let Some(syn) = &instructions[i].contents {
-                        syn.span
-                    } else {
-                        Span::new(0, 0)
-                    };
+                let (idx, _) = symbol_map.get_or_add(s);
 
-                    x.set_span(sp)
-                })?;
+                // .map_err(|x| {
+                //     let sp = if let Some(syn) = &instructions[i].contents {
+                //         syn.span
+                //     } else {
+                //         Span::new(0, 0)
+                //     };
+
+                //     x.set_span(sp)
+                // })?;
+
                 // println!("Renaming: {} to index: {}", s, idx);
 
                 // TODO commenting this for now
@@ -502,7 +507,7 @@ impl Compiler {
         // println!("Got here!");
 
         insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
-        extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
+        // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
         // coalesce_clears(&mut instruction_buffer);
 
         for idx in index_buffer {

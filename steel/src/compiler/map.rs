@@ -57,7 +57,7 @@ impl SymbolMap {
             }
         }
         let e = ident.to_string();
-        // TODO come back to this
+        // TODO come back to this - this is causing things to be renamed to 0 regardless
         // stop!(FreeIdentifier => e)
         Ok(0)
     }
