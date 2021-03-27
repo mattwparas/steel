@@ -26,6 +26,8 @@ pub struct CodeGenerator<'a> {
     constant_map: &'a mut ConstantMap,
     defining_context: Option<String>,
     symbol_map: &'a mut SymbolMap,
+    depth: u32,
+    locals: Vec<String>,
 }
 
 impl<'a> CodeGenerator<'a> {
@@ -35,6 +37,8 @@ impl<'a> CodeGenerator<'a> {
             constant_map,
             defining_context: None,
             symbol_map,
+            depth: 0,
+            locals: Vec::new(),
         }
     }
 
@@ -42,12 +46,16 @@ impl<'a> CodeGenerator<'a> {
         constant_map: &'a mut ConstantMap,
         symbol_map: &'a mut SymbolMap,
         instructions: Vec<Instruction>,
+        depth: u32,
+        locals: Vec<String>,
     ) -> Self {
         CodeGenerator {
             instructions,
             constant_map,
             defining_context: None,
             symbol_map,
+            depth,
+            locals,
         }
     }
 
@@ -135,6 +143,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
 
             self.push(Instruction::new_bind(name.syn.clone()));
+
             self.push(Instruction::new_void());
 
             // Clean up the defining context state
@@ -170,9 +179,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             if let ExprKind::Atom(atom) = symbol {
                 match &atom.syn {
                     SyntaxObject {
-                        ty: TokenType::Identifier(_),
+                        ty: TokenType::Identifier(i),
                         ..
-                    } => body_instructions.push(Instruction::new_bind(atom.syn.clone())),
+                    } => {
+                        self.locals.push(i.clone());
+                        // println!("Validating the identifiers in the arguments");
+                        // body_instructions.push(Instruction::new_bind(atom.syn.clone()));
+                    }
                     SyntaxObject {
                         ty: _, span: sp, ..
                     } => {
@@ -191,7 +204,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             &mut self.constant_map,
             &mut self.symbol_map,
             body_instructions,
-        )
+            self.depth + 1, // pass through the depth
+            self.locals.clone(),
+        ) // pass through the locals here
         .compile(&lambda_function.body)?;
 
         body_instructions.push(Instruction::new_pop());
@@ -314,7 +329,30 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_atom(&mut self, a: &crate::parser::ast::Atom) -> Self::Output {
-        self.push(Instruction::new(OpCode::PUSH, 0, a.syn.clone(), true));
+        println!("visiting atom: {}", a);
+
+        let ident = if let SyntaxObject {
+            ty: TokenType::Identifier(i),
+            ..
+        } = &a.syn
+        {
+            i
+        } else {
+            println!("pushing constant");
+            self.push(Instruction::new(OpCode::PUSH, 0, a.syn.clone(), true));
+            return Ok(());
+        };
+
+        if let Some(idx) = self.locals.iter().position(|x| x == ident) {
+            println!("pushing local");
+            self.push(Instruction::new_local(idx, a.syn.clone()))
+        } else {
+            println!("pushing global");
+            self.push(Instruction::new(OpCode::PUSH, 0, a.syn.clone(), true));
+        }
+
+        // if self.locals.contains()
+
         Ok(())
     }
 

@@ -565,6 +565,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     self.ip += 1;
                 }
                 OpCode::PUSH => self.handle_push(cur_inst.payload_size as usize)?,
+                OpCode::READLOCAL => self.handle_local(cur_inst.payload_size as usize)?,
                 OpCode::APPLY => self.handle_apply(cur_inst.span)?,
                 OpCode::CLEAR => {
                     self.ip += 1;
@@ -864,6 +865,22 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
+    fn handle_local(&mut self, index: usize) -> Result<()> {
+        // calculate offset
+        // let end = self.stack.len();
+
+        // println!("Stack end: {}, stack index: {}", end, index);
+        // println!("Stack: {:?}", self.stack);
+
+        let value = self.stack[index].clone();
+        self.stack.push(value);
+        self.ip += 1;
+        Ok(())
+
+        // unimplemented!()
+    }
+
+    #[inline(always)]
     fn handle_start_closure(&mut self, offset: usize) {
         self.ip += 1;
         let forward_jump = offset - 1;
@@ -1051,6 +1068,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
+        println!(
+            "function args: {:?}",
+            self.stack.peek_range(self.stack.len() - payload_size..)
+        );
+
         let result = f(self.stack.peek_range(self.stack.len() - payload_size..))
             .map_err(|x| x.set_span(*span))?;
 

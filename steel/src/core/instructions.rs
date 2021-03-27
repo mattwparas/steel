@@ -245,6 +245,15 @@ impl Instruction {
             constant: true,
         }
     }
+
+    pub fn new_local(idx: usize, contents: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::READLOCAL,
+            payload_size: idx,
+            contents: Some(contents),
+            constant: false,
+        }
+    }
 }
 
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {

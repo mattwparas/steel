@@ -178,6 +178,8 @@ fn insert_debruijn_indices(
                     x.set_span(sp)
                 })?;
                 // println!("Renaming: {} to index: {}", s, idx);
+
+                // TODO commenting this for now
                 if let Some(x) = instructions.get_mut(i) {
                     x.payload_size = idx;
                     x.constant = false;

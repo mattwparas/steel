@@ -57,7 +57,9 @@ impl SymbolMap {
             }
         }
         let e = ident.to_string();
-        stop!(FreeIdentifier => e)
+        // TODO come back to this
+        // stop!(FreeIdentifier => e)
+        Ok(0)
     }
 
     pub fn roll_back(&mut self, idx: usize) {
