@@ -192,7 +192,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let l = &lambda_function.args;
 
         arity = l.len();
-        let rev_iter = l.iter().rev();
+        // let rev_iter = l.iter().rev();
+        let rev_iter = l.iter();
         for symbol in rev_iter {
             if let ExprKind::Atom(atom) = symbol {
                 match &atom.syn {
@@ -245,6 +246,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         }
 
         collect_defines_from_scope(&mut self.locals, &lambda_function.body);
+
+        // go ahead and statically calculate all of the variables that this closure needs to capture
+        // only do so if those variables cannot be accessed locally
+        // if the variables can be accessed locally, leave them the same
+        // if the variables cannot be accessed locally, give the stack offset where it might exist
+        // if it doesn't exist at a stack offset, then the value exists somewhere in a captured environment.
+        // The upvalues themselves need to be pointed upwards in some capacity, and these also
 
         // make recursive call with "fresh" vector so that offsets are correct
         body_instructions = CodeGenerator::new_from_body_instructions(

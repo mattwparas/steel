@@ -362,6 +362,7 @@ struct VmCore<'a, CT: ConstantTable> {
     ip: usize,
     pop_count: usize,
     env_stack: EnvStack,
+    current_arity: Option<usize>,
 }
 
 impl<'a, CT: ConstantTable> VmCore<'a, CT> {
@@ -392,6 +393,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             ip: 0,
             pop_count: 1,
             env_stack: Stack::new(),
+            current_arity: None,
         })
     }
 
@@ -491,6 +493,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 println!("stack frame at exit: {:?}", self.stack);
                                 stop!(Generic => "stack overflowed!"; cur_inst.span);
                             }
+
+                            self.current_arity = Some(closure.arity());
 
                             if closure.arity() != 1 {
                                 stop!(Generic => "call/cc expects a function with arity 1");
@@ -593,6 +597,47 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     if self.ip == 0 && self.heap.len() > self.heap.limit() {
                         self.heap.collect_garbage();
                     }
+
+                    if self.ip == 0 {
+                        println!("TCO kicking in");
+                        println!("{}", self.stack.len());
+
+                        println!("stack before: {:?}", self.stack);
+
+                        // jump back to the beginning at this point
+                        let offset = self.stack_index.last().unwrap();
+
+                        // We should have arity at this point, drop the stack up to this point
+                        self.stack
+                            .drain(*offset..self.stack.len() - self.current_arity.unwrap());
+
+                        println!("stack after: {:?}", self.stack);
+
+                        // TODO make sure this includes some way to overwrite the existing stack
+                        // that way the
+
+                        // let rollback_index = self.stack_index.last().unwrap();
+
+                        // println!("rollback: {}", rollback_index);
+                        // println!("stack length: {}", self.stack.len());
+
+                        // self.stack = self.stack
+
+                        // println!("stack before: {:?}", self.stack);
+
+                        // self.stack = self
+                        //     .stack
+                        //     .split_off(self.stack.len() - rollback_index + 1)
+                        //     .into();
+
+                        // println!("stack after: {:?}", self.stack);
+
+                        // self.stack_index.pop();
+                    }
+
+                    // if self.ip == 0 {
+                    //     println!()
+                    // }
                 }
                 OpCode::POP => {
                     self.pop_count -= 1;
@@ -878,13 +923,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // let end = self.stack.len();
 
         // println!("Stack end: {}, stack index: {}", end, index);
-        // println!("Stack: {:?}", self.stack);
+        println!("Stack: {:?}", self.stack);
+        println!("stack index: {:?}", self.stack_index);
 
         let offset = self.stack_index.last().unwrap();
 
         let value = self.stack[index + offset].clone();
 
-        // println!("Pushing onto the stack: {}", value);
+        println!("Pushing onto the stack: {}", value);
 
         self.stack.push(value);
         self.ip += 1;
@@ -1012,6 +1058,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 if closure.arity() != payload_size {
                     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
                 }
+
+                self.current_arity = Some(closure.arity());
 
                 // dbg!(&self.env_stack);
                 // dbg!(&self.global_env);
@@ -1209,6 +1257,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 if closure.arity() != payload_size {
                     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
                 }
+
+                self.current_arity = Some(closure.arity());
 
                 if self.stack_index.len() == STACK_LIMIT {
                     // println!("stacks at exit: {:?}", stacks);
