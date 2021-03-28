@@ -599,10 +599,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     }
 
                     if self.ip == 0 {
-                        println!("TCO kicking in");
-                        println!("{}", self.stack.len());
+                        // println!("TCO kicking in");
+                        // println!("{}", self.stack.len());
 
-                        println!("stack before: {:?}", self.stack);
+                        // println!("stack before: {:?}", self.stack);
 
                         // jump back to the beginning at this point
                         let offset = self.stack_index.last().unwrap();
@@ -611,7 +611,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         self.stack
                             .drain(*offset..self.stack.len() - self.current_arity.unwrap());
 
-                        println!("stack after: {:?}", self.stack);
+                        // println!("stack after: {:?}", self.stack);
 
                         // TODO make sure this includes some way to overwrite the existing stack
                         // that way the
@@ -923,14 +923,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // let end = self.stack.len();
 
         // println!("Stack end: {}, stack index: {}", end, index);
-        println!("Stack: {:?}", self.stack);
-        println!("stack index: {:?}", self.stack_index);
+        // println!("Stack: {:?}", self.stack);
+        // println!("stack index: {:?}", self.stack_index);
 
-        let offset = self.stack_index.last().unwrap();
+        let offset = self.stack_index.last().copied().unwrap_or(0);
 
         let value = self.stack[index + offset].clone();
 
-        println!("Pushing onto the stack: {}", value);
+        // println!("Pushing onto the stack: {}", value);
 
         self.stack.push(value);
         self.ip += 1;
