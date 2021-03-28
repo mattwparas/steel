@@ -397,6 +397,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         })
     }
 
+    fn with_arity(mut self, arity: usize) -> Self {
+        self.current_arity = Some(arity);
+        self
+    }
+
     #[inline(always)]
     fn new_continuation_from_state(&self) -> Continuation {
         // println!("stacks at continuation: {:?}", self.stacks);
@@ -605,11 +610,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         // println!("stack before: {:?}", self.stack);
 
                         // jump back to the beginning at this point
-                        let offset = self.stack_index.last().unwrap();
+                        let offset = self.stack_index.last().copied().unwrap_or(0);
 
                         // We should have arity at this point, drop the stack up to this point
                         self.stack
-                            .drain(*offset..self.stack.len() - self.current_arity.unwrap());
+                            .drain(offset..self.stack.len() - self.current_arity.unwrap());
 
                         // println!("stack after: {:?}", self.stack);
 
@@ -1181,9 +1186,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
+        println!("calling contracted function");
+
         if cf.arity() != payload_size {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
         }
+
+        // Set the arity for later
+        // self.current_arity = Some(cf.arity());
 
         let args = self.stack.split_off(self.stack.len() - payload_size);
 
@@ -1480,5 +1490,28 @@ pub(crate) fn vm<CT: ConstantTable>(
         repl,
         callback,
     )?
+    .vm()
+}
+
+pub(crate) fn vm_with_arity<CT: ConstantTable>(
+    instructions: Rc<[DenseInstruction]>,
+    stack: StackFrame,
+    heap: &mut Heap,
+    global_env: Rc<RefCell<Env>>,
+    constants: &CT,
+    repl: bool,
+    callback: &EvaluationProgress,
+    arity: usize,
+) -> Result<SteelVal> {
+    VmCore::new(
+        instructions,
+        stack,
+        heap,
+        global_env,
+        constants,
+        repl,
+        callback,
+    )?
+    .with_arity(arity)
     .vm()
 }

@@ -1,4 +1,8 @@
-use super::{evaluation_progress::EvaluationProgress, heap::Heap, vm::vm};
+use super::{
+    evaluation_progress::EvaluationProgress,
+    heap::Heap,
+    vm::{vm, vm_with_arity},
+};
 use crate::{
     compiler::constants::ConstantTable,
     env::Env,
@@ -254,7 +258,7 @@ impl FunctionContractExt for FunctionContract {
                     0
                 });
 
-            vm(
+            vm_with_arity(
                 function.body_exp(),
                 verified_args.into(),
                 local_heap,
@@ -262,6 +266,7 @@ impl FunctionContractExt for FunctionContract {
                 constants,
                 repl,
                 callback,
+                self.arity(),
             )
         }?;
 
