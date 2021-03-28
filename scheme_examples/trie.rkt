@@ -85,6 +85,7 @@
 
 ;; contract: trie? (listof string?) -> trie?
 (define (build-trie-from-list-of-words trie list-of-words)
+  (displayln list-of-words)
   (cond
     [(= (length list-of-words) 1)
      (insert trie (first list-of-words))]
