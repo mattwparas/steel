@@ -174,10 +174,10 @@ impl Instruction {
         }
     }
 
-    pub fn new_pass() -> Instruction {
+    pub fn new_pass(arity: usize) -> Instruction {
         Instruction {
             op_code: OpCode::PASS,
-            payload_size: 0,
+            payload_size: arity,
             contents: None,
             constant: false,
         }

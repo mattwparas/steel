@@ -91,7 +91,7 @@ impl SteelStruct {
 
     // This will blow up the stack with a sufficiently large recursive struct
     pub fn pretty_print(&self) -> String {
-        format!("{}: {:#?}", self.name, self.fields)
+        format!("{}", self.name)
     }
 }
 

@@ -21,13 +21,26 @@ use log::info;
 
 // use super::codegen::{check_and_transform_mutual_recursion, transform_tail_call};
 
+#[derive(Clone, Debug)]
+struct LocalVariable {
+    depth: u32,
+    name: String,
+}
+
+impl LocalVariable {
+    pub fn new(depth: u32, name: String) -> Self {
+        LocalVariable { depth, name }
+    }
+}
+
 pub struct CodeGenerator<'a> {
     instructions: Vec<Instruction>,
     constant_map: &'a mut ConstantMap,
     defining_context: Option<String>,
     symbol_map: &'a mut SymbolMap,
     depth: u32,
-    locals: Vec<String>,
+    locals: Vec<LocalVariable>,
+    offset: usize,
 }
 
 impl<'a> CodeGenerator<'a> {
@@ -39,15 +52,17 @@ impl<'a> CodeGenerator<'a> {
             symbol_map,
             depth: 0,
             locals: Vec::new(),
+            offset: 0,
         }
     }
 
-    pub fn new_from_body_instructions(
+    fn new_from_body_instructions(
         constant_map: &'a mut ConstantMap,
         symbol_map: &'a mut SymbolMap,
         instructions: Vec<Instruction>,
         depth: u32,
-        locals: Vec<String>,
+        locals: Vec<LocalVariable>,
+        offset: usize,
     ) -> Self {
         CodeGenerator {
             instructions,
@@ -56,6 +71,7 @@ impl<'a> CodeGenerator<'a> {
             symbol_map,
             depth,
             locals,
+            offset,
         }
     }
 
@@ -132,7 +148,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             self.defining_context = defining_context;
 
             self.visit(&define.body)?;
-            self.push(Instruction::new_pop());
+
+            // self.push(Instruction::new_pop());
+
             let defn_body_size = self.len() - sidx;
             self.push(Instruction::new_edef());
 
@@ -142,25 +160,28 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 stop!(Generic => "out of bounds closure len");
             }
 
+            println!("binding global: {}", name);
+            self.push(Instruction::new_bind(name.syn.clone()));
+
             // TODO pick up from here
-            if self.depth == 0 {
-                println!("binding global: {}", name);
-                self.push(Instruction::new_bind(name.syn.clone()));
-            } else {
-                println!("binding local: {}", name);
-                // let ident = &self.defining_context;
+            // if self.depth == 0 {
+            //     println!("binding global: {}", name);
+            //     self.push(Instruction::new_bind(name.syn.clone()));
+            // } else {
+            //     println!("binding local: {}", name);
+            //     // let ident = &self.defining_context;
 
-                // self.locals.push(ident.clone().unwrap());
-                // // Throw in a dummy value for where voids are going to be
-                // self.locals.push("#####".to_string()); // TODO get rid of this dummy value
+            //     // self.locals.push(ident.clone().unwrap());
+            //     // // Throw in a dummy value for where voids are going to be
+            //     // self.locals.push("#####".to_string()); // TODO get rid of this dummy value
 
-                // let binding_index = self.locals.len() - 2;
+            //     // let binding_index = self.locals.len() - 2;
 
-                // println!("Binding it to index: {}", binding_index);
+            //     // println!("Binding it to index: {}", binding_index);
 
-                // Do late bound for locals as well
-                self.push(Instruction::new_bind_local(0, name.syn.clone()));
-            }
+            //     // Do late bound for locals as well
+            //     self.push(Instruction::new_bind_local(0, name.syn.clone()));
+            // }
 
             self.push(Instruction::new_void());
 
@@ -187,11 +208,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         self.push(Instruction::new_ndef(0)); // Default with 0 for now
 
         let mut body_instructions = Vec::new();
-        let arity;
 
         let l = &lambda_function.args;
 
-        arity = l.len();
+        let offset = self.locals.len();
+
+        let arity = l.len();
         // let rev_iter = l.iter().rev();
         let rev_iter = l.iter();
         for symbol in rev_iter {
@@ -201,7 +223,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         ty: TokenType::Identifier(i),
                         ..
                     } => {
-                        self.locals.push(i.clone());
+                        self.locals
+                            .push(LocalVariable::new(self.depth + 1, i.clone()));
                         // println!("Validating the identifiers in the arguments");
                         // body_instructions.push(Instruction::new_bind(atom.syn.clone()));
                     }
@@ -218,7 +241,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
-        fn collect_defines_from_scope(locals: &mut Vec<String>, expr: &ExprKind) {
+        fn collect_defines_from_scope(
+            locals: &mut Vec<LocalVariable>,
+            expr: &ExprKind,
+            depth: u32,
+        ) {
             // Collect defines for body here
             if let ExprKind::Begin(b) = expr {
                 for expr in &b.exprs {
@@ -226,9 +253,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         ExprKind::Define(d) => {
                             if let ExprKind::Atom(name) = &d.name {
                                 if let TokenType::Identifier(ident) = &name.syn.ty {
-                                    locals.push(ident.clone());
+                                    locals.push(LocalVariable::new(depth, ident.clone()));
                                     // TODO insert dummy value for offset calculation
-                                    locals.push("#####".to_string());
+                                    locals.push(LocalVariable::new(depth, "#####".to_string()));
                                 } else {
                                     panic!("define requires an identifier")
                                 }
@@ -236,7 +263,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         }
                         ExprKind::Begin(b) => {
                             for expr in &b.exprs {
-                                collect_defines_from_scope(locals, &expr);
+                                collect_defines_from_scope(locals, &expr, depth);
                             }
                         }
                         _ => {}
@@ -245,7 +272,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
-        collect_defines_from_scope(&mut self.locals, &lambda_function.body);
+        // TODO
+        // collect_defines_from_scope(&mut self.locals, &lambda_function.body, self.depth + 1);
 
         // go ahead and statically calculate all of the variables that this closure needs to capture
         // only do so if those variables cannot be accessed locally
@@ -261,19 +289,28 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             body_instructions,
             self.depth + 1, // pass through the depth
             self.locals.clone(),
+            offset,
         ) // pass through the locals here
         .compile(&lambda_function.body)?;
 
         body_instructions.push(Instruction::new_pop());
         if let Some(ctx) = &self.defining_context {
-            transform_tail_call(&mut body_instructions, ctx);
-            let b = check_and_transform_mutual_recursion(&mut body_instructions);
-            if b {
-                info!("Transformed mutual recursion for: {}", ctx);
-            }
+            // transform_tail_call(&mut body_instructions, ctx);
+
+            // // TODO check this here - reimplement mutual recursion
+            // let b = check_and_transform_mutual_recursion(&mut body_instructions);
+
+            // // let b = false;
+
+            // if b {
+            //     info!("Transformed mutual recursion for: {}", ctx);
+            // }
         }
 
         self.instructions.append(&mut body_instructions);
+
+        // pop off the local variables from the run time stack, so we don't have them
+
         let closure_body_size = self.len() - idx;
         self.push(Instruction::new_eclosure(arity));
 
@@ -406,9 +443,29 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             return Ok(());
         };
 
-        if let Some(idx) = self.locals.iter().position(|x| x == ident) {
+        if let Some(idx) = self.locals.iter().rev().position(|x| &x.name == ident) {
             // println!("pushing local");
-            self.push(Instruction::new_local(idx, a.syn.clone()))
+
+            // TODO come back to this
+            // if self.locals[idx].depth < self.depth {
+            //     let e = format!(
+            //         "local variable cannot be captured yet, found depth: {}, current depth: {}, for variable: {}",
+            //         self.locals[idx].depth, self.depth, ident
+            //     );
+            //     stop!(Generic => e; a.syn.span)
+            // }
+
+            println!("#########################");
+            println!("Binding {} to idx: {}", ident, idx);
+            println!("Offset: {}", self.offset);
+            println!("Depth: {}", self.depth);
+            println!("locals length: {}", self.locals.len());
+
+            // get the complement
+            self.push(Instruction::new_local(
+                self.locals.len() - 1 - idx,
+                a.syn.clone(),
+            ))
         } else {
             // println!("pushing global");
             self.push(Instruction::new(OpCode::PUSH, 0, a.syn.clone(), true));
@@ -501,6 +558,7 @@ fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &s
             (
                 Some(Instruction {
                     op_code: OpCode::FUNC,
+                    payload_size: arity,
                     ..
                 }),
                 Some(Instruction {
@@ -513,15 +571,16 @@ fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &s
                     ..
                 }),
             ) => {
+                let arity = *arity;
                 if s == defining_context {
                     let new_jmp = Instruction::new_jmp(0);
                     // inject tail call jump
                     instructions[index - 2] = new_jmp;
-                    instructions[index - 1] = Instruction::new_pass();
+                    instructions[index - 1] = Instruction::new_pass(arity);
                     transformed = true;
 
                     info!("Tail call optimization performed for: {}", defining_context);
-                    println!("Tail call optimization perfored for: {}", defining_context);
+                    println!("Tail call optimization performed for: {}", defining_context);
                 }
             }
             _ => {}

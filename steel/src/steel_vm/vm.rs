@@ -363,6 +363,7 @@ struct VmCore<'a, CT: ConstantTable> {
     pop_count: usize,
     env_stack: EnvStack,
     current_arity: Option<usize>,
+    tail_call: Vec<bool>,
 }
 
 impl<'a, CT: ConstantTable> VmCore<'a, CT> {
@@ -394,6 +395,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             pop_count: 1,
             env_stack: Stack::new(),
             current_arity: None,
+            tail_call: Vec::new(),
         })
     }
 
@@ -597,6 +599,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     }
                 }
                 OpCode::JMP => {
+                    let current_arity = self.instructions[self.ip + 1].payload_size as usize;
                     self.ip = cur_inst.payload_size as usize;
                     // HACK
                     if self.ip == 0 && self.heap.len() > self.heap.limit() {
@@ -604,19 +607,35 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     }
 
                     if self.ip == 0 {
-                        // println!("TCO kicking in");
+                        println!("@@@@@@@@@@@@@@@@ TCO kicking in @@@@@@@@@@@@@@@@@2");
                         // println!("{}", self.stack.len());
 
-                        // println!("stack before: {:?}", self.stack);
+                        // let current_arity = self.instructions[self.ip + 1].payload_size as usize;
+
+                        println!("stack before: {:?}", self.stack);
 
                         // jump back to the beginning at this point
                         let offset = self.stack_index.last().copied().unwrap_or(0);
 
                         // We should have arity at this point, drop the stack up to this point
-                        self.stack
-                            .drain(offset..self.stack.len() - self.current_arity.unwrap());
 
-                        // println!("stack after: {:?}", self.stack);
+                        // take the last arity off the stack, go back and replace those in order
+
+                        println!("Current arity: {:?}", current_arity);
+                        println!("Offset: {}", offset);
+                        println!("length: {}", self.stack.len());
+
+                        let back = self.stack.len() - current_arity;
+                        for i in 0..current_arity {
+                            self.stack.set_idx(offset + i, self.stack[back + i].clone());
+                        }
+
+                        self.stack.truncate(offset + current_arity);
+
+                        // self.stack
+                        //     .drain(offset..self.stack.len() - self.current_arity.unwrap());
+
+                        println!("stack after: {:?}", self.stack);
 
                         // TODO make sure this includes some way to overwrite the existing stack
                         // that way the
@@ -646,6 +665,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 }
                 OpCode::POP => {
                     self.pop_count -= 1;
+                    println!("INSIDE POP: {:?}", self.tail_call);
+                    println!("POP COUNT: {}", self.pop_count);
+                    println!("STACK INDEX LENGTH: {}", self.stack_index.len());
+                    let tail_call = self.tail_call.pop().unwrap_or(false);
                     if self.pop_count == 0 {
                         self.env_stack.clear();
 
@@ -664,37 +687,99 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                         return ret_val;
                     } else {
-                        let ret_val = self.stack.pop().unwrap();
-                        let prev_state = self.instruction_stack.pop().unwrap();
+                        println!("POPPING WITH TAIL CALL: {}", tail_call);
 
-                        if !prev_state.instrs_ref().is_empty() {
-                            // println!("not empty case");
+                        // let prev_state = self.instruction_stack.pop().unwrap();
+                        // self.global_env = self.env_stack.pop().unwrap();
+                        // self.ip = prev_state.0;
+                        // self.instructions = prev_state.instrs();
+
+                        if !self
+                            .instruction_stack
+                            .last()
+                            .unwrap()
+                            .instrs_ref()
+                            .is_empty()
+                        {
+                            println!("not empty case");
+                            let prev_state = self.instruction_stack.pop().unwrap();
                             // self.heap.add(Rc::clone(&self.global_env));
                             self.global_env = self.env_stack.pop().unwrap();
                             self.ip = prev_state.0;
                             self.instructions = prev_state.instrs();
                         } else {
-                            // println!("################## empty case ##################");
+                            println!("################## empty case ##################");
+                            // println!("Pop count: {}", self.pop_count);
+                            // println!("Stack: {:?}", self.stack);
+                            // crate::core::instructions::pretty_print_dense_instructions(
+                            //     &self.instructions,
+                            // );
+                            // // self.ip += 1;
+                            // let prev_state = self.instruction_stack.pop().unwrap();
+                            // self.global_env = self.env_stack.pop().unwrap();
+                            // self.ip = prev_state.0;
+                            // self.instructions = prev_state.instrs();
                             self.ip += 1;
                         }
 
                         // Idk maybe?
                         // self.global_env.borrow_mut().pop_child();
 
-                        // println!("inside here");
+                        println!(
+                            "******************* popping off of the stack index inside here ******************"
+                        );
+
+                        let ret_val = self.stack.pop().unwrap();
+
+                        // if tail_call {
+                        //     self.stack_index.pop();
+                        // }
 
                         let rollback_index = self.stack_index.pop().unwrap();
 
-                        // println!("rollback: {}", rollback_index);
+                        println!("rollback: {}", rollback_index);
+
+                        println!("Stack before: {:?}", self.stack);
+
                         // println!("stack length: {}", self.stack.len());
 
                         // self.stack = self.stack
 
                         self.stack.truncate(rollback_index);
 
+                        println!("Stack after: {:?}", self.stack);
+
                         // self.stack = self.stacks.pop().unwrap();
 
                         // println!("Getting here");
+
+                        // self.stack.push(ret_val);
+
+                        // if tail_call {
+                        //     // let ret_val = self.stack.pop().unwrap();
+
+                        //     // if tail_call {
+                        //     //     self.stack_index.pop();
+                        //     // }
+
+                        //     let rollback_index = self.stack_index.pop().unwrap();
+
+                        //     println!("rollback: {}", rollback_index);
+
+                        //     println!("Stack before: {:?}", self.stack);
+
+                        //     // println!("stack length: {}", self.stack.len());
+
+                        //     // self.stack = self.stack
+
+                        //     self.stack.truncate(rollback_index);
+
+                        //     println!("Stack after: {:?}", self.stack);
+
+                        //     // self.stack = self.stacks.pop().unwrap();
+
+                        //     // println!("Getting here");
+                        // }
 
                         self.stack.push(ret_val);
 
@@ -707,6 +792,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 OpCode::EDEF => {
                     self.global_env.borrow_mut().set_binding_context(false);
                     self.ip += 1;
+                    println!("GETTING INTO HERE");
                 }
 
                 OpCode::LOOKUP => {}
@@ -726,12 +812,19 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             self.ip,
             self.instructions.len()
         );
+        println!(
+            "OUt of bounds instruction!: instruction pointer: {}, instruciton length: {}",
+            self.ip,
+            self.instructions.len()
+        );
         crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
         panic!("Out of bounds instruction")
     }
 
     #[inline(always)]
     fn handle_transduce(&mut self, span: &Span) -> Result<()> {
+        println!("INSIDE TRANSDUCE");
+
         let list = self.stack.pop().unwrap();
         let initial_value = self.stack.pop().unwrap();
         let reducer = self.stack.pop().unwrap();
@@ -757,6 +850,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_collect_to(&mut self, span: &Span) -> Result<()> {
+        println!("INSIDE COLLECT TO");
+
         let output_type = self.stack.pop().unwrap();
         let list = self.stack.pop().unwrap();
         let transducer = self.stack.pop().unwrap();
@@ -928,14 +1023,20 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // let end = self.stack.len();
 
         // println!("Stack end: {}, stack index: {}", end, index);
-        // println!("Stack: {:?}", self.stack);
-        // println!("stack index: {:?}", self.stack_index);
+        println!("Stack: {:?}", self.stack);
+        println!("stack index: {:?}", self.stack_index);
+        println!("Stack length: {}", self.stack.len());
+        println!("index: {}", index);
 
         let offset = self.stack_index.last().copied().unwrap_or(0);
 
         let value = self.stack[index + offset].clone();
 
-        // println!("Pushing onto the stack: {}", value);
+        // let value = self.stack[self.stack.len() - 1 - index].clone();
+
+        // let value = self.stack[index].clone();
+
+        println!("Pushing onto the stack: {}", value);
 
         self.stack.push(value);
         self.ip += 1;
@@ -985,6 +1086,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             arity as usize,
             ndefs as usize,
         );
+
+        println!("Pushing closure onto stack");
 
         self.stack
             .push(SteelVal::Closure(Gc::new(constructed_lambda)));
@@ -1046,7 +1149,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn handle_tail_call(&mut self, payload_size: usize, span: &Span) -> Result<()> {
         use SteelVal::*;
         let stack_func = self.stack.pop().unwrap();
-
         match &stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
@@ -1054,6 +1156,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => {
+                self.tail_call.push(true);
+
                 if self.stack_index.len() == STACK_LIMIT {
                     // println!("stacks at exit: {:?}", self.stacks);
                     println!("stack frame at exit: {:?}", self.stack);
@@ -1066,6 +1170,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 self.current_arity = Some(closure.arity());
 
+                // self.stack_index.push(self.stack.len() - payload_size);
+                // self.pop_count += 1;
+
                 // dbg!(&self.env_stack);
                 // dbg!(&self.global_env);
 
@@ -1076,9 +1183,55 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // I think so, just because then the previous stack is explicitly dropped
                 // let mut args = self.stack.split_off(self.stack.len() - payload_size);
 
-                self.stack.drain(
-                    self.stack_index.last().copied().unwrap_or(0)..self.stack.len() - payload_size,
+                println!("############# TAIL CALL ##################");
+
+                println!("TAIL CALL STACK: {:?}", self.tail_call);
+
+                // self.stack.drain(
+                //     self.stack_index.last().copied().unwrap_or(0)..self.stack.len() - payload_size,
+                // );
+
+                println!("stack index: {:?}", self.stack_index);
+
+                println!(
+                    "WOULD BE PUSHING LENGTH ON NOW: {}",
+                    self.stack.len() - payload_size,
                 );
+
+                self.stack_index.push(self.stack.len() - payload_size);
+
+                // if let Some(p) = self.stack_index.last_mut() {
+                //     *p = self.stack.len() - payload_size;
+                // }
+
+                println!("stack before: {:?}", self.stack);
+
+                // jump back to the beginning at this point
+                let offset = self.stack_index.last().copied().unwrap_or(0);
+
+                let current_arity = payload_size;
+
+                // We should have arity at this point, drop the stack up to this point
+
+                // take the last arity off the stack, go back and replace those in order
+
+                println!("Current arity: {:?}", current_arity);
+                println!("Offset: {}", offset);
+                println!("length: {}", self.stack.len());
+
+                // self.stack_index.push(self.stack.len() - 1);
+
+                // let back = self.stack.len() - current_arity;
+                // for i in 0..current_arity {
+                //     self.stack.set_idx(offset + i, self.stack[back + i].clone());
+                // }
+
+                // self.stack.truncate(offset + current_arity);
+
+                // self.stack
+                //     .drain(offset..self.stack.len() - self.current_arity.unwrap());
+
+                println!("stack after: {:?}", self.stack);
 
                 // self.stack.truncate(*self.stack_index.last().unwrap_or(0));
 
@@ -1123,6 +1276,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 self.global_env = inner_env;
                 self.instructions = closure.body_exp();
+
+                // self.stack_index.push(self.stack.len());
+
                 // self.stack = args.into();
 
                 // Wipe the stack index at this point?
@@ -1264,7 +1420,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => {
+                self.tail_call.push(false);
+
                 if closure.arity() != payload_size {
+                    println!("Stack: {:?}", self.stack);
                     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
                 }
 
@@ -1280,6 +1439,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // dbg!(&self.global_env);
 
                 // println!("Pushing onto stack_index: {}", self.stack.len());
+
+                println!("############### FUNCTION CALL ###############");
+
                 self.stack_index.push(self.stack.len() - payload_size);
 
                 // Use smallvec here?
@@ -1363,15 +1525,19 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.global_env.borrow_mut().set_binding_context(true);
         self.global_env.borrow_mut().set_binding_offset(false);
 
-        // println!("Pushing onto stack_index: {}", self.stack.len());
-        self.stack_index.push(self.stack.len());
+        // TODO
+        // println!("!!! Pushing onto stack_index: {} !!!", self.stack.len());
+        // self.stack_index
+        //     .push(self.stack_index.last().copied().unwrap_or(0));
+
+        // self.stack_index.push(self.stack.len());
 
         // let stack = std::mem::replace(&mut self.stack, Stack::new());
         // self.stacks.push(stack);
 
         // placeholder on the instruction_stack
-        self.instruction_stack.push(InstructionPointer::new_raw());
-        self.pop_count += 1;
+        // self.instruction_stack.push(InstructionPointer::new_raw());
+        // self.pop_count += 1;
     }
 
     #[inline(always)]
