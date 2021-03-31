@@ -630,6 +630,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             self.stack.set_idx(offset + i, self.stack[back + i].clone());
                         }
 
+                        // TODO
                         self.stack.truncate(offset + current_arity);
 
                         // self.stack
