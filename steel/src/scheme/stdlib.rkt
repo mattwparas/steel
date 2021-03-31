@@ -248,7 +248,7 @@
 
 
 (define (map func lst)
-  (if (empty? lst) 
+  (if (null? lst) 
       '() 
       (execute (mapping func) lst)))
 
@@ -337,5 +337,5 @@
   (display object)
   (newline))
 
-
 ;;; Macros go here:
+

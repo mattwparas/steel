@@ -40,7 +40,7 @@ fn collect_defines_from_current_scope(
     instructions: &[Instruction],
     symbol_map: &mut SymbolMap,
 ) -> Result<usize> {
-    return Ok(0);
+    // return Ok(0);
 
     let mut def_stack: usize = 0;
     let mut count = 0;

@@ -164,10 +164,12 @@
 ; (define trie1 (build-trie-from-list-of-words empty-trie test-list))
 
 ; (displayln (trie-sort test-list))
+
 (define (generate-trie list-of-words)
   (build-trie-from-list-of-words empty-trie test-list))
 
-(generate-trie test-list)
+
+(pre-order (generate-trie test-list))
 
 
 ;; (loop 0)

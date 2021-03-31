@@ -1001,7 +1001,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         let value = self.global_env.borrow().repl_lookup_idx(index)?;
 
-        // println!("pushing: {}", value);
+        println!("pushing: {}", value);
         self.stack.push(value);
 
         // TODO handle the offset situation
@@ -1411,6 +1411,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     #[inline(always)]
     fn handle_function_call(&mut self, payload_size: usize, span: &Span) -> Result<()> {
         use SteelVal::*;
+
+        println!("Stack at function call: {:?}", self.stack);
+
         let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {

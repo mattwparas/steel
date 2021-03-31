@@ -211,6 +211,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         let l = &lambda_function.args;
 
+        println!("ARGS: {:?}", l);
+
         let offset = self.locals.len();
 
         let arity = l.len();
@@ -295,12 +297,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         body_instructions.push(Instruction::new_pop());
         if let Some(ctx) = &self.defining_context {
-            // transform_tail_call(&mut body_instructions, ctx);
+            transform_tail_call(&mut body_instructions, ctx);
 
-            // // TODO check this here - reimplement mutual recursion
+            // TODO check this here - reimplement mutual recursion
             // let b = check_and_transform_mutual_recursion(&mut body_instructions);
 
-            // // let b = false;
+            // let b = false;
 
             // if b {
             //     info!("Transformed mutual recursion for: {}", ctx);
