@@ -647,6 +647,22 @@ impl PartialOrd for SteelVal {
 }
 
 #[derive(Clone)]
+pub(crate) struct UpValue {
+    // Either points to a stack location, or the heap where it resides
+    location: Location,
+    // The value if its been closed, None otherwise
+    closed: Option<SteelVal>,
+    // The next upvalue in the sequence
+    next: Option<Weak<UpValue>>,
+}
+
+#[derive(Clone)]
+pub(crate) enum Location {
+    Stack(usize),
+    Heap(Weak<SteelVal>),
+}
+
+#[derive(Clone)]
 pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
     body_exp: Rc<[DenseInstruction]>,
@@ -662,6 +678,7 @@ pub struct ByteCodeLambda {
     offset: usize,
     arity: usize,
     ndef_body: usize,
+    upvalues: Vec<UpValue>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -693,6 +710,7 @@ impl ByteCodeLambda {
             offset,
             arity,
             ndef_body,
+            upvalues: Vec::new(),
         }
     }
 
