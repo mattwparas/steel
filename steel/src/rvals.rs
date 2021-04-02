@@ -646,6 +646,7 @@ impl PartialOrd for SteelVal {
     }
 }
 
+// Upvalues themselves need to be stored on the heap
 #[derive(Clone)]
 pub(crate) struct UpValue {
     // Either points to a stack location, or the heap where it resides
@@ -656,10 +657,24 @@ pub(crate) struct UpValue {
     next: Option<Weak<UpValue>>,
 }
 
+impl UpValue {
+    // Given a reference to the stack, either get the value from the stack index
+    // Or snag the steelval stored inside the upvalue
+    pub(crate) fn value(&self, stack: &[SteelVal]) -> SteelVal {
+        match self.location {
+            Location::Stack(idx) => stack[idx].clone(),
+            Location::Closed => self
+                .closed
+                .clone()
+                .expect("Closed value set but closed value not found on upvalue"),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) enum Location {
     Stack(usize),
-    Heap(Weak<SteelVal>),
+    Closed,
 }
 
 #[derive(Clone)]
