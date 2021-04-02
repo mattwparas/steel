@@ -647,34 +647,60 @@ impl PartialOrd for SteelVal {
 }
 
 // Upvalues themselves need to be stored on the heap
+// Consider a separate section for them on the heap, or wrap them in a wrapper
+// before allocating on the heap
 #[derive(Clone)]
 pub(crate) struct UpValue {
-    // Either points to a stack location, or the heap where it resides
+    // Either points to a stack location, or the value
     location: Location,
-    // The value if its been closed, None otherwise
-    closed: Option<SteelVal>,
     // The next upvalue in the sequence
     next: Option<Weak<UpValue>>,
+}
+
+impl PartialEq for UpValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.location == other.location
+    }
+}
+
+impl PartialOrd for UpValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (&self.location, &other.location) {
+            (Location::Stack(l), Location::Stack(r)) => Some(l.cmp(r)),
+            _ => panic!("Cannot compare two values on the heap"),
+        }
+    }
 }
 
 impl UpValue {
     // Given a reference to the stack, either get the value from the stack index
     // Or snag the steelval stored inside the upvalue
-    pub(crate) fn value(&self, stack: &[SteelVal]) -> SteelVal {
+    pub(crate) fn get_value(&self, stack: &[SteelVal]) -> SteelVal {
         match self.location {
             Location::Stack(idx) => stack[idx].clone(),
-            Location::Closed => self
-                .closed
-                .clone()
-                .expect("Closed value set but closed value not found on upvalue"),
+            Location::Closed(ref v) => v.clone(),
         }
+    }
+
+    pub(crate) fn new(&self, stack_index: usize, next: Option<Weak<UpValue>>) -> Self {
+        UpValue {
+            location: Location::Stack(stack_index),
+            next,
+        }
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        matches!(self.location, Location::Closed(_))
     }
 }
 
-#[derive(Clone)]
+// Either points to a stack index, or it points to a SteelVal directly
+// When performing an OPCODE::GET_UPVALUE, index into the array in the current
+// function being executed in the stack frame, and pull it in
+#[derive(Clone, PartialEq)]
 pub(crate) enum Location {
     Stack(usize),
-    Closed,
+    Closed(SteelVal),
 }
 
 #[derive(Clone)]
@@ -693,7 +719,7 @@ pub struct ByteCodeLambda {
     offset: usize,
     arity: usize,
     ndef_body: usize,
-    upvalues: Vec<UpValue>,
+    upvalues: Vec<Weak<UpValue>>,
 }
 
 impl PartialEq for ByteCodeLambda {
