@@ -652,9 +652,9 @@ impl PartialOrd for SteelVal {
 #[derive(Clone)]
 pub(crate) struct UpValue {
     // Either points to a stack location, or the value
-    location: Location,
+    pub(crate) location: Location,
     // The next upvalue in the sequence
-    next: Option<Weak<UpValue>>,
+    pub(crate) next: Option<RefCell<Weak<UpValue>>>,
 }
 
 impl PartialEq for UpValue {
@@ -682,11 +682,26 @@ impl UpValue {
         }
     }
 
-    pub(crate) fn new(&self, stack_index: usize, next: Option<Weak<UpValue>>) -> Self {
+    pub(crate) fn index(&self) -> usize {
+        if let Location::Stack(idx) = &self.location {
+            *idx
+        } else {
+            panic!("Attempted to get the stack index of a heap allocated upvalue")
+        }
+    }
+
+    pub(crate) fn new(stack_index: usize, next: Option<RefCell<Weak<UpValue>>>) -> Self {
         UpValue {
             location: Location::Stack(stack_index),
             next,
         }
+    }
+
+    pub(crate) fn set_next(&self, next: Weak<UpValue>) {
+        self.next.as_ref().map(|x| {
+            let mut b = x.borrow_mut();
+            *b = next;
+        });
     }
 
     pub(crate) fn is_closed(&self) -> bool {

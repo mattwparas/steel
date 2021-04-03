@@ -2,6 +2,7 @@ mod contracts;
 pub mod engine;
 mod evaluation_progress;
 pub(crate) mod heap;
+mod heap2;
 mod inline_iter;
 mod lazy_stream;
 mod primitives;

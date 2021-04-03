@@ -1,12 +1,15 @@
-use super::stack::{EnvStack, Stack, StackFrame};
 use super::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
+use super::{
+    heap2::UpValueHeap,
+    stack::{EnvStack, Stack, StackFrame},
+};
 use crate::{
     compiler::{
         constants::{ConstantMap, ConstantTable},
         program::Program,
     },
     core::{instructions::DenseInstruction, opcode::OpCode},
-    rvals::FutureResult,
+    rvals::{FutureResult, UpValue},
     values::contracts::ContractedFunction,
 };
 
@@ -24,7 +27,14 @@ use crate::{
     stop,
     values::structs::SteelStruct,
 };
-use std::{cell::RefCell, collections::HashMap, convert::TryFrom, iter::Iterator, rc::Rc, result};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    convert::TryFrom,
+    iter::Iterator,
+    rc::{Rc, Weak},
+    result,
+};
 
 use super::evaluation_progress::EvaluationProgress;
 
@@ -37,6 +47,7 @@ const STACK_LIMIT: usize = 100000;
 pub struct VirtualMachineCore {
     global_env: Rc<RefCell<Env>>,
     global_heap: Heap,
+    global_upvalue_heap: UpValueHeap,
     callback: EvaluationProgress,
 }
 
@@ -45,6 +56,7 @@ impl VirtualMachineCore {
         VirtualMachineCore {
             global_env: Rc::new(RefCell::new(Env::root())),
             global_heap: Heap::new(),
+            global_upvalue_heap: UpValueHeap::new(),
             callback: EvaluationProgress::new(),
         }
     }
@@ -256,6 +268,7 @@ impl VirtualMachineCore {
             constant_map,
             repl,
             &self.callback,
+            &mut self.global_upvalue_heap,
         );
 
         if self.global_env.borrow().is_binding_context() {
@@ -364,6 +377,8 @@ struct VmCore<'a, CT: ConstantTable> {
     env_stack: EnvStack,
     current_arity: Option<usize>,
     tail_call: Vec<bool>,
+    upvalue_head: Option<Weak<UpValue>>,
+    upvalue_heap: &'a mut UpValueHeap,
 }
 
 impl<'a, CT: ConstantTable> VmCore<'a, CT> {
@@ -375,6 +390,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         constants: &'a CT,
         repl: bool,
         callback: &'a EvaluationProgress,
+        upvalue_heap: &'a mut UpValueHeap,
     ) -> Result<VmCore<'a, CT>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
@@ -396,8 +412,74 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             env_stack: Stack::new(),
             current_arity: None,
             tail_call: Vec::new(),
+            upvalue_head: None,
+            upvalue_heap,
         })
     }
+
+    fn capture_upvalue(&mut self, local_idx: usize, local_value: &SteelVal) -> Weak<UpValue> {
+        // unimplemented!()
+
+        let mut prev_up_value: Option<Weak<UpValue>> = None;
+        let mut upvalue = self.upvalue_head.clone();
+
+        // let underlying_index = upvalue.unwrap();
+
+        // underlying_index
+
+        while upvalue.is_some() && upvalue.as_ref().unwrap().upgrade().unwrap().index() > local_idx
+        {
+            prev_up_value = upvalue.clone();
+            upvalue = upvalue.map(|x| x.upgrade().unwrap().next.clone().unwrap().into_inner());
+        }
+
+        if upvalue.is_some() && upvalue.as_ref().unwrap().upgrade().unwrap().index() == local_idx {
+            return upvalue.unwrap();
+        }
+
+        let created_up_value: Weak<UpValue> = self
+            .upvalue_heap
+            .new_upvalue(local_idx, upvalue.map(|x| RefCell::new(x)));
+
+        if prev_up_value.is_none() {
+            self.upvalue_head = Some(created_up_value.clone());
+        } else {
+            let prev_up_value = prev_up_value.unwrap().upgrade().unwrap();
+
+            prev_up_value.set_next(created_up_value.clone());
+        }
+
+        return created_up_value;
+
+        // unimplemented!()
+    }
+
+    /*
+        ObjUpvalue* prevUpvalue = NULL;
+      ObjUpvalue* upvalue = vm.openUpvalues;
+
+      while (upvalue != NULL && upvalue->location > local) {
+        prevUpvalue = upvalue;
+        upvalue = upvalue->next;
+      }
+
+      if (upvalue != NULL && upvalue->location == local) {
+        return upvalue;
+      }
+
+      ObjUpvalue* createdUpvalue = newUpvalue(local);
+    createdUpvalue->next = upvalue;
+
+    if (prevUpvalue == NULL) {
+      vm.openUpvalues = createdUpvalue;
+    } else {
+      prevUpvalue->next = createdUpvalue;
+    }
+
+    return createdUpvalue;
+
+
+        */
 
     fn with_arity(mut self, arity: usize) -> Self {
         self.current_arity = Some(arity);
@@ -1361,6 +1443,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             span,
             self.repl,
             self.callback,
+            &mut self.upvalue_heap,
         )?;
 
         self.stack.push(result);
@@ -1650,6 +1733,7 @@ pub(crate) fn vm<CT: ConstantTable>(
     constants: &CT,
     repl: bool,
     callback: &EvaluationProgress,
+    upvalue_heap: &mut UpValueHeap,
 ) -> Result<SteelVal> {
     VmCore::new(
         instructions,
@@ -1659,6 +1743,7 @@ pub(crate) fn vm<CT: ConstantTable>(
         constants,
         repl,
         callback,
+        upvalue_heap,
     )?
     .vm()
 }
@@ -1672,6 +1757,7 @@ pub(crate) fn vm_with_arity<CT: ConstantTable>(
     repl: bool,
     callback: &EvaluationProgress,
     arity: usize,
+    upvalue_heap: &mut UpValueHeap,
 ) -> Result<SteelVal> {
     VmCore::new(
         instructions,
@@ -1681,6 +1767,7 @@ pub(crate) fn vm_with_arity<CT: ConstantTable>(
         constants,
         repl,
         callback,
+        upvalue_heap,
     )?
     .with_arity(arity)
     .vm()

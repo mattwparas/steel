@@ -1,6 +1,7 @@
 use super::contracts::ContractedFunctionExt;
 use super::evaluation_progress::EvaluationProgress;
 use super::heap::Heap;
+use super::heap2::UpValueHeap;
 use super::vm::vm;
 use crate::compiler::constants::ConstantTable;
 use crate::env::Env;
@@ -44,6 +45,7 @@ pub(crate) fn inline_reduce_iter<
         SteelVal::ContractedFunction(cf) => {
             let arg_vec = vec![acc?, x?];
             let mut local_heap = Heap::new();
+            let mut local_upvalue_heap = UpValueHeap::new();
             cf.apply(
                 arg_vec,
                 &mut local_heap,
@@ -51,6 +53,7 @@ pub(crate) fn inline_reduce_iter<
                 cur_inst_span,
                 repl,
                 callback,
+                &mut local_upvalue_heap,
             )
         }
         SteelVal::Closure(closure) => {
@@ -76,6 +79,7 @@ pub(crate) fn inline_reduce_iter<
             //     });
 
             let mut local_heap = Heap::new();
+            let mut local_upvalue_heap = UpValueHeap::new();
 
             // TODO make recursive call here with a very small stack
             // probably a bit overkill, but not much else I can do here I think
@@ -87,6 +91,7 @@ pub(crate) fn inline_reduce_iter<
                 constants,
                 repl,
                 callback,
+                &mut local_upvalue_heap,
             )
         }
 
@@ -131,6 +136,7 @@ pub(crate) fn inline_map_result_iter<
         SteelVal::ContractedFunction(cf) => {
             let arg_vec = vec![arg?];
             let mut local_heap = Heap::new();
+            let mut local_upvalue_heap = UpValueHeap::new();
             cf.apply(
                 arg_vec,
                 &mut local_heap,
@@ -138,6 +144,7 @@ pub(crate) fn inline_map_result_iter<
                 cur_inst_span,
                 repl,
                 callback,
+                &mut local_upvalue_heap,
             )
         }
         SteelVal::Closure(closure) => {
@@ -164,6 +171,7 @@ pub(crate) fn inline_map_result_iter<
                 });
 
             let mut local_heap = Heap::new();
+            let mut local_upvalue_heap = UpValueHeap::new();
 
             // TODO make recursive call here with a very small stack
             // probably a bit overkill, but not much else I can do here I think
@@ -175,6 +183,7 @@ pub(crate) fn inline_map_result_iter<
                 constants,
                 repl,
                 callback,
+                &mut local_upvalue_heap,
             )
         }
         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
@@ -234,6 +243,7 @@ pub(crate) fn inline_filter_result_iter<
                 SteelVal::ContractedFunction(cf) => {
                     let arg_vec = vec![arg.clone()];
                     let mut local_heap = Heap::new();
+                    let mut local_upvalue_heap = UpValueHeap::new();
                     let res = cf.apply(
                         arg_vec,
                         &mut local_heap,
@@ -241,6 +251,7 @@ pub(crate) fn inline_filter_result_iter<
                         cur_inst_span,
                         repl,
                         callback,
+                        &mut local_upvalue_heap,
                     );
                     match res {
                         Ok(k) => match k {
@@ -275,6 +286,7 @@ pub(crate) fn inline_filter_result_iter<
                         });
 
                     let mut local_heap = Heap::new();
+                    let mut local_upvalue_heap = UpValueHeap::new();
 
                     // TODO make recursive call here with a very small stack
                     // probably a bit overkill, but not much else I can do here I think
@@ -286,6 +298,7 @@ pub(crate) fn inline_filter_result_iter<
                         constants,
                         repl,
                         callback,
+                        &mut local_upvalue_heap,
                     );
 
                     match res {

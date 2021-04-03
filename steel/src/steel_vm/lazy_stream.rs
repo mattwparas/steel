@@ -1,6 +1,6 @@
-use super::evaluation_progress::EvaluationProgress;
 use super::heap::Heap;
 use super::vm::vm;
+use super::{evaluation_progress::EvaluationProgress, heap2::UpValueHeap};
 use crate::compiler::constants::ConstantTable;
 use crate::env::Env;
 use crate::parser::span::Span;
@@ -20,6 +20,7 @@ pub(crate) struct LazyStreamIter<'global, CT: ConstantTable> {
     repl: bool,
     local_heap: Heap,
     callback: &'global EvaluationProgress,
+    upvalue_heap: UpValueHeap,
 }
 
 impl<'global, CT: ConstantTable> LazyStreamIter<'global, CT> {
@@ -37,6 +38,7 @@ impl<'global, CT: ConstantTable> LazyStreamIter<'global, CT> {
             repl,
             local_heap: Heap::new(),
             callback,
+            upvalue_heap: UpValueHeap::new(),
         }
     }
 }
@@ -58,6 +60,7 @@ impl<'global, CT: ConstantTable> Iterator for LazyStreamIter<'global, CT> {
             self.repl,
             &mut self.local_heap,
             self.callback,
+            &mut self.upvalue_heap,
         );
 
         if let Ok(next_value) = next_value {
@@ -84,6 +87,7 @@ fn exec_func<CT: ConstantTable>(
     repl: bool,
     local_heap: &mut Heap,
     callback: &EvaluationProgress,
+    upvalue_heap: &mut UpValueHeap,
 ) -> Result<SteelVal> {
     match stack_func {
         SteelVal::FuncV(func) => {
@@ -129,6 +133,7 @@ fn exec_func<CT: ConstantTable>(
                 constants,
                 repl,
                 callback,
+                upvalue_heap,
             )
         }
         _ => stop!(TypeMismatch => "stream expected a function"; *cur_inst_span),

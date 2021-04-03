@@ -1,6 +1,7 @@
 use super::{
     evaluation_progress::EvaluationProgress,
     heap::Heap,
+    heap2::UpValueHeap,
     vm::{vm, vm_with_arity},
 };
 use crate::{
@@ -27,6 +28,7 @@ pub(crate) trait ContractedFunctionExt {
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
     ) -> Result<SteelVal>;
 }
 
@@ -39,6 +41,7 @@ impl ContractedFunctionExt for ContractedFunction {
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
     ) -> Result<SteelVal> {
         // Walk back and find the contracts to apply
         {
@@ -53,6 +56,7 @@ impl ContractedFunctionExt for ContractedFunction {
                     cur_inst_span,
                     repl,
                     callback,
+                    upvalue_heap,
                 )?;
 
                 parent = p.parent()
@@ -68,6 +72,7 @@ impl ContractedFunctionExt for ContractedFunction {
             cur_inst_span,
             repl,
             callback,
+            upvalue_heap,
         )
     }
 }
@@ -82,6 +87,7 @@ pub(crate) trait FlatContractExt {
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
     ) -> Result<()>;
 }
 
@@ -94,6 +100,7 @@ impl FlatContractExt for FlatContract {
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
     ) -> Result<()> {
         let arg_vec = vec![arg.clone()];
         let output = match self.predicate() {
@@ -129,6 +136,7 @@ impl FlatContractExt for FlatContract {
                     constants,
                     repl,
                     callback,
+                    upvalue_heap,
                 )
             }
             _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),
@@ -154,6 +162,7 @@ pub(crate) trait FunctionContractExt {
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
     ) -> Result<SteelVal>;
 }
 
@@ -168,6 +177,7 @@ impl FunctionContractExt for FunctionContract {
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
     ) -> Result<SteelVal> {
         let mut verified_args = Vec::new();
 
@@ -188,6 +198,7 @@ impl FunctionContractExt for FunctionContract {
                         cur_inst_span,
                         repl,
                         callback,
+                        upvalue_heap,
                     ) {
                         debug!(
                             "Blame locations: {:?}, {:?}",
@@ -267,6 +278,7 @@ impl FunctionContractExt for FunctionContract {
                 repl,
                 callback,
                 self.arity(),
+                upvalue_heap,
             )
         }?;
 
@@ -283,6 +295,7 @@ impl FunctionContractExt for FunctionContract {
                     cur_inst_span,
                     repl,
                     callback,
+                    upvalue_heap,
                 ) {
                     debug!(
                         "Blame locations: {:?}, {:?}",
