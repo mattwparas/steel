@@ -1205,3 +1205,35 @@ mod read_test {
         assert_script(script);
     }
 }
+
+#[cfg(test)]
+mod upvalues_test {
+    use crate::steel_vm::test_util::assert_script;
+
+    #[test]
+    fn capture_upvalue() {
+        let script = r#"
+            (define test ((lambda (x) (lambda (y) (+ x y))) 10))
+            (assert! (equal? 25 (test 15)))
+        "#;
+        assert_script(script)
+    }
+
+    #[test]
+    fn capture_upvalues_arity_two() {
+        let script = r#"
+            (define test ((lambda (x y) (lambda (z) (+ x y z))) 10 2))
+            (assert! (equal? 17 (test 5)))
+        "#;
+        assert_script(script)
+    }
+
+    #[test]
+    fn close_upvalue() {
+        let script = r#"
+            (define value ((((lambda (x) (lambda (y) (lambda (z) (+ x y z)))) 10) 20) 30))
+            (assert! (equal? 60 value))
+        "#;
+        assert_script(script)
+    }
+}

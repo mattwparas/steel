@@ -76,6 +76,9 @@ impl Instruction {
     }
 
     pub fn new_ndef(payload_size: usize) -> Instruction {
+        println!("#################################");
+        println!("Making ndef with size: {}", payload_size);
+
         Instruction {
             op_code: OpCode::NDEFS,
             payload_size,
@@ -97,6 +100,15 @@ impl Instruction {
         Instruction {
             op_code: OpCode::POP,
             payload_size: 0,
+            contents: None,
+            constant: false,
+        }
+    }
+
+    pub fn new_pop_with_upvalue(idx: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::POP,
+            payload_size: idx,
             contents: None,
             constant: false,
         }
@@ -260,6 +272,42 @@ impl Instruction {
             op_code: OpCode::BINDLOCAL,
             payload_size: idx,
             contents: Some(contents),
+            constant: false,
+        }
+    }
+
+    pub fn new_read_upvalue(idx: usize, contents: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::READUPVALUE,
+            payload_size: idx,
+            contents: Some(contents),
+            constant: false,
+        }
+    }
+
+    pub fn new_local_upvalue(idx: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::FILLLOCALUPVALUE,
+            payload_size: idx,
+            contents: None,
+            constant: false,
+        }
+    }
+
+    pub fn new_upvalue(idx: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::FILLUPVALUE,
+            payload_size: idx,
+            contents: None,
+            constant: false,
+        }
+    }
+
+    pub fn new_close_upvalue(flag: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::CLOSEUPVALUE,
+            payload_size: flag,
+            contents: None,
             constant: false,
         }
     }

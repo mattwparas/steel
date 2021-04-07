@@ -7,6 +7,7 @@
         (rev-append u v)
         (aux (cons p u)
           (wheel '() (cdr v) (* p p) p)))))
+  (inspect-bytecode aux)
   (aux '(2)
     (range-s '() (if (odd? n) n (- n 1)))))
 
@@ -23,7 +24,7 @@
 (define (range-s v k)
     (if (< k 3) v (range-s (cons k v) (- k 2))))
 
-(displayln (length (sieve 1000)))
+; (displayln (length (sieve 100)))
 
 ; (let fac ([n 10])
 ;     (if (zero? n)

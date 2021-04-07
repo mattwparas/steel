@@ -649,12 +649,12 @@ impl PartialOrd for SteelVal {
 // Upvalues themselves need to be stored on the heap
 // Consider a separate section for them on the heap, or wrap them in a wrapper
 // before allocating on the heap
-#[derive(Clone)]
-pub(crate) struct UpValue {
+#[derive(Clone, Debug)]
+pub struct UpValue {
     // Either points to a stack location, or the value
     pub(crate) location: Location,
     // The next upvalue in the sequence
-    pub(crate) next: Option<RefCell<Weak<UpValue>>>,
+    pub(crate) next: Option<Weak<RefCell<UpValue>>>,
 }
 
 impl PartialEq for UpValue {
@@ -682,26 +682,28 @@ impl UpValue {
         }
     }
 
-    pub(crate) fn index(&self) -> usize {
+    pub(crate) fn set_value(&mut self, val: SteelVal) {
+        self.location = Location::Closed(val);
+    }
+
+    pub(crate) fn index(&self) -> Option<usize> {
         if let Location::Stack(idx) = &self.location {
-            *idx
+            Some(*idx)
         } else {
-            panic!("Attempted to get the stack index of a heap allocated upvalue")
+            None
+            // panic!("Attempted to get the stack index of a heap allocated upvalue")
         }
     }
 
-    pub(crate) fn new(stack_index: usize, next: Option<RefCell<Weak<UpValue>>>) -> Self {
+    pub(crate) fn new(stack_index: usize, next: Option<Weak<RefCell<UpValue>>>) -> Self {
         UpValue {
             location: Location::Stack(stack_index),
             next,
         }
     }
 
-    pub(crate) fn set_next(&self, next: Weak<UpValue>) {
-        self.next.as_ref().map(|x| {
-            let mut b = x.borrow_mut();
-            *b = next;
-        });
+    pub(crate) fn set_next(&mut self, next: Weak<RefCell<UpValue>>) {
+        self.next = Some(next);
     }
 
     pub(crate) fn is_closed(&self) -> bool {
@@ -712,7 +714,7 @@ impl UpValue {
 // Either points to a stack index, or it points to a SteelVal directly
 // When performing an OPCODE::GET_UPVALUE, index into the array in the current
 // function being executed in the stack frame, and pull it in
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub(crate) enum Location {
     Stack(usize),
     Closed(SteelVal),
@@ -734,7 +736,7 @@ pub struct ByteCodeLambda {
     offset: usize,
     arity: usize,
     ndef_body: usize,
-    upvalues: Vec<Weak<UpValue>>,
+    upvalues: Vec<Weak<RefCell<UpValue>>>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -758,6 +760,7 @@ impl ByteCodeLambda {
         offset: usize,
         arity: usize,
         ndef_body: usize,
+        upvalues: Vec<Weak<RefCell<UpValue>>>,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
@@ -766,7 +769,7 @@ impl ByteCodeLambda {
             offset,
             arity,
             ndef_body,
-            upvalues: Vec::new(),
+            upvalues,
         }
     }
 
@@ -788,6 +791,10 @@ impl ByteCodeLambda {
 
     pub fn ndef_body(&self) -> usize {
         self.ndef_body
+    }
+
+    pub fn upvalues(&self) -> &[Weak<RefCell<UpValue>>] {
+        &self.upvalues
     }
 }
 

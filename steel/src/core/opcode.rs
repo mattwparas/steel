@@ -33,4 +33,9 @@ pub enum OpCode {
     CALLCC,
     READLOCAL,
     BINDLOCAL,
+    READUPVALUE,
+    BINDUPVALUE,
+    FILLUPVALUE,
+    FILLLOCALUPVALUE,
+    CLOSEUPVALUE, // Should be 1 for close, 0 for not
 }

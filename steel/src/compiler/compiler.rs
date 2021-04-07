@@ -224,9 +224,10 @@ fn insert_debruijn_indices(
                     symbol_map,
                 )?;
                 // Set the def count of the NDEFS instruction after the closure
-                if let Some(x) = instructions.get_mut(i + 1) {
-                    x.payload_size = def_count;
-                }
+                // TODO
+                // if let Some(x) = instructions.get_mut(i + 1) {
+                //     x.payload_size = def_count;
+                // }
             }
             Instruction {
                 op_code: OpCode::ECLOSURE,

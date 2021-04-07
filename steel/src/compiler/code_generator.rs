@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::{cell::RefCell, convert::TryFrom, rc::Rc};
 
 use super::{
     constants::{ConstantMap, ConstantTable},
@@ -25,11 +25,116 @@ use log::info;
 struct LocalVariable {
     depth: u32,
     name: String,
+    is_captured: bool,
 }
 
 impl LocalVariable {
     pub fn new(depth: u32, name: String) -> Self {
-        LocalVariable { depth, name }
+        LocalVariable {
+            depth,
+            name,
+            is_captured: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct UpValue {
+    // The slot that the upvalue is capturing
+    index: usize,
+    // Whether or not this is a local variable at all
+    is_local: bool,
+}
+
+impl UpValue {
+    pub fn new(index: usize, is_local: bool) -> Self {
+        UpValue { index, is_local }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct VariableData {
+    locals: Vec<LocalVariable>,
+    upvalues: Vec<UpValue>,
+    enclosing: Option<Rc<RefCell<VariableData>>>,
+}
+
+impl VariableData {
+    fn new(
+        locals: Vec<LocalVariable>,
+        upvalues: Vec<UpValue>,
+        enclosing: Option<Rc<RefCell<VariableData>>>,
+    ) -> Self {
+        VariableData {
+            locals,
+            upvalues,
+            enclosing,
+        }
+    }
+
+    // Set a local to be captured for later code generation
+    fn mark_captured(&mut self, index: usize) {
+        self.locals[index].is_captured = true;
+    }
+
+    // Go backwards and attempt to find the index in which a local variable will live on the stack
+    fn resolve_local(&self, ident: &str) -> Option<usize> {
+        self.locals
+            .iter()
+            .rev()
+            .position(|x| &x.name == ident)
+            .map(|x| self.locals.len() - 1 - x)
+    }
+
+    // Resolve the upvalue with some recursion shenanigans
+    fn resolve_upvalue(&mut self, ident: &str) -> Option<usize> {
+        if self.enclosing.is_none() {
+            return None;
+        }
+
+        // Check local first
+        let local = self
+            .enclosing
+            .as_ref()
+            .map(|x| x.borrow().resolve_local(ident))
+            .flatten();
+
+        if let Some(local) = local {
+            self.enclosing
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .mark_captured(local);
+            return Some(self.add_upvalue(local, true));
+        }
+
+        // Check upvalues afterwards
+        let upvalue = self
+            .enclosing
+            .as_ref()
+            .map(|x| x.borrow_mut().resolve_upvalue(ident))
+            .flatten();
+        if let Some(upvalue) = upvalue {
+            return Some(self.add_upvalue(upvalue, false));
+        }
+
+        // Otherwise we're a global and we should move on
+        None
+    }
+
+    // Add the upvalue to the upvalue list, returning the index in the list
+    fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
+        // If the upvalue has already been captured, don't capture it again
+        if let Some(i) = self
+            .upvalues
+            .iter()
+            .position(|x| x.index == index && x.is_local == is_local)
+        {
+            return i;
+        }
+
+        self.upvalues.push(UpValue::new(index, is_local));
+        self.upvalues.len() - 1
     }
 }
 
@@ -39,8 +144,7 @@ pub struct CodeGenerator<'a> {
     defining_context: Option<String>,
     symbol_map: &'a mut SymbolMap,
     depth: u32,
-    locals: Vec<LocalVariable>,
-    offset: usize,
+    variable_data: Option<Rc<RefCell<VariableData>>>, // enclosing: Option<&'a mut CodeGenerator<'a>>,
 }
 
 impl<'a> CodeGenerator<'a> {
@@ -51,8 +155,8 @@ impl<'a> CodeGenerator<'a> {
             defining_context: None,
             symbol_map,
             depth: 0,
-            locals: Vec::new(),
-            offset: 0,
+            variable_data: None,
+            // enclosing: None,
         }
     }
 
@@ -61,8 +165,7 @@ impl<'a> CodeGenerator<'a> {
         symbol_map: &'a mut SymbolMap,
         instructions: Vec<Instruction>,
         depth: u32,
-        locals: Vec<LocalVariable>,
-        offset: usize,
+        variable_data: Option<Rc<RefCell<VariableData>>>,
     ) -> Self {
         CodeGenerator {
             instructions,
@@ -70,8 +173,8 @@ impl<'a> CodeGenerator<'a> {
             defining_context: None,
             symbol_map,
             depth,
-            locals,
-            offset,
+            variable_data,
+            // enclosing,
         }
     }
 
@@ -89,6 +192,20 @@ impl<'a> CodeGenerator<'a> {
     fn len(&self) -> usize {
         self.instructions.len()
     }
+
+    // fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
+    //     // If the upvalue has already been captured, don't capture it again
+    //     if let Some(i) = self
+    //         .upvalues
+    //         .iter()
+    //         .position(|x| x.index == index && x.is_local == is_local)
+    //     {
+    //         return i;
+    //     }
+
+    //     self.upvalues.push(UpValue::new(index, is_local));
+    //     return self.upvalues.len() - 1;
+    // }
 }
 
 impl<'a> VisitorMut for CodeGenerator<'a> {
@@ -205,7 +322,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         let idx = self.len();
         self.push(Instruction::new_sclosure());
-        self.push(Instruction::new_ndef(0)); // Default with 0 for now
 
         let mut body_instructions = Vec::new();
 
@@ -213,7 +329,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         println!("ARGS: {:?}", l);
 
-        let offset = self.locals.len();
+        // let offset = self.locals.len();
+
+        let mut locals = Vec::new();
 
         let arity = l.len();
         // let rev_iter = l.iter().rev();
@@ -225,8 +343,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         ty: TokenType::Identifier(i),
                         ..
                     } => {
-                        self.locals
-                            .push(LocalVariable::new(self.depth + 1, i.clone()));
+                        locals.push(LocalVariable::new(self.depth + 1, i.clone()));
                         // println!("Validating the identifiers in the arguments");
                         // body_instructions.push(Instruction::new_bind(atom.syn.clone()));
                     }
@@ -274,6 +391,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
+        // Snatch access to parent information here
+        // That way we can at least have a shot of going backwards
+        let variable_data = Rc::new(RefCell::new(VariableData::new(
+            locals,
+            Vec::new(),
+            self.variable_data.as_ref().map(Rc::clone),
+        )));
+
         // TODO
         // collect_defines_from_scope(&mut self.locals, &lambda_function.body, self.depth + 1);
 
@@ -290,12 +415,40 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             &mut self.symbol_map,
             body_instructions,
             self.depth + 1, // pass through the depth
-            self.locals.clone(),
-            offset,
+            Some(Rc::clone(&variable_data)),
         ) // pass through the locals here
         .compile(&lambda_function.body)?;
 
-        body_instructions.push(Instruction::new_pop());
+        // if variable_data.borrow().upvalues.len() == 1 {
+        //     println!("#################################");
+        //     dbg!(&variable_data);
+        //     println!("#################################");
+        // }
+
+        // Put the length of the upvalues here
+        self.push(Instruction::new_ndef(variable_data.borrow().upvalues.len()));
+        println!("Variable data: {:?}", variable_data.borrow().upvalues);
+
+        // Fill out the upvalue information that needs to be down
+        // TODO
+        for upvalue in &variable_data.borrow().upvalues {
+            if upvalue.is_local {
+                println!("Pushing new local upvalue!");
+                self.push(Instruction::new_local_upvalue(upvalue.index));
+            } else {
+                println!("Pushign new upvalue!");
+                self.push(Instruction::new_upvalue(upvalue.index));
+            }
+        }
+
+        // crate::core::instructions::pretty_print_instructions(&self.instructions);
+
+        // println!("Variable data at pop: {:#?}", variable_data);
+
+        // Encode the amount to pop
+        body_instructions.push(Instruction::new_pop_with_upvalue(
+            variable_data.borrow().locals.len(),
+        ));
         if let Some(ctx) = &self.defining_context {
             transform_tail_call(&mut body_instructions, ctx);
 
@@ -310,6 +463,18 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         }
 
         self.instructions.append(&mut body_instructions);
+
+        // crate::core::instructions::pretty_print_instructions(&self.instructions);
+
+        // Go ahead and include the variable information for the popping
+        // This needs to be handled accordingly
+        for local in variable_data.borrow().locals.iter() {
+            self.push(Instruction::new_close_upvalue(if local.is_captured {
+                1
+            } else {
+                0
+            }))
+        }
 
         // pop off the local variables from the run time stack, so we don't have them
 
@@ -445,33 +610,57 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             return Ok(());
         };
 
-        if let Some(idx) = self.locals.iter().rev().position(|x| &x.name == ident) {
-            // println!("pushing local");
+        // Attempt to resolve this as a local variable
+        if let Some(idx) = self
+            .variable_data
+            .as_ref()
+            .map(|x| x.borrow().resolve_local(ident))
+            .flatten()
+        {
+            self.push(Instruction::new_local(idx, a.syn.clone()));
 
-            // TODO come back to this
-            // if self.locals[idx].depth < self.depth {
-            //     let e = format!(
-            //         "local variable cannot be captured yet, found depth: {}, current depth: {}, for variable: {}",
-            //         self.locals[idx].depth, self.depth, ident
-            //     );
-            //     stop!(Generic => e; a.syn.span)
-            // }
+        // Otherwise attempt to resolve this as an upvalue
+        } else if let Some(idx) = self
+            .variable_data
+            .as_ref()
+            .map(|x| x.borrow_mut().resolve_upvalue(ident))
+            .flatten()
+        {
+            self.push(Instruction::new_read_upvalue(idx, a.syn.clone()));
 
-            println!("#########################");
-            println!("Binding {} to idx: {}", ident, idx);
-            println!("Offset: {}", self.offset);
-            println!("Depth: {}", self.depth);
-            println!("locals length: {}", self.locals.len());
-
-            // get the complement
-            self.push(Instruction::new_local(
-                self.locals.len() - 1 - idx,
-                a.syn.clone(),
-            ))
+        // Otherwise we resort to it being a global variable for now
         } else {
             // println!("pushing global");
             self.push(Instruction::new(OpCode::PUSH, 0, a.syn.clone(), true));
         }
+
+        // if let Some(idx) = self.locals.iter().rev().position(|x| &x.name == ident) {
+        //     // println!("pushing local");
+
+        //     // TODO come back to this
+        //     // this is for resolving upvalues
+        //     if self.locals[idx].depth < self.depth {
+        //         let e = format!(
+        //             "local variable cannot be captured yet, found depth: {}, current depth: {}, for variable: {}",
+        //             self.locals[idx].depth, self.depth, ident
+        //         );
+        //         // stop!(Generic => e; a.syn.span)
+        //         println!("---------- {} -----------", e);
+        //     }
+
+        //     println!("#########################");
+        //     println!("Binding {} to idx: {}", ident, self.locals.len() - 1 - idx);
+        //     println!("Depth: {}", self.depth);
+        //     println!("locals length: {}", self.locals.len());
+
+        //     // get the complement
+        //     self.push(Instruction::new_local(
+        //         self.locals.len() - 1 - idx,
+        //         a.syn.clone(),
+        //     ))
+        // } else {
+
+        // }
 
         // if self.locals.contains()
 

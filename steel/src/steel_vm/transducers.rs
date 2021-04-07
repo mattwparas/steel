@@ -1,4 +1,4 @@
-use super::evaluation_progress::EvaluationProgress;
+use super::{evaluation_progress::EvaluationProgress, stack::StackFrame};
 use crate::{
     compiler::constants::ConstantTable,
     parser::span::Span,
@@ -21,6 +21,7 @@ pub(crate) trait TransducerExt {
         repl: bool,
         callback: &EvaluationProgress,
         collection_type: Option<SteelVal>,
+        stack: &mut StackFrame,
     ) -> Result<SteelVal>;
 
     fn transduce<CT: ConstantTable>(
@@ -32,6 +33,7 @@ pub(crate) trait TransducerExt {
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
+        stack: &mut StackFrame,
     ) -> Result<SteelVal>;
 }
 
@@ -63,6 +65,7 @@ impl TransducerExt for Transducer {
         repl: bool,
         callback: &EvaluationProgress,
         collection_type: Option<SteelVal>,
+        stack: &mut StackFrame,
     ) -> Result<SteelVal> {
         // By default, match the output type to the input type
         let output_type = match root {
@@ -118,6 +121,7 @@ impl TransducerExt for Transducer {
         cur_inst_span: &Span,
         repl: bool,
         callback: &EvaluationProgress,
+        stack: &mut StackFrame,
     ) -> Result<SteelVal> {
         let mut my_iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
             SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(|x| Ok(x))),
@@ -145,6 +149,7 @@ impl TransducerExt for Transducer {
             cur_inst_span,
             repl,
             callback,
+            stack,
         )
     }
 }

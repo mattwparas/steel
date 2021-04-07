@@ -1,8 +1,8 @@
-use super::contracts::ContractedFunctionExt;
 use super::evaluation_progress::EvaluationProgress;
 use super::heap::Heap;
 use super::heap2::UpValueHeap;
 use super::vm::vm;
+use super::{contracts::ContractedFunctionExt, stack::StackFrame};
 use crate::compiler::constants::ConstantTable;
 use crate::env::Env;
 use crate::parser::span::Span;
@@ -26,6 +26,7 @@ pub(crate) fn inline_reduce_iter<
     cur_inst_span: &'global Span,
     repl: bool,
     callback: &'global EvaluationProgress,
+    stack: &'global mut StackFrame,
 ) -> Result<SteelVal> {
     // unimplemented!();
 
