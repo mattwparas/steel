@@ -17,7 +17,6 @@ pub(crate) struct LazyStreamIter<'global, CT: ConstantTable> {
     stream: LazyStream,
     constants: &'global CT,
     cur_inst_span: &'global Span,
-    repl: bool,
     local_heap: Heap,
     callback: &'global EvaluationProgress,
     upvalue_heap: UpValueHeap,
@@ -28,14 +27,12 @@ impl<'global, CT: ConstantTable> LazyStreamIter<'global, CT> {
         stream: LazyStream,
         constants: &'global CT,
         cur_inst_span: &'global Span,
-        repl: bool,
         callback: &'global EvaluationProgress,
     ) -> Self {
         Self {
             stream,
             constants,
             cur_inst_span,
-            repl,
             local_heap: Heap::new(),
             callback,
             upvalue_heap: UpValueHeap::new(),
@@ -57,7 +54,6 @@ impl<'global, CT: ConstantTable> Iterator for LazyStreamIter<'global, CT> {
             stream_thunk,
             self.constants,
             self.cur_inst_span,
-            self.repl,
             &mut self.local_heap,
             self.callback,
             &mut self.upvalue_heap,
@@ -84,7 +80,6 @@ fn exec_func<CT: ConstantTable>(
     stack_func: SteelVal,
     constants: &CT,
     cur_inst_span: &Span,
-    repl: bool,
     local_heap: &mut Heap,
     callback: &EvaluationProgress,
     upvalue_heap: &mut UpValueHeap,
@@ -131,7 +126,6 @@ fn exec_func<CT: ConstantTable>(
                 local_heap,
                 inner_env,
                 constants,
-                repl,
                 callback,
                 upvalue_heap,
             )
@@ -150,13 +144,11 @@ mod stream_tests {
     fn test_empty_stream_creates_no_iter() {
         let constants = ConstantMap::new();
         let cur_inst_span = Span::new(0, 0);
-        let repl = true;
         let callback = EvaluationProgress::new();
         let lazy_iter = LazyStreamIter::new(
             LazyStream::new_empty_stream(),
             &constants,
             &cur_inst_span,
-            repl,
             &callback,
         );
 

@@ -26,7 +26,6 @@ pub(crate) trait ContractedFunctionExt {
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
     ) -> Result<SteelVal>;
@@ -39,7 +38,6 @@ impl ContractedFunctionExt for ContractedFunction {
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
     ) -> Result<SteelVal> {
@@ -54,7 +52,6 @@ impl ContractedFunctionExt for ContractedFunction {
                     local_heap,
                     constants,
                     cur_inst_span,
-                    repl,
                     callback,
                     upvalue_heap,
                 )?;
@@ -70,7 +67,6 @@ impl ContractedFunctionExt for ContractedFunction {
             local_heap,
             constants,
             cur_inst_span,
-            repl,
             callback,
             upvalue_heap,
         )
@@ -85,7 +81,6 @@ pub(crate) trait FlatContractExt {
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
     ) -> Result<()>;
@@ -98,7 +93,6 @@ impl FlatContractExt for FlatContract {
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
     ) -> Result<()> {
@@ -134,7 +128,6 @@ impl FlatContractExt for FlatContract {
                     local_heap,
                     inner_env,
                     constants,
-                    repl,
                     callback,
                     upvalue_heap,
                 )
@@ -160,7 +153,6 @@ pub(crate) trait FunctionContractExt {
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
     ) -> Result<SteelVal>;
@@ -175,7 +167,6 @@ impl FunctionContractExt for FunctionContract {
         local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
     ) -> Result<SteelVal> {
@@ -196,7 +187,6 @@ impl FunctionContractExt for FunctionContract {
                         local_heap,
                         constants,
                         cur_inst_span,
-                        repl,
                         callback,
                         upvalue_heap,
                     ) {
@@ -275,7 +265,6 @@ impl FunctionContractExt for FunctionContract {
                 local_heap,
                 inner_env,
                 constants,
-                repl,
                 callback,
                 self.arity(),
                 upvalue_heap,
@@ -293,7 +282,6 @@ impl FunctionContractExt for FunctionContract {
                     local_heap,
                     constants,
                     cur_inst_span,
-                    repl,
                     callback,
                     upvalue_heap,
                 ) {

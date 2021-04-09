@@ -1,4 +1,4 @@
-use super::{contracts::ContractedFunctionExt, heap::Heap, transducers::TransducerExt};
+use super::{contracts::ContractedFunctionExt, heap::Heap};
 use super::{
     heap2::UpValueHeap,
     stack::{EnvStack, Stack, StackFrame},
@@ -257,16 +257,12 @@ impl VirtualMachineCore {
         // give access to the global root via this method
         heap.plant_root(Rc::downgrade(&self.global_env));
 
-        let repl = true;
-        // let repl = false;
-
         let result = vm(
             instructions,
             stack,
             &mut heap,
             Rc::clone(&self.global_env),
             constant_map,
-            repl,
             &self.callback,
             &mut self.global_upvalue_heap,
         );
@@ -361,25 +357,24 @@ fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
     Ok(())
 }
 
-struct VmCore<'a, CT: ConstantTable> {
-    instructions: Rc<[DenseInstruction]>,
-    stack: StackFrame,
-    heap: &'a mut Heap,
-    global_env: Rc<RefCell<Env>>,
-    instruction_stack: Stack<InstructionPointer>,
+pub(crate) struct VmCore<'a, CT: ConstantTable> {
+    pub(crate) instructions: Rc<[DenseInstruction]>,
+    pub(crate) stack: StackFrame,
+    pub(crate) heap: &'a mut Heap,
+    pub(crate) global_env: Rc<RefCell<Env>>,
+    pub(crate) instruction_stack: Stack<InstructionPointer>,
     // stacks: CallStack,
-    stack_index: Stack<usize>,
-    repl: bool,
-    callback: &'a EvaluationProgress,
-    constants: &'a CT,
-    ip: usize,
-    pop_count: usize,
-    env_stack: EnvStack,
-    current_arity: Option<usize>,
-    tail_call: Vec<bool>,
-    upvalue_head: Option<Weak<RefCell<UpValue>>>,
-    upvalue_heap: &'a mut UpValueHeap,
-    function_stack: Vec<Gc<ByteCodeLambda>>,
+    pub(crate) stack_index: Stack<usize>,
+    pub(crate) callback: &'a EvaluationProgress,
+    pub(crate) constants: &'a CT,
+    pub(crate) ip: usize,
+    pub(crate) pop_count: usize,
+    pub(crate) env_stack: EnvStack,
+    pub(crate) current_arity: Option<usize>,
+    pub(crate) tail_call: Vec<bool>,
+    pub(crate) upvalue_head: Option<Weak<RefCell<UpValue>>>,
+    pub(crate) upvalue_heap: &'a mut UpValueHeap,
+    pub(crate) function_stack: Vec<Gc<ByteCodeLambda>>,
 }
 
 impl<'a, CT: ConstantTable> VmCore<'a, CT> {
@@ -389,7 +384,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         heap: &'a mut Heap,
         global_env: Rc<RefCell<Env>>,
         constants: &'a CT,
-        repl: bool,
         callback: &'a EvaluationProgress,
         upvalue_heap: &'a mut UpValueHeap,
     ) -> Result<VmCore<'a, CT>> {
@@ -405,7 +399,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             instruction_stack: Stack::new(),
             // stacks: Stack::new(),
             stack_index: Stack::new(),
-            repl,
             callback,
             constants,
             ip: 0,
@@ -927,16 +920,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let transducer = self.stack.pop().unwrap();
 
         if let SteelVal::IterV(transducer) = &transducer {
-            let ret_val = transducer.transduce(
-                list,
-                initial_value,
-                reducer,
-                self.constants,
-                span,
-                self.repl,
-                self.callback,
-                &mut self.stack,
-            );
+            let ret_val = self.transduce(&transducer.ops, list, initial_value, reducer, span);
             self.stack.push(ret_val?);
         } else {
             stop!(Generic => "Transduce must take an iterable");
@@ -954,15 +938,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let transducer = self.stack.pop().unwrap();
 
         if let SteelVal::IterV(transducer) = &transducer {
-            let ret_val = transducer.run(
-                list,
-                self.constants,
-                span,
-                self.repl,
-                self.callback,
-                Some(output_type),
-                &mut self.stack,
-            );
+            let ret_val = self.run(&transducer.ops, list, Some(output_type), span);
             self.stack.push(ret_val?);
         } else {
             stop!(Generic => "Transducer execute takes a list"; *span);
@@ -977,15 +953,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let transducer = self.stack.pop().unwrap();
 
         if let SteelVal::IterV(transducer) = &transducer {
-            let ret_val = transducer.run(
-                list,
-                self.constants,
-                span,
-                self.repl,
-                self.callback,
-                None,
-                &mut self.stack,
-            );
+            let ret_val = self.run(&transducer.ops, list, None, span);
             self.stack.push(ret_val?);
         } else {
             stop!(Generic => "Transducer execute takes a list"; *span);
@@ -1083,16 +1051,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn handle_set(&mut self, index: usize) -> Result<()> {
         let value_to_assign = self.stack.pop().unwrap();
 
-        if self.repl {
-            let value = self
-                .global_env
-                .borrow_mut()
-                .repl_set_idx(index, value_to_assign)?;
+        let value = self
+            .global_env
+            .borrow_mut()
+            .repl_set_idx(index, value_to_assign)?;
 
-            self.stack.push(value);
-        } else {
-            unimplemented!();
-        }
+        self.stack.push(value);
         self.ip += 1;
         Ok(())
     }
@@ -1587,7 +1551,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             self.heap,
             self.constants,
             span,
-            self.repl,
             self.callback,
             &mut self.upvalue_heap,
         )?;
@@ -1880,7 +1843,6 @@ pub(crate) fn vm<CT: ConstantTable>(
     heap: &mut Heap,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
-    repl: bool,
     callback: &EvaluationProgress,
     upvalue_heap: &mut UpValueHeap,
 ) -> Result<SteelVal> {
@@ -1890,7 +1852,6 @@ pub(crate) fn vm<CT: ConstantTable>(
         heap,
         global_env,
         constants,
-        repl,
         callback,
         upvalue_heap,
     )?
@@ -1903,7 +1864,6 @@ pub(crate) fn vm_with_arity<CT: ConstantTable>(
     heap: &mut Heap,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
-    repl: bool,
     callback: &EvaluationProgress,
     arity: usize,
     upvalue_heap: &mut UpValueHeap,
@@ -1914,7 +1874,6 @@ pub(crate) fn vm_with_arity<CT: ConstantTable>(
         heap,
         global_env,
         constants,
-        repl,
         callback,
         upvalue_heap,
     )?

@@ -1,8 +1,8 @@
-use super::evaluation_progress::EvaluationProgress;
-use super::heap::Heap;
 use super::heap2::UpValueHeap;
 use super::vm::vm;
 use super::{contracts::ContractedFunctionExt, stack::StackFrame};
+use super::{evaluation_progress::EvaluationProgress, vm::VirtualMachineCore};
+use super::{heap::Heap, vm::VmCore};
 use crate::compiler::constants::ConstantTable;
 use crate::env::Env;
 use crate::parser::span::Span;
@@ -24,7 +24,6 @@ pub(crate) fn inline_reduce_iter<
     reducer: SteelVal,
     constants: &'global CT,
     cur_inst_span: &'global Span,
-    repl: bool,
     callback: &'global EvaluationProgress,
     stack: &'global mut StackFrame,
 ) -> Result<SteelVal> {
@@ -52,7 +51,6 @@ pub(crate) fn inline_reduce_iter<
                 &mut local_heap,
                 constants,
                 cur_inst_span,
-                repl,
                 callback,
                 &mut local_upvalue_heap,
             )
@@ -90,7 +88,6 @@ pub(crate) fn inline_reduce_iter<
                 &mut local_heap,
                 inner_env,
                 constants,
-                repl,
                 callback,
                 &mut local_upvalue_heap,
             )
@@ -112,8 +109,8 @@ pub(crate) fn inline_map_result_iter<
     stack_func: SteelVal,
     constants: &'global CT,
     cur_inst_span: &'global Span,
-    repl: bool,
     callback: &'global EvaluationProgress,
+    stack: &mut StackFrame,
 ) -> impl Iterator<Item = Result<SteelVal>> + 'global {
     // unimplemented!();
 
@@ -143,7 +140,6 @@ pub(crate) fn inline_map_result_iter<
                 &mut local_heap,
                 constants,
                 cur_inst_span,
-                repl,
                 callback,
                 &mut local_upvalue_heap,
             )
@@ -182,7 +178,6 @@ pub(crate) fn inline_map_result_iter<
                 &mut local_heap,
                 inner_env,
                 constants,
-                repl,
                 callback,
                 &mut local_upvalue_heap,
             )
@@ -203,8 +198,8 @@ pub(crate) fn inline_filter_result_iter<
     stack_func: SteelVal,
     constants: &'global CT,
     cur_inst_span: &'global Span,
-    repl: bool,
     callback: &'global EvaluationProgress,
+    stack: &mut StackFrame,
 ) -> impl Iterator<Item = Result<SteelVal>> + 'global {
     // unimplemented!();
 
@@ -250,7 +245,6 @@ pub(crate) fn inline_filter_result_iter<
                         &mut local_heap,
                         constants,
                         cur_inst_span,
-                        repl,
                         callback,
                         &mut local_upvalue_heap,
                     );
@@ -297,7 +291,6 @@ pub(crate) fn inline_filter_result_iter<
                         &mut local_heap,
                         inner_env,
                         constants,
-                        repl,
                         callback,
                         &mut local_upvalue_heap,
                     );

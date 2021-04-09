@@ -331,13 +331,11 @@ mod stream_tests {
     fn test_empty_stream_creates_no_iter() {
         let constants = ConstantMap::new();
         let cur_inst_span = Span::new(0, 0);
-        let repl = true;
         let callback = EvaluationProgress::new();
         let lazy_iter = LazyStreamIter::new(
             LazyStream::new_empty_stream(),
             &constants,
             &cur_inst_span,
-            repl,
             &callback,
         );
 

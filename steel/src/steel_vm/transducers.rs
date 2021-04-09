@@ -1,4 +1,4 @@
-use super::{evaluation_progress::EvaluationProgress, stack::StackFrame};
+use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
 use crate::{
     compiler::constants::ConstantTable,
     parser::span::Span,
@@ -11,61 +11,13 @@ use crate::{
 use super::inline_iter::*;
 use super::lazy_stream::LazyStreamIter;
 
-/// Entry point for executing a transducer
-pub(crate) trait TransducerExt {
-    fn run<CT: ConstantTable>(
-        &self,
+impl<'a, CT: ConstantTable> VmCore<'a, CT> {
+    pub(crate) fn run(
+        &mut self,
+        ops: &[Transducers],
         root: SteelVal,
-        constants: &CT,
-        cur_inst_span: &Span,
-        repl: bool,
-        callback: &EvaluationProgress,
         collection_type: Option<SteelVal>,
-        stack: &mut StackFrame,
-    ) -> Result<SteelVal>;
-
-    fn transduce<CT: ConstantTable>(
-        &self,
-        root: SteelVal,
-        initial_value: SteelVal,
-        reducer: SteelVal,
-        constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
-        callback: &EvaluationProgress,
-        stack: &mut StackFrame,
-    ) -> Result<SteelVal>;
-}
-
-/// Entry point for turning an individual transducer into an Iterator
-pub(crate) trait TransducersExt {
-    fn into_transducer<'global, I: Iterator<Item = Result<SteelVal>> + 'global, CT: ConstantTable>(
-        &self,
-        iter: I,
-        // stack_func: SteelVal,
-        constants: &'global CT,
-        cur_inst_span: &'global Span,
-        repl: bool,
-        callback: &'global EvaluationProgress,
-    ) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + 'global>>;
-}
-
-// This runs through the iterators  in sequence in the transducer
-// we want to then finish with a reducer
-// TODO see transduce vs educe
-// TODO change the return type to match the given input type
-// optionally add an argument to select the return type manually
-
-impl TransducerExt for Transducer {
-    fn run<CT: ConstantTable>(
-        &self,
-        root: SteelVal,
-        constants: &CT,
-        cur_inst_span: &Span,
-        repl: bool,
-        callback: &EvaluationProgress,
-        collection_type: Option<SteelVal>,
-        stack: &mut StackFrame,
     ) -> Result<SteelVal> {
         // By default, match the output type to the input type
         let output_type = match root {
@@ -74,31 +26,66 @@ impl TransducerExt for Transducer {
         };
 
         // Initialize the iterator to be the iterator over whatever is given, stop if its not iterable
-        let mut my_iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
+        let mut iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
             SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(|x| Ok(x))),
             SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
             SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
                 lazy_stream.unwrap(),
-                constants,
+                self.constants,
                 cur_inst_span,
-                repl,
-                callback,
+                self.callback,
             )),
             SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
-        // Chain the iterators together
-        for t in &self.ops {
-            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
+        for t in ops {
+            iter = match t {
+                Transducers::Map(func) => Box::new(inline_map_result_iter(
+                    iter,
+                    func.clone(),
+                    self.constants,
+                    &cur_inst_span,
+                    self.callback,
+                    &mut self.stack,
+                )),
+                Transducers::Filter(func) => Box::new(inline_filter_result_iter(
+                    iter,
+                    func.clone(),
+                    self.constants,
+                    &cur_inst_span,
+                    self.callback,
+                    &mut self.stack,
+                )),
+                Transducers::Take(num) => {
+                    if let SteelVal::IntV(num) = num {
+                        if *num < 0 {
+                            stop!(ContractViolation => "take transducer must have a position number"; *cur_inst_span)
+                        }
+                        Box::new(iter.take(*num as usize))
+                    } else {
+                        stop!(TypeMismatch => "take transducer takes an integer"; *cur_inst_span)
+                    }
+                }
+                Transducers::Drop(num) => {
+                    if let SteelVal::IntV(num) = num {
+                        if *num < 0 {
+                            stop!(ContractViolation => "drop transducer must have a position number"; *cur_inst_span)
+                        }
+                        Box::new(iter.skip(*num as usize))
+                    } else {
+                        stop!(TypeMismatch => "drop transducer takes an integer"; *cur_inst_span)
+                    }
+                }
+            }
         }
 
         // If an output type is given, use that one
         if let Some(collection_type) = collection_type {
             if let SteelVal::SymbolV(n) = collection_type {
                 match n.as_ref() {
-                    "list" => ListOperations::built_in_list_normal_iter(my_iter),
-                    "vector" => VectorOperations::vec_construct_iter(my_iter),
+                    "list" => ListOperations::built_in_list_normal_iter(iter),
+                    "vector" => VectorOperations::vec_construct_iter(iter),
                     _ => stop!(Generic => "Cannot collect into an undefined type"),
                 }
             } else {
@@ -106,111 +93,84 @@ impl TransducerExt for Transducer {
             }
         } else {
             match output_type {
-                CollectionType::List => ListOperations::built_in_list_normal_iter(my_iter),
-                CollectionType::Vector => VectorOperations::vec_construct_iter(my_iter),
+                CollectionType::List => ListOperations::built_in_list_normal_iter(iter),
+                CollectionType::Vector => VectorOperations::vec_construct_iter(iter),
             }
         }
     }
 
-    fn transduce<CT: ConstantTable>(
-        &self,
+    pub(crate) fn transduce(
+        &mut self,
+        ops: &[Transducers],
         root: SteelVal,
         initial_value: SteelVal,
         reducer: SteelVal,
-        constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
-        callback: &EvaluationProgress,
-        stack: &mut StackFrame,
     ) -> Result<SteelVal> {
-        let mut my_iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
+        let mut iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
             SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(|x| Ok(x))),
             SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
             SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
                 lazy_stream.unwrap(),
-                constants,
+                self.constants,
                 cur_inst_span,
-                repl,
-                callback,
+                self.callback,
             )),
             SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
-        for t in &self.ops {
-            my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
+        for t in ops {
+            // my_iter = t.into_transducer(my_iter, constants, cur_inst_span, repl, callback)?;
+
+            iter = match t {
+                Transducers::Map(func) => Box::new(inline_map_result_iter(
+                    iter,
+                    func.clone(),
+                    self.constants,
+                    &cur_inst_span,
+                    self.callback,
+                    &mut self.stack,
+                )),
+                Transducers::Filter(func) => Box::new(inline_filter_result_iter(
+                    iter,
+                    func.clone(),
+                    self.constants,
+                    &cur_inst_span,
+                    self.callback,
+                    &mut self.stack,
+                )),
+                Transducers::Take(num) => {
+                    if let SteelVal::IntV(num) = num {
+                        if *num < 0 {
+                            stop!(ContractViolation => "take transducer must have a position number"; *cur_inst_span)
+                        }
+                        Box::new(iter.take(*num as usize))
+                    } else {
+                        stop!(TypeMismatch => "take transducer takes an integer"; *cur_inst_span)
+                    }
+                }
+                Transducers::Drop(num) => {
+                    if let SteelVal::IntV(num) = num {
+                        if *num < 0 {
+                            stop!(ContractViolation => "drop transducer must have a position number"; *cur_inst_span)
+                        }
+                        Box::new(iter.skip(*num as usize))
+                    } else {
+                        stop!(TypeMismatch => "drop transducer takes an integer"; *cur_inst_span)
+                    }
+                }
+            }
         }
 
         inline_reduce_iter(
-            my_iter,
+            iter,
             initial_value,
             reducer,
-            constants,
+            self.constants,
             cur_inst_span,
-            repl,
-            callback,
-            stack,
+            self.callback,
+            &mut self.stack,
         )
     }
 }
-
-impl TransducersExt for Transducers {
-    fn into_transducer<
-        'global,
-        I: Iterator<Item = Result<SteelVal>> + 'global,
-        CT: ConstantTable,
-    >(
-        &self,
-        iter: I,
-        // stack_func: SteelVal,
-        constants: &'global CT,
-        cur_inst_span: &'global Span,
-        repl: bool,
-        callback: &'global EvaluationProgress,
-    ) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + 'global>> {
-        match self {
-            Transducers::Map(func) => Ok(Box::new(inline_map_result_iter(
-                iter,
-                func.clone(),
-                constants,
-                cur_inst_span,
-                repl,
-                callback,
-            ))),
-            Transducers::Filter(func) => Ok(Box::new(inline_filter_result_iter(
-                iter,
-                func.clone(),
-                constants,
-                cur_inst_span,
-                repl,
-                callback,
-            ))),
-            Transducers::Take(num) => {
-                if let SteelVal::IntV(num) = num {
-                    if *num < 0 {
-                        stop!(ContractViolation => "take transducer must have a position number"; *cur_inst_span)
-                    }
-                    Ok(Box::new(iter.take(*num as usize)))
-                } else {
-                    stop!(TypeMismatch => "take transducer takes an integer"; *cur_inst_span)
-                }
-            }
-            Transducers::Drop(num) => {
-                if let SteelVal::IntV(num) = num {
-                    if *num < 0 {
-                        stop!(ContractViolation => "drop transducer must have a position number"; *cur_inst_span)
-                    }
-                    Ok(Box::new(iter.skip(*num as usize)))
-                } else {
-                    stop!(TypeMismatch => "drop transducer takes an integer"; *cur_inst_span)
-                }
-            }
-        }
-    }
-}
-
-// }
-
-// impl Transducers {
-
-// }
