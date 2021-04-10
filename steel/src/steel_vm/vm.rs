@@ -331,6 +331,8 @@ pub struct Continuation {
     env_stack: EnvStack,
     ip: usize,
     pop_count: usize,
+    function_stack: Vec<Gc<ByteCodeLambda>>,
+    upvalue_head: Option<Weak<RefCell<UpValue>>>,
 }
 
 // Just in case, let's wipe this out manually
@@ -432,7 +434,16 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 > local_idx
         {
             prev_up_value = upvalue.clone();
-            upvalue = upvalue.map(|x| x.upgrade().unwrap().borrow().next.clone().unwrap());
+            upvalue = upvalue
+                .map(|x| {
+                    x.upgrade()
+                        .expect("Upvalue freed too early")
+                        .borrow()
+                        .next
+                        .clone()
+                    // .expect("Upvalue did not have a next value")
+                })
+                .flatten();
         }
 
         if upvalue.is_some()
@@ -440,10 +451,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 .as_ref()
                 .unwrap()
                 .upgrade()
-                .unwrap()
+                .expect("Upvalue freed too early")
                 .borrow()
                 .index()
-                .unwrap()
+                .expect("Unable to return index from upvalue")
                 == local_idx
         {
             return upvalue.unwrap();
@@ -512,6 +523,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             env_stack: self.env_stack.clone(), // I am concerned that this will lead to a memory leak
             ip: self.ip,
             pop_count: self.pop_count,
+            function_stack: self.function_stack.clone(),
+            upvalue_head: self.upvalue_head.clone(),
         }
     }
 
@@ -528,6 +541,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         // Set the state
         self.stack_index = continuation.stack_index;
+        self.function_stack = continuation.function_stack;
+        self.upvalue_head = continuation.upvalue_head;
     }
 
     #[inline(always)]
@@ -951,6 +966,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_collect(&mut self, span: &Span) -> Result<()> {
+        println!("@@@@@@@@@@@@@@@@@@@@@ entering the transducer zone @@@@@@@@@@@@@@@@");
+
+        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+
+        // if let Some()
+
         let list = self.stack.pop().unwrap();
         let transducer = self.stack.pop().unwrap();
 
@@ -1135,7 +1156,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             "function stack: {:?}",
             self.function_stack
                 .iter()
-                .map(|x| x.upvalues())
+                .map(|x| x
+                    .upvalues()
+                    .iter()
+                    .map(|x| x.upgrade().unwrap())
+                    .collect::<Vec<_>>())
                 .collect::<Vec<_>>()
         );
 
