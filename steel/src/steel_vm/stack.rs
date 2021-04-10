@@ -9,7 +9,7 @@ pub type StackFrame = Stack<SteelVal>;
 pub type EnvStack = Stack<Rc<RefCell<Env>>>;
 
 #[derive(Debug, Clone)]
-pub struct Stack<T>(Vec<T>);
+pub struct Stack<T>(pub(crate) Vec<T>);
 
 impl<T> Stack<T> {
     // #[inline(always)]

@@ -653,6 +653,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             // let stack = std::mem::replace(&mut self.stack, args.into());
                             // self.stacks.push(stack);
                             self.instructions = closure.body_exp();
+
+                            // Maybe push the closure onto the function stack
+                            self.function_stack.push(closure);
+
                             self.ip = 0;
                         }
                         SteelVal::ContinuationFunction(cc) => {
@@ -683,9 +687,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 }
                 OpCode::PUSH => self.handle_push(cur_inst.payload_size as usize)?,
                 OpCode::READLOCAL => self.handle_local(cur_inst.payload_size as usize)?,
-                OpCode::BINDLOCAL => self.handle_bind_local(cur_inst.payload_size as usize),
-                OpCode::READUPVALUE => self.handle_upvalue(cur_inst.payload_size as usize)?,
-                OpCode::BINDUPVALUE => self.handle_bind_upvalue(cur_inst.payload_size as usize),
+                OpCode::SETLOCAL => self.handle_set_local(cur_inst.payload_size as usize),
+                OpCode::READUPVALUE => self.handle_upvalue(cur_inst.payload_size as usize),
+                OpCode::SETUPVALUE => self.handle_set_upvalue(cur_inst.payload_size as usize),
                 OpCode::APPLY => self.handle_apply(cur_inst.span)?,
                 OpCode::CLEAR => {
                     self.ip += 1;
@@ -931,6 +935,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn handle_transduce(&mut self, span: &Span) -> Result<()> {
         println!("INSIDE TRANSDUCE");
 
+        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+
         let list = self.stack.pop().unwrap();
         let initial_value = self.stack.pop().unwrap();
         let reducer = self.stack.pop().unwrap();
@@ -949,6 +955,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     #[inline(always)]
     fn handle_collect_to(&mut self, span: &Span) -> Result<()> {
         println!("INSIDE COLLECT TO");
+
+        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
 
         let output_type = self.stack.pop().unwrap();
         let list = self.stack.pop().unwrap();
@@ -1140,7 +1148,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
-    fn handle_upvalue(&mut self, index: usize) -> Result<()> {
+    fn handle_upvalue(&mut self, index: usize) {
         // calculate offset
         // let end = self.stack.len();
 
@@ -1184,8 +1192,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         self.stack.push(value);
         self.ip += 1;
-        Ok(())
-
         // unimplemented!()
     }
 
@@ -1326,40 +1332,116 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.ip += 1;
     }
 
+    // TODO for handling defines
+    // #[inline(always)]
+    // fn handle_set_local(&mut self, _payload_size: usize) {
+    //     // unimplemented!();
+
+    //     println!("Binding local, leaving it on the top of the stack");
+
+    //     // let func = self.stack.pop();
+
+    //     // self.global_env
+    //     //     .borrow_mut()
+    //     //     .repl_define_idx(payload_size, self.stack.pop().unwrap());
+
+    //     // TODO handle the offset situation
+    //     // if self.repl {
+    //     //     self.global_env
+    //     //         .borrow_mut()
+    //     //         .repl_define_idx(payload_size, self.stack.pop().unwrap());
+    //     // } else {
+    //     //     let offset = self.global_env.borrow().local_offset();
+
+    //     //     self.global_env
+    //     //         .borrow_mut()
+    //     //         .define_idx(payload_size - offset, self.stack.pop().unwrap());
+    //     // }
+
+    //     self.ip += 1;
+    // }
+
     #[inline(always)]
-    fn handle_bind_local(&mut self, _payload_size: usize) {
+    fn handle_set_local(&mut self, index: usize) {
         // unimplemented!();
 
-        println!("Binding local, leaving it on the top of the stack");
+        let value_to_set = self.stack.pop().unwrap();
 
-        // let func = self.stack.pop();
+        println!("######## HANDLE SET LOCAL ########");
 
-        // self.global_env
-        //     .borrow_mut()
-        //     .repl_define_idx(payload_size, self.stack.pop().unwrap());
+        // println!("Stack end: {}, stack index: {}", end, index);
+        println!("Stack: {:?}", self.stack);
+        println!("stack index: {:?}", self.stack_index);
+        println!("Stack length: {}", self.stack.len());
+        println!("index: {}", index);
 
-        // TODO handle the offset situation
-        // if self.repl {
-        //     self.global_env
-        //         .borrow_mut()
-        //         .repl_define_idx(payload_size, self.stack.pop().unwrap());
-        // } else {
-        //     let offset = self.global_env.borrow().local_offset();
+        let offset = self.stack_index.last().copied().unwrap_or(0);
 
-        //     self.global_env
-        //         .borrow_mut()
-        //         .define_idx(payload_size - offset, self.stack.pop().unwrap());
-        // }
+        let old_value = self.stack[index + offset].clone();
 
+        // Modify the stack and change the value to the new one
+        self.stack.set_idx(index + offset, value_to_set);
+
+        // let value = self.stack[self.stack.len() - 1 - index].clone();
+
+        // let value = self.stack[index].clone();
+
+        // println!("Pushing onto the stack: {}", value);
+
+        self.stack.push(old_value);
         self.ip += 1;
     }
 
     #[inline(always)]
-    fn handle_bind_upvalue(&mut self, _payload_size: usize) {
+    fn handle_set_upvalue(&mut self, index: usize) {
         // unimplemented!();
 
-        println!("Binding upvalue, leaving it on the top of the stack");
+        // let end = self.stack.len();
 
+        let new = self.stack.pop().unwrap();
+
+        println!("######## HANDLE SET UPVALUE #######");
+
+        // println!("Stack end: {}, stack index: {}", end, index);
+
+        println!("Stack: {:?}", self.stack);
+        println!("stack index: {:?}", self.stack_index);
+        println!("Stack length: {}", self.stack.len());
+        println!("index: {}", index);
+        println!(
+            "function stack: {:?}",
+            self.function_stack
+                .iter()
+                .map(|x| x
+                    .upvalues()
+                    .iter()
+                    .map(|x| x.upgrade().unwrap())
+                    .collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        );
+
+        let last_func = self.function_stack.last().unwrap();
+
+        let upvalue = last_func.upvalues()[index].upgrade().unwrap();
+
+        let value = upvalue.borrow_mut().mutate_value(&mut self.stack.0, new);
+
+        // .map(|x| {
+        //     x.upvalues()[index]
+        //         .upgrade()
+        //         .unwrap()
+        //         .borrow_mut()
+        //         .mutate_value(&mut self.stack, new)
+        // })
+        // .unwrap();
+
+        // let offset = self.stack_index.last().copied().unwrap_or(0);
+
+        // let value = self.stack[index + offset].clone();
+
+        // println!("Pushing onto the stack: {}", value);
+
+        self.stack.push(value);
         self.ip += 1;
     }
 

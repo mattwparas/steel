@@ -682,6 +682,23 @@ impl UpValue {
         }
     }
 
+    // Given a reference to the stack, either get the value from the stack index
+    // Or snag the steelval stored inside the upvalue
+    pub(crate) fn mutate_value(&mut self, stack: &mut [SteelVal], value: SteelVal) -> SteelVal {
+        match self.location {
+            Location::Stack(idx) => {
+                let old = stack[idx].clone();
+                stack[idx] = value;
+                old
+            }
+            Location::Closed(ref v) => {
+                let old = v.clone();
+                self.location = Location::Closed(value);
+                old
+            }
+        }
+    }
+
     pub(crate) fn set_value(&mut self, val: SteelVal) {
         self.location = Location::Closed(val);
     }

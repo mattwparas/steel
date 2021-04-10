@@ -703,7 +703,39 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     fn visit_set(&mut self, s: &crate::parser::ast::Set) -> Self::Output {
         self.visit(&s.expr)?;
         if let ExprKind::Atom(Atom { syn: s }) = &s.variable {
-            self.push(Instruction::new(OpCode::SET, 0, s.clone(), false));
+            let ident = if let SyntaxObject {
+                ty: TokenType::Identifier(i),
+                ..
+            } = &s
+            {
+                i
+            } else {
+                stop!(BadSyntax => "set! takes an identifier")
+            };
+
+            // Attempt to resolve this as a local variable
+            if let Some(idx) = self
+                .variable_data
+                .as_ref()
+                .map(|x| x.borrow().resolve_local(ident))
+                .flatten()
+            {
+                self.push(Instruction::new_set_local(idx, s.clone()));
+
+            // Otherwise attempt to resolve this as an upvalue
+            } else if let Some(idx) = self
+                .variable_data
+                .as_ref()
+                .map(|x| x.borrow_mut().resolve_upvalue(ident))
+                .flatten()
+            {
+                self.push(Instruction::new_set_upvalue(idx, s.clone()));
+
+            // Otherwise we resort to it being a global variable for now
+            } else {
+                // println!("pushing global");
+                self.push(Instruction::new(OpCode::SET, 0, s.clone(), true));
+            }
         } else {
             stop!(BadSyntax => "set! takes an identifier")
         }

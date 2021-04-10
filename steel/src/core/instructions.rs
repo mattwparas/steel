@@ -267,9 +267,9 @@ impl Instruction {
         }
     }
 
-    pub fn new_bind_local(idx: usize, contents: SyntaxObject) -> Instruction {
+    pub fn new_set_local(idx: usize, contents: SyntaxObject) -> Instruction {
         Instruction {
-            op_code: OpCode::BINDLOCAL,
+            op_code: OpCode::SETLOCAL,
             payload_size: idx,
             contents: Some(contents),
             constant: false,
@@ -279,6 +279,15 @@ impl Instruction {
     pub fn new_read_upvalue(idx: usize, contents: SyntaxObject) -> Instruction {
         Instruction {
             op_code: OpCode::READUPVALUE,
+            payload_size: idx,
+            contents: Some(contents),
+            constant: false,
+        }
+    }
+
+    pub fn new_set_upvalue(idx: usize, contents: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::SETUPVALUE,
             payload_size: idx,
             contents: Some(contents),
             constant: false,

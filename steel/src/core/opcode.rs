@@ -32,9 +32,9 @@ pub enum OpCode {
     METALOOKUP,
     CALLCC,
     READLOCAL,
-    BINDLOCAL,
+    SETLOCAL,
     READUPVALUE,
-    BINDUPVALUE,
+    SETUPVALUE,
     FILLUPVALUE,
     FILLLOCALUPVALUE,
     CLOSEUPVALUE, // Should be 1 for close, 0 for not
