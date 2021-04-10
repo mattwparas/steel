@@ -265,6 +265,7 @@ impl VirtualMachineCore {
             constant_map,
             &self.callback,
             &mut self.global_upvalue_heap,
+            Vec::new(),
         );
 
         if self.global_env.borrow().is_binding_context() {
@@ -386,6 +387,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         constants: &'a CT,
         callback: &'a EvaluationProgress,
         upvalue_heap: &'a mut UpValueHeap,
+        function_stack: Vec<Gc<ByteCodeLambda>>,
     ) -> Result<VmCore<'a, CT>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
@@ -408,7 +410,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             tail_call: Vec::new(),
             upvalue_head: None,
             upvalue_heap,
-            function_stack: Vec::new(),
+            function_stack,
         })
     }
 
@@ -1845,6 +1847,7 @@ pub(crate) fn vm<CT: ConstantTable>(
     constants: &CT,
     callback: &EvaluationProgress,
     upvalue_heap: &mut UpValueHeap,
+    function_stack: Vec<Gc<ByteCodeLambda>>,
 ) -> Result<SteelVal> {
     VmCore::new(
         instructions,
@@ -1854,6 +1857,7 @@ pub(crate) fn vm<CT: ConstantTable>(
         constants,
         callback,
         upvalue_heap,
+        function_stack,
     )?
     .vm()
 }
@@ -1876,6 +1880,7 @@ pub(crate) fn vm_with_arity<CT: ConstantTable>(
         constants,
         callback,
         upvalue_heap,
+        Vec::new(),
     )?
     .with_arity(arity)
     .vm()

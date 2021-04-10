@@ -5,6 +5,7 @@ use super::{evaluation_progress::EvaluationProgress, vm::VirtualMachineCore};
 use super::{heap::Heap, vm::VmCore};
 use crate::compiler::constants::ConstantTable;
 use crate::env::Env;
+use crate::gc::Gc;
 use crate::parser::span::Span;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
@@ -90,6 +91,7 @@ pub(crate) fn inline_reduce_iter<
                 constants,
                 callback,
                 &mut local_upvalue_heap,
+                vec![Gc::clone(closure)],
             )
         }
 
@@ -180,6 +182,7 @@ pub(crate) fn inline_map_result_iter<
                 constants,
                 callback,
                 &mut local_upvalue_heap,
+                vec![Gc::clone(closure)],
             )
         }
         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
@@ -293,6 +296,7 @@ pub(crate) fn inline_filter_result_iter<
                         constants,
                         callback,
                         &mut local_upvalue_heap,
+                        vec![Gc::clone(closure)],
                     );
 
                     match res {

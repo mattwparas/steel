@@ -130,6 +130,7 @@ impl FlatContractExt for FlatContract {
                     constants,
                     callback,
                     upvalue_heap,
+                    vec![Gc::clone(closure)],
                 )
             }
             _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),

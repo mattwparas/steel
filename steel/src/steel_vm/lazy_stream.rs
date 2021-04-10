@@ -3,6 +3,7 @@ use super::vm::vm;
 use super::{evaluation_progress::EvaluationProgress, heap2::UpValueHeap};
 use crate::compiler::constants::ConstantTable;
 use crate::env::Env;
+use crate::gc::Gc;
 use crate::parser::span::Span;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
@@ -128,6 +129,7 @@ fn exec_func<CT: ConstantTable>(
                 constants,
                 callback,
                 upvalue_heap,
+                vec![Gc::clone(&closure)],
             )
         }
         _ => stop!(TypeMismatch => "stream expected a function"; *cur_inst_span),
