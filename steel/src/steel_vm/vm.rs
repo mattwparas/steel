@@ -667,8 +667,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         SteelVal::ContinuationFunction(cc) => {
                             // let last = self.stack.pop().unwrap();
                             dbg!("Calling continuation inside call/cc");
+                            dbg!(&self.stack);
+
                             // self.env_stack.push(Rc::clone(&self.global_env));
                             self.set_state_from_continuation(cc.unwrap());
+
+                            dbg!("after");
+                            dbg!(&self.stack);
                             self.ip += 1;
                             self.stack.push(continuation);
                         }
@@ -1088,9 +1093,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // Explicitly close the upvalues if the thing being set is a function
 
         println!("Closing upvalues in set");
-        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+
+        // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
 
         let value_to_assign = self.stack.pop().unwrap();
+
+        if let SteelVal::Closure(_) = &value_to_assign {
+            self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        }
 
         let value = self
             .global_env
@@ -1379,7 +1389,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         println!("######## HANDLE SET LOCAL ########");
 
-        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        if let SteelVal::Closure(_) = &value_to_set {
+            self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        }
 
         // // println!("Stack end: {}, stack index: {}", end, index);
         // println!("Stack: {:?}", self.stack);
@@ -1432,7 +1444,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         //         .collect::<Vec<_>>()
         // );
 
-        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        if let SteelVal::Closure(_) = &new {
+            self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        }
 
         let last_func = self.function_stack.last().unwrap();
 
@@ -1704,6 +1718,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     #[inline(always)]
     fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
         dbg!("Calling continuation from inside call_continuation");
+        dbg!(&self.stack);
 
         let last = self
             .stack
@@ -1718,6 +1733,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // self.heap.add(Rc::clone(&self.global_env));
 
         self.set_state_from_continuation(continuation.clone());
+
+        dbg!(&self.stack);
 
         // self.global_env = local_env;
 
