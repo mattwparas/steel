@@ -39,9 +39,15 @@
 ; start-threads : -> ...
 (define (start-threads)
   (let ((cc (current-continuation)))
+    (displayln cc)
     (if cc
         (begin
-          (set! halt (lambda () (cc #f)))
+          (displayln cc)
+          (set! halt (lambda () 
+                        ; (inspect-bytecode cc) 
+                        (displayln cc)
+                        (cc #f)))
+          (displayln cc)
           (if (null? *thread-queue*)
               void
               (begin

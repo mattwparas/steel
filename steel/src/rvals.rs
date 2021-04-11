@@ -614,7 +614,10 @@ impl PartialEq for SteelVal {
             // (IntV(l), NumV(r)) => *l as f64 == *r,
             (StringV(l), StringV(r)) => l == r,
             (VectorV(l), VectorV(r)) => l == r,
-            (SymbolV(l), SymbolV(r)) => l == r,
+            (SymbolV(l), SymbolV(r)) => {
+                println!("Comparing {} and {}", l, r);
+                l == r
+            }
             (CharV(l), CharV(r)) => l == r,
             (Pair(_), Pair(_)) => collect_pair_into_vector(self) == collect_pair_into_vector(other),
             (HashSetV(l), HashSetV(r)) => l == r,

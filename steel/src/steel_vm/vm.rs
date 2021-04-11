@@ -427,11 +427,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 .as_ref()
                 .unwrap()
                 .upgrade()
-                .unwrap()
+                .expect("Upvalue freed too early")
                 .borrow()
                 .index()
-                .unwrap()
-                > local_idx
+                .map(|x| x > local_idx)
+                .unwrap_or(false)
+        // .expect("Upvalue not on the stack")
+        // > local_idx
         {
             prev_up_value = upvalue.clone();
             upvalue = upvalue
@@ -454,8 +456,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 .expect("Upvalue freed too early")
                 .borrow()
                 .index()
-                .expect("Unable to return index from upvalue")
-                == local_idx
+                .map(|x| x == local_idx)
+                .unwrap_or(false)
+        // .expect("Unable to return index from upvalue")
+        // == local_idx
         {
             return upvalue.unwrap();
         }
@@ -511,7 +515,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // println!("stacks at continuation: {:?}", self.stacks);
         // println!("stack at continuation: {:?}", self.stack);
 
-        // dbg!("Creating a continuation");
+        dbg!("Creating a continuation");
 
         Continuation {
             stack: self.stack.clone(),
@@ -599,7 +603,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                     match function {
                         SteelVal::Closure(closure) => {
-                            // dbg!("Calling closoure from call/cc");
+                            dbg!("%%%%%%%%%%%%% Calling closoure from call/cc %%%%%%%%%%%%%%%");
 
                             if self.stack_index.len() == STACK_LIMIT {
                                 // println!("stacks at exit: {:?}", stacks);
@@ -621,6 +625,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                             // Put the continuation as the argument
                             self.stack.push(continuation);
+                            // self.stack_index.push(self.stack.len());
 
                             let parent_env = closure.sub_expression_env();
 
@@ -661,7 +666,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         }
                         SteelVal::ContinuationFunction(cc) => {
                             // let last = self.stack.pop().unwrap();
-                            // dbg!("Calling continuation inside call/cc");
+                            dbg!("Calling continuation inside call/cc");
                             // self.env_stack.push(Rc::clone(&self.global_env));
                             self.set_state_from_continuation(cc.unwrap());
                             self.ip += 1;
@@ -719,12 +724,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     }
 
                     if self.ip == 0 {
-                        println!("@@@@@@@@@@@@@@@@ TCO kicking in @@@@@@@@@@@@@@@@@2");
+                        // println!("@@@@@@@@@@@@@@@@ TCO kicking in @@@@@@@@@@@@@@@@@2");
                         // println!("{}", self.stack.len());
 
                         // let current_arity = self.instructions[self.ip + 1].payload_size as usize;
 
-                        println!("stack before: {:?}", self.stack);
+                        // println!("stack before: {:?}", self.stack);
 
                         // jump back to the beginning at this point
                         let offset = self.stack_index.last().copied().unwrap_or(0);
@@ -733,9 +738,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                         // take the last arity off the stack, go back and replace those in order
 
-                        println!("Current arity: {:?}", current_arity);
-                        println!("Offset: {}", offset);
-                        println!("length: {}", self.stack.len());
+                        // println!("Current arity: {:?}", current_arity);
+                        // println!("Offset: {}", offset);
+                        // println!("length: {}", self.stack.len());
 
                         let back = self.stack.len() - current_arity;
                         for i in 0..current_arity {
@@ -748,7 +753,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         // self.stack
                         //     .drain(offset..self.stack.len() - self.current_arity.unwrap());
 
-                        println!("stack after: {:?}", self.stack);
+                        // println!("stack after: {:?}", self.stack);
 
                         // TODO make sure this includes some way to overwrite the existing stack
                         // that way the
@@ -805,16 +810,16 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                         return ret_val;
                     } else {
-                        println!("POPPING WITH TAIL CALL: {}", tail_call);
+                        // println!("POPPING WITH TAIL CALL: {}", tail_call);
 
                         // let prev_state = self.instruction_stack.pop().unwrap();
                         // self.global_env = self.env_stack.pop().unwrap();
                         // self.ip = prev_state.0;
                         // self.instructions = prev_state.instrs();
 
-                        println!(
-                            "******************* popping off of the stack index inside here ******************"
-                        );
+                        // println!(
+                        //     "******************* popping off of the stack index inside here ******************"
+                        // );
 
                         let ret_val = self.stack.pop().unwrap();
 
@@ -824,9 +829,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                         let rollback_index = self.stack_index.pop().unwrap();
 
-                        println!("rollback: {}", rollback_index);
+                        // println!("rollback: {}", rollback_index);
 
-                        println!("Stack before: {:?}", self.stack);
+                        // println!("Stack before: {:?}", self.stack);
 
                         // Snatch the value to close from the payload size
                         let value_count_to_close = cur_inst.payload_size;
@@ -855,7 +860,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                         self.stack.truncate(rollback_index);
 
-                        println!("Stack after: {:?}", self.stack);
+                        // println!("Stack after: {:?}", self.stack);
 
                         self.stack.push(ret_val);
 
@@ -866,7 +871,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             .instrs_ref()
                             .is_empty()
                         {
-                            println!("not empty case");
+                            // println!("not empty case");
                             let prev_state = self.instruction_stack.pop().unwrap();
                             // self.heap.add(Rc::clone(&self.global_env));
                             self.global_env = self.env_stack.pop().unwrap();
@@ -1080,6 +1085,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_set(&mut self, index: usize) -> Result<()> {
+        // Explicitly close the upvalues if the thing being set is a function
+
+        println!("Closing upvalues in set");
+        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+
         let value_to_assign = self.stack.pop().unwrap();
 
         let value = self
@@ -1101,7 +1111,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         let value = self.global_env.borrow().repl_lookup_idx(index)?;
 
-        println!("pushing: {}", value);
+        // println!("pushing: {}", value);
         self.stack.push(value);
 
         // TODO handle the offset situation
@@ -1122,13 +1132,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // calculate offset
         // let end = self.stack.len();
 
-        println!("######## HANDLE LOCAL ########");
+        // println!("######## HANDLE LOCAL ########");
 
-        // println!("Stack end: {}, stack index: {}", end, index);
-        println!("Stack: {:?}", self.stack);
-        println!("stack index: {:?}", self.stack_index);
-        println!("Stack length: {}", self.stack.len());
-        println!("index: {}", index);
+        // // println!("Stack end: {}, stack index: {}", end, index);
+        // println!("Stack: {:?}", self.stack);
+        // println!("stack index: {:?}", self.stack_index);
+        // println!("Stack length: {}", self.stack.len());
+        // println!("index: {}", index);
 
         let offset = self.stack_index.last().copied().unwrap_or(0);
 
@@ -1138,7 +1148,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         // let value = self.stack[index].clone();
 
-        println!("Pushing onto the stack: {}", value);
+        // println!("Pushing onto the stack: {}", value);
 
         self.stack.push(value);
         self.ip += 1;
@@ -1152,25 +1162,25 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // calculate offset
         // let end = self.stack.len();
 
-        println!("######## HANDLE UPVALUE #######");
+        // println!("######## HANDLE UPVALUE #######");
 
-        // println!("Stack end: {}, stack index: {}", end, index);
+        // // println!("Stack end: {}, stack index: {}", end, index);
 
-        println!("Stack: {:?}", self.stack);
-        println!("stack index: {:?}", self.stack_index);
-        println!("Stack length: {}", self.stack.len());
-        println!("index: {}", index);
-        println!(
-            "function stack: {:?}",
-            self.function_stack
-                .iter()
-                .map(|x| x
-                    .upvalues()
-                    .iter()
-                    .map(|x| x.upgrade().unwrap())
-                    .collect::<Vec<_>>())
-                .collect::<Vec<_>>()
-        );
+        // println!("Stack: {:?}", self.stack);
+        // println!("stack index: {:?}", self.stack_index);
+        // println!("Stack length: {}", self.stack.len());
+        // println!("index: {}", index);
+        // println!(
+        //     "function stack: {:?}",
+        //     self.function_stack
+        //         .iter()
+        //         .map(|x| x
+        //             .upvalues()
+        //             .iter()
+        //             .map(|x| x.upgrade().unwrap())
+        //             .collect::<Vec<_>>())
+        //         .collect::<Vec<_>>()
+        // );
 
         let value = self
             .function_stack
@@ -1188,7 +1198,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         // let value = self.stack[index + offset].clone();
 
-        println!("Pushing onto the stack: {}", value);
+        // println!("Pushing onto the stack: {}", value);
 
         self.stack.push(value);
         self.ip += 1;
@@ -1201,13 +1211,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         let forward_jump = offset - 1;
 
-        println!("Forward jump to instruction: {}", forward_jump + self.ip);
+        // println!("Forward jump to instruction: {}", forward_jump + self.ip);
 
         // Snag the number of upvalues here
         let ndefs = self.instructions[self.ip].payload_size;
         self.ip += 1;
 
-        println!("CREATING CLOSURE with ndef value: {}", ndefs);
+        // println!("CREATING CLOSURE with ndef value: {}", ndefs);
         // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
         // TODO preallocate size
@@ -1221,7 +1231,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         for _ in 0..ndefs {
             let instr = self.instructions[self.ip];
 
-            println!("{:?}", instr);
+            // println!("{:?}", instr);
 
             match (instr.op_code, instr.payload_size) {
                 (OpCode::FILLUPVALUE, n) => {
@@ -1263,12 +1273,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         // snag the arity from the eclosure instruction
         let arity = self.instructions[forward_index - 1].payload_size;
-        println!(
-            "ARITY INSTRUCTION: {:?}",
-            self.instructions[self.ip + forward_jump - 1]
-        );
+        // println!(
+        //     "ARITY INSTRUCTION: {:?}",
+        //     self.instructions[self.ip + forward_jump - 1]
+        // );
 
-        println!("ARITY: {}", arity);
+        // println!("ARITY: {}", arity);
 
         let capture_env = Rc::clone(&self.global_env);
 
@@ -1369,11 +1379,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         println!("######## HANDLE SET LOCAL ########");
 
-        // println!("Stack end: {}, stack index: {}", end, index);
-        println!("Stack: {:?}", self.stack);
-        println!("stack index: {:?}", self.stack_index);
-        println!("Stack length: {}", self.stack.len());
-        println!("index: {}", index);
+        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+
+        // // println!("Stack end: {}, stack index: {}", end, index);
+        // println!("Stack: {:?}", self.stack);
+        // println!("stack index: {:?}", self.stack_index);
+        // println!("Stack length: {}", self.stack.len());
+        // println!("index: {}", index);
 
         let offset = self.stack_index.last().copied().unwrap_or(0);
 
@@ -1402,23 +1414,25 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         println!("######## HANDLE SET UPVALUE #######");
 
-        // println!("Stack end: {}, stack index: {}", end, index);
+        // // println!("Stack end: {}, stack index: {}", end, index);
 
-        println!("Stack: {:?}", self.stack);
-        println!("stack index: {:?}", self.stack_index);
-        println!("Stack length: {}", self.stack.len());
-        println!("index: {}", index);
-        println!(
-            "function stack: {:?}",
-            self.function_stack
-                .iter()
-                .map(|x| x
-                    .upvalues()
-                    .iter()
-                    .map(|x| x.upgrade().unwrap())
-                    .collect::<Vec<_>>())
-                .collect::<Vec<_>>()
-        );
+        // println!("Stack: {:?}", self.stack);
+        // println!("stack index: {:?}", self.stack_index);
+        // println!("Stack length: {}", self.stack.len());
+        // println!("index: {}", index);
+        // println!(
+        //     "function stack: {:?}",
+        //     self.function_stack
+        //         .iter()
+        //         .map(|x| x
+        //             .upvalues()
+        //             .iter()
+        //             .map(|x| x.upgrade().unwrap())
+        //             .collect::<Vec<_>>())
+        //         .collect::<Vec<_>>()
+        // );
+
+        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
 
         let last_func = self.function_stack.last().unwrap();
 
@@ -1689,9 +1703,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
-        // dbg!("Calling continuation from inside call_continuation");
+        dbg!("Calling continuation from inside call_continuation");
 
-        let last = self.stack.pop().unwrap();
+        let last = self
+            .stack
+            .pop()
+            .ok_or_else(throw!(ArityMismatch => "continuation expected 1 argument, found none"))?;
 
         // self.env_stack.push(Rc::clone(&self.global_env));
 
@@ -1714,7 +1731,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn handle_function_call(&mut self, payload_size: usize, span: &Span) -> Result<()> {
         use SteelVal::*;
 
-        println!("Stack at function call: {:?}", self.stack);
+        // println!("Stack at function call: {:?}", self.stack);
 
         let stack_func = self.stack.pop().unwrap();
 
@@ -1748,7 +1765,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 // println!("Pushing onto stack_index: {}", self.stack.len());
 
-                println!("############### FUNCTION CALL ###############");
+                // println!("############### FUNCTION CALL ###############");
 
                 self.stack_index.push(self.stack.len() - payload_size);
 

@@ -39,8 +39,21 @@
 (define generate-digit
   (generate-one-element-at-a-time '(0 1 2)))
 
-(generate-digit) ;; 0
-(generate-digit) ;; 1
-(generate-digit) ;; 2
-(generate-digit) ;; you-fell-off-the-end
-(generate-digit) ;; you-fell-off-the-end
+; (generate-digit) ;; 0
+; (generate-digit) ;; 1
+; (generate-digit) ;; 2
+; (generate-digit) ;; you-fell-off-the-end
+; (generate-digit) ;; you-fell-off-the-end
+
+; (equal? 0 (generate-digit)) ;; 0
+; (equal? 1 (generate-digit)) ;; 1
+; (equal? 2 (generate-digit)) ;; 2
+
+; ; (define res (generate-digit))
+; ; (displayln res)
+
+; (equal? 'you-fell-off-the-end (generate-digit)) ;; you-fell-off-the-end
+; (equal? 'you-fell-off-the-end (generate-digit)) ;; you-fell-off-the-end
+
+
+

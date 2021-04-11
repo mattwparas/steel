@@ -1478,6 +1478,14 @@ mod display_tests {
     }
 
     #[test]
+    fn display_lambda_quote() {
+        let expression = "(lambda (x) (quote x))";
+        let parsed_expr = parse(expression);
+        let expected = "(lambda (x) (quote x))";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
     fn display_list() {
         let expression = "(list 1 2 3 4)";
         let parsed_expr = parse(expression);
