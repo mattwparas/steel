@@ -698,6 +698,10 @@ impl UpValue {
             Location::Closed(ref v) => {
                 println!("Changing value on heap to be: {}", value);
                 let old = v.clone();
+                println!("Old value: {}", value);
+                if let SteelVal::ContinuationFunction(cc) = &old {
+                    dbg!(&cc.stack);
+                }
                 self.location = Location::Closed(value);
                 old
             }

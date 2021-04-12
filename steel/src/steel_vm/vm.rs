@@ -322,7 +322,7 @@ impl InstructionPointer {
 
 #[derive(Clone, Debug)]
 pub struct Continuation {
-    stack: StackFrame,
+    pub(crate) stack: StackFrame,
     // stacks: CallStack,
     instructions: Rc<[DenseInstruction]>,
     instruction_stack: Stack<InstructionPointer>,
@@ -604,7 +604,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                     match function {
                         SteelVal::Closure(closure) => {
-                            dbg!("%%%%%%%%%%%%% Calling closoure from call/cc %%%%%%%%%%%%%%%");
+                            print!("%%%%%%%%%%%%% Calling closure from call/cc %%%%%%%%%%%%%%%");
 
                             if self.stack_index.len() == STACK_LIMIT {
                                 // println!("stacks at exit: {:?}", stacks);
@@ -669,8 +669,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             // let last = self.stack.pop().unwrap();
                             dbg!("Calling continuation inside call/cc");
                             dbg!(&self.stack);
-
-                            // let cc_clone = cc.clone();
 
                             // self.env_stack.push(Rc::clone(&self.global_env));
                             self.set_state_from_continuation(cc.unwrap());
