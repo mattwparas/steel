@@ -320,7 +320,7 @@ impl InstructionPointer {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Continuation {
     stack: StackFrame,
     // stacks: CallStack,
@@ -516,6 +516,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // println!("stack at continuation: {:?}", self.stack);
 
         dbg!("Creating a continuation");
+        dbg!(&self.stack);
 
         Continuation {
             stack: self.stack.clone(),
@@ -669,6 +670,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             dbg!("Calling continuation inside call/cc");
                             dbg!(&self.stack);
 
+                            // let cc_clone = cc.clone();
+
                             // self.env_stack.push(Rc::clone(&self.global_env));
                             self.set_state_from_continuation(cc.unwrap());
 
@@ -753,8 +756,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         }
 
                         // TODO
-                        self.stack.truncate(offset + current_arity);
 
+                        // println!("TRUNCATING THE STACK");
+                        // dbg!(&self.stack);
+                        self.stack.truncate(offset + current_arity);
+                        // dbg!(&self.stack);
                         // self.stack
                         //     .drain(offset..self.stack.len() - self.current_arity.unwrap());
 
@@ -1092,11 +1098,15 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn handle_set(&mut self, index: usize) -> Result<()> {
         // Explicitly close the upvalues if the thing being set is a function
 
-        println!("Closing upvalues in set");
+        // println!("Closing upvalues in set");
+
+        println!("########## SET ###########");
 
         // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
 
         let value_to_assign = self.stack.pop().unwrap();
+
+        println!("Assign value to: {}", value_to_assign);
 
         if let SteelVal::Closure(_) = &value_to_assign {
             self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
@@ -1425,6 +1435,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let new = self.stack.pop().unwrap();
 
         println!("######## HANDLE SET UPVALUE #######");
+
+        dbg!(&new);
+
+        if let SteelVal::ContinuationFunction(cc) = &new {
+            dbg!(&cc.stack);
+        }
 
         // // println!("Stack end: {}, stack index: {}", end, index);
 

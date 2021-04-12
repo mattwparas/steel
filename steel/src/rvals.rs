@@ -690,11 +690,13 @@ impl UpValue {
     pub(crate) fn mutate_value(&mut self, stack: &mut [SteelVal], value: SteelVal) -> SteelVal {
         match self.location {
             Location::Stack(idx) => {
+                println!("Changing value on stack to be: {}", value);
                 let old = stack[idx].clone();
                 stack[idx] = value;
                 old
             }
             Location::Closed(ref v) => {
+                println!("Changing value on heap to be: {}", value);
                 let old = v.clone();
                 self.location = Location::Closed(value);
                 old
@@ -740,7 +742,7 @@ pub(crate) enum Location {
     Closed(SteelVal),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
     body_exp: Rc<[DenseInstruction]>,

@@ -720,6 +720,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 .map(|x| x.borrow().resolve_local(ident))
                 .flatten()
             {
+                println!("new set local on {}", ident);
                 self.push(Instruction::new_set_local(idx, s.clone()));
 
             // Otherwise attempt to resolve this as an upvalue
@@ -729,11 +730,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 .map(|x| x.borrow_mut().resolve_upvalue(ident))
                 .flatten()
             {
+                println!("new set upvalue on {}", ident);
                 self.push(Instruction::new_set_upvalue(idx, s.clone()));
 
             // Otherwise we resort to it being a global variable for now
             } else {
                 // println!("pushing global");
+                println!("new set global on {}", ident);
                 self.push(Instruction::new(OpCode::SET, 0, s.clone(), true));
             }
         } else {
