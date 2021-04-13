@@ -1106,9 +1106,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         println!("Assign value to: {}", value_to_assign);
 
-        if let SteelVal::Closure(_) = &value_to_assign {
-            self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        }
+        // if let SteelVal::Closure(_) = &value_to_assign {
+        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        // }
 
         let value = self
             .global_env
@@ -1458,9 +1458,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         //         .collect::<Vec<_>>()
         // );
 
-        if let SteelVal::Closure(_) = &new {
-            self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        }
+        // if let SteelVal::Closure(_) = &new {
+        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        // }
 
         let last_func = self.function_stack.last().unwrap();
 

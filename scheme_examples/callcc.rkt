@@ -25,8 +25,10 @@
                               (lambda (resume-here)
                                 ;; Grab the current continuation
                                (set! control-state resume-here)
+                               (displayln "GETTING HERE")
                                (return element))))) ;; (return element) evaluates to next return
      lst)
+    (displayln "YOU FELL OFF THE END")
     (return 'you-fell-off-the-end))
   
   ;; (-> X u 'you-fell-off-the-end)
