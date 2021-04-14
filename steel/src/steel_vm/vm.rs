@@ -497,7 +497,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         {
             let upvalue = self.upvalue_head.as_ref().unwrap().upgrade().unwrap();
             let value = upvalue.borrow().get_value(&self.stack);
+
+            // TODO see if this fixes anything
+            // if !upvalue.borrow().is_closed() {
             upvalue.borrow_mut().set_value(value);
+            // } else {
+            // println!("@@@@@@@@ Skipping closing upvalue, upvalue already closed! @@@@@@@@@@");
+            // }
+
             self.upvalue_head = upvalue.borrow_mut().next.clone();
 
             // upvalue.borrow_mut().closed =
@@ -517,6 +524,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         dbg!("Creating a continuation");
         dbg!(&self.stack);
+        dbg!(&self.stack_index);
+        dbg!(self.pop_count);
 
         Continuation {
             stack: self.stack.clone(),
@@ -597,6 +606,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                     validate_closure_for_call_cc(&function, cur_inst.span)?;
 
+                    // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+
                     // println!("getting here");
                     // self.ip += 1;
 
@@ -604,7 +615,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                     match function {
                         SteelVal::Closure(closure) => {
-                            print!("%%%%%%%%%%%%% Calling closure from call/cc %%%%%%%%%%%%%%%");
+                            println!("%%%%%%%%%%%%% Calling closure from call/cc %%%%%%%%%%%%%%%");
 
                             if self.stack_index.len() == STACK_LIMIT {
                                 // println!("stacks at exit: {:?}", stacks);
@@ -669,13 +680,16 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             // let last = self.stack.pop().unwrap();
                             dbg!("Calling continuation inside call/cc");
                             dbg!(&self.stack);
+                            dbg!(&self.stack_index);
 
                             // self.env_stack.push(Rc::clone(&self.global_env));
                             self.set_state_from_continuation(cc.unwrap());
 
                             dbg!("after");
                             dbg!(&self.stack);
+                            dbg!(&self.stack_index);
                             self.ip += 1;
+                            // self.pop_count += 1;
                             self.stack.push(continuation);
                         }
 
@@ -1733,6 +1747,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
         dbg!("Calling continuation from inside call_continuation");
         dbg!(&self.stack);
+        dbg!(&self.stack_index);
 
         let last = self
             .stack
@@ -1749,10 +1764,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.set_state_from_continuation(continuation.clone());
 
         dbg!(&self.stack);
+        dbg!(&self.stack_index);
 
         // self.global_env = local_env;
 
         self.ip += 1;
+        // self.pop_count += 1;
         self.stack.push(last);
         Ok(())
         // unimplemented!("continuations are not implemented yet")
