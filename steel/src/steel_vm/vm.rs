@@ -1228,6 +1228,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             .function_stack
             .last()
             .map(|x| {
+                // println!("{:?}", x.upvalues());
+
                 x.upvalues()[index]
                     .upgrade()
                     .unwrap()
@@ -1899,6 +1901,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.ip = 0;
             }
             _ => {
+                println!("{:?}", stack_func);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);
             }
         }

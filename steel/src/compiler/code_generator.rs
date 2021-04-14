@@ -620,16 +620,16 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             let variable = self.variable_data.as_ref().unwrap().borrow().locals[idx].clone();
             dbg!(variable);
             dbg!(&self.variable_data);
-            // self.push(Instruction::new_local(idx, a.syn.clone()));
+            self.push(Instruction::new_local(idx, a.syn.clone()));
 
             // TODO come back to this and see if this is the issue
-            if self.variable_data.as_ref().unwrap().borrow().locals[idx].is_captured {
-                println!("New upvalue read: {} @ {}", ident, idx);
-                self.push(Instruction::new_read_upvalue(idx, a.syn.clone()))
-            } else {
-                println!("New local read: {} @ {}", ident, idx);
-                self.push(Instruction::new_local(idx, a.syn.clone()));
-            }
+            // if self.variable_data.as_ref().unwrap().borrow().locals[idx].is_captured {
+            //     println!("New upvalue read: {} @ {}", ident, idx);
+            //     self.push(Instruction::new_read_upvalue(idx, a.syn.clone()))
+            // } else {
+            //     println!("New local read: {} @ {}", ident, idx);
+            //     self.push(Instruction::new_local(idx, a.syn.clone()));
+            // }
 
             // TODO fix this hack
             // if let Some(idx) = self
