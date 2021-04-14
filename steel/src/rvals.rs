@@ -23,6 +23,7 @@ use std::{
     pin::Pin,
     rc::{Rc, Weak},
     result,
+    sync::atomic::AtomicUsize,
     task::Context,
 };
 
@@ -649,6 +650,8 @@ impl PartialOrd for SteelVal {
     }
 }
 
+pub static UPVALUE_ID: AtomicUsize = AtomicUsize::new(0);
+
 // Upvalues themselves need to be stored on the heap
 // Consider a separate section for them on the heap, or wrap them in a wrapper
 // before allocating on the heap
@@ -658,6 +661,9 @@ pub struct UpValue {
     pub(crate) location: Location,
     // The next upvalue in the sequence
     pub(crate) next: Option<Weak<RefCell<UpValue>>>,
+
+    // id of the upvalue
+    pub(crate) id: usize,
 }
 
 impl PartialEq for UpValue {
@@ -709,6 +715,7 @@ impl UpValue {
     }
 
     pub(crate) fn set_value(&mut self, val: SteelVal) {
+        println!("Inside set_value - old: {:?}", self.location);
         self.location = Location::Closed(val);
     }
 
@@ -725,6 +732,7 @@ impl UpValue {
         UpValue {
             location: Location::Stack(stack_index),
             next,
+            id: UPVALUE_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         }
     }
 

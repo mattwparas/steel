@@ -20,6 +20,9 @@ impl UpValueHeap {
 
         let upvalue = Rc::new(RefCell::new(UpValue::new(index, next)));
         let weak_ptr = Rc::downgrade(&upvalue);
+
+        dbg!(&upvalue);
+
         self.memory.push(upvalue);
         weak_ptr
     }

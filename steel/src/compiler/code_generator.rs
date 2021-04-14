@@ -617,9 +617,35 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .map(|x| x.borrow().resolve_local(ident))
             .flatten()
         {
-            self.push(Instruction::new_local(idx, a.syn.clone()));
+            let variable = self.variable_data.as_ref().unwrap().borrow().locals[idx].clone();
+            dbg!(variable);
+            dbg!(&self.variable_data);
+            // self.push(Instruction::new_local(idx, a.syn.clone()));
 
-        // Otherwise attempt to resolve this as an upvalue
+            // TODO come back to this and see if this is the issue
+            if self.variable_data.as_ref().unwrap().borrow().locals[idx].is_captured {
+                println!("New upvalue read: {} @ {}", ident, idx);
+                self.push(Instruction::new_read_upvalue(idx, a.syn.clone()))
+            } else {
+                println!("New local read: {} @ {}", ident, idx);
+                self.push(Instruction::new_local(idx, a.syn.clone()));
+            }
+
+            // TODO fix this hack
+            // if let Some(idx) = self
+            //     .variable_data
+            //     .as_ref()
+            //     .map(|x| x.borrow_mut().resolve_upvalue(ident))
+            //     .flatten()
+            // {
+            //     println!("New upvalue read: {}", ident);
+            //     self.push(Instruction::new_read_upvalue(idx, a.syn.clone()));
+            // } else {
+            //     println!("New local read: {}", ident);
+            //     self.push(Instruction::new_local(idx, a.syn.clone()));
+            // }
+
+            // Otherwise attempt to resolve this as an upvalue
         } else if let Some(idx) = self
             .variable_data
             .as_ref()
@@ -730,7 +756,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 .map(|x| x.borrow_mut().resolve_upvalue(ident))
                 .flatten()
             {
-                println!("new set upvalue on {}", ident);
+                println!("new set upvalue on {} @ index: {}", ident, idx);
                 self.push(Instruction::new_set_upvalue(idx, s.clone()));
 
             // Otherwise we resort to it being a global variable for now

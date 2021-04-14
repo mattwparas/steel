@@ -29,6 +29,9 @@
                                (return element))))) ;; (return element) evaluates to next return
      lst)
     (displayln "YOU FELL OFF THE END")
+    ;; TODO
+    ;; this is reading the local variable
+    ;; but it needs to be reading from the heap
     (return 'you-fell-off-the-end))
   
   ;; (-> X u 'you-fell-off-the-end)

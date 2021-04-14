@@ -483,6 +483,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     fn close_upvalues(&mut self, last: usize) {
+        println!("Upvalue head exists: {}", self.upvalue_head.is_some());
+
         while self.upvalue_head.is_some()
             && self
                 .upvalue_head
@@ -497,6 +499,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         {
             let upvalue = self.upvalue_head.as_ref().unwrap().upgrade().unwrap();
             let value = upvalue.borrow().get_value(&self.stack);
+
+            println!("Upvalue status: {}", upvalue.borrow().is_closed());
 
             // TODO see if this fixes anything
             // if !upvalue.borrow().is_closed() {
@@ -606,7 +610,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                     validate_closure_for_call_cc(&function, cur_inst.span)?;
 
-                    // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+                    // close them all up
+                    // self.close_upvalues(0);
 
                     // println!("getting here");
                     // self.ip += 1;
@@ -868,6 +873,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 (OpCode::CLOSEUPVALUE, 1) => {
                                     // unimplemented!()
                                     println!("... closing upvalues ...");
+                                    dbg!(&self.stack);
                                     self.close_upvalues(rollback_index + i as usize);
                                 }
                                 (OpCode::CLOSEUPVALUE, 0) => {
@@ -1119,6 +1125,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let value_to_assign = self.stack.pop().unwrap();
 
         println!("Assign value to: {}", value_to_assign);
+
+        if let SteelVal::ContinuationFunction(cc) = &value_to_assign {
+            dbg!(&cc.stack);
+        }
 
         // if let SteelVal::Closure(_) = &value_to_assign {
         self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
@@ -1411,9 +1421,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         println!("######## HANDLE SET LOCAL ########");
 
-        if let SteelVal::Closure(_) = &value_to_set {
-            self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        }
+        // if let SteelVal::Closure(_) = &value_to_set {
+        //     self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        // }
 
         // // println!("Stack end: {}, stack index: {}", end, index);
         // println!("Stack: {:?}", self.stack);
@@ -1473,12 +1483,16 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // );
 
         // if let SteelVal::Closure(_) = &new {
-        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
         // }
+
+        crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
         let last_func = self.function_stack.last().unwrap();
 
         let upvalue = last_func.upvalues()[index].upgrade().unwrap();
+
+        dbg!(&upvalue);
 
         let value = upvalue.borrow_mut().mutate_value(&mut self.stack.0, new);
 
