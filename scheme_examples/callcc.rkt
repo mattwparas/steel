@@ -33,6 +33,8 @@
     ;; this is reading the local variable
     ;; but it needs to be reading from the heap
     (return 'you-fell-off-the-end))
+
+  (inspect-bytecode control-state)
   
   ;; (-> X u 'you-fell-off-the-end)
   ;; This is the actual generator, producing one item from a-list at a time.

@@ -1764,6 +1764,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         dbg!("Calling continuation from inside call_continuation");
         dbg!(&self.stack);
         dbg!(&self.stack_index);
+        dbg!(&self
+            .function_stack
+            .last()
+            .unwrap()
+            .upvalues()
+            .iter()
+            .map(|x| x.upgrade().unwrap())
+            .collect::<Vec<_>>());
 
         let last = self
             .stack

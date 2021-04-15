@@ -428,6 +428,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // Put the length of the upvalues here
         self.push(Instruction::new_ndef(variable_data.borrow().upvalues.len()));
         println!("Variable data: {:?}", variable_data.borrow().upvalues);
+        dbg!(&variable_data);
 
         // Fill out the upvalue information that needs to be down
         // TODO
