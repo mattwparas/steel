@@ -873,6 +873,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 (OpCode::CLOSEUPVALUE, 1) => {
                                     // unimplemented!()
                                     println!("... closing upvalues ...");
+                                    println!(
+                                        "Closing stack position: {}",
+                                        rollback_index + i as usize
+                                    );
                                     dbg!(&self.stack);
                                     self.close_upvalues(rollback_index + i as usize);
                                 }
@@ -1204,7 +1208,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // calculate offset
         // let end = self.stack.len();
 
-        // println!("######## HANDLE UPVALUE #######");
+        println!("######## HANDLE UPVALUE #######");
 
         // // println!("Stack end: {}, stack index: {}", end, index);
 
@@ -1212,17 +1216,18 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // println!("stack index: {:?}", self.stack_index);
         // println!("Stack length: {}", self.stack.len());
         // println!("index: {}", index);
-        // println!(
-        //     "function stack: {:?}",
-        //     self.function_stack
-        //         .iter()
-        //         .map(|x| x
-        //             .upvalues()
-        //             .iter()
-        //             .map(|x| x.upgrade().unwrap())
-        //             .collect::<Vec<_>>())
-        //         .collect::<Vec<_>>()
-        // );
+        println!(
+            "function stack last: {:?}",
+            self.function_stack
+                .last()
+                .unwrap()
+                .upvalues()
+                .iter()
+                .map(|x| x.upgrade().unwrap())
+                .collect::<Vec<_>>()
+        );
+
+        // println!()
 
         let value = self
             .function_stack
