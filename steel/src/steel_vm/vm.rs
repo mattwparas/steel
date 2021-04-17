@@ -495,7 +495,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 .borrow()
                 .index()
                 .map(|x| x >= last)
-                .is_some()
+                .unwrap_or(false)
         {
             let upvalue = self.upvalue_head.as_ref().unwrap().upgrade().unwrap();
             let value = upvalue.borrow().get_value(&self.stack);
@@ -687,8 +687,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             dbg!(&self.stack);
                             dbg!(&self.stack_index);
 
+                            // let current_func = Gc::clone(self.function_stack.last().unwrap());
+
                             // self.env_stack.push(Rc::clone(&self.global_env));
                             self.set_state_from_continuation(cc.unwrap());
+
+                            // self.function_stack.push(current_func);
 
                             dbg!("after");
                             dbg!(&self.stack);
@@ -973,7 +977,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn handle_transduce(&mut self, span: &Span) -> Result<()> {
         println!("INSIDE TRANSDUCE");
 
-        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        self.close_upvalues(0);
 
         let list = self.stack.pop().unwrap();
         let initial_value = self.stack.pop().unwrap();
@@ -994,7 +999,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn handle_collect_to(&mut self, span: &Span) -> Result<()> {
         println!("INSIDE COLLECT TO");
 
-        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        self.close_upvalues(0);
 
         let output_type = self.stack.pop().unwrap();
         let list = self.stack.pop().unwrap();
@@ -1014,7 +1020,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn handle_collect(&mut self, span: &Span) -> Result<()> {
         println!("@@@@@@@@@@@@@@@@@@@@@ entering the transducer zone @@@@@@@@@@@@@@@@");
 
-        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+
+        // TODO handle this a better way
+        self.close_upvalues(0);
 
         // if let Some()
 
@@ -1134,9 +1143,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             dbg!(&cc.stack);
         }
 
-        // if let SteelVal::Closure(_) = &value_to_assign {
-        self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        // }
+        if let SteelVal::Closure(_) = &value_to_assign {
+            self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        }
 
         let value = self
             .global_env
@@ -1212,7 +1221,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         // // println!("Stack end: {}, stack index: {}", end, index);
 
-        // println!("Stack: {:?}", self.stack);
+        println!("Stack: {:?}", self.stack);
         // println!("stack index: {:?}", self.stack_index);
         // println!("Stack length: {}", self.stack.len());
         // println!("index: {}", index);
@@ -1226,6 +1235,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 .map(|x| x.upgrade().unwrap())
                 .collect::<Vec<_>>()
         );
+
+        println!("Function stack length: {}", self.function_stack.len());
 
         // println!()
 
@@ -1305,9 +1316,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     );
                     // I think I need frame->slots + index
                     // or rather get the offset of the last executing thing
+
                     upvalues.push(
                         self.capture_upvalue(self.stack_index.last().unwrap_or(&0) + n as usize),
                     );
+
+                    // upvalues.push(self.capture_upvalue(n as usize));
                 }
                 (l, _) => {
                     crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
@@ -1991,6 +2005,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     ),
                 ));
 
+                // self.stack_index.push(self.stack.len() - 1);
+
                 // add this closure to the list of children
                 // parent_env
                 //     .upgrade()
@@ -2026,10 +2042,15 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 ));
                 self.pop_count += 1;
 
+                self.function_stack.push(Gc::clone(closure));
+
+                let payload_size = args.len();
+
+                // Append the arguments to the function
                 self.stack.append_vec(&mut args);
 
                 // println!("Pushing onto stack_index: {}", self.stack.len());
-                self.stack_index.push(self.stack.len() - 1);
+                self.stack_index.push(self.stack.len() - payload_size);
 
                 // let stack = std::mem::replace(&mut self.stack, args.into());
                 // self.stacks.push(stack);

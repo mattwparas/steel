@@ -664,6 +664,8 @@ pub struct UpValue {
 
     // id of the upvalue
     pub(crate) id: usize,
+    // The stack position prior to the value being closed
+    // pub(crate) stack_pos: Option<usize>,
 }
 
 impl PartialEq for UpValue {

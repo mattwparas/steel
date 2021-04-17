@@ -26,7 +26,6 @@ struct LocalVariable {
     depth: u32,
     name: String,
     is_captured: bool,
-    is_set: bool,
 }
 
 impl LocalVariable {
@@ -35,7 +34,6 @@ impl LocalVariable {
             depth,
             name,
             is_captured: false,
-            is_set: false,
         }
     }
 }
@@ -79,12 +77,8 @@ impl VariableData {
         self.locals[index].is_captured = true;
     }
 
-    // Set a local to have been used by `set`
-    fn mark_set(&mut self, index: usize) {
-        self.locals[index].is_set = true;
-    }
-
     // Go backwards and attempt to find the index in which a local variable will live on the stack
+    // returns (actual, stack)
     fn resolve_local(&self, ident: &str) -> Option<usize> {
         self.locals
             .iter()
@@ -112,6 +106,26 @@ impl VariableData {
                 .unwrap()
                 .borrow_mut()
                 .mark_captured(local);
+
+            // If we're in a set context, then go ahead add an upvalue for that
+            // then, when we resolve an atom, check the upvalues for that if its local AND set
+            // if set {
+            //     self.enclosing
+            //         .as_ref()
+            //         .unwrap()
+            //         .borrow_mut()
+            //         .mark_set(local);
+
+            //     println!("Adding upvalue for ident: {}", ident);
+            //     dbg!(&self.enclosing);
+            //     self.enclosing
+            //         .as_ref()
+            //         .unwrap()
+            //         .borrow_mut()
+            //         .add_upvalue(local, true);
+            //     dbg!(&self.enclosing);
+            // }
+
             return Some(self.add_upvalue(local, true));
         }
 
@@ -128,6 +142,10 @@ impl VariableData {
         // Otherwise we're a global and we should move on
         None
     }
+
+    // fn add_local_upvalue(&mut self, index: usize, is_local: bool) -> usize {
+
+    // }
 
     // Add the upvalue to the upvalue list, returning the index in the list
     fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
@@ -474,6 +492,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         // crate::core::instructions::pretty_print_instructions(&self.instructions);
 
+        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@ setting locals @@@@@@@@@@@");
+        dbg!(&variable_data);
+
         // Go ahead and include the variable information for the popping
         // This needs to be handled accordingly
         for local in variable_data.borrow().locals.iter() {
@@ -631,7 +652,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             self.push(Instruction::new_local(idx, a.syn.clone()));
 
             // TODO come back to this and see if this is the issue
-            // if self.variable_data.as_ref().unwrap().borrow().locals[idx].is_captured {
+            // if self.variable_data.as_ref().unwrap().borrow().locals[idx].is_set {
             //     println!("New upvalue read: {} @ {}", ident, idx);
             //     self.push(Instruction::new_read_upvalue(idx, a.syn.clone()))
             // } else {
