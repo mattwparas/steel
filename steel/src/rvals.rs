@@ -615,10 +615,7 @@ impl PartialEq for SteelVal {
             // (IntV(l), NumV(r)) => *l as f64 == *r,
             (StringV(l), StringV(r)) => l == r,
             (VectorV(l), VectorV(r)) => l == r,
-            (SymbolV(l), SymbolV(r)) => {
-                println!("Comparing {} and {}", l, r);
-                l == r
-            }
+            (SymbolV(l), SymbolV(r)) => l == r,
             (CharV(l), CharV(r)) => l == r,
             (Pair(_), Pair(_)) => collect_pair_into_vector(self) == collect_pair_into_vector(other),
             (HashSetV(l), HashSetV(r)) => l == r,
@@ -650,7 +647,7 @@ impl PartialOrd for SteelVal {
     }
 }
 
-pub static UPVALUE_ID: AtomicUsize = AtomicUsize::new(0);
+// pub static UPVALUE_ID: AtomicUsize = AtomicUsize::new(0);
 
 // Upvalues themselves need to be stored on the heap
 // Consider a separate section for them on the heap, or wrap them in a wrapper
@@ -661,9 +658,8 @@ pub struct UpValue {
     pub(crate) location: Location,
     // The next upvalue in the sequence
     pub(crate) next: Option<Weak<RefCell<UpValue>>>,
-
     // id of the upvalue
-    pub(crate) id: usize,
+    // pub(crate) id: usize,
     // The stack position prior to the value being closed
     // pub(crate) stack_pos: Option<usize>,
 }
@@ -698,18 +694,12 @@ impl UpValue {
     pub(crate) fn mutate_value(&mut self, stack: &mut [SteelVal], value: SteelVal) -> SteelVal {
         match self.location {
             Location::Stack(idx) => {
-                println!("Changing value on stack to be: {}", value);
                 let old = stack[idx].clone();
                 stack[idx] = value;
                 old
             }
             Location::Closed(ref v) => {
-                println!("Changing value on heap to be: {}", value);
                 let old = v.clone();
-                println!("Old value: {}", value);
-                if let SteelVal::ContinuationFunction(cc) = &old {
-                    dbg!(&cc.stack);
-                }
                 self.location = Location::Closed(value);
                 old
             }
@@ -717,7 +707,6 @@ impl UpValue {
     }
 
     pub(crate) fn set_value(&mut self, val: SteelVal) {
-        println!("Inside set_value - old: {:?}", self.location);
         self.location = Location::Closed(val);
     }
 
@@ -734,7 +723,7 @@ impl UpValue {
         UpValue {
             location: Location::Stack(stack_index),
             next,
-            id: UPVALUE_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            // id: UPVALUE_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         }
     }
 

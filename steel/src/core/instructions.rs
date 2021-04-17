@@ -76,9 +76,6 @@ impl Instruction {
     }
 
     pub fn new_ndef(payload_size: usize) -> Instruction {
-        println!("#################################");
-        println!("Making ndef with size: {}", payload_size);
-
         Instruction {
             op_code: OpCode::NDEFS,
             payload_size,

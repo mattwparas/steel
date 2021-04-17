@@ -526,10 +526,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // println!("stacks at continuation: {:?}", self.stacks);
         // println!("stack at continuation: {:?}", self.stack);
 
-        dbg!("Creating a continuation");
-        dbg!(&self.stack);
-        dbg!(&self.stack_index);
-        dbg!(self.pop_count);
+        // dbg!("Creating a continuation");
+        // dbg!(&self.stack);
+        // dbg!(&self.stack_index);
+        // dbg!(self.pop_count);
 
         Continuation {
             stack: self.stack.clone(),
@@ -683,9 +683,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         }
                         SteelVal::ContinuationFunction(cc) => {
                             // let last = self.stack.pop().unwrap();
-                            dbg!("Calling continuation inside call/cc");
-                            dbg!(&self.stack);
-                            dbg!(&self.stack_index);
+                            // dbg!("Calling continuation inside call/cc");
+                            // dbg!(&self.stack);
+                            // dbg!(&self.stack_index);
 
                             // let current_func = Gc::clone(self.function_stack.last().unwrap());
 
@@ -694,9 +694,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                             // self.function_stack.push(current_func);
 
-                            dbg!("after");
-                            dbg!(&self.stack);
-                            dbg!(&self.stack_index);
+                            // dbg!("after");
+                            // dbg!(&self.stack);
+                            // dbg!(&self.stack_index);
                             self.ip += 1;
                             // self.pop_count += 1;
                             self.stack.push(continuation);
@@ -876,12 +876,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             match (instr.op_code, instr.payload_size) {
                                 (OpCode::CLOSEUPVALUE, 1) => {
                                     // unimplemented!()
-                                    println!("... closing upvalues ...");
-                                    println!(
-                                        "Closing stack position: {}",
-                                        rollback_index + i as usize
-                                    );
-                                    dbg!(&self.stack);
+                                    // println!("... closing upvalues ...");
+                                    // println!(
+                                    //     "Closing stack position: {}",
+                                    //     rollback_index + i as usize
+                                    // );
+                                    // dbg!(&self.stack);
                                     self.close_upvalues(rollback_index + i as usize);
                                 }
                                 (OpCode::CLOSEUPVALUE, 0) => {
@@ -975,7 +975,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_transduce(&mut self, span: &Span) -> Result<()> {
-        println!("INSIDE TRANSDUCE");
+        // println!("INSIDE TRANSDUCE");
 
         // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
         self.close_upvalues(0);
@@ -997,7 +997,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_collect_to(&mut self, span: &Span) -> Result<()> {
-        println!("INSIDE COLLECT TO");
+        // println!("INSIDE COLLECT TO");
 
         // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
         self.close_upvalues(0);
@@ -1018,7 +1018,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_collect(&mut self, span: &Span) -> Result<()> {
-        println!("@@@@@@@@@@@@@@@@@@@@@ entering the transducer zone @@@@@@@@@@@@@@@@");
+        // println!("@@@@@@@@@@@@@@@@@@@@@ entering the transducer zone @@@@@@@@@@@@@@@@");
 
         // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
 
@@ -1131,17 +1131,17 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         // println!("Closing upvalues in set");
 
-        println!("########## SET ###########");
+        // println!("########## SET ###########");
 
         // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
 
         let value_to_assign = self.stack.pop().unwrap();
 
-        println!("Assign value to: {}", value_to_assign);
+        // println!("Assign value to: {}", value_to_assign);
 
-        if let SteelVal::ContinuationFunction(cc) = &value_to_assign {
-            dbg!(&cc.stack);
-        }
+        // if let SteelVal::ContinuationFunction(cc) = &value_to_assign {
+        //     dbg!(&cc.stack);
+        // }
 
         if let SteelVal::Closure(_) = &value_to_assign {
             self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
@@ -1217,26 +1217,26 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // calculate offset
         // let end = self.stack.len();
 
-        println!("######## HANDLE UPVALUE #######");
+        // println!("######## HANDLE UPVALUE #######");
 
         // // println!("Stack end: {}, stack index: {}", end, index);
 
-        println!("Stack: {:?}", self.stack);
+        // println!("Stack: {:?}", self.stack);
         // println!("stack index: {:?}", self.stack_index);
         // println!("Stack length: {}", self.stack.len());
         // println!("index: {}", index);
-        println!(
-            "function stack last: {:?}",
-            self.function_stack
-                .last()
-                .unwrap()
-                .upvalues()
-                .iter()
-                .map(|x| x.upgrade().unwrap())
-                .collect::<Vec<_>>()
-        );
+        // println!(
+        //     "function stack last: {:?}",
+        //     self.function_stack
+        //         .last()
+        //         .unwrap()
+        //         .upvalues()
+        //         .iter()
+        //         .map(|x| x.upgrade().unwrap())
+        //         .collect::<Vec<_>>()
+        // );
 
-        println!("Function stack length: {}", self.function_stack.len());
+        // println!("Function stack length: {}", self.function_stack.len());
 
         // println!()
 
@@ -1309,11 +1309,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 (OpCode::FILLLOCALUPVALUE, n) => {
                     // unimplemented!();
                     // TODO check if this is even close to correct
-                    println!("FILL LOCAL UPVALUE");
-                    println!(
-                        "Pointing to: {:?}",
-                        self.stack[self.stack_index.last().unwrap_or(&0) + n as usize]
-                    );
+                    // println!("FILL LOCAL UPVALUE");
+                    // println!(
+                    //     "Pointing to: {:?}",
+                    //     self.stack[self.stack_index.last().unwrap_or(&0) + n as usize]
+                    // );
                     // I think I need frame->slots + index
                     // or rather get the offset of the last executing thing
 
@@ -1444,7 +1444,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         let value_to_set = self.stack.pop().unwrap();
 
-        println!("######## HANDLE SET LOCAL ########");
+        // println!("######## HANDLE SET LOCAL ########");
 
         // if let SteelVal::Closure(_) = &value_to_set {
         //     self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
@@ -1481,13 +1481,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         let new = self.stack.pop().unwrap();
 
-        println!("######## HANDLE SET UPVALUE #######");
+        // println!("######## HANDLE SET UPVALUE #######");
 
-        dbg!(&new);
+        // dbg!(&new);
 
-        if let SteelVal::ContinuationFunction(cc) = &new {
-            dbg!(&cc.stack);
-        }
+        // if let SteelVal::ContinuationFunction(cc) = &new {
+        //     dbg!(&cc.stack);
+        // }
 
         // // println!("Stack end: {}, stack index: {}", end, index);
 
@@ -1511,13 +1511,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
         // }
 
-        crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+        // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
         let last_func = self.function_stack.last().unwrap();
 
         let upvalue = last_func.upvalues()[index].upgrade().unwrap();
 
-        dbg!(&upvalue);
+        // dbg!(&upvalue);
 
         let value = upvalue.borrow_mut().mutate_value(&mut self.stack.0, new);
 
@@ -1784,17 +1784,17 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
-        dbg!("Calling continuation from inside call_continuation");
-        dbg!(&self.stack);
-        dbg!(&self.stack_index);
-        dbg!(&self
-            .function_stack
-            .last()
-            .unwrap()
-            .upvalues()
-            .iter()
-            .map(|x| x.upgrade().unwrap())
-            .collect::<Vec<_>>());
+        // dbg!("Calling continuation from inside call_continuation");
+        // dbg!(&self.stack);
+        // dbg!(&self.stack_index);
+        // dbg!(&self
+        //     .function_stack
+        //     .last()
+        //     .unwrap()
+        //     .upvalues()
+        //     .iter()
+        //     .map(|x| x.upgrade().unwrap())
+        //     .collect::<Vec<_>>());
 
         let last = self
             .stack
@@ -1810,8 +1810,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         self.set_state_from_continuation(continuation.clone());
 
-        dbg!(&self.stack);
-        dbg!(&self.stack_index);
+        // dbg!(&self.stack);
+        // dbg!(&self.stack_index);
 
         // self.global_env = local_env;
 

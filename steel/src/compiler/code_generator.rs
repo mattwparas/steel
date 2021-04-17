@@ -302,7 +302,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 stop!(Generic => "out of bounds closure len");
             }
 
-            println!("binding global: {}", name);
+            // println!("binding global: {}", name);
             self.push(Instruction::new_bind(name.syn.clone()));
 
             // TODO pick up from here
@@ -351,8 +351,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let mut body_instructions = Vec::new();
 
         let l = &lambda_function.args;
-
-        println!("ARGS: {:?}", l);
 
         // let offset = self.locals.len();
 
@@ -452,17 +450,17 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         // Put the length of the upvalues here
         self.push(Instruction::new_ndef(variable_data.borrow().upvalues.len()));
-        println!("Variable data: {:?}", variable_data.borrow().upvalues);
-        dbg!(&variable_data);
+        // println!("Variable data: {:?}", variable_data.borrow().upvalues);
+        // dbg!(&variable_data);
 
         // Fill out the upvalue information that needs to be down
         // TODO
         for upvalue in &variable_data.borrow().upvalues {
             if upvalue.is_local {
-                println!("Pushing new local upvalue!");
+                // println!("Pushing new local upvalue!");
                 self.push(Instruction::new_local_upvalue(upvalue.index));
             } else {
-                println!("Pushing new upvalue");
+                // println!("Pushing new upvalue");
                 self.push(Instruction::new_upvalue(upvalue.index));
             }
         }
@@ -492,8 +490,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         // crate::core::instructions::pretty_print_instructions(&self.instructions);
 
-        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@ setting locals @@@@@@@@@@@");
-        dbg!(&variable_data);
+        // println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@ setting locals @@@@@@@@@@@");
+        // dbg!(&variable_data);
 
         // Go ahead and include the variable information for the popping
         // This needs to be handled accordingly
@@ -647,8 +645,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .flatten()
         {
             let variable = self.variable_data.as_ref().unwrap().borrow().locals[idx].clone();
-            dbg!(variable);
-            dbg!(&self.variable_data);
+            // dbg!(variable);
+            // dbg!(&self.variable_data);
             self.push(Instruction::new_local(idx, a.syn.clone()));
 
             // TODO come back to this and see if this is the issue
@@ -775,7 +773,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 .map(|x| x.borrow().resolve_local(ident))
                 .flatten()
             {
-                println!("new set local on {}", ident);
+                // println!("new set local on {}", ident);
                 self.push(Instruction::new_set_local(idx, s.clone()));
 
             // Otherwise attempt to resolve this as an upvalue
@@ -785,13 +783,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 .map(|x| x.borrow_mut().resolve_upvalue(ident))
                 .flatten()
             {
-                println!("new set upvalue on {} @ index: {}", ident, idx);
+                // println!("new set upvalue on {} @ index: {}", ident, idx);
                 self.push(Instruction::new_set_upvalue(idx, s.clone()));
 
             // Otherwise we resort to it being a global variable for now
             } else {
                 // println!("pushing global");
-                println!("new set global on {}", ident);
+                // println!("new set global on {}", ident);
                 self.push(Instruction::new(OpCode::SET, 0, s.clone(), true));
             }
         } else {
@@ -861,7 +859,7 @@ fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &s
                     transformed = true;
 
                     info!("Tail call optimization performed for: {}", defining_context);
-                    println!("Tail call optimization performed for: {}", defining_context);
+                    // println!("Tail call optimization performed for: {}", defining_context);
                 }
             }
             _ => {}

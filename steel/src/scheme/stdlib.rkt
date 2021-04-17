@@ -316,19 +316,19 @@
 (define (zero? n) (= n 0))
 
 ;; currently broken, doesn't work properly
-; (defn (take lst n)
-;   (defn (loop x l acc)
-;     (if (= x 0)
-;         acc
-;         (loop (- x 1) (cdr l) (cons (car l) acc))))
-;   (loop n lst (list)))
+(defn (take lst n)
+  (defn (loop x l acc)
+    (if (= x 0)
+        acc
+        (loop (- x 1) (cdr l) (cons (car l) acc))))
+  (loop n lst (list)))
 
-; (define (drop lst n)
-;   (define (loop x l)
-;     (if (zero? x)
-;         l
-;         (loop (sub1 x) (cdr l))))
-;   (loop n lst))
+(define (drop lst n)
+  (define (loop x l)
+    (if (zero? x)
+        l
+        (loop (sub1 x) (cdr l))))
+  (loop n lst))
 
 (define (slice l offset n)
   (take (drop l offset) n))
