@@ -1298,7 +1298,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 (OpCode::FILLLOCALUPVALUE, n) => {
                     // unimplemented!();
                     // TODO check if this is even close to correct
-                    // println!("FILL LOCAL UPVALUE");
+                    println!("FILL LOCAL UPVALUE");
+                    println!(
+                        "Pointing to: {:?}",
+                        self.stack[self.stack_index.last().unwrap_or(&0) + n as usize]
+                    );
                     // I think I need frame->slots + index
                     // or rather get the offset of the last executing thing
                     upvalues.push(

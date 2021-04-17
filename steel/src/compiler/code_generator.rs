@@ -26,6 +26,7 @@ struct LocalVariable {
     depth: u32,
     name: String,
     is_captured: bool,
+    is_set: bool,
 }
 
 impl LocalVariable {
@@ -34,6 +35,7 @@ impl LocalVariable {
             depth,
             name,
             is_captured: false,
+            is_set: false,
         }
     }
 }
@@ -75,6 +77,11 @@ impl VariableData {
     // Set a local to be captured for later code generation
     fn mark_captured(&mut self, index: usize) {
         self.locals[index].is_captured = true;
+    }
+
+    // Set a local to have been used by `set`
+    fn mark_set(&mut self, index: usize) {
+        self.locals[index].is_set = true;
     }
 
     // Go backwards and attempt to find the index in which a local variable will live on the stack
@@ -437,7 +444,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 println!("Pushing new local upvalue!");
                 self.push(Instruction::new_local_upvalue(upvalue.index));
             } else {
-                println!("Pushign new upvalue!");
+                println!("Pushing new upvalue");
                 self.push(Instruction::new_upvalue(upvalue.index));
             }
         }
