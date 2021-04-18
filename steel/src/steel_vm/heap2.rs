@@ -16,13 +16,8 @@ impl UpValueHeap {
         index: usize,
         next: Option<Weak<RefCell<UpValue>>>,
     ) -> Weak<RefCell<UpValue>> {
-        println!("**** Registering upvalue on the heap ****");
-
         let upvalue = Rc::new(RefCell::new(UpValue::new(index, next)));
         let weak_ptr = Rc::downgrade(&upvalue);
-
-        dbg!(&upvalue);
-
         self.memory.push(upvalue);
         weak_ptr
     }

@@ -483,7 +483,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     fn close_upvalues(&mut self, last: usize) {
-        println!("Upvalue head exists: {}", self.upvalue_head.is_some());
+        // println!("Upvalue head exists: {}", self.upvalue_head.is_some());
 
         while self.upvalue_head.is_some()
             && self
@@ -500,7 +500,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             let upvalue = self.upvalue_head.as_ref().unwrap().upgrade().unwrap();
             let value = upvalue.borrow().get_value(&self.stack);
 
-            println!("Upvalue status: {}", upvalue.borrow().is_closed());
+            // println!("Upvalue status: {}", upvalue.borrow().is_closed());
 
             // TODO see if this fixes anything
             // if !upvalue.borrow().is_closed() {
@@ -1552,6 +1552,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => {
                 self.tail_call.push(true);
+
+                // Remove the last function call
+                self.function_stack.pop();
+
                 // TODO
                 self.function_stack.push(Gc::clone(&closure));
 
