@@ -251,7 +251,9 @@ impl VirtualMachineCore {
         // heap: &mut Vec<Rc<RefCell<Env>>>,
         // repl: bool,
     ) -> Result<SteelVal> {
-        let stack = StackFrame::new();
+        let mut stack = StackFrame::new();
+        let mut function_stack = Vec::new();
+        let mut stack_index = Stack::new();
         let mut heap = Heap::new();
 
         // give access to the global root via this method
@@ -259,13 +261,14 @@ impl VirtualMachineCore {
 
         let result = vm(
             instructions,
-            stack,
+            &mut stack,
             &mut heap,
             Rc::clone(&self.global_env),
             constant_map,
             &self.callback,
             &mut self.global_upvalue_heap,
-            Vec::new(),
+            &mut function_stack,
+            &mut stack_index,
         );
 
         if self.global_env.borrow().is_binding_context() {
@@ -362,12 +365,12 @@ fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
 
 pub(crate) struct VmCore<'a, CT: ConstantTable> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
-    pub(crate) stack: StackFrame,
+    pub(crate) stack: &'a mut StackFrame,
     pub(crate) heap: &'a mut Heap,
     pub(crate) global_env: Rc<RefCell<Env>>,
     pub(crate) instruction_stack: Stack<InstructionPointer>,
     // stacks: CallStack,
-    pub(crate) stack_index: Stack<usize>,
+    pub(crate) stack_index: &'a mut Stack<usize>,
     pub(crate) callback: &'a EvaluationProgress,
     pub(crate) constants: &'a CT,
     pub(crate) ip: usize,
@@ -377,19 +380,20 @@ pub(crate) struct VmCore<'a, CT: ConstantTable> {
     pub(crate) tail_call: Vec<bool>,
     pub(crate) upvalue_head: Option<Weak<RefCell<UpValue>>>,
     pub(crate) upvalue_heap: &'a mut UpValueHeap,
-    pub(crate) function_stack: Vec<Gc<ByteCodeLambda>>,
+    pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
 }
 
 impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn new(
         instructions: Rc<[DenseInstruction]>,
-        stack: StackFrame,
+        stack: &'a mut StackFrame,
         heap: &'a mut Heap,
         global_env: Rc<RefCell<Env>>,
         constants: &'a CT,
         callback: &'a EvaluationProgress,
         upvalue_heap: &'a mut UpValueHeap,
-        function_stack: Vec<Gc<ByteCodeLambda>>,
+        function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &'a mut Stack<usize>,
     ) -> Result<VmCore<'a, CT>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
@@ -402,7 +406,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             global_env,
             instruction_stack: Stack::new(),
             // stacks: Stack::new(),
-            stack_index: Stack::new(),
+            stack_index,
             callback,
             constants,
             ip: 0,
@@ -547,8 +551,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
-    fn set_state_from_continuation(&mut self, continuation: Continuation) {
-        self.stack = continuation.stack;
+    fn set_state_from_continuation(&mut self, mut continuation: Continuation) {
+        // self.stack = continuation.stack;
+
+        std::mem::replace(self.stack, continuation.stack);
+
         // self.stacks = continuation.stacks;
         self.instructions = continuation.instructions;
         self.instruction_stack = continuation.instruction_stack;
@@ -558,8 +565,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         self.pop_count = continuation.pop_count;
 
         // Set the state
-        self.stack_index = continuation.stack_index;
-        self.function_stack = continuation.function_stack;
+        // self.stack_index = continuation.stack_index;
+        // self.function_stack = continuation.function_stack;
+
+        std::mem::replace(self.stack_index, continuation.stack_index);
+        std::mem::replace(self.function_stack, continuation.function_stack);
+
         self.upvalue_head = continuation.upvalue_head;
     }
 
@@ -840,6 +851,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                         // println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
 
+                        // Roll back if needed
+                        if let Some(rollback_index) = self.stack_index.pop() {
+                            self.stack.truncate(rollback_index);
+                        }
+
                         return ret_val;
                     } else {
                         // println!("POPPING WITH TAIL CALL: {}", tail_call);
@@ -1000,7 +1016,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // println!("INSIDE COLLECT TO");
 
         // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        self.close_upvalues(0);
+        // self.close_upvalues(0);
 
         let output_type = self.stack.pop().unwrap();
         let list = self.stack.pop().unwrap();
@@ -1023,7 +1039,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
 
         // TODO handle this a better way
-        self.close_upvalues(0);
+        // self.close_upvalues(0);
 
         // if let Some()
 
@@ -2072,13 +2088,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 #[inline(always)]
 pub(crate) fn vm<CT: ConstantTable>(
     instructions: Rc<[DenseInstruction]>,
-    stack: StackFrame,
+    stack: &mut StackFrame,
     heap: &mut Heap,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
     callback: &EvaluationProgress,
     upvalue_heap: &mut UpValueHeap,
-    function_stack: Vec<Gc<ByteCodeLambda>>,
+    function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+    stack_index: &mut Stack<usize>,
 ) -> Result<SteelVal> {
     VmCore::new(
         instructions,
@@ -2089,19 +2106,22 @@ pub(crate) fn vm<CT: ConstantTable>(
         callback,
         upvalue_heap,
         function_stack,
+        stack_index,
     )?
     .vm()
 }
 
 pub(crate) fn vm_with_arity<CT: ConstantTable>(
     instructions: Rc<[DenseInstruction]>,
-    stack: StackFrame,
+    stack: &mut StackFrame,
     heap: &mut Heap,
     global_env: Rc<RefCell<Env>>,
     constants: &CT,
     callback: &EvaluationProgress,
     arity: usize,
     upvalue_heap: &mut UpValueHeap,
+    function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+    stack_index: &mut Stack<usize>,
 ) -> Result<SteelVal> {
     VmCore::new(
         instructions,
@@ -2111,7 +2131,8 @@ pub(crate) fn vm_with_arity<CT: ConstantTable>(
         constants,
         callback,
         upvalue_heap,
-        Vec::new(),
+        function_stack,
+        stack_index,
     )?
     .with_arity(arity)
     .vm()

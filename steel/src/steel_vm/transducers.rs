@@ -53,10 +53,17 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         let constants = self.constants;
         let callback = self.callback;
+        let vm_stack = Rc::new(RefCell::new(&mut self.stack));
+        let vm_stack_index = Rc::new(RefCell::new(&mut self.stack_index));
+        let function_stack = Rc::new(RefCell::new(&mut self.function_stack));
 
         for t in ops {
             iter = match t {
                 Transducers::Map(stack_func) => {
+                    let vm_stack_copy = Rc::clone(&vm_stack);
+                    let vm_stack_index_copy = Rc::clone(&vm_stack_index);
+                    let function_stack_copy = Rc::clone(&function_stack);
+
                     let switch_statement = move |arg| match &stack_func {
                         SteelVal::FuncV(func) => {
                             let arg_vec = [arg?];
@@ -85,7 +92,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         }
                         SteelVal::Closure(closure) => {
                             // ignore the stack limit here
-                            let args = vec![arg?];
+                            // let args = vec![arg?];
                             // if let Some()
 
                             let parent_env = closure.sub_expression_env();
@@ -110,18 +117,32 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             let mut local_heap = Heap::new();
                             let mut local_upvalue_heap = UpValueHeap::new();
 
+                            // Set the state prior to the recursive call
+                            vm_stack_index_copy
+                                .borrow_mut()
+                                .push(vm_stack_copy.borrow().len());
+
+                            vm_stack_copy.borrow_mut().push(arg?);
+
+                            function_stack_copy.borrow_mut().push(Gc::clone(closure));
+
+                            // println!("Calling vm inside map");
+
                             // TODO make recursive call here with a very small stack
                             // probably a bit overkill, but not much else I can do here I think
-                            vm(
+                            let output = vm(
                                 closure.body_exp(),
-                                args.into(),
+                                &mut vm_stack_copy.borrow_mut(),
                                 &mut local_heap,
                                 inner_env,
                                 constants,
                                 callback,
                                 &mut local_upvalue_heap,
-                                vec![Gc::clone(closure)],
-                            )
+                                &mut function_stack_copy.borrow_mut(),
+                                &mut vm_stack_index_copy.borrow_mut(),
+                            );
+
+                            output
                         }
                         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
                     };
@@ -137,6 +158,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 //     &mut self.stack,
                 // )),
                 Transducers::Filter(stack_func) => {
+                    let vm_stack_copy = Rc::clone(&vm_stack);
+                    let vm_stack_index_copy = Rc::clone(&vm_stack_index);
+                    let function_stack_copy = Rc::clone(&function_stack);
+
                     let switch_statement = move |arg: Result<SteelVal>| match arg {
                         Ok(arg) => {
                             match stack_func {
@@ -191,7 +216,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 }
                                 SteelVal::Closure(closure) => {
                                     // ignore the stack limit here
-                                    let args = vec![arg.clone()];
+                                    // let args = vec![arg.clone()];
                                     // if let Some()
 
                                     let parent_env = closure.sub_expression_env();
@@ -215,17 +240,27 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                     let mut local_heap = Heap::new();
                                     let mut local_upvalue_heap = UpValueHeap::new();
 
+                                    // Set the state prior to the recursive call
+                                    vm_stack_index_copy
+                                        .borrow_mut()
+                                        .push(vm_stack_copy.borrow().len());
+
+                                    vm_stack_copy.borrow_mut().push(arg.clone());
+
+                                    function_stack_copy.borrow_mut().push(Gc::clone(closure));
+
                                     // TODO make recursive call here with a very small stack
                                     // probably a bit overkill, but not much else I can do here I think
                                     let res = vm(
                                         closure.body_exp(),
-                                        args.into(),
+                                        &mut vm_stack_copy.borrow_mut(),
                                         &mut local_heap,
                                         inner_env,
                                         constants,
                                         callback,
                                         &mut local_upvalue_heap,
-                                        vec![Gc::clone(closure)],
+                                        &mut function_stack_copy.borrow_mut(),
+                                        &mut vm_stack_index_copy.borrow_mut(),
                                     );
 
                                     match res {
@@ -239,7 +274,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 }
                                 _ => Some(Err(SteelErr::new(
                                     ErrorKind::TypeMismatch,
-                                    "map expected a function".to_string(),
+                                    "filter expected a function".to_string(),
                                 )
                                 .with_span(*cur_inst_span))),
                             }

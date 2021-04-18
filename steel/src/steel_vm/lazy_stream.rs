@@ -11,6 +11,8 @@ use crate::stop;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use super::stack::Stack;
+
 use crate::values::lazy_stream::LazyStream;
 
 // Used for inlining stream iterators
@@ -123,13 +125,14 @@ fn exec_func<CT: ConstantTable>(
             // probably a bit overkill, but not much else I can do here I think
             vm(
                 closure.body_exp(),
-                args.into(),
+                &mut args.into(),
                 local_heap,
                 inner_env,
                 constants,
                 callback,
                 upvalue_heap,
-                vec![Gc::clone(&closure)],
+                &mut vec![Gc::clone(&closure)],
+                &mut Stack::new(),
             )
         }
         _ => stop!(TypeMismatch => "stream expected a function"; *cur_inst_span),

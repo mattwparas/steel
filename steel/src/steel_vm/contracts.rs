@@ -18,6 +18,8 @@ use std::{cell::RefCell, rc::Rc};
 
 use log::debug;
 
+use super::stack::Stack;
+
 /// Extension trait for the application of contracted functions
 pub(crate) trait ContractedFunctionExt {
     fn apply<CT: ConstantTable>(
@@ -124,13 +126,14 @@ impl FlatContractExt for FlatContract {
                 // probably a bit overkill, but not much else I can do here I think
                 vm(
                     closure.body_exp(),
-                    arg_vec.into(),
+                    &mut arg_vec.into(),
                     local_heap,
                     inner_env,
                     constants,
                     callback,
                     upvalue_heap,
-                    vec![Gc::clone(closure)],
+                    &mut vec![Gc::clone(closure)],
+                    &mut Stack::new(),
                 )
             }
             _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),
@@ -262,13 +265,15 @@ impl FunctionContractExt for FunctionContract {
 
             vm_with_arity(
                 function.body_exp(),
-                verified_args.into(),
+                &mut verified_args.into(),
                 local_heap,
                 inner_env,
                 constants,
                 callback,
                 self.arity(),
                 upvalue_heap,
+                &mut Vec::new(),
+                &mut Stack::new(),
             )
         }?;
 

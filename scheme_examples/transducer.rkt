@@ -67,8 +67,10 @@
 (define xf (compose (mapping (fn (x) (+ x 1)))
                     (filtering (fn (x) (even? x)))))
 
-(transducing z (range 0 1000))
-(execute xf (range 0 1000))
+(define r (range 0 1000))
+
+(transducing z r)
+(execute xf r)
 
 ;; Run through the stack and spit out the result
 ; (define (execute stack input result)

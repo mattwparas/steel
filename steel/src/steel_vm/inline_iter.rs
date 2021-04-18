@@ -13,6 +13,8 @@ use crate::stop;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use super::stack::Stack;
+
 /// Function to inline the reducer function
 /// Used for the accumulating a result by wrapping the fold iterator
 pub(crate) fn inline_reduce_iter<
@@ -85,13 +87,14 @@ pub(crate) fn inline_reduce_iter<
             // probably a bit overkill, but not much else I can do here I think
             vm(
                 closure.body_exp(),
-                args.into(),
+                &mut args.into(),
                 &mut local_heap,
                 inner_env,
                 constants,
                 callback,
                 &mut local_upvalue_heap,
-                vec![Gc::clone(closure)],
+                &mut vec![Gc::clone(closure)],
+                &mut Stack::new(),
             )
         }
 
@@ -176,13 +179,14 @@ pub(crate) fn inline_map_result_iter<
             // probably a bit overkill, but not much else I can do here I think
             vm(
                 closure.body_exp(),
-                args.into(),
+                &mut args.into(),
                 &mut local_heap,
                 inner_env,
                 constants,
                 callback,
                 &mut local_upvalue_heap,
-                vec![Gc::clone(closure)],
+                &mut vec![Gc::clone(closure)],
+                &mut Stack::new(),
             )
         }
         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
@@ -290,13 +294,14 @@ pub(crate) fn inline_filter_result_iter<
                     // probably a bit overkill, but not much else I can do here I think
                     let res = vm(
                         closure.body_exp(),
-                        args.into(),
+                        &mut args.into(),
                         &mut local_heap,
                         inner_env,
                         constants,
                         callback,
                         &mut local_upvalue_heap,
-                        vec![Gc::clone(closure)],
+                        &mut vec![Gc::clone(closure)],
+                        &mut Stack::new(),
                     );
 
                     match res {
