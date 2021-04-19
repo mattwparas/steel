@@ -764,12 +764,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     }
 
                     if self.ip == 0 {
-                        // println!("@@@@@@@@@@@@@@@@ TCO kicking in @@@@@@@@@@@@@@@@@2");
+                        println!("@@@@@@@@@@@@@@@@ TCO kicking in @@@@@@@@@@@@@@@@@2");
                         // println!("{}", self.stack.len());
 
                         // let current_arity = self.instructions[self.ip + 1].payload_size as usize;
 
-                        // println!("stack before: {:?}", self.stack);
+                        println!("stack before: {:?}", self.stack);
 
                         // jump back to the beginning at this point
                         let offset = self.stack_index.last().copied().unwrap_or(0);
@@ -796,7 +796,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         // self.stack
                         //     .drain(offset..self.stack.len() - self.current_arity.unwrap());
 
-                        // println!("stack after: {:?}", self.stack);
+                        println!("stack after: {:?}", self.stack);
 
                         // TODO make sure this includes some way to overwrite the existing stack
                         // that way the
@@ -1569,8 +1569,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             Closure(closure) => {
                 self.tail_call.push(true);
 
+                // Snag the current functions arity & remove the last function call
+                let current_arity = self.function_stack.pop().unwrap().arity();
+
                 // Remove the last function call
-                self.function_stack.pop();
+                // self.function_stack.pop();
 
                 // TODO
                 self.function_stack.push(Gc::clone(&closure));
@@ -1602,39 +1605,59 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 println!("############# TAIL CALL ##################");
 
-                println!("TAIL CALL STACK: {:?}", self.tail_call);
+                // println!("TAIL CALL STACK: {:?}", self.tail_call);
 
                 // self.stack.drain(
                 //     self.stack_index.last().copied().unwrap_or(0)..self.stack.len() - payload_size,
                 // );
 
-                println!("stack index: {:?}", self.stack_index);
+                // println!("stack index: {:?}", self.stack_index);
 
-                println!(
-                    "WOULD BE PUSHING LENGTH ON NOW: {}",
-                    self.stack.len() - payload_size,
-                );
+                // println!(
+                //     "WOULD BE PUSHING LENGTH ON NOW: {}",
+                //     self.stack.len() - payload_size,
+                // );
 
-                self.stack_index.push(self.stack.len() - payload_size);
+                // self.stack_index.push(self.stack.len() - payload_size);
 
                 // if let Some(p) = self.stack_index.last_mut() {
                 //     *p = self.stack.len() - payload_size;
                 // }
 
                 println!("stack before: {:?}", self.stack);
+                println!("stack index before: {:?}", self.stack_index);
 
                 // jump back to the beginning at this point
-                let offset = self.stack_index.last().copied().unwrap_or(0);
+                let offset = self.stack_index.last().unwrap_or(&0);
 
-                let current_arity = payload_size;
+                // Find the new arity from the payload
+                let new_arity = payload_size;
 
                 // We should have arity at this point, drop the stack up to this point
 
                 // take the last arity off the stack, go back and replace those in order
 
                 println!("Current arity: {:?}", current_arity);
+                println!("New arity: {:?}", new_arity);
                 println!("Offset: {}", offset);
                 println!("length: {}", self.stack.len());
+
+                let back = self.stack.len() - new_arity;
+                for i in 0..new_arity {
+                    self.stack.set_idx(offset + i, self.stack[back + i].clone());
+                }
+
+                // TODO
+
+                println!("TRUNCATING THE STACK");
+                dbg!(&self.stack);
+                self.stack.truncate(offset + new_arity);
+
+                // Clear the last offset
+                // self.stack_index.pop();
+
+                // Set the stack index back to the new executing function
+                // self.stack_index.push(self.stack.len() - new_arity);
 
                 // self.stack_index.push(self.stack.len() - 1);
 

@@ -391,7 +391,7 @@ impl Heap {
             debug!("Heap limit set to: {}", self.limit);
 
             if self.purge_count == self.purge_max {
-                println!("big purge");
+                // println!("big purge");
 
                 if let Some(root) = &self.root {
                     let root = root.upgrade().unwrap();

@@ -479,11 +479,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // TODO check this here - reimplement mutual recursion
             // let b = check_and_transform_mutual_recursion(&mut body_instructions);
 
-            // let b = false;
+            let b = false;
 
-            // if b {
-            //     info!("Transformed mutual recursion for: {}", ctx);
-            // }
+            if b {
+                info!("Transformed mutual recursion for: {}", ctx);
+            }
         }
 
         self.instructions.append(&mut body_instructions);
