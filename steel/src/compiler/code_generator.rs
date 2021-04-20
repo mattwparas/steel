@@ -477,9 +477,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             transform_tail_call(&mut body_instructions, ctx);
 
             // TODO check this here - reimplement mutual recursion
-            // let b = check_and_transform_mutual_recursion(&mut body_instructions);
+            let b = check_and_transform_mutual_recursion(&mut body_instructions);
 
-            let b = false;
+            // let b = false;
 
             if b {
                 info!("Transformed mutual recursion for: {}", ctx);

@@ -2,6 +2,7 @@
 ; Tail-recursive solution :
 (define (sieve n)
   (define (aux u v)
+    (displayln v)
     (let ((p (car v)))
       (if (> (* p p) n)
         (rev-append u v)

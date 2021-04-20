@@ -1233,7 +1233,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // calculate offset
         // let end = self.stack.len();
 
-        // println!("######## HANDLE UPVALUE #######");
+        println!("######## HANDLE UPVALUE #######");
 
         // // println!("Stack end: {}, stack index: {}", end, index);
 
