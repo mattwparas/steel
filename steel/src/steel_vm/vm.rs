@@ -764,12 +764,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     }
 
                     if self.ip == 0 {
-                        println!("@@@@@@@@@@@@@@@@ TCO kicking in @@@@@@@@@@@@@@@@@2");
+                        // println!("@@@@@@@@@@@@@@@@ TCO kicking in @@@@@@@@@@@@@@@@@2");
                         // println!("{}", self.stack.len());
 
                         // let current_arity = self.instructions[self.ip + 1].payload_size as usize;
 
-                        println!("stack before: {:?}", self.stack);
+                        // println!("stack before: {:?}", self.stack);
 
                         // jump back to the beginning at this point
                         let offset = self.stack_index.last().copied().unwrap_or(0);
@@ -796,7 +796,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         // self.stack
                         //     .drain(offset..self.stack.len() - self.current_arity.unwrap());
 
-                        println!("stack after: {:?}", self.stack);
+                        // println!("stack after: {:?}", self.stack);
 
                         // TODO make sure this includes some way to overwrite the existing stack
                         // that way the
@@ -1234,6 +1234,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // let end = self.stack.len();
 
         println!("######## HANDLE UPVALUE #######");
+        println!("Attempting to read index: {}", index);
 
         // // println!("Stack end: {}, stack index: {}", end, index);
 
@@ -1603,7 +1604,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // I think so, just because then the previous stack is explicitly dropped
                 // let mut args = self.stack.split_off(self.stack.len() - payload_size);
 
-                println!("############# TAIL CALL ##################");
+                // println!("############# TAIL CALL ##################");
 
                 // println!("TAIL CALL STACK: {:?}", self.tail_call);
 
@@ -1624,11 +1625,19 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 //     *p = self.stack.len() - payload_size;
                 // }
 
-                println!("stack before: {:?}", self.stack);
-                println!("stack index before: {:?}", self.stack_index);
+                // println!("stack before: {:?}", self.stack);
+                // println!("stack index before: {:?}", self.stack_index);
 
                 // jump back to the beginning at this point
-                let offset = self.stack_index.last().unwrap_or(&0);
+                let offset = *(self.stack_index.last().unwrap_or(&0));
+
+                // TODO here is the issue
+                // Actually only do tail call IFF the calling functions creates a cycle of some kind
+                // If there are no cycles to be had, the tail/call is actually slower
+
+                if !closure.upvalues().is_empty() {
+                    self.close_upvalues(offset);
+                }
 
                 // Find the new arity from the payload
                 let new_arity = payload_size;
@@ -1637,11 +1646,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 // take the last arity off the stack, go back and replace those in order
 
-                println!("Current arity: {:?}", current_arity);
-                println!("New arity: {:?}", new_arity);
-                println!("Offset: {}", offset);
-                println!("length: {}", self.stack.len());
-
                 let back = self.stack.len() - new_arity;
                 for i in 0..new_arity {
                     self.stack.set_idx(offset + i, self.stack[back + i].clone());
@@ -1649,8 +1653,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 // TODO
 
-                println!("TRUNCATING THE STACK");
-                dbg!(&self.stack);
                 self.stack.truncate(offset + new_arity);
 
                 // Clear the last offset
@@ -1671,7 +1673,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // self.stack
                 //     .drain(offset..self.stack.len() - self.current_arity.unwrap());
 
-                println!("stack after: {:?}", self.stack);
+                // println!("stack after: {:?}", self.stack);
 
                 // self.stack.truncate(*self.stack_index.last().unwrap_or(0));
 
