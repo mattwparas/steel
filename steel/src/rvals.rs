@@ -648,8 +648,6 @@ impl PartialOrd for SteelVal {
     }
 }
 
-// pub static UPVALUE_ID: AtomicUsize = AtomicUsize::new(0);
-
 // Upvalues themselves need to be stored on the heap
 // Consider a separate section for them on the heap, or wrap them in a wrapper
 // before allocating on the heap
@@ -659,10 +657,6 @@ pub struct UpValue {
     pub(crate) location: Location,
     // The next upvalue in the sequence
     pub(crate) next: Option<Weak<RefCell<UpValue>>>,
-    // id of the upvalue
-    // pub(crate) id: usize,
-    // The stack position prior to the value being closed
-    // pub(crate) stack_pos: Option<usize>,
 }
 
 impl PartialEq for UpValue {
@@ -730,10 +724,6 @@ impl UpValue {
 
     pub(crate) fn set_next(&mut self, next: Weak<RefCell<UpValue>>) {
         self.next = Some(next);
-    }
-
-    pub(crate) fn is_closed(&self) -> bool {
-        matches!(self.location, Location::Closed(_))
     }
 }
 
