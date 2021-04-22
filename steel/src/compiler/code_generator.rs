@@ -289,6 +289,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // Set this for tail call optimization ease
             self.defining_context = defining_context;
 
+            // TODO bind defines to be local variables? Local to the scope of the function?
+            // Perhaps turn a define into a local?
+
             self.visit(&define.body)?;
 
             // self.push(Instruction::new_pop());

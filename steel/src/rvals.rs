@@ -23,7 +23,6 @@ use std::{
     pin::Pin,
     rc::{Rc, Weak},
     result,
-    sync::atomic::AtomicUsize,
     task::Context,
 };
 
