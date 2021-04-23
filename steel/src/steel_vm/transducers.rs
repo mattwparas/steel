@@ -23,6 +23,11 @@ use crate::gc::Gc;
 use super::inline_iter::*;
 use super::lazy_stream::LazyStreamIter;
 
+// TODO see if this can be done - lifetimes just don't love passing it into a function for some reason
+// macro_rules! inline_map {
+//     ($vm_stack)
+// }
+
 impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     pub(crate) fn run(
         &mut self,
