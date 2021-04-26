@@ -1235,3 +1235,40 @@ mod upvalues_test {
         assert_script(script)
     }
 }
+
+#[cfg(test)]
+mod letrec_test {
+    use crate::steel_vm::test_util::assert_script;
+
+    #[test]
+    fn letrec_simple_recursion() {
+        let script = r#"
+        (define (test)
+            (let ((loop void))
+                (let ((loop-prime (lambda (x) 
+                                    (if (= x 10000)
+                                        x
+                                        (loop (+ x 1))))))
+                    (set! loop loop-prime))
+            (loop 0)))
+
+        (assert! (= (test) 10000))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn letrec_mutual_recursion() {
+        let script = r#"
+        (define (test)
+            (let ((x 10) (foo void) (bar void))
+                    (let ((foo-prime (lambda (x) (if (= x 10000) x (bar (+ x 1)))))
+                        (bar-prime (lambda (x) (if (= x 10000) x (foo (+ x 1))))))
+                        (set! foo foo-prime)
+                        (set! bar bar-prime))
+                    (foo 0)))
+        (assert! (= (test) 10000))
+        "#;
+        assert_script(script);
+    }
+}

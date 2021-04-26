@@ -406,19 +406,19 @@ mod contract_tests {
         assert_script_error(script);
     }
 
-    // #[test]
-    // fn tail_call_contract_still_works() {
-    //     let script = r#"
-    //       (define/contract (loop x)
-    //         (->/c int? int?)
-    //           (if (= x 100)
-    //               x
-    //               (loop (+ x 1))))
+    #[test]
+    fn tail_call_contract_still_works() {
+        let script = r#"
+          (define/contract (loop x)
+            (->/c int? int?)
+              (if (= x 100)
+                  x
+                  (loop (+ x 1))))
 
-    //       (assert! (equal? (loop 0) 100))
-    //     "#;
-    //     assert_script(script);
-    // }
+          (assert! (equal? (loop 0) 100))
+        "#;
+        assert_script(script);
+    }
 
     #[test]
     fn contract_checking_on_application_success() {

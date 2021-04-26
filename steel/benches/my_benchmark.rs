@@ -129,6 +129,31 @@ fn ten_thousand_iterations(c: &mut Criterion) {
     });
 }
 
+fn ten_thousand_iterations_letrec(c: &mut Criterion) {
+    let script = "(test)";
+    let mut vm = Engine::new();
+    let warmup = r#"(define (test)
+                            (let ((loop void))
+                                (let ((loop-prime (lambda (x) 
+                                                    (if (= x 10000)
+                                                        x
+                                                        (loop (+ x 1))))))
+                                    (set! loop loop-prime))
+                            (loop 0)))"#;
+
+    vm.parse_and_execute_without_optimizations(black_box(&warmup))
+        .unwrap();
+    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
+
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = program.constant_map;
+    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
+
+    c.bench_function("ten-thousand-iterations-letrec", |b| {
+        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
+    });
+}
+
 fn trie_sort_without_optimizations(c: &mut Criterion) {
     let mut vm = Engine::new();
     // interpreter.require(PRELUDE).unwrap();
@@ -430,6 +455,7 @@ criterion_group!(
     transducer_map,
     filter,
     ten_thousand_iterations,
+    ten_thousand_iterations_letrec,
     trie_sort_without_optimizations,
     trie_sort_with_optimizations,
     fib_28,

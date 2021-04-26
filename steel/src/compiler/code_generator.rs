@@ -170,6 +170,7 @@ pub struct CodeGenerator<'a> {
     symbol_map: &'a mut SymbolMap,
     depth: u32,
     variable_data: Option<Rc<RefCell<VariableData>>>, // enclosing: Option<&'a mut CodeGenerator<'a>>,
+    let_context: bool,
 }
 
 impl<'a> CodeGenerator<'a> {
@@ -181,6 +182,7 @@ impl<'a> CodeGenerator<'a> {
             symbol_map,
             depth: 0,
             variable_data: None,
+            let_context: false,
             // enclosing: None,
         }
     }
@@ -199,6 +201,7 @@ impl<'a> CodeGenerator<'a> {
             symbol_map,
             depth,
             variable_data,
+            let_context: false,
             // enclosing,
         }
     }
@@ -486,6 +489,20 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             if b {
                 info!("Transformed mutual recursion for: {}", ctx);
+                println!("Transformed mutual recursion for: {}", ctx);
+            }
+        }
+        // TODO come back here
+        else if self.let_context {
+            let b = check_and_transform_mutual_recursion(&mut body_instructions);
+
+            crate::core::instructions::pretty_print_instructions(&body_instructions);
+
+            // let b = false;
+
+            if b {
+                info!("Transformed mutual recursion inside local context");
+                println!("Transformed mutual recursion inside local context");
             }
         }
 
@@ -728,13 +745,96 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         let pop_len = l.args[1..].len();
 
-        // emit instructions for the args
-        for expr in &l.args[1..] {
-            self.visit(expr)?;
+        let mut let_context = false;
+
+        // Check if this is a 'let' context
+        if let crate::parser::ast::ExprKind::LambdaFunction(_) = &l.args[0] {
+            // println!("Setting let context");
+            // println!("{}", l);
+            let_context = true;
         }
+
+        let mut tail_call_offsets: Vec<(&str, std::ops::Range<usize>)> = Vec::new();
+
+        // emit instructions for the args
+        for (idx, expr) in l.args[1..].iter().enumerate() {
+            // Snag the length before the compilation
+            let pre = self.len();
+
+            if let_context {
+                if let crate::parser::ast::ExprKind::LambdaFunction(_) = expr {
+                    self.let_context = true;
+                } else {
+                    self.let_context = false;
+                }
+            }
+
+            self.visit(expr)?;
+
+            // Snag the length after
+            let post = self.len();
+
+            if self.let_context {
+                if let crate::parser::ast::ExprKind::LambdaFunction(l) = &l.args[0] {
+                    if let ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(s),
+                                ..
+                            },
+                    }) = &l.args[idx]
+                    {
+                        tail_call_offsets.push((s.as_str(), pre..post));
+                    }
+                }
+            }
+        }
+
+        self.let_context = false;
+
+        // Capture the beginning
+        let body_begin = self.len();
 
         // emit instructions for the func
         self.visit(&l.args[0])?;
+
+        // Capture the end for checking
+        let body_end = self.len();
+
+        // At this point we should check for the tail call on the offsets provided
+        // TODO
+        for (name, span) in tail_call_offsets {
+            if let Some((set, read, idx)) =
+                identify_let_rec(&self.instructions[body_begin..body_end], name)
+            {
+                println!("Found set: {}, read: {} @ idx: {}", set, read, idx);
+
+                if !upvalue_func_used_before_set(
+                    &self.instructions[body_begin..body_end],
+                    &read,
+                    idx,
+                ) {
+                    if identify_letrec_tailcall(&self.instructions[span.clone()], &set) {
+                        println!("Successfully identified letrec tailcall for: {}", set);
+                        crate::core::instructions::pretty_print_instructions(
+                            &self.instructions[span.clone()],
+                        );
+
+                        // modify = true;
+
+                        let b = transform_letrec_tail_call(&mut self.instructions[span], &set);
+                        if b {
+                            println!("Successfully performed self TCO for: {}", set);
+                            crate::core::instructions::pretty_print_instructions(
+                                &self.instructions,
+                            );
+                        }
+                    } else {
+                        println!("failed to identify letrec tailcall for {}", set);
+                    }
+                }
+            }
+        }
 
         if let ExprKind::Atom(Atom { syn: s }) = &l.args[0] {
             self.push(Instruction::new_func(pop_len, s.clone()));
@@ -816,7 +916,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 }
 
-fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &str) -> bool {
+fn transform_tail_call(instructions: &mut [Instruction], defining_context: &str) -> bool {
     let last_idx = instructions.len() - 1;
 
     let mut indices = vec![last_idx];
@@ -862,7 +962,7 @@ fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &s
                     transformed = true;
 
                     info!("Tail call optimization performed for: {}", defining_context);
-                    // println!("Tail call optimization performed for: {}", defining_context);
+                    println!("Tail call optimization performed for: {}", defining_context);
                 }
             }
             _ => {}
@@ -870,6 +970,180 @@ fn transform_tail_call(instructions: &mut Vec<Instruction>, defining_context: &s
     }
 
     transformed
+}
+
+// TODO modify this for finding pop instructions
+fn transform_letrec_tail_call(instructions: &mut [Instruction], defining_context: &str) -> bool {
+    // let last_idx = instructions.len() - 1;
+
+    let mut last_idx = instructions.len() - 1;
+    while last_idx > 0 {
+        if let Some(Instruction {
+            op_code: OpCode::POP,
+            ..
+        }) = instructions.get(last_idx)
+        {
+            break;
+        }
+        last_idx -= 1;
+    }
+
+    let mut indices = vec![last_idx];
+
+    let mut transformed = false;
+
+    for (idx, instruction) in instructions.iter().enumerate() {
+        if instruction.op_code == OpCode::JMP && instruction.payload_size == last_idx {
+            indices.push(idx);
+        }
+    }
+
+    for index in &indices {
+        if *index < 2 {
+            continue;
+        }
+        let prev_instruction = instructions.get(index - 1);
+        let prev_func_push = instructions.get(index - 2);
+
+        match (prev_instruction, prev_func_push) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::TAILCALL,
+                    payload_size: arity,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::READUPVALUE,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            ..
+                        }),
+                    ..
+                }),
+            ) => {
+                let arity = *arity;
+                if s == defining_context {
+                    let new_jmp = Instruction::new_jmp(0);
+                    // inject tail call jump
+                    instructions[index - 2] = new_jmp;
+                    instructions[index - 1] = Instruction::new_pass(arity);
+                    transformed = true;
+
+                    info!("Tail call optimization performed for: {}", defining_context);
+                    println!("Tail call optimization performed for: {}", defining_context);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    transformed
+}
+
+// Find if this function has a valid TCO able situation
+fn identify_letrec_tailcall(instructions: &[Instruction], ident: &str) -> bool {
+    for i in 0..instructions.len() - 1 {
+        let read = instructions.get(i);
+        let set = instructions.get(i + 1);
+
+        match (read, set) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::READUPVALUE,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(local_value),
+                            ..
+                        }),
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::TAILCALL,
+                    ..
+                }),
+            ) => {
+                println!("FOUND LOCAL VALUE: {}", local_value);
+                if local_value == ident {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
+// If the upvalue func has been used before the set, we can't TCO it
+fn upvalue_func_used_before_set(instructions: &[Instruction], upvalue: &str, idx: usize) -> bool {
+    // Iterate up to the set index
+    // If the upvalue is used prior to that, don't use it
+    for i in 0..idx {
+        if let Some(Instruction {
+            contents:
+                Some(SyntaxObject {
+                    ty: TokenType::Identifier(s),
+                    ..
+                }),
+            ..
+        }) = instructions.get(i)
+        {
+            if upvalue == s {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+// attempt to find if this is a TCO valid let rec situation
+fn identify_let_rec(
+    instructions: &[Instruction],
+    context: &str,
+) -> Option<(String, String, usize)> {
+    println!("Identifying let rec...");
+    crate::core::instructions::pretty_print_instructions(instructions);
+    for i in 0..instructions.len() - 1 {
+        let read = instructions.get(i);
+        let set = instructions.get(i + 1);
+
+        match (read, set) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::READLOCAL,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(local_value),
+                            ..
+                        }),
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::SETUPVALUE,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(ident_being_set),
+                            ..
+                        }),
+                    ..
+                }),
+            ) => {
+                println!(
+                    "FOUND LOCAL_VALUE: {} AND IDENT: {}",
+                    local_value, ident_being_set
+                );
+
+                if context == local_value {
+                    return Some((ident_being_set.clone(), local_value.clone(), i));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 // Note, this should be called AFTER `transform_tail_call`
@@ -904,15 +1178,32 @@ fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> boo
                     op_code: OpCode::PUSH,
                     contents:
                         Some(SyntaxObject {
-                            ty: TokenType::Identifier(_s),
+                            ty: TokenType::Identifier(s),
+                            ..
+                        }),
+                    ..
+                }),
+            )
+            | (
+                Some(Instruction {
+                    op_code: OpCode::FUNC,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::READUPVALUE,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
                             ..
                         }),
                     ..
                 }),
             ) => {
+                let s = s.clone();
                 if let Some(x) = instructions.get_mut(index - 1) {
                     x.op_code = OpCode::TAILCALL;
                     transformed = true;
+                    println!("Found tail call with: {}", &s);
                 }
             }
             _ => {}

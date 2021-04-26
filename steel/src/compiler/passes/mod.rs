@@ -1,3 +1,4 @@
+pub mod begin;
 pub mod manager;
 
 use crate::parser::ast::ExprKind;
@@ -8,7 +9,9 @@ pub trait Folder {
     }
 
     // Whether or not the pass modified the input AST
-    fn modified(&self) -> bool;
+    fn modified(&self) -> bool {
+        false
+    }
 
     fn visit(&mut self, expr: ExprKind) -> ExprKind {
         match expr {
@@ -133,7 +136,6 @@ pub trait Folder {
     #[inline]
     fn visit_list(&mut self, mut l: List) -> ExprKind {
         l.args = l.args.into_iter().map(|e| self.visit(e)).collect();
-
         ExprKind::List(l)
     }
 
@@ -158,5 +160,135 @@ pub trait Folder {
     fn visit_callcc(&mut self, mut cc: Box<CallCC>) -> ExprKind {
         cc.expr = self.visit(cc.expr);
         ExprKind::CallCC(cc)
+    }
+}
+
+pub trait VisitorMutUnit {
+    fn visit(&mut self, expr: &ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Apply(a) => self.visit_apply(a),
+            ExprKind::Panic(p) => self.visit_panic(p),
+            ExprKind::Transduce(t) => self.visit_transduce(t),
+            ExprKind::Read(r) => self.visit_read(r),
+            ExprKind::Execute(e) => self.visit_execute(e),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Struct(s) => self.visit_struct(s),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Eval(e) => self.visit_eval(e),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::CallCC(cc) => self.visit_callcc(cc),
+        }
+    }
+
+    #[inline]
+    fn visit_if(&mut self, f: &If) {
+        self.visit(&f.test_expr);
+        self.visit(&f.then_expr);
+        self.visit(&f.else_expr);
+    }
+
+    #[inline]
+    fn visit_define(&mut self, define: &Define) {
+        self.visit(&define.body);
+    }
+
+    #[inline]
+    fn visit_lambda_function(&mut self, lambda_function: &LambdaFunction) {
+        self.visit(&lambda_function.body);
+    }
+
+    #[inline]
+    fn visit_begin(&mut self, begin: &Begin) {
+        for expr in &begin.exprs {
+            self.visit(expr);
+        }
+    }
+
+    #[inline]
+    fn visit_return(&mut self, r: &Return) {
+        self.visit(&r.expr);
+    }
+
+    #[inline]
+    fn visit_apply(&mut self, apply: &Apply) {
+        self.visit(&apply.func);
+        self.visit(&apply.list);
+    }
+
+    #[inline]
+    fn visit_panic(&mut self, p: &Panic) {
+        self.visit(&p.message);
+    }
+
+    #[inline]
+    fn visit_transduce(&mut self, transduce: &Transduce) {
+        self.visit(&transduce.transducer);
+        self.visit(&transduce.func);
+        self.visit(&transduce.initial_value);
+        self.visit(&transduce.iterable);
+    }
+
+    #[inline]
+    fn visit_read(&mut self, read: &Read) {
+        self.visit(&read.expr);
+    }
+
+    #[inline]
+    fn visit_execute(&mut self, execute: &Execute) {
+        self.visit(&execute.transducer);
+        self.visit(&execute.collection);
+        execute.output_type.as_ref().map(|x| self.visit(x));
+    }
+
+    #[inline]
+    fn visit_quote(&mut self, quote: &Quote) {
+        self.visit(&quote.expr);
+    }
+
+    #[inline]
+    fn visit_struct(&mut self, _s: &Struct) {}
+
+    #[inline]
+    fn visit_macro(&mut self, _m: &Macro) {}
+
+    #[inline]
+    fn visit_eval(&mut self, e: &Eval) {
+        self.visit(&e.expr);
+    }
+
+    #[inline]
+    fn visit_atom(&mut self, a: &Atom) {}
+
+    #[inline]
+    fn visit_list(&mut self, l: &List) {
+        for expr in &l.args {
+            self.visit(expr);
+        }
+    }
+
+    #[inline]
+    fn visit_syntax_rules(&mut self, l: &SyntaxRules) {}
+
+    #[inline]
+    fn visit_set(&mut self, s: &Set) {
+        self.visit(&s.variable);
+        self.visit(&s.expr);
+    }
+
+    #[inline]
+    fn visit_require(&mut self, s: &Require) {}
+
+    #[inline]
+    fn visit_callcc(&mut self, cc: &CallCC) {
+        self.visit(&cc.expr);
     }
 }
