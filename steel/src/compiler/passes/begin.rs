@@ -1,5 +1,8 @@
-use crate::parser::ast::{Atom, Begin, Define, ExprKind, LambdaFunction};
 use crate::parser::tokens::TokenType;
+use crate::parser::{
+    ast::{Atom, Begin, Define, ExprKind, LambdaFunction, List, Set},
+    parser::SyntaxObject,
+};
 use std::collections::HashSet;
 
 use super::{Folder, VisitorMutUnit};
@@ -92,22 +95,22 @@ enum IdentifierReferenceType {
 }
 
 // Snag the names from the defines for the current (flattened) begin statement
-fn collect_defines_from_current_scope<'a>(begin_exprs: &'a [ExprKind]) -> Vec<&'a str> {
-    let mut names = Vec::new();
-    for expr in begin_exprs {
-        match expr {
-            ExprKind::Define(d) => {
+fn collect_defines_from_current_scope<'a>(begin_exprs: &'a [ExprKind]) -> Vec<(usize, &'a str)> {
+    begin_exprs
+        .iter()
+        .enumerate()
+        .filter_map(|x| {
+            if let ExprKind::Define(d) = x.1 {
                 let name = d
                     .name
                     .atom_identifier_or_else(|| {})
                     .expect("Define without a legal name");
-
-                names.push(name);
+                Some((x.0, name))
+            } else {
+                None
             }
-            _ => {}
-        }
-    }
-    names
+        })
+        .collect()
 }
 
 // enum ExprTypeState {
@@ -146,6 +149,173 @@ fn merge_defines(exprs: Vec<ExprKind>) -> Begin {
     }
 
     unimplemented!()
+}
+
+enum ExpressionType<'a> {
+    DefineFlat(&'a str),
+    DefineFunction(&'a str),
+    Expression,
+}
+
+fn convert_exprs_to_let(mut exprs: Vec<ExprKind>) -> List {
+    // let defines = collect_defines_from_current_scope(&exprs);
+    let mut expression_types = Vec::new();
+
+    for expr in &exprs {
+        match expr {
+            ExprKind::Define(d) => {
+                let name = d
+                    .name
+                    .atom_identifier_or_else(|| {})
+                    .expect("Define without a legal name");
+
+                match &d.body {
+                    ExprKind::LambdaFunction(_) => {
+                        // let mut merge_defines = MergeDefines::new();
+                        // merge_defines.visit(&l.body);
+                        expression_types.push(ExpressionType::DefineFunction(name));
+                    }
+                    _ => {
+                        expression_types.push(ExpressionType::DefineFlat(name));
+                    }
+                }
+            }
+            _ => expression_types.push(ExpressionType::Expression),
+        }
+    }
+
+    // let mut last_expression = expression_types.len();
+
+    if let Some(idx) = expression_types.iter().rev().position(|x| {
+        if let ExpressionType::Expression = x {
+            false
+        } else {
+            true
+        }
+    }) {
+        let idx = expression_types.len() - 1 - idx;
+
+        // TODO
+        let mut exprs = exprs.clone();
+
+        let mut body = exprs.split_off(idx + 1);
+
+        // These are going to be the
+        let mut args = exprs
+            .into_iter()
+            .map(|x| {
+                if let ExprKind::Define(d) = x {
+                    d.body
+                } else {
+                    panic!("Define body without a define")
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // This corresponds to the (let ((apple ..) (banana ..) (cucumber ..)))
+        //                               ^^^^^^     ^^^^^^^      ^^^^^^^^
+        let mut top_level_arguments: Vec<ExprKind> = Vec::new();
+        // This corresponds to the set expressions
+        // (set! apple #####apple0)
+        // (set! banana #####banana1)
+        // (set! cucumber #####cucumber1)
+        let mut set_expressions: Vec<ExprKind> = Vec::new();
+
+        // corresponds to #####apple0, #####banana1, #####cucumber1, etc
+        let mut bound_names: Vec<ExprKind> = Vec::new();
+
+        for (idx, expression) in expression_types[0..idx + 1].into_iter().enumerate() {
+            match expression {
+                ExpressionType::DefineFunction(name) => {
+                    // unimplemented!()
+
+                    if let ExprKind::Define(d) = &args[idx] {
+                        top_level_arguments.push(d.name.clone());
+                        let name_prime = ExprKind::Atom(Atom::new(SyntaxObject::default(
+                            TokenType::Identifier(
+                                "#####".to_string() + name + idx.to_string().as_str(),
+                            ),
+                        )));
+                        let set_expr = ExprKind::Set(Box::new(Set::new(
+                            d.name.clone(),
+                            name_prime.clone(),
+                            SyntaxObject::default(TokenType::Set),
+                        )));
+                        bound_names.push(name_prime);
+                        set_expressions.push(set_expr);
+                    } else {
+                        panic!("Name was not an atom")
+                    };
+
+                    // let name = Atom::new(SyntaxObject::new)
+                }
+                ExpressionType::DefineFlat(name) => {
+                    if let ExprKind::Define(d) = &args[idx] {
+                        top_level_arguments.push(d.name.clone());
+                        let name_prime = ExprKind::Atom(Atom::new(SyntaxObject::default(
+                            TokenType::Identifier(
+                                "#####".to_string() + name + idx.to_string().as_str(),
+                            ),
+                        )));
+                        let set_expr = ExprKind::Set(Box::new(Set::new(
+                            d.name.clone(),
+                            name_prime.clone(),
+                            SyntaxObject::default(TokenType::Set),
+                        )));
+                        bound_names.push(name_prime);
+                        set_expressions.push(set_expr);
+                    } else {
+                        panic!("Name was not an atom")
+                    };
+                }
+                ExpressionType::Expression => {
+                    let expr =
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+                            "#####define-conversion".to_string() + idx.to_string().as_str(),
+                        ))));
+
+                    top_level_arguments.push(expr);
+                }
+            }
+        }
+
+        // Top level application with dummy arguments that will immediately get overwritten
+        let mut top_level_dummy_args = vec![
+            ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::IntegerLiteral(0)
+            )));
+            top_level_arguments.len()
+        ];
+
+        // Append the body instructions to the set!
+        set_expressions.append(&mut body);
+
+        let inner_lambda = LambdaFunction::new(
+            bound_names,
+            ExprKind::Begin(Begin::new(body, SyntaxObject::default(TokenType::Begin))),
+            SyntaxObject::default(TokenType::Lambda),
+        );
+
+        args.insert(0, ExprKind::LambdaFunction(Box::new(inner_lambda)));
+
+        let inner_application = ExprKind::List(List::new(args));
+
+        let outer_lambda = LambdaFunction::new(
+            top_level_arguments,
+            inner_application,
+            SyntaxObject::default(TokenType::Lambda),
+        );
+
+        top_level_dummy_args.insert(0, ExprKind::LambdaFunction(Box::new(outer_lambda)));
+
+        return List::new(top_level_dummy_args);
+    } else {
+        panic!("Convert exprs to let in define conversion found no trailing expressions in begin")
+    }
+
+    // let mut lambda = LambdaFunction::new
+
+    // unimplemented!()
 }
 
 #[cfg(test)]

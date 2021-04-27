@@ -43,6 +43,11 @@
   (loop 0))
 
 
+(define (thing)
+  (define blagh 10)
+  (displayln 15)
+  (define blegh 20)
+  (displayln 25))
 
 
 
