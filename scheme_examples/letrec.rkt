@@ -17,6 +17,17 @@
     (displayln x)
     (foo 0))
 
+;; TODO
+;; handle case where define sequentially uses a define
+;; before it
+;; this should turn into a let* effectively
+(define (blargh)
+  (define x (+ 1 2 3 4))
+  (define y (+ 1 2 3 4 x))
+  (displayln x)
+  (displayln y)
+  (list 1 2 3 4 5 x y))
+
 (define blah 
   (lambda () 
     ((lambda (x #####define-conversion1 foo bar) 
