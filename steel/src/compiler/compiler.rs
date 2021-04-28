@@ -1,9 +1,8 @@
 use crate::compiler::{
-    // codegen::emit_loop,
     code_generator::CodeGenerator,
     constants::{ConstantMap, ConstantTable},
-    // expand::MacroSet,
     map::SymbolMap,
+    passes::begin::flatten_begins_and_expand_defines,
     program::Program,
 };
 use crate::core::{instructions::Instruction, opcode::OpCode};
@@ -537,6 +536,14 @@ impl Compiler {
                 .map(|x| x.to_string())
                 .collect::<Vec<_>>()
         );
+
+        println!("About to expand defines");
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+        println!("Successfully expanded defines");
+
+        for expr in &expanded_statements {
+            println!("{}", expr);
+        }
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
 
