@@ -28,58 +28,58 @@
   (displayln y)
   (list 1 2 3 4 5 x y))
 
-(define blargh 
-  (lambda () 
-    ((lambda (x y) 
-      ((lambda (#####x0 #####y1) 
-        (begin 
-          (set! x #####x0) 
-          (set! y (#####y1)) (displayln x) (displayln y) (list 1 2 3 4 5 x y))) (+ 1 2 3 4) (lambda () (+ 1 2 3 4 x)))) 123 123)))
+; (define blargh 
+;   (lambda () 
+;     ((lambda (x y) 
+;       ((lambda (#####x0 #####y1) 
+;         (begin 
+;           (set! x #####x0) 
+;           (set! y (#####y1)) (displayln x) (displayln y) (list 1 2 3 4 5 x y))) (+ 1 2 3 4) (lambda () (+ 1 2 3 4 x)))) 123 123)))
 
 
-(define blah 
-  (lambda () 
-    ((lambda (x #####define-conversion1 foo bar) 
-      ((lambda (#####x0 #####define-conversion1 #####foo2 #####bar3) 
-        (begin 
-          (set! x #####x0) 
-          (set! foo #####foo2) 
-          (set! bar #####bar3) 
-          (displayln x) 
-          (foo 0))) 
-        10 
-        (displayln "hello world") 
-        (lambda (x) (if (= x 10000) x (bar (+ x 1)))) 
-        (lambda (x) (if (= x 10000) x (foo (+ x 1)))))) 
-    0 0 0 0)))
+; (define blah 
+;   (lambda () 
+;     ((lambda (x #####define-conversion1 foo bar) 
+;       ((lambda (#####x0 #####define-conversion1 #####foo2 #####bar3) 
+;         (begin 
+;           (set! x #####x0) 
+;           (set! foo #####foo2) 
+;           (set! bar #####bar3) 
+;           (displayln x) 
+;           (foo 0))) 
+;         10 
+;         (displayln "hello world") 
+;         (lambda (x) (if (= x 10000) x (bar (+ x 1)))) 
+;         (lambda (x) (if (= x 10000) x (foo (+ x 1)))))) 
+;     0 0 0 0)))
 
 
-(define handle-intern-letter 
-  (lambda (char-list lst prefix-chars) 
-    ((lambda (char next-prefix) 
-      ((lambda (#####char0 #####next-prefix1) 
-        (begin 
-          (set! char #####char0) 
-          (set! next-prefix #####next-prefix1) 
-          (if (empty? lst) 
-            (begin (list (trie char (create-children (rest char-list) empty next-prefix) #false next-prefix))) 
-            (if (< char (trie-char (first lst))) 
-              (begin (cons (trie char (create-children (rest char-list) empty next-prefix) #false next-prefix) lst)) (if (= char (trie-char (first lst))) (begin (cons (trie char (create-children (rest char-list) (trie-children (first lst)) next-prefix) (trie-end-word? (first lst)) (trie-word-up-to (first lst))) (rest lst))) (begin (cons (first lst) (create-children char-list (rest lst) prefix-chars)))))))) 
+; (define handle-intern-letter 
+;   (lambda (char-list lst prefix-chars) 
+;     ((lambda (char next-prefix) 
+;       ((lambda (#####char0 #####next-prefix1) 
+;         (begin 
+;           (set! char #####char0) 
+;           (set! next-prefix #####next-prefix1) 
+;           (if (empty? lst) 
+;             (begin (list (trie char (create-children (rest char-list) empty next-prefix) #false next-prefix))) 
+;             (if (< char (trie-char (first lst))) 
+;               (begin (cons (trie char (create-children (rest char-list) empty next-prefix) #false next-prefix) lst)) (if (= char (trie-char (first lst))) (begin (cons (trie char (create-children (rest char-list) (trie-children (first lst)) next-prefix) (trie-end-word? (first lst)) (trie-word-up-to (first lst))) (rest lst))) (begin (cons (first lst) (create-children char-list (rest lst) prefix-chars)))))))) 
               
-      (first char-list) (push-back prefix-chars char))) 0 0)))
+;       (first char-list) (push-back prefix-chars char))) 0 0)))
 
 
-(define handle-last-letter 
-  (lambda (char-list lst prefix-chars) 
-    ((lambda (char next-prefix) 
-      ((lambda (#####char0 #####next-prefix1) 
-        (begin 
-          (set! char #####char0) 
-          (set! next-prefix #####next-prefix1) 
-          (if (empty? lst) 
-            (begin (list (trie char empty #true next-prefix))) (if (< char (trie-char (first lst))) (begin (cons (trie char empty #true next-prefix) lst)) (if (= char (trie-char (first lst))) (begin (cons (trie char (trie-children (first lst)) #true next-prefix) (rest lst))) (begin (cons (first lst) (create-children char-list (rest lst) prefix-chars)))))))) 
+; (define handle-last-letter 
+;   (lambda (char-list lst prefix-chars) 
+;     ((lambda (char next-prefix) 
+;       ((lambda (#####char0 #####next-prefix1) 
+;         (begin 
+;           (set! char #####char0) 
+;           (set! next-prefix #####next-prefix1) 
+;           (if (empty? lst) 
+;             (begin (list (trie char empty #true next-prefix))) (if (< char (trie-char (first lst))) (begin (cons (trie char empty #true next-prefix) lst)) (if (= char (trie-char (first lst))) (begin (cons (trie char (trie-children (first lst)) #true next-prefix) (rest lst))) (begin (cons (first lst) (create-children char-list (rest lst) prefix-chars)))))))) 
       
-      (first char-list) (push-back prefix-chars char))) 69 69)))
+;       (first char-list) (push-back prefix-chars char))) 69 69)))
 
 (define (test)
   (let ((x 10) (y 0) (foo void) (bar void))
@@ -107,17 +107,17 @@
         (loop (+ x 1))))
   (loop 0))
 
-(define test-loop-2 
-  (lambda () 
-    ((lambda (loop) 
-      ((lambda (#####loop0) 
-        (begin 
-        (set! loop #####loop0) 
-        (loop 0))) 
-      (lambda (x) 
-        (if (= x 10000) 
-            x 
-            (loop (+ x 1)))))) 0)))
+; (define test-loop-2 
+;   (lambda () 
+;     ((lambda (loop) 
+;       ((lambda (#####loop0) 
+;         (begin 
+;         (set! loop #####loop0) 
+;         (loop 0))) 
+;       (lambda (x) 
+;         (if (= x 10000) 
+;             x 
+;             (loop (+ x 1)))))) 0)))
 
 
 (define (thing)

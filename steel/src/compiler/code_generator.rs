@@ -489,20 +489,20 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             if b {
                 info!("Transformed mutual recursion for: {}", ctx);
-                println!("Transformed mutual recursion for: {}", ctx);
+                // println!("Transformed mutual recursion for: {}", ctx);
             }
         }
         // TODO come back here
         else if self.let_context {
             let b = check_and_transform_mutual_recursion(&mut body_instructions);
 
-            crate::core::instructions::pretty_print_instructions(&body_instructions);
+            // crate::core::instructions::pretty_print_instructions(&body_instructions);
 
             // let b = false;
 
             if b {
                 info!("Transformed mutual recursion inside local context");
-                println!("Transformed mutual recursion inside local context");
+                // println!("Transformed mutual recursion inside local context");
             }
         }
 
@@ -807,7 +807,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             if let Some((set, read, idx)) =
                 identify_let_rec(&self.instructions[body_begin..body_end], name)
             {
-                println!("Found set: {}, read: {} @ idx: {}", set, read, idx);
+                // println!("Found set: {}, read: {} @ idx: {}", set, read, idx);
 
                 if !upvalue_func_used_before_set(
                     &self.instructions[body_begin..body_end],
@@ -815,22 +815,22 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     idx,
                 ) {
                     if identify_letrec_tailcall(&self.instructions[span.clone()], &set) {
-                        println!("Successfully identified letrec tailcall for: {}", set);
-                        crate::core::instructions::pretty_print_instructions(
-                            &self.instructions[span.clone()],
-                        );
+                        // println!("Successfully identified letrec tailcall for: {}", set);
+                        // crate::core::instructions::pretty_print_instructions(
+                        // &self.instructions[span.clone()],
+                        // );
 
                         // modify = true;
 
                         let b = transform_letrec_tail_call(&mut self.instructions[span], &set);
                         if b {
-                            println!("Successfully performed self TCO for: {}", set);
-                            crate::core::instructions::pretty_print_instructions(
-                                &self.instructions,
-                            );
+                            info!("Successfully performed self TCO for: {}", set);
+                            // crate::core::instructions::pretty_print_instructions(
+                            // &self.instructions,
+                            // );
                         }
                     } else {
-                        println!("failed to identify letrec tailcall for {}", set);
+                        info!("failed to identify letrec tailcall for {}", set);
                     }
                 }
             }
@@ -962,7 +962,7 @@ fn transform_tail_call(instructions: &mut [Instruction], defining_context: &str)
                     transformed = true;
 
                     info!("Tail call optimization performed for: {}", defining_context);
-                    println!("Tail call optimization performed for: {}", defining_context);
+                    // println!("Tail call optimization performed for: {}", defining_context);
                 }
             }
             _ => {}
@@ -1031,7 +1031,7 @@ fn transform_letrec_tail_call(instructions: &mut [Instruction], defining_context
                     transformed = true;
 
                     info!("Tail call optimization performed for: {}", defining_context);
-                    println!("Tail call optimization performed for: {}", defining_context);
+                    // println!("Tail call optimization performed for: {}", defining_context);
                 }
             }
             _ => {}
@@ -1063,7 +1063,7 @@ fn identify_letrec_tailcall(instructions: &[Instruction], ident: &str) -> bool {
                     ..
                 }),
             ) => {
-                println!("FOUND LOCAL VALUE: {}", local_value);
+                // println!("FOUND LOCAL VALUE: {}", local_value);
                 if local_value == ident {
                     return true;
                 }
@@ -1103,8 +1103,8 @@ fn identify_let_rec(
     instructions: &[Instruction],
     context: &str,
 ) -> Option<(String, String, usize)> {
-    println!("Identifying let rec...");
-    crate::core::instructions::pretty_print_instructions(instructions);
+    // println!("Identifying let rec...");
+    // crate::core::instructions::pretty_print_instructions(instructions);
     for i in 0..instructions.len() - 1 {
         let read = instructions.get(i);
         let set = instructions.get(i + 1);
@@ -1130,10 +1130,10 @@ fn identify_let_rec(
                     ..
                 }),
             ) => {
-                println!(
-                    "FOUND LOCAL_VALUE: {} AND IDENT: {}",
-                    local_value, ident_being_set
-                );
+                // println!(
+                //     "FOUND LOCAL_VALUE: {} AND IDENT: {}",
+                //     local_value, ident_being_set
+                // );
 
                 if context == local_value {
                     return Some((ident_being_set.clone(), local_value.clone(), i));
@@ -1203,7 +1203,7 @@ fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> boo
                 if let Some(x) = instructions.get_mut(index - 1) {
                     x.op_code = OpCode::TAILCALL;
                     transformed = true;
-                    println!("Found tail call with: {}", &s);
+                    // println!("Found tail call with: {}", &s);
                 }
             }
             _ => {}

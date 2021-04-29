@@ -123,7 +123,6 @@
 ; THIS ONE WORKS (using con and flatten)
 ;; contract: trie? -> (listof string?)
 (define (pre-order trie-node)
-  (displayln (trie-word-up-to trie-node))
   (if (trie-end-word? trie-node)
     (cons (list->string (trie-word-up-to trie-node))
       (flatten (map pre-order (trie-children trie-node))))

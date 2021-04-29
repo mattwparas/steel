@@ -537,13 +537,16 @@ impl Compiler {
                 .collect::<Vec<_>>()
         );
 
-        println!("About to expand defines");
+        debug!("About to expand defines");
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
-        println!("Successfully expanded defines");
 
-        for expr in &expanded_statements {
-            println!("{}", expr);
-        }
+        debug!(
+            "Successfully expanded defines: {:?}",
+            expanded_statements
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+        );
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
 
