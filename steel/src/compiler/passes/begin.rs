@@ -231,6 +231,20 @@ enum ExpressionType<'a> {
     Expression,
 }
 
+fn atom(name: String) -> ExprKind {
+    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+        name,
+    ))))
+}
+
+fn set(var: ExprKind, expr: ExprKind) -> ExprKind {
+    ExprKind::Set(Box::new(Set::new(
+        var,
+        expr,
+        SyntaxObject::default(TokenType::Set),
+    )))
+}
+
 fn convert_exprs_to_let(begin: Begin) -> ExprKind {
     // let defines = collect_defines_from_current_scope(&exprs);
     let mut expression_types = Vec::new();
@@ -249,8 +263,6 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
                 match &d.body {
                     ExprKind::LambdaFunction(_) => {
-                        // let mut merge_defines = MergeDefines::new();
-                        // merge_defines.visit(&l.body);
                         expression_types.push(ExpressionType::DefineFunction(name));
                     }
                     _ => {
@@ -311,6 +323,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         // This corresponds to the (let ((apple ..) (banana ..) (cucumber ..)))
         //                               ^^^^^^     ^^^^^^^      ^^^^^^^^
         let mut top_level_arguments: Vec<ExprKind> = Vec::new();
+
         // This corresponds to the set expressions
         // (set! apple #####apple0)
         // (set! banana #####banana1)
@@ -325,16 +338,8 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                 ExpressionType::DefineFunction(name) => {
                     if let ExprKind::Define(d) = &exprs[i] {
                         top_level_arguments.push(d.name.clone());
-                        let name_prime = ExprKind::Atom(Atom::new(SyntaxObject::default(
-                            TokenType::Identifier(
-                                "#####".to_string() + name + i.to_string().as_str(),
-                            ),
-                        )));
-                        let set_expr = ExprKind::Set(Box::new(Set::new(
-                            d.name.clone(),
-                            name_prime.clone(),
-                            SyntaxObject::default(TokenType::Set),
-                        )));
+                        let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                        let set_expr = set(d.name.clone(), name_prime.clone());
                         bound_names.push(name_prime);
                         set_expressions.push(set_expr);
                     } else {
@@ -346,16 +351,8 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                 ExpressionType::DefineFlat(name) => {
                     if let ExprKind::Define(d) = &exprs[i] {
                         top_level_arguments.push(d.name.clone());
-                        let name_prime = ExprKind::Atom(Atom::new(SyntaxObject::default(
-                            TokenType::Identifier(
-                                "#####".to_string() + name + i.to_string().as_str(),
-                            ),
-                        )));
-                        let set_expr = ExprKind::Set(Box::new(Set::new(
-                            d.name.clone(),
-                            name_prime.clone(),
-                            SyntaxObject::default(TokenType::Set),
-                        )));
+                        let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                        let set_expr = set(d.name.clone(), name_prime.clone());
                         bound_names.push(name_prime);
                         set_expressions.push(set_expr);
                     } else {
@@ -365,26 +362,22 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                 ExpressionType::DefineFlatStar(name) => {
                     if let ExprKind::Define(d) = &exprs[i] {
                         top_level_arguments.push(d.name.clone());
-                        let name_prime = ExprKind::Atom(Atom::new(SyntaxObject::default(
-                            TokenType::Identifier(
-                                "#####".to_string() + name + i.to_string().as_str(),
-                            ),
-                        )));
+                        let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
 
                         // Make this a (set! x (x'))
                         // Applying the function
-                        let set_expr = ExprKind::Set(Box::new(Set::new(
+                        let set_expr = set(
                             d.name.clone(),
                             ExprKind::List(List::new(vec![name_prime.clone()])),
-                            SyntaxObject::default(TokenType::Set),
-                        )));
+                        );
 
                         // Set this to be an empty function (lambda () <expr>)
-                        args[i] = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                        args[i] = LambdaFunction::new(
                             Vec::new(),
                             args[i].clone(),
                             SyntaxObject::default(TokenType::Lambda),
-                        )));
+                        )
+                        .into();
 
                         bound_names.push(name_prime);
                         set_expressions.push(set_expr);
@@ -393,10 +386,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     };
                 }
                 ExpressionType::Expression => {
-                    let expr =
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                            "#####define-conversion".to_string() + i.to_string().as_str(),
-                        ))));
+                    let expr = atom("#####define-conversion".to_string() + i.to_string().as_str());
 
                     // This also gets bound in the inner function for now
                     bound_names.push(expr.clone());
