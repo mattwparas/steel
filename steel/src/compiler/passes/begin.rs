@@ -231,6 +231,51 @@ enum ExpressionType<'a> {
     Expression,
 }
 
+impl<'a> ExpressionType<'a> {
+    fn is_expression(&self) -> bool {
+        if let ExpressionType::Expression = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn generate_expression_types(exprs: &'a [ExprKind]) -> Vec<ExpressionType<'a>> {
+        let mut expression_types = Vec::new();
+        let mut defined_idents = DefinedVars::new();
+
+        for expr in exprs {
+            match expr {
+                ExprKind::Define(d) => {
+                    let name = d
+                        .name
+                        .atom_identifier_or_else(|| {})
+                        .expect("Define without a legal name");
+
+                    defined_idents.insert(name);
+
+                    match &d.body {
+                        ExprKind::LambdaFunction(_) => {
+                            expression_types.push(ExpressionType::DefineFunction(name));
+                        }
+                        _ => {
+                            defined_idents.visit(&d.body);
+                            if defined_idents.check_output() {
+                                expression_types.push(ExpressionType::DefineFlatStar(name));
+                            } else {
+                                expression_types.push(ExpressionType::DefineFlat(name));
+                            }
+                        }
+                    }
+                }
+                _ => expression_types.push(ExpressionType::Expression),
+            }
+        }
+
+        expression_types
+    }
+}
+
 fn atom(name: String) -> ExprKind {
     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
         name,
@@ -245,48 +290,17 @@ fn set(var: ExprKind, expr: ExprKind) -> ExprKind {
     )))
 }
 
+fn apply_ident(func: ExprKind) -> ExprKind {
+    ExprKind::List(List::new(vec![func]))
+}
+
 fn convert_exprs_to_let(begin: Begin) -> ExprKind {
     // let defines = collect_defines_from_current_scope(&exprs);
-    let mut expression_types = Vec::new();
 
-    let mut defined_idents = DefinedVars::new();
-
-    for expr in &begin.exprs {
-        match expr {
-            ExprKind::Define(d) => {
-                let name = d
-                    .name
-                    .atom_identifier_or_else(|| {})
-                    .expect("Define without a legal name");
-
-                defined_idents.insert(name);
-
-                match &d.body {
-                    ExprKind::LambdaFunction(_) => {
-                        expression_types.push(ExpressionType::DefineFunction(name));
-                    }
-                    _ => {
-                        defined_idents.visit(&d.body);
-                        if defined_idents.check_output() {
-                            expression_types.push(ExpressionType::DefineFlatStar(name));
-                        } else {
-                            expression_types.push(ExpressionType::DefineFlat(name));
-                        }
-                    }
-                }
-            }
-            _ => expression_types.push(ExpressionType::Expression),
-        }
-    }
+    let expression_types = ExpressionType::generate_expression_types(&begin.exprs);
 
     // Go ahead and quit if there are
-    if expression_types.iter().all(|x| {
-        if let ExpressionType::Expression = x {
-            true
-        } else {
-            false
-        }
-    }) {
+    if expression_types.iter().all(|x| x.is_expression()) {
         return ExprKind::Begin(begin);
     }
 
@@ -294,13 +308,11 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
     // let mut last_expression = expression_types.len();
 
-    if let Some(idx) = expression_types.iter().rev().position(|x| {
-        if let ExpressionType::Expression = x {
-            false
-        } else {
-            true
-        }
-    }) {
+    if let Some(idx) = expression_types
+        .iter()
+        .rev()
+        .position(|x| !x.is_expression())
+    {
         let idx = expression_types.len() - 1 - idx;
 
         // TODO
@@ -366,10 +378,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
                         // Make this a (set! x (x'))
                         // Applying the function
-                        let set_expr = set(
-                            d.name.clone(),
-                            ExprKind::List(List::new(vec![name_prime.clone()])),
-                        );
+                        let set_expr = set(d.name.clone(), apply_ident(name_prime.clone()));
 
                         // Set this to be an empty function (lambda () <expr>)
                         args[i] = LambdaFunction::new(
