@@ -77,13 +77,33 @@ impl VisitorMutUnit for MergeDefines {
 }
 
 struct DefinedVars<'a> {
-    defined_identifiers: &'a [&'a str],
+    defined_identifiers: HashSet<&'a str>,
+    output: bool,
 }
 
 impl<'a> DefinedVars<'a> {
-    fn new(defined_identifiers: &'a [&'a str]) -> Self {
+    fn new() -> Self {
         DefinedVars {
-            defined_identifiers,
+            defined_identifiers: HashSet::new(),
+            output: false,
+        }
+    }
+
+    fn insert(&mut self, name: &'a str) {
+        self.defined_identifiers.insert(name);
+    }
+
+    fn check_output(&mut self) -> bool {
+        let output = self.output;
+        self.output = false;
+        output
+    }
+}
+
+impl<'a> VisitorMutUnit for DefinedVars<'a> {
+    fn visit_atom(&mut self, a: &Atom) {
+        if let TokenType::Identifier(ident) = &a.syn.ty {
+            self.output = self.defined_identifiers.contains(ident.as_str()) || self.output;
         }
     }
 }
@@ -206,6 +226,7 @@ fn merge_defines(exprs: Vec<ExprKind>) -> Begin {
 #[derive(PartialEq)]
 enum ExpressionType<'a> {
     DefineFlat(&'a str),
+    DefineFlatStar(&'a str),
     DefineFunction(&'a str),
     Expression,
 }
@@ -213,6 +234,8 @@ enum ExpressionType<'a> {
 fn convert_exprs_to_let(begin: Begin) -> ExprKind {
     // let defines = collect_defines_from_current_scope(&exprs);
     let mut expression_types = Vec::new();
+
+    let mut defined_idents = DefinedVars::new();
 
     for expr in &begin.exprs {
         match expr {
@@ -222,6 +245,8 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     .atom_identifier_or_else(|| {})
                     .expect("Define without a legal name");
 
+                defined_idents.insert(name);
+
                 match &d.body {
                     ExprKind::LambdaFunction(_) => {
                         // let mut merge_defines = MergeDefines::new();
@@ -229,7 +254,12 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                         expression_types.push(ExpressionType::DefineFunction(name));
                     }
                     _ => {
-                        expression_types.push(ExpressionType::DefineFlat(name));
+                        defined_idents.visit(&d.body);
+                        if defined_idents.check_output() {
+                            expression_types.push(ExpressionType::DefineFlatStar(name));
+                        } else {
+                            expression_types.push(ExpressionType::DefineFlat(name));
+                        }
                     }
                 }
             }
@@ -326,6 +356,36 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                             name_prime.clone(),
                             SyntaxObject::default(TokenType::Set),
                         )));
+                        bound_names.push(name_prime);
+                        set_expressions.push(set_expr);
+                    } else {
+                        panic!("expected define, found: {}", &exprs[i]);
+                    };
+                }
+                ExpressionType::DefineFlatStar(name) => {
+                    if let ExprKind::Define(d) = &exprs[i] {
+                        top_level_arguments.push(d.name.clone());
+                        let name_prime = ExprKind::Atom(Atom::new(SyntaxObject::default(
+                            TokenType::Identifier(
+                                "#####".to_string() + name + i.to_string().as_str(),
+                            ),
+                        )));
+
+                        // Make this a (set! x (x'))
+                        // Applying the function
+                        let set_expr = ExprKind::Set(Box::new(Set::new(
+                            d.name.clone(),
+                            ExprKind::List(List::new(vec![name_prime.clone()])),
+                            SyntaxObject::default(TokenType::Set),
+                        )));
+
+                        // Set this to be an empty function (lambda () <expr>)
+                        args[i] = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                            Vec::new(),
+                            args[i].clone(),
+                            SyntaxObject::default(TokenType::Lambda),
+                        )));
+
                         bound_names.push(name_prime);
                         set_expressions.push(set_expr);
                     } else {

@@ -28,6 +28,15 @@
   (displayln y)
   (list 1 2 3 4 5 x y))
 
+(define blargh 
+  (lambda () 
+    ((lambda (x y) 
+      ((lambda (#####x0 #####y1) 
+        (begin 
+          (set! x #####x0) 
+          (set! y (#####y1)) (displayln x) (displayln y) (list 1 2 3 4 5 x y))) (+ 1 2 3 4) (lambda () (+ 1 2 3 4 x)))) 123 123)))
+
+
 (define blah 
   (lambda () 
     ((lambda (x #####define-conversion1 foo bar) 
