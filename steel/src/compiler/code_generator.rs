@@ -664,7 +664,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .map(|x| x.borrow().resolve_local(ident))
             .flatten()
         {
-            let variable = self.variable_data.as_ref().unwrap().borrow().locals[idx].clone();
+            // let variable = self.variable_data.as_ref().unwrap().borrow().locals[idx].clone();
             // dbg!(variable);
             // dbg!(&self.variable_data);
             self.push(Instruction::new_local(idx, a.syn.clone()));

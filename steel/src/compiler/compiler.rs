@@ -247,45 +247,45 @@ fn insert_debruijn_indices(
     Ok(())
 }
 
-fn extract_constants<CT: ConstantTable>(
-    instructions: &mut [Instruction],
-    constants: &mut CT,
-) -> Result<()> {
-    for i in 0..instructions.len() {
-        let inst = &instructions[i];
-        if let OpCode::PUSH = inst.op_code {
-            // let idx = constants.len();
-            if inst.constant {
-                let value = eval_atom(&inst.contents.as_ref().unwrap())?;
-                let idx = constants.add_or_get(value);
-                // constants.push(eval_atom(&inst.contents.as_ref().unwrap())?);
-                if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::PUSHCONST;
-                    x.payload_size = idx;
-                    x.contents = None;
-                }
-            }
-        }
-    }
+// fn extract_constants<CT: ConstantTable>(
+//     instructions: &mut [Instruction],
+//     constants: &mut CT,
+// ) -> Result<()> {
+//     for i in 0..instructions.len() {
+//         let inst = &instructions[i];
+//         if let OpCode::PUSH = inst.op_code {
+//             // let idx = constants.len();
+//             if inst.constant {
+//                 let value = eval_atom(&inst.contents.as_ref().unwrap())?;
+//                 let idx = constants.add_or_get(value);
+//                 // constants.push(eval_atom(&inst.contents.as_ref().unwrap())?);
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.op_code = OpCode::PUSHCONST;
+//                     x.payload_size = idx;
+//                     x.contents = None;
+//                 }
+//             }
+//         }
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 /// evaluates an atom expression in given environment
-fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
-    match &t.ty {
-        TokenType::BooleanLiteral(b) => Ok((*b).into()),
-        // TokenType::Identifier(s) => env.borrow().lookup(&s),
-        TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
-        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
-        TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
-        TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
-        what => {
-            println!("getting here in the eval_atom");
-            stop!(UnexpectedToken => what; t.span)
-        }
-    }
-}
+// fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
+//     match &t.ty {
+//         TokenType::BooleanLiteral(b) => Ok((*b).into()),
+//         // TokenType::Identifier(s) => env.borrow().lookup(&s),
+//         TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
+//         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
+//         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
+//         TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
+//         what => {
+//             println!("getting here in the eval_atom");
+//             stop!(UnexpectedToken => what; t.span)
+//         }
+//     }
+// }
 
 // Adds a flag to the pop value in order to save the heap to the global heap
 // I should really come up with a better name but for now we'll leave it

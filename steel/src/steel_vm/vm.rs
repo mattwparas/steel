@@ -377,7 +377,6 @@ pub(crate) struct VmCore<'a, CT: ConstantTable> {
     pub(crate) pop_count: usize,
     pub(crate) env_stack: EnvStack,
     pub(crate) current_arity: Option<usize>,
-    pub(crate) tail_call: Vec<bool>,
     pub(crate) upvalue_head: Option<Weak<RefCell<UpValue>>>,
     pub(crate) upvalue_heap: &'a mut UpValueHeap,
     pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
@@ -413,7 +412,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             pop_count: 1,
             env_stack: Stack::new(),
             current_arity: None,
-            tail_call: Vec::new(),
             upvalue_head: None,
             upvalue_heap,
             function_stack,
@@ -834,7 +832,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     // println!("INSIDE POP: {:?}", self.tail_call);
                     // println!("POP COUNT: {}", self.pop_count);
                     // println!("STACK INDEX LENGTH: {}", self.stack_index.len());
-                    let tail_call = self.tail_call.pop().unwrap_or(false);
                     if self.pop_count == 0 {
                         self.env_stack.clear();
 
@@ -980,12 +977,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             self.ip,
             self.instructions.len()
         );
-        println!(
-            "OUt of bounds instruction!: instruction pointer: {}, instruciton length: {}",
-            self.ip,
-            self.instructions.len()
-        );
-        crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+        // println!(
+        //     "OUt of bounds instruction!: instruction pointer: {}, instruciton length: {}",
+        //     self.ip,
+        //     self.instructions.len()
+        // );
+        // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
         panic!("Out of bounds instruction")
     }
 
@@ -1568,10 +1565,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => {
-                self.tail_call.push(true);
-
                 // Snag the current functions arity & remove the last function call
-                let current_arity = self.function_stack.pop().unwrap().arity();
+                self.function_stack.pop();
 
                 // Remove the last function call
                 // self.function_stack.pop();
@@ -1605,8 +1600,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // let mut args = self.stack.split_off(self.stack.len() - payload_size);
 
                 // println!("############# TAIL CALL ##################");
-
-                // println!("TAIL CALL STACK: {:?}", self.tail_call);
 
                 // self.stack.drain(
                 //     self.stack_index.last().copied().unwrap_or(0)..self.stack.len() - payload_size,
@@ -1679,15 +1672,15 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 // self.stack.append_vec(&mut args);
 
-                let parent_env = closure.sub_expression_env();
+                // let parent_env = closure.sub_expression_env();
                 // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+                // let offset =
+                // closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                    parent_env.clone(),
-                    offset,
-                )));
+                // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                // parent_env.clone(),
+                // offset,
+                // )));
 
                 // TODO perhaps don't add a child here
                 // parent_env
@@ -1708,15 +1701,15 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // inner_env.borrow_mut().set_reachable(true);
 
                 // // TODO
-                self.heap
-                    .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+                // self.heap
+                // .gather_mark_and_sweep_2(&self.global_env, &inner_env);
 
-                self.heap.collect_garbage();
+                // self.heap.collect_garbage();
 
                 // Added this one as well
                 // self.heap.add(Rc::clone(&self.global_env));
 
-                self.global_env = inner_env;
+                // self.global_env = inner_env;
                 self.instructions = closure.body_exp();
 
                 // self.stack_index.push(self.stack.len());
@@ -1882,8 +1875,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => {
-                self.tail_call.push(false);
-
                 // Push on the function stack so we have access to it later
                 self.function_stack.push(Gc::clone(closure));
 
