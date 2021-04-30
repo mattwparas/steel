@@ -19,6 +19,11 @@ impl Folder for FlattenBegin {
     fn visit_begin(&mut self, begin: Begin) -> ExprKind {
         let span = begin.location;
 
+        if begin.exprs.len() == 1 {
+            // println!("Getting inside here!");
+            return self.visit(begin.exprs.into_iter().next().unwrap());
+        }
+
         // Flatten begins
         let flattened_exprs = begin
             .exprs
@@ -30,17 +35,22 @@ impl Folder for FlattenBegin {
                         .map(|x| self.visit(x))
                         .collect::<Vec<_>>()
                 } else {
-                    vec![x]
+                    vec![self.visit(x)]
                 }
             })
             .flatten()
             .collect::<Vec<_>>();
 
-        ExprKind::Begin(Begin::new(flattened_exprs, span))
+        if flattened_exprs.len() == 1 {
+            flattened_exprs.into_iter().next().unwrap()
+        } else {
+            ExprKind::Begin(Begin::new(flattened_exprs, span))
+        }
     }
 }
 
 pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> {
+    // println!("###################################################");
     exprs
         .into_iter()
         .map(|x| FlattenBegin::flatten(x))
@@ -133,7 +143,7 @@ impl Folder for ConvertDefinesToLets {
 
     // TODO
     #[inline]
-    fn visit_begin(&mut self, begin: Begin) -> ExprKind {
+    fn visit_begin(&mut self, mut begin: Begin) -> ExprKind {
         if self.depth > 0 {
             match convert_exprs_to_let(begin) {
                 ExprKind::Begin(mut b) => {
@@ -147,6 +157,8 @@ impl Folder for ConvertDefinesToLets {
                 _ => panic!("Something went wrong in define conversion"),
             }
         } else {
+            // println!("Ignoring begin");
+            begin.exprs = begin.exprs.into_iter().map(|e| self.visit(e)).collect();
             ExprKind::Begin(begin)
         }
     }
