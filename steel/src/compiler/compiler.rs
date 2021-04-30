@@ -540,7 +540,7 @@ impl Compiler {
         debug!("About to expand defines");
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
-        debug!(
+        println!(
             "Successfully expanded defines: {:?}",
             expanded_statements
                 .iter()
