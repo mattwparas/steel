@@ -20,7 +20,6 @@ impl Folder for FlattenBegin {
         let span = begin.location;
 
         if begin.exprs.len() == 1 {
-            // println!("Getting inside here!");
             return self.visit(begin.exprs.into_iter().next().unwrap());
         }
 
@@ -58,33 +57,33 @@ pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> 
         .collect()
 }
 
-struct MergeDefines {
-    referenced_identifiers: HashSet<String>,
-}
+// struct MergeDefines {
+//     referenced_identifiers: HashSet<String>,
+// }
 
-impl MergeDefines {
-    fn new() -> Self {
-        MergeDefines {
-            referenced_identifiers: HashSet::new(),
-        }
-    }
+// impl MergeDefines {
+//     fn new() -> Self {
+//         MergeDefines {
+//             referenced_identifiers: HashSet::new(),
+//         }
+//     }
 
-    fn insert(&mut self, value: &str) {
-        self.referenced_identifiers.insert(value.to_string());
-    }
+//     fn insert(&mut self, value: &str) {
+//         self.referenced_identifiers.insert(value.to_string());
+//     }
 
-    fn get(&mut self, value: &str) -> Option<&str> {
-        self.referenced_identifiers.get(value).map(|x| x.as_str())
-    }
-}
+//     fn get(&mut self, value: &str) -> Option<&str> {
+//         self.referenced_identifiers.get(value).map(|x| x.as_str())
+//     }
+// }
 
-impl VisitorMutUnit for MergeDefines {
-    fn visit_atom(&mut self, a: &Atom) {
-        if let TokenType::Identifier(ident) = &a.syn.ty {
-            self.referenced_identifiers.insert(ident.clone());
-        }
-    }
-}
+// impl VisitorMutUnit for MergeDefines {
+//     fn visit_atom(&mut self, a: &Atom) {
+//         if let TokenType::Identifier(ident) = &a.syn.ty {
+//             self.referenced_identifiers.insert(ident.clone());
+//         }
+//     }
+// }
 
 struct DefinedVars<'a> {
     defined_identifiers: HashSet<&'a str>,
@@ -164,76 +163,76 @@ impl Folder for ConvertDefinesToLets {
     }
 }
 
-// Want to take the highest precedence form. For each of these, we can fold
-// the expressions into themselves. If theres a mutual reference, turn everything into a letrec form.
-// If there are no functions with no mutual references,
-enum IdentifierReferenceType {
-    // A function references itself - forced to be a letrec
-    FuncSelfReference,
-    // A function references another variable defined in the scope - combine with letrec
-    FuncMutualReference,
-    // A variable references no other variable in the scope - normal let
-    FlatNoReference,
-    // A variable references a variable defined prior in the scope - coalesce with prev define if possible
-    FlatPriorReference,
-}
-
-// Snag the names from the defines for the current (flattened) begin statement
-fn collect_defines_from_current_scope<'a>(begin_exprs: &'a [ExprKind]) -> Vec<(usize, &'a str)> {
-    begin_exprs
-        .iter()
-        .enumerate()
-        .filter_map(|x| {
-            if let ExprKind::Define(d) = x.1 {
-                let name = d
-                    .name
-                    .atom_identifier_or_else(|| {})
-                    .expect("Define without a legal name");
-                Some((x.0, name))
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-// enum ExprTypeState {
-//     FlatDefineToLet(ExprKind),
-//     FlatDefineToLetStar(ExprKind),
-//     LetRecSelfRef(ExprKind),
-//     LetRecMutualRef(ExprKind),
+// // Want to take the highest precedence form. For each of these, we can fold
+// // the expressions into themselves. If theres a mutual reference, turn everything into a letrec form.
+// // If there are no functions with no mutual references,
+// enum IdentifierReferenceType {
+//     // A function references itself - forced to be a letrec
+//     FuncSelfReference,
+//     // A function references another variable defined in the scope - combine with letrec
+//     FuncMutualReference,
+//     // A variable references no other variable in the scope - normal let
+//     FlatNoReference,
+//     // A variable references a variable defined prior in the scope - coalesce with prev define if possible
+//     FlatPriorReference,
 // }
 
-// See if we need to keep track of any of the local variables
-fn merge_defines(exprs: Vec<ExprKind>) -> Begin {
-    let mut let_rec_exprs: Vec<ExprKind> = Vec::new();
+// // Snag the names from the defines for the current (flattened) begin statement
+// fn collect_defines_from_current_scope<'a>(begin_exprs: &'a [ExprKind]) -> Vec<(usize, &'a str)> {
+//     begin_exprs
+//         .iter()
+//         .enumerate()
+//         .filter_map(|x| {
+//             if let ExprKind::Define(d) = x.1 {
+//                 let name = d
+//                     .name
+//                     .atom_identifier_or_else(|| {})
+//                     .expect("Define without a legal name");
+//                 Some((x.0, name))
+//             } else {
+//                 None
+//             }
+//         })
+//         .collect()
+// }
 
-    let defines = collect_defines_from_current_scope(&exprs);
+// // enum ExprTypeState {
+// //     FlatDefineToLet(ExprKind),
+// //     FlatDefineToLetStar(ExprKind),
+// //     LetRecSelfRef(ExprKind),
+// //     LetRecMutualRef(ExprKind),
+// // }
 
-    for expr in &exprs {
-        match expr {
-            ExprKind::Define(d) => {
-                let name = d
-                    .name
-                    .atom_identifier_or_else(|| {})
-                    .expect("Define without a legal name");
+// // See if we need to keep track of any of the local variables
+// fn merge_defines(exprs: Vec<ExprKind>) -> Begin {
+//     let mut let_rec_exprs: Vec<ExprKind> = Vec::new();
 
-                match &d.body {
-                    ExprKind::LambdaFunction(l) => {
-                        let mut merge_defines = MergeDefines::new();
-                        merge_defines.visit(&l.body);
-                    }
-                    _ => {
-                        unimplemented!()
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
+//     let defines = collect_defines_from_current_scope(&exprs);
 
-    unimplemented!()
-}
+//     for expr in &exprs {
+//         match expr {
+//             ExprKind::Define(d) => {
+//                 let name = d
+//                     .name
+//                     .atom_identifier_or_else(|| {})
+//                     .expect("Define without a legal name");
+
+//                 match &d.body {
+//                     ExprKind::LambdaFunction(l) => {
+//                         let mut merge_defines = MergeDefines::new();
+//                         merge_defines.visit(&l.body);
+//                     }
+//                     _ => {
+//                         unimplemented!()
+//                     }
+//                 }
+//             }
+//             _ => {}
+//         }
+//     }
+
+//     unimplemented!()
+// }
 
 #[derive(PartialEq)]
 enum ExpressionType<'a> {
@@ -253,7 +252,7 @@ impl<'a> ExpressionType<'a> {
     }
 
     fn generate_expression_types(exprs: &'a [ExprKind]) -> Vec<ExpressionType<'a>> {
-        let mut expression_types = Vec::new();
+        let mut expression_types = Vec::with_capacity(exprs.len());
         let mut defined_idents = DefinedVars::new();
 
         for expr in exprs {
