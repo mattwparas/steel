@@ -1777,7 +1777,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        println!("calling contracted function");
+        // println!("calling contracted function");
 
         if cf.arity() != payload_size {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
