@@ -1199,7 +1199,7 @@ fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> boo
                     ..
                 }),
             ) => {
-                let s = s.clone();
+                // let s = s.clone();
                 if let Some(x) = instructions.get_mut(index - 1) {
                     x.op_code = OpCode::TAILCALL;
                     transformed = true;

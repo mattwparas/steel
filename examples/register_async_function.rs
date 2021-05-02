@@ -15,6 +15,9 @@ pub fn main() {
     let mut vm = Engine::new();
 
     // You can even register async finctions
+    // Using these in a script requires invoking them from an async context
+    // Or, explicitly poll them yourself in a non async context if you would
+    // like to not invoke it from an async context
     vm.register_async_fn("test", test_function);
 
     let contents = include_str!("scripts/async.rkt");
@@ -31,5 +34,13 @@ pub fn main() {
 
     if let Err(e) = res {
         e.emit_result("async-threads.rkt", &contents);
+    }
+
+    let contents = include_str!("scripts/poll.rkt");
+
+    let res = vm.parse_and_execute_without_optimizations(&contents);
+
+    if let Err(e) = res {
+        e.emit_result("poll.rkt", &contents);
     }
 }
