@@ -629,7 +629,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                     match function {
                         SteelVal::Closure(closure) => {
-                            println!("%%%%%%%%%%%%% Calling closure from call/cc %%%%%%%%%%%%%%%");
+                            // println!("%%%%%%%%%%%%% Calling closure from call/cc %%%%%%%%%%%%%%%");
 
                             if self.stack_index.len() == STACK_LIMIT {
                                 // println!("stacks at exit: {:?}", stacks);
