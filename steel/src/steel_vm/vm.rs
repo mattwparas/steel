@@ -924,7 +924,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             // println!("not empty case");
                             let prev_state = self.instruction_stack.pop().unwrap();
                             // self.heap.add(Rc::clone(&self.global_env));
-                            self.global_env = self.env_stack.pop().unwrap();
+                            // self.global_env = self.env_stack.pop().unwrap();
                             self.ip = prev_state.0;
                             self.instructions = prev_state.instrs();
                         } else {
@@ -1281,6 +1281,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_start_closure(&mut self, offset: usize) {
+        // println!("Starting closure");
+
         self.ip += 1;
 
         let forward_jump = offset - 1;
@@ -1361,30 +1363,32 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         // println!("ARITY: {}", arity);
 
-        let capture_env = Rc::clone(&self.global_env);
+        // let capture_env = Rc::clone(&self.global_env);
 
-        let mut closure_offset = self.global_env.borrow().len();
+        // let mut closure_offset = self.global_env.borrow().len();
         // println!("%%%%%%%%%%% Env length: {} %%%%%%%%%%%", closure_offset);
 
         // println!("{:?}", global_env.borrow().string_bindings_vec());
 
-        if self.global_env.borrow().is_binding_context()
-            && !self.global_env.borrow().is_binding_offset()
-        {
-            self.global_env.borrow_mut().set_binding_offset(true);
-            closure_offset += 1;
-        };
+        // if self.global_env.borrow().is_binding_context()
+        //     && !self.global_env.borrow().is_binding_offset()
+        // {
+        //     self.global_env.borrow_mut().set_binding_offset(true);
+        //     closure_offset += 1;
+        // };
 
         // set the number of definitions for the environment
         // capture_env.borrow_mut().set_ndefs(ndefs as usize);
 
         // println!("Adding the capture_env to the heap!");
-        self.heap.add(Rc::clone(&capture_env));
+
+        // self.heap.add(Rc::clone(&capture_env));
+
         // inspect_heap(&heap);
         let constructed_lambda = ByteCodeLambda::new(
             closure_body,
-            Rc::downgrade(&capture_env),
-            closure_offset,
+            Rc::downgrade(&self.global_env),
+            0,
             arity as usize,
             ndefs as usize,
             upvalues,
@@ -1875,6 +1879,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => {
+                // println!("Calling normal function");
+
                 // Push on the function stack so we have access to it later
                 self.function_stack.push(Gc::clone(closure));
 
@@ -1903,7 +1909,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // Use smallvec here?
                 // let args = self.stack.split_off(self.stack.len() - payload_size);
 
-                let parent_env = closure.sub_expression_env();
+                // let parent_env = closure.sub_expression_env();
 
                 // TODO remove this unwrap
                 // TODO see if this offset is even necessary
@@ -1915,9 +1921,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 //     offset,
                 // )));
 
-                let inner_env = Rc::new(RefCell::new(
-                    Env::new_subexpression_with_capacity_without_offset(parent_env.clone()),
-                ));
+                // let inner_env = Rc::new(RefCell::new(
+                //     Env::new_subexpression_with_capacity_without_offset(parent_env.clone()),
+                // ));
 
                 // inner_env.borrow_mut().increment_weak_count();
 
@@ -1948,12 +1954,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
                 // closure_stack.push(Rc::clone(&stack_func));
                 // TODO this is where the memory leak is
-                self.env_stack.push(Rc::clone(&self.global_env));
+
+                // self.env_stack.push(Rc::clone(&self.global_env));
 
                 // Added this one here too
                 // self.heap.add(Rc::clone(&self.global_env));
 
-                self.global_env = inner_env;
+                // self.global_env = inner_env;
+
                 self.instruction_stack.push(InstructionPointer::new(
                     self.ip + 1,
                     Rc::clone(&self.instructions),
@@ -2027,19 +2035,19 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 // let args = stack.split_off(stack.len() - cur_inst.payload_size as usize);
 
-                let parent_env = closure.sub_expression_env();
+                // let parent_env = closure.sub_expression_env();
 
                 // TODO remove this unwrap
                 // TODO figure out the offset business
                 // let offset =
                 //     closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                let inner_env = Rc::new(RefCell::new(
-                    Env::new_subexpression_with_capacity_without_offset(
-                        parent_env.clone(),
-                        // offset,
-                    ),
-                ));
+                // let inner_env = Rc::new(RefCell::new(
+                //     Env::new_subexpression_with_capacity_without_offset(
+                //         parent_env.clone(),
+                //         // offset,
+                //     ),
+                // ));
 
                 // self.stack_index.push(self.stack.len() - 1);
 
@@ -2066,12 +2074,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
                 // closure_stack.push(Rc::clone(&stack_func));
                 // TODO this is where the memory leak is
-                self.env_stack.push(Rc::clone(&self.global_env));
+                // self.env_stack.push(Rc::clone(&self.global_env));
 
                 // Added this here too
                 // self.heap.add(Rc::clone(&self.global_env));
 
-                self.global_env = inner_env;
+                // self.global_env = inner_env;
                 self.instruction_stack.push(InstructionPointer::new(
                     self.ip + 1,
                     Rc::clone(&self.instructions),

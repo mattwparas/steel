@@ -248,26 +248,27 @@ impl FunctionContractExt for FunctionContract {
             let parent_env = function.sub_expression_env();
 
             // TODO remove this unwrap
-            let offset = function.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+            // let offset = function.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
+            // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+            //     parent_env.clone(),
+            //     offset,
+            // )));
 
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if function.ndef_body() > 0 {
-                    function.ndef_body() - 1
-                } else {
-                    0
-                });
+            // inner_env
+            //     .borrow_mut()
+            //     .reserve_defs(if function.ndef_body() > 0 {
+            //         function.ndef_body() - 1
+            //     } else {
+            //         0
+            //     });
 
+            // TODO remove the with arity
             vm_with_arity(
                 function.body_exp(),
                 &mut verified_args.into(),
                 local_heap,
-                inner_env,
+                parent_env.upgrade().unwrap(), // TODO remove this as well
                 constants,
                 callback,
                 self.arity(),

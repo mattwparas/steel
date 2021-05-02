@@ -106,20 +106,20 @@ fn exec_func<CT: ConstantTable>(
             let parent_env = closure.sub_expression_env();
 
             // TODO remove this unwrap
-            let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+            // let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
+            // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+            //     parent_env.clone(),
+            //     offset,
+            // )));
 
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if closure.ndef_body() > 0 {
-                    closure.ndef_body() - 1
-                } else {
-                    0
-                });
+            // inner_env
+            //     .borrow_mut()
+            //     .reserve_defs(if closure.ndef_body() > 0 {
+            //         closure.ndef_body() - 1
+            //     } else {
+            //         0
+            //     });
 
             // TODO make recursive call here with a very small stack
             // probably a bit overkill, but not much else I can do here I think
@@ -127,7 +127,7 @@ fn exec_func<CT: ConstantTable>(
                 closure.body_exp(),
                 &mut args.into(),
                 local_heap,
-                inner_env,
+                parent_env.upgrade().unwrap(), // TODO remove this part
                 constants,
                 callback,
                 upvalue_heap,
