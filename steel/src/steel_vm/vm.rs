@@ -552,7 +552,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn set_state_from_continuation(&mut self, mut continuation: Continuation) {
         // self.stack = continuation.stack;
 
-        std::mem::replace(self.stack, continuation.stack);
+        *self.stack = continuation.stack;
+
+        // std::mem::replace(self.stack, continuation.stack);
 
         // self.stacks = continuation.stacks;
         self.instructions = continuation.instructions;
@@ -566,8 +568,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // self.stack_index = continuation.stack_index;
         // self.function_stack = continuation.function_stack;
 
-        std::mem::replace(self.stack_index, continuation.stack_index);
-        std::mem::replace(self.function_stack, continuation.function_stack);
+        *self.stack_index = continuation.stack_index;
+        *self.function_stack = continuation.function_stack;
 
         self.upvalue_head = continuation.upvalue_head;
     }
@@ -928,7 +930,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             self.ip = prev_state.0;
                             self.instructions = prev_state.instrs();
                         } else {
-                            println!("################## empty case ##################");
+                            // println!("################## empty case ##################");
                             // println!("Pop count: {}", self.pop_count);
                             // println!("Stack: {:?}", self.stack);
                             // crate::core::instructions::pretty_print_dense_instructions(
@@ -961,7 +963,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // OpCode::NDEFS => {}
                 // OpCode::METALOOKUP => {}
                 _ => {
-                    crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     panic!("Unhandled opcode: {:?} @ {}", cur_inst.op_code, self.ip);
                 }
             }
@@ -1889,7 +1891,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
                 }
 
-                self.current_arity = Some(closure.arity());
+                // self.current_arity = Some(closure.arity());
 
                 if self.stack_index.len() == STACK_LIMIT {
                     // println!("stacks at exit: {:?}", stacks);
