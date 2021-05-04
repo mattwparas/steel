@@ -32,6 +32,7 @@ impl SymbolMap {
         for (idx, val) in rev_iter {
             // println!("{}", idx);
             if val == ident {
+                // println!("`get_or_add` - GET: {} @ {}", ident, idx);
                 return (idx, false);
             }
         }
@@ -39,7 +40,7 @@ impl SymbolMap {
         let idx = self.0.len();
         self.0.push(ident.to_string());
 
-        // println!("`get_or_add`: {} @ {}", ident, idx);
+        // println!("`get_or_add` - ADD: {} @ {}", ident, idx);
         // println!("Adding {} with index {}", ident, idx);
         // println!("{:?}", self.0);
 
@@ -58,8 +59,8 @@ impl SymbolMap {
         }
         let e = ident.to_string();
         // TODO come back to this - this is causing things to be renamed to 0 regardless
-        // stop!(FreeIdentifier => e)
-        Ok(0)
+        stop!(FreeIdentifier => e)
+        // Ok(0)
     }
 
     pub fn roll_back(&mut self, idx: usize) {

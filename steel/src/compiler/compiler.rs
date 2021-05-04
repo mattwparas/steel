@@ -91,14 +91,58 @@ fn collect_defines_from_current_scope(
     Ok(count)
 }
 
-fn collect_binds_from_current_scope(
+// fn collect_binds_from_current_scope(
+//     instructions: &mut [Instruction],
+//     symbol_map: &mut SymbolMap,
+//     start: usize,
+//     end: usize,
+// ) {
+//     let mut def_stack: usize = 0;
+//     for i in start..end {
+//         match &instructions[i] {
+//             Instruction {
+//                 op_code: OpCode::BIND,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         ..
+//                     }),
+//                 ..
+//             } => {
+//                 if def_stack == 1 {
+//                     let idx = symbol_map.add(s);
+//                     if let Some(x) = instructions.get_mut(i) {
+//                         x.payload_size = idx;
+//                         x.constant = false;
+//                     }
+//                 }
+//             }
+//             Instruction {
+//                 op_code: OpCode::SCLOSURE,
+//                 ..
+//             } => {
+//                 def_stack += 1;
+//             }
+//             Instruction {
+//                 op_code: OpCode::ECLOSURE,
+//                 ..
+//             } => {
+//                 if def_stack > 0 {
+//                     def_stack -= 1;
+//                 }
+//             }
+//             _ => {}
+//         }
+//     }
+// }
+
+fn replace_defines_with_debruijn_indices(
     instructions: &mut [Instruction],
     symbol_map: &mut SymbolMap,
-    start: usize,
-    end: usize,
-) {
-    let mut def_stack: usize = 0;
-    for i in start..end {
+) -> Result<()> {
+    // name mangle
+    // Replace all identifiers with indices
+    for i in 0..instructions.len() {
         match &instructions[i] {
             Instruction {
                 op_code: OpCode::BIND,
@@ -109,43 +153,15 @@ fn collect_binds_from_current_scope(
                     }),
                 ..
             } => {
-                if def_stack == 1 {
-                    let idx = symbol_map.add(s);
-                    if let Some(x) = instructions.get_mut(i) {
-                        x.payload_size = idx;
-                        x.constant = false;
-                    }
-                }
-            }
-            Instruction {
-                op_code: OpCode::SCLOSURE,
-                ..
-            } => {
-                def_stack += 1;
-            }
-            Instruction {
-                op_code: OpCode::ECLOSURE,
-                ..
-            } => {
-                if def_stack > 0 {
-                    def_stack -= 1;
+                let (idx, _) = symbol_map.get_or_add(s);
+
+                if let Some(x) = instructions.get_mut(i) {
+                    x.payload_size = idx;
                 }
             }
             _ => {}
         }
     }
-}
-
-fn insert_debruijn_indices(
-    instructions: &mut [Instruction],
-    symbol_map: &mut SymbolMap,
-) -> Result<()> {
-    let mut stack: Vec<usize> = Vec::new();
-    // Snag the defines that are going to be available from the global scope
-    let _ = collect_defines_from_current_scope(instructions, symbol_map)?;
-
-    // Snag the binds before the defines
-    // collect_binds_from_current_scope(instructions, symbol_map);
 
     // name mangle
     // Replace all identifiers with indices
@@ -156,6 +172,7 @@ fn insert_debruijn_indices(
                 contents:
                     Some(SyntaxObject {
                         ty: TokenType::Identifier(s),
+                        span,
                         ..
                     }),
                 ..
@@ -165,78 +182,16 @@ fn insert_debruijn_indices(
                 contents:
                     Some(SyntaxObject {
                         ty: TokenType::Identifier(s),
+                        span,
                         ..
                     }),
                 ..
             } => {
-                let (idx, _) = symbol_map.get_or_add(s);
-
-                // .map_err(|x| {
-                //     let sp = if let Some(syn) = &instructions[i].contents {
-                //         syn.span
-                //     } else {
-                //         Span::new(0, 0)
-                //     };
-
-                //     x.set_span(sp)
-                // })?;
-
-                // println!("Renaming: {} to index: {}", s, idx);
+                let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
 
                 // TODO commenting this for now
                 if let Some(x) = instructions.get_mut(i) {
                     x.payload_size = idx;
-                    x.constant = false;
-                }
-            }
-            // Is this even necessary?
-            Instruction {
-                op_code: OpCode::BIND,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        ..
-                    }),
-                ..
-            } => {
-                let (idx, _) = symbol_map.get_or_add(s);
-
-                if let Some(x) = instructions.get_mut(i) {
-                    x.payload_size = idx;
-                    // x.contents = None;
-                }
-            }
-            Instruction {
-                op_code: OpCode::SCLOSURE,
-                ..
-            } => {
-                stack.push(symbol_map.len());
-                // More stuff goes here
-                let payload = instructions[i].payload_size;
-
-                // Go through the current scope and collect binds from the lambds
-                collect_binds_from_current_scope(instructions, symbol_map, i, i + payload - 1);
-
-                // Go through the current scope and find defines and the count
-                let def_count = collect_defines_from_current_scope(
-                    &instructions[i + 1..(i + payload - 1)],
-                    symbol_map,
-                )?;
-                // Set the def count of the NDEFS instruction after the closure
-                // TODO
-                // if let Some(x) = instructions.get_mut(i + 1) {
-                //     x.payload_size = def_count;
-                // }
-            }
-            Instruction {
-                op_code: OpCode::ECLOSURE,
-                ..
-            } => symbol_map.roll_back(stack.pop().unwrap()),
-            Instruction {
-                op_code: OpCode::SDEF,
-                ..
-            } => {
-                if let Some(x) = instructions.get_mut(i) {
                     x.constant = false;
                 }
             }
@@ -246,6 +201,119 @@ fn insert_debruijn_indices(
 
     Ok(())
 }
+
+// fn top_level_debruijn_indices
+
+// fn insert_debruijn_indices(
+//     instructions: &mut [Instruction],
+//     symbol_map: &mut SymbolMap,
+// ) -> Result<()> {
+//     let mut stack: Vec<usize> = Vec::new();
+//     // Snag the defines that are going to be available from the global scope
+//     let _ = collect_defines_from_current_scope(instructions, symbol_map)?;
+
+//     // Snag the binds before the defines
+//     // collect_binds_from_current_scope(instructions, symbol_map);
+
+//     // name mangle
+//     // Replace all identifiers with indices
+//     for i in 0..instructions.len() {
+//         match &instructions[i] {
+//             Instruction {
+//                 op_code: OpCode::PUSH,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         ..
+//                     }),
+//                 ..
+//             }
+//             | Instruction {
+//                 op_code: OpCode::SET,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         ..
+//                     }),
+//                 ..
+//             } => {
+//                 let (idx, _) = symbol_map.get_or_add(s);
+
+//                 // .map_err(|x| {
+//                 //     let sp = if let Some(syn) = &instructions[i].contents {
+//                 //         syn.span
+//                 //     } else {
+//                 //         Span::new(0, 0)
+//                 //     };
+
+//                 //     x.set_span(sp)
+//                 // })?;
+
+//                 // println!("Renaming: {} to index: {}", s, idx);
+
+//                 // TODO commenting this for now
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.payload_size = idx;
+//                     x.constant = false;
+//                 }
+//             }
+//             // Is this even necessary?
+//             Instruction {
+//                 op_code: OpCode::BIND,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         ..
+//                     }),
+//                 ..
+//             } => {
+//                 let (idx, _) = symbol_map.get_or_add(s);
+
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.payload_size = idx;
+//                     // x.contents = None;
+//                 }
+//             }
+//             Instruction {
+//                 op_code: OpCode::SCLOSURE,
+//                 ..
+//             } => {
+//                 stack.push(symbol_map.len());
+//                 // More stuff goes here
+//                 let payload = instructions[i].payload_size;
+
+//                 // Go through the current scope and collect binds from the lambds
+//                 collect_binds_from_current_scope(instructions, symbol_map, i, i + payload - 1);
+
+//                 // Go through the current scope and find defines and the count
+//                 let def_count = collect_defines_from_current_scope(
+//                     &instructions[i + 1..(i + payload - 1)],
+//                     symbol_map,
+//                 )?;
+//                 // Set the def count of the NDEFS instruction after the closure
+//                 // TODO
+//                 // if let Some(x) = instructions.get_mut(i + 1) {
+//                 //     x.payload_size = def_count;
+//                 // }
+//             }
+//             Instruction {
+//                 op_code: OpCode::ECLOSURE,
+//                 ..
+//             } => symbol_map.roll_back(stack.pop().unwrap()),
+//             Instruction {
+//                 op_code: OpCode::SDEF,
+//                 ..
+//             } => {
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.constant = false;
+//                 }
+//             }
+//             _ => {}
+//         }
+//     }
+
+//     Ok(())
+// }
 
 // fn extract_constants<CT: ConstantTable>(
 //     instructions: &mut [Instruction],
@@ -506,7 +574,10 @@ impl Compiler {
 
         // println!("Got here!");
 
-        insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+        // insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+
+        replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+
         // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
         // coalesce_clears(&mut instruction_buffer);
 
