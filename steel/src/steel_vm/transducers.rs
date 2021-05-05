@@ -683,7 +683,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             }
             SteelVal::Closure(closure) => {
                 // ignore the stack limit here
-                let args = vec![acc?, x?];
+                // let args = vec![acc?, x?];
                 // if let Some()
 
                 // let parent_env = closure.sub_expression_env();
@@ -703,6 +703,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 //         0
                 //     });
 
+                // Set the state prior to the recursive call
+                vm_stack_index.borrow_mut().push(vm_stack.borrow().len());
+
+                vm_stack.borrow_mut().push(acc?);
+                vm_stack.borrow_mut().push(x?);
+
+                function_stack.borrow_mut().push(Gc::clone(closure));
+
                 let mut local_heap = Heap::new();
                 let mut local_upvalue_heap = UpValueHeap::new();
 
@@ -710,13 +718,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // probably a bit overkill, but not much else I can do here I think
                 vm(
                     closure.body_exp(),
-                    &mut args.into(),
+                    &mut vm_stack.borrow_mut(),
                     &mut local_heap,
                     &mut global_env_copy.borrow_mut(),
                     constants,
                     callback,
                     &mut local_upvalue_heap,
-                    &mut vec![Gc::clone(closure)],
+                    &mut function_stack.borrow_mut(),
                     &mut vm_stack_index_copy.borrow_mut(),
                 )
             }
