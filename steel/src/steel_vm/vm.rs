@@ -309,6 +309,7 @@ impl InstructionPointer {
         InstructionPointer(0, Rc::from(Vec::new().into_boxed_slice()))
     }
 
+    #[inline(always)]
     pub fn new(ip: usize, instrs: Rc<[DenseInstruction]>) -> Self {
         InstructionPointer(ip, instrs)
     }
@@ -969,10 +970,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 }
             }
 
-            match self.callback.call_and_increment() {
-                Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
-                _ => {}
-            }
+            // TODO
+            // match self.callback.call_and_increment() {
+            //     Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
+            //     _ => {}
+            // }
         }
 
         error!(
@@ -1883,7 +1885,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.function_stack.push(Gc::clone(closure));
 
                 if closure.arity() != payload_size {
-                    println!("Stack: {:?}", self.stack);
                     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
                 }
 
@@ -1891,7 +1892,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 if self.stack_index.len() == STACK_LIMIT {
                     // println!("stacks at exit: {:?}", stacks);
-                    println!("stack frame at exit: {:?}", self.stack);
+                    // println!("stack frame at exit: {:?}", self.stack);
                     stop!(Generic => "stack overflowed!"; *span);
                 }
 
