@@ -745,7 +745,7 @@ pub struct ByteCodeLambda {
     // parent_env: Option<Rc<RefCell<Env>>>,
     /// parent subenvironment that created this lambda.
     /// the actual environment gets upgraded at runtime if needed
-    sub_expression_env: Weak<RefCell<Env>>,
+    // sub_expression_env: Weak<RefCell<Env>>,
     // bytecode instruction body
     // body_byte: Vec<Instruction>,
     offset: usize,
@@ -763,7 +763,7 @@ impl PartialEq for ByteCodeLambda {
 impl Hash for ByteCodeLambda {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.body_exp.as_ptr().hash(state);
-        self.sub_expression_env.as_ptr().hash(state);
+        // self.sub_expression_env.as_ptr().hash(state);
     }
 }
 
@@ -771,7 +771,7 @@ impl ByteCodeLambda {
     pub fn new(
         body_exp: Vec<DenseInstruction>,
         // parent_env: Option<Rc<RefCell<Env>>>,
-        sub_expression_env: Weak<RefCell<Env>>,
+        // sub_expression_env: Weak<RefCell<Env>>,
         offset: usize,
         arity: usize,
         ndef_body: usize,
@@ -780,7 +780,7 @@ impl ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
             // parent_env,
-            sub_expression_env,
+            // sub_expression_env,
             offset,
             arity,
             ndef_body,
@@ -792,9 +792,9 @@ impl ByteCodeLambda {
         Rc::clone(&self.body_exp)
     }
 
-    pub fn sub_expression_env(&self) -> &Weak<RefCell<Env>> {
-        &self.sub_expression_env
-    }
+    // pub fn sub_expression_env(&self) -> &Weak<RefCell<Env>> {
+    //     &self.sub_expression_env
+    // }
 
     pub fn offset(&self) -> usize {
         self.offset

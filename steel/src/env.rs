@@ -116,13 +116,13 @@ macro_rules! gen_pred {
 #[derive(Debug)]
 pub struct Env {
     bindings_vec: Vec<SteelVal>,
-    bindings_map: BTreeMap<usize, SteelVal>,
-    offset: usize,
-    sub_expression: Option<Weak<RefCell<Env>>>,
-    is_binding_context: bool,
-    is_binding_offset: bool,
-    reachable: bool,
-    id: usize,
+    // bindings_map: BTreeMap<usize, SteelVal>,
+    // offset: usize,
+    // sub_expression: Option<Weak<RefCell<Env>>>,
+    // is_binding_context: bool,
+    // is_binding_offset: bool,
+    // reachable: bool,
+    // id: usize,
 }
 
 // impl Drop for Env {
@@ -145,54 +145,54 @@ impl Env {
     pub fn new(offset: usize) -> Self {
         Env {
             bindings_vec: Vec::new(),
-            bindings_map: BTreeMap::default(),
-            offset,
-            sub_expression: None,
-            is_binding_context: false,
-            is_binding_offset: false,
-            reachable: false,
-            id: ENV_ID.fetch_add(1, Ordering::SeqCst),
+            // bindings_map: BTreeMap::default(),
+            // offset,
+            // sub_expression: None,
+            // is_binding_context: false,
+            // is_binding_offset: false,
+            // reachable: false,
+            // id: ENV_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
-    pub fn set_reachable(&mut self, b: bool) {
-        self.reachable = b;
-    }
+    // pub fn set_reachable(&mut self, b: bool) {
+    //     self.reachable = b;
+    // }
 
-    pub fn is_reachable(&self) -> bool {
-        self.reachable
-    }
+    // pub fn is_reachable(&self) -> bool {
+    //     self.reachable
+    // }
 
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
-        self.bindings_map.get(&idx).cloned()
+        self.bindings_vec.get(idx).cloned()
     }
 
     pub fn len(&self) -> usize {
         self.bindings_vec.len()
     }
 
-    pub fn local_offset(&self) -> usize {
-        self.offset
-    }
+    // pub fn local_offset(&self) -> usize {
+    //     self.offset
+    // }
 
     pub fn new_subexpression(sub_expression: Weak<RefCell<Self>>, offset: usize) -> Self {
         Env {
             // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
             // bindings_map: HashMap::default(),
-            bindings_map: BTreeMap::default(),
-            offset,
+            // bindings_map: BTreeMap::default(),
+            // offset,
             // parent: None,
-            sub_expression: Some(sub_expression),
+            // sub_expression: Some(sub_expression),
             // weak_count: 0,
             // children: SmallVec::new(),
             // children: HashSet::new(),
-            is_binding_context: false,
-            is_binding_offset: false,
+            // is_binding_context: false,
+            // is_binding_offset: false,
             // module: Vec::new(),
             // ndefs: 0,
-            reachable: false,
-            id: ENV_ID.fetch_add(1, Ordering::SeqCst),
+            // reachable: false,
+            // id: ENV_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -204,19 +204,19 @@ impl Env {
             // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
             // bindings_map: HashMap::with_capacity_and_hasher(capacity, RandomState::new()),
-            bindings_map: BTreeMap::default(),
-            offset,
+            // bindings_map: BTreeMap::default(),
+            // offset,
             // parent: None,
-            sub_expression: Some(sub_expression),
+            // sub_expression: Some(sub_expression),
             // weak_count: 0,
             // children: SmallVec::new(),
             // children: HashSet::new(),
-            is_binding_context: false,
-            is_binding_offset: false,
+            // is_binding_context: false,
+            // is_binding_offset: false,
             // module: Vec::new(),
             // ndefs: 0,
-            reachable: false,
-            id: ENV_ID.fetch_add(1, Ordering::SeqCst),
+            // reachable: false,
+            // id: ENV_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -227,19 +227,19 @@ impl Env {
             // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
             // bindings_map: HashMap::with_capacity_and_hasher(capacity, RandomState::new()),
-            bindings_map: BTreeMap::default(),
-            offset: 0,
+            // bindings_map: BTreeMap::default(),
+            // offset: 0,
             // parent: None,
-            sub_expression: Some(sub_expression),
+            // sub_expression: Some(sub_expression),
             // weak_count: 0,
             // children: SmallVec::new(),
             // children: HashSet::new(),
-            is_binding_context: false,
-            is_binding_offset: false,
+            // is_binding_context: false,
+            // is_binding_offset: false,
             // module: Vec::new(),
             // ndefs: 0,
-            reachable: false,
-            id: ENV_ID.fetch_add(1, Ordering::SeqCst),
+            // reachable: false,
+            // id: ENV_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -247,25 +247,25 @@ impl Env {
     //     self.ndefs = ndefs
     // }
 
-    pub fn is_binding_context(&self) -> bool {
-        self.is_binding_context
-    }
+    // pub fn is_binding_context(&self) -> bool {
+    //     self.is_binding_context
+    // }
 
-    pub fn set_binding_context(&mut self, b: bool) {
-        self.is_binding_context = b;
-    }
+    // pub fn set_binding_context(&mut self, b: bool) {
+    //     self.is_binding_context = b;
+    // }
 
-    pub fn is_binding_offset(&self) -> bool {
-        self.is_binding_offset
-    }
+    // pub fn is_binding_offset(&self) -> bool {
+    //     self.is_binding_offset
+    // }
 
-    pub fn set_binding_offset(&mut self, b: bool) {
-        self.is_binding_offset = b;
-    }
+    // pub fn set_binding_offset(&mut self, b: bool) {
+    //     self.is_binding_offset = b;
+    // }
 
-    pub fn is_root(&self) -> bool {
-        self.sub_expression.is_none()
-    }
+    // pub fn is_root(&self) -> bool {
+    //     self.sub_expression.is_none()
+    // }
 
     /// top level global env has no parent
     pub fn root() -> Self {
@@ -273,43 +273,43 @@ impl Env {
             // bindings: HashMap::new(),
             bindings_vec: Vec::new(),
             // bindings_map: HashMap::default(),
-            bindings_map: BTreeMap::default(),
-            offset: 0,
+            // bindings_map: BTreeMap::default(),
+            // offset: 0,
             // parent: None,
-            sub_expression: None,
+            // sub_expression: None,
             // weak_count: 0,
             // children: SmallVec::new(),
-            is_binding_context: false,
-            is_binding_offset: false,
+            // is_binding_context: false,
+            // is_binding_offset: false,
             // module: Vec::new(),
             // ndefs: 0,
-            reachable: true,
-            id: ENV_ID.fetch_add(1, Ordering::SeqCst),
+            // reachable: true,
+            // id: ENV_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
-    pub fn sub_expression(&self) -> &Option<Weak<RefCell<Env>>> {
-        &self.sub_expression
-    }
+    // pub fn sub_expression(&self) -> &Option<Weak<RefCell<Env>>> {
+    //     &self.sub_expression
+    // }
 
     // pub fn bindings_map(&self) -> &HashMap<usize, SteelVal, RandomState> {
     //     &self.bindings_map
     // }
 
-    pub fn bindings_map(&self) -> &BTreeMap<usize, SteelVal> {
-        &self.bindings_map
-    }
+    // pub fn bindings_map(&self) -> &BTreeMap<usize, SteelVal> {
+    //     &self.bindings_map
+    // }
 
-    pub fn string_bindings_vec(&self) -> String {
-        // format!("{:?}", self.bindings_map)
-        let mut vec_str = self
-            .bindings_map
-            .iter()
-            .map(|x| format!("{:?}", x))
-            .collect::<Vec<String>>();
-        vec_str.sort();
-        format!("{:?}", vec_str)
-    }
+    // pub fn string_bindings_vec(&self) -> String {
+    //     // format!("{:?}", self.bindings_map)
+    //     let mut vec_str = self
+    //         .bindings_map
+    //         .iter()
+    //         .map(|x| format!("{:?}", x))
+    //         .collect::<Vec<String>>();
+    //     vec_str.sort();
+    //     format!("{:?}", vec_str)
+    // }
 
     pub fn define_idx(&mut self, idx: usize, val: SteelVal) {
         // println!("Defining value: {:?} at idx: {}", val, idx);
@@ -361,109 +361,124 @@ impl Env {
     pub fn repl_lookup_idx(&self, idx: usize) -> Result<SteelVal> {
         // unimplemented!()
         // println!("{:?}", self.bindings.keys());
-        if let Some(v) = self.bindings_map.get(&idx) {
-            // value needs to be cloned because
-            // user needs to be able to own a persistent value
-            // from Cell that may be modified later
-            Ok(v.clone())
-        } else {
-            match &self.sub_expression {
-                Some(par) => match par.upgrade() {
-                    Some(x) => x.borrow().repl_lookup_idx(idx),
-                    None => {
-                        println!("Bindings at quit: {:?}", self.bindings_map());
-                        println!("Current Env ID: {}", self.id);
-                        stop!(Generic => "Parent subexpression was dropped looking for {} repl_lookup_idx", idx)
-                    }
-                },
-                None => {
-                    println!(
-                        "Keys at lookup: {:?}",
-                        self.bindings_map.keys().collect::<Vec<&usize>>()
-                    );
-                    stop!(FreeIdentifier => idx);
-                }
-            }
-        }
+
+        Ok(self.bindings_vec[idx].clone())
+
+        // if let Some(v) = self.bindings_map.get(&idx) {
+        //     // value needs to be cloned because
+        //     // user needs to be able to own a persistent value
+        //     // from Cell that may be modified later
+        //     Ok(v.clone())
+        // } else {
+        //     match &self.sub_expression {
+        //         Some(par) => match par.upgrade() {
+        //             Some(x) => x.borrow().repl_lookup_idx(idx),
+        //             None => {
+        //                 println!("Bindings at quit: {:?}", self.bindings_map());
+        //                 println!("Current Env ID: {}", self.id);
+        //                 stop!(Generic => "Parent subexpression was dropped looking for {} repl_lookup_idx", idx)
+        //             }
+        //         },
+        //         None => {
+        //             println!(
+        //                 "Keys at lookup: {:?}",
+        //                 self.bindings_map.keys().collect::<Vec<&usize>>()
+        //             );
+        //             stop!(FreeIdentifier => idx);
+        //         }
+        //     }
+        // }
     }
 
     #[inline]
     pub fn repl_define_idx(&mut self, idx: usize, val: SteelVal) {
-        self.bindings_map.insert(idx, val);
+        // self.bindings_map.insert(idx, val);
         // unimplemented!()
+        if idx < self.bindings_vec.len() {
+            self.bindings_vec[idx] = val;
+        } else {
+            // println!("Index: {}, length: {}", idx, self.bindings_vec.len());
+            self.bindings_vec.push(val);
+            assert_eq!(self.bindings_vec.len() - 1, idx);
+        }
     }
 
     pub fn repl_set_idx(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
-        if self.bindings_map.contains_key(&idx) {
-            Ok(self.bindings_map.insert(idx, val).unwrap())
-        } else {
-            match &self.sub_expression {
-                Some(par) => match par.upgrade() {
-                    Some(x) => x.borrow_mut().repl_set_idx(idx, val),
-                    None => {
-                        stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
-                    }
-                },
-                None => stop!(FreeIdentifier => idx),
-            }
-        }
+        let output = self.bindings_vec[idx].clone();
+        self.bindings_vec[idx] = val;
+        Ok(output)
+
+        // if self.bindings_map.contains_key(&idx) {
+        //     Ok(self.bindings_map.insert(idx, val).unwrap())
+        // } else {
+        //     match &self.sub_expression {
+        //         Some(par) => match par.upgrade() {
+        //             Some(x) => x.borrow_mut().repl_set_idx(idx, val),
+        //             None => {
+        //                 stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
+        //             }
+        //         },
+        //         None => stop!(FreeIdentifier => idx),
+        //     }
+        // }
     }
 
-    pub fn lookup_idx(&self, idx: usize) -> Result<SteelVal> {
-        let offset = self.offset;
-        // println!("Looking up {}, with offset: {}", idx, offset);
-        // println!("{:?}", self.bindings_vec);
+    // pub fn lookup_idx(&self, idx: usize) -> Result<SteelVal> {
+    //     let offset = self.offset;
+    //     // println!("Looking up {}, with offset: {}", idx, offset);
+    //     // println!("{:?}", self.bindings_vec);
 
-        // if offset != 0 {
-        //     offset = offset - 1;
-        // }
+    //     // if offset != 0 {
+    //     //     offset = offset - 1;
+    //     // }
 
-        // if self.sub_expression.is_some() {
-        //     offset = offset + 1;
-        // }
+    //     // if self.sub_expression.is_some() {
+    //     //     offset = offset + 1;
+    //     // }
 
-        if idx >= offset {
-            let lookup = idx - offset;
+    //     if idx >= offset {
+    //         let lookup = idx - offset;
 
-            // let lookup = if self.sub_expression.is_some() {
-            //     (self.bindings_vec.len() - 1) - (idx - offset + 1)
-            // } else {
-            //     idx - offset
-            // };
+    //         // let lookup = if self.sub_expression.is_some() {
+    //         //     (self.bindings_vec.len() - 1) - (idx - offset + 1)
+    //         // } else {
+    //         //     idx - offset
+    //         // };
 
-            // let updated_offset = if offset != 0 { offset + 1 } else { offset };
+    //         // let updated_offset = if offset != 0 { offset + 1 } else { offset };
 
-            if let Some(v) = self.bindings_vec.get(lookup) {
-                // println!("Found {:?}", v);
-                Ok(v.clone())
-            } else {
-                // println!(
-                //     "Looking up idx: {} with length {}",
-                //     idx,
-                //     self.bindings_vec.len()
-                // );
+    //         if let Some(v) = self.bindings_vec.get(lookup) {
+    //             // println!("Found {:?}", v);
+    //             Ok(v.clone())
+    //         } else {
+    //             // println!(
+    //             //     "Looking up idx: {} with length {}",
+    //             //     idx,
+    //             //     self.bindings_vec.len()
+    //             // );
 
-                stop!(FreeIdentifier => "Internal Compiler Error - unable to find idx: {} with length: {}", lookup, self.bindings_vec.len());
-            }
-        // }
-        // if let Some(v) = self.bindings_vec.get(idx - self.offset) {
-        //     Ok(Rc::clone(v))
-        } else {
-            match &self.sub_expression {
-                Some(par) => match par.upgrade() {
-                    Some(x) => x.borrow().lookup_idx(idx),
-                    None => {
-                        stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
-                    }
-                },
-                None => stop!(FreeIdentifier => idx),
-            }
-        }
-    }
+    //             stop!(FreeIdentifier => "Internal Compiler Error - unable to find idx: {} with length: {}", lookup, self.bindings_vec.len());
+    //         }
+    //     // }
+    //     // if let Some(v) = self.bindings_vec.get(idx - self.offset) {
+    //     //     Ok(Rc::clone(v))
+    //     } else {
+    //         match &self.sub_expression {
+    //             Some(par) => match par.upgrade() {
+    //                 Some(x) => x.borrow().lookup_idx(idx),
+    //                 None => {
+    //                     stop!(Generic => "Parent subexpression was dropped looking for {}", idx)
+    //                 }
+    //             },
+    //             None => stop!(FreeIdentifier => idx),
+    //         }
+    //     }
+    // }
 
     #[inline]
     pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
-        self.bindings_map.insert(idx, val);
+        // self.bindings_map.insert(idx, val);
+        self.repl_define_idx(idx, val);
     }
 
     // bit of a quality of life hack

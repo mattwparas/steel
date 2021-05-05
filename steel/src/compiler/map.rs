@@ -26,14 +26,14 @@ impl SymbolMap {
         self.0.clone()
     }
 
-    pub fn get_or_add(&mut self, ident: &str) -> (usize, bool) {
+    pub fn get_or_add(&mut self, ident: &str) -> usize {
         let rev_iter = self.0.iter().enumerate().rev();
 
         for (idx, val) in rev_iter {
             // println!("{}", idx);
             if val == ident {
                 // println!("`get_or_add` - GET: {} @ {}", ident, idx);
-                return (idx, false);
+                return idx;
             }
         }
 
@@ -44,7 +44,7 @@ impl SymbolMap {
         // println!("Adding {} with index {}", ident, idx);
         // println!("{:?}", self.0);
 
-        (idx, true)
+        idx
     }
 
     // fallible
@@ -86,14 +86,15 @@ impl SymbolMap {
         let mut indices = Vec::new();
 
         // Constructor
-        indices.push(self.add(&struct_builder.name));
+        indices.push(self.get_or_add(&struct_builder.name));
         // Predicate
-        indices.push(self.add(format!("{}?", &struct_builder.name).as_str()));
+        indices.push(self.get_or_add(format!("{}?", &struct_builder.name).as_str()));
         for field in &struct_builder.fields {
             // Getter
-            indices.push(self.add(format!("{}-{}", &struct_builder.name, field).as_str()));
+            indices.push(self.get_or_add(format!("{}-{}", &struct_builder.name, field).as_str()));
             // Setter
-            indices.push(self.add(format!("set-{}-{}!", &struct_builder.name, field).as_str()));
+            indices
+                .push(self.get_or_add(format!("set-{}-{}!", &struct_builder.name, field).as_str()));
         }
 
         indices

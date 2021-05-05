@@ -30,6 +30,7 @@ pub(crate) trait ContractedFunctionExt {
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<SteelVal>;
 }
 
@@ -42,6 +43,7 @@ impl ContractedFunctionExt for ContractedFunction {
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<SteelVal> {
         // Walk back and find the contracts to apply
         {
@@ -56,6 +58,7 @@ impl ContractedFunctionExt for ContractedFunction {
                     cur_inst_span,
                     callback,
                     upvalue_heap,
+                    global_env,
                 )?;
 
                 parent = p.parent()
@@ -71,6 +74,7 @@ impl ContractedFunctionExt for ContractedFunction {
             cur_inst_span,
             callback,
             upvalue_heap,
+            global_env,
         )
     }
 }
@@ -85,6 +89,7 @@ pub(crate) trait FlatContractExt {
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<()>;
 }
 
@@ -97,30 +102,31 @@ impl FlatContractExt for FlatContract {
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<()> {
         let arg_vec = vec![arg.clone()];
         let output = match self.predicate() {
             SteelVal::FuncV(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
             SteelVal::BoxedFunction(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
             SteelVal::Closure(closure) => {
-                let parent_env = closure.sub_expression_env();
+                // let parent_env = closure.sub_expression_env();
 
                 // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
+                // let offset =
+                //     closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
 
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                    parent_env.clone(),
-                    offset,
-                )));
+                // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
+                //     parent_env.clone(),
+                //     offset,
+                // )));
 
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
+                // inner_env
+                //     .borrow_mut()
+                //     .reserve_defs(if closure.ndef_body() > 0 {
+                //         closure.ndef_body() - 1
+                //     } else {
+                //         0
+                //     });
 
                 // TODO make recursive call here with a very small stack
                 // probably a bit overkill, but not much else I can do here I think
@@ -128,7 +134,7 @@ impl FlatContractExt for FlatContract {
                     closure.body_exp(),
                     &mut arg_vec.into(),
                     local_heap,
-                    inner_env,
+                    global_env,
                     constants,
                     callback,
                     upvalue_heap,
@@ -159,6 +165,7 @@ pub(crate) trait FunctionContractExt {
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<SteelVal>;
 }
 
@@ -173,6 +180,7 @@ impl FunctionContractExt for FunctionContract {
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<SteelVal> {
         let mut verified_args = Vec::new();
 
@@ -193,6 +201,7 @@ impl FunctionContractExt for FunctionContract {
                         cur_inst_span,
                         callback,
                         upvalue_heap,
+                        global_env,
                     ) {
                         debug!(
                             "Blame locations: {:?}, {:?}",
@@ -245,7 +254,7 @@ impl FunctionContractExt for FunctionContract {
         }
 
         let output = {
-            let parent_env = function.sub_expression_env();
+            // let parent_env = function.sub_expression_env();
 
             // TODO remove this unwrap
             // let offset = function.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
@@ -268,7 +277,7 @@ impl FunctionContractExt for FunctionContract {
                 function.body_exp(),
                 &mut verified_args.into(),
                 local_heap,
-                parent_env.upgrade().unwrap(), // TODO remove this as well
+                global_env, // TODO remove this as well
                 constants,
                 callback,
                 self.arity(),
@@ -291,6 +300,7 @@ impl FunctionContractExt for FunctionContract {
                     cur_inst_span,
                     callback,
                     upvalue_heap,
+                    global_env,
                 ) {
                     debug!(
                         "Blame locations: {:?}, {:?}",

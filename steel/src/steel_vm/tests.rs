@@ -320,23 +320,30 @@ mod register_type_tests {
 
 #[cfg(test)]
 mod stream_tests {
-    use crate::compiler::constants::ConstantMap;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
     use crate::parser::span::Span;
     use crate::steel_vm::evaluation_progress::EvaluationProgress;
     use crate::steel_vm::lazy_stream::LazyStreamIter;
     use crate::steel_vm::test_util::assert_script;
     use crate::values::lazy_stream::LazyStream;
+    use crate::{compiler::constants::ConstantMap, env::Env};
 
     #[test]
     fn test_empty_stream_creates_no_iter() {
         let constants = ConstantMap::new();
         let cur_inst_span = Span::new(0, 0);
         let callback = EvaluationProgress::new();
+        let mut global_env = Env::root();
+        let mut mut_ref = &mut global_env;
+
         let lazy_iter = LazyStreamIter::new(
             LazyStream::new_empty_stream(),
             &constants,
             &cur_inst_span,
             &callback,
+            Rc::new(RefCell::new(&mut mut_ref)),
         );
 
         assert!(lazy_iter.into_iter().next().is_none());

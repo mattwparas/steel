@@ -45,7 +45,7 @@ use log::error;
 const STACK_LIMIT: usize = 100000;
 
 pub struct VirtualMachineCore {
-    global_env: Rc<RefCell<Env>>,
+    global_env: Env,
     global_heap: Heap,
     global_upvalue_heap: UpValueHeap,
     callback: EvaluationProgress,
@@ -54,7 +54,7 @@ pub struct VirtualMachineCore {
 impl VirtualMachineCore {
     pub fn new() -> VirtualMachineCore {
         VirtualMachineCore {
-            global_env: Rc::new(RefCell::new(Env::root())),
+            global_env: Env::root(),
             global_heap: Heap::new(),
             global_upvalue_heap: UpValueHeap::new(),
             callback: EvaluationProgress::new(),
@@ -62,11 +62,11 @@ impl VirtualMachineCore {
     }
 
     pub fn insert_binding(&mut self, idx: usize, value: SteelVal) {
-        self.global_env.borrow_mut().add_root_value(idx, value);
+        self.global_env.add_root_value(idx, value);
     }
 
     pub fn extract_value(&self, idx: usize) -> Option<SteelVal> {
-        self.global_env.borrow().extract(idx)
+        self.global_env.extract(idx)
     }
 
     pub fn on_progress(&mut self, callback: Callback) {
@@ -147,7 +147,7 @@ impl VirtualMachineCore {
         self.global_heap.profile_heap();
 
         self.global_heap.drop_large_refs();
-        self.global_heap.gather_big_mark_and_sweep(&self.global_env);
+        // self.global_heap.gather_big_mark_and_sweep(&self.global_env);
 
         self.global_heap.profile_heap();
 
@@ -257,13 +257,13 @@ impl VirtualMachineCore {
         let mut heap = Heap::new();
 
         // give access to the global root via this method
-        heap.plant_root(Rc::downgrade(&self.global_env));
+        // heap.plant_root(Rc::downgrade(&self.global_env));
 
         let result = vm(
             instructions,
             &mut stack,
             &mut heap,
-            Rc::clone(&self.global_env),
+            &mut self.global_env,
             constant_map,
             &self.callback,
             &mut self.global_upvalue_heap,
@@ -271,10 +271,10 @@ impl VirtualMachineCore {
             &mut stack_index,
         );
 
-        if self.global_env.borrow().is_binding_context() {
-            // self.global_heap.append(&mut heap);
-            self.global_env.borrow_mut().set_binding_context(false);
-        }
+        // if self.global_env.borrow().is_binding_context() {
+        //     // self.global_heap.append(&mut heap);
+        //     self.global_env.borrow_mut().set_binding_context(false);
+        // }
 
         self.global_heap.append(&mut heap);
 
@@ -284,7 +284,7 @@ impl VirtualMachineCore {
         // );
 
         // TODO collect garbage
-        self.global_heap.collect_garbage();
+        // self.global_heap.collect_garbage();
 
         // self.global_heap.drop_large_refs();
 
@@ -330,8 +330,8 @@ pub struct Continuation {
     instructions: Rc<[DenseInstruction]>,
     instruction_stack: Stack<InstructionPointer>,
     stack_index: Stack<usize>,
-    global_env: Rc<RefCell<Env>>,
-    env_stack: EnvStack,
+    // global_env: Rc<RefCell<Env>>,
+    // env_stack: EnvStack,
     ip: usize,
     pop_count: usize,
     function_stack: Vec<Gc<ByteCodeLambda>>,
@@ -367,7 +367,7 @@ pub(crate) struct VmCore<'a, CT: ConstantTable> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: &'a mut StackFrame,
     pub(crate) heap: &'a mut Heap,
-    pub(crate) global_env: Rc<RefCell<Env>>,
+    pub(crate) global_env: &'a mut Env,
     pub(crate) instruction_stack: Stack<InstructionPointer>,
     // stacks: CallStack,
     pub(crate) stack_index: &'a mut Stack<usize>,
@@ -387,7 +387,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         instructions: Rc<[DenseInstruction]>,
         stack: &'a mut StackFrame,
         heap: &'a mut Heap,
-        global_env: Rc<RefCell<Env>>,
+        global_env: &'a mut Env,
         constants: &'a CT,
         callback: &'a EvaluationProgress,
         upvalue_heap: &'a mut UpValueHeap,
@@ -539,8 +539,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             instructions: Rc::clone(&self.instructions),
             instruction_stack: self.instruction_stack.clone(),
             stack_index: self.stack_index.clone(),
-            global_env: Rc::clone(&self.global_env),
-            env_stack: self.env_stack.clone(), // I am concerned that this will lead to a memory leak
+            // global_env: &self.global_env,
+            // env_stack: self.env_stack.clone(), // I am concerned that this will lead to a memory leak
             ip: self.ip,
             pop_count: self.pop_count,
             function_stack: self.function_stack.clone(),
@@ -549,7 +549,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
-    fn set_state_from_continuation(&mut self, mut continuation: Continuation) {
+    fn set_state_from_continuation(&mut self, continuation: Continuation) {
         // self.stack = continuation.stack;
 
         *self.stack = continuation.stack;
@@ -559,8 +559,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // self.stacks = continuation.stacks;
         self.instructions = continuation.instructions;
         self.instruction_stack = continuation.instruction_stack;
-        self.global_env = continuation.global_env;
-        self.env_stack = continuation.env_stack;
+        // self.global_env = continuation.global_env;
+        // self.env_stack = continuation.env_stack;
         self.ip = continuation.ip;
         self.pop_count = continuation.pop_count;
 
@@ -655,24 +655,24 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             self.stack.push(continuation);
                             // self.stack_index.push(self.stack.len());
 
-                            let parent_env = closure.sub_expression_env();
+                            // let parent_env = closure.sub_expression_env();
 
-                            let inner_env = Rc::new(RefCell::new(
-                                Env::new_subexpression_with_capacity_without_offset(
-                                    parent_env.clone(),
-                                ),
-                            ));
+                            // let inner_env = Rc::new(RefCell::new(
+                            //     Env::new_subexpression_with_capacity_without_offset(
+                            //         parent_env.clone(),
+                            //     ),
+                            // ));
 
                             // let result =
                             // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
                             // closure_stack.push(Rc::clone(&stack_func));
                             // TODO this is where the memory leak is
-                            self.env_stack.push(Rc::clone(&self.global_env));
+                            // self.env_stack.push(Rc::clone(&self.global_env));
 
                             // added this here
                             // self.heap.add(Rc::clone(&self.global_env));
 
-                            self.global_env = inner_env;
+                            // self.global_env = inner_env;
                             self.instruction_stack.push(InstructionPointer::new(
                                 self.ip + 1,
                                 Rc::clone(&self.instructions),
@@ -760,7 +760,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     self.ip = cur_inst.payload_size as usize;
                     // HACK
                     if self.ip == 0 && self.heap.len() > self.heap.limit() {
-                        self.heap.collect_garbage();
+                        // TODO collect here
+                        // self.heap.collect_garbage();
                     }
 
                     if self.ip == 0 {
@@ -835,18 +836,18 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     // println!("POP COUNT: {}", self.pop_count);
                     // println!("STACK INDEX LENGTH: {}", self.stack_index.len());
                     if self.pop_count == 0 {
-                        self.env_stack.clear();
+                        // self.env_stack.clear();
 
-                        if cur_inst.payload_size as usize == 1 {
-                            self.global_env.borrow_mut().set_binding_context(true);
-                        }
+                        // if cur_inst.payload_size as usize == 1 {
+                        //     self.global_env.borrow_mut().set_binding_context(true);
+                        // }
 
                         let ret_val = self.stack.try_pop().ok_or_else(|| {
                             SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
                                 .with_span(cur_inst.span)
                         });
 
-                        self.global_env.borrow_mut().set_binding_offset(false);
+                        // self.global_env.borrow_mut().set_binding_offset(false);
 
                         // println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
 
@@ -954,7 +955,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 OpCode::SCLOSURE => self.handle_start_closure(cur_inst.payload_size as usize),
                 OpCode::SDEF => self.handle_start_def(),
                 OpCode::EDEF => {
-                    self.global_env.borrow_mut().set_binding_context(false);
+                    // self.global_env.borrow_mut().set_binding_context(false);
                     self.ip += 1;
                 }
 
@@ -1101,7 +1102,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 stop!(Generic => "Index wrong in structs")
             };
 
-            self.global_env.borrow_mut().repl_define_idx(idx, func);
+            self.global_env.repl_define_idx(idx, func);
         }
         Ok(())
     }
@@ -1162,10 +1163,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
         }
 
-        let value = self
-            .global_env
-            .borrow_mut()
-            .repl_set_idx(index, value_to_assign)?;
+        let value = self.global_env.repl_set_idx(index, value_to_assign)?;
 
         self.stack.push(value);
         self.ip += 1;
@@ -1179,7 +1177,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         // println!("Looking up: {}", index);
 
-        let value = self.global_env.borrow().repl_lookup_idx(index)?;
+        let value = self.global_env.repl_lookup_idx(index)?;
 
         // println!("pushing: {}", value);
         self.stack.push(value);
@@ -1283,8 +1281,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_start_closure(&mut self, offset: usize) {
-        // println!("Starting closure");
-
         self.ip += 1;
 
         let forward_jump = offset - 1;
@@ -1389,7 +1385,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // inspect_heap(&heap);
         let constructed_lambda = ByteCodeLambda::new(
             closure_body,
-            Rc::downgrade(&self.global_env),
+            // Rc::downgrade(&self.global_env),
             0,
             arity as usize,
             ndefs as usize,
@@ -1410,7 +1406,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     #[inline(always)]
     fn handle_bind(&mut self, payload_size: usize) {
         self.global_env
-            .borrow_mut()
             .repl_define_idx(payload_size, self.stack.pop().unwrap());
 
         // TODO handle the offset situation
@@ -1801,6 +1796,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             span,
             self.callback,
             &mut self.upvalue_heap,
+            self.global_env,
         )?;
 
         self.stack.push(result);
@@ -1989,8 +1985,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn handle_start_def(&mut self) {
         self.ip += 1;
 
-        self.global_env.borrow_mut().set_binding_context(true);
-        self.global_env.borrow_mut().set_binding_offset(false);
+        // self.global_env.borrow_mut().set_binding_context(true);
+        // self.global_env.borrow_mut().set_binding_offset(false);
 
         // TODO
         // println!("!!! Pushing onto stack_index: {} !!!", self.stack.len());
@@ -2116,7 +2112,7 @@ pub(crate) fn vm<CT: ConstantTable>(
     instructions: Rc<[DenseInstruction]>,
     stack: &mut StackFrame,
     heap: &mut Heap,
-    global_env: Rc<RefCell<Env>>,
+    global_env: &mut Env,
     constants: &CT,
     callback: &EvaluationProgress,
     upvalue_heap: &mut UpValueHeap,
@@ -2141,7 +2137,7 @@ pub(crate) fn vm_with_arity<CT: ConstantTable>(
     instructions: Rc<[DenseInstruction]>,
     stack: &mut StackFrame,
     heap: &mut Heap,
-    global_env: Rc<RefCell<Env>>,
+    global_env: &mut Env,
     constants: &CT,
     callback: &EvaluationProgress,
     arity: usize,

@@ -59,7 +59,7 @@ fn collect_defines_from_current_scope(
             } => {
                 if def_stack == 0 {
                     if bindings.insert(s) {
-                        let (_idx, _) = symbol_map.get_or_add(s);
+                        let _idx = symbol_map.get_or_add(s);
                         count += 1;
                     }
                     // TODO this needs to get fixed
@@ -153,7 +153,7 @@ fn replace_defines_with_debruijn_indices(
                     }),
                 ..
             } => {
-                let (idx, _) = symbol_map.get_or_add(s);
+                let idx = symbol_map.get_or_add(s);
 
                 if let Some(x) = instructions.get_mut(i) {
                     x.payload_size = idx;
@@ -412,7 +412,7 @@ impl Compiler {
 
     /// Registers a name in the underlying symbol map and returns the idx that it maps to
     pub fn register(&mut self, name: &str) -> usize {
-        self.symbol_map.add(name)
+        self.symbol_map.get_or_add(name)
     }
 
     /// Get the index associated with a name in the underlying symbol map
