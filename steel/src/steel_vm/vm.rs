@@ -996,7 +996,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // println!("INSIDE TRANSDUCE");
 
         // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        self.close_upvalues(0);
+        // self.close_upvalues(0);
 
         let list = self.stack.pop().unwrap();
         let initial_value = self.stack.pop().unwrap();
