@@ -131,7 +131,6 @@ fn exec_func<CT: ConstantTable>(
             vm(
                 closure.body_exp(),
                 &mut args.into(),
-                local_heap,
                 global_env, // TODO remove this part
                 constants,
                 callback,

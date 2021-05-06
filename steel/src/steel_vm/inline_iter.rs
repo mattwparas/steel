@@ -52,7 +52,6 @@ pub(crate) fn inline_reduce_iter<
             let mut local_upvalue_heap = UpValueHeap::new();
             cf.apply(
                 arg_vec,
-                &mut local_heap,
                 constants,
                 cur_inst_span,
                 callback,
@@ -90,7 +89,6 @@ pub(crate) fn inline_reduce_iter<
             vm(
                 closure.body_exp(),
                 &mut args.into(),
-                &mut local_heap,
                 global_env,
                 constants,
                 callback,

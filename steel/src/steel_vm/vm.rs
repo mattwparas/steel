@@ -46,7 +46,7 @@ const STACK_LIMIT: usize = 100000;
 
 pub struct VirtualMachineCore {
     global_env: Env,
-    global_heap: Heap,
+    // global_heap: Heap,
     global_upvalue_heap: UpValueHeap,
     callback: EvaluationProgress,
 }
@@ -55,7 +55,7 @@ impl VirtualMachineCore {
     pub fn new() -> VirtualMachineCore {
         VirtualMachineCore {
             global_env: Env::root(),
-            global_heap: Heap::new(),
+            // global_heap: Heap::new(),
             global_upvalue_heap: UpValueHeap::new(),
             callback: EvaluationProgress::new(),
         }
@@ -144,12 +144,12 @@ impl VirtualMachineCore {
 
         // self.global_heap.drop_large_refs();
 
-        self.global_heap.profile_heap();
+        // self.global_heap.profile_heap();
 
-        self.global_heap.drop_large_refs();
+        // self.global_heap.drop_large_refs();
         // self.global_heap.gather_big_mark_and_sweep(&self.global_env);
 
-        self.global_heap.profile_heap();
+        // self.global_heap.profile_heap();
 
         // println!("Global heap length: {}", self.global_heap.len());
 
@@ -254,7 +254,7 @@ impl VirtualMachineCore {
         let mut stack = StackFrame::new();
         let mut function_stack = Vec::new();
         let mut stack_index = Stack::new();
-        let mut heap = Heap::new();
+        // let mut heap = Heap::new();
 
         // give access to the global root via this method
         // heap.plant_root(Rc::downgrade(&self.global_env));
@@ -262,7 +262,6 @@ impl VirtualMachineCore {
         let result = vm(
             instructions,
             &mut stack,
-            &mut heap,
             &mut self.global_env,
             constant_map,
             &self.callback,
@@ -276,7 +275,7 @@ impl VirtualMachineCore {
         //     self.global_env.borrow_mut().set_binding_context(false);
         // }
 
-        self.global_heap.append(&mut heap);
+        // self.global_heap.append(&mut heap);
 
         // println!(
         //     "###################### Global heap length: {}",
@@ -367,7 +366,7 @@ fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
 pub(crate) struct VmCore<'a, CT: ConstantTable> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: &'a mut StackFrame,
-    pub(crate) heap: &'a mut Heap,
+    // pub(crate) heap: &'a mut Heap,
     pub(crate) global_env: &'a mut Env,
     pub(crate) instruction_stack: Stack<InstructionPointer>,
     // stacks: CallStack,
@@ -376,8 +375,6 @@ pub(crate) struct VmCore<'a, CT: ConstantTable> {
     pub(crate) constants: &'a CT,
     pub(crate) ip: usize,
     pub(crate) pop_count: usize,
-    pub(crate) env_stack: EnvStack,
-    pub(crate) current_arity: Option<usize>,
     pub(crate) upvalue_head: Option<Weak<RefCell<UpValue>>>,
     pub(crate) upvalue_heap: &'a mut UpValueHeap,
     pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
@@ -387,7 +384,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn new(
         instructions: Rc<[DenseInstruction]>,
         stack: &'a mut StackFrame,
-        heap: &'a mut Heap,
+        // heap: &'a mut Heap,
         global_env: &'a mut Env,
         constants: &'a CT,
         callback: &'a EvaluationProgress,
@@ -402,7 +399,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(VmCore {
             instructions: Rc::clone(&instructions),
             stack,
-            heap,
+            // heap,
             global_env,
             instruction_stack: Stack::new(),
             // stacks: Stack::new(),
@@ -411,8 +408,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             constants,
             ip: 0,
             pop_count: 1,
-            env_stack: Stack::new(),
-            current_arity: None,
             upvalue_head: None,
             upvalue_heap,
             function_stack,
@@ -517,11 +512,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             // upvalue.borrow_mut().closed =
             // unimplemented!();
         }
-    }
-
-    fn with_arity(mut self, arity: usize) -> Self {
-        self.current_arity = Some(arity);
-        self
     }
 
     #[inline(always)]
@@ -640,8 +630,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 stop!(Generic => "stack overflowed!"; cur_inst.span);
                             }
 
-                            self.current_arity = Some(closure.arity());
-
                             if closure.arity() != 1 {
                                 stop!(Generic => "call/cc expects a function with arity 1");
                             }
@@ -759,11 +747,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 OpCode::JMP => {
                     let current_arity = self.instructions[self.ip + 1].payload_size as usize;
                     self.ip = cur_inst.payload_size as usize;
-                    // HACK
-                    if self.ip == 0 && self.heap.len() > self.heap.limit() {
-                        // TODO collect here
-                        // self.heap.collect_garbage();
-                    }
+
+                    // HACK COME BACK TO THIS
+                    // if self.ip == 0 && self.heap.len() > self.heap.limit() {
+                    // TODO collect here
+                    // self.heap.collect_garbage();
+                    // }
 
                     if self.ip == 0 {
                         // println!("@@@@@@@@@@@@@@@@ TCO kicking in @@@@@@@@@@@@@@@@@2");
@@ -1492,66 +1481,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_set_upvalue(&mut self, index: usize) {
-        // unimplemented!();
-
-        // let end = self.stack.len();
-
         let new = self.stack.pop().unwrap();
-
-        // println!("######## HANDLE SET UPVALUE #######");
-
-        // dbg!(&new);
-
-        // if let SteelVal::ContinuationFunction(cc) = &new {
-        //     dbg!(&cc.stack);
-        // }
-
-        // // println!("Stack end: {}, stack index: {}", end, index);
-
-        // println!("Stack: {:?}", self.stack);
-        // println!("stack index: {:?}", self.stack_index);
-        // println!("Stack length: {}", self.stack.len());
-        // println!("index: {}", index);
-        // println!(
-        //     "function stack: {:?}",
-        //     self.function_stack
-        //         .iter()
-        //         .map(|x| x
-        //             .upvalues()
-        //             .iter()
-        //             .map(|x| x.upgrade().unwrap())
-        //             .collect::<Vec<_>>())
-        //         .collect::<Vec<_>>()
-        // );
-
-        // if let SteelVal::Closure(_) = &new {
-        // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        // }
-
-        // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
         let last_func = self.function_stack.last().unwrap();
-
         let upvalue = last_func.upvalues()[index].upgrade().unwrap();
-
-        // dbg!(&upvalue);
-
         let value = upvalue.borrow_mut().mutate_value(&mut self.stack.0, new);
-
-        // .map(|x| {
-        //     x.upvalues()[index]
-        //         .upgrade()
-        //         .unwrap()
-        //         .borrow_mut()
-        //         .mutate_value(&mut self.stack, new)
-        // })
-        // .unwrap();
-
-        // let offset = self.stack_index.last().copied().unwrap_or(0);
-
-        // let value = self.stack[index + offset].clone();
-
-        // println!("Pushing onto the stack: {}", value);
 
         self.stack.push(value);
         self.ip += 1;
@@ -1587,41 +1520,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
                 }
 
-                self.current_arity = Some(closure.arity());
-
-                // self.stack_index.push(self.stack.len() - payload_size);
-                // self.pop_count += 1;
-
-                // dbg!(&self.env_stack);
-                // dbg!(&self.global_env);
-
-                // println!("stack index: {:?}", self.stack_index);
-                // println!("stack: {:?}", self.stack);
-
-                // TODO check if this is even necessary
-                // I think so, just because then the previous stack is explicitly dropped
-                // let mut args = self.stack.split_off(self.stack.len() - payload_size);
-
-                // println!("############# TAIL CALL ##################");
-
-                // self.stack.drain(
-                //     self.stack_index.last().copied().unwrap_or(0)..self.stack.len() - payload_size,
-                // );
-
-                // println!("stack index: {:?}", self.stack_index);
-
-                // println!(
-                //     "WOULD BE PUSHING LENGTH ON NOW: {}",
-                //     self.stack.len() - payload_size,
-                // );
-
-                // self.stack_index.push(self.stack.len() - payload_size);
-
-                // if let Some(p) = self.stack_index.last_mut() {
-                //     *p = self.stack.len() - payload_size;
-                // }
-
-                // println!("stack before: {:?}", self.stack);
                 // println!("stack index before: {:?}", self.stack_index);
 
                 // jump back to the beginning at this point
@@ -1650,58 +1548,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // TODO
 
                 self.stack.truncate(offset + new_arity);
-
-                // Clear the last offset
-                // self.stack_index.pop();
-
-                // Set the stack index back to the new executing function
-                // self.stack_index.push(self.stack.len() - new_arity);
-
-                // self.stack_index.push(self.stack.len() - 1);
-
-                // let back = self.stack.len() - current_arity;
-                // for i in 0..current_arity {
-                //     self.stack.set_idx(offset + i, self.stack[back + i].clone());
-                // }
-
-                // self.stack.truncate(offset + current_arity);
-
-                // self.stack
-                //     .drain(offset..self.stack.len() - self.current_arity.unwrap());
-
-                // println!("stack after: {:?}", self.stack);
-
-                // self.stack.truncate(*self.stack_index.last().unwrap_or(0));
-
-                // self.stack.append_vec(&mut args);
-
-                // let parent_env = closure.sub_expression_env();
-                // TODO remove this unwrap
-                // let offset =
-                // closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                // parent_env.clone(),
-                // offset,
-                // )));
-
-                // TODO perhaps don't add a child here
-                // parent_env
-                //     .upgrade()
-                //     .unwrap()
-                //     .borrow_mut()
-                //     .add_child(Rc::downgrade(&inner_env));
-
-                // TODO future me to figure out with offsets
-                // inner_env
-                //     .borrow_mut()
-                //     .reserve_defs(if closure.ndef_body() > 0 {
-                //         closure.ndef_body() - 1
-                //     } else {
-                //         0
-                //     });
-
-                // inner_env.borrow_mut().set_reachable(true);
 
                 // // TODO
                 // self.heap
@@ -1793,7 +1639,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         let result = cf.apply(
             args,
-            self.heap,
             self.constants,
             span,
             self.callback,
@@ -2112,7 +1957,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 pub(crate) fn vm<CT: ConstantTable>(
     instructions: Rc<[DenseInstruction]>,
     stack: &mut StackFrame,
-    heap: &mut Heap,
     global_env: &mut Env,
     constants: &CT,
     callback: &EvaluationProgress,
@@ -2123,7 +1967,6 @@ pub(crate) fn vm<CT: ConstantTable>(
     VmCore::new(
         instructions,
         stack,
-        heap,
         global_env,
         constants,
         callback,
@@ -2131,32 +1974,5 @@ pub(crate) fn vm<CT: ConstantTable>(
         function_stack,
         stack_index,
     )?
-    .vm()
-}
-
-pub(crate) fn vm_with_arity<CT: ConstantTable>(
-    instructions: Rc<[DenseInstruction]>,
-    stack: &mut StackFrame,
-    heap: &mut Heap,
-    global_env: &mut Env,
-    constants: &CT,
-    callback: &EvaluationProgress,
-    arity: usize,
-    upvalue_heap: &mut UpValueHeap,
-    function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-    stack_index: &mut Stack<usize>,
-) -> Result<SteelVal> {
-    VmCore::new(
-        instructions,
-        stack,
-        heap,
-        global_env,
-        constants,
-        callback,
-        upvalue_heap,
-        function_stack,
-        stack_index,
-    )?
-    .with_arity(arity)
     .vm()
 }

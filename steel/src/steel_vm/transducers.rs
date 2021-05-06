@@ -92,7 +92,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             let mut local_upvalue_heap = UpValueHeap::new();
                             cf.apply(
                                 arg_vec,
-                                &mut local_heap,
                                 constants,
                                 cur_inst_span,
                                 callback,
@@ -143,7 +142,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             let output = vm(
                                 closure.body_exp(),
                                 &mut vm_stack_copy.borrow_mut(),
-                                &mut local_heap,
                                 &mut global_env_copy.borrow_mut(),
                                 constants,
                                 callback,
@@ -210,7 +208,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                     let mut local_upvalue_heap = UpValueHeap::new();
                                     let res = cf.apply(
                                         arg_vec,
-                                        &mut local_heap,
                                         constants,
                                         cur_inst_span,
                                         callback,
@@ -266,7 +263,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                     let res = vm(
                                         closure.body_exp(),
                                         &mut vm_stack_copy.borrow_mut(),
-                                        &mut local_heap,
                                         &mut global_env_copy.borrow_mut(),
                                         constants,
                                         callback,
@@ -410,7 +406,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             let mut local_upvalue_heap = UpValueHeap::new();
                             cf.apply(
                                 arg_vec,
-                                &mut local_heap,
                                 constants,
                                 cur_inst_span,
                                 callback,
@@ -461,7 +456,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             let output = vm(
                                 closure.body_exp(),
                                 &mut vm_stack_copy.borrow_mut(),
-                                &mut local_heap,
                                 &mut global_env_copy.borrow_mut(),
                                 constants,
                                 callback,
@@ -528,7 +522,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                     let mut local_upvalue_heap = UpValueHeap::new();
                                     let res = cf.apply(
                                         arg_vec,
-                                        &mut local_heap,
                                         constants,
                                         cur_inst_span,
                                         callback,
@@ -584,7 +577,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                     let res = vm(
                                         closure.body_exp(),
                                         &mut vm_stack_copy.borrow_mut(),
-                                        &mut local_heap,
                                         &mut global_env_copy.borrow_mut(),
                                         constants,
                                         callback,
@@ -673,7 +665,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 let mut local_upvalue_heap = UpValueHeap::new();
                 cf.apply(
                     arg_vec,
-                    &mut local_heap,
                     constants,
                     cur_inst_span,
                     callback,
@@ -719,7 +710,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 vm(
                     closure.body_exp(),
                     &mut vm_stack.borrow_mut(),
-                    &mut local_heap,
                     &mut global_env_copy.borrow_mut(),
                     constants,
                     callback,

@@ -1,9 +1,4 @@
-use super::{
-    evaluation_progress::EvaluationProgress,
-    heap::Heap,
-    heap2::UpValueHeap,
-    vm::{vm, vm_with_arity},
-};
+use super::{evaluation_progress::EvaluationProgress, heap::Heap, heap2::UpValueHeap, vm::vm};
 use crate::{
     compiler::constants::ConstantTable,
     env::Env,
@@ -25,7 +20,6 @@ pub(crate) trait ContractedFunctionExt {
     fn apply<CT: ConstantTable>(
         &self,
         arguments: Vec<SteelVal>,
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
@@ -38,7 +32,6 @@ impl ContractedFunctionExt for ContractedFunction {
     fn apply<CT: ConstantTable>(
         &self,
         arguments: Vec<SteelVal>,
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
@@ -53,7 +46,6 @@ impl ContractedFunctionExt for ContractedFunction {
                     &self.name,
                     &self.function,
                     &arguments,
-                    local_heap,
                     constants,
                     cur_inst_span,
                     callback,
@@ -69,7 +61,6 @@ impl ContractedFunctionExt for ContractedFunction {
             &self.name,
             &self.function,
             &arguments,
-            local_heap,
             constants,
             cur_inst_span,
             callback,
@@ -84,7 +75,6 @@ pub(crate) trait FlatContractExt {
     fn apply<CT: ConstantTable>(
         &self,
         arg: SteelVal,
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
@@ -97,7 +87,6 @@ impl FlatContractExt for FlatContract {
     fn apply<CT: ConstantTable>(
         &self,
         arg: SteelVal,
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
@@ -109,31 +98,11 @@ impl FlatContractExt for FlatContract {
             SteelVal::FuncV(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
             SteelVal::BoxedFunction(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
             SteelVal::Closure(closure) => {
-                // let parent_env = closure.sub_expression_env();
-
-                // TODO remove this unwrap
-                // let offset =
-                //     closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                //     parent_env.clone(),
-                //     offset,
-                // )));
-
-                // inner_env
-                //     .borrow_mut()
-                //     .reserve_defs(if closure.ndef_body() > 0 {
-                //         closure.ndef_body() - 1
-                //     } else {
-                //         0
-                //     });
-
                 // TODO make recursive call here with a very small stack
                 // probably a bit overkill, but not much else I can do here I think
                 vm(
                     closure.body_exp(),
                     &mut arg_vec.into(),
-                    local_heap,
                     global_env,
                     constants,
                     callback,
@@ -160,7 +129,6 @@ pub(crate) trait FunctionContractExt {
         name: &Option<String>,
         function: &ByteCodeLambda,
         arguments: &[SteelVal],
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
@@ -175,7 +143,6 @@ impl FunctionContractExt for FunctionContract {
         name: &Option<String>,
         function: &ByteCodeLambda,
         arguments: &[SteelVal],
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
         callback: &EvaluationProgress,
@@ -196,7 +163,6 @@ impl FunctionContractExt for FunctionContract {
 
                     if let Err(e) = f.apply(
                         arg.clone(),
-                        local_heap,
                         constants,
                         cur_inst_span,
                         callback,
@@ -254,33 +220,12 @@ impl FunctionContractExt for FunctionContract {
         }
 
         let output = {
-            // let parent_env = function.sub_expression_env();
-
-            // TODO remove this unwrap
-            // let offset = function.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-            //     parent_env.clone(),
-            //     offset,
-            // )));
-
-            // inner_env
-            //     .borrow_mut()
-            //     .reserve_defs(if function.ndef_body() > 0 {
-            //         function.ndef_body() - 1
-            //     } else {
-            //         0
-            //     });
-
-            // TODO remove the with arity
-            vm_with_arity(
+            vm(
                 function.body_exp(),
                 &mut verified_args.into(),
-                local_heap,
                 global_env, // TODO remove this as well
                 constants,
                 callback,
-                self.arity(),
                 upvalue_heap,
                 &mut Vec::new(),
                 &mut Stack::new(),
@@ -295,7 +240,6 @@ impl FunctionContractExt for FunctionContract {
 
                 if let Err(e) = f.apply(
                     output.clone(),
-                    local_heap,
                     constants,
                     cur_inst_span,
                     callback,
