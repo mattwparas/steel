@@ -129,6 +129,15 @@ impl Instruction {
         }
     }
 
+    pub fn new_tco_jmp() -> Instruction {
+        Instruction {
+            op_code: OpCode::TCOJMP,
+            payload_size: 0,
+            contents: None,
+            constant: false,
+        }
+    }
+
     pub fn new_sclosure() -> Instruction {
         Instruction {
             op_code: OpCode::SCLOSURE,

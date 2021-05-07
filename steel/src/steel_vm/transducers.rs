@@ -360,6 +360,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let vm_stack = Rc::new(RefCell::new(&mut self.stack));
         let vm_stack_index = Rc::new(RefCell::new(&mut self.stack_index));
         let function_stack = Rc::new(RefCell::new(&mut self.function_stack));
+        let heap = Rc::new(RefCell::new(&mut self.upvalue_heap));
 
         let global_env = Rc::new(RefCell::new(&mut self.global_env));
 
@@ -386,6 +387,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     let vm_stack_index_copy = Rc::clone(&vm_stack_index);
                     let function_stack_copy = Rc::clone(&function_stack);
                     let global_env_copy = Rc::clone(&global_env);
+                    let heap_copy = Rc::clone(&heap);
 
                     let switch_statement = move |arg| match &stack_func {
                         SteelVal::FuncV(func) => {
@@ -402,14 +404,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         // }
                         SteelVal::ContractedFunction(cf) => {
                             let arg_vec = vec![arg?];
-                            let mut local_heap = Heap::new();
-                            let mut local_upvalue_heap = UpValueHeap::new();
                             cf.apply(
                                 arg_vec,
                                 constants,
                                 cur_inst_span,
                                 callback,
-                                &mut local_upvalue_heap,
+                                &mut heap_copy.borrow_mut(),
                                 &mut global_env_copy.borrow_mut(),
                             )
                         }
@@ -437,9 +437,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             //         0
                             //     });
 
-                            let mut local_heap = Heap::new();
-                            let mut local_upvalue_heap = UpValueHeap::new();
-
                             // Set the state prior to the recursive call
                             vm_stack_index_copy
                                 .borrow_mut()
@@ -459,7 +456,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 &mut global_env_copy.borrow_mut(),
                                 constants,
                                 callback,
-                                &mut local_upvalue_heap,
+                                &mut heap_copy.borrow_mut(),
                                 &mut function_stack_copy.borrow_mut(),
                                 &mut vm_stack_index_copy.borrow_mut(),
                             );
@@ -484,6 +481,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     let vm_stack_index_copy = Rc::clone(&vm_stack_index);
                     let function_stack_copy = Rc::clone(&function_stack);
                     let global_env_copy = Rc::clone(&global_env);
+                    let heap_copy = Rc::clone(&heap);
 
                     let switch_statement = move |arg: Result<SteelVal>| match arg {
                         Ok(arg) => {
@@ -518,14 +516,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 }
                                 SteelVal::ContractedFunction(cf) => {
                                     let arg_vec = vec![arg.clone()];
-                                    let mut local_heap = Heap::new();
-                                    let mut local_upvalue_heap = UpValueHeap::new();
                                     let res = cf.apply(
                                         arg_vec,
                                         constants,
                                         cur_inst_span,
                                         callback,
-                                        &mut local_upvalue_heap,
+                                        &mut heap_copy.borrow_mut(),
                                         &mut global_env_copy.borrow_mut(),
                                     );
                                     match res {
@@ -538,31 +534,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                     }
                                 }
                                 SteelVal::Closure(closure) => {
-                                    // ignore the stack limit here
-                                    // let args = vec![arg.clone()];
-                                    // if let Some()
-
-                                    // let parent_env = closure.sub_expression_env();
-
-                                    // let offset = closure.offset()
-                                    //     + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                                    // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                                    //     parent_env.clone(),
-                                    //     offset,
-                                    // )));
-
-                                    // inner_env.borrow_mut().reserve_defs(
-                                    //     if closure.ndef_body() > 0 {
-                                    //         closure.ndef_body() - 1
-                                    //     } else {
-                                    //         0
-                                    //     },
-                                    // );
-
-                                    let mut local_heap = Heap::new();
-                                    let mut local_upvalue_heap = UpValueHeap::new();
-
                                     // Set the state prior to the recursive call
                                     vm_stack_index_copy
                                         .borrow_mut()
@@ -580,7 +551,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                         &mut global_env_copy.borrow_mut(),
                                         constants,
                                         callback,
-                                        &mut local_upvalue_heap,
+                                        &mut heap_copy.borrow_mut(),
                                         &mut function_stack_copy.borrow_mut(),
                                         &mut vm_stack_index_copy.borrow_mut(),
                                     );
@@ -661,7 +632,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             // }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec = vec![acc?, x?];
-                let mut local_heap = Heap::new();
                 let mut local_upvalue_heap = UpValueHeap::new();
                 cf.apply(
                     arg_vec,
@@ -673,27 +643,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 )
             }
             SteelVal::Closure(closure) => {
-                // ignore the stack limit here
-                // let args = vec![acc?, x?];
-                // if let Some()
-
-                // let parent_env = closure.sub_expression_env();
-
-                // TODO remove this unwrap
-                // let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                // let inner_env = Rc::new(RefCell::new(
-                //     Env::new_subexpression_with_capacity_without_offset(parent_env.clone()),
-                // ));
-
-                // inner_env
-                //     .borrow_mut()
-                //     .reserve_defs(if closure.ndef_body() > 0 {
-                //         closure.ndef_body() - 1
-                //     } else {
-                //         0
-                //     });
-
                 // Set the state prior to the recursive call
                 vm_stack_index.borrow_mut().push(vm_stack.borrow().len());
 
@@ -702,7 +651,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 function_stack.borrow_mut().push(Gc::clone(closure));
 
-                let mut local_heap = Heap::new();
                 let mut local_upvalue_heap = UpValueHeap::new();
 
                 // TODO make recursive call here with a very small stack
@@ -713,7 +661,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     &mut global_env_copy.borrow_mut(),
                     constants,
                     callback,
-                    &mut local_upvalue_heap,
+                    &mut heap.borrow_mut(),
                     &mut function_stack.borrow_mut(),
                     &mut vm_stack_index_copy.borrow_mut(),
                 )

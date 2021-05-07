@@ -17,6 +17,10 @@ impl<T> Stack<T> {
         Stack(Vec::new())
     }
 
+    pub fn with_capacity(capacity: usize) -> Stack<T> {
+        Stack(Vec::with_capacity(capacity))
+    }
+
     // #[inline(always)]
     pub fn pop(&mut self) -> Option<T> {
         self.0.pop()

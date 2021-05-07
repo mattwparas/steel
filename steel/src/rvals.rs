@@ -739,18 +739,7 @@ pub(crate) enum Location {
 pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
     body_exp: Rc<[DenseInstruction]>,
-    /// parent environment that created this Lambda.
-    /// the actual environment with correct bindings is built at runtime
-    /// once the function is called
-    // parent_env: Option<Rc<RefCell<Env>>>,
-    /// parent subenvironment that created this lambda.
-    /// the actual environment gets upgraded at runtime if needed
-    // sub_expression_env: Weak<RefCell<Env>>,
-    // bytecode instruction body
-    // body_byte: Vec<Instruction>,
-    offset: usize,
     arity: usize,
-    ndef_body: usize,
     upvalues: Vec<Weak<RefCell<UpValue>>>,
 }
 
@@ -770,20 +759,12 @@ impl Hash for ByteCodeLambda {
 impl ByteCodeLambda {
     pub fn new(
         body_exp: Vec<DenseInstruction>,
-        // parent_env: Option<Rc<RefCell<Env>>>,
-        // sub_expression_env: Weak<RefCell<Env>>,
-        offset: usize,
         arity: usize,
-        ndef_body: usize,
         upvalues: Vec<Weak<RefCell<UpValue>>>,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
-            // parent_env,
-            // sub_expression_env,
-            offset,
             arity,
-            ndef_body,
             upvalues,
         }
     }
@@ -796,17 +777,17 @@ impl ByteCodeLambda {
     //     &self.sub_expression_env
     // }
 
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
+    // pub fn offset(&self) -> usize {
+    //     self.offset
+    // }
 
     pub fn arity(&self) -> usize {
         self.arity
     }
 
-    pub fn ndef_body(&self) -> usize {
-        self.ndef_body
-    }
+    // pub fn ndef_body(&self) -> usize {
+    //     self.ndef_body
+    // }
 
     pub fn upvalues(&self) -> &[Weak<RefCell<UpValue>>] {
         &self.upvalues

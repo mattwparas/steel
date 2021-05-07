@@ -38,4 +38,5 @@ pub enum OpCode {
     FILLUPVALUE,
     FILLLOCALUPVALUE,
     CLOSEUPVALUE, // Should be 1 for close, 0 for not
+    TCOJMP,
 }

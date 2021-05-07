@@ -955,7 +955,7 @@ fn transform_tail_call(instructions: &mut [Instruction], defining_context: &str)
             ) => {
                 let arity = *arity;
                 if s == defining_context {
-                    let new_jmp = Instruction::new_jmp(0);
+                    let new_jmp = Instruction::new_tco_jmp();
                     // inject tail call jump
                     instructions[index - 2] = new_jmp;
                     instructions[index - 1] = Instruction::new_pass(arity);
@@ -1024,7 +1024,7 @@ fn transform_letrec_tail_call(instructions: &mut [Instruction], defining_context
             ) => {
                 let arity = *arity;
                 if s == defining_context {
-                    let new_jmp = Instruction::new_jmp(0);
+                    let new_jmp = Instruction::new_tco_jmp();
                     // inject tail call jump
                     instructions[index - 2] = new_jmp;
                     instructions[index - 1] = Instruction::new_pass(arity);
