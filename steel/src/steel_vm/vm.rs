@@ -739,6 +739,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 OpCode::CLEAR => {
                     self.ip += 1;
                 }
+                OpCode::LOADINT1 => {
+                    self.stack.push(SteelVal::INT_ONE);
+                    self.ip += 1;
+                }
+                OpCode::LOADINT2 => {
+                    self.stack.push(SteelVal::INT_TWO);
+                    self.ip += 1;
+                }
                 OpCode::CALLGLOBAL => {
                     let next_inst = self.instructions[self.ip + 1];
                     self.handle_call_global(
@@ -987,15 +995,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_collect(&mut self, span: &Span) -> Result<()> {
-        // println!("@@@@@@@@@@@@@@@@@@@@@ entering the transducer zone @@@@@@@@@@@@@@@@");
-
-        // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-
-        // TODO handle this a better way
-        // self.close_upvalues(0);
-
-        // if let Some()
-
         let list = self.stack.pop().unwrap();
         let transducer = self.stack.pop().unwrap();
 

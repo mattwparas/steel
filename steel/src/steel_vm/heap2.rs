@@ -52,15 +52,16 @@ impl UpValueHeap {
                 changed = prior_len != after;
             }
             // self.memory.retain(|x| Rc::weak_count(x) > 0);
-            let after = self.memory.len();
+
+            // let after = self.memory.len();
             self.threshold = self.memory.len() * GC_GROW_FACTOR;
 
-            self.profile_heap();
-            println!(
-                "Freed: {}, New heap length: {}",
-                prior - after,
-                self.memory.len()
-            );
+            // self.profile_heap();
+            // println!(
+            //     "Freed: {}, New heap length: {}",
+            //     prior - after,
+            //     self.memory.len()
+            // );
             self.count += 1;
         }
     }

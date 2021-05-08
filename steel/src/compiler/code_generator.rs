@@ -221,6 +221,20 @@ impl<'a> CodeGenerator<'a> {
         self.instructions.len()
     }
 
+    fn specialize_constant(&mut self, syn: &SyntaxObject) -> Result<()> {
+        let value = eval_atom(syn)?;
+
+        let opcode = match &value {
+            // SteelVal::IntV(0) => OpCode::PUSHCONST,
+            SteelVal::IntV(1) => OpCode::LOADINT1,
+            SteelVal::IntV(2) => OpCode::LOADINT2,
+            _ => OpCode::PUSHCONST,
+        };
+
+        let idx = self.constant_map.add_or_get(value);
+        self.push(Instruction::new(opcode, idx, syn.clone(), true));
+        Ok(())
+    }
     // fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
     //     // If the upvalue has already been captured, don't capture it again
     //     if let Some(i) = self
@@ -646,14 +660,18 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         } else {
             // println!("pushing constant");
 
-            let value = eval_atom(&a.syn)?;
-            let idx = self.constant_map.add_or_get(value);
-            self.push(Instruction::new(
-                OpCode::PUSHCONST,
-                idx,
-                a.syn.clone(),
-                true,
-            ));
+            self.specialize_constant(&a.syn)?;
+            // let value = eval_atom(&a.syn)?;
+
+            // dbg!(&value);
+
+            // let idx = self.constant_map.add_or_get(value);
+            // self.push(Instruction::new(
+            //     OpCode::PUSHCONST,
+            //     idx,
+            //     a.syn.clone(),
+            //     true,
+            // ));
             return Ok(());
         };
 
@@ -1098,6 +1116,7 @@ fn upvalue_func_used_before_set(instructions: &[Instruction], upvalue: &str, idx
     false
 }
 
+// Use this to flatten calls to globals such that its just one instruction instead of two
 pub fn convert_call_globals(instructions: &mut [Instruction]) {
     for i in 0..instructions.len() - 1 {
         let push = instructions.get(i);

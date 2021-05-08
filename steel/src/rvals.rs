@@ -561,6 +561,12 @@ impl SteelVal {
     }
 }
 
+impl SteelVal {
+    pub const INT_ZERO: SteelVal = SteelVal::IntV(0);
+    pub const INT_ONE: SteelVal = SteelVal::IntV(1);
+    pub const INT_TWO: SteelVal = SteelVal::IntV(2);
+}
+
 #[derive(Clone, Hash, Debug)]
 pub struct ConsCell {
     pub car: SteelVal,
