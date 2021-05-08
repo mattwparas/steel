@@ -1098,6 +1098,35 @@ fn upvalue_func_used_before_set(instructions: &[Instruction], upvalue: &str, idx
     false
 }
 
+pub fn convert_call_globals(instructions: &mut [Instruction]) {
+    for i in 0..instructions.len() - 1 {
+        let push = instructions.get(i);
+        let func = instructions.get(i + 1);
+
+        match (push, func) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::FUNC,
+                    ..
+                }),
+            ) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::CALLGLOBAL;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.op_code = OpCode::PASS;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 // attempt to find if this is a TCO valid let rec situation
 fn identify_let_rec(
     instructions: &[Instruction],

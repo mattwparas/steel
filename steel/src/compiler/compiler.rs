@@ -1,5 +1,5 @@
 use crate::compiler::{
-    code_generator::CodeGenerator,
+    code_generator::{convert_call_globals, CodeGenerator},
     constants::{ConstantMap, ConstantTable},
     map::SymbolMap,
     passes::begin::flatten_begins_and_expand_defines,
@@ -169,6 +169,16 @@ fn replace_defines_with_debruijn_indices(
         match &instructions[i] {
             Instruction {
                 op_code: OpCode::PUSH,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        span,
+                        ..
+                    }),
+                ..
+            }
+            | Instruction {
+                op_code: OpCode::CALLGLOBAL,
                 contents:
                     Some(SyntaxObject {
                         ty: TokenType::Identifier(s),
@@ -576,6 +586,7 @@ impl Compiler {
 
         // insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
 
+        convert_call_globals(&mut instruction_buffer);
         replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
 
         // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;

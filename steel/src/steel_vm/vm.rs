@@ -739,8 +739,21 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 OpCode::CLEAR => {
                     self.ip += 1;
                 }
+                OpCode::CALLGLOBAL => {
+                    let next_inst = self.instructions[self.ip + 1];
+                    self.handle_call_global(
+                        cur_inst.payload_size as usize,
+                        next_inst.payload_size as usize,
+                        &next_inst.span,
+                    )?;
+                }
                 OpCode::FUNC => {
-                    self.handle_function_call(cur_inst.payload_size as usize, &cur_inst.span)?;
+                    let func = self.stack.pop().unwrap();
+                    self.handle_function_call(
+                        func,
+                        cur_inst.payload_size as usize,
+                        &cur_inst.span,
+                    )?;
                 }
                 // Tail call basically says "hey this function is exiting"
                 // In the closure case, transfer ownership of the stack to the called function
@@ -941,11 +954,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_transduce(&mut self, span: &Span) -> Result<()> {
-        // println!("INSIDE TRANSDUCE");
-
-        // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        // self.close_upvalues(0);
-
         let list = self.stack.pop().unwrap();
         let initial_value = self.stack.pop().unwrap();
         let reducer = self.stack.pop().unwrap();
@@ -963,11 +971,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_collect_to(&mut self, span: &Span) -> Result<()> {
-        // println!("INSIDE COLLECT TO");
-
-        // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        // self.close_upvalues(0);
-
         let output_type = self.stack.pop().unwrap();
         let list = self.stack.pop().unwrap();
         let transducer = self.stack.pop().unwrap();
@@ -1093,21 +1096,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn handle_set(&mut self, index: usize) -> Result<()> {
-        // Explicitly close the upvalues if the thing being set is a function
-
-        // println!("Closing upvalues in set");
-
-        // println!("########## SET ###########");
-
-        // self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-
         let value_to_assign = self.stack.pop().unwrap();
-
-        // println!("Assign value to: {}", value_to_assign);
-
-        // if let SteelVal::ContinuationFunction(cc) = &value_to_assign {
-        //     dbg!(&cc.stack);
-        // }
 
         if let SteelVal::Closure(_) = &value_to_assign {
             self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
@@ -1121,58 +1110,27 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
+    fn handle_call_global(&mut self, index: usize, payload_size: usize, span: &Span) -> Result<()> {
+        let func = self.global_env.repl_lookup_idx(index)?;
+        self.ip += 1;
+        self.handle_function_call(func, payload_size, span)
+    }
+
+    #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
-        // TODO future me figure out the annoying offset issue
-        // awful awful awful hack to fix the repl environment noise
-
-        // println!("Looking up: {}", index);
-
         let value = self.global_env.repl_lookup_idx(index)?;
-
-        // println!("pushing: {}", value);
         self.stack.push(value);
-
-        // TODO handle the offset situation
-        // if self.repl {
-        //     let value = self.global_env.borrow().repl_lookup_idx(index)?;
-        //     self.stack.push(value);
-        // } else {
-        //     let value = self.global_env.borrow().lookup_idx(index)?;
-        //     self.stack.push(value);
-        // }
-
         self.ip += 1;
         Ok(())
     }
 
     #[inline(always)]
     fn handle_local(&mut self, index: usize) -> Result<()> {
-        // calculate offset
-        // let end = self.stack.len();
-
-        // println!("######## HANDLE LOCAL ########");
-
-        // // println!("Stack end: {}, stack index: {}", end, index);
-        // println!("Stack: {:?}", self.stack);
-        // println!("stack index: {:?}", self.stack_index);
-        // println!("Stack length: {}", self.stack.len());
-        // println!("index: {}", index);
-
         let offset = self.stack_index.last().copied().unwrap_or(0);
-
         let value = self.stack[index + offset].clone();
-
-        // let value = self.stack[self.stack.len() - 1 - index].clone();
-
-        // let value = self.stack[index].clone();
-
-        // println!("Pushing onto the stack: {}", value);
-
         self.stack.push(value);
         self.ip += 1;
         Ok(())
-
-        // unimplemented!()
     }
 
     #[inline(always)]
@@ -1181,8 +1139,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             .function_stack
             .last()
             .map(|x| {
-                // println!("{:?}", x.upvalues());
-
                 x.upvalues()[index]
                     .upgrade()
                     .unwrap()
@@ -1543,12 +1499,17 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
-    fn handle_function_call(&mut self, payload_size: usize, span: &Span) -> Result<()> {
+    fn handle_function_call(
+        &mut self,
+        stack_func: SteelVal,
+        payload_size: usize,
+        span: &Span,
+    ) -> Result<()> {
         use SteelVal::*;
 
         // println!("Stack at function call: {:?}", self.stack);
 
-        let stack_func = self.stack.pop().unwrap();
+        // let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
