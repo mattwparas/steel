@@ -40,6 +40,7 @@ pub enum OpCode {
     CLOSEUPVALUE, // Should be 1 for close, 0 for not
     TCOJMP,
     CALLGLOBAL,
+    CALLGLOBALTAIL,
     LOADINT0, // Load const 0
     LOADINT1,
     LOADINT2,

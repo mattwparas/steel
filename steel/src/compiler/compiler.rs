@@ -35,61 +35,61 @@ use super::{code_generator::loop_condition_local_const_arity_two, modules::Modul
 
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?
-fn collect_defines_from_current_scope(
-    instructions: &[Instruction],
-    symbol_map: &mut SymbolMap,
-) -> Result<usize> {
-    // return Ok(0);
+// fn collect_defines_from_current_scope(
+//     instructions: &[Instruction],
+//     symbol_map: &mut SymbolMap,
+// ) -> Result<usize> {
+//     // return Ok(0);
 
-    let mut def_stack: usize = 0;
-    let mut count = 0;
-    let mut bindings: HashSet<&str> = HashSet::new();
+//     let mut def_stack: usize = 0;
+//     let mut count = 0;
+//     let mut bindings: HashSet<&str> = HashSet::new();
 
-    for instruction in instructions {
-        match instruction {
-            Instruction {
-                op_code: OpCode::SDEF,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        span: _sp,
-                        ..
-                    }),
-                ..
-            } => {
-                if def_stack == 0 {
-                    if bindings.insert(s) {
-                        let _idx = symbol_map.get_or_add(s);
-                        count += 1;
-                    }
-                    // TODO this needs to get fixed
-                    // else {
-                    //     stop!(Generic => "define-values: duplicate binding name"; *sp)
-                    // }
-                }
-            }
-            Instruction {
-                op_code: OpCode::SCLOSURE,
-                ..
-            } => {
-                // println!("Entering closure scope!");
-                def_stack += 1;
-            }
-            Instruction {
-                op_code: OpCode::ECLOSURE,
-                ..
-            } => {
-                // println!("Exiting closure scope!");
-                if def_stack > 0 {
-                    def_stack -= 1;
-                }
-            }
-            _ => {}
-        }
-    }
+//     for instruction in instructions {
+//         match instruction {
+//             Instruction {
+//                 op_code: OpCode::SDEF,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         span: _sp,
+//                         ..
+//                     }),
+//                 ..
+//             } => {
+//                 if def_stack == 0 {
+//                     if bindings.insert(s) {
+//                         let _idx = symbol_map.get_or_add(s);
+//                         count += 1;
+//                     }
+//                     // TODO this needs to get fixed
+//                     // else {
+//                     //     stop!(Generic => "define-values: duplicate binding name"; *sp)
+//                     // }
+//                 }
+//             }
+//             Instruction {
+//                 op_code: OpCode::SCLOSURE,
+//                 ..
+//             } => {
+//                 // println!("Entering closure scope!");
+//                 def_stack += 1;
+//             }
+//             Instruction {
+//                 op_code: OpCode::ECLOSURE,
+//                 ..
+//             } => {
+//                 // println!("Exiting closure scope!");
+//                 if def_stack > 0 {
+//                     def_stack -= 1;
+//                 }
+//             }
+//             _ => {}
+//         }
+//     }
 
-    Ok(count)
-}
+//     Ok(count)
+// }
 
 // fn collect_binds_from_current_scope(
 //     instructions: &mut [Instruction],
@@ -179,6 +179,16 @@ fn replace_defines_with_debruijn_indices(
             }
             | Instruction {
                 op_code: OpCode::CALLGLOBAL,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        span,
+                        ..
+                    }),
+                ..
+            }
+            | Instruction {
+                op_code: OpCode::CALLGLOBALTAIL,
                 contents:
                     Some(SyntaxObject {
                         ty: TokenType::Identifier(s),

@@ -246,9 +246,12 @@ fn fib_28(c: &mut Criterion) {
     let constant_map = program.constant_map;
     let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
 
-    c.bench_function("fib-28", |b| {
+    let mut group = c.benchmark_group("fib-28");
+    group.sample_size(200);
+    group.bench_function("fib-28", |b| {
         b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
     });
+    group.finish();
 }
 
 // This will include the definition inside the bench

@@ -774,6 +774,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         &next_inst.span,
                     )?;
                 }
+                OpCode::CALLGLOBALTAIL => {
+                    let next_inst = self.instructions[self.ip + 1];
+                    self.handle_tail_call_global(
+                        cur_inst.payload_size as usize,
+                        next_inst.payload_size as usize,
+                        &next_inst.span,
+                    )?;
+                }
                 OpCode::FUNC => {
                     let func = self.stack.pop().unwrap();
                     self.handle_function_call(
@@ -785,7 +793,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // Tail call basically says "hey this function is exiting"
                 // In the closure case, transfer ownership of the stack to the called function
                 OpCode::TAILCALL => {
-                    self.handle_tail_call(cur_inst.payload_size as usize, &cur_inst.span)?
+                    let func = self.stack.pop().unwrap();
+                    self.handle_tail_call(func, cur_inst.payload_size as usize, &cur_inst.span)?
                 }
                 OpCode::IF => {
                     // change to truthy...
@@ -1136,6 +1145,18 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
+    fn handle_tail_call_global(
+        &mut self,
+        index: usize,
+        payload_size: usize,
+        span: &Span,
+    ) -> Result<()> {
+        let func = self.global_env.repl_lookup_idx(index)?;
+        self.ip += 1;
+        self.handle_tail_call(func, payload_size, span)
+    }
+
+    #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
         let value = self.global_env.repl_lookup_idx(index)?;
         self.stack.push(value);
@@ -1299,9 +1320,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     }
 
     #[inline(always)]
-    fn handle_tail_call(&mut self, payload_size: usize, span: &Span) -> Result<()> {
+    fn handle_tail_call(
+        &mut self,
+        stack_func: SteelVal,
+        payload_size: usize,
+        span: &Span,
+    ) -> Result<()> {
         use SteelVal::*;
-        let stack_func = self.stack.pop().unwrap();
+        // let stack_func = self.stack.pop().unwrap();
         match &stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
@@ -1647,24 +1673,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     #[inline(always)]
     fn handle_start_def(&mut self) {
         self.ip += 1;
-
-        // println!("handle start def");
-        // self.global_env.borrow_mut().set_binding_context(true);
-        // self.global_env.borrow_mut().set_binding_offset(false);
-
-        // TODO
-        // println!("!!! Pushing onto stack_index: {} !!!", self.stack.len());
-        // self.stack_index
-        //     .push(self.stack_index.last().copied().unwrap_or(0));
-
-        // self.stack_index.push(self.stack.len());
-
-        // let stack = std::mem::replace(&mut self.stack, Stack::new());
-        // self.stacks.push(stack);
-
-        // placeholder on the instruction_stack
-        // self.instruction_stack.push(InstructionPointer::new_raw());
-        // self.pop_count += 1;
     }
 
     #[inline(always)]

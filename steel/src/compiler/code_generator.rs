@@ -1109,6 +1109,24 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                     x.op_code = OpCode::PASS;
                 }
             }
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::TAILCALL,
+                    ..
+                }),
+            ) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::CALLGLOBALTAIL;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.op_code = OpCode::PASS;
+                }
+            }
             _ => {}
         }
     }
