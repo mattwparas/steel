@@ -4,6 +4,21 @@ use std::rc::Rc;
 use steel::stdlib::PRELUDE;
 use steel::steel_vm::{engine::Engine, register_fn::RegisterFn};
 
+fn benchmark_template(c: &mut Criterion, name: &str, script: &str, warmup: &str) {
+    let mut vm = Engine::new();
+    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
+    vm.parse_and_execute_without_optimizations(black_box(warmup))
+        .unwrap();
+
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = program.constant_map;
+    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
+
+    c.bench_function(name, |b| {
+        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
+    });
+}
+
 fn range(c: &mut Criterion) {
     let script = "(range 0 5000)";
 
@@ -32,101 +47,26 @@ fn range(c: &mut Criterion) {
 
 fn map(c: &mut Criterion) {
     let script = "(map a lst)";
-
-    let mut vm = Engine::new();
-    // let mut ctx: Ctx<ConstantMap> = Ctx::new(
-    //     Env::default_symbol_map(),
-    //     ConstantMap::new(),
-    //     ArityMap::new(),
-    //     false,
-    // );
-
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-
     let warmup = "(define lst (range 0 5000)) (define a (lambda (a) 0))";
-    vm.parse_and_execute_without_optimizations(black_box(warmup))
-        .unwrap();
-
-    let program = vm.emit_program(&script).unwrap();
-    let constant_map = program.constant_map;
-    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
-
-    c.bench_function("map-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
-    });
+    benchmark_template(c, "map-big", script, warmup);
 }
 
 fn transducer_map(c: &mut Criterion) {
     let script = "(execute a lst)";
-
-    let mut vm = Engine::new();
-    // let mut ctx: Ctx<ConstantMap> = Ctx::new(
-    //     Env::default_symbol_map(),
-    //     ConstantMap::new(),
-    //     ArityMap::new(),
-    //     false,
-    // );
-
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-
     let warmup = "(define lst (range 0 10000)) (define a (mapping (lambda (a) (* a 2))))";
-    vm.parse_and_execute_without_optimizations(black_box(&warmup))
-        .unwrap();
-
-    let program = vm.emit_program(&script).unwrap();
-    let constant_map = program.constant_map;
-    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
-
-    c.bench_function("transducer-map", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
-    });
+    benchmark_template(c, "transducer-map", script, warmup);
 }
 
 fn filter(c: &mut Criterion) {
-    // let mut interpreter = SteelInterpreter::new();
-    // interpreter.require(PRELUDE).unwrap();
-
     let script = "(filter number? lst)";
-
-    let mut vm = Engine::new();
-    // let mut ctx: Ctx<ConstantMap> = Ctx::new(
-    //     Env::default_symbol_map(),
-    //     ConstantMap::new(),
-    //     ArityMap::new(),
-    //     false,
-    // );
-
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-
     let warmup = "(define lst (range 0 5000))";
-    vm.parse_and_execute_without_optimizations(black_box(&warmup))
-        .unwrap();
-
-    let program = vm.emit_program(&script).unwrap();
-    let constant_map = program.constant_map;
-    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
-
-    c.bench_function("filter-big", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
-    });
+    benchmark_template(c, "filter-big", script, warmup);
 }
 
 fn ten_thousand_iterations(c: &mut Criterion) {
     let script = "(test 0)";
-    let mut vm = Engine::new();
-
     let warmup = "(define test (lambda (x) (if (= x 10000) x (test (+ x 1)))))";
-    vm.parse_and_execute_without_optimizations(black_box(&warmup))
-        .unwrap();
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-
-    let program = vm.emit_program(&script).unwrap();
-    let constant_map = program.constant_map;
-    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
-
-    c.bench_function("ten-thousand-iterations", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
-    });
+    benchmark_template(c, "ten-thousand-iterations", script, warmup);
 }
 
 fn ten_thousand_iterations_letrec(c: &mut Criterion) {
@@ -233,8 +173,6 @@ fn trie_sort_with_optimizations(c: &mut Criterion) {
 
 fn fib_28(c: &mut Criterion) {
     let mut vm = Engine::new();
-    // interpreter.require(PRELUDE).unwrap();
-    // require the trie sort library
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
     vm.parse_and_execute_without_optimizations(
         "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))",
@@ -258,8 +196,6 @@ fn fib_28(c: &mut Criterion) {
 // just to match against the Rhai benchmarks
 fn fib_20(c: &mut Criterion) {
     let mut vm = Engine::new();
-    // interpreter.require(PRELUDE).unwrap();
-    // require the trie sort library
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
 
     let script = "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))) (fib 20)";
