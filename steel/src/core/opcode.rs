@@ -43,4 +43,5 @@ pub enum OpCode {
     LOADINT0, // Load const 0
     LOADINT1,
     LOADINT2,
+    CGLOCALCONST,
 }

@@ -31,7 +31,7 @@ use crate::stop;
 
 use log::debug;
 
-use super::modules::ModuleManager;
+use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?
@@ -588,6 +588,8 @@ impl Compiler {
 
         convert_call_globals(&mut instruction_buffer);
         replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+
+        loop_condition_local_const_arity_two(&mut instruction_buffer);
 
         // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
         // coalesce_clears(&mut instruction_buffer);

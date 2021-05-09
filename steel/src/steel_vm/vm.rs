@@ -595,6 +595,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     panic!("eval not yet supported - internal compiler error");
                 }
                 OpCode::PASS => {
+                    println!("Hitting a pass - this shouldn't happen");
                     self.ip += 1;
                 }
                 OpCode::VOID => {
@@ -747,6 +748,24 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     self.stack.push(SteelVal::INT_TWO);
                     self.ip += 1;
                 }
+                OpCode::CGLOCALCONST => {
+                    let read_local = self.instructions[self.ip + 1];
+                    let push_const = self.instructions[self.ip + 2];
+
+                    // Snag the function
+                    let func = self
+                        .global_env
+                        .repl_lookup_idx(cur_inst.payload_size as usize)?;
+
+                    // get the local
+                    let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let local_value = self.stack[read_local.payload_size as usize + offset].clone();
+
+                    // get the const
+                    let const_val = self.constants.get(push_const.payload_size as usize);
+
+                    self.handle_lazy_function_call(func, local_value, const_val, &cur_inst.span)?;
+                }
                 OpCode::CALLGLOBAL => {
                     let next_inst = self.instructions[self.ip + 1];
                     self.handle_call_global(
@@ -773,7 +792,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     if self.stack.pop().unwrap().is_truthy() {
                         self.ip = cur_inst.payload_size as usize;
                     } else {
-                        self.ip += 1;
+                        self.ip = self.instructions[self.ip + 1].payload_size as usize
+                        // self.ip += 1;
                     }
                 }
                 OpCode::TCOJMP => {
@@ -1385,6 +1405,17 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
+    // #[inline(always)]
+    // fn call_boxed_func_from_slice(
+    //     &mut self,
+    //     func: &Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>,
+    //     args: &[SteelVal],
+    //     span: &Span,
+    // ) -> Result<()> {
+    //     let result = ;
+
+    // }
+
     #[inline(always)]
     fn call_primitive_func(
         &mut self,
@@ -1459,42 +1490,99 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
-        // dbg!("Calling continuation from inside call_continuation");
-        // dbg!(&self.stack);
-        // dbg!(&self.stack_index);
-        // dbg!(&self
-        //     .function_stack
-        //     .last()
-        //     .unwrap()
-        //     .upvalues()
-        //     .iter()
-        //     .map(|x| x.upgrade().unwrap())
-        //     .collect::<Vec<_>>());
-
         let last = self
             .stack
             .pop()
             .ok_or_else(throw!(ArityMismatch => "continuation expected 1 argument, found none"))?;
 
-        // self.env_stack.push(Rc::clone(&self.global_env));
-
-        // let local_env = Rc::clone(&self.global_env);
-
-        // TODO come back and revisit this
-        // self.heap.add(Rc::clone(&self.global_env));
-
         self.set_state_from_continuation(continuation.clone());
 
-        // dbg!(&self.stack);
-        // dbg!(&self.stack_index);
-
-        // self.global_env = local_env;
-
         self.ip += 1;
-        // self.pop_count += 1;
         self.stack.push(last);
         Ok(())
-        // unimplemented!("continuations are not implemented yet")
+    }
+
+    #[inline(always)]
+    fn handle_lazy_function_call(
+        &mut self,
+        stack_func: SteelVal,
+        local: SteelVal,
+        const_value: SteelVal,
+        span: &Span,
+    ) -> Result<()> {
+        use SteelVal::*;
+
+        match &stack_func {
+            BoxedFunction(f) => {
+                self.stack
+                    .push(f(&[local, const_value]).map_err(|x| x.set_span(*span))?);
+                self.ip += 4;
+            }
+            FuncV(f) => {
+                self.stack
+                    .push(f(&[local, const_value]).map_err(|x| x.set_span(*span))?);
+                self.ip += 4;
+            }
+            FutureFunc(f) => {
+                let result = SteelVal::FutureV(Gc::new(
+                    f(&[local, const_value]).map_err(|x| x.set_span(*span))?,
+                ));
+
+                self.stack.push(result);
+                self.ip += 4;
+            }
+            ContractedFunction(cf) => {
+                unimplemented!("contracted function not yet handled for lazy stack pushing");
+            }
+            ContinuationFunction(cc) => {
+                unimplemented!("calling continuation lazily not yet handled");
+            }
+            Closure(closure) => {
+                // push them onto the stack if we need to
+                self.stack.push(local);
+                self.stack.push(const_value);
+
+                // println!("Calling normal function");
+
+                // Push on the function stack so we have access to it later
+                self.function_stack.push(Gc::clone(closure));
+
+                if closure.arity() != 2 {
+                    stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), 2); *span);
+                }
+
+                // self.current_arity = Some(closure.arity());
+
+                if self.stack_index.len() == STACK_LIMIT {
+                    stop!(Generic => "stack overflowed!"; *span);
+                }
+
+                self.stack_index.push(self.stack.len() - 2);
+
+                // TODO use new heap
+                // self.heap
+                //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+                // self.heap.collect_garbage();
+
+                self.instruction_stack.push(InstructionPointer::new(
+                    self.ip + 4,
+                    Rc::clone(&self.instructions),
+                ));
+                self.pop_count += 1;
+
+                // Move args into the stack, push stack onto stacks
+                // let stack = std::mem::replace(&mut self.stack, args.into());
+                // self.stacks.push(stack);
+
+                self.instructions = closure.body_exp();
+                self.ip = 0;
+            }
+            _ => {
+                println!("{:?}", stack_func);
+                stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);
+            }
+        }
+        Ok(())
     }
 
     #[inline(always)]
@@ -1505,10 +1593,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         span: &Span,
     ) -> Result<()> {
         use SteelVal::*;
-
-        // println!("Stack at function call: {:?}", self.stack);
-
-        // let stack_func = self.stack.pop().unwrap();
 
         match &stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,

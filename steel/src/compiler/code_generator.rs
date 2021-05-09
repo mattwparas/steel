@@ -225,9 +225,8 @@ impl<'a> CodeGenerator<'a> {
         let value = eval_atom(syn)?;
 
         let opcode = match &value {
-            // SteelVal::IntV(0) => OpCode::PUSHCONST,
-            SteelVal::IntV(1) => OpCode::LOADINT1,
-            SteelVal::IntV(2) => OpCode::LOADINT2,
+            // SteelVal::IntV(1) => OpCode::LOADINT1,
+            // SteelVal::IntV(2) => OpCode::LOADINT2,
             _ => OpCode::PUSHCONST,
         };
 
@@ -400,37 +399,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 // stop!(Generic => "lambda function requires list of identifiers"; symbol.span());
                 // TODO come back add the span
                 stop!(Generic => "lambda function requires list of identifiers");
-            }
-        }
-
-        fn collect_defines_from_scope(
-            locals: &mut Vec<LocalVariable>,
-            expr: &ExprKind,
-            depth: u32,
-        ) {
-            // Collect defines for body here
-            if let ExprKind::Begin(b) = expr {
-                for expr in &b.exprs {
-                    match expr {
-                        ExprKind::Define(d) => {
-                            if let ExprKind::Atom(name) = &d.name {
-                                if let TokenType::Identifier(ident) = &name.syn.ty {
-                                    locals.push(LocalVariable::new(depth, ident.clone()));
-                                    // TODO insert dummy value for offset calculation
-                                    locals.push(LocalVariable::new(depth, "#####".to_string()));
-                                } else {
-                                    panic!("define requires an identifier")
-                                }
-                            }
-                        }
-                        ExprKind::Begin(b) => {
-                            for expr in &b.exprs {
-                                collect_defines_from_scope(locals, &expr, depth);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
             }
         }
 
@@ -1139,6 +1107,72 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                 if let Some(x) = instructions.get_mut(i + 1) {
                     x.op_code = OpCode::PASS;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// 0    READLOCAL : 0
+// 1    LOADINT2 : 12
+// 2    CALLGLOBAL : 6
+// 3    PASS : 2
+
+// Often, there may be a loop condition with something like (= x 10000)
+// this identifies these and lazily applies the function, only pushing on to the stack
+// until it absolutely needs to
+pub fn loop_condition_local_const_arity_two(instructions: &mut [Instruction]) {
+    for i in 0..instructions.len() {
+        let read_local = instructions.get(i);
+        let push_const = instructions.get(i + 1);
+        let call_global = instructions.get(i + 2);
+        let pass = instructions.get(i + 3);
+
+        match (read_local, push_const, call_global, pass) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::READLOCAL,
+                    payload_size: local_idx,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::PUSHCONST,
+                    payload_size: const_idx,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    payload_size: ident,
+                    contents: identifier,
+                    ..
+                }),
+                // HAS to be arity 2 in this case
+                Some(Instruction {
+                    op_code: OpCode::PASS,
+                    payload_size: 2,
+                    ..
+                }),
+            ) => {
+                let local_idx = *local_idx;
+                let const_idx = *const_idx;
+                let ident = *ident;
+                let identifier = identifier.clone();
+
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::CGLOCALCONST;
+                    x.payload_size = ident;
+                    x.contents = identifier;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.op_code = OpCode::READLOCAL;
+                    x.payload_size = local_idx;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 2) {
+                    x.op_code = OpCode::PUSHCONST;
+                    x.payload_size = const_idx;
                 }
             }
             _ => {}

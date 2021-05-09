@@ -69,7 +69,7 @@ fn transducer_map(c: &mut Criterion) {
 
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
 
-    let warmup = "(define lst (range 0 5000)) (define a (mapping (lambda (a) 0)))";
+    let warmup = "(define lst (range 0 10000)) (define a (mapping (lambda (a) (* a 2))))";
     vm.parse_and_execute_without_optimizations(black_box(&warmup))
         .unwrap();
 
