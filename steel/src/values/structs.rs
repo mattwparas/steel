@@ -77,12 +77,12 @@ impl<'a> StructFuncBuilder<'a> {
     }
 }
 
-// Housekeeping (just in case there are cyclical references)
-impl Drop for SteelStruct {
-    fn drop(&mut self) {
-        self.fields.clear();
-    }
-}
+// // Housekeeping (just in case there are cyclical references)
+// impl Drop for SteelStruct {
+//     fn drop(&mut self) {
+//         self.fields.clear();
+//     }
+// }
 
 impl SteelStruct {
     pub fn new(name: Rc<str>, fields: Vec<SteelVal>) -> Self {
