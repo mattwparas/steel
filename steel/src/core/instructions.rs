@@ -360,6 +360,58 @@ pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
     }
 }
 
+pub fn disassemble(instructions: &[Instruction]) -> String {
+    let first_column_width = instructions.len().to_string().len();
+    let second_column_width = instructions
+        .iter()
+        .map(|x| format!("{:?}", x.op_code).len())
+        .max()
+        .unwrap();
+    let third_column_width = instructions
+        .iter()
+        .map(|x| x.payload_size.to_string().len())
+        .max()
+        .unwrap();
+
+    let mut buffer = String::new();
+
+    for (i, instruction) in instructions.iter().enumerate() {
+        let index = i.to_string();
+
+        buffer.push_str(index.as_str());
+        for _ in 0..(first_column_width - index.len()) {
+            buffer.push(' ');
+        }
+
+        buffer.push_str("    ");
+
+        let op_code = format!("{:?}", instruction.op_code);
+        buffer.push_str(op_code.as_str());
+        for _ in 0..(second_column_width - op_code.len()) {
+            buffer.push(' ');
+        }
+
+        buffer.push_str(" : ");
+
+        let payload_size = instruction.payload_size.to_string();
+        buffer.push_str(payload_size.as_str());
+        for _ in 0..(third_column_width - payload_size.len()) {
+            buffer.push(' ');
+        }
+
+        buffer.push_str("    ");
+
+        if let Some(syn) = instruction.contents.as_ref() {
+            let contents = syn.ty.to_string();
+            buffer.push_str(contents.as_str());
+        }
+
+        buffer.push('\n');
+    }
+
+    buffer
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Serialize, Deserialize)]
 pub struct DenseInstruction {
     pub op_code: OpCode,

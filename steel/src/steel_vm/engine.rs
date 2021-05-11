@@ -22,6 +22,8 @@ use crate::{
     stop, throw,
 };
 
+use itertools::Itertools;
+
 pub struct Engine {
     virtual_machine: VirtualMachineCore,
     compiler: Compiler,
@@ -176,6 +178,15 @@ impl Engine {
     /// Emits a program for a given `expr` directly without providing any error messaging for the path.
     pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
         self.compiler.compile_program(expr, None)
+    }
+
+    // Attempts to disassemble the given expression into a series of bytecode dumps
+    pub fn disassemble(&mut self, expr: &str) -> Result<String> {
+        self.compiler.emit_debug_instructions(expr).map(|x| {
+            x.into_iter()
+                .map(|i| crate::core::instructions::disassemble(&i))
+                .join("\n\n")
+        })
     }
 
     /// Execute bytecode with a constant map directly.

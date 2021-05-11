@@ -469,6 +469,18 @@ impl Compiler {
         self.emit_instructions_from_exprs(parsed, false, path)
     }
 
+    pub fn emit_debug_instructions(&mut self, expr_str: &str) -> Result<Vec<Vec<Instruction>>> {
+        let mut intern = HashMap::new();
+
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr_str, &mut intern).collect();
+
+        let parsed = parsed?;
+
+        self.emit_debug_instructions_from_exprs(parsed)
+    }
+
     pub fn expand_expressions(
         &mut self,
         exprs: Vec<ExprKind>,
@@ -526,6 +538,43 @@ impl Compiler {
 
         for instruction_set in struct_instructions {
             results.push(densify(instruction_set))
+        }
+
+        // for instruction in densify(struct_instructions) {
+        //     results.push(vec![instruction])
+        // }
+
+        Ok(non_structs)
+    }
+
+    fn debug_extract_structs(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        results: &mut Vec<Vec<Instruction>>,
+    ) -> Result<Vec<ExprKind>> {
+        let mut non_structs = Vec::new();
+        let mut struct_instructions = Vec::new();
+        for expr in exprs {
+            if let ExprKind::Struct(s) = expr {
+                let builder = SteelStruct::generate_from_ast(&s)?;
+
+                // Add the eventual function names to the symbol map
+                let indices = self.symbol_map.insert_struct_function_names(&builder);
+
+                // Get the value we're going to add to the constant map for eventual use
+                // Throw the bindings in as well
+                let constant_values = builder.to_constant_val(indices);
+                let idx = self.constant_map.add_or_get(constant_values);
+
+                struct_instructions
+                    .push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
+            } else {
+                non_structs.push(expr);
+            }
+        }
+
+        for instruction_set in struct_instructions {
+            results.push(instruction_set)
         }
 
         // for instruction in densify(struct_instructions) {
@@ -613,6 +662,11 @@ impl Compiler {
         // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
         // coalesce_clears(&mut instruction_buffer);
 
+        println!(
+            "{}",
+            crate::core::instructions::disassemble(&instruction_buffer)
+        );
+
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
             // pretty_print_instructions(extracted.as_slice());
@@ -620,6 +674,92 @@ impl Compiler {
         }
 
         Ok(results)
+    }
+
+    fn generate_debug_instructions(
+        &mut self,
+        expanded_statements: Vec<ExprKind>,
+        results: Vec<Vec<Instruction>>,
+    ) -> Result<Vec<Vec<Instruction>>> {
+        let mut results = results;
+        let mut instruction_buffer = Vec::new();
+        let mut index_buffer = Vec::new();
+
+        for expr in expanded_statements {
+            // TODO add printing out the expression as its own special function
+            // println!("{:?}", expr.to_string());
+            // let mut instructions: Vec<Instruction> = Vec::new();
+
+            let mut instructions =
+                CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(&expr)?;
+
+            // TODO double check that arity map doesn't exist anymore
+            // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
+
+            instructions.push(Instruction::new_pop());
+            inject_heap_save_to_pop(&mut instructions);
+            index_buffer.push(instructions.len());
+            instruction_buffer.append(&mut instructions);
+        }
+
+        // println!("Got here!");
+
+        // insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+
+        convert_call_globals(&mut instruction_buffer);
+        replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+
+        // TODO
+        loop_condition_local_const_arity_two(&mut instruction_buffer);
+
+        // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
+        // coalesce_clears(&mut instruction_buffer);
+
+        println!(
+            "{}",
+            crate::core::instructions::disassemble(&instruction_buffer)
+        );
+
+        for idx in index_buffer {
+            let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
+            // pretty_print_instructions(extracted.as_slice());
+            results.push(extracted);
+        }
+
+        Ok(results)
+    }
+
+    fn emit_debug_instructions_from_exprs(
+        &mut self,
+        exprs: Vec<ExprKind>,
+    ) -> Result<Vec<Vec<Instruction>>> {
+        let mut results = Vec::new();
+
+        let expanded_statements = self.expand_expressions(exprs, None)?;
+
+        debug!(
+            "Generating instructions for the expression: {:?}",
+            expanded_statements
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+        );
+
+        debug!("About to expand defines");
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+
+        debug!(
+            "Successfully expanded defines: {:?}",
+            expanded_statements
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+        );
+
+        let statements_without_structs =
+            self.debug_extract_structs(expanded_statements, &mut results)?;
+
+        self.generate_debug_instructions(statements_without_structs, results)
     }
 
     pub fn emit_instructions_from_exprs(
