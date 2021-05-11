@@ -25,7 +25,7 @@ use std::borrow::Cow;
 use steel::steel_vm::engine::Engine;
 
 use std::io::Read;
-use steel::stdlib::{CONTRACTS, PRELUDE};
+use steel::stdlib::{CONTRACTS, DISPLAY, PRELUDE};
 
 use once_cell::sync::Lazy;
 use std::time::Instant;
@@ -227,7 +227,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     let buffer = String::new();
 
     // TODO make this better
-    let core_libraries = &[PRELUDE, CONTRACTS];
+    let core_libraries = &[PRELUDE, DISPLAY, CONTRACTS];
 
     let current_dir = std::env::current_dir()?;
 

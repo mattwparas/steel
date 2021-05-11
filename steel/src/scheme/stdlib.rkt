@@ -332,10 +332,5 @@
 
 (define (slice l offset n)
   (take (drop l offset) n))
-
-(define (displayln object) 
-  (display object)
-  (newline))
-
 ;;; Macros go here:
 

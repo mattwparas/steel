@@ -13,6 +13,8 @@ pub const METHODS: &str = include_str!("scheme/methods.rkt");
 pub const MERGE: &str = include_str!("scheme/merge.rkt");
 #[cfg(not(target_os = "windows"))]
 pub const COMPILER: &str = include_str!("scheme/nanopass.rkt");
+#[cfg(not(target_os = "windows"))]
+pub const DISPLAY: &str = include_str!("scheme/display.rkt");
 
 #[cfg(target_os = "windows")]
 pub const PRELUDE: &str = include_str!(r#"scheme\stdlib.rkt"#);
@@ -26,3 +28,5 @@ pub const TYPES: &str = include_str!(r#"scheme\types.rkt"#);
 pub const MERGE: &str = include_str!(r#"scheme\merge.rkt"#);
 #[cfg(target_os = "windows")]
 pub const COMPILER: &str = include_str!(r#"scheme\nanopass.rkt"#);
+#[cfg(target_os = "windows")]
+pub const DISPLAY: &str = include_str!("scheme/display.rkt");

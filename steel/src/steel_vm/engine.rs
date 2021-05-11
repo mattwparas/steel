@@ -6,7 +6,11 @@ use std::{
     rc::Rc,
 };
 
-use super::{evaluation_progress::Callback, primitives::embed_primitives, vm::VirtualMachineCore};
+use super::{
+    evaluation_progress::Callback,
+    primitives::{embed_primitives, embed_primitives_without_io},
+    vm::VirtualMachineCore,
+};
 use crate::{
     compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
     core::instructions::DenseInstruction,
@@ -61,6 +65,20 @@ impl Engine {
         vm
     }
 
+    #[inline]
+    pub fn new_sandboxed() -> Self {
+        let mut vm = Engine::new_raw();
+        embed_primitives_without_io(&mut vm);
+
+        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+
+        for core in std::array::IntoIter::new(core_libraries) {
+            vm.parse_and_execute_without_optimizations(core).unwrap();
+        }
+
+        vm
+    }
+
     /// Instantiates a new engine instance with all the primitive functions enabled.
     /// This is the most general engine entry point, and includes both the contract and
     /// prelude files in the root.
@@ -76,7 +94,11 @@ impl Engine {
     pub fn new() -> Self {
         let mut vm = Engine::new_base();
 
-        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+        let core_libraries = [
+            crate::stdlib::PRELUDE,
+            crate::stdlib::DISPLAY,
+            crate::stdlib::CONTRACTS,
+        ];
 
         for core in std::array::IntoIter::new(core_libraries) {
             vm.parse_and_execute_without_optimizations(core).unwrap();
@@ -107,7 +129,11 @@ impl Engine {
     /// vm.run("(+ 1 2 3)").unwrap();
     /// ```
     pub fn with_prelude(mut self) -> Result<Self> {
-        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+        let core_libraries = &[
+            crate::stdlib::PRELUDE,
+            crate::stdlib::DISPLAY,
+            crate::stdlib::CONTRACTS,
+        ];
 
         for core in core_libraries {
             self.parse_and_execute_without_optimizations(core)?;
@@ -129,7 +155,11 @@ impl Engine {
     /// vm.run("(+ 1 2 3)").unwrap();
     /// ```
     pub fn register_prelude(&mut self) -> Result<&mut Self> {
-        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+        let core_libraries = &[
+            crate::stdlib::PRELUDE,
+            crate::stdlib::DISPLAY,
+            crate::stdlib::CONTRACTS,
+        ];
 
         for core in core_libraries {
             self.parse_and_execute_without_optimizations(core)?;
