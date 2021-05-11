@@ -474,8 +474,16 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
+        // This conditionally includes a module which implements WEBP support.
+        #[cfg(feature = "modules")]
+        return self
+            .module_manager
+            .compile_main(&mut self.macro_env, exprs, path);
+
+        #[cfg(not(feature = "modules"))]
         self.module_manager
-            .compile_main(&mut self.macro_env, exprs, path)
+            .expand_expressions(&mut self.macro_env, exprs)
+
         // println!(
         //     "{:?}",
         //     output
@@ -599,6 +607,7 @@ impl Compiler {
         convert_call_globals(&mut instruction_buffer);
         replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
 
+        // TODO
         loop_condition_local_const_arity_two(&mut instruction_buffer);
 
         // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;

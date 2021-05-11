@@ -42,7 +42,7 @@ pub type Callback = fn(usize) -> bool;
 
 use log::error;
 
-const STACK_LIMIT: usize = 100000;
+const STACK_LIMIT: usize = 1000;
 
 pub struct VirtualMachineCore {
     global_env: Env,
@@ -1336,7 +1336,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => {
                 // Snag the current functions arity & remove the last function call
-                self.function_stack.pop();
+                let current_executing = self.function_stack.pop();
 
                 // Remove the last function call
                 // self.function_stack.pop();
@@ -1363,7 +1363,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // Actually only do tail call IFF the calling functions creates a cycle of some kind
                 // If there are no cycles to be had, the tail/call is actually slower
 
-                if !closure.upvalues().is_empty() {
+                // if !closure.upvalues().is_empty() {
+                //     self.close_upvalues(offset);
+                // }
+
+                if !current_executing
+                    .map(|x| x.upvalues().is_empty())
+                    .unwrap_or(true)
+                {
                     self.close_upvalues(offset);
                 }
 
@@ -1580,6 +1587,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // self.current_arity = Some(closure.arity());
 
                 if self.stack_index.len() == STACK_LIMIT {
+                    println!("stack frame at exit: {:?}", self.stack);
                     stop!(Generic => "stack overflowed!"; *span);
                 }
 
@@ -1639,6 +1647,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // self.current_arity = Some(closure.arity());
 
                 if self.stack_index.len() == STACK_LIMIT {
+                    println!("stack frame at exit: {:?}", self.stack);
                     stop!(Generic => "stack overflowed!"; *span);
                 }
 

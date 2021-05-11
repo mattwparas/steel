@@ -476,9 +476,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         }
         // TODO come back here
         else if self.let_context {
+            // TODO
             let b = check_and_transform_mutual_recursion(&mut body_instructions);
-
-            // crate::core::instructions::pretty_print_instructions(&body_instructions);
 
             // let b = false;
 

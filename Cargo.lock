@@ -1165,7 +1165,6 @@ dependencies = [
  "log",
  "logos",
  "proptest",
- "rand 0.8.1",
  "serde",
  "serde_derive",
  "serde_json",
