@@ -728,7 +728,17 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
         // dbg!(l);
 
-        let pop_len = l.args[1..].len();
+        // TODO this panics if l.args is empty
+
+        if l.args.is_empty() {
+            stop!(BadSyntax => "function application empty");
+        }
+
+        let pop_len = if l.args.len() > 0 {
+            l.args[1..].len()
+        } else {
+            0
+        };
 
         let mut let_context = false;
 

@@ -217,6 +217,26 @@ impl Engine {
         self.virtual_machine.execute_program(program)
     }
 
+    /// Emit the unexpanded AST
+    pub fn emit_ast_to_string(expr: &str) -> Result<String> {
+        let mut intern = HashMap::new();
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr, &mut intern).collect();
+        let parsed = parsed?;
+        // Ok(parsed.into_iter().map(|x| format!("{:#?}", x)).join("\n\n"))
+        Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
+
+    /// Emit the fully expanded AST
+    pub fn emit_fully_expanded_ast_to_string(&mut self, expr: &str) -> Result<String> {
+        Ok(self
+            .compiler
+            .emit_expanded_ast(expr)?
+            .into_iter()
+            .map(|x| x.to_pretty(60))
+            .join("\n\n"))
+    }
+
     /// Registers an external value of any type as long as it implements [`FromSteelVal`](crate::rvals::FromSteelVal) and
     /// [`IntoSteelVal`](crate::rvals::IntoSteelVal). This method does the coercion to embed the type into the `Engine`'s
     /// environment with the name `name`. This function can fail only if the conversion from `T` to [`SteelVal`](crate::rvals::SteelVal) fails.

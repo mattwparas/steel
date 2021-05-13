@@ -466,7 +466,7 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        self.emit_instructions_from_exprs(parsed, false, path)
+        self.emit_instructions_from_exprs(parsed, path)
     }
 
     pub fn emit_debug_instructions(&mut self, expr_str: &str) -> Result<Vec<Vec<Instruction>>> {
@@ -479,6 +479,22 @@ impl Compiler {
         let parsed = parsed?;
 
         self.emit_debug_instructions_from_exprs(parsed)
+    }
+
+    pub fn emit_expanded_ast(&mut self, expr_str: &str) -> Result<Vec<ExprKind>> {
+        let mut intern = HashMap::new();
+
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr_str, &mut intern).collect();
+
+        let parsed = parsed?;
+
+        let expanded_statements = self.expand_expressions(parsed, None)?;
+
+        Ok(flatten_begins_and_expand_defines(expanded_statements))
+
+        // self.emit_debug_instructions_from_exprs(parsed)
     }
 
     pub fn expand_expressions(
@@ -765,7 +781,6 @@ impl Compiler {
     pub fn emit_instructions_from_exprs(
         &mut self,
         exprs: Vec<ExprKind>,
-        _optimizations: bool,
         path: Option<PathBuf>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
