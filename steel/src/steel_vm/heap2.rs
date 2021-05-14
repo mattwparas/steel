@@ -40,7 +40,7 @@ impl UpValueHeap {
 
     // This does not handle cycles, perhaps add an explicit cycle detection via traversal
     // to mark things reachable?
-    fn collect(&mut self) {
+    fn collect<'a>(&mut self, roots: impl Iterator<Item = &'a SteelVal>) {
         if self.memory.len() > self.threshold {
             let prior = self.memory.len();
 
@@ -53,8 +53,14 @@ impl UpValueHeap {
             }
             // self.memory.retain(|x| Rc::weak_count(x) > 0);
 
-            // let after = self.memory.len();
-            self.threshold = self.memory.len() * GC_GROW_FACTOR;
+            self.mark_and_sweep(roots);
+
+            let after = self.memory.len();
+
+            // TODO check this
+            self.threshold = (self.threshold + self.memory.len()) * GC_GROW_FACTOR;
+
+            // println!("new threshold: {}", self.threshold);
 
             // self.profile_heap();
             // println!(
@@ -66,19 +72,75 @@ impl UpValueHeap {
         }
     }
 
-    pub(crate) fn new_upvalue(
+    fn mark_and_sweep<'a>(&mut self, roots: impl Iterator<Item = &'a SteelVal>) {
+        // mark
+        for root in roots {
+            traverse(root);
+        }
+
+        // sweep
+        self.memory
+            .retain(|x| x.borrow().is_reachable() || !x.borrow().is_closed());
+
+        // put them back as unreachable
+        self.memory.iter().for_each(|x| x.borrow_mut().reset());
+    }
+
+    pub(crate) fn new_upvalue<'a>(
         &mut self,
         index: usize,
         next: Option<Weak<RefCell<UpValue>>>,
+        roots: impl Iterator<Item = &'a SteelVal>,
     ) -> Weak<RefCell<UpValue>> {
         let upvalue = Rc::new(RefCell::new(UpValue::new(index, next)));
         let weak_ptr = Rc::downgrade(&upvalue);
         self.memory.push(upvalue);
 
         // self.profile_heap();
-        self.collect();
+        self.collect(roots);
         // self.profile_heap();
 
         weak_ptr
+    }
+}
+
+// Use this function to traverse and find all reachable things
+// 'reachable' should be values living in the heap, stack, and in the
+fn traverse(val: &SteelVal) {
+    match val {
+        SteelVal::Pair(_) => {}
+        SteelVal::VectorV(_) => {}
+        SteelVal::HashMapV(_) => {}
+        SteelVal::HashSetV(_) => {}
+        SteelVal::StructV(_) => {}
+        SteelVal::PortV(_) => {}
+        SteelVal::Closure(c) => {
+            for upvalue in c.upvalues() {
+                let upvalue = upvalue.upgrade().unwrap();
+                mark_upvalue(&upvalue);
+            }
+        }
+        SteelVal::IterV(_) => {}
+        SteelVal::FutureV(_) => {}
+        SteelVal::StreamV(_) => {}
+        SteelVal::BoxV(_) => {}
+        SteelVal::Contract(_) => {}
+        SteelVal::ContractedFunction(_) => {}
+        SteelVal::ContinuationFunction(_) => {}
+        _ => {
+            // println!("Doesn't need to be traversed")
+        }
+    }
+}
+
+#[inline(always)]
+fn mark_upvalue(upvalue: &Rc<RefCell<UpValue>>) {
+    // unimplemented!()
+    {
+        upvalue.borrow_mut().mark_reachable();
+    }
+
+    if let Some(inner) = upvalue.borrow().get_value_if_closed() {
+        traverse(inner);
     }
 }

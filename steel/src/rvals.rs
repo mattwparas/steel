@@ -662,6 +662,8 @@ pub struct UpValue {
     pub(crate) location: Location,
     // The next upvalue in the sequence
     pub(crate) next: Option<Weak<RefCell<UpValue>>>,
+    // Reachable
+    pub(crate) reachable: bool,
 }
 
 impl PartialEq for UpValue {
@@ -689,6 +691,10 @@ impl UpValue {
         }
     }
 
+    pub(crate) fn is_reachable(&self) -> bool {
+        self.reachable
+    }
+
     // Given a reference to the stack, either get the value from the stack index
     // Or snag the steelval stored inside the upvalue
     pub(crate) fn mutate_value(&mut self, stack: &mut [SteelVal], value: SteelVal) -> SteelVal {
@@ -706,8 +712,28 @@ impl UpValue {
         }
     }
 
+    pub(crate) fn get_value_if_closed(&self) -> Option<&SteelVal> {
+        if let Location::Closed(ref v) = self.location {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn set_value(&mut self, val: SteelVal) {
         self.location = Location::Closed(val);
+    }
+
+    pub(crate) fn mark_reachable(&mut self) {
+        self.reachable = true;
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.reachable = false;
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        matches!(self.location, Location::Closed(_))
     }
 
     pub(crate) fn index(&self) -> Option<usize> {
@@ -723,6 +749,7 @@ impl UpValue {
         UpValue {
             location: Location::Stack(stack_index),
             next,
+            reachable: false,
             // id: UPVALUE_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         }
     }

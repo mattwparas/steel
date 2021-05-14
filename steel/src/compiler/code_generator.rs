@@ -26,14 +26,16 @@ struct LocalVariable {
     depth: u32,
     name: String,
     is_captured: bool,
+    syntax_object: SyntaxObject,
 }
 
 impl LocalVariable {
-    pub fn new(depth: u32, name: String) -> Self {
+    pub fn new(depth: u32, name: String, syntax_object: SyntaxObject) -> Self {
         LocalVariable {
             depth,
             name,
             is_captured: false,
+            syntax_object,
         }
     }
 }
@@ -77,6 +79,11 @@ impl VariableData {
         self.locals[index].is_captured = true;
     }
 
+    // Unwinding when a local has not been captured (i.e. uncaptured)
+    fn mark_uncaptured(&mut self, index: usize) {
+        self.locals[index].is_captured = false;
+    }
+
     // Go backwards and attempt to find the index in which a local variable will live on the stack
     // returns (actual, stack)
     fn resolve_local(&self, ident: &str) -> Option<usize> {
@@ -85,6 +92,19 @@ impl VariableData {
             .rev()
             .position(|x| &x.name == ident)
             .map(|x| self.locals.len() - 1 - x)
+    }
+
+    fn check_locals_for_variable_to_unmark(&mut self, ident: &str) {
+        // Check local first
+        let local = self.resolve_local(ident);
+
+        if let Some(local) = local {
+            println!("Found variable!");
+
+            self.mark_uncaptured(local);
+
+            return;
+        }
     }
 
     // Resolve the upvalue with some recursion shenanigans
@@ -106,25 +126,6 @@ impl VariableData {
                 .unwrap()
                 .borrow_mut()
                 .mark_captured(local);
-
-            // If we're in a set context, then go ahead add an upvalue for that
-            // then, when we resolve an atom, check the upvalues for that if its local AND set
-            // if set {
-            //     self.enclosing
-            //         .as_ref()
-            //         .unwrap()
-            //         .borrow_mut()
-            //         .mark_set(local);
-
-            //     println!("Adding upvalue for ident: {}", ident);
-            //     dbg!(&self.enclosing);
-            //     self.enclosing
-            //         .as_ref()
-            //         .unwrap()
-            //         .borrow_mut()
-            //         .add_upvalue(local, true);
-            //     dbg!(&self.enclosing);
-            // }
 
             return Some(self.add_upvalue(local, true));
         }
@@ -385,7 +386,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         ty: TokenType::Identifier(i),
                         ..
                     } => {
-                        locals.push(LocalVariable::new(self.depth + 1, i.clone()));
+                        locals.push(LocalVariable::new(
+                            self.depth + 1,
+                            i.clone(),
+                            atom.syn.clone(),
+                        ));
                         // println!("Validating the identifiers in the arguments");
                         // body_instructions.push(Instruction::new_bind(atom.syn.clone()));
                     }
@@ -496,12 +501,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         // Go ahead and include the variable information for the popping
         // This needs to be handled accordingly
+        // TODO this could be handled better - just put the index that needs to be saved
+        // for now, is_captured is just a noop
         for local in variable_data.borrow().locals.iter() {
-            self.push(Instruction::new_close_upvalue(if local.is_captured {
-                1
-            } else {
-                0
-            }))
+            self.push(Instruction::new_close_upvalue(
+                if local.is_captured { 1 } else { 0 },
+                local.syntax_object.clone(),
+            ))
         }
 
         // pop off the local variables from the run time stack, so we don't have them
@@ -823,7 +829,20 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                             // crate::core::instructions::pretty_print_instructions(
                             // &self.instructions,
                             // );
+
+                            // println!(
+                            //     "Attempting to unwind and set the variable to un captured: {}",
+                            //     set
+                            // );
+                            // // unwind the reference
+                            // self.variable_data
+                            //     .as_ref()
+                            //     .map(|x| x.borrow_mut().check_locals_for_variable_to_unmark(&set));
                         }
+                        // println!(
+                        //     "{}",
+                        //     crate::core::instructions::disassemble(&self.instructions)
+                        // );
                     } else {
                         info!("failed to identify letrec tailcall for {}", set);
                     }
@@ -1024,6 +1043,8 @@ fn transform_letrec_tail_call(instructions: &mut [Instruction], defining_context
                     instructions[index - 2] = new_jmp;
                     instructions[index - 1] = Instruction::new_pass(arity);
                     transformed = true;
+
+                    // println!("{}", crate::core::instructions::disassemble(instructions));
 
                     info!("Tail call optimization performed for: {}", defining_context);
                     // println!("Tail call optimization performed for: {}", defining_context);

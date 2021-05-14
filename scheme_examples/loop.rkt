@@ -6,6 +6,7 @@
 ;     (foo 10))
 
 
+
 ; (define (test)
 ;     (let ((loop void))
 ;         (let ((loop-prime (lambda (x) 
@@ -15,6 +16,12 @@
 ;             (set! loop loop-prime))
 ;     (loop 0)))
 
-; (define (blagh)
-;     (test)
-;     (blagh))
+
+; (define (blagh x)
+;     (if (= x 100)
+;         x
+;         (begin
+;             (test)
+;             (blagh (+ x 1)))))
+
+; (blagh 0)

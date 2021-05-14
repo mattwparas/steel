@@ -115,7 +115,7 @@ macro_rules! gen_pred {
 
 #[derive(Debug)]
 pub struct Env {
-    bindings_vec: Vec<SteelVal>,
+    pub(crate) bindings_vec: Vec<SteelVal>,
     // bindings_map: BTreeMap<usize, SteelVal>,
     // offset: usize,
     // sub_expression: Option<Weak<RefCell<Env>>>,

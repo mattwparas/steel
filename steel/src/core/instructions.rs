@@ -318,11 +318,11 @@ impl Instruction {
         }
     }
 
-    pub fn new_close_upvalue(flag: usize) -> Instruction {
+    pub fn new_close_upvalue(flag: usize, contents: SyntaxObject) -> Instruction {
         Instruction {
             op_code: OpCode::CLOSEUPVALUE,
             payload_size: flag,
-            contents: None,
+            contents: Some(contents),
             constant: false,
         }
     }

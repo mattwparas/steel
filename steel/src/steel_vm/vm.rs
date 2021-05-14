@@ -425,6 +425,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         })
     }
 
+    // fn get_root_iterator(&self) -> impl Iterator<Item = &'a SteelVal> {}
+
     fn capture_upvalue(&mut self, local_idx: usize) -> Weak<RefCell<UpValue>> {
         // unimplemented!()
 
@@ -473,8 +475,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             return upvalue.unwrap();
         }
 
-        let created_up_value: Weak<RefCell<UpValue>> =
-            self.upvalue_heap.new_upvalue(local_idx, upvalue);
+        let created_up_value: Weak<RefCell<UpValue>> = self.upvalue_heap.new_upvalue(
+            local_idx,
+            upvalue,
+            self.stack
+                .0
+                .iter()
+                .chain(self.global_env.bindings_vec.iter()),
+        );
 
         if prev_up_value.is_none() {
             self.upvalue_head = Some(created_up_value.clone());
@@ -927,7 +935,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 match (instr.op_code, instr.payload_size) {
                     (OpCode::CLOSEUPVALUE, 1) => {
                         // unimplemented!()
-                        // println!("... closing upvalues ...");
+                        // println!("... closing upvalues ... at index: {}", self.ip);
+
                         // println!(
                         //     "Closing stack position: {}",
                         //     rollback_index + i as usize
@@ -1127,6 +1136,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let value_to_assign = self.stack.pop().unwrap();
 
         if let SteelVal::Closure(_) = &value_to_assign {
+            // println!("Closing upvalue here");
             self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
         }
 

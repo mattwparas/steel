@@ -678,10 +678,10 @@ impl Compiler {
         // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
         // coalesce_clears(&mut instruction_buffer);
 
-        println!(
-            "{}",
-            crate::core::instructions::disassemble(&instruction_buffer)
-        );
+        // println!(
+        //     "{}",
+        //     crate::core::instructions::disassemble(&instruction_buffer)
+        // );
 
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
@@ -731,10 +731,10 @@ impl Compiler {
         // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
         // coalesce_clears(&mut instruction_buffer);
 
-        println!(
-            "{}",
-            crate::core::instructions::disassemble(&instruction_buffer)
-        );
+        // println!(
+        //     "{}",
+        //     crate::core::instructions::disassemble(&instruction_buffer)
+        // );
 
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
