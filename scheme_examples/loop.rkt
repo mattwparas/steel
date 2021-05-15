@@ -5,7 +5,11 @@
 ;     (define (bar x) (foo x))
 ;     (foo 10))
 
-
+(define (test)
+    (let ((value 123456))
+        (let ((test (lambda (x) value)))
+            test)
+    value))
 
 ; (define (test)
 ;     (let ((loop void))
@@ -17,11 +21,11 @@
 ;     (loop 0)))
 
 
-; (define (blagh x)
-;     (if (= x 100)
-;         x
-;         (begin
-;             (test)
-;             (blagh (+ x 1)))))
+(define (blagh x)
+    (if (= x 100)
+        x
+        (begin
+            (test)
+            (blagh (+ x 1)))))
 
 ; (blagh 0)

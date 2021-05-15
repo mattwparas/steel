@@ -142,7 +142,7 @@ pub trait MacroEnv {
 impl Env {
     /// Make a new `Env` from
     /// another parent `Env`.
-    pub fn new(offset: usize) -> Self {
+    pub fn new() -> Self {
         Env {
             bindings_vec: Vec::new(),
             // bindings_map: BTreeMap::default(),

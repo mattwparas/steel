@@ -1,6 +1,5 @@
 use crate::{
     core::instructions::DenseInstruction,
-    env::Env,
     gc::Gc,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::Continuation,

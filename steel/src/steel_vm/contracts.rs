@@ -9,7 +9,6 @@ use crate::{
     stop,
     values::contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract},
 };
-use std::{cell::RefCell, rc::Rc};
 
 use log::debug;
 

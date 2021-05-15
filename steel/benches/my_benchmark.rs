@@ -63,6 +63,19 @@ fn filter(c: &mut Criterion) {
     benchmark_template(c, "filter-big", script, warmup);
 }
 
+fn multiple_transducers(c: &mut Criterion) {
+    let warmup = "(define lst (range 0 50000))";
+    let script = r#"
+        (execute (compose
+                    (mapping (fn (x) (* x 2)))
+                    (filtering even?)
+                    (mapping (fn (x) (+ x 25)))
+                    (taking 25000)
+                    (taking 25)) lst)
+    "#;
+    benchmark_template(c, "multiple-transducers", script, warmup);
+}
+
 fn ten_thousand_iterations(c: &mut Criterion) {
     let script = "(test 0)";
     let warmup = "(define test (lambda (x) (if (= x 10000) x (test (+ x 1)))))";
@@ -400,12 +413,14 @@ criterion_group!(
     fib_28,
     fib_20,
     engine_creation,
-    register_function, // trie_sort,
-                       // merge_sort,
-                       // struct_construct,
-                       // struct_construct_bigger,
-                       // struct_get,
-                       // struct_set
+    register_function,
+    multiple_transducers,
+    // trie_sort,
+    // merge_sort,
+    // struct_construct,
+    // struct_construct_bigger,
+    // struct_get,
+    // struct_set
 );
 
 criterion_main!(benches);
