@@ -1994,7 +1994,7 @@ mod pretty_print_tests {
                         (if applesauce 100 #f)
                         (if applesauce 100 (if applesauce 100 #f)))))"#;
         let parsed_expr = parse(expression);
-        let output = parsed_expr.to_pretty(45);
+        let _output = parsed_expr.to_pretty(45);
 
         assert!(true)
     }

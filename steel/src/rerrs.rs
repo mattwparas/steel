@@ -256,4 +256,7 @@ macro_rules! throw {
     ($type:ident => $thing:expr) => {
         || SteelErr::new(ErrorKind::$type, ($thing).to_string())
     };
+    ($type:ident => $thing:expr; $span:expr) => {
+        || SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span)
+    };
 }

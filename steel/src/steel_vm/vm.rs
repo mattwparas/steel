@@ -46,7 +46,6 @@ const STACK_LIMIT: usize = 1000;
 
 pub struct VirtualMachineCore {
     global_env: Env,
-    // global_heap: Heap,
     global_upvalue_heap: UpValueHeap,
     callback: EvaluationProgress,
     stack: StackFrame,
@@ -58,7 +57,6 @@ impl VirtualMachineCore {
     pub fn new() -> VirtualMachineCore {
         VirtualMachineCore {
             global_env: Env::root(),
-            // global_heap: Heap::new(),
             global_upvalue_heap: UpValueHeap::new(),
             callback: EvaluationProgress::new(),
             stack: StackFrame::with_capacity(256),
@@ -78,18 +76,6 @@ impl VirtualMachineCore {
     pub fn on_progress(&mut self, callback: Callback) {
         &self.callback.with_callback(callback);
     }
-
-    // pub fn print_bindings(&self) {
-    //     println!(
-    //         "Env length: {}",
-    //         self.global_env.borrow().bindings_map().len()
-    //     );
-    //     println!("{:?}", self.global_env.borrow().bindings_map());
-    // }
-
-    // pub fn roll_back(&mut self, _idx: usize) {
-    //     unimplemented!()
-    // }
 
     // Read in the file from the given path and execute accordingly
     // Loads all the functions in from the given env

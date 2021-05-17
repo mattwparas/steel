@@ -1,3 +1,4 @@
+pub(crate) mod const_evaluation;
 mod contracts;
 pub mod engine;
 mod evaluation_progress;

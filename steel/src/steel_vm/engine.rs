@@ -7,8 +7,9 @@ use std::{
 };
 
 use super::{
+    const_evaluation::ConstantEvaluatorManager,
     evaluation_progress::Callback,
-    primitives::{embed_primitives, embed_primitives_without_io},
+    primitives::{embed_primitives, embed_primitives_without_io, CONSTANTS},
     vm::VirtualMachineCore,
 };
 use crate::{
@@ -172,21 +173,24 @@ impl Engine {
 
     /// Emits a program with path information embedded for error messaging.
     pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
-        self.compiler.compile_program(expr, Some(path))
+        self.compiler
+            .compile_program(expr, Some(path), self.constants())
     }
 
     /// Emits a program for a given `expr` directly without providing any error messaging for the path.
     pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
-        self.compiler.compile_program(expr, None)
+        self.compiler.compile_program(expr, None, self.constants())
     }
 
     // Attempts to disassemble the given expression into a series of bytecode dumps
     pub fn disassemble(&mut self, expr: &str) -> Result<String> {
-        self.compiler.emit_debug_instructions(expr).map(|x| {
-            x.into_iter()
-                .map(|i| crate::core::instructions::disassemble(&i))
-                .join("\n\n")
-        })
+        self.compiler
+            .emit_debug_instructions(expr, self.constants())
+            .map(|x| {
+                x.into_iter()
+                    .map(|i| crate::core::instructions::disassemble(&i))
+                    .join("\n\n")
+            })
     }
 
     /// Execute bytecode with a constant map directly.
@@ -204,12 +208,14 @@ impl Engine {
         exprs: &str,
         path: PathBuf,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
-        self.compiler.emit_instructions(exprs, Some(path))
+        self.compiler
+            .emit_instructions(exprs, Some(path), self.constants())
     }
 
     /// Emit instructions directly, without a path for error messaging.
     pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
-        self.compiler.emit_instructions(exprs, None)
+        self.compiler
+            .emit_instructions(exprs, None, self.constants())
     }
 
     /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
@@ -231,7 +237,7 @@ impl Engine {
     pub fn emit_fully_expanded_ast_to_string(&mut self, expr: &str) -> Result<String> {
         Ok(self
             .compiler
-            .emit_expanded_ast(expr)?
+            .emit_expanded_ast(expr, self.constants())?
             .into_iter()
             .map(|x| x.to_pretty(60))
             .join("\n\n"))
@@ -423,19 +429,25 @@ impl Engine {
     /// assert_eq!(output, vec![SteelVal::IntV(3), SteelVal::IntV(25), SteelVal::IntV(5)]);
     /// ```
     pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let program = self.compiler.compile_program(expr, None)?;
+        let program = self
+            .compiler
+            .compile_program(expr, None, self.constants())?;
         self.virtual_machine.execute_program(program)
     }
 
     /// Similar to [`run`](crate::steel_vm::engine::Engine::run), however it includes path information
     /// for error reporting purposes.
     pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
-        let program = self.compiler.compile_program(expr, Some(path))?;
+        let program = self
+            .compiler
+            .compile_program(expr, Some(path), self.constants())?;
         self.virtual_machine.execute_program(program)
     }
 
     pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let program = self.compiler.compile_program(expr, None)?;
+        let program = self
+            .compiler
+            .compile_program(expr, None, self.constants())?;
         self.virtual_machine.execute_program(program)
     }
 
@@ -525,5 +537,15 @@ impl Engine {
                 ExprKind::try_from(&x).map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
             })
             .collect::<Result<Vec<ExprKind>>>()
+    }
+
+    fn constants(&self) -> HashMap<String, SteelVal> {
+        let mut hm = HashMap::new();
+        for constant in CONSTANTS {
+            if let Ok(v) = self.extract_value(constant) {
+                hm.insert(constant.to_string(), v);
+            }
+        }
+        hm
     }
 }

@@ -236,6 +236,7 @@ impl Folder for ConvertDefinesToLets {
 
 #[derive(PartialEq)]
 enum ExpressionType<'a> {
+    DefineConst(&'a str),
     DefineFlat(&'a str),
     DefineFlatStar(&'a str),
     DefineFunction(&'a str),
@@ -248,6 +249,24 @@ impl<'a> ExpressionType<'a> {
             true
         } else {
             false
+        }
+    }
+
+    fn eval_atom(t: &SyntaxObject) -> bool {
+        match &t.ty {
+            TokenType::BooleanLiteral(_)
+            | TokenType::NumberLiteral(_)
+            | TokenType::StringLiteral(_)
+            | TokenType::CharacterLiteral(_)
+            | TokenType::IntegerLiteral(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_constant(expr: &'a ExprKind) -> bool {
+        match expr {
+            ExprKind::Atom(Atom { syn, .. }) => Self::eval_atom(syn),
+            _ => false,
         }
     }
 
@@ -274,7 +293,11 @@ impl<'a> ExpressionType<'a> {
                             if defined_idents.check_output() {
                                 expression_types.push(ExpressionType::DefineFlatStar(name));
                             } else {
-                                expression_types.push(ExpressionType::DefineFlat(name));
+                                if Self::is_constant(&d.body) {
+                                    expression_types.push(ExpressionType::DefineConst(name));
+                                } else {
+                                    expression_types.push(ExpressionType::DefineFlat(name));
+                                }
                             }
                         }
                     }
@@ -357,6 +380,13 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
     // corresponds to #####apple0, #####banana1, #####cucumber1, etc
     let mut bound_names: Vec<ExprKind> = Vec::new();
 
+    if expression_types[0..idx + 1]
+        .iter()
+        .all(|x| matches!(x, ExpressionType::DefineConst(_)))
+    {
+        return ExprKind::Begin(Begin::new(body, begin.location));
+    }
+
     for (i, expression) in expression_types[0..idx + 1].into_iter().enumerate() {
         match expression {
             ExpressionType::DefineFunction(name) => {
@@ -382,6 +412,17 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                 } else {
                     panic!("expected define, found: {}", &exprs[i]);
                 };
+            }
+            ExpressionType::DefineConst(_) => {
+                // if let ExprKind::Define(d) = &exprs[i] {
+                //     top_level_arguments.push(d.name.clone());
+                //     let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                //     let set_expr = set(d.name.clone(), name_prime.clone());
+                //     bound_names.push(name_prime);
+                //     set_expressions.push(set_expr);
+                // } else {
+                //     panic!("expected define, found: {}", &exprs[i]);
+                // };
             }
             ExpressionType::DefineFlatStar(name) => {
                 if let ExprKind::Define(d) = &exprs[i] {

@@ -31,6 +31,8 @@ use crate::stop;
 
 use log::debug;
 
+use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
+
 use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
 // insert fast path for built in functions
@@ -442,8 +444,13 @@ impl Compiler {
     }
 
     /// Given a program and (optionally) a path to that program, compile and emit the program
-    pub fn compile_program(&mut self, expr_str: &str, path: Option<PathBuf>) -> Result<Program> {
-        let instructions = self.emit_instructions(expr_str, path)?;
+    pub fn compile_program(
+        &mut self,
+        expr_str: &str,
+        path: Option<PathBuf>,
+        constants: HashMap<String, SteelVal>,
+    ) -> Result<Program> {
+        let instructions = self.emit_instructions(expr_str, path, constants)?;
 
         // TODO Perhaps use a different representation for the constant map
         let program = Program::new(instructions, self.constant_map.clone());
@@ -454,6 +461,7 @@ impl Compiler {
         &mut self,
         expr_str: &str,
         path: Option<PathBuf>,
+        constants: HashMap<String, SteelVal>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
 
@@ -466,10 +474,14 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        self.emit_instructions_from_exprs(parsed, path)
+        self.emit_instructions_from_exprs(parsed, path, constants)
     }
 
-    pub fn emit_debug_instructions(&mut self, expr_str: &str) -> Result<Vec<Vec<Instruction>>> {
+    pub fn emit_debug_instructions(
+        &mut self,
+        expr_str: &str,
+        constants: HashMap<String, SteelVal>,
+    ) -> Result<Vec<Vec<Instruction>>> {
         let mut intern = HashMap::new();
 
         // Could fail here
@@ -478,10 +490,14 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        self.emit_debug_instructions_from_exprs(parsed)
+        self.emit_debug_instructions_from_exprs(parsed, constants)
     }
 
-    pub fn emit_expanded_ast(&mut self, expr_str: &str) -> Result<Vec<ExprKind>> {
+    pub fn emit_expanded_ast(
+        &mut self,
+        expr_str: &str,
+        constants: HashMap<String, SteelVal>,
+    ) -> Result<Vec<ExprKind>> {
         let mut intern = HashMap::new();
 
         // Could fail here
@@ -491,6 +507,9 @@ impl Compiler {
         let parsed = parsed?;
 
         let expanded_statements = self.expand_expressions(parsed, None)?;
+
+        let expanded_statements =
+            ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
 
         Ok(flatten_begins_and_expand_defines(expanded_statements))
 
@@ -600,44 +619,10 @@ impl Compiler {
         Ok(non_structs)
     }
 
-    // pub fn extract_structs_and_expand_macros(
+    // fn compile_to_instructions(
     //     &mut self,
-    //     exprs: Vec<Expr>,
-    //     results: &mut Vec<Vec<DenseInstruction>>,
-    // ) -> Result<Vec<Expr>> {
-    //     self.idents.insert_from_iter(
-    //         get_definition_names(&exprs)
-    //             .into_iter()
-    //             .chain(self.symbol_map.copy_underlying_vec().into_iter()),
-    //     );
-
-    //     let mut struct_instructions = Vec::new();
-
-    //     // Yoink the macro definitions
-    //     // Add them to our macro env
-    //     // TODO change this to be a unique macro env struct
-    //     // Just a thin wrapper around a hashmap
-    //     let extracted_statements = extract_macro_definitions(
-    //         exprs,
-    //         &mut self.macro_env,
-    //         // &self.global_env,
-    //         &mut self.symbol_map,
-    //         &self.idents,
-    //         &mut struct_instructions,
-    //         &mut self.constant_map,
-    //     )?;
-
-    //     info!("Found {} struct definitions", struct_instructions.len());
-
-    //     // Zip up the instructions for structs
-    //     // TODO come back to this
-    //     for instruction in densify(struct_instructions) {
-    //         results.push(vec![instruction])
-    //     }
-
-    //     // Walk through and expand all macros, lets, and defines
-    //     expand_statements(extracted_statements, &mut self.macro_env)
-    // }
+    //     expanded_statements: Vec<ExprKind>,
+    // )
 
     pub fn generate_dense_instructions(
         &mut self,
@@ -748,6 +733,7 @@ impl Compiler {
     fn emit_debug_instructions_from_exprs(
         &mut self,
         exprs: Vec<ExprKind>,
+        constants: HashMap<String, SteelVal>,
     ) -> Result<Vec<Vec<Instruction>>> {
         let mut results = Vec::new();
 
@@ -762,6 +748,10 @@ impl Compiler {
         );
 
         debug!("About to expand defines");
+
+        let expanded_statements =
+            ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
+
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
         debug!(
@@ -782,6 +772,7 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
+        constants: HashMap<String, SteelVal>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
 
@@ -794,6 +785,9 @@ impl Compiler {
                 .map(|x| x.to_string())
                 .collect::<Vec<_>>()
         );
+
+        let expanded_statements =
+            ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
 
         debug!("About to expand defines");
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);

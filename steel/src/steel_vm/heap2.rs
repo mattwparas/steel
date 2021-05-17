@@ -42,7 +42,7 @@ impl UpValueHeap {
     // to mark things reachable?
     fn collect<'a>(&mut self, roots: impl Iterator<Item = &'a SteelVal>) {
         if self.memory.len() > self.threshold {
-            let prior = self.memory.len();
+            // let prior = self.memory.len();
 
             let mut changed = true;
             while changed {
@@ -55,7 +55,7 @@ impl UpValueHeap {
 
             self.mark_and_sweep(roots);
 
-            let after = self.memory.len();
+            // let after = self.memory.len();
 
             // TODO check this
             self.threshold = (self.threshold + self.memory.len()) * GC_GROW_FACTOR;

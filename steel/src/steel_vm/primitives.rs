@@ -107,22 +107,81 @@ macro_rules! gen_pred {
     }};
 }
 
+const LIST: &str = "list";
+const CAR: &str = "car";
+const CDR: &str = "cdr";
+const CONS: &str = "cons";
+const FIRST: &str = "first";
+const REST: &str = "rest";
+const APPEND: &str = "append";
+const PUSH_BACK: &str = "push-back";
+const RANGE: &str = "range";
+const LENGTH: &str = "length";
+const REVERSE: &str = "reverse";
+const LIST_TO_VECTOR: &str = "list->vector";
+const LIST_TO_STRING: &str = "list->string";
+
+pub const CONSTANTS: &[&str] = &[
+    "+",
+    "i+",
+    "f+",
+    "*",
+    "/",
+    "-",
+    CAR,
+    CDR,
+    FIRST,
+    REST,
+    RANGE,
+    "null?",
+    "int?",
+    "float?",
+    "number?",
+    "string?",
+    "symbol?",
+    "vector?",
+    "list?",
+    "integer?",
+    "boolean?",
+    "function?",
+    "=",
+    "equal?",
+    ">",
+    ">=",
+    "<",
+    "<=",
+    "string-append",
+    // "string->list",
+    "string-upcase",
+    "string-lowercase",
+    "trim",
+    "trim-start",
+    "trim-end",
+    // "split-whitespace",
+    "void",
+    "list->string",
+    "concat-symbols",
+    "string->int",
+    "even?",
+    "odd",
+];
+
 #[inline(always)]
 pub(crate) fn register_list_functions(engine: &mut Engine) {
     engine
-        .register_value("list", ListOperations::list())
-        .register_value("car", ListOperations::car())
-        .register_value("cdr", ListOperations::cdr())
-        .register_value("first", ListOperations::car())
-        .register_value("rest", ListOperations::cdr())
-        .register_value("cons", ListOperations::cons())
-        .register_value("append", ListOperations::append())
-        .register_value("push-back", ListOperations::push_back())
-        .register_value("range", ListOperations::range())
-        .register_value("length", ListOperations::list_length())
-        .register_value("reverse", ListOperations::reverse())
-        .register_value("list->vector", ListOperations::list_to_vec())
-        .register_value("list->string", ListOperations::list_to_string());
+        .register_value(LIST, ListOperations::list())
+        .register_value(CAR, ListOperations::car())
+        .register_value(CDR, ListOperations::cdr())
+        .register_value(FIRST, ListOperations::car())
+        .register_value(REST, ListOperations::cdr())
+        .register_value(CONS, ListOperations::cons())
+        .register_value(APPEND, ListOperations::append())
+        .register_value(PUSH_BACK, ListOperations::push_back())
+        .register_value(RANGE, ListOperations::range())
+        .register_value(LENGTH, ListOperations::list_length())
+        .register_value(REVERSE, ListOperations::reverse())
+        .register_value(LIST_TO_VECTOR, ListOperations::list_to_vec())
+        .register_value(LIST_TO_STRING, ListOperations::list_to_string());
 }
 
 #[inline(always)]

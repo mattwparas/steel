@@ -56,17 +56,17 @@ impl<T> Stack<T> {
         self.0.append(other)
     }
 
-    pub fn drain<R: std::ops::RangeBounds<usize>>(&mut self, range: R) {
-        self.0.drain(range);
-    }
+    // pub fn drain<R: std::ops::RangeBounds<usize>>(&mut self, range: R) {
+    //     self.0.drain(range);
+    // }
 
     pub fn set_idx(&mut self, idx: usize, value: T) {
         self.0[idx] = value;
     }
 
-    pub fn last_mut(&mut self) -> Option<&mut T> {
-        self.0.last_mut()
-    }
+    // pub fn last_mut(&mut self) -> Option<&mut T> {
+    //     self.0.last_mut()
+    // }
 }
 
 impl<T> From<Vec<T>> for Stack<T> {
