@@ -612,17 +612,10 @@ impl Compiler {
             results.push(instruction_set)
         }
 
-        // for instruction in densify(struct_instructions) {
-        //     results.push(vec![instruction])
-        // }
 
         Ok(non_structs)
     }
 
-    // fn compile_to_instructions(
-    //     &mut self,
-    //     expanded_statements: Vec<ExprKind>,
-    // )
 
     pub fn generate_dense_instructions(
         &mut self,
