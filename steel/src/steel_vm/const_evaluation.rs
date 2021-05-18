@@ -426,7 +426,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         // Resolve the arguments - if they're all constants, we have a chance to do constant evaluation
         if let Some(arguments) = self.all_to_constant(&args) {
             if let ExprKind::Atom(_) = &func_expr {
-                let span = get_span(&func_expr);
+                // let span = get_span(&func_expr);
 
                 if let Some(evaluated_func) = self.to_constant(&func_expr) {
                     return self.eval_function(evaluated_func, func_expr, args, &arguments);
@@ -462,6 +462,28 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             } // ExprKind::
         }
 
+        // TODO if the application of the function results in a constant
+        // that should also removed
+        // For instance
+        /*
+
+        (or #f #f #f #f #f #f #t)
+
+            =>
+
+        ((λ (##z)
+            ((λ (##z)
+                ((λ (##z)
+                    ((λ (##z)
+                            ((λ (##z)
+                                ((λ (##z) #true) #false))
+                            #false))
+                        #false))
+                    #false))
+                #false))
+        #false)
+
+        */
         if let ExprKind::LambdaFunction(l) = func_expr {
             // unimplemented!()
 
