@@ -511,6 +511,9 @@ impl Compiler {
         let expanded_statements =
             ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
 
+        // let expanded_statements =
+        //     ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
+
         Ok(flatten_begins_and_expand_defines(expanded_statements))
 
         // self.emit_debug_instructions_from_exprs(parsed)
@@ -612,10 +615,8 @@ impl Compiler {
             results.push(instruction_set)
         }
 
-
         Ok(non_structs)
     }
-
 
     pub fn generate_dense_instructions(
         &mut self,

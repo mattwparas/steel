@@ -24,6 +24,7 @@ type SharedEnv = Rc<RefCell<ConstantEnv>>;
 
 struct ConstantEnv {
     bindings: HashMap<String, SteelVal>,
+    used_bindings: HashSet<String>,
     non_constant_bound: HashSet<String>,
     parent: Option<Weak<RefCell<ConstantEnv>>>,
 }
@@ -32,6 +33,7 @@ impl ConstantEnv {
     fn root(bindings: HashMap<String, SteelVal>) -> Self {
         Self {
             bindings,
+            used_bindings: HashSet::new(),
             non_constant_bound: HashSet::new(),
             parent: None,
         }
@@ -40,6 +42,7 @@ impl ConstantEnv {
     fn new_subexpression(parent: Weak<RefCell<ConstantEnv>>) -> Self {
         Self {
             bindings: HashMap::new(),
+            used_bindings: HashSet::new(),
             non_constant_bound: HashSet::new(),
             parent: Some(parent),
         }
@@ -58,7 +61,7 @@ impl ConstantEnv {
         self.non_constant_bound.insert(ident.to_owned());
     }
 
-    fn get(&self, ident: &str) -> Option<SteelVal> {
+    fn get(&mut self, ident: &str) -> Option<SteelVal> {
         if self.non_constant_bound.get(ident).is_some() {
             return None;
         }
@@ -69,9 +72,10 @@ impl ConstantEnv {
                 .as_ref()?
                 .upgrade()
                 .expect("Constant environment freed early")
-                .borrow()
+                .borrow_mut()
                 .get(ident)
         } else {
+            self.used_bindings.insert(ident.to_string());
             value.cloned()
         }
     }
@@ -93,6 +97,7 @@ impl ConstantEnv {
     fn unbind(&mut self, ident: &str) -> Option<()> {
         if self.bindings.get(ident).is_some() {
             self.bindings.remove(ident);
+            self.used_bindings.insert(ident.to_string());
         } else {
             self.parent
                 .as_ref()?
@@ -176,7 +181,7 @@ impl<'a> ConstantEvaluator<'a> {
                 if let Some(_) = self.set_idents.get(s) {
                     return None;
                 };
-                self.bindings.borrow().get(s.as_str())
+                self.bindings.borrow_mut().get(s.as_str())
             }
             TokenType::NumberLiteral(n) => Some(SteelVal::NumV(*n)),
             TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.clone().into())),
@@ -439,51 +444,11 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             ExprKind::LambdaFunction(_) => {}
             _ => {
                 let visited_func_expr = self.visit(func_expr)?;
-
-                // if let ExprKind::Atom(Atom { syn }) = &visited_func_expr {
-                //     if matches!(
-                //         syn.ty,
-                //         TokenType::CharacterLiteral(_)
-                //             | TokenType::StringLiteral(_)
-                //             | TokenType::IntegerLiteral(_)
-                //             | TokenType::NumberLiteral(_)
-                //             | TokenType::BooleanLiteral(_)
-                //     ) {
-                //         let message = format!(
-                //             "application not a procedure, expected a function, found {}",
-                //             &visited_func_expr
-                //         );
-                //         stop!(BadSyntax => message; get_span(&visited_func_expr));
-                //     }
-                // }
-
                 args.insert(0, visited_func_expr);
                 return Ok(ExprKind::List(List::new(args)));
             } // ExprKind::
         }
 
-        // TODO if the application of the function results in a constant
-        // that should also removed
-        // For instance
-        /*
-
-        (or #f #f #f #f #f #f #t)
-
-            =>
-
-        ((λ (##z)
-            ((λ (##z)
-                ((λ (##z)
-                    ((λ (##z)
-                            ((λ (##z)
-                                ((λ (##z) #true) #false))
-                            #false))
-                        #false))
-                    #false))
-                #false))
-        #false)
-
-        */
         if let ExprKind::LambdaFunction(l) = func_expr {
             // unimplemented!()
 
@@ -512,18 +477,92 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let parent = Rc::clone(&self.bindings);
             self.bindings = Rc::new(RefCell::new(new_env));
 
+            // println!("VISITING THIS BODY: {}", &l.body);
+
             let output = self.visit(l.body)?;
+
+            // Unwind the 'recursion'
+            // self.bindings = parent;
+
+            // Find which variables and arguments are actually used in the body of the function
+            let mut actually_used_variables = Vec::new();
+            let mut actually_used_arguments = Vec::new();
+
+            let mut non_constant_arguments = Vec::new();
+
+            let span = l.location.span;
+            for (var, arg) in l.args.iter().zip(args.iter()) {
+                let identifier = var.atom_identifier_or_else(
+                    throw!(BadSyntax => "lambda expects an identifier for the arguments"; span),
+                )?;
+
+                // If the argument/variable is used internally, keep it
+                // Also, if the argument is _not_ a constant
+                if self.bindings.borrow().used_bindings.contains(identifier) {
+                    // if self.to_constant(arg).is_none() {
+                    // println!("FOUND ARGUMENT: {}", identifier);
+                    actually_used_variables.push(var.clone());
+                    actually_used_arguments.push(arg.clone());
+                    // }
+                } else {
+                    if self.to_constant(&arg).is_none() {
+                        // actually_used_variables.push(var.clone());
+                        // println!("Found a non constant argument: {}", arg);
+                        non_constant_arguments.push(arg.clone());
+                    }
+                }
+            }
+
+            // Found no arguments are there are no non constant arguments
+            if actually_used_arguments.is_empty() && non_constant_arguments.is_empty() {
+                // println!("Returning in here");
+                return Ok(output);
+            }
+
+            // if actually_used_arguments.is_empty() {
+            //     non_constant_arguments.push(output);
+            //     return Ok(ExprKind::Begin(Begin::new(
+            //         non_constant_arguments,
+            //         l.location,
+            //     )));
+            // }
+
+            // TODO only do this if all of the args are constant as well
+            // Find a better way to do this
+            if self.to_constant(&output).is_some() {
+                let mut non_constant_arguments: Vec<_> = args
+                    .into_iter()
+                    .filter(|x| self.to_constant(&x).is_none())
+                    .collect();
+
+                if non_constant_arguments.is_empty() {
+                    // println!("Returning here!");
+                    return Ok(output);
+                } else {
+                    non_constant_arguments.push(output);
+                    // TODO come up witih a better location
+                    return Ok(ExprKind::Begin(Begin::new(
+                        non_constant_arguments,
+                        l.location,
+                    )));
+                }
+            }
 
             // Unwind the 'recursion'
             self.bindings = parent;
 
+            // let constructed_func = ExprKind::LambdaFunction(
+            //     LambdaFunction::new(actually_used_variables, output, l.location).into(),
+            // );
             let constructed_func =
                 ExprKind::LambdaFunction(LambdaFunction::new(l.args, output, l.location).into());
 
             // Insert the visited function at the beginning of the args
             args.insert(0, constructed_func);
+            // actually_used_arguments.insert(0, constructed_func);
 
             return Ok(ExprKind::List(List::new(args)));
+            // return Ok(ExprKind::List(List::new(actually_used_arguments)));
 
             // unimplemented!()
         } else {
