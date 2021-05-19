@@ -49,11 +49,6 @@ impl ConstantEnv {
     }
 
     fn bind(&mut self, ident: &str, value: SteelVal) {
-        // if self.bindings.get(ident).is_some() {
-        //     self.bind_non_constant(ident);
-        // } else {
-        //     self.bindings.insert(ident.to_owned(), value);
-        // }
         self.bindings.insert(ident.to_owned(), value);
     }
 
@@ -232,21 +227,9 @@ impl<'a> ConstantEvaluator<'a> {
                 }
             }
         } else {
-            // let message = format!(
-            //     "application not a procedure, expected a function, found {}",
-            //     &evaluated_func
-            // );
-            // stop!(BadSyntax => message; span);
             raw_args.insert(0, func);
             return Ok(ExprKind::List(List::new(raw_args)));
         }
-        // }
-
-        // else {
-        //     debug!("Found a non-constant evaluatable function: {}", func);
-        //     // Not a constant evaluatable function, just return the original input
-        //     return Ok(func);
-        // }
     }
 }
 
@@ -315,15 +298,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         self.bindings = parent;
 
         Ok(ExprKind::LambdaFunction(lambda_function))
-
-        // Ok(ExprKind::LambdaFunction(
-        //     LambdaFunction::new(
-        //         lambda_function.args,
-        //         self.visit(lambda_function.body)?,
-        //         lambda_function.location,
-        //     )
-        //     .into(),
-        // ))
     }
 
     fn visit_begin(&mut self, begin: crate::parser::ast::Begin) -> Self::Output {
@@ -413,7 +387,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         if l.args.len() == 1 {
             let func_expr = l.args.clone().into_iter().next().unwrap();
-            let span = get_span(&func_expr);
             let func = self.visit(func_expr)?;
 
             if let Some(evaluated_func) = self.to_constant(&func) {
@@ -574,18 +547,10 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         stop!(Generic => "unexpected syntax rules in const evaluator");
     }
 
-    fn visit_set(&mut self, mut s: Box<crate::parser::ast::Set>) -> Self::Output {
+    fn visit_set(&mut self, s: Box<crate::parser::ast::Set>) -> Self::Output {
         let identifier = &s.variable.atom_identifier_or_else(
             throw!(BadSyntax => "set expects an identifier"; s.location.span),
         )?;
-
-        // s.expr = self.visit(s.expr)?;
-
-        // if let Some(expr) = self.to_constant(&s.expr) {
-        //     self.bindings.borrow_mut().set(identifier, expr);
-        // } else {
-        //     self.bindings.borrow_mut().unbind(identifier);
-        // }
 
         self.bindings.borrow_mut().unbind(identifier);
 
