@@ -74,6 +74,10 @@ impl VariableData {
         }
     }
 
+    fn push_local(&mut self, local: LocalVariable) {
+        self.locals.push(local)
+    }
+
     // Set a local to be captured for later code generation
     fn mark_captured(&mut self, index: usize) {
         self.locals[index].is_captured = true;
@@ -306,12 +310,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // Set this for tail call optimization ease
             self.defining_context = defining_context;
 
-            // TODO bind defines to be local variables? Local to the scope of the function?
-            // Perhaps turn a define into a local?
-
             self.visit(&define.body)?;
-
-            // self.push(Instruction::new_pop());
 
             let defn_body_size = self.len() - sidx;
             self.push(Instruction::new_edef());
@@ -324,26 +323,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             // println!("binding global: {}", name);
             self.push(Instruction::new_bind(name.syn.clone()));
-
-            // TODO pick up from here
-            // if self.depth == 0 {
-            //     println!("binding global: {}", name);
-            //     self.push(Instruction::new_bind(name.syn.clone()));
-            // } else {
-            //     println!("binding local: {}", name);
-            //     // let ident = &self.defining_context;
-
-            //     // self.locals.push(ident.clone().unwrap());
-            //     // // Throw in a dummy value for where voids are going to be
-            //     // self.locals.push("#####".to_string()); // TODO get rid of this dummy value
-
-            //     // let binding_index = self.locals.len() - 2;
-
-            //     // println!("Binding it to index: {}", binding_index);
-
-            //     // Do late bound for locals as well
-            //     self.push(Instruction::new_bind_local(0, name.syn.clone()));
-            // }
 
             self.push(Instruction::new_void());
 
@@ -371,8 +350,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let mut body_instructions = Vec::new();
 
         let l = &lambda_function.args;
-
-        // let offset = self.locals.len();
 
         let mut locals = Vec::new();
 
@@ -415,16 +392,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             self.variable_data.as_ref().map(Rc::clone),
         )));
 
-        // TODO
-        // collect_defines_from_scope(&mut self.locals, &lambda_function.body, self.depth + 1);
-
-        // go ahead and statically calculate all of the variables that this closure needs to capture
-        // only do so if those variables cannot be accessed locally
-        // if the variables can be accessed locally, leave them the same
-        // if the variables cannot be accessed locally, give the stack offset where it might exist
-        // if it doesn't exist at a stack offset, then the value exists somewhere in a captured environment.
-        // The upvalues themselves need to be pointed upwards in some capacity, and these also
-
         // make recursive call with "fresh" vector so that offsets are correct
         body_instructions = CodeGenerator::new_from_body_instructions(
             &mut self.constant_map,
@@ -434,12 +401,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             Some(Rc::clone(&variable_data)),
         ) // pass through the locals here
         .compile(&lambda_function.body)?;
-
-        // if variable_data.borrow().upvalues.len() == 1 {
-        //     println!("#################################");
-        //     dbg!(&variable_data);
-        //     println!("#################################");
-        // }
 
         // Put the length of the upvalues here
         self.push(Instruction::new_ndef(variable_data.borrow().upvalues.len()));
@@ -457,10 +418,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 self.push(Instruction::new_upvalue(upvalue.index));
             }
         }
-
-        // crate::core::instructions::pretty_print_instructions(&self.instructions);
-
-        // println!("Variable data at pop: {:#?}", variable_data);
 
         // Encode the amount to pop
         body_instructions.push(Instruction::new_pop_with_upvalue(
@@ -493,11 +450,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         }
 
         self.instructions.append(&mut body_instructions);
-
-        // crate::core::instructions::pretty_print_instructions(&self.instructions);
-
-        // println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@ setting locals @@@@@@@@@@@");
-        // dbg!(&variable_data);
 
         // Go ahead and include the variable information for the popping
         // This needs to be handled accordingly
@@ -598,7 +550,23 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let builder = SteelStruct::generate_from_ast(&s)?;
 
         // Add the eventual function names to the symbol map
-        let indices = self.symbol_map.insert_struct_function_names(&builder);
+        // let indices = self.symbol_map.insert_struct_function_names(&builder);
+
+        let names = builder.to_struct_function_names();
+
+        // Fake adding the eventual function names to the symbol map
+        let indices = vec![0; names.len()];
+
+        // Add the variables to the locals here
+        for name in names {
+            self.variable_data.as_ref().map(|x| {
+                x.borrow_mut().push_local(LocalVariable::new(
+                    self.depth,
+                    name.clone(),
+                    SyntaxObject::default(TokenType::Identifier(name)),
+                ))
+            });
+        }
 
         // Get the value we're going to add to the constant map for eventual use
         // Throw the bindings in as well
@@ -606,7 +574,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let idx = self.constant_map.add_or_get(constant_values);
 
         // Inside some nested scope, so these don't need anything more than the instruction
-        self.push(Instruction::new_struct(idx));
+        self.push(Instruction::new_inner_struct(idx));
 
         Ok(())
     }
@@ -622,8 +590,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_atom(&mut self, a: &crate::parser::ast::Atom) -> Self::Output {
-        // println!("visiting atom: {}", a);
-
         let ident = if let SyntaxObject {
             ty: TokenType::Identifier(i),
             ..
@@ -631,20 +597,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         {
             i
         } else {
-            // println!("pushing constant");
-
             self.specialize_constant(&a.syn)?;
-            // let value = eval_atom(&a.syn)?;
-
-            // dbg!(&value);
-
-            // let idx = self.constant_map.add_or_get(value);
-            // self.push(Instruction::new(
-            //     OpCode::PUSHCONST,
-            //     idx,
-            //     a.syn.clone(),
-            //     true,
-            // ));
             return Ok(());
         };
 
@@ -655,33 +608,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .map(|x| x.borrow().resolve_local(ident))
             .flatten()
         {
-            // let variable = self.variable_data.as_ref().unwrap().borrow().locals[idx].clone();
-            // dbg!(variable);
-            // dbg!(&self.variable_data);
             self.push(Instruction::new_local(idx, a.syn.clone()));
-
-            // TODO come back to this and see if this is the issue
-            // if self.variable_data.as_ref().unwrap().borrow().locals[idx].is_set {
-            //     println!("New upvalue read: {} @ {}", ident, idx);
-            //     self.push(Instruction::new_read_upvalue(idx, a.syn.clone()))
-            // } else {
-            //     println!("New local read: {} @ {}", ident, idx);
-            //     self.push(Instruction::new_local(idx, a.syn.clone()));
-            // }
-
-            // TODO fix this hack
-            // if let Some(idx) = self
-            //     .variable_data
-            //     .as_ref()
-            //     .map(|x| x.borrow_mut().resolve_upvalue(ident))
-            //     .flatten()
-            // {
-            //     println!("New upvalue read: {}", ident);
-            //     self.push(Instruction::new_read_upvalue(idx, a.syn.clone()));
-            // } else {
-            //     println!("New local read: {}", ident);
-            //     self.push(Instruction::new_local(idx, a.syn.clone()));
-            // }
 
             // Otherwise attempt to resolve this as an upvalue
         } else if let Some(idx) = self
@@ -694,39 +621,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         // Otherwise we resort to it being a global variable for now
         } else {
-            // println!("pushing global");
             self.push(Instruction::new(OpCode::PUSH, 0, a.syn.clone(), true));
         }
-
-        // if let Some(idx) = self.locals.iter().rev().position(|x| &x.name == ident) {
-        //     // println!("pushing local");
-
-        //     // TODO come back to this
-        //     // this is for resolving upvalues
-        //     if self.locals[idx].depth < self.depth {
-        //         let e = format!(
-        //             "local variable cannot be captured yet, found depth: {}, current depth: {}, for variable: {}",
-        //             self.locals[idx].depth, self.depth, ident
-        //         );
-        //         // stop!(Generic => e; a.syn.span)
-        //         println!("---------- {} -----------", e);
-        //     }
-
-        //     println!("#########################");
-        //     println!("Binding {} to idx: {}", ident, self.locals.len() - 1 - idx);
-        //     println!("Depth: {}", self.depth);
-        //     println!("locals length: {}", self.locals.len());
-
-        //     // get the complement
-        //     self.push(Instruction::new_local(
-        //         self.locals.len() - 1 - idx,
-        //         a.syn.clone(),
-        //     ))
-        // } else {
-
-        // }
-
-        // if self.locals.contains()
 
         Ok(())
     }
@@ -750,8 +646,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         // Check if this is a 'let' context
         if let crate::parser::ast::ExprKind::LambdaFunction(_) = &l.args[0] {
-            // println!("Setting let context");
-            // println!("{}", l);
             let_context = true;
         }
 

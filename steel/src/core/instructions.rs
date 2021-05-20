@@ -255,6 +255,15 @@ impl Instruction {
         }
     }
 
+    pub fn new_inner_struct(idx: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::INNERSTRUCT,
+            payload_size: idx,
+            contents: None,
+            constant: true,
+        }
+    }
+
     pub fn new_call_cc() -> Instruction {
         Instruction {
             op_code: OpCode::CALLCC,

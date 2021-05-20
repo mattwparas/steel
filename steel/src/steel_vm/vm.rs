@@ -604,6 +604,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     self.ip += 1;
                     // return Ok(SteelVal::Void);
                 }
+                OpCode::INNERSTRUCT => {
+                    self.handle_inner_struct(cur_inst.payload_size as usize)?;
+                    self.stack.push(SteelVal::Void);
+                    self.ip += 1;
+                }
                 OpCode::CALLCC => {
                     /*
 
@@ -1080,6 +1085,57 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
             self.global_env.repl_define_idx(idx, func);
         }
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn handle_inner_struct(&mut self, offset: usize) -> Result<()> {
+        let val = self.constants.get(offset);
+        let mut iter = SteelVal::iter(val);
+
+        // List of indices e.g. '(25 26 27 28) to bind struct functions to
+        let indices = iter.next().unwrap();
+
+        // The name of the struct
+        let name: String = if let SteelVal::StringV(s) = iter.next().unwrap() {
+            s.to_string()
+        } else {
+            stop!( Generic => "ICE: Struct expected a string name")
+        };
+
+        // The fields of the structs
+        let fields: Vec<Gc<String>> = iter
+            .map(|x| {
+                if let SteelVal::StringV(s) = x {
+                    Ok(s.clone())
+                } else {
+                    stop!(Generic => "ICE: Struct encoded improperly with non string fields")
+                }
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        // Get them as &str for now
+        let other_fields: Vec<&str> = fields.iter().map(|x| x.as_str()).collect();
+
+        // Generate the functions, but they immediately override them with the names
+        // Store them with the indices
+        let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
+
+        for (s, func) in funcs {
+            println!("Pushing {} onto stack", s);
+            self.stack.push(func);
+        }
+
+        // for ((_, func), _) in funcs.into_iter().zip(SteelVal::iter(indices)) {
+        //     // let idx = if let SteelVal::IntV(idx) = idx {
+        //     //     idx as usize
+        //     // } else {
+        //     //     stop!(Generic => "Index wrong in structs")
+        //     // };
+
+        //     // self.global_env.repl_define_idx(idx, func);
+        //     self.stack.push(func);
+        // }
         Ok(())
     }
 

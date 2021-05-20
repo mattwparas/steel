@@ -78,8 +78,8 @@ impl Visitor for CoalescingSpanVisitor {
         self.visit(&quote.expr)
     }
 
-    fn visit_struct(&self, _s: &super::ast::Struct) -> Self::Output {
-        panic!("Unexpected struct found in span visitor");
+    fn visit_struct(&self, s: &super::ast::Struct) -> Self::Output {
+        s.location.span
     }
 
     fn visit_macro(&self, _m: &super::ast::Macro) -> Self::Output {

@@ -45,4 +45,5 @@ pub enum OpCode {
     LOADINT1,
     LOADINT2,
     CGLOCALCONST,
+    INNERSTRUCT,
 }

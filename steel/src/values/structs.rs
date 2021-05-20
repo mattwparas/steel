@@ -34,13 +34,13 @@ impl<'a> StructFuncBuilder<'a> {
         // generate constructor
         // let cons = constructor(name, field_names_as_strs.len());
         // generate predicate
+        func_names.push((&self.name).to_string());
         func_names.push(format!("{}?", &self.name));
         // generate getters and setters
         for field in &self.fields {
             func_names.push(format!("{}-{}", &self.name, field));
             func_names.push(format!("set-{}-{}!", &self.name, field));
         }
-        func_names.push((&self.name).to_string());
         func_names
     }
 
