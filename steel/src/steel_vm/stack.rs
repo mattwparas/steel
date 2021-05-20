@@ -6,7 +6,6 @@ use std::{cell::RefCell, ops::Deref};
 
 // pub type CallStack = Stack<Stack<SteelVal>>;
 pub type StackFrame = Stack<SteelVal>;
-pub type EnvStack = Stack<Rc<RefCell<Env>>>;
 
 #[derive(Debug, Clone)]
 pub struct Stack<T>(pub(crate) Vec<T>);

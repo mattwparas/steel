@@ -7,7 +7,6 @@ use std::{
 };
 
 use super::{
-    const_evaluation::ConstantEvaluatorManager,
     evaluation_progress::Callback,
     primitives::{embed_primitives, embed_primitives_without_io, CONSTANTS},
     vm::VirtualMachineCore,

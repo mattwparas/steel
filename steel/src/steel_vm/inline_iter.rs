@@ -1,8 +1,8 @@
-use super::heap2::UpValueHeap;
+use super::heap::UpValueHeap;
 use super::vm::vm;
+use super::vm::VmCore;
 use super::{contracts::ContractedFunctionExt, stack::StackFrame};
 use super::{evaluation_progress::EvaluationProgress, vm::VirtualMachineCore};
-use super::{heap::Heap, vm::VmCore};
 use crate::compiler::constants::ConstantTable;
 use crate::env::Env;
 use crate::gc::Gc;
@@ -48,7 +48,6 @@ pub(crate) fn inline_reduce_iter<
         // }
         SteelVal::ContractedFunction(cf) => {
             let arg_vec = vec![acc?, x?];
-            let mut local_heap = Heap::new();
             let mut local_upvalue_heap = UpValueHeap::new();
             cf.apply(
                 arg_vec,
@@ -81,7 +80,6 @@ pub(crate) fn inline_reduce_iter<
             //         0
             //     });
 
-            let mut local_heap = Heap::new();
             let mut local_upvalue_heap = UpValueHeap::new();
 
             // TODO make recursive call here with a very small stack

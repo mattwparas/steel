@@ -1,4 +1,4 @@
-use super::{evaluation_progress::EvaluationProgress, heap::Heap, heap2::UpValueHeap, vm::vm};
+use super::{evaluation_progress::EvaluationProgress, heap::UpValueHeap, vm::vm};
 use crate::{
     compiler::constants::ConstantTable,
     env::Env,

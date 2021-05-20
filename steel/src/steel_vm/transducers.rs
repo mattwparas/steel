@@ -1,18 +1,18 @@
-use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
+// use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
+use super::vm::VmCore;
 use crate::{
     compiler::constants::ConstantTable,
     parser::span::Span,
     primitives::{ListOperations, VectorOperations},
     rerrs::{ErrorKind, SteelErr},
-    rvals::{CollectionType, Result, SteelVal, Transducer, Transducers},
+    rvals::{CollectionType, Result, SteelVal, Transducers},
     stop,
 };
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use super::heap::Heap;
-use super::heap2::UpValueHeap;
+use super::heap::UpValueHeap;
 use crate::env::Env;
 
 use super::contracts::ContractedFunctionExt;
@@ -20,7 +20,7 @@ use super::contracts::ContractedFunctionExt;
 use super::vm::vm;
 use crate::gc::Gc;
 
-use super::inline_iter::*;
+// use super::inline_iter::*;
 use super::lazy_stream::LazyStreamIter;
 
 // TODO see if this can be done - lifetimes just don't love passing it into a function for some reason
@@ -88,7 +88,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         // }
                         SteelVal::ContractedFunction(cf) => {
                             let arg_vec = vec![arg?];
-                            let mut local_heap = Heap::new();
                             let mut local_upvalue_heap = UpValueHeap::new();
                             cf.apply(
                                 arg_vec,
@@ -123,7 +122,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             //         0
                             //     });
 
-                            let mut local_heap = Heap::new();
                             let mut local_upvalue_heap = UpValueHeap::new();
 
                             // Set the state prior to the recursive call
@@ -204,7 +202,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 }
                                 SteelVal::ContractedFunction(cf) => {
                                     let arg_vec = vec![arg.clone()];
-                                    let mut local_heap = Heap::new();
                                     let mut local_upvalue_heap = UpValueHeap::new();
                                     let res = cf.apply(
                                         arg_vec,
@@ -246,7 +243,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                     //     },
                                     // );
 
-                                    let mut local_heap = Heap::new();
                                     let mut local_upvalue_heap = UpValueHeap::new();
 
                                     // Set the state prior to the recursive call
@@ -651,7 +647,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
                 function_stack.borrow_mut().push(Gc::clone(closure));
 
-                let mut local_upvalue_heap = UpValueHeap::new();
+                // let mut local_upvalue_heap = UpValueHeap::new();
 
                 // TODO make recursive call here with a very small stack
                 // probably a bit overkill, but not much else I can do here I think

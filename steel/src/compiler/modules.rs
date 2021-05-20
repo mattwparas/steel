@@ -81,6 +81,7 @@ impl ModuleManager {
             .collect::<Result<_>>()
     }
 
+    #[cfg(not(feature = "modules"))]
     pub(crate) fn expand_expressions(
         &mut self,
         global_macro_map: &mut HashMap<String, SteelMacro>,

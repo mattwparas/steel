@@ -1,6 +1,5 @@
-use super::heap::Heap;
 use super::vm::vm;
-use super::{evaluation_progress::EvaluationProgress, heap2::UpValueHeap};
+use super::{evaluation_progress::EvaluationProgress, heap::UpValueHeap};
 use crate::compiler::constants::ConstantTable;
 use crate::env::Env;
 use crate::gc::Gc;
@@ -20,7 +19,6 @@ pub(crate) struct LazyStreamIter<'global, 'a, CT: ConstantTable> {
     stream: LazyStream,
     constants: &'global CT,
     cur_inst_span: &'global Span,
-    local_heap: Heap,
     callback: &'global EvaluationProgress,
     upvalue_heap: UpValueHeap,
     global_env: Rc<RefCell<&'global mut &'a mut Env>>,
@@ -38,7 +36,6 @@ impl<'global, 'a, CT: ConstantTable> LazyStreamIter<'global, 'a, CT> {
             stream,
             constants,
             cur_inst_span,
-            local_heap: Heap::new(),
             callback,
             upvalue_heap: UpValueHeap::new(),
             global_env,
@@ -60,7 +57,6 @@ impl<'global, 'a, CT: ConstantTable> Iterator for LazyStreamIter<'global, 'a, CT
             stream_thunk,
             self.constants,
             self.cur_inst_span,
-            &mut self.local_heap,
             self.callback,
             &mut self.upvalue_heap,
             &mut self.global_env.borrow_mut(),
@@ -87,7 +83,6 @@ fn exec_func<CT: ConstantTable>(
     stack_func: SteelVal,
     constants: &CT,
     cur_inst_span: &Span,
-    local_heap: &mut Heap,
     callback: &EvaluationProgress,
     upvalue_heap: &mut UpValueHeap,
     global_env: &mut Env,

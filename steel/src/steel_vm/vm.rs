@@ -1,7 +1,7 @@
-use super::{contracts::ContractedFunctionExt, heap::Heap};
+use super::contracts::ContractedFunctionExt;
 use super::{
-    heap2::UpValueHeap,
-    stack::{EnvStack, Stack, StackFrame},
+    heap::UpValueHeap,
+    stack::{Stack, StackFrame},
 };
 use crate::{
     compiler::{
@@ -301,7 +301,7 @@ impl VirtualMachineCore {
 pub struct InstructionPointer(usize, Rc<[DenseInstruction]>);
 
 impl InstructionPointer {
-    pub fn new_raw() -> Self {
+    pub fn _new_raw() -> Self {
         InstructionPointer(0, Rc::from(Vec::new().into_boxed_slice()))
     }
 
@@ -1560,10 +1560,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.stack.push(result);
                 self.ip += 4;
             }
-            ContractedFunction(cf) => {
+            ContractedFunction(_cf) => {
                 unimplemented!("contracted function not yet handled for lazy stack pushing");
             }
-            ContinuationFunction(cc) => {
+            ContinuationFunction(_cc) => {
                 unimplemented!("calling continuation lazily not yet handled");
             }
             Closure(closure) => {

@@ -1,6 +1,5 @@
 use crate::parser::{
     ast::{Atom, Begin, Define, LambdaFunction, List, Quote},
-    span::Span,
     span_visitor::get_span,
     visitors::{ConsumingVisitor, VisitorMut},
 };
@@ -75,7 +74,7 @@ impl ConstantEnv {
         }
     }
 
-    fn set(&mut self, ident: &str, value: SteelVal) -> Option<SteelVal> {
+    fn _set(&mut self, ident: &str, value: SteelVal) -> Option<SteelVal> {
         let output = self.bindings.get(ident);
         if output.is_none() {
             self.parent
@@ -83,7 +82,7 @@ impl ConstantEnv {
                 .upgrade()
                 .expect("Constant environment freed early")
                 .borrow_mut()
-                .set(ident, value)
+                ._set(ident, value)
         } else {
             self.bindings.insert(ident.to_string(), value)
         }

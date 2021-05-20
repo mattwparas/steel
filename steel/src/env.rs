@@ -137,36 +137,6 @@ impl Env {
         }
     }
 
-    pub fn define_idx(&mut self, idx: usize, val: SteelVal) {
-        // println!("Defining value: {:?} at idx: {}", val, idx);
-        // println!("Current bindings: {:?}", self.bindings_vec);
-
-        if idx < self.bindings_vec.len() {
-            // let e = mem::replace(&mut self.bindings_vec[idx], val);
-            // println!("Strong count: {}", Rc::strong_count(&e));
-            // std::mem::drop(e);
-            // println!("Strong count: {}", Rc::strong_count(&e));
-            self.bindings_vec[idx] = val;
-        } else if idx == self.bindings_vec.len() {
-            self.bindings_vec.push(val);
-        } else {
-            // Add void padding so that this doesn't happen
-            // This _should_ be unreachable outside of a repl
-            // This allows for redefinitions and additions into scripts
-            for _ in 0..(idx - self.bindings_vec.len()) {
-                self.bindings_vec.push(SteelVal::Void)
-            }
-
-            self.bindings_vec.push(val);
-
-            // println!("Length at panic: {}", self.bindings_vec.len());
-            // println!("Attempting to define: {} @ {}", idx, val);
-            // panic!("Out of bounds define statement");
-        }
-        // println!("{:?}", self.bindings_vec);
-        // self.offset += 1;
-    }
-
     /// Search starting from the current environment
     /// for `idx`, looking through the parent chain in order.
     ///
