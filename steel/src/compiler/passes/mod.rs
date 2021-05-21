@@ -266,7 +266,7 @@ pub trait VisitorMutUnit {
     }
 
     #[inline]
-    fn visit_atom(&mut self, a: &Atom) {}
+    fn visit_atom(&mut self, _a: &Atom) {}
 
     #[inline]
     fn visit_list(&mut self, l: &List) {
@@ -276,7 +276,7 @@ pub trait VisitorMutUnit {
     }
 
     #[inline]
-    fn visit_syntax_rules(&mut self, l: &SyntaxRules) {}
+    fn visit_syntax_rules(&mut self, _l: &SyntaxRules) {}
 
     #[inline]
     fn visit_set(&mut self, s: &Set) {
@@ -285,7 +285,7 @@ pub trait VisitorMutUnit {
     }
 
     #[inline]
-    fn visit_require(&mut self, s: &Require) {}
+    fn visit_require(&mut self, _s: &Require) {}
 
     #[inline]
     fn visit_callcc(&mut self, cc: &CallCC) {

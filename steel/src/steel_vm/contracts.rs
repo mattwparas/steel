@@ -173,7 +173,9 @@ impl FunctionContractExt for FunctionContract {
                             self.contract_attachment_location, name
                         );
 
-                        stop!(ContractViolation => format!("This function call caused an error - an occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location); *cur_inst_span);
+                        let message = format!("This function call caused an error - an occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location);
+
+                        stop!(ContractViolation => message; *cur_inst_span);
                     }
 
                     verified_args.push(arg.clone());
@@ -258,11 +260,20 @@ impl FunctionContractExt for FunctionContract {
                         &self.contract_attachment_location
                     };
 
-                    let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
-                    {}
-                    blaming: {:?} - broke its own contract", self.to_string(), e.to_string(), blame_location);
+                    // TODO clean this up
+                    if let Some(blame_location) = blame_location {
+                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
+                        {}
+                        blaming: {} - broke its own contract", self.to_string(), e.to_string(), blame_location);
 
-                    stop!(ContractViolation => error_message; *cur_inst_span);
+                        stop!(ContractViolation => error_message; *cur_inst_span);
+                    } else {
+                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
+                        {}
+                        blaming: None - broke its own contract", self.to_string(), e.to_string());
+
+                        stop!(ContractViolation => error_message; *cur_inst_span);
+                    }
                 }
 
                 Ok(output)
