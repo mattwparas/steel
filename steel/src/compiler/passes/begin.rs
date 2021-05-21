@@ -57,34 +57,6 @@ pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> 
         .collect()
 }
 
-// struct MergeDefines {
-//     referenced_identifiers: HashSet<String>,
-// }
-
-// impl MergeDefines {
-//     fn new() -> Self {
-//         MergeDefines {
-//             referenced_identifiers: HashSet::new(),
-//         }
-//     }
-
-//     fn insert(&mut self, value: &str) {
-//         self.referenced_identifiers.insert(value.to_string());
-//     }
-
-//     fn get(&mut self, value: &str) -> Option<&str> {
-//         self.referenced_identifiers.get(value).map(|x| x.as_str())
-//     }
-// }
-
-// impl VisitorMutUnit for MergeDefines {
-//     fn visit_atom(&mut self, a: &Atom) {
-//         if let TokenType::Identifier(ident) = &a.syn.ty {
-//             self.referenced_identifiers.insert(ident.clone());
-//         }
-//     }
-// }
-
 struct DefinedVars<'a> {
     defined_identifiers: HashSet<&'a str>,
     output: bool,
@@ -162,77 +134,6 @@ impl Folder for ConvertDefinesToLets {
         }
     }
 }
-
-// // Want to take the highest precedence form. For each of these, we can fold
-// // the expressions into themselves. If theres a mutual reference, turn everything into a letrec form.
-// // If there are no functions with no mutual references,
-// enum IdentifierReferenceType {
-//     // A function references itself - forced to be a letrec
-//     FuncSelfReference,
-//     // A function references another variable defined in the scope - combine with letrec
-//     FuncMutualReference,
-//     // A variable references no other variable in the scope - normal let
-//     FlatNoReference,
-//     // A variable references a variable defined prior in the scope - coalesce with prev define if possible
-//     FlatPriorReference,
-// }
-
-// // Snag the names from the defines for the current (flattened) begin statement
-// fn collect_defines_from_current_scope<'a>(begin_exprs: &'a [ExprKind]) -> Vec<(usize, &'a str)> {
-//     begin_exprs
-//         .iter()
-//         .enumerate()
-//         .filter_map(|x| {
-//             if let ExprKind::Define(d) = x.1 {
-//                 let name = d
-//                     .name
-//                     .atom_identifier_or_else(|| {})
-//                     .expect("Define without a legal name");
-//                 Some((x.0, name))
-//             } else {
-//                 None
-//             }
-//         })
-//         .collect()
-// }
-
-// // enum ExprTypeState {
-// //     FlatDefineToLet(ExprKind),
-// //     FlatDefineToLetStar(ExprKind),
-// //     LetRecSelfRef(ExprKind),
-// //     LetRecMutualRef(ExprKind),
-// // }
-
-// // See if we need to keep track of any of the local variables
-// fn merge_defines(exprs: Vec<ExprKind>) -> Begin {
-//     let mut let_rec_exprs: Vec<ExprKind> = Vec::new();
-
-//     let defines = collect_defines_from_current_scope(&exprs);
-
-//     for expr in &exprs {
-//         match expr {
-//             ExprKind::Define(d) => {
-//                 let name = d
-//                     .name
-//                     .atom_identifier_or_else(|| {})
-//                     .expect("Define without a legal name");
-
-//                 match &d.body {
-//                     ExprKind::LambdaFunction(l) => {
-//                         let mut merge_defines = MergeDefines::new();
-//                         merge_defines.visit(&l.body);
-//                     }
-//                     _ => {
-//                         unimplemented!()
-//                     }
-//                 }
-//             }
-//             _ => {}
-//         }
-//     }
-
-//     unimplemented!()
-// }
 
 #[derive(PartialEq)]
 enum ExpressionType<'a> {
@@ -387,15 +288,33 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         return ExprKind::Begin(Begin::new(body, begin.location));
     }
 
-    for (i, expression) in expression_types[0..idx + 1].into_iter().enumerate() {
+    // Top level application with dummy arguments that will immediately get overwritten
+    let mut top_level_dummy_args = vec![
+        // ExprKind::Atom(Atom::new(SyntaxObject::default(
+        //     TokenType::IntegerLiteral(123)
+        // )));
+        // top_level_arguments.len()
+    ];
+
+    let mut new_args = Vec::new();
+
+    for ((i, expression), arg) in expression_types[0..idx + 1]
+        .into_iter()
+        .enumerate()
+        .zip(args)
+    {
         match expression {
             ExpressionType::DefineFunction(name) => {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
+                    top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                        TokenType::IntegerLiteral(123),
+                    ))));
                     let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
                     let set_expr = set(d.name.clone(), name_prime.clone());
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
+                    new_args.push(arg);
                 } else {
                     panic!("expected define, found: {}", &exprs[i]);
                 };
@@ -405,28 +324,37 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
             ExpressionType::DefineFlat(name) => {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
+                    top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                        TokenType::IntegerLiteral(123),
+                    ))));
                     let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
                     let set_expr = set(d.name.clone(), name_prime.clone());
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
+                    new_args.push(arg);
                 } else {
                     panic!("expected define, found: {}", &exprs[i]);
                 };
             }
-            ExpressionType::DefineConst(_) => {
-                // if let ExprKind::Define(d) = &exprs[i] {
-                //     top_level_arguments.push(d.name.clone());
-                //     let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
-                //     let set_expr = set(d.name.clone(), name_prime.clone());
-                //     bound_names.push(name_prime);
-                //     set_expressions.push(set_expr);
-                // } else {
-                //     panic!("expected define, found: {}", &exprs[i]);
-                // };
+            ExpressionType::DefineConst(name) => {
+                if let ExprKind::Define(d) = &exprs[i] {
+                    top_level_dummy_args.push(arg);
+                    top_level_arguments.push(d.name.clone());
+                    // top_level_arguments.push(d.name.clone());
+                    // let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                    // let set_expr = set(d.name.clone(), name_prime.clone());
+                    // bound_names.push(name_prime);
+                    // set_expressions.push(set_expr);
+                } else {
+                    panic!("expected define, found: {}", &exprs[i]);
+                };
             }
             ExpressionType::DefineFlatStar(name) => {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
+                    top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                        TokenType::IntegerLiteral(123),
+                    ))));
                     let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
 
                     // Make this a (set! x (x'))
@@ -434,12 +362,14 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     let set_expr = set(d.name.clone(), apply_ident(name_prime.clone()));
 
                     // Set this to be an empty function (lambda () <expr>)
-                    args[i] = LambdaFunction::new(
-                        Vec::new(),
-                        args[i].clone(),
-                        SyntaxObject::default(TokenType::Lambda),
-                    )
-                    .into();
+                    new_args.push(
+                        LambdaFunction::new(
+                            Vec::new(),
+                            arg.clone(),
+                            SyntaxObject::default(TokenType::Lambda),
+                        )
+                        .into(),
+                    );
 
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
@@ -449,22 +379,25 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
             }
             ExpressionType::Expression => {
                 let expr = atom("#####define-conversion".to_string() + i.to_string().as_str());
+                top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    TokenType::IntegerLiteral(123),
+                ))));
 
                 // This also gets bound in the inner function for now
                 bound_names.push(expr.clone());
 
                 top_level_arguments.push(expr);
+                new_args.push(arg);
             }
         }
     }
 
-    // Top level application with dummy arguments that will immediately get overwritten
-    let mut top_level_dummy_args = vec![
-        ExprKind::Atom(Atom::new(SyntaxObject::default(
-            TokenType::IntegerLiteral(123)
-        )));
-        top_level_arguments.len()
-    ];
+    // let mut top_level_dummy_args = vec![
+    //     ExprKind::Atom(Atom::new(SyntaxObject::default(
+    //         TokenType::IntegerLiteral(123)
+    //     )));
+    //     top_level_arguments.len()
+    // ];
 
     // Append the body instructions to the set!
     set_expressions.append(&mut body);
@@ -478,9 +411,9 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         SyntaxObject::default(TokenType::Lambda),
     );
 
-    args.insert(0, ExprKind::LambdaFunction(Box::new(inner_lambda)));
+    new_args.insert(0, ExprKind::LambdaFunction(Box::new(inner_lambda)));
 
-    let inner_application = ExprKind::List(List::new(args));
+    let inner_application = ExprKind::List(List::new(new_args));
 
     let outer_lambda = LambdaFunction::new(
         top_level_arguments,

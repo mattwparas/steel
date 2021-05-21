@@ -35,6 +35,8 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
+use itertools::Itertools;
+
 // insert fast path for built in functions
 // rather than look up function in env, be able to call it directly?
 // fn collect_defines_from_current_scope(
@@ -524,7 +526,6 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        // This conditionally includes a module which implements WEBP support.
         #[cfg(feature = "modules")]
         return self
             .module_manager
@@ -795,6 +796,14 @@ impl Compiler {
         );
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
+
+        // println!(
+        //     "{}",
+        //     statements_without_structs
+        //         .iter()
+        //         .map(|x| x.to_pretty(60))
+        //         .join("\n\n")
+        // );
 
         self.generate_dense_instructions(statements_without_structs, results)
     }

@@ -26,6 +26,7 @@ struct LocalVariable {
     depth: u32,
     name: String,
     is_captured: bool,
+    struct_offset: usize,
     syntax_object: SyntaxObject,
 }
 
@@ -35,6 +36,22 @@ impl LocalVariable {
             depth,
             name,
             is_captured: false,
+            struct_offset: 0,
+            syntax_object,
+        }
+    }
+
+    pub fn new_struct(
+        depth: u32,
+        name: String,
+        syntax_object: SyntaxObject,
+        struct_offset: usize,
+    ) -> Self {
+        LocalVariable {
+            depth,
+            name,
+            is_captured: false,
+            struct_offset,
             syntax_object,
         }
     }
@@ -91,11 +108,15 @@ impl VariableData {
     // Go backwards and attempt to find the index in which a local variable will live on the stack
     // returns (actual, stack)
     fn resolve_local(&self, ident: &str) -> Option<usize> {
-        self.locals
+        let idx = self
+            .locals
             .iter()
             .rev()
             .position(|x| &x.name == ident)
-            .map(|x| self.locals.len() - 1 - x)
+            .map(|x| self.locals.len() - 1 - x)?;
+
+        let var = self.locals.iter().rev().find(|x| &x.name == ident)?;
+        Some(idx + var.struct_offset)
     }
 
     fn check_locals_for_variable_to_unmark(&mut self, ident: &str) {
@@ -176,6 +197,7 @@ pub struct CodeGenerator<'a> {
     depth: u32,
     variable_data: Option<Rc<RefCell<VariableData>>>, // enclosing: Option<&'a mut CodeGenerator<'a>>,
     let_context: bool,
+    stack_offset: usize,
 }
 
 impl<'a> CodeGenerator<'a> {
@@ -188,6 +210,7 @@ impl<'a> CodeGenerator<'a> {
             depth: 0,
             variable_data: None,
             let_context: false,
+            stack_offset: 0,
             // enclosing: None,
         }
     }
@@ -207,6 +230,7 @@ impl<'a> CodeGenerator<'a> {
             depth,
             variable_data,
             let_context: false,
+            stack_offset: 0,
             // enclosing,
         }
     }
@@ -482,9 +506,15 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             return Ok(());
         }
 
+        // Mark the offset of where things will live on the stack
+        // for each expression, increment the offset and reset it once done
+        let offset = self.stack_offset;
         for expr in &begin.exprs {
             self.visit(expr)?;
+            self.stack_offset += 1;
         }
+        self.stack_offset = offset;
+
         Ok(())
     }
 
@@ -560,10 +590,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // Add the variables to the locals here
         for name in names {
             self.variable_data.as_ref().map(|x| {
-                x.borrow_mut().push_local(LocalVariable::new(
+                x.borrow_mut().push_local(LocalVariable::new_struct(
                     self.depth,
                     name.clone(),
                     SyntaxObject::default(TokenType::Identifier(name)),
+                    self.stack_offset,
                 ))
             });
         }

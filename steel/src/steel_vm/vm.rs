@@ -1094,7 +1094,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let mut iter = SteelVal::iter(val);
 
         // List of indices e.g. '(25 26 27 28) to bind struct functions to
-        let indices = iter.next().unwrap();
+        let _ = iter.next().unwrap();
 
         // The name of the struct
         let name: String = if let SteelVal::StringV(s) = iter.next().unwrap() {
@@ -1121,21 +1121,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // Store them with the indices
         let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
 
-        for (s, func) in funcs {
-            println!("Pushing {} onto stack", s);
+        // We've mapped in the compiler _where_ locals are going to be (on the stack), just put them there
+        for (_, func) in funcs {
             self.stack.push(func);
         }
 
-        // for ((_, func), _) in funcs.into_iter().zip(SteelVal::iter(indices)) {
-        //     // let idx = if let SteelVal::IntV(idx) = idx {
-        //     //     idx as usize
-        //     // } else {
-        //     //     stop!(Generic => "Index wrong in structs")
-        //     // };
-
-        //     // self.global_env.repl_define_idx(idx, func);
-        //     self.stack.push(func);
-        // }
         Ok(())
     }
 
