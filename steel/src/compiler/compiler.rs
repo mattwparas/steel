@@ -37,14 +37,134 @@ use super::{code_generator::loop_condition_local_const_arity_two, modules::Modul
 
 // TODO this needs to take into account if they are functions or not before adding them
 // don't just blindly do all global defines first - need to do them in order correctly
+// fn replace_defines_with_debruijn_indices(
+//     instructions: &mut [Instruction],
+//     symbol_map: &mut SymbolMap,
+// ) -> Result<()> {
+//     // name mangle
+//     // Replace all identifiers with indices
+//     for i in 0..instructions.len() {
+//         match &instructions[i] {
+//             Instruction {
+//                 op_code: OpCode::BIND,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         ..
+//                     }),
+//                 ..
+//             } => {
+//                 let idx = symbol_map.get_or_add(s);
+
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.payload_size = idx;
+//                 }
+//             }
+//             _ => {}
+//         }
+//     }
+
+//     // name mangle
+//     // Replace all identifiers with indices
+//     for i in 0..instructions.len() {
+//         match &instructions[i] {
+//             Instruction {
+//                 op_code: OpCode::PUSH,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         span,
+//                         ..
+//                     }),
+//                 ..
+//             }
+//             | Instruction {
+//                 op_code: OpCode::CALLGLOBAL,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         span,
+//                         ..
+//                     }),
+//                 ..
+//             }
+//             | Instruction {
+//                 op_code: OpCode::CALLGLOBALTAIL,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         span,
+//                         ..
+//                     }),
+//                 ..
+//             }
+//             | Instruction {
+//                 op_code: OpCode::SET,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         span,
+//                         ..
+//                     }),
+//                 ..
+//             } => {
+//                 let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
+
+//                 // TODO commenting this for now
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.payload_size = idx;
+//                     x.constant = false;
+//                 }
+//             }
+//             _ => {}
+//         }
+//     }
+
+//     Ok(())
+// }
+
 fn replace_defines_with_debruijn_indices(
     instructions: &mut [Instruction],
     symbol_map: &mut SymbolMap,
 ) -> Result<()> {
     // name mangle
     // Replace all identifiers with indices
+    for i in 2..instructions.len() {
+        match (&instructions[i], &instructions[i - 1], &instructions[i - 2]) {
+            (
+                Instruction {
+                    op_code: OpCode::BIND,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            ..
+                        }),
+                    ..
+                },
+                Instruction {
+                    op_code: OpCode::EDEF,
+                    ..
+                },
+                Instruction {
+                    op_code: OpCode::ECLOSURE,
+                    ..
+                },
+            ) => {
+                let idx = symbol_map.get_or_add(s);
+
+                if let Some(x) = instructions.get_mut(i) {
+                    x.payload_size = idx;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // name mangle
+    // Replace all identifiers with indices
     for i in 0..instructions.len() {
         match &instructions[i] {
+            // Bind any variables we see as we see them
             Instruction {
                 op_code: OpCode::BIND,
                 contents:
@@ -60,14 +180,6 @@ fn replace_defines_with_debruijn_indices(
                     x.payload_size = idx;
                 }
             }
-            _ => {}
-        }
-    }
-
-    // name mangle
-    // Replace all identifiers with indices
-    for i in 0..instructions.len() {
-        match &instructions[i] {
             Instruction {
                 op_code: OpCode::PUSH,
                 contents:

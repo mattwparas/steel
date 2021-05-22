@@ -334,3 +334,6 @@
   (take (drop l offset) n))
 ;;; Macros go here:
 
+(define (displayln x)
+  (display x)
+  (newline))

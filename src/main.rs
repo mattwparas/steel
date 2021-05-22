@@ -15,11 +15,11 @@ use log::LevelFilter;
 fn main() {
     // env_logger::init();
 
-    let mut builder = Builder::new();
+    // let mut builder = Builder::new();
 
-    builder
-        .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
-        .init();
+    // builder
+    //     .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
+    //     .init();
 
     let args = args().collect::<Vec<_>>();
 
