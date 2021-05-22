@@ -14,6 +14,7 @@ use crate::rvals::{Result, SteelVal};
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
+    convert::TryFrom,
     rc::{Rc, Weak},
 };
 
@@ -137,12 +138,12 @@ struct ConstantEvaluator<'a> {
     set_idents: &'a HashSet<String>,
 }
 
-fn steelval_to_atom(value: SteelVal) -> Option<TokenType> {
+fn steelval_to_atom(value: &SteelVal) -> Option<TokenType> {
     match value {
-        SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(b)),
-        SteelVal::NumV(n) => Some(TokenType::NumberLiteral(n)),
-        SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(c)),
-        SteelVal::IntV(i) => Some(TokenType::IntegerLiteral(i)),
+        SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(*b)),
+        SteelVal::NumV(n) => Some(TokenType::NumberLiteral(*n)),
+        SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
+        SteelVal::IntV(i) => Some(TokenType::IntegerLiteral(*i)),
         SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.unwrap())),
         _ => None,
     }
@@ -196,15 +197,19 @@ impl<'a> ConstantEvaluator<'a> {
         mut raw_args: Vec<ExprKind>,
         args: &[SteelVal],
     ) -> Result<ExprKind> {
-        // if let Some(evaluated_func) = self.to_constant(&func) {
         if evaluated_func.is_function() {
             match evaluated_func {
                 SteelVal::FuncV(f) => {
                     let output = f(args)?;
 
-                    if let Some(new_token) = steelval_to_atom(output) {
+                    if let Some(new_token) = steelval_to_atom(&output) {
                         let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
                         return Ok(ExprKind::Atom(atom));
+                    } else if let Ok(lst) = ExprKind::try_from(&output) {
+                        return Ok(ExprKind::Quote(Box::new(Quote::new(
+                            lst,
+                            SyntaxObject::new(TokenType::Quote, get_span(&func)),
+                        ))));
                     } else {
                         debug!(
                             "Unable to convert constant-evalutable function output to value: {}",
@@ -369,7 +374,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     fn visit_atom(&mut self, a: crate::parser::ast::Atom) -> Self::Output {
         if let Some(inner) = self.eval_atom(&a.syn) {
             // TODO Check this part - be able to propagate quoted values
-            if let Some(new_token) = steelval_to_atom(inner) {
+            if let Some(new_token) = steelval_to_atom(&inner) {
                 let atom = Atom::new(SyntaxObject::new(new_token, a.syn.span));
                 return Ok(ExprKind::Atom(atom));
             }
