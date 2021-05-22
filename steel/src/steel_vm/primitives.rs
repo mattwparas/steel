@@ -120,6 +120,17 @@ const LENGTH: &str = "length";
 const REVERSE: &str = "reverse";
 const LIST_TO_VECTOR: &str = "list->vector";
 const LIST_TO_STRING: &str = "list->string";
+const NULL_HUH: &str = "null?";
+const INT_HUH: &str = "int?";
+const INTEGER_HUH: &str = "integer?";
+const FLOAT_HUH: &str = "float?";
+const NUMBER_HUH: &str = "number?";
+const SYMBOL_HUH: &str = "symbol?";
+const VECTOR_HUH: &str = "vector?";
+const STRING_HUH: &str = "string?";
+const LIST_HUH: &str = "list?";
+const BOOLEAN_HUH: &str = "boolean?";
+const FUNCTION_HUH: &str = "function?";
 
 pub const CONSTANTS: &[&str] = &[
     "+",
@@ -133,17 +144,17 @@ pub const CONSTANTS: &[&str] = &[
     FIRST,
     REST,
     RANGE,
-    "null?",
-    "int?",
-    "float?",
-    "number?",
-    "string?",
-    "symbol?",
-    "vector?",
-    "list?",
-    "integer?",
-    "boolean?",
-    "function?",
+    NULL_HUH,
+    INT_HUH,
+    FLOAT_HUH,
+    NUMBER_HUH,
+    STRING_HUH,
+    SYMBOL_HUH,
+    VECTOR_HUH,
+    LIST_HUH,
+    INTEGER_HUH,
+    BOOLEAN_HUH,
+    FUNCTION_HUH,
     "=",
     "equal?",
     ">",
@@ -164,6 +175,13 @@ pub const CONSTANTS: &[&str] = &[
     "string->int",
     "even?",
     "odd",
+    CONS,
+    APPEND,
+    PUSH_BACK,
+    LENGTH,
+    REVERSE,
+    LIST_TO_STRING,
+    LIST,
 ];
 
 #[inline(always)]

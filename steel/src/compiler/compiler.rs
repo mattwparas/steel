@@ -35,6 +35,8 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
+// TODO this needs to take into account if they are functions or not before adding them
+// don't just blindly do all global defines first - need to do them in order correctly
 fn replace_defines_with_debruijn_indices(
     instructions: &mut [Instruction],
     symbol_map: &mut SymbolMap,
