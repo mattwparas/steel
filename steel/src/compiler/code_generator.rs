@@ -100,11 +100,6 @@ impl VariableData {
         self.locals[index].is_captured = true;
     }
 
-    // Unwinding when a local has not been captured (i.e. uncaptured)
-    fn mark_uncaptured(&mut self, index: usize) {
-        self.locals[index].is_captured = false;
-    }
-
     // Go backwards and attempt to find the index in which a local variable will live on the stack
     // returns (actual, stack)
     fn resolve_local(&self, ident: &str) -> Option<usize> {
@@ -117,19 +112,6 @@ impl VariableData {
 
         let var = self.locals.iter().rev().find(|x| &x.name == ident)?;
         Some(idx + var.struct_offset)
-    }
-
-    fn check_locals_for_variable_to_unmark(&mut self, ident: &str) {
-        // Check local first
-        let local = self.resolve_local(ident);
-
-        if let Some(local) = local {
-            println!("Found variable!");
-
-            self.mark_uncaptured(local);
-
-            return;
-        }
     }
 
     // Resolve the upvalue with some recursion shenanigans
@@ -1233,7 +1215,7 @@ fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> boo
                     op_code: OpCode::PUSH,
                     contents:
                         Some(SyntaxObject {
-                            ty: TokenType::Identifier(s),
+                            ty: TokenType::Identifier(_s),
                             ..
                         }),
                     ..
@@ -1248,7 +1230,7 @@ fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> boo
                     op_code: OpCode::READUPVALUE,
                     contents:
                         Some(SyntaxObject {
-                            ty: TokenType::Identifier(s),
+                            ty: TokenType::Identifier(_s),
                             ..
                         }),
                     ..
@@ -1278,7 +1260,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
         what => {
-            println!("getting here in the eval_atom");
+            // println!("getting here in the eval_atom");
             stop!(UnexpectedToken => what; t.span)
         }
     }

@@ -20,7 +20,7 @@ use crate::parser::ast::ExprKind;
 use crate::parser::expander::SteelMacro;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::parser::{ParseError, Parser};
-use crate::parser::span::Span;
+// use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 
 use crate::values::structs::SteelStruct;

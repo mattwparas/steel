@@ -1,6 +1,6 @@
 use crate::parser::tokens::TokenType;
 use crate::parser::{
-    ast::{Atom, Begin, Define, ExprKind, LambdaFunction, List, Set},
+    ast::{Atom, Begin, ExprKind, LambdaFunction, List, Set},
     parser::SyntaxObject,
 };
 use std::collections::HashSet;
@@ -257,7 +257,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
     let mut body = exprs.split_off(idx + 1);
 
     // These are going to be the
-    let mut args = exprs
+    let args = exprs
         .iter()
         .map(|x| {
             if let ExprKind::Define(d) = x {
@@ -336,7 +336,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     panic!("expected define, found: {}", &exprs[i]);
                 };
             }
-            ExpressionType::DefineConst(name) => {
+            ExpressionType::DefineConst(_name) => {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_dummy_args.push(arg);
                     top_level_arguments.push(d.name.clone());

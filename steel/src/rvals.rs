@@ -322,7 +322,7 @@ pub enum CollectionType {
 
 // Make a transducer actually contain an option to a rooted value, otherwise
 // it is a source agnostic transformer on the (eventual) input
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Transducer {
     // root: Gc<SteelVal>,
     pub ops: Vec<Transducers>,
@@ -342,7 +342,7 @@ impl Transducer {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Transducers {
     Map(SteelVal),    // function
     Filter(SteelVal), // function
@@ -626,6 +626,10 @@ impl PartialEq for SteelVal {
             (HashSetV(l), HashSetV(r)) => l == r,
             (HashMapV(l), HashMapV(r)) => l == r,
             (StructV(l), StructV(r)) => l == r,
+            (Closure(l), Closure(r)) => l == r,
+            (ContractedFunction(l), ContractedFunction(r)) => l == r,
+            (Contract(l), Contract(r)) => l == r,
+            (IterV(l), IterV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
@@ -731,10 +735,6 @@ impl UpValue {
         self.reachable = false;
     }
 
-    pub(crate) fn is_closed(&self) -> bool {
-        matches!(self.location, Location::Closed(_))
-    }
-
     pub(crate) fn is_open(&self) -> bool {
         matches!(self.location, Location::Stack(_))
     }
@@ -744,7 +744,6 @@ impl UpValue {
             Some(*idx)
         } else {
             None
-            // panic!("Attempted to get the stack index of a heap allocated upvalue")
         }
     }
 
@@ -753,7 +752,6 @@ impl UpValue {
             location: Location::Stack(stack_index),
             next,
             reachable: false,
-            // id: UPVALUE_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         }
     }
 

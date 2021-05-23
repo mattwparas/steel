@@ -145,11 +145,7 @@ impl Env {
     /// Otherwise, error with `FreeIdentifier`
     // #[inline]
     pub fn repl_lookup_idx(&self, idx: usize) -> Result<SteelVal> {
-        // Ok(self.bindings_vec[idx].clone())
-        self.bindings_vec
-            .get(idx)
-            .cloned()
-            .ok_or_else(throw!(FreeIdentifier => "free identifier"))
+        Ok(self.bindings_vec[idx].clone())
     }
 
     #[inline]
