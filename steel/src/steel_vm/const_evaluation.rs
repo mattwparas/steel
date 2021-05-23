@@ -13,10 +13,12 @@ use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     convert::TryFrom,
     rc::{Rc, Weak},
 };
+
+use im_rc::HashMap;
 
 use log::debug;
 
@@ -110,6 +112,7 @@ impl ConstantEnv {
 pub struct ConstantEvaluatorManager {
     global_env: SharedEnv,
     set_idents: HashSet<String>,
+    pub(crate) changed: bool,
 }
 
 impl ConstantEvaluatorManager {
@@ -117,6 +120,7 @@ impl ConstantEvaluatorManager {
         Self {
             global_env: Rc::new(RefCell::new(ConstantEnv::root(constant_bindings))),
             set_idents: HashSet::new(),
+            changed: false,
         }
     }
 
@@ -128,7 +132,13 @@ impl ConstantEvaluatorManager {
 
         input
             .into_iter()
-            .map(|x| ConstantEvaluator::new(Rc::clone(&self.global_env), &self.set_idents).visit(x))
+            .map(|x| {
+                let mut eval =
+                    ConstantEvaluator::new(Rc::clone(&self.global_env), &self.set_idents);
+                let output = eval.visit(x);
+                self.changed = self.changed || eval.changed;
+                output
+            })
             .collect()
     }
 }
@@ -136,6 +146,7 @@ impl ConstantEvaluatorManager {
 struct ConstantEvaluator<'a> {
     bindings: SharedEnv,
     set_idents: &'a HashSet<String>,
+    changed: bool,
 }
 
 fn steelval_to_atom(value: &SteelVal) -> Option<TokenType> {
@@ -154,6 +165,7 @@ impl<'a> ConstantEvaluator<'a> {
         Self {
             bindings,
             set_idents,
+            changed: false,
         }
     }
 
@@ -191,7 +203,7 @@ impl<'a> ConstantEvaluator<'a> {
     }
 
     fn eval_function(
-        &self,
+        &mut self,
         evaluated_func: SteelVal,
         func: ExprKind,
         mut raw_args: Vec<ExprKind>,
@@ -204,8 +216,10 @@ impl<'a> ConstantEvaluator<'a> {
 
                     if let Some(new_token) = steelval_to_atom(&output) {
                         let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
+                        self.changed = true;
                         return Ok(ExprKind::Atom(atom));
                     } else if let Ok(lst) = ExprKind::try_from(&output) {
+                        self.changed = true;
                         return Ok(ExprKind::Quote(Box::new(Quote::new(
                             lst,
                             SyntaxObject::new(TokenType::Quote, get_span(&func)),
@@ -245,6 +259,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         let test_expr = self.visit(f.test_expr)?;
         // If we found a constant, we can elect to only take the truthy path
         if let Some(test_expr) = self.to_constant(&test_expr) {
+            self.changed = true;
             if test_expr.is_truthy() {
                 self.visit(f.then_expr)
             } else {
@@ -304,6 +319,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         Ok(ExprKind::LambdaFunction(lambda_function))
     }
 
+    // TODO remove constants from the begins
     fn visit_begin(&mut self, begin: crate::parser::ast::Begin) -> Self::Output {
         Ok(ExprKind::Begin(Begin::new(
             begin
@@ -396,6 +412,18 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             if let Some(evaluated_func) = self.to_constant(&func) {
                 return self.eval_function(evaluated_func, func, Vec::new(), &[]);
             } else {
+                if let ExprKind::LambdaFunction(f) = func {
+                    if f.args.len() != 0 {
+                        stop!(ArityMismatch => format!("function expected {} arguments, found 0", f.args.len()))
+                    }
+
+                    // If the body is constant we can safely remove the application
+                    // Otherwise we can't eliminate the additional scope depth
+                    if self.to_constant(&f.body).is_some() {
+                        return Ok(f.body);
+                    }
+                }
+
                 return Ok(ExprKind::List(l));
             }
         }
@@ -493,6 +521,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             // Found no arguments are there are no non constant arguments
             if actually_used_arguments.is_empty() && non_constant_arguments.is_empty() {
                 // println!("Returning in here");
+                self.changed = true;
                 return Ok(output);
             }
 
@@ -512,6 +541,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     .filter(|x| self.to_constant(&x).is_none())
                     .collect();
 
+                self.changed = true;
                 if non_constant_arguments.is_empty() {
                     // println!("Returning here!");
                     return Ok(output);

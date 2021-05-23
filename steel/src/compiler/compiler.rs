@@ -37,6 +37,8 @@ use super::{code_generator::loop_condition_local_const_arity_two, modules::Modul
 
 use itertools::Itertools;
 
+use im_rc::HashMap as ImmutableHashMap;
+
 // TODO this needs to take into account if they are functions or not before adding them
 // don't just blindly do all global defines first - need to do them in order correctly
 fn replace_defines_with_debruijn_indices(
@@ -264,7 +266,7 @@ impl Compiler {
         &mut self,
         expr_str: &str,
         path: Option<PathBuf>,
-        constants: HashMap<String, SteelVal>,
+        constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<Program> {
         let instructions = self.emit_instructions(expr_str, path, constants)?;
 
@@ -277,7 +279,7 @@ impl Compiler {
         &mut self,
         expr_str: &str,
         path: Option<PathBuf>,
-        constants: HashMap<String, SteelVal>,
+        constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
 
@@ -296,7 +298,7 @@ impl Compiler {
     pub fn emit_debug_instructions(
         &mut self,
         expr_str: &str,
-        constants: HashMap<String, SteelVal>,
+        constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<Vec<Vec<Instruction>>> {
         let mut intern = HashMap::new();
 
@@ -312,7 +314,7 @@ impl Compiler {
     pub fn emit_expanded_ast(
         &mut self,
         expr_str: &str,
-        constants: HashMap<String, SteelVal>,
+        constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<Vec<ExprKind>> {
         let mut intern = HashMap::new();
 
@@ -542,7 +544,7 @@ impl Compiler {
     fn emit_debug_instructions_from_exprs(
         &mut self,
         exprs: Vec<ExprKind>,
-        constants: HashMap<String, SteelVal>,
+        constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<Vec<Vec<Instruction>>> {
         let mut results = Vec::new();
 
@@ -581,7 +583,7 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
-        constants: HashMap<String, SteelVal>,
+        constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
 
@@ -595,8 +597,18 @@ impl Compiler {
                 .collect::<Vec<_>>()
         );
 
-        let expanded_statements =
-            ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
+        let mut expanded_statements = expanded_statements;
+
+        loop {
+            let mut manager = ConstantEvaluatorManager::new(constants.clone());
+            expanded_statements = manager.run(expanded_statements)?;
+            if !manager.changed {
+                break;
+            }
+        }
+
+        // let expanded_statements =
+        // ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
 
         debug!("About to expand defines");
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
@@ -611,13 +623,13 @@ impl Compiler {
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
 
-        println!(
-            "{}",
-            statements_without_structs
-                .iter()
-                .map(|x| x.to_pretty(60))
-                .join("\n\n")
-        );
+        // println!(
+        //     "{}",
+        //     statements_without_structs
+        //         .iter()
+        //         .map(|x| x.to_pretty(60))
+        //         .join("\n\n")
+        // );
 
         self.generate_dense_instructions(statements_without_structs, results)
     }

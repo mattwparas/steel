@@ -22,11 +22,13 @@ use crate::{
     stop, throw,
 };
 
+use im_rc::HashMap as ImmutableHashMap;
 use itertools::Itertools;
 
 pub struct Engine {
     virtual_machine: VirtualMachineCore,
     compiler: Compiler,
+    constants: Option<ImmutableHashMap<String, SteelVal>>,
 }
 
 impl Engine {
@@ -44,6 +46,7 @@ impl Engine {
         Engine {
             virtual_machine: VirtualMachineCore::new(),
             compiler: Compiler::default(),
+            constants: None,
         }
     }
 
@@ -172,19 +175,21 @@ impl Engine {
 
     /// Emits a program with path information embedded for error messaging.
     pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
-        self.compiler
-            .compile_program(expr, Some(path), self.constants())
+        let constants = self.constants();
+        self.compiler.compile_program(expr, Some(path), constants)
     }
 
     /// Emits a program for a given `expr` directly without providing any error messaging for the path.
     pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
-        self.compiler.compile_program(expr, None, self.constants())
+        let constants = self.constants();
+        self.compiler.compile_program(expr, None, constants)
     }
 
     // Attempts to disassemble the given expression into a series of bytecode dumps
     pub fn disassemble(&mut self, expr: &str) -> Result<String> {
+        let constants = self.constants();
         self.compiler
-            .emit_debug_instructions(expr, self.constants())
+            .emit_debug_instructions(expr, constants)
             .map(|x| {
                 x.into_iter()
                     .map(|i| crate::core::instructions::disassemble(&i))
@@ -207,14 +212,15 @@ impl Engine {
         exprs: &str,
         path: PathBuf,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
+        let constants = self.constants();
         self.compiler
-            .emit_instructions(exprs, Some(path), self.constants())
+            .emit_instructions(exprs, Some(path), constants)
     }
 
     /// Emit instructions directly, without a path for error messaging.
     pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
-        self.compiler
-            .emit_instructions(exprs, None, self.constants())
+        let constants = self.constants();
+        self.compiler.emit_instructions(exprs, None, constants)
     }
 
     /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
@@ -234,9 +240,10 @@ impl Engine {
 
     /// Emit the fully expanded AST
     pub fn emit_fully_expanded_ast_to_string(&mut self, expr: &str) -> Result<String> {
+        let constants = self.constants();
         Ok(self
             .compiler
-            .emit_expanded_ast(expr, self.constants())?
+            .emit_expanded_ast(expr, constants)?
             .into_iter()
             .map(|x| x.to_pretty(60))
             .join("\n\n"))
@@ -428,25 +435,22 @@ impl Engine {
     /// assert_eq!(output, vec![SteelVal::IntV(3), SteelVal::IntV(25), SteelVal::IntV(5)]);
     /// ```
     pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let program = self
-            .compiler
-            .compile_program(expr, None, self.constants())?;
+        let constants = self.constants();
+        let program = self.compiler.compile_program(expr, None, constants)?;
         self.virtual_machine.execute_program(program)
     }
 
     /// Similar to [`run`](crate::steel_vm::engine::Engine::run), however it includes path information
     /// for error reporting purposes.
     pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
-        let program = self
-            .compiler
-            .compile_program(expr, Some(path), self.constants())?;
+        let constants = self.constants();
+        let program = self.compiler.compile_program(expr, Some(path), constants)?;
         self.virtual_machine.execute_program(program)
     }
 
     pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let program = self
-            .compiler
-            .compile_program(expr, None, self.constants())?;
+        let constants = self.constants();
+        let program = self.compiler.compile_program(expr, None, constants)?;
         self.virtual_machine.execute_program(program)
     }
 
@@ -538,13 +542,20 @@ impl Engine {
             .collect::<Result<Vec<ExprKind>>>()
     }
 
-    fn constants(&self) -> HashMap<String, SteelVal> {
-        let mut hm = HashMap::new();
-        for constant in CONSTANTS {
-            if let Ok(v) = self.extract_value(constant) {
-                hm.insert(constant.to_string(), v);
+    // TODO this does not take into account the issues with
+    // people registering new functions that shadow the original one
+    fn constants(&mut self) -> ImmutableHashMap<String, SteelVal> {
+        if let Some(hm) = self.constants.clone() {
+            hm
+        } else {
+            let mut hm = ImmutableHashMap::new();
+            for constant in CONSTANTS {
+                if let Ok(v) = self.extract_value(constant) {
+                    hm.insert(constant.to_string(), v);
+                }
             }
+            self.constants = Some(hm.clone());
+            hm
         }
-        hm
     }
 }
