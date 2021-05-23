@@ -35,7 +35,7 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
-use itertools::Itertools;
+// use itertools::Itertools;
 
 use im_rc::HashMap as ImmutableHashMap;
 
@@ -472,23 +472,11 @@ impl Compiler {
             instruction_buffer.append(&mut instructions);
         }
 
-        // println!("Got here!");
-
-        // insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
-
         convert_call_globals(&mut instruction_buffer);
         replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
 
         // TODO
         loop_condition_local_const_arity_two(&mut instruction_buffer);
-
-        // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
-        // coalesce_clears(&mut instruction_buffer);
-
-        // println!(
-        //     "{}",
-        //     crate::core::instructions::disassemble(&instruction_buffer)
-        // );
 
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
@@ -510,14 +498,9 @@ impl Compiler {
 
         for expr in expanded_statements {
             // TODO add printing out the expression as its own special function
-            // println!("{:?}", expr.to_string());
-            // let mut instructions: Vec<Instruction> = Vec::new();
 
             let mut instructions =
                 CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(&expr)?;
-
-            // TODO double check that arity map doesn't exist anymore
-            // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
 
             instructions.push(Instruction::new_pop());
             inject_heap_save_to_pop(&mut instructions);
@@ -525,23 +508,11 @@ impl Compiler {
             instruction_buffer.append(&mut instructions);
         }
 
-        // println!("Got here!");
-
-        // insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
-
         convert_call_globals(&mut instruction_buffer);
         replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
 
         // TODO
         loop_condition_local_const_arity_two(&mut instruction_buffer);
-
-        // extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
-        // coalesce_clears(&mut instruction_buffer);
-
-        // println!(
-        //     "{}",
-        //     crate::core::instructions::disassemble(&instruction_buffer)
-        // );
 
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
