@@ -1,4 +1,8 @@
-use crate::{rvals::UpValue, SteelVal};
+use crate::{
+    gc::Gc,
+    rvals::{ByteCodeLambda, UpValue},
+    SteelVal,
+};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
@@ -40,7 +44,11 @@ impl UpValueHeap {
 
     // This does not handle cycles, perhaps add an explicit cycle detection via traversal
     // to mark things reachable?
-    fn collect<'a>(&mut self, roots: impl Iterator<Item = &'a SteelVal>) {
+    fn collect<'a>(
+        &mut self,
+        roots: impl Iterator<Item = &'a SteelVal>,
+        function_stack: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
+    ) {
         if self.memory.len() > self.threshold {
             // let prior = self.memory.len();
 
@@ -51,18 +59,16 @@ impl UpValueHeap {
                 let after = self.memory.len();
                 changed = prior_len != after;
             }
-            // self.memory.retain(|x| Rc::weak_count(x) > 0);
 
-            self.mark_and_sweep(roots);
+            // self._profile_heap();
 
-            // let after = self.memory.len();
+            // TODO fix the garbage collector
+            self.mark_and_sweep(roots, function_stack);
 
             // TODO check this
             self.threshold = (self.threshold + self.memory.len()) * GC_GROW_FACTOR;
 
-            // println!("new threshold: {}", self.threshold);
-
-            // self.profile_heap();
+            // self._profile_heap();
             // println!(
             //     "Freed: {}, New heap length: {}",
             //     prior - after,
@@ -72,15 +78,26 @@ impl UpValueHeap {
         }
     }
 
-    fn mark_and_sweep<'a>(&mut self, roots: impl Iterator<Item = &'a SteelVal>) {
+    fn mark_and_sweep<'a>(
+        &mut self,
+        roots: impl Iterator<Item = &'a SteelVal>,
+        function_stack: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
+    ) {
         // mark
         for root in roots {
             traverse(root);
         }
 
+        for function in function_stack {
+            for upvalue in function.upvalues() {
+                let upvalue = upvalue.upgrade().unwrap();
+                mark_upvalue(&upvalue);
+            }
+        }
+
         // sweep
         self.memory
-            .retain(|x| x.borrow().is_reachable() || !x.borrow().is_closed());
+            .retain(|x| x.borrow().is_reachable() || x.borrow().is_open());
 
         // put them back as unreachable
         self.memory.iter().for_each(|x| x.borrow_mut().reset());
@@ -91,13 +108,14 @@ impl UpValueHeap {
         index: usize,
         next: Option<Weak<RefCell<UpValue>>>,
         roots: impl Iterator<Item = &'a SteelVal>,
+        function_stack: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
     ) -> Weak<RefCell<UpValue>> {
         let upvalue = Rc::new(RefCell::new(UpValue::new(index, next)));
         let weak_ptr = Rc::downgrade(&upvalue);
         self.memory.push(upvalue);
 
         // self.profile_heap();
-        self.collect(roots);
+        self.collect(roots, function_stack);
         // self.profile_heap();
 
         weak_ptr

@@ -468,6 +468,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 .0
                 .iter()
                 .chain(self.global_env.bindings_vec.iter()),
+            self.function_stack.iter(),
         );
 
         if prev_up_value.is_none() {

@@ -735,6 +735,10 @@ impl UpValue {
         matches!(self.location, Location::Closed(_))
     }
 
+    pub(crate) fn is_open(&self) -> bool {
+        matches!(self.location, Location::Stack(_))
+    }
+
     pub(crate) fn index(&self) -> Option<usize> {
         if let Location::Stack(idx) = &self.location {
             Some(*idx)
