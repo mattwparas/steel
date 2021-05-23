@@ -219,11 +219,20 @@ fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+pub enum OptLevel {
+    Zero = 0,
+    One,
+    Two,
+    Three,
+}
+
 pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: ConstantMap,
     pub(crate) macro_env: HashMap<String, SteelMacro>,
     module_manager: ModuleManager,
+    opt_level: OptLevel,
 }
 
 impl Compiler {
@@ -238,6 +247,7 @@ impl Compiler {
             constant_map,
             macro_env,
             module_manager,
+            opt_level: OptLevel::Three,
         }
     }
 
@@ -326,8 +336,20 @@ impl Compiler {
 
         let expanded_statements = self.expand_expressions(parsed, None)?;
 
-        let expanded_statements =
-            ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
+        let mut expanded_statements = expanded_statements;
+
+        if self.opt_level != OptLevel::Three {
+            loop {
+                let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
+                expanded_statements = manager.run(expanded_statements)?;
+                if !manager.changed {
+                    break;
+                }
+            }
+        } else {
+            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                .run(expanded_statements)?;
+        }
 
         // let expanded_statements =
         //     ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
@@ -350,17 +372,6 @@ impl Compiler {
         #[cfg(not(feature = "modules"))]
         self.module_manager
             .expand_expressions(&mut self.macro_env, exprs)
-
-        // println!(
-        //     "{:?}",
-        //     output
-        //         .clone()
-        //         .unwrap()
-        //         .iter()
-        //         .map(|x| x.to_string())
-        //         .join(" ")
-        // );
-        // output
     }
 
     // This only works at the top level
@@ -560,8 +571,20 @@ impl Compiler {
 
         debug!("About to expand defines");
 
-        let expanded_statements =
-            ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
+        let mut expanded_statements = expanded_statements;
+
+        if self.opt_level != OptLevel::Three {
+            loop {
+                let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
+                expanded_statements = manager.run(expanded_statements)?;
+                if !manager.changed {
+                    break;
+                }
+            }
+        } else {
+            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                .run(expanded_statements)?;
+        }
 
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
@@ -599,12 +622,17 @@ impl Compiler {
 
         let mut expanded_statements = expanded_statements;
 
-        loop {
-            let mut manager = ConstantEvaluatorManager::new(constants.clone());
-            expanded_statements = manager.run(expanded_statements)?;
-            if !manager.changed {
-                break;
+        if self.opt_level != OptLevel::Three {
+            loop {
+                let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
+                expanded_statements = manager.run(expanded_statements)?;
+                if !manager.changed {
+                    break;
+                }
             }
+        } else {
+            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                .run(expanded_statements)?;
         }
 
         // let expanded_statements =

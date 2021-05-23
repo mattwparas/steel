@@ -151,10 +151,6 @@ impl VariableData {
         None
     }
 
-    // fn add_local_upvalue(&mut self, index: usize, is_local: bool) -> usize {
-
-    // }
-
     // Add the upvalue to the upvalue list, returning the index in the list
     fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
         // If the upvalue has already been captured, don't capture it again
@@ -245,19 +241,6 @@ impl<'a> CodeGenerator<'a> {
         self.push(Instruction::new(opcode, idx, syn.clone(), true));
         Ok(())
     }
-    // fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
-    //     // If the upvalue has already been captured, don't capture it again
-    //     if let Some(i) = self
-    //         .upvalues
-    //         .iter()
-    //         .position(|x| x.index == index && x.is_local == is_local)
-    //     {
-    //         return i;
-    //     }
-
-    //     self.upvalues.push(UpValue::new(index, is_local));
-    //     return self.upvalues.len() - 1;
-    // }
 }
 
 impl<'a> VisitorMut for CodeGenerator<'a> {

@@ -77,40 +77,7 @@ impl VirtualMachineCore {
         &self.callback.with_callback(callback);
     }
 
-    // Read in the file from the given path and execute accordingly
-    // Loads all the functions in from the given env
-    // pub fn parse_and_execute_from_path<P: AsRef<Path>>(
-    //     &mut self,
-    //     path: P,
-    //     // ctx: &mut Ctx<ConstantMap>,
-    // ) -> Result<Vec<SteelVal>> {
-    //     let mut file = std::fs::File::open(path)?;
-    //     let mut exprs = String::new();
-    //     file.read_to_string(&mut exprs)?;
-    //     self.parse_and_execute(exprs.as_str())
-    // }
-
-    // pub fn parse_and_execute_without_optimizations(
-    //     &mut self,
-    //     expr_str: &str,
-    //     // ctx: &mut Ctx<ConstantMap>,
-    // ) -> Result<Vec<SteelVal>> {
-    //     // let now = Instant::now();
-    //     let gen_bytecode = self.emit_instructions(expr_str, false)?;
-
-    //     gen_bytecode
-    //         .into_iter()
-    //         .map(|x| {
-    //             let code = Rc::from(x.into_boxed_slice());
-    //             let res = self.execute(code, true);
-    //             res
-    //         })
-    //         .collect::<Result<Vec<SteelVal>>>()
-    // }
-
     pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
-        // unimplemented!()
-
         let Program {
             instructions,
             constant_map,
@@ -120,37 +87,14 @@ impl VirtualMachineCore {
             .into_iter()
             .map(|x| {
                 let code = Rc::from(x.into_boxed_slice());
-                // let now = std::time::Instant::now();
-                let res = self.execute(code, &constant_map);
-                // println!("{:?}", now.elapsed());
-                res
+                self.execute(code, &constant_map)
             })
             .collect();
-
-        // TODO come back and fix this
-        // self.global_heap.clear();
-
-        // self.global_heap.profile_heap();
-
-        // self.global_heap.collect_garbage();
-
-        // self.global_heap.drop_large_refs();
-
-        // self.global_heap.profile_heap();
-
-        // self.global_heap.drop_large_refs();
-        // self.global_heap.gather_big_mark_and_sweep(&self.global_env);
-
-        // self.global_heap.profile_heap();
-
-        // println!("Global heap length: {}", self.global_heap.len());
 
         output
     }
 
     pub fn _execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<SteelVal>> {
-        // unimplemented!()
-
         let Program {
             instructions,
             constant_map,
@@ -171,86 +115,11 @@ impl VirtualMachineCore {
             .collect()
     }
 
-    // pub fn new_with_std
-
-    // pub fn parse_and_execute(
-    //     &mut self,
-    //     expr_str: &str,
-    //     // ctx: &mut Ctx<ConstantMap>,
-    // ) -> Result<Vec<SteelVal>> {
-    //     // let now = Instant::now();
-    //     let gen_bytecode = self.emit_instructions(expr_str, true)?;
-
-    //     // previous size of the env
-    //     // let length = self.global_env.borrow().len();
-
-    //     // println!("Bytecode generated in: {:?}", now.elapsed());
-    //     gen_bytecode
-    //         .into_iter()
-    //         .map(|x| {
-    //             let code = Rc::from(x.into_boxed_slice());
-    //             // let now = Instant::now();
-    //             // let constant_map = &self.ctx.constant_map;
-    //             // let repl = self.ctx.repl;
-    //             // let mut heap = Vec::new();
-    //             let res = self.execute(code);
-    //             // println!("Time taken: {:?}", now.elapsed());
-    //             res
-    //         })
-    //         .collect::<Result<Vec<SteelVal>>>()
-    // }
-
-    // pub fn optimize_exprs<I: IntoIterator<Item = Expr>>(
-    //     exprs: I,
-    //     // ctx: &mut Ctx<ConstantMap>,
-    // ) -> Result<Vec<Expr>> {
-    //     // println!("About to optimize the input program");
-
-    //     let converted: Result<Vec<_>> = exprs
-    //         .into_iter()
-    //         .map(|x| SteelVal::try_from(x.clone()))
-    //         .collect();
-
-    //     // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
-    //     let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
-
-    //     let mut vm = VirtualMachine::new_with_meta();
-    //     vm.parse_and_execute_without_optimizations(crate::stdlib::PRELUDE)?;
-    //     vm.insert_gc_binding("*program*".to_string(), exprs);
-    //     let output = vm.parse_and_execute_without_optimizations(crate::stdlib::COMPILER)?;
-
-    //     // println!("{:?}", output.last().unwrap());
-
-    //     // if output.len()  1 {
-    //     //     stop!(Generic => "panic! internal compiler error: output did not return a valid program");
-    //     // }
-
-    //     // TODO
-    //     SteelVal::iter(Gc::clone(output.last().unwrap()))
-    //         .into_iter()
-    //         .map(|x| Expr::try_from(x.as_ref()).map_err(|x| SteelErr::Generic(x.to_string(), None)))
-    //         .collect::<Result<Vec<Expr>>>()
-
-    //     // unimplemented!()
-
-    //     // self.emit_instructions_from_exprs(parsed)
-    // }
-
     pub fn execute(
         &mut self,
         instructions: Rc<[DenseInstruction]>,
         constant_map: &ConstantMap,
-        // heap: &mut Vec<Rc<RefCell<Env>>>,
-        // repl: bool,
     ) -> Result<SteelVal> {
-        // let mut stack = StackFrame::with_capacity(256);
-        // let mut function_stack = Vec::with_capacity(64);
-        // let mut stack_index = Stack::with_capacity(256);
-        // let mut heap = Heap::new();
-
-        // give access to the global root via this method
-        // heap.plant_root(Rc::downgrade(&self.global_env));
-
         let result = vm(
             instructions,
             &mut self.stack,
@@ -266,32 +135,6 @@ impl VirtualMachineCore {
         self.stack.clear();
         self.stack_index.clear();
         self.function_stack.clear();
-
-        // if self.global_env.borrow().is_binding_context() {
-        //     // self.global_heap.append(&mut heap);
-        //     self.global_env.borrow_mut().set_binding_context(false);
-        // }
-
-        // self.global_heap.append(&mut heap);
-
-        // println!(
-        //     "###################### Global heap length: {}",
-        //     self.global_heap.len()
-        // );
-
-        // TODO collect garbage
-        // self.global_heap.collect_garbage();
-
-        // self.global_heap.drop_large_refs();
-
-        // println!(
-        //     "###################### Global heap length: {}",
-        //     self.global_heap.len()
-        // );
-
-        // println!("Clearing heap");
-        // heap.clear();
-        // heap.reset_limit();
 
         result
     }
@@ -323,24 +166,14 @@ impl InstructionPointer {
 #[derive(Clone, Debug)]
 pub struct Continuation {
     pub(crate) stack: StackFrame,
-    // stacks: CallStack,
     instructions: Rc<[DenseInstruction]>,
     instruction_stack: Stack<InstructionPointer>,
     stack_index: Stack<usize>,
-    // global_env: Rc<RefCell<Env>>,
-    // env_stack: EnvStack,
     ip: usize,
     pop_count: usize,
     function_stack: Vec<Gc<ByteCodeLambda>>,
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
 }
-
-// Just in case, let's wipe this out manually
-// impl Drop for Continuation {
-//     fn drop(&mut self) {
-//         self.env_stack.clear();
-//     }
-// }
 
 #[inline(always)]
 fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
@@ -352,7 +185,6 @@ fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
         }
         SteelVal::ContinuationFunction(_) => {}
         _ => {
-            println!("{:?}", function);
             stop!(Generic => "call/cc expects a function"; span)
         }
     }
@@ -363,10 +195,8 @@ fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
 pub(crate) struct VmCore<'a, CT: ConstantTable> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: &'a mut StackFrame,
-    // pub(crate) heap: &'a mut Heap,
     pub(crate) global_env: &'a mut Env,
     pub(crate) instruction_stack: Stack<InstructionPointer>,
-    // stacks: CallStack,
     pub(crate) stack_index: &'a mut Stack<usize>,
     pub(crate) callback: &'a EvaluationProgress,
     pub(crate) constants: &'a CT,
@@ -381,7 +211,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
     fn new(
         instructions: Rc<[DenseInstruction]>,
         stack: &'a mut StackFrame,
-        // heap: &'a mut Heap,
         global_env: &'a mut Env,
         constants: &'a CT,
         callback: &'a EvaluationProgress,
@@ -396,10 +225,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(VmCore {
             instructions: Rc::clone(&instructions),
             stack,
-            // heap,
             global_env,
             instruction_stack: Stack::new(),
-            // stacks: Stack::new(),
             stack_index,
             callback,
             constants,
@@ -411,11 +238,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         })
     }
 
-    // fn get_root_iterator(&self) -> impl Iterator<Item = &'a SteelVal> {}
-
     fn capture_upvalue(&mut self, local_idx: usize) -> Weak<RefCell<UpValue>> {
-        // unimplemented!()
-
         let mut prev_up_value: Option<Weak<RefCell<UpValue>>> = None;
         let mut upvalue = self.upvalue_head.clone();
 
@@ -429,8 +252,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 .index()
                 .map(|x| x > local_idx)
                 .unwrap_or(false)
-        // .expect("Upvalue not on the stack")
-        // > local_idx
         {
             prev_up_value = upvalue.clone();
             upvalue = upvalue
@@ -440,7 +261,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                         .borrow()
                         .next
                         .clone()
-                    // .expect("Upvalue did not have a next value")
                 })
                 .flatten();
         }
@@ -455,8 +275,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 .index()
                 .map(|x| x == local_idx)
                 .unwrap_or(false)
-        // .expect("Unable to return index from upvalue")
-        // == local_idx
         {
             return upvalue.unwrap();
         }
@@ -482,13 +300,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         }
 
         return created_up_value;
-
-        // unimplemented!()
     }
 
     fn close_upvalues(&mut self, last: usize) {
-        // println!("Upvalue head exists: {}", self.upvalue_head.is_some());
-
         while self.upvalue_head.is_some()
             && self
                 .upvalue_head
@@ -503,41 +317,18 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         {
             let upvalue = self.upvalue_head.as_ref().unwrap().upgrade().unwrap();
             let value = upvalue.borrow().get_value(&self.stack);
-
-            // println!("Upvalue status: {}", upvalue.borrow().is_closed());
-
-            // TODO see if this fixes anything
-            // if !upvalue.borrow().is_closed() {
             upvalue.borrow_mut().set_value(value);
-            // } else {
-            // println!("@@@@@@@@ Skipping closing upvalue, upvalue already closed! @@@@@@@@@@");
-            // }
-
             self.upvalue_head = upvalue.borrow_mut().next.clone();
-
-            // upvalue.borrow_mut().closed =
-            // unimplemented!();
         }
     }
 
     #[inline(always)]
     fn new_continuation_from_state(&self) -> Continuation {
-        // println!("stacks at continuation: {:?}", self.stacks);
-        // println!("stack at continuation: {:?}", self.stack);
-
-        // dbg!("Creating a continuation");
-        // dbg!(&self.stack);
-        // dbg!(&self.stack_index);
-        // dbg!(self.pop_count);
-
         Continuation {
             stack: self.stack.clone(),
-            // stacks: self.stacks.clone(),
             instructions: Rc::clone(&self.instructions),
             instruction_stack: self.instruction_stack.clone(),
             stack_index: self.stack_index.clone(),
-            // global_env: &self.global_env,
-            // env_stack: self.env_stack.clone(), // I am concerned that this will lead to a memory leak
             ip: self.ip,
             pop_count: self.pop_count,
             function_stack: self.function_stack.clone(),
@@ -547,27 +338,13 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
     #[inline(always)]
     fn set_state_from_continuation(&mut self, continuation: Continuation) {
-        // self.stack = continuation.stack;
-
         *self.stack = continuation.stack;
-
-        // std::mem::replace(self.stack, continuation.stack);
-
-        // self.stacks = continuation.stacks;
         self.instructions = continuation.instructions;
         self.instruction_stack = continuation.instruction_stack;
-        // self.global_env = continuation.global_env;
-        // self.env_stack = continuation.env_stack;
         self.ip = continuation.ip;
         self.pop_count = continuation.pop_count;
-
-        // Set the state
-        // self.stack_index = continuation.stack_index;
-        // self.function_stack = continuation.function_stack;
-
         *self.stack_index = continuation.stack_index;
         *self.function_stack = continuation.function_stack;
-
         self.upvalue_head = continuation.upvalue_head;
     }
 
@@ -612,23 +389,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 }
                 OpCode::CALLCC => {
                     /*
-
-                    Here's what I need to do
                     - Construct the continuation
                     - Get the function that has been passed in (off the stack)
                     - Apply the function with the continuation
                     - Handle continuation function call separately in the handle_func_call
                     */
-
                     let function = self.stack.pop().unwrap();
 
                     validate_closure_for_call_cc(&function, cur_inst.span)?;
-
-                    // close them all up
-                    // self.close_upvalues(0);
-
-                    // println!("getting here");
-                    // self.ip += 1;
 
                     let continuation = self.construct_continuation_function();
 
@@ -646,32 +414,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 stop!(Generic => "call/cc expects a function with arity 1");
                             }
 
-                            // println!("Pushing onto stack_index: {}", self.stack.len());
                             self.stack_index.push(self.stack.len());
-
-                            // put continuation as the thing
-                            // let args = vec![continuation];
 
                             // Put the continuation as the argument
                             self.stack.push(continuation);
-                            // self.stack_index.push(self.stack.len());
-
-                            // let parent_env = closure.sub_expression_env();
-
-                            // let inner_env = Rc::new(RefCell::new(
-                            //     Env::new_subexpression_with_capacity_without_offset(
-                            //         parent_env.clone(),
-                            //     ),
-                            // ));
-
-                            // let result =
-                            // vm(closure.body_exp(), &mut args, heap, inner_env, constants)?;
-                            // closure_stack.push(Rc::clone(&stack_func));
-                            // TODO this is where the memory leak is
-                            // self.env_stack.push(Rc::clone(&self.global_env));
-
-                            // added this here
-                            // self.heap.add(Rc::clone(&self.global_env));
 
                             // self.global_env = inner_env;
                             self.instruction_stack.push(InstructionPointer::new(
@@ -680,37 +426,14 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                             ));
                             self.pop_count += 1;
 
-                            // println!("Pushing onto stack_index: {}", self.stack.len());
-                            // self.stack_index.push(self.stack.len());
-
-                            // Move args into the stack, push stack onto stacks
-                            // let stack = std::mem::replace(&mut self.stack, args.into());
-                            // self.stacks.push(stack);
                             self.instructions = closure.body_exp();
-
-                            // Maybe push the closure onto the function stack
                             self.function_stack.push(closure);
 
                             self.ip = 0;
                         }
                         SteelVal::ContinuationFunction(cc) => {
-                            // let last = self.stack.pop().unwrap();
-                            // dbg!("Calling continuation inside call/cc");
-                            // dbg!(&self.stack);
-                            // dbg!(&self.stack_index);
-
-                            // let current_func = Gc::clone(self.function_stack.last().unwrap());
-
-                            // self.env_stack.push(Rc::clone(&self.global_env));
                             self.set_state_from_continuation(cc.unwrap());
-
-                            // self.function_stack.push(current_func);
-
-                            // dbg!("after");
-                            // dbg!(&self.stack);
-                            // dbg!(&self.stack_index);
                             self.ip += 1;
-                            // self.pop_count += 1;
                             self.stack.push(continuation);
                         }
 
@@ -862,12 +585,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             self.ip,
             self.instructions.len()
         );
-        // println!(
-        //     "OUt of bounds instruction!: instruction pointer: {}, instruciton length: {}",
-        //     self.ip,
-        //     self.instructions.len()
-        // );
-        // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
         panic!("Out of bounds instruction")
     }
 
@@ -879,23 +596,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // rolling back the function stack
         self.function_stack.pop();
 
-        // println!("INSIDE POP: {:?}", self.tail_call);
-        // println!("POP COUNT: {}", self.pop_count);
-        // println!("STACK INDEX LENGTH: {}", self.stack_index.len());
         if self.pop_count == 0 {
-            // self.env_stack.clear();
-
-            // if cur_inst.payload_size as usize == 1 {
-            //     self.global_env.borrow_mut().set_binding_context(true);
-            // }
-
             let ret_val = self.stack.try_pop().ok_or_else(|| {
                 SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string()).with_span(*span)
             });
-
-            // self.global_env.borrow_mut().set_binding_offset(false);
-
-            // println!("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$");
 
             // Roll back if needed
             if let Some(rollback_index) = self.stack_index.pop() {
@@ -906,15 +610,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         } else {
             let ret_val = self.stack.pop().unwrap();
 
-            // if tail_call {
-            //     self.stack_index.pop();
-            // }
-
             let rollback_index = self.stack_index.pop().unwrap();
-
-            // println!("rollback: {}", rollback_index);
-
-            // println!("Stack before: {:?}", self.stack);
 
             // Snatch the value to close from the payload size
             let value_count_to_close = payload;
@@ -926,14 +622,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 let instr = self.instructions[self.ip];
                 match (instr.op_code, instr.payload_size) {
                     (OpCode::CLOSEUPVALUE, 1) => {
-                        // unimplemented!()
-                        // println!("... closing upvalues ... at index: {}", self.ip);
-
-                        // println!(
-                        //     "Closing stack position: {}",
-                        //     rollback_index + i as usize
-                        // );
-                        // dbg!(&self.stack);
                         self.close_upvalues(rollback_index + i as usize);
                     }
                     (OpCode::CLOSEUPVALUE, 0) => {
@@ -948,9 +636,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             }
 
             self.stack.truncate(rollback_index);
-
-            // println!("Stack after: {:?}", self.stack);
-
             self.stack.push(ret_val);
 
             if !self
@@ -967,26 +652,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.ip = prev_state.0;
                 self.instructions = prev_state.instrs();
             } else {
-                // println!("################## empty case ##################");
-                // println!("Pop count: {}", self.pop_count);
-                // println!("Stack: {:?}", self.stack);
-                // crate::core::instructions::pretty_print_dense_instructions(
-                //     &self.instructions,
-                // );
-                // // self.ip += 1;
-                // let prev_state = self.instruction_stack.pop().unwrap();
-                // self.global_env = self.env_stack.pop().unwrap();
-                // self.ip = prev_state.0;
-                // self.instructions = prev_state.instrs();
                 self.ip += 1;
             }
 
             None
-
-            // Idk maybe?
-            // self.global_env.borrow_mut().pop_child();
-
-            // println!("stack length: {}", self.stack.len());
         }
     }
 
@@ -1264,10 +933,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
             match (instr.op_code, instr.payload_size) {
                 (OpCode::FILLUPVALUE, n) => {
-                    // TODO implement stack of upvalues for the current executing function
-                    // just store a pointer to the currently executing function?
-                    // unimplemented!();
-
                     upvalues.push(
                         self.function_stack
                             .last()
@@ -1276,24 +941,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     );
                 }
                 (OpCode::FILLLOCALUPVALUE, n) => {
-                    // unimplemented!();
-                    // TODO check if this is even close to correct
-                    // println!("FILL LOCAL UPVALUE");
-                    // println!(
-                    //     "Pointing to: {:?}",
-                    //     self.stack[self.stack_index.last().unwrap_or(&0) + n as usize]
-                    // );
-                    // I think I need frame->slots + index
-                    // or rather get the offset of the last executing thing
-
                     upvalues.push(
                         self.capture_upvalue(self.stack_index.last().unwrap_or(&0) + n as usize),
                     );
-
-                    // upvalues.push(self.capture_upvalue(n as usize));
                 }
                 (l, _) => {
-                    crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     panic!(
                         "Something went wrong in closure construction!, found: {:?} @ {}",
                         l, self.ip,
@@ -1310,24 +963,12 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // snag the arity from the eclosure instruction
         let arity = self.instructions[forward_index - 1].payload_size;
 
-        // inspect_heap(&heap);
-        let constructed_lambda = ByteCodeLambda::new(
-            closure_body,
-            // Rc::downgrade(&self.global_env),
-            // 0,
-            arity as usize,
-            upvalues,
-        );
+        let constructed_lambda = ByteCodeLambda::new(closure_body, arity as usize, upvalues);
 
         self.stack
             .push(SteelVal::Closure(Gc::new(constructed_lambda)));
 
         self.ip = forward_index;
-
-        // println!(
-        //     "After jumping, current instruction: {:?}",
-        //     self.instructions[self.ip]
-        // );
     }
 
     #[inline(always)]
@@ -1381,9 +1022,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // Snag the current functions arity & remove the last function call
                 let current_executing = self.function_stack.pop();
 
-                // Remove the last function call
-                // self.function_stack.pop();
-
                 // TODO
                 self.function_stack.push(Gc::clone(&closure));
 
@@ -1402,14 +1040,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // jump back to the beginning at this point
                 let offset = *(self.stack_index.last().unwrap_or(&0));
 
-                // TODO here is the issue
-                // Actually only do tail call IFF the calling functions creates a cycle of some kind
-                // If there are no cycles to be had, the tail/call is actually slower
-
-                // if !closure.upvalues().is_empty() {
-                //     self.close_upvalues(offset);
-                // }
-
                 if !current_executing
                     .map(|x| x.upvalues().is_empty())
                     .unwrap_or(true)
@@ -1421,9 +1051,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 let new_arity = payload_size;
 
                 // We should have arity at this point, drop the stack up to this point
-
                 // take the last arity off the stack, go back and replace those in order
-
                 let back = self.stack.len() - new_arity;
                 for i in 0..new_arity {
                     self.stack.set_idx(offset + i, self.stack[back + i].clone());
@@ -1445,18 +1073,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // self.global_env = inner_env;
                 self.instructions = closure.body_exp();
 
-                // self.stack_index.push(self.stack.len());
-
-                // self.stack = args.into();
-
-                // Wipe the stack index at this point?
-                // self.stack_index.clear();
-
                 self.ip = 0;
             }
             _ => {
-                println!("stack: {:?}", self.stack);
-                println!("func: {:?}", stack_func);
                 stop!(BadSyntax => "TailCall - Application not a procedure or function type not supported"; *span);
             }
         }
@@ -1481,17 +1100,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         Ok(())
     }
 
-    // #[inline(always)]
-    // fn call_boxed_func_from_slice(
-    //     &mut self,
-    //     func: &Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>,
-    //     args: &[SteelVal],
-    //     span: &Span,
-    // ) -> Result<()> {
-    //     let result = ;
-
-    // }
-
     #[inline(always)]
     fn call_primitive_func(
         &mut self,
@@ -1499,11 +1107,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        // println!(
-        //     "function args: {:?}",
-        //     self.stack.peek_range(self.stack.len() - payload_size..)
-        // );
-
         let result = f(self.stack.peek_range(self.stack.len() - payload_size..))
             .map_err(|x| x.set_span(*span))?;
 
@@ -1607,8 +1210,22 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.stack.push(result);
                 self.ip += 4;
             }
-            ContractedFunction(_cf) => {
-                unimplemented!("contracted function not yet handled for lazy stack pushing");
+            ContractedFunction(cf) => {
+                if cf.arity() != 2 {
+                    stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), 2); *span);
+                }
+
+                let result = cf.apply(
+                    vec![local, const_value],
+                    self.constants,
+                    span,
+                    self.callback,
+                    &mut self.upvalue_heap,
+                    self.global_env,
+                )?;
+
+                self.stack.push(result);
+                self.ip += 4;
             }
             ContinuationFunction(_cc) => {
                 unimplemented!("calling continuation lazily not yet handled");
@@ -1617,8 +1234,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // push them onto the stack if we need to
                 self.stack.push(local);
                 self.stack.push(const_value);
-
-                // println!("Calling normal function");
 
                 // Push on the function stack so we have access to it later
                 self.function_stack.push(Gc::clone(closure));
@@ -1769,11 +1384,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 // Append the arguments to the function
                 self.stack.append_vec(&mut args);
 
-                // println!("Pushing onto stack_index: {}", self.stack.len());
                 self.stack_index.push(self.stack.len() - payload_size);
 
-                // let stack = std::mem::replace(&mut self.stack, args.into());
-                // self.stacks.push(stack);
                 self.instructions = closure.body_exp();
                 self.ip = 0;
             }

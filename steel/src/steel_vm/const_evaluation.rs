@@ -1,9 +1,4 @@
 use crate::parser::{
-    ast::{Atom, Begin, Define, LambdaFunction, List, Quote},
-    span_visitor::get_span,
-    visitors::{ConsumingVisitor, VisitorMut},
-};
-use crate::parser::{
     ast::{ExprKind, If},
     parser::SyntaxObject,
     tokens::TokenType,
@@ -11,6 +6,14 @@ use crate::parser::{
 };
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
+use crate::{
+    compiler::compiler::OptLevel,
+    parser::{
+        ast::{Atom, Begin, Define, LambdaFunction, List, Quote},
+        span_visitor::get_span,
+        visitors::{ConsumingVisitor, VisitorMut},
+    },
+};
 use std::{
     cell::RefCell,
     collections::HashSet,
@@ -113,14 +116,16 @@ pub struct ConstantEvaluatorManager {
     global_env: SharedEnv,
     set_idents: HashSet<String>,
     pub(crate) changed: bool,
+    opt_level: OptLevel,
 }
 
 impl ConstantEvaluatorManager {
-    pub fn new(constant_bindings: HashMap<String, SteelVal>) -> Self {
+    pub fn new(constant_bindings: HashMap<String, SteelVal>, opt_level: OptLevel) -> Self {
         Self {
             global_env: Rc::new(RefCell::new(ConstantEnv::root(constant_bindings))),
             set_idents: HashSet::new(),
             changed: false,
+            opt_level,
         }
     }
 
@@ -133,8 +138,11 @@ impl ConstantEvaluatorManager {
         input
             .into_iter()
             .map(|x| {
-                let mut eval =
-                    ConstantEvaluator::new(Rc::clone(&self.global_env), &self.set_idents);
+                let mut eval = ConstantEvaluator::new(
+                    Rc::clone(&self.global_env),
+                    &self.set_idents,
+                    self.opt_level,
+                );
                 let output = eval.visit(x);
                 self.changed = self.changed || eval.changed;
                 output
@@ -147,6 +155,7 @@ struct ConstantEvaluator<'a> {
     bindings: SharedEnv,
     set_idents: &'a HashSet<String>,
     changed: bool,
+    opt_level: OptLevel,
 }
 
 fn steelval_to_atom(value: &SteelVal) -> Option<TokenType> {
@@ -161,11 +170,16 @@ fn steelval_to_atom(value: &SteelVal) -> Option<TokenType> {
 }
 
 impl<'a> ConstantEvaluator<'a> {
-    fn new(bindings: Rc<RefCell<ConstantEnv>>, set_idents: &'a HashSet<String>) -> Self {
+    fn new(
+        bindings: Rc<RefCell<ConstantEnv>>,
+        set_idents: &'a HashSet<String>,
+        opt_level: OptLevel,
+    ) -> Self {
         Self {
             bindings,
             set_idents,
             changed: false,
+            opt_level,
         }
     }
 
@@ -257,25 +271,37 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     fn visit_if(&mut self, f: Box<crate::parser::ast::If>) -> Self::Output {
         // Visit the test expression
         let test_expr = self.visit(f.test_expr)?;
-        // If we found a constant, we can elect to only take the truthy path
-        if let Some(test_expr) = self.to_constant(&test_expr) {
-            self.changed = true;
-            if test_expr.is_truthy() {
-                self.visit(f.then_expr)
-            } else {
-                self.visit(f.else_expr)
+
+        if self.opt_level == OptLevel::Three {
+            if let Some(test_expr) = self.to_constant(&test_expr) {
+                self.changed = true;
+                if test_expr.is_truthy() {
+                    return self.visit(f.then_expr);
+                } else {
+                    return self.visit(f.else_expr);
+                }
             }
-        } else {
-            Ok(ExprKind::If(
-                If::new(
-                    test_expr,
-                    self.visit(f.then_expr)?,
-                    self.visit(f.else_expr)?,
-                    f.location,
-                )
-                .into(),
-            ))
         }
+
+        // If we found a constant, we can elect to only take the truthy path
+        // if let Some(test_expr) = self.to_constant(&test_expr) {
+        //     self.changed = true;
+        //     if test_expr.is_truthy() {
+        //         self.visit(f.then_expr)
+        //     } else {
+        //         self.visit(f.else_expr)
+        //     }
+        // } else {
+        Ok(ExprKind::If(
+            If::new(
+                test_expr,
+                self.visit(f.then_expr)?,
+                self.visit(f.else_expr)?,
+                f.location,
+            )
+            .into(),
+        ))
+        // }
     }
 
     fn visit_define(&mut self, define: Box<crate::parser::ast::Define>) -> Self::Output {
