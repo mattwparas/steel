@@ -47,12 +47,12 @@ fn if_test() {
     test_line("(if #t 'a 2)", &["'a"], &mut evaluator);
     test_line("(if 'a 'b 1)", &["'b"], &mut evaluator);
     test_line(
-        "(if (= 1 2) a 2)",
+        "(if (= 1 (begin (display 10) 1)) a 2)",
         &["Error: FreeIdentifier: a"],
         &mut evaluator,
     );
     test_line(
-        "(if (= 1 1) a 2)",
+        "(if (= 1 (begin (display 10) 1)) a 2)",
         &["Error: FreeIdentifier: a"],
         &mut evaluator,
     );
@@ -186,9 +186,13 @@ fn and_test() {
     test_line("(and #t #f)", &["#false"], e);
     test_line("(and #t #t)", &["#true"], e);
     test_line("(and a #t)", &["Error: FreeIdentifier: a"], e);
-    test_line("(and #f a)", &["Error: FreeIdentifier: a"], e);
     test_line(
-        "(and (= 1 1) (= 1 2) who are you)",
+        "(and (begin (display 10) #t) a)",
+        &["Error: FreeIdentifier: a"],
+        e,
+    );
+    test_line(
+        "(and (= 1 (begin (display 10) 1)) (= 1 (begin (display 10) 2)) who are you)",
         &["Error: FreeIdentifier: who"],
         e,
     );
@@ -203,10 +207,18 @@ fn or_test() {
     test_line("(or #t #f)", &["#true"], e);
     test_line("(or #t #t)", &["#true"], e);
     test_line("(or #f #t)", &["#true"], e);
-    test_line("(or #f a)", &["Error: FreeIdentifier: a"], e);
-    test_line("(or #t a)", &["Error: FreeIdentifier: a"], e);
     test_line(
-        "(or #t whatever you want idk)",
+        "(or (= 1 (begin (display 10) 1)) a)",
+        &["Error: FreeIdentifier: a"],
+        e,
+    );
+    test_line(
+        "(or (= 1 (begin (display 10) 1)) a)",
+        &["Error: FreeIdentifier: a"],
+        e,
+    );
+    test_line(
+        "(or (= 1 (begin (display 10) 1)) whatever you want idk)",
         &["Error: FreeIdentifier: whatever"],
         e,
     );

@@ -281,12 +281,13 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
     // corresponds to #####apple0, #####banana1, #####cucumber1, etc
     let mut bound_names: Vec<ExprKind> = Vec::new();
 
-    if expression_types[0..idx + 1]
-        .iter()
-        .all(|x| matches!(x, ExpressionType::DefineConst(_)))
-    {
-        return ExprKind::Begin(Begin::new(body, begin.location));
-    }
+    // TODO - check that the last expression does not contain any usages of the constant?
+    // if expression_types[0..idx + 1]
+    //     .iter()
+    //     .all(|x| matches!(x, ExpressionType::DefineConst(_)))
+    // {
+    //     return ExprKind::Begin(Begin::new(body, begin.location));
+    // }
 
     // Top level application with dummy arguments that will immediately get overwritten
     let mut top_level_dummy_args = vec![

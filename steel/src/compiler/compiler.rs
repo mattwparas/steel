@@ -35,6 +35,8 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
+use itertools::Itertools;
+
 // TODO this needs to take into account if they are functions or not before adding them
 // don't just blindly do all global defines first - need to do them in order correctly
 fn replace_defines_with_debruijn_indices(
@@ -609,13 +611,13 @@ impl Compiler {
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
 
-        // println!(
-        //     "{}",
-        //     statements_without_structs
-        //         .iter()
-        //         .map(|x| x.to_pretty(60))
-        //         .join("\n\n")
-        // );
+        println!(
+            "{}",
+            statements_without_structs
+                .iter()
+                .map(|x| x.to_pretty(60))
+                .join("\n\n")
+        );
 
         self.generate_dense_instructions(statements_without_structs, results)
     }
