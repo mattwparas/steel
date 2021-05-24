@@ -3,8 +3,9 @@
         void
         (begin
             (func (car lst))
-            (when (null? lst) (return! void))
-            (for-each func (cdr lst)))))
+            (if (null? lst)
+                void
+                (for-each func (cdr lst))))))
 
 ; (for-each (lambda (x) (displayln x)) '(1 2 3 4 5))
 
@@ -24,10 +25,14 @@
                               (lambda (resume-here)
                                 ;; Grab the current continuation
                                (set! control-state resume-here)
+                               (displayln "GETTING HERE")
                                (return element))))) ;; (return element) evaluates to next return
      lst)
+    ;; TODO
+    ;; this is reading the local variable
+    ;; but it needs to be reading from the heap
     (return 'you-fell-off-the-end))
-  
+
   ;; (-> X u 'you-fell-off-the-end)
   ;; This is the actual generator, producing one item from a-list at a time.
   (define (generator)
@@ -44,3 +49,16 @@
 (generate-digit) ;; 2
 (generate-digit) ;; you-fell-off-the-end
 (generate-digit) ;; you-fell-off-the-end
+
+; (equal? 0 (generate-digit)) ;; 0
+; (equal? 1 (generate-digit)) ;; 1
+; (equal? 2 (generate-digit)) ;; 2
+
+; ; (define res (generate-digit))
+; ; (displayln res)
+
+; (equal? 'you-fell-off-the-end (generate-digit)) ;; you-fell-off-the-end
+; (equal? 'you-fell-off-the-end (generate-digit)) ;; you-fell-off-the-end
+
+
+

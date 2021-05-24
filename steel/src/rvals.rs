@@ -1,6 +1,5 @@
 use crate::{
     core::instructions::DenseInstruction,
-    env::Env,
     gc::Gc,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::Continuation,
@@ -323,7 +322,7 @@ pub enum CollectionType {
 
 // Make a transducer actually contain an option to a rooted value, otherwise
 // it is a source agnostic transformer on the (eventual) input
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Transducer {
     // root: Gc<SteelVal>,
     pub ops: Vec<Transducers>,
@@ -343,7 +342,7 @@ impl Transducer {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Transducers {
     Map(SteelVal),    // function
     Filter(SteelVal), // function
@@ -407,6 +406,7 @@ impl SteelVal {
     pub fn is_truthy(&self) -> bool {
         match &self {
             SteelVal::BoolV(false) => false,
+            SteelVal::Void => false,
             SteelVal::VectorV(v) => !v.is_empty(),
             _ => true,
         }
@@ -560,6 +560,12 @@ impl SteelVal {
     }
 }
 
+impl SteelVal {
+    pub const INT_ZERO: SteelVal = SteelVal::IntV(0);
+    pub const INT_ONE: SteelVal = SteelVal::IntV(1);
+    pub const INT_TWO: SteelVal = SteelVal::IntV(2);
+}
+
 #[derive(Clone, Hash, Debug)]
 pub struct ConsCell {
     pub car: SteelVal,
@@ -620,6 +626,10 @@ impl PartialEq for SteelVal {
             (HashSetV(l), HashSetV(r)) => l == r,
             (HashMapV(l), HashMapV(r)) => l == r,
             (StructV(l), StructV(r)) => l == r,
+            (Closure(l), Closure(r)) => l == r,
+            (ContractedFunction(l), ContractedFunction(r)) => l == r,
+            (Contract(l), Contract(r)) => l == r,
+            (IterV(l), IterV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
@@ -646,22 +656,125 @@ impl PartialOrd for SteelVal {
     }
 }
 
-#[derive(Clone)]
+// Upvalues themselves need to be stored on the heap
+// Consider a separate section for them on the heap, or wrap them in a wrapper
+// before allocating on the heap
+#[derive(Clone, Debug)]
+pub struct UpValue {
+    // Either points to a stack location, or the value
+    pub(crate) location: Location,
+    // The next upvalue in the sequence
+    pub(crate) next: Option<Weak<RefCell<UpValue>>>,
+    // Reachable
+    pub(crate) reachable: bool,
+}
+
+impl PartialEq for UpValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.location == other.location
+    }
+}
+
+impl PartialOrd for UpValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (&self.location, &other.location) {
+            (Location::Stack(l), Location::Stack(r)) => Some(l.cmp(r)),
+            _ => panic!("Cannot compare two values on the heap"),
+        }
+    }
+}
+
+impl UpValue {
+    // Given a reference to the stack, either get the value from the stack index
+    // Or snag the steelval stored inside the upvalue
+    pub(crate) fn get_value(&self, stack: &[SteelVal]) -> SteelVal {
+        match self.location {
+            Location::Stack(idx) => stack[idx].clone(),
+            Location::Closed(ref v) => v.clone(),
+        }
+    }
+
+    pub(crate) fn is_reachable(&self) -> bool {
+        self.reachable
+    }
+
+    // Given a reference to the stack, either get the value from the stack index
+    // Or snag the steelval stored inside the upvalue
+    pub(crate) fn mutate_value(&mut self, stack: &mut [SteelVal], value: SteelVal) -> SteelVal {
+        match self.location {
+            Location::Stack(idx) => {
+                let old = stack[idx].clone();
+                stack[idx] = value;
+                old
+            }
+            Location::Closed(ref v) => {
+                let old = v.clone();
+                self.location = Location::Closed(value);
+                old
+            }
+        }
+    }
+
+    pub(crate) fn get_value_if_closed(&self) -> Option<&SteelVal> {
+        if let Location::Closed(ref v) = self.location {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn set_value(&mut self, val: SteelVal) {
+        self.location = Location::Closed(val);
+    }
+
+    pub(crate) fn mark_reachable(&mut self) {
+        self.reachable = true;
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.reachable = false;
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        matches!(self.location, Location::Stack(_))
+    }
+
+    pub(crate) fn index(&self) -> Option<usize> {
+        if let Location::Stack(idx) = &self.location {
+            Some(*idx)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn new(stack_index: usize, next: Option<Weak<RefCell<UpValue>>>) -> Self {
+        UpValue {
+            location: Location::Stack(stack_index),
+            next,
+            reachable: false,
+        }
+    }
+
+    pub(crate) fn set_next(&mut self, next: Weak<RefCell<UpValue>>) {
+        self.next = Some(next);
+    }
+}
+
+// Either points to a stack index, or it points to a SteelVal directly
+// When performing an OPCODE::GET_UPVALUE, index into the array in the current
+// function being executed in the stack frame, and pull it in
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) enum Location {
+    Stack(usize),
+    Closed(SteelVal),
+}
+
+#[derive(Clone, Debug)]
 pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
     body_exp: Rc<[DenseInstruction]>,
-    /// parent environment that created this Lambda.
-    /// the actual environment with correct bindings is built at runtime
-    /// once the function is called
-    // parent_env: Option<Rc<RefCell<Env>>>,
-    /// parent subenvironment that created this lambda.
-    /// the actual environment gets upgraded at runtime if needed
-    sub_expression_env: Weak<RefCell<Env>>,
-    // bytecode instruction body
-    // body_byte: Vec<Instruction>,
-    offset: usize,
     arity: usize,
-    ndef_body: usize,
+    upvalues: Vec<Weak<RefCell<UpValue>>>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -673,26 +786,20 @@ impl PartialEq for ByteCodeLambda {
 impl Hash for ByteCodeLambda {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.body_exp.as_ptr().hash(state);
-        self.sub_expression_env.as_ptr().hash(state);
+        // self.sub_expression_env.as_ptr().hash(state);
     }
 }
 
 impl ByteCodeLambda {
     pub fn new(
         body_exp: Vec<DenseInstruction>,
-        // parent_env: Option<Rc<RefCell<Env>>>,
-        sub_expression_env: Weak<RefCell<Env>>,
-        offset: usize,
         arity: usize,
-        ndef_body: usize,
+        upvalues: Vec<Weak<RefCell<UpValue>>>,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
-            // parent_env,
-            sub_expression_env,
-            offset,
             arity,
-            ndef_body,
+            upvalues,
         }
     }
 
@@ -700,20 +807,24 @@ impl ByteCodeLambda {
         Rc::clone(&self.body_exp)
     }
 
-    pub fn sub_expression_env(&self) -> &Weak<RefCell<Env>> {
-        &self.sub_expression_env
-    }
+    // pub fn sub_expression_env(&self) -> &Weak<RefCell<Env>> {
+    //     &self.sub_expression_env
+    // }
 
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
+    // pub fn offset(&self) -> usize {
+    //     self.offset
+    // }
 
     pub fn arity(&self) -> usize {
         self.arity
     }
 
-    pub fn ndef_body(&self) -> usize {
-        self.ndef_body
+    // pub fn ndef_body(&self) -> usize {
+    //     self.ndef_body
+    // }
+
+    pub fn upvalues(&self) -> &[Weak<RefCell<UpValue>>] {
+        &self.upvalues
     }
 }
 

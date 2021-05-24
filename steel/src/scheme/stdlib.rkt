@@ -248,7 +248,7 @@
 
 
 (define (map func lst)
-  (if (empty? lst) 
+  (if (null? lst) 
       '() 
       (execute (mapping func) lst)))
 
@@ -298,12 +298,12 @@
       '() 
       (execute (filtering pred) lst)))
 
-(define (fact n)
-  (define factorial-tail (lambda (n acc) 
-                           (if (= n 0)
-                               acc
-                               (factorial-tail (- n 1)  (* acc n )))))
-  (factorial-tail n 1))
+; (define (fact n)
+;   (define factorial-tail (lambda (n acc) 
+;                            (if (= n 0)
+;                                acc
+;                                (factorial-tail (- n 1)  (* acc n )))))
+;   (factorial-tail n 1))
 
 (define even-rec? (lambda (x) (if (= x 0) #t (odd-rec? (- x 1)))))
 (define odd-rec?  (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))
@@ -332,10 +332,4 @@
 
 (define (slice l offset n)
   (take (drop l offset) n))
-
-(define (displayln object) 
-  (display object)
-  (newline))
-
-
 ;;; Macros go here:

@@ -2,6 +2,16 @@ use std::cell::Cell;
 
 pub type Callback = fn(usize) -> bool;
 
+trait CallbackFunc {
+    fn call(&self) -> Option<bool>;
+}
+
+impl CallbackFunc for () {
+    fn call(&self) -> Option<bool> {
+        None
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct EvaluationProgress {
     instruction_count: Cell<usize>,
@@ -32,6 +42,7 @@ impl EvaluationProgress {
         self.instruction_count.set(self.instruction_count.get() + 1);
     }
 
+    #[inline(always)]
     pub fn call_and_increment(&self) -> Option<bool> {
         let b = self.callback();
         self.increment();

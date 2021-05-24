@@ -1,9 +1,8 @@
 use crate::compiler::{
-    // codegen::emit_loop,
-    code_generator::CodeGenerator,
+    code_generator::{convert_call_globals, CodeGenerator},
     constants::{ConstantMap, ConstantTable},
-    // expand::MacroSet,
     map::SymbolMap,
+    passes::begin::flatten_begins_and_expand_defines,
     program::Program,
 };
 use crate::core::{instructions::Instruction, opcode::OpCode};
@@ -21,7 +20,7 @@ use crate::parser::ast::ExprKind;
 use crate::parser::expander::SteelMacro;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::parser::{ParseError, Parser};
-use crate::parser::span::Span;
+// use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 
 use crate::values::structs::SteelStruct;
@@ -32,73 +31,93 @@ use crate::stop;
 
 use log::debug;
 
-use super::modules::ModuleManager;
+use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
-// insert fast path for built in functions
-// rather than look up function in env, be able to call it directly?
-fn collect_defines_from_current_scope(
-    instructions: &[Instruction],
+use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
+
+// use itertools::Itertools;
+
+use im_rc::HashMap as ImmutableHashMap;
+
+// TODO this needs to take into account if they are functions or not before adding them
+// don't just blindly do all global defines first - need to do them in order correctly
+fn replace_defines_with_debruijn_indices(
+    instructions: &mut [Instruction],
     symbol_map: &mut SymbolMap,
-) -> Result<usize> {
-    let mut def_stack: usize = 0;
-    let mut count = 0;
-    let mut bindings: HashSet<&str> = HashSet::new();
+) -> Result<()> {
+    let mut flat_defines: HashSet<String> = HashSet::new();
 
-    for instruction in instructions {
-        match instruction {
-            Instruction {
-                op_code: OpCode::SDEF,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        span: _sp,
-                        ..
-                    }),
-                ..
-            } => {
-                if def_stack == 0 {
-                    if bindings.insert(s) {
-                        let (_idx, _) = symbol_map.get_or_add(s);
-                        count += 1;
-                    }
-                    // TODO this needs to get fixed
-                    // else {
-                    //     stop!(Generic => "define-values: duplicate binding name"; *sp)
-                    // }
+    for i in 2..instructions.len() {
+        match (&instructions[i], &instructions[i - 1], &instructions[i - 2]) {
+            (
+                Instruction {
+                    op_code: OpCode::BIND,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            ..
+                        }),
+                    ..
+                },
+                Instruction {
+                    op_code: OpCode::EDEF,
+                    ..
+                },
+                Instruction {
+                    op_code: OpCode::ECLOSURE,
+                    ..
+                },
+            ) => {
+                let idx = symbol_map.get_or_add(s);
+                flat_defines.insert(s.to_owned());
+
+                if let Some(x) = instructions.get_mut(i) {
+                    x.payload_size = idx;
                 }
             }
-            Instruction {
-                op_code: OpCode::SCLOSURE,
-                ..
-            } => {
-                // println!("Entering closure scope!");
-                def_stack += 1;
-            }
-            Instruction {
-                op_code: OpCode::ECLOSURE,
-                ..
-            } => {
-                // println!("Exiting closure scope!");
-                if def_stack > 0 {
-                    def_stack -= 1;
+            (
+                Instruction {
+                    op_code: OpCode::BIND,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            ..
+                        }),
+                    ..
+                },
+                ..,
+            ) => {
+                let idx = symbol_map.get_or_add(s);
+                flat_defines.insert(s.to_owned());
+
+                if let Some(x) = instructions.get_mut(i) {
+                    x.payload_size = idx;
                 }
             }
             _ => {}
         }
     }
 
-    Ok(count)
-}
+    let mut second_pass_defines: HashSet<String> = HashSet::new();
 
-fn collect_binds_from_current_scope(
-    instructions: &mut [Instruction],
-    symbol_map: &mut SymbolMap,
-    start: usize,
-    end: usize,
-) {
-    let mut def_stack: usize = 0;
-    for i in start..end {
+    let mut depth = 0;
+
+    // name mangle
+    // Replace all identifiers with indices
+    for i in 0..instructions.len() {
         match &instructions[i] {
+            Instruction {
+                op_code: OpCode::SCLOSURE,
+                ..
+            } => {
+                depth += 1;
+            }
+            Instruction {
+                op_code: OpCode::ECLOSURE,
+                ..
+            } => {
+                depth -= 1;
+            }
             Instruction {
                 op_code: OpCode::BIND,
                 contents:
@@ -108,53 +127,35 @@ fn collect_binds_from_current_scope(
                     }),
                 ..
             } => {
-                if def_stack == 1 {
-                    let idx = symbol_map.add(s);
-                    if let Some(x) = instructions.get_mut(i) {
-                        x.payload_size = idx;
-                        x.constant = false;
-                    }
-                }
+                // Keep track of where the defines actually are in the process
+                second_pass_defines.insert(s.to_owned());
             }
-            Instruction {
-                op_code: OpCode::SCLOSURE,
-                ..
-            } => {
-                def_stack += 1;
-            }
-            Instruction {
-                op_code: OpCode::ECLOSURE,
-                ..
-            } => {
-                if def_stack > 0 {
-                    def_stack -= 1;
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn insert_debruijn_indices(
-    instructions: &mut [Instruction],
-    symbol_map: &mut SymbolMap,
-) -> Result<()> {
-    let mut stack: Vec<usize> = Vec::new();
-    // Snag the defines that are going to be available from the global scope
-    let _ = collect_defines_from_current_scope(instructions, symbol_map)?;
-
-    // Snag the binds before the defines
-    // collect_binds_from_current_scope(instructions, symbol_map);
-
-    // name mangle
-    // Replace all identifiers with indices
-    for i in 0..instructions.len() {
-        match &instructions[i] {
             Instruction {
                 op_code: OpCode::PUSH,
                 contents:
                     Some(SyntaxObject {
                         ty: TokenType::Identifier(s),
+                        span,
+                        ..
+                    }),
+                ..
+            }
+            | Instruction {
+                op_code: OpCode::CALLGLOBAL,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        span,
+                        ..
+                    }),
+                ..
+            }
+            | Instruction {
+                op_code: OpCode::CALLGLOBALTAIL,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        span,
                         ..
                     }),
                 ..
@@ -164,72 +165,26 @@ fn insert_debruijn_indices(
                 contents:
                     Some(SyntaxObject {
                         ty: TokenType::Identifier(s),
+                        span,
                         ..
                     }),
                 ..
             } => {
-                let idx = symbol_map.get(s).map_err(|x| {
-                    let sp = if let Some(syn) = &instructions[i].contents {
-                        syn.span
-                    } else {
-                        Span::new(0, 0)
-                    };
+                if flat_defines.get(s).is_some() {
+                    if second_pass_defines.get(s).is_none() && depth == 0 {
+                        let message = format!(
+                            "Cannot reference an identifier before its definition: {}",
+                            s
+                        );
+                        stop!(FreeIdentifier => message; *span);
+                    }
+                }
 
-                    x.set_span(sp)
-                })?;
-                // println!("Renaming: {} to index: {}", s, idx);
+                let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
+
+                // TODO commenting this for now
                 if let Some(x) = instructions.get_mut(i) {
                     x.payload_size = idx;
-                    x.constant = false;
-                }
-            }
-            // Is this even necessary?
-            Instruction {
-                op_code: OpCode::BIND,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        ..
-                    }),
-                ..
-            } => {
-                let (idx, _) = symbol_map.get_or_add(s);
-
-                if let Some(x) = instructions.get_mut(i) {
-                    x.payload_size = idx;
-                    // x.contents = None;
-                }
-            }
-            Instruction {
-                op_code: OpCode::SCLOSURE,
-                ..
-            } => {
-                stack.push(symbol_map.len());
-                // More stuff goes here
-                let payload = instructions[i].payload_size;
-
-                // Go through the current scope and collect binds from the lambds
-                collect_binds_from_current_scope(instructions, symbol_map, i, i + payload - 1);
-
-                // Go through the current scope and find defines and the count
-                let def_count = collect_defines_from_current_scope(
-                    &instructions[i + 1..(i + payload - 1)],
-                    symbol_map,
-                )?;
-                // Set the def count of the NDEFS instruction after the closure
-                if let Some(x) = instructions.get_mut(i + 1) {
-                    x.payload_size = def_count;
-                }
-            }
-            Instruction {
-                op_code: OpCode::ECLOSURE,
-                ..
-            } => symbol_map.roll_back(stack.pop().unwrap()),
-            Instruction {
-                op_code: OpCode::SDEF,
-                ..
-            } => {
-                if let Some(x) = instructions.get_mut(i) {
                     x.constant = false;
                 }
             }
@@ -238,46 +193,6 @@ fn insert_debruijn_indices(
     }
 
     Ok(())
-}
-
-fn extract_constants<CT: ConstantTable>(
-    instructions: &mut [Instruction],
-    constants: &mut CT,
-) -> Result<()> {
-    for i in 0..instructions.len() {
-        let inst = &instructions[i];
-        if let OpCode::PUSH = inst.op_code {
-            // let idx = constants.len();
-            if inst.constant {
-                let value = eval_atom(&inst.contents.as_ref().unwrap())?;
-                let idx = constants.add_or_get(value);
-                // constants.push(eval_atom(&inst.contents.as_ref().unwrap())?);
-                if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::PUSHCONST;
-                    x.payload_size = idx;
-                    x.contents = None;
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// evaluates an atom expression in given environment
-fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
-    match &t.ty {
-        TokenType::BooleanLiteral(b) => Ok((*b).into()),
-        // TokenType::Identifier(s) => env.borrow().lookup(&s),
-        TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
-        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
-        TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
-        TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
-        what => {
-            println!("getting here in the eval_atom");
-            stop!(UnexpectedToken => what; t.span)
-        }
-    }
 }
 
 // Adds a flag to the pop value in order to save the heap to the global heap
@@ -304,11 +219,20 @@ fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+pub enum OptLevel {
+    Zero = 0,
+    One,
+    Two,
+    Three,
+}
+
 pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: ConstantMap,
     pub(crate) macro_env: HashMap<String, SteelMacro>,
     module_manager: ModuleManager,
+    opt_level: OptLevel,
 }
 
 impl Compiler {
@@ -323,6 +247,7 @@ impl Compiler {
             constant_map,
             macro_env,
             module_manager,
+            opt_level: OptLevel::Three,
         }
     }
 
@@ -337,7 +262,7 @@ impl Compiler {
 
     /// Registers a name in the underlying symbol map and returns the idx that it maps to
     pub fn register(&mut self, name: &str) -> usize {
-        self.symbol_map.add(name)
+        self.symbol_map.get_or_add(name)
     }
 
     /// Get the index associated with a name in the underlying symbol map
@@ -347,8 +272,13 @@ impl Compiler {
     }
 
     /// Given a program and (optionally) a path to that program, compile and emit the program
-    pub fn compile_program(&mut self, expr_str: &str, path: Option<PathBuf>) -> Result<Program> {
-        let instructions = self.emit_instructions(expr_str, path)?;
+    pub fn compile_program(
+        &mut self,
+        expr_str: &str,
+        path: Option<PathBuf>,
+        constants: ImmutableHashMap<String, SteelVal>,
+    ) -> Result<Program> {
+        let instructions = self.emit_instructions(expr_str, path, constants)?;
 
         // TODO Perhaps use a different representation for the constant map
         let program = Program::new(instructions, self.constant_map.clone());
@@ -359,6 +289,7 @@ impl Compiler {
         &mut self,
         expr_str: &str,
         path: Option<PathBuf>,
+        constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
 
@@ -371,7 +302,61 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        self.emit_instructions_from_exprs(parsed, false, path)
+        self.emit_instructions_from_exprs(parsed, path, constants)
+    }
+
+    pub fn emit_debug_instructions(
+        &mut self,
+        expr_str: &str,
+        constants: ImmutableHashMap<String, SteelVal>,
+    ) -> Result<Vec<Vec<Instruction>>> {
+        let mut intern = HashMap::new();
+
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr_str, &mut intern).collect();
+
+        let parsed = parsed?;
+
+        self.emit_debug_instructions_from_exprs(parsed, constants)
+    }
+
+    pub fn emit_expanded_ast(
+        &mut self,
+        expr_str: &str,
+        constants: ImmutableHashMap<String, SteelVal>,
+    ) -> Result<Vec<ExprKind>> {
+        let mut intern = HashMap::new();
+
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr_str, &mut intern).collect();
+
+        let parsed = parsed?;
+
+        let expanded_statements = self.expand_expressions(parsed, None)?;
+
+        let mut expanded_statements = expanded_statements;
+
+        if self.opt_level != OptLevel::Three {
+            loop {
+                let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
+                expanded_statements = manager.run(expanded_statements)?;
+                if !manager.changed {
+                    break;
+                }
+            }
+        } else {
+            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                .run(expanded_statements)?;
+        }
+
+        // let expanded_statements =
+        //     ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
+
+        Ok(flatten_begins_and_expand_defines(expanded_statements))
+
+        // self.emit_debug_instructions_from_exprs(parsed)
     }
 
     pub fn expand_expressions(
@@ -379,18 +364,14 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
+        #[cfg(feature = "modules")]
+        return self
+            .module_manager
+            .compile_main(&mut self.macro_env, exprs, path);
+
+        #[cfg(not(feature = "modules"))]
         self.module_manager
-            .compile_main(&mut self.macro_env, exprs, path)
-        // println!(
-        //     "{:?}",
-        //     output
-        //         .clone()
-        //         .unwrap()
-        //         .iter()
-        //         .map(|x| x.to_string())
-        //         .join(" ")
-        // );
-        // output
+            .expand_expressions(&mut self.macro_env, exprs)
     }
 
     // This only works at the top level
@@ -432,44 +413,38 @@ impl Compiler {
         Ok(non_structs)
     }
 
-    // pub fn extract_structs_and_expand_macros(
-    //     &mut self,
-    //     exprs: Vec<Expr>,
-    //     results: &mut Vec<Vec<DenseInstruction>>,
-    // ) -> Result<Vec<Expr>> {
-    //     self.idents.insert_from_iter(
-    //         get_definition_names(&exprs)
-    //             .into_iter()
-    //             .chain(self.symbol_map.copy_underlying_vec().into_iter()),
-    //     );
+    fn debug_extract_structs(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        results: &mut Vec<Vec<Instruction>>,
+    ) -> Result<Vec<ExprKind>> {
+        let mut non_structs = Vec::new();
+        let mut struct_instructions = Vec::new();
+        for expr in exprs {
+            if let ExprKind::Struct(s) = expr {
+                let builder = SteelStruct::generate_from_ast(&s)?;
 
-    //     let mut struct_instructions = Vec::new();
+                // Add the eventual function names to the symbol map
+                let indices = self.symbol_map.insert_struct_function_names(&builder);
 
-    //     // Yoink the macro definitions
-    //     // Add them to our macro env
-    //     // TODO change this to be a unique macro env struct
-    //     // Just a thin wrapper around a hashmap
-    //     let extracted_statements = extract_macro_definitions(
-    //         exprs,
-    //         &mut self.macro_env,
-    //         // &self.global_env,
-    //         &mut self.symbol_map,
-    //         &self.idents,
-    //         &mut struct_instructions,
-    //         &mut self.constant_map,
-    //     )?;
+                // Get the value we're going to add to the constant map for eventual use
+                // Throw the bindings in as well
+                let constant_values = builder.to_constant_val(indices);
+                let idx = self.constant_map.add_or_get(constant_values);
 
-    //     info!("Found {} struct definitions", struct_instructions.len());
+                struct_instructions
+                    .push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
+            } else {
+                non_structs.push(expr);
+            }
+        }
 
-    //     // Zip up the instructions for structs
-    //     // TODO come back to this
-    //     for instruction in densify(struct_instructions) {
-    //         results.push(vec![instruction])
-    //     }
+        for instruction_set in struct_instructions {
+            results.push(instruction_set)
+        }
 
-    //     // Walk through and expand all macros, lets, and defines
-    //     expand_statements(extracted_statements, &mut self.macro_env)
-    // }
+        Ok(non_structs)
+    }
 
     pub fn generate_dense_instructions(
         &mut self,
@@ -497,11 +472,11 @@ impl Compiler {
             instruction_buffer.append(&mut instructions);
         }
 
-        // println!("Got here!");
+        convert_call_globals(&mut instruction_buffer);
+        replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
 
-        insert_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
-        extract_constants(&mut instruction_buffer, &mut self.constant_map)?;
-        // coalesce_clears(&mut instruction_buffer);
+        // TODO
+        loop_condition_local_const_arity_two(&mut instruction_buffer);
 
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
@@ -512,11 +487,97 @@ impl Compiler {
         Ok(results)
     }
 
+    fn generate_debug_instructions(
+        &mut self,
+        expanded_statements: Vec<ExprKind>,
+        results: Vec<Vec<Instruction>>,
+    ) -> Result<Vec<Vec<Instruction>>> {
+        let mut results = results;
+        let mut instruction_buffer = Vec::new();
+        let mut index_buffer = Vec::new();
+
+        for expr in expanded_statements {
+            // TODO add printing out the expression as its own special function
+
+            let mut instructions =
+                CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(&expr)?;
+
+            instructions.push(Instruction::new_pop());
+            inject_heap_save_to_pop(&mut instructions);
+            index_buffer.push(instructions.len());
+            instruction_buffer.append(&mut instructions);
+        }
+
+        convert_call_globals(&mut instruction_buffer);
+        replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+
+        // TODO
+        loop_condition_local_const_arity_two(&mut instruction_buffer);
+
+        for idx in index_buffer {
+            let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
+            // pretty_print_instructions(extracted.as_slice());
+            results.push(extracted);
+        }
+
+        Ok(results)
+    }
+
+    fn emit_debug_instructions_from_exprs(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        constants: ImmutableHashMap<String, SteelVal>,
+    ) -> Result<Vec<Vec<Instruction>>> {
+        let mut results = Vec::new();
+
+        let expanded_statements = self.expand_expressions(exprs, None)?;
+
+        debug!(
+            "Generating instructions for the expression: {:?}",
+            expanded_statements
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+        );
+
+        debug!("About to expand defines");
+
+        let mut expanded_statements = expanded_statements;
+
+        if self.opt_level != OptLevel::Three {
+            loop {
+                let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
+                expanded_statements = manager.run(expanded_statements)?;
+                if !manager.changed {
+                    break;
+                }
+            }
+        } else {
+            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                .run(expanded_statements)?;
+        }
+
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+
+        debug!(
+            "Successfully expanded defines: {:?}",
+            expanded_statements
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+        );
+
+        let statements_without_structs =
+            self.debug_extract_structs(expanded_statements, &mut results)?;
+
+        self.generate_debug_instructions(statements_without_structs, results)
+    }
+
     pub fn emit_instructions_from_exprs(
         &mut self,
         exprs: Vec<ExprKind>,
-        _optimizations: bool,
         path: Option<PathBuf>,
+        constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
 
@@ -530,7 +591,44 @@ impl Compiler {
                 .collect::<Vec<_>>()
         );
 
+        let mut expanded_statements = expanded_statements;
+
+        if self.opt_level != OptLevel::Three {
+            loop {
+                let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
+                expanded_statements = manager.run(expanded_statements)?;
+                if !manager.changed {
+                    break;
+                }
+            }
+        } else {
+            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                .run(expanded_statements)?;
+        }
+
+        // let expanded_statements =
+        // ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
+
+        debug!("About to expand defines");
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+
+        debug!(
+            "Successfully expanded defines: {:?}",
+            expanded_statements
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+        );
+
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
+
+        // println!(
+        //     "{}",
+        //     statements_without_structs
+        //         .iter()
+        //         .map(|x| x.to_pretty(60))
+        //         .join("\n\n")
+        // );
 
         self.generate_dense_instructions(statements_without_structs, results)
     }

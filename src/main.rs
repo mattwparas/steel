@@ -18,7 +18,7 @@ fn main() {
     // let mut builder = Builder::new();
 
     // builder
-    //     .filter(Some("steel::steel_vm::heap"), LevelFilter::Trace)
+    //     .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
     //     .init();
 
     let args = args().collect::<Vec<_>>();
@@ -30,7 +30,11 @@ fn main() {
     } else if args.len() == 2 {
         let path = &args[1];
 
-        let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
+        let core_libraries = &[
+            steel::stdlib::PRELUDE,
+            steel::stdlib::DISPLAY,
+            steel::stdlib::CONTRACTS,
+        ];
 
         for core in core_libraries {
             let res = vm.parse_and_execute_without_optimizations(core);

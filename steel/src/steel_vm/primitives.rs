@@ -50,6 +50,17 @@ macro_rules! ensure_tonicity {
 //     }};
 // }
 
+fn is_void() -> SteelVal {
+    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+        if let Some(first) = args.first() {
+            if let SteelVal::Void = first {
+                return Ok(SteelVal::BoolV(true));
+            }
+        }
+        Ok(SteelVal::BoolV(false))
+    })
+}
+
 #[macro_use]
 macro_rules! gen_pred {
     ($variant:ident) => {{
@@ -96,22 +107,99 @@ macro_rules! gen_pred {
     }};
 }
 
+const LIST: &str = "list";
+const CAR: &str = "car";
+const CDR: &str = "cdr";
+const CONS: &str = "cons";
+const FIRST: &str = "first";
+const REST: &str = "rest";
+const APPEND: &str = "append";
+const PUSH_BACK: &str = "push-back";
+const RANGE: &str = "range";
+const LENGTH: &str = "length";
+const REVERSE: &str = "reverse";
+const LIST_TO_VECTOR: &str = "list->vector";
+const LIST_TO_STRING: &str = "list->string";
+const NULL_HUH: &str = "null?";
+const INT_HUH: &str = "int?";
+const INTEGER_HUH: &str = "integer?";
+const FLOAT_HUH: &str = "float?";
+const NUMBER_HUH: &str = "number?";
+const SYMBOL_HUH: &str = "symbol?";
+const VECTOR_HUH: &str = "vector?";
+const STRING_HUH: &str = "string?";
+const LIST_HUH: &str = "list?";
+const BOOLEAN_HUH: &str = "boolean?";
+const FUNCTION_HUH: &str = "function?";
+
+pub const CONSTANTS: &[&str] = &[
+    "+",
+    "i+",
+    "f+",
+    "*",
+    "/",
+    "-",
+    CAR,
+    CDR,
+    FIRST,
+    REST,
+    RANGE,
+    NULL_HUH,
+    INT_HUH,
+    FLOAT_HUH,
+    NUMBER_HUH,
+    STRING_HUH,
+    SYMBOL_HUH,
+    VECTOR_HUH,
+    LIST_HUH,
+    INTEGER_HUH,
+    BOOLEAN_HUH,
+    FUNCTION_HUH,
+    "=",
+    "equal?",
+    ">",
+    ">=",
+    "<",
+    "<=",
+    "string-append",
+    "string->list",
+    "string-upcase",
+    "string-lowercase",
+    "trim",
+    "trim-start",
+    "trim-end",
+    "split-whitespace",
+    "void",
+    "list->string",
+    "concat-symbols",
+    "string->int",
+    "even?",
+    "odd",
+    CONS,
+    APPEND,
+    PUSH_BACK,
+    LENGTH,
+    REVERSE,
+    LIST_TO_STRING,
+    LIST,
+];
+
 #[inline(always)]
 pub(crate) fn register_list_functions(engine: &mut Engine) {
     engine
-        .register_value("list", ListOperations::list())
-        .register_value("car", ListOperations::car())
-        .register_value("cdr", ListOperations::cdr())
-        .register_value("first", ListOperations::car())
-        .register_value("rest", ListOperations::cdr())
-        .register_value("cons", ListOperations::cons())
-        .register_value("append", ListOperations::append())
-        .register_value("push-back", ListOperations::push_back())
-        .register_value("range", ListOperations::range())
-        .register_value("length", ListOperations::list_length())
-        .register_value("reverse", ListOperations::reverse())
-        .register_value("list->vector", ListOperations::list_to_vec())
-        .register_value("list->string", ListOperations::list_to_string());
+        .register_value(LIST, ListOperations::list())
+        .register_value(CAR, ListOperations::car())
+        .register_value(CDR, ListOperations::cdr())
+        .register_value(FIRST, ListOperations::car())
+        .register_value(REST, ListOperations::cdr())
+        .register_value(CONS, ListOperations::cons())
+        .register_value(APPEND, ListOperations::append())
+        .register_value(PUSH_BACK, ListOperations::push_back())
+        .register_value(RANGE, ListOperations::range())
+        .register_value(LENGTH, ListOperations::list_length())
+        .register_value(REVERSE, ListOperations::reverse())
+        .register_value(LIST_TO_VECTOR, ListOperations::list_to_vec())
+        .register_value(LIST_TO_STRING, ListOperations::list_to_string());
 }
 
 #[inline(always)]
@@ -185,7 +273,9 @@ pub(crate) fn register_identity_predicates(engine: &mut Engine) {
         .register_value("pair?", gen_pred!(Pair))
         .register_value("integer?", gen_pred!(IntV))
         .register_value("boolean?", gen_pred!(BoolV))
+        .register_value("void?", is_void())
         .register_value("continuation?", gen_pred!(ContinuationFunction))
+        .register_value("future?", gen_pred!(FutureV))
         .register_value(
             "function?",
             gen_pred!(
@@ -358,6 +448,33 @@ pub(crate) fn embed_primitives(engine: &mut Engine) {
     register_io_functions(engine);
     register_fs_functions(engine);
     register_port_functions(engine);
+
+    register_meta_functions(engine);
+    register_json_functions(engine);
+
+    engine
+        .register_value("error!", ControlOperations::error())
+        .register_value("random-int", NumOperations::random_int());
+}
+
+#[inline(always)]
+pub(crate) fn embed_primitives_without_io(engine: &mut Engine) {
+    register_constants(engine);
+
+    register_equality_functions(engine);
+    register_ord_functions(engine);
+
+    register_number_functions(engine);
+    register_list_functions(engine);
+    register_vector_functions(engine);
+    register_string_functions(engine);
+    register_hashmap_functions(engine);
+    register_hashset_functions(engine);
+    register_identity_predicates(engine);
+    register_stream_functions(engine);
+    register_contract_functions(engine);
+    register_transducer_functions(engine);
+    register_symbol_functions(engine);
 
     register_meta_functions(engine);
     register_json_functions(engine);

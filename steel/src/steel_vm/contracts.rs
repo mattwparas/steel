@@ -1,4 +1,4 @@
-use super::{evaluation_progress::EvaluationProgress, heap::Heap, vm::vm};
+use super::{evaluation_progress::EvaluationProgress, heap::UpValueHeap, vm::vm};
 use crate::{
     compiler::constants::ConstantTable,
     env::Env,
@@ -9,20 +9,21 @@ use crate::{
     stop,
     values::contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract},
 };
-use std::{cell::RefCell, rc::Rc};
 
 use log::debug;
+
+use super::stack::Stack;
 
 /// Extension trait for the application of contracted functions
 pub(crate) trait ContractedFunctionExt {
     fn apply<CT: ConstantTable>(
         &self,
         arguments: Vec<SteelVal>,
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<SteelVal>;
 }
 
@@ -30,11 +31,11 @@ impl ContractedFunctionExt for ContractedFunction {
     fn apply<CT: ConstantTable>(
         &self,
         arguments: Vec<SteelVal>,
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<SteelVal> {
         // Walk back and find the contracts to apply
         {
@@ -44,11 +45,11 @@ impl ContractedFunctionExt for ContractedFunction {
                     &self.name,
                     &self.function,
                     &arguments,
-                    local_heap,
                     constants,
                     cur_inst_span,
-                    repl,
                     callback,
+                    upvalue_heap,
+                    global_env,
                 )?;
 
                 parent = p.parent()
@@ -59,11 +60,11 @@ impl ContractedFunctionExt for ContractedFunction {
             &self.name,
             &self.function,
             &arguments,
-            local_heap,
             constants,
             cur_inst_span,
-            repl,
             callback,
+            upvalue_heap,
+            global_env,
         )
     }
 }
@@ -73,11 +74,11 @@ pub(crate) trait FlatContractExt {
     fn apply<CT: ConstantTable>(
         &self,
         arg: SteelVal,
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<()>;
 }
 
@@ -85,46 +86,28 @@ impl FlatContractExt for FlatContract {
     fn apply<CT: ConstantTable>(
         &self,
         arg: SteelVal,
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<()> {
         let arg_vec = vec![arg.clone()];
         let output = match self.predicate() {
             SteelVal::FuncV(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
             SteelVal::BoxedFunction(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
             SteelVal::Closure(closure) => {
-                let parent_env = closure.sub_expression_env();
-
-                // TODO remove this unwrap
-                let offset =
-                    closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-                let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                    parent_env.clone(),
-                    offset,
-                )));
-
-                inner_env
-                    .borrow_mut()
-                    .reserve_defs(if closure.ndef_body() > 0 {
-                        closure.ndef_body() - 1
-                    } else {
-                        0
-                    });
-
                 // TODO make recursive call here with a very small stack
                 // probably a bit overkill, but not much else I can do here I think
                 vm(
                     closure.body_exp(),
-                    arg_vec.into(),
-                    local_heap,
-                    inner_env,
+                    &mut arg_vec.into(),
+                    global_env,
                     constants,
-                    repl,
                     callback,
+                    upvalue_heap,
+                    &mut vec![Gc::clone(closure)],
+                    &mut Stack::new(),
                 )
             }
             _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),
@@ -145,11 +128,11 @@ pub(crate) trait FunctionContractExt {
         name: &Option<String>,
         function: &ByteCodeLambda,
         arguments: &[SteelVal],
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<SteelVal>;
 }
 
@@ -159,11 +142,11 @@ impl FunctionContractExt for FunctionContract {
         name: &Option<String>,
         function: &ByteCodeLambda,
         arguments: &[SteelVal],
-        local_heap: &mut Heap,
         constants: &CT,
         cur_inst_span: &Span,
-        repl: bool,
         callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
     ) -> Result<SteelVal> {
         let mut verified_args = Vec::new();
 
@@ -179,18 +162,20 @@ impl FunctionContractExt for FunctionContract {
 
                     if let Err(e) = f.apply(
                         arg.clone(),
-                        local_heap,
                         constants,
                         cur_inst_span,
-                        repl,
                         callback,
+                        upvalue_heap,
+                        global_env,
                     ) {
                         debug!(
                             "Blame locations: {:?}, {:?}",
                             self.contract_attachment_location, name
                         );
 
-                        stop!(ContractViolation => format!("This function call caused an error - an occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location); *cur_inst_span);
+                        let message = format!("This function call caused an error - an occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location);
+
+                        stop!(ContractViolation => message; *cur_inst_span);
                     }
 
                     verified_args.push(arg.clone());
@@ -236,32 +221,15 @@ impl FunctionContractExt for FunctionContract {
         }
 
         let output = {
-            let parent_env = function.sub_expression_env();
-
-            // TODO remove this unwrap
-            let offset = function.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-                parent_env.clone(),
-                offset,
-            )));
-
-            inner_env
-                .borrow_mut()
-                .reserve_defs(if function.ndef_body() > 0 {
-                    function.ndef_body() - 1
-                } else {
-                    0
-                });
-
             vm(
                 function.body_exp(),
-                verified_args.into(),
-                local_heap,
-                inner_env,
+                &mut verified_args.into(),
+                global_env, // TODO remove this as well
                 constants,
-                repl,
                 callback,
+                upvalue_heap,
+                &mut Vec::new(),
+                &mut Stack::new(),
             )
         }?;
 
@@ -273,11 +241,11 @@ impl FunctionContractExt for FunctionContract {
 
                 if let Err(e) = f.apply(
                     output.clone(),
-                    local_heap,
                     constants,
                     cur_inst_span,
-                    repl,
                     callback,
+                    upvalue_heap,
+                    global_env,
                 ) {
                     debug!(
                         "Blame locations: {:?}, {:?}",
@@ -292,11 +260,20 @@ impl FunctionContractExt for FunctionContract {
                         &self.contract_attachment_location
                     };
 
-                    let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
-                    {}
-                    blaming: {:?} - broke its own contract", self.to_string(), e.to_string(), blame_location);
+                    // TODO clean this up
+                    if let Some(blame_location) = blame_location {
+                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
+                        {}
+                        blaming: {} - broke its own contract", self.to_string(), e.to_string(), blame_location);
 
-                    stop!(ContractViolation => error_message; *cur_inst_span);
+                        stop!(ContractViolation => error_message; *cur_inst_span);
+                    } else {
+                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
+                        {}
+                        blaming: None - broke its own contract", self.to_string(), e.to_string());
+
+                        stop!(ContractViolation => error_message; *cur_inst_span);
+                    }
                 }
 
                 Ok(output)

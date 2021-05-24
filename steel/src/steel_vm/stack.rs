@@ -6,15 +6,18 @@ use std::{cell::RefCell, ops::Deref};
 
 // pub type CallStack = Stack<Stack<SteelVal>>;
 pub type StackFrame = Stack<SteelVal>;
-pub type EnvStack = Stack<Rc<RefCell<Env>>>;
 
 #[derive(Debug, Clone)]
-pub struct Stack<T>(Vec<T>);
+pub struct Stack<T>(pub(crate) Vec<T>);
 
 impl<T> Stack<T> {
     // #[inline(always)]
     pub fn new() -> Stack<T> {
         Stack(Vec::new())
+    }
+
+    pub fn with_capacity(capacity: usize) -> Stack<T> {
+        Stack(Vec::with_capacity(capacity))
     }
 
     // #[inline(always)]
@@ -52,9 +55,17 @@ impl<T> Stack<T> {
         self.0.append(other)
     }
 
-    pub fn drain<R: std::ops::RangeBounds<usize>>(&mut self, range: R) {
-        self.0.drain(range);
+    // pub fn drain<R: std::ops::RangeBounds<usize>>(&mut self, range: R) {
+    //     self.0.drain(range);
+    // }
+
+    pub fn set_idx(&mut self, idx: usize, value: T) {
+        self.0[idx] = value;
     }
+
+    // pub fn last_mut(&mut self) -> Option<&mut T> {
+    //     self.0.last_mut()
+    // }
 }
 
 impl<T> From<Vec<T>> for Stack<T> {

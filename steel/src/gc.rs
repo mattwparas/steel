@@ -51,7 +51,7 @@ pub fn get_object_count() -> usize {
 impl<T: Clone> Gc<T> {
     // in order to fully sandbox, I have to check the memory limit
     pub fn new(val: T) -> Gc<T> {
-        OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
+        // OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
         Gc(Rc::new(val))
     }
 
@@ -132,9 +132,9 @@ impl<T: Clone> Deref for Gc<T> {
 
 impl<T: Clone> Drop for Gc<T> {
     fn drop(&mut self) {
-        if Rc::strong_count(&self.0) == 1 {
-            OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
-        }
+        // if Rc::strong_count(&self.0) == 1 {
+        //     OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
+        // }
     }
 }
 

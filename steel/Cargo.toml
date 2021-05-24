@@ -10,7 +10,7 @@ edition = "2018"
 thiserror = "1.0.23"
 im-rc = "15.0.0"
 colored = "2.0.0"
-rand = "0.8.1"
+# rand = "0.8.1"
 codespan-reporting = "0.11.0"
 structopt = "0.3.21"
 unindent = "0.1.7"
@@ -24,6 +24,7 @@ serde = { version = "1.0.118", features = ["derive", "rc"] }
 serde_derive = "1.0.118"
 bincode = "1.3.1"
 ahash = "0.6.3"
+pretty = "0.10.0"
 
 [dev-dependencies]
 proptest = "0.10.1"
@@ -33,7 +34,15 @@ criterion = "0.3.3"
 # this effectively enable the feature `no-color` of colored when testing with
 # `cargo test --features colors_off`
 colors_off = ["colored/no-color"]
+modules = []
 
 [[bench]]
 name = "my_benchmark"
 harness = false
+
+
+# [target.'cfg(target_arch = "wasm32")'.dependencies]
+# instant = { version = "0.1" } # WASM implementation of std::time::Instant
+
+# [target.'cfg(target_arch = "wasm64")'.dependencies]
+# instant = { version = "0.1" } # WASM implementation of std::time::Instant

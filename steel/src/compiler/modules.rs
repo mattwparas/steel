@@ -60,6 +60,9 @@ impl ModuleManager {
 
         let non_macro_expressions = extract_macro_defs(exprs, global_macro_map)?;
 
+        // This conditionally includes a module which implements WEBP support.
+        // #[cfg(feature = "modules")]
+
         let mut module_builder = ModuleBuilder::main(
             path,
             non_macro_expressions,
@@ -76,6 +79,19 @@ impl ModuleManager {
             .into_iter()
             .map(|x| expand(x, global_macro_map))
             .collect::<Result<_>>()
+    }
+
+    #[cfg(not(feature = "modules"))]
+    pub(crate) fn expand_expressions(
+        &mut self,
+        global_macro_map: &mut HashMap<String, SteelMacro>,
+        exprs: Vec<ExprKind>,
+    ) -> Result<Vec<ExprKind>> {
+        let non_macro_expressions = extract_macro_defs(exprs, global_macro_map)?;
+        non_macro_expressions
+            .into_iter()
+            .map(|x| expand(x, global_macro_map))
+            .collect()
     }
 }
 

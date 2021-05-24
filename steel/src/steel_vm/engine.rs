@@ -6,7 +6,11 @@ use std::{
     rc::Rc,
 };
 
-use super::{evaluation_progress::Callback, primitives::embed_primitives, vm::VirtualMachineCore};
+use super::{
+    evaluation_progress::Callback,
+    primitives::{embed_primitives, embed_primitives_without_io, CONSTANTS},
+    vm::VirtualMachineCore,
+};
 use crate::{
     compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
     core::instructions::DenseInstruction,
@@ -18,9 +22,13 @@ use crate::{
     stop, throw,
 };
 
+use im_rc::HashMap as ImmutableHashMap;
+use itertools::Itertools;
+
 pub struct Engine {
     virtual_machine: VirtualMachineCore,
     compiler: Compiler,
+    constants: Option<ImmutableHashMap<String, SteelVal>>,
 }
 
 impl Engine {
@@ -38,6 +46,7 @@ impl Engine {
         Engine {
             virtual_machine: VirtualMachineCore::new(),
             compiler: Compiler::default(),
+            constants: None,
         }
     }
 
@@ -61,6 +70,20 @@ impl Engine {
         vm
     }
 
+    #[inline]
+    pub fn new_sandboxed() -> Self {
+        let mut vm = Engine::new_raw();
+        embed_primitives_without_io(&mut vm);
+
+        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+
+        for core in std::array::IntoIter::new(core_libraries) {
+            vm.parse_and_execute_without_optimizations(core).unwrap();
+        }
+
+        vm
+    }
+
     /// Instantiates a new engine instance with all the primitive functions enabled.
     /// This is the most general engine entry point, and includes both the contract and
     /// prelude files in the root.
@@ -76,7 +99,11 @@ impl Engine {
     pub fn new() -> Self {
         let mut vm = Engine::new_base();
 
-        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+        let core_libraries = [
+            crate::stdlib::PRELUDE,
+            crate::stdlib::DISPLAY,
+            crate::stdlib::CONTRACTS,
+        ];
 
         for core in std::array::IntoIter::new(core_libraries) {
             vm.parse_and_execute_without_optimizations(core).unwrap();
@@ -107,7 +134,11 @@ impl Engine {
     /// vm.run("(+ 1 2 3)").unwrap();
     /// ```
     pub fn with_prelude(mut self) -> Result<Self> {
-        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+        let core_libraries = &[
+            crate::stdlib::PRELUDE,
+            crate::stdlib::DISPLAY,
+            crate::stdlib::CONTRACTS,
+        ];
 
         for core in core_libraries {
             self.parse_and_execute_without_optimizations(core)?;
@@ -129,7 +160,11 @@ impl Engine {
     /// vm.run("(+ 1 2 3)").unwrap();
     /// ```
     pub fn register_prelude(&mut self) -> Result<&mut Self> {
-        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+        let core_libraries = &[
+            crate::stdlib::PRELUDE,
+            crate::stdlib::DISPLAY,
+            crate::stdlib::CONTRACTS,
+        ];
 
         for core in core_libraries {
             self.parse_and_execute_without_optimizations(core)?;
@@ -140,12 +175,26 @@ impl Engine {
 
     /// Emits a program with path information embedded for error messaging.
     pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
-        self.compiler.compile_program(expr, Some(path))
+        let constants = self.constants();
+        self.compiler.compile_program(expr, Some(path), constants)
     }
 
     /// Emits a program for a given `expr` directly without providing any error messaging for the path.
     pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
-        self.compiler.compile_program(expr, None)
+        let constants = self.constants();
+        self.compiler.compile_program(expr, None, constants)
+    }
+
+    // Attempts to disassemble the given expression into a series of bytecode dumps
+    pub fn disassemble(&mut self, expr: &str) -> Result<String> {
+        let constants = self.constants();
+        self.compiler
+            .emit_debug_instructions(expr, constants)
+            .map(|x| {
+                x.into_iter()
+                    .map(|i| crate::core::instructions::disassemble(&i))
+                    .join("\n\n")
+            })
     }
 
     /// Execute bytecode with a constant map directly.
@@ -163,17 +212,41 @@ impl Engine {
         exprs: &str,
         path: PathBuf,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
-        self.compiler.emit_instructions(exprs, Some(path))
+        let constants = self.constants();
+        self.compiler
+            .emit_instructions(exprs, Some(path), constants)
     }
 
     /// Emit instructions directly, without a path for error messaging.
     pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
-        self.compiler.emit_instructions(exprs, None)
+        let constants = self.constants();
+        self.compiler.emit_instructions(exprs, None, constants)
     }
 
     /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
     pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
         self.virtual_machine.execute_program(program)
+    }
+
+    /// Emit the unexpanded AST
+    pub fn emit_ast_to_string(expr: &str) -> Result<String> {
+        let mut intern = HashMap::new();
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr, &mut intern).collect();
+        let parsed = parsed?;
+        // Ok(parsed.into_iter().map(|x| format!("{:#?}", x)).join("\n\n"))
+        Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
+
+    /// Emit the fully expanded AST
+    pub fn emit_fully_expanded_ast_to_string(&mut self, expr: &str) -> Result<String> {
+        let constants = self.constants();
+        Ok(self
+            .compiler
+            .emit_expanded_ast(expr, constants)?
+            .into_iter()
+            .map(|x| x.to_pretty(60))
+            .join("\n\n"))
     }
 
     /// Registers an external value of any type as long as it implements [`FromSteelVal`](crate::rvals::FromSteelVal) and
@@ -362,19 +435,22 @@ impl Engine {
     /// assert_eq!(output, vec![SteelVal::IntV(3), SteelVal::IntV(25), SteelVal::IntV(5)]);
     /// ```
     pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let program = self.compiler.compile_program(expr, None)?;
+        let constants = self.constants();
+        let program = self.compiler.compile_program(expr, None, constants)?;
         self.virtual_machine.execute_program(program)
     }
 
     /// Similar to [`run`](crate::steel_vm::engine::Engine::run), however it includes path information
     /// for error reporting purposes.
     pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
-        let program = self.compiler.compile_program(expr, Some(path))?;
+        let constants = self.constants();
+        let program = self.compiler.compile_program(expr, Some(path), constants)?;
         self.virtual_machine.execute_program(program)
     }
 
     pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let program = self.compiler.compile_program(expr, None)?;
+        let constants = self.constants();
+        let program = self.compiler.compile_program(expr, None, constants)?;
         self.virtual_machine.execute_program(program)
     }
 
@@ -464,5 +540,22 @@ impl Engine {
                 ExprKind::try_from(&x).map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
             })
             .collect::<Result<Vec<ExprKind>>>()
+    }
+
+    // TODO this does not take into account the issues with
+    // people registering new functions that shadow the original one
+    fn constants(&mut self) -> ImmutableHashMap<String, SteelVal> {
+        if let Some(hm) = self.constants.clone() {
+            hm
+        } else {
+            let mut hm = ImmutableHashMap::new();
+            for constant in CONSTANTS {
+                if let Ok(v) = self.extract_value(constant) {
+                    hm.insert(constant.to_string(), v);
+                }
+            }
+            self.constants = Some(hm.clone());
+            hm
+        }
     }
 }

@@ -34,13 +34,13 @@ impl<'a> StructFuncBuilder<'a> {
         // generate constructor
         // let cons = constructor(name, field_names_as_strs.len());
         // generate predicate
+        func_names.push((&self.name).to_string());
         func_names.push(format!("{}?", &self.name));
         // generate getters and setters
         for field in &self.fields {
             func_names.push(format!("{}-{}", &self.name, field));
             func_names.push(format!("set-{}-{}!", &self.name, field));
         }
-        func_names.push((&self.name).to_string());
         func_names
     }
 
@@ -77,12 +77,12 @@ impl<'a> StructFuncBuilder<'a> {
     }
 }
 
-// Housekeeping (just in case there are cyclical references)
-impl Drop for SteelStruct {
-    fn drop(&mut self) {
-        self.fields.clear();
-    }
-}
+// // Housekeeping (just in case there are cyclical references)
+// impl Drop for SteelStruct {
+//     fn drop(&mut self) {
+//         self.fields.clear();
+//     }
+// }
 
 impl SteelStruct {
     pub fn new(name: Rc<str>, fields: Vec<SteelVal>) -> Self {
@@ -91,7 +91,7 @@ impl SteelStruct {
 
     // This will blow up the stack with a sufficiently large recursive struct
     pub fn pretty_print(&self) -> String {
-        format!("{}: {:#?}", self.name, self.fields)
+        format!("{}", self.name)
     }
 }
 

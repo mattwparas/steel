@@ -320,25 +320,30 @@ mod register_type_tests {
 
 #[cfg(test)]
 mod stream_tests {
-    use crate::compiler::constants::ConstantMap;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
     use crate::parser::span::Span;
     use crate::steel_vm::evaluation_progress::EvaluationProgress;
     use crate::steel_vm::lazy_stream::LazyStreamIter;
     use crate::steel_vm::test_util::assert_script;
     use crate::values::lazy_stream::LazyStream;
+    use crate::{compiler::constants::ConstantMap, env::Env};
 
     #[test]
     fn test_empty_stream_creates_no_iter() {
         let constants = ConstantMap::new();
         let cur_inst_span = Span::new(0, 0);
-        let repl = true;
         let callback = EvaluationProgress::new();
+        let mut global_env = Env::root();
+        let mut mut_ref = &mut global_env;
+
         let lazy_iter = LazyStreamIter::new(
             LazyStream::new_empty_stream(),
             &constants,
             &cur_inst_span,
-            repl,
             &callback,
+            Rc::new(RefCell::new(&mut mut_ref)),
         );
 
         assert!(lazy_iter.into_iter().next().is_none());
@@ -1203,5 +1208,150 @@ mod read_test {
             (assert! (equal? '(1 2 3 4 5) read-value))
         "#;
         assert_script(script);
+    }
+}
+
+#[cfg(test)]
+mod upvalues_test {
+    use crate::steel_vm::test_util::assert_script;
+
+    #[test]
+    fn capture_upvalue() {
+        let script = r#"
+            (define test ((lambda (x) (lambda (y) (+ x y))) 10))
+            (assert! (equal? 25 (test 15)))
+        "#;
+        assert_script(script)
+    }
+
+    #[test]
+    fn capture_upvalues_arity_two() {
+        let script = r#"
+            (define test ((lambda (x y) (lambda (z) (+ x y z))) 10 2))
+            (assert! (equal? 17 (test 5)))
+        "#;
+        assert_script(script)
+    }
+
+    #[test]
+    fn close_upvalue() {
+        let script = r#"
+            (define value ((((lambda (x) (lambda (y) (lambda (z) (+ x y z)))) 10) 20) 30))
+            (assert! (equal? 60 value))
+        "#;
+        assert_script(script)
+    }
+}
+
+#[cfg(test)]
+mod letrec_test {
+    use crate::steel_vm::test_util::assert_script;
+
+    #[test]
+    fn letrec_simple_recursion() {
+        let script = r#"
+        (define (test)
+            (let ((loop void))
+                (let ((loop-prime (lambda (x) 
+                                    (if (= x 10000)
+                                        x
+                                        (loop (+ x 1))))))
+                    (set! loop loop-prime))
+            (loop 0)))
+
+        (assert! (= (test) 10000))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn letrec_mutual_recursion() {
+        let script = r#"
+        (define (test)
+            (let ((x 10) (foo void) (bar void))
+                    (let ((foo-prime (lambda (x) (if (= x 10000) x (bar (+ x 1)))))
+                        (bar-prime (lambda (x) (if (= x 10000) x (foo (+ x 1))))))
+                        (set! foo foo-prime)
+                        (set! bar bar-prime))
+                    (foo 0)))
+        (assert! (= (test) 10000))
+        "#;
+        assert_script(script);
+    }
+}
+
+#[cfg(test)]
+mod y_combinator_test {
+    use crate::steel_vm::test_util::assert_script;
+
+    #[test]
+    fn y_combinator() {
+        let script = r#"
+        (define Y 
+            (lambda (f)
+              ((lambda (x) (x x))
+                (lambda (x) (f (lambda (y) ((x x) y)))))))
+          
+          ;; head-recursive factorial
+          (define fac                ; fac = (Y f) = (f      (lambda a (apply (Y f) a))) 
+            (Y (lambda (r)           ;     = (lambda (x) ... (r     (- x 1)) ... )
+                 (lambda (x)         ;        where   r    = (lambda a (apply (Y f) a))
+                   (if (< x 2)       ;               (r ... ) == ((Y f) ... )
+                       1             ;     == (lambda (x) ... (fac  (- x 1)) ... )
+                       (* x (r (- x 1))))))))
+           
+           
+          ; double-recursive Fibonacci
+          (define fib
+            (Y (lambda (f)
+                 (lambda (x)
+                   (if (< x 2)
+                       x
+                       (+ (f (- x 1)) (f (- x 2))))))))
+           
+           
+          (assert! (equal? 720 (fac 6)))
+          (assert! (equal? 233 (fib 13)))
+        "#;
+        assert_script(script);
+    }
+}
+
+#[cfg(test)]
+mod identifiers_used_before_define {
+    use crate::steel_vm::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script_error;
+
+    #[test]
+    fn define_normal() {
+        let script = r#"
+        (define n 10)
+        (define m 20)
+        (assert! (equal? (range n m) (list 10 11 12 13 14 15 16 17 18 19)))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn identifier_used_before_definition() {
+        let script = r#"
+        (define n 10)
+        (range n m)
+        (define m 20)
+        "#;
+        assert_script_error(script);
+    }
+
+    #[test]
+    fn function_used_before_definition() {
+        let script = r#"
+        (foo 1 2 3)
+        (define (foo x y z)
+            (+ x y z n m))
+
+        (define m 10)
+        (define n 20)
+        "#;
+        assert_script_error(script);
     }
 }

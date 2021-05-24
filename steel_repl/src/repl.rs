@@ -25,7 +25,7 @@ use std::borrow::Cow;
 use steel::steel_vm::engine::Engine;
 
 use std::io::Read;
-use steel::stdlib::{CONTRACTS, PRELUDE};
+use steel::stdlib::{CONTRACTS, DISPLAY, PRELUDE};
 
 use once_cell::sync::Lazy;
 use std::time::Instant;
@@ -155,17 +155,12 @@ async fn finish_or_interrupt(
     print_time: bool,
     optimizations: bool,
 ) {
-    // let (sender, receiver) = oneshot::channel();
-
     tokio::spawn(async move {
-        // println!("Installed Ctrl-C handler");
         tokio::signal::ctrl_c()
             .await
             .unwrap_or_else(|err| panic!("Error installing signal handler: {}", err));
 
         let _ = Arc::clone(&INTERRUPT_CHANNEL.0).lock().unwrap().send(());
-
-        // let _ = sender.send(());
     });
 
     let local = tokio::task::LocalSet::new();
@@ -189,7 +184,6 @@ async fn finish_or_interrupt(
             }),
             Err(e) => {
                 e.emit_result("repl.stl", line.as_str());
-                // eprintln!("{}", e.to_string().bright_red());
             }
         }
 
@@ -227,7 +221,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     let buffer = String::new();
 
     // TODO make this better
-    let core_libraries = &[PRELUDE, CONTRACTS];
+    let core_libraries = &[PRELUDE, DISPLAY, CONTRACTS];
 
     let current_dir = std::env::current_dir()?;
 

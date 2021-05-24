@@ -65,8 +65,19 @@
                (create-children char-list (rest lst) prefix-chars))]))
 
 ;; contract: trie? string? integer? -> trie?
+; (define (insert root-trie word)
+;   (define char-list (string->list word))
+;   ; (displayln "@@@@ INSIDE INSERT @@@@")
+;   (trie
+;    (trie-char root-trie)
+;    (create-children char-list (trie-children root-trie) empty)
+;    (trie-end-word? root-trie)
+;    (trie-word-up-to root-trie)))
+
+;; contract: trie? string? integer? -> trie?
 (define (insert root-trie word)
   (define char-list (string->list word))
+  ; (displayln "@@@@ INSIDE INSERT @@@@")
   (trie
    (trie-char root-trie)
    (create-children char-list (trie-children root-trie) empty)
@@ -85,19 +96,29 @@
 
 ;; contract: trie? (listof string?) -> trie?
 (define (build-trie-from-list-of-words trie list-of-words)
+  ; (display "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+  ; (displayln list-of-words)
   (cond
     [(= (length list-of-words) 1)
      (insert trie (first list-of-words))]
     [else
+    ;  (displayln "recursive call")
+
      (build-trie-from-list-of-words
       (insert trie (first list-of-words))
-      (rest list-of-words))]))
+      (rest list-of-words))
+      
+      ]))
 
 ;; ------------------ SORTING ---------------------- ;;
 
+; (define (trie-sort list-of-words)
+;   (define new-trie (build-trie-from-list-of-words empty-trie list-of-words))
+;   (pre-order new-trie))
+
+
 (define (trie-sort list-of-words)
-  (define new-trie (build-trie-from-list-of-words empty-trie list-of-words))
-  (pre-order new-trie))
+  (pre-order (build-trie-from-list-of-words empty-trie list-of-words)))
 
 ; THIS ONE WORKS (using con and flatten)
 ;; contract: trie? -> (listof string?)
@@ -126,7 +147,8 @@
    "van"
    "thirsty"
    "notify"
-   "star"))
+   "star"
+))
 
 
 ;; (define start (current-inexact-milliseconds))
@@ -140,7 +162,15 @@
 ;;         (loop (+ x 1)))))
 
 ; (define trie1 (build-trie-from-list-of-words empty-trie test-list))
-(displayln (trie-sort test-list))
+
+; (displayln (trie-sort test-list))
+
+(define (generate-trie list-of-words)
+  (build-trie-from-list-of-words empty-trie list-of-words))
+
+
+(pre-order (generate-trie test-list))
+
 
 ;; (loop 0)
 
