@@ -29,6 +29,7 @@ pretty = "0.10.0"
 [dev-dependencies]
 proptest = "0.10.1"
 criterion = "0.3.3"
+steel = { path = ".", features = ["modules"] }
 
 [features]
 # this effectively enable the feature `no-color` of colored when testing with
