@@ -112,16 +112,6 @@ impl Engine {
         vm
     }
 
-    /// Creates an engine with meta information embedded inside a hashmap. With this engine, there is a variable
-    /// `*env*` containing a hashmap of `symbol? -> function?` containing all primitive functions that can be
-    /// run at compile time. This is for performing optimization passes over the program for constant evaluation
-    /// if desired.
-    pub fn new_with_meta() -> Engine {
-        let mut vm = Engine::new();
-        vm.register_value("*env*", crate::env::Env::constant_env_to_hashmap());
-        vm
-    }
-
     /// Consumes the current `Engine` and emits a new `Engine` with the prelude added
     /// to the environment. The prelude won't work unless the primitives are also enabled.
     ///
@@ -479,67 +469,6 @@ impl Engine {
         let mut exprs = String::new();
         file.read_to_string(&mut exprs)?;
         self.run_with_path(exprs.as_str(), path_buf)
-    }
-
-    // TODO come back to this please
-    pub fn parse_and_execute_with_optimizations(
-        &mut self,
-        expr: &str,
-        path: PathBuf,
-    ) -> Result<Vec<SteelVal>> {
-        let mut results = Vec::new();
-        let mut intern = HashMap::new();
-
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new_from_source(expr, &mut intern, path.clone()).collect();
-        let parsed = parsed?;
-
-        let expanded_statements = self
-            .compiler
-            .expand_expressions(parsed, Some(path.clone()))?;
-
-        let statements_without_structs = self
-            .compiler
-            .extract_structs(expanded_statements, &mut results)?;
-
-        let exprs_post_optimization = Self::optimize_exprs(statements_without_structs)?;
-
-        let compiled_instructions = self
-            .compiler
-            .generate_dense_instructions(exprs_post_optimization, results)?;
-
-        let program = Program::new(compiled_instructions, self.compiler.constant_map.clone());
-
-        self.virtual_machine.execute_program(program)
-    }
-
-    // TODO come back to this
-    pub fn optimize_exprs<I: IntoIterator<Item = ExprKind>>(exprs: I) -> Result<Vec<ExprKind>> {
-        // println!("About to optimize the input program");
-
-        let converted: Result<Vec<_>> = exprs.into_iter().map(|x| SteelVal::try_from(x)).collect();
-
-        // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
-        let exprs = ListOperations::built_in_list_func_flat_non_gc(converted?)?;
-
-        let mut vm = Engine::new_with_meta();
-        vm.parse_and_execute_without_optimizations(crate::stdlib::PRELUDE)?;
-        vm.register_value("*program*", exprs);
-        let output = vm.parse_and_execute_without_optimizations(crate::stdlib::COMPILER)?;
-
-        // println!("{:?}", output.last().unwrap());
-
-        // if output.len()  1 {
-        //     stop!(Generic => "panic! internal compiler error: output did not return a valid program");
-        // }
-
-        // TODO
-        SteelVal::iter(output.last().unwrap().clone())
-            .into_iter()
-            .map(|x| {
-                ExprKind::try_from(&x).map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
-            })
-            .collect::<Result<Vec<ExprKind>>>()
     }
 
     // TODO this does not take into account the issues with
