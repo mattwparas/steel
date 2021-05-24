@@ -127,12 +127,7 @@ async fn finish_load_or_interrupt(
     local.spawn_local(async move {
         let file_name = path.to_str().unwrap().to_string();
 
-        let res = if optimizations {
-            vm.lock().unwrap().run_with_path(exprs.as_str(), path)
-        } else {
-            vm.lock().unwrap().run_with_path(exprs.as_str(), path)
-            // vm.parse_and_execute_without_optimizations(exprs.as_str())
-        };
+        let res = vm.lock().unwrap().run_with_path(exprs.as_str(), path);
 
         match res {
             Ok(r) => r.iter().for_each(|x| match x {

@@ -85,10 +85,7 @@ impl VirtualMachineCore {
 
         let output = instructions
             .into_iter()
-            .map(|x| {
-                let code = Rc::from(x.into_boxed_slice());
-                self.execute(code, &constant_map)
-            })
+            .map(|x| self.execute(Rc::from(x.into_boxed_slice()), &constant_map))
             .collect();
 
         output
@@ -108,10 +105,7 @@ impl VirtualMachineCore {
 
         instructions
             .into_iter()
-            .map(|code| {
-                let res = self.execute(code, &constant_map);
-                res
-            })
+            .map(|code| self.execute(code, &constant_map))
             .collect()
     }
 
@@ -299,7 +293,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 .set_next(created_up_value.clone());
         }
 
-        return created_up_value;
+        created_up_value
     }
 
     fn close_upvalues(&mut self, last: usize) {
@@ -551,10 +545,11 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 OpCode::JMP => {
                     self.ip = cur_inst.payload_size as usize;
                 }
-                OpCode::POP => match self.handle_pop(cur_inst.payload_size, &cur_inst.span) {
-                    Some(r) => return r,
-                    None => {}
-                },
+                OpCode::POP => {
+                    if let Some(r) = self.handle_pop(cur_inst.payload_size, &cur_inst.span) {
+                        return r;
+                    }
+                }
                 OpCode::BIND => self.handle_bind(cur_inst.payload_size as usize),
                 OpCode::SCLOSURE => self.handle_start_closure(cur_inst.payload_size as usize),
                 OpCode::SDEF => self.handle_start_def(),
@@ -601,7 +596,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 self.stack.truncate(rollback_index);
             }
 
-            return Some(ret_val);
+            Some(ret_val)
         } else {
             let ret_val = self.stack.pop().unwrap();
 
@@ -724,7 +719,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let fields: Vec<Gc<String>> = iter
             .map(|x| {
                 if let SteelVal::StringV(s) = x {
-                    Ok(s.clone())
+                    Ok(s)
                 } else {
                     stop!(Generic => "ICE: Struct encoded improperly with non string fields")
                 }
@@ -769,7 +764,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let fields: Vec<Gc<String>> = iter
             .map(|x| {
                 if let SteelVal::StringV(s) = x {
-                    Ok(s.clone())
+                    Ok(s)
                 } else {
                     stop!(Generic => "ICE: Struct encoded improperly with non string fields")
                 }
@@ -807,10 +802,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
             match parsed {
                 Ok(v) => {
-                    let converted: Result<Vec<SteelVal>> = v
-                        .into_iter()
-                        .map(|x| SteelVal::try_from(x.clone()))
-                        .collect();
+                    let converted: Result<Vec<SteelVal>> =
+                        v.into_iter().map(SteelVal::try_from).collect();
 
                     // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
                     self.stack

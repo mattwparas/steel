@@ -46,8 +46,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         // Initialize the iterator to be the iterator over whatever is given, stop if its not iterable
         let mut iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
-            SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(|x| Ok(x))),
-            SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
+            SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(Ok)),
+            SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(Ok)),
             SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
                 lazy_stream.unwrap(),
                 self.constants,
@@ -361,8 +361,8 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         let global_env = Rc::new(RefCell::new(&mut self.global_env));
 
         let mut iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
-            SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(|x| Ok(x))),
-            SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(|x| Ok(x))),
+            SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(Ok)),
+            SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(Ok)),
             SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
                 lazy_stream.unwrap(),
                 self.constants,

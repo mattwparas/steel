@@ -91,7 +91,7 @@ impl FunctionContract {
             .collect::<Result<Box<_>>>()?;
 
         let post_condition = if let SteelVal::Contract(c) = post_condition {
-            c.clone()
+            c
         } else {
             stop!(TypeMismatch => "function contract range expected a contract")
         };

@@ -309,7 +309,7 @@ impl FunctionContractExt for FunctionContract {
 
                 // TODO don't pass in None
                 SteelVal::Closure(c) => {
-                    Ok(ContractedFunction::new(fc.clone(), c.clone(), name.clone()).into())
+                    Ok(ContractedFunction::new(fc.clone(), c, name.clone()).into())
                 }
                 _ => {
                     stop!(ContractViolation => "contracts not yet supported with non user defined"; *cur_inst_span)

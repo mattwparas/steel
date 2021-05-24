@@ -153,7 +153,7 @@ fn constructor(name: Rc<str>, len: usize) -> SteelVal {
 
         let mut new_struct = SteelStruct::new(Rc::clone(&name), vec![SteelVal::Void; len]);
 
-        for (idx, arg) in args.into_iter().enumerate() {
+        for (idx, arg) in args.iter().enumerate() {
             let key = new_struct
                 .fields
                 .get_mut(idx)

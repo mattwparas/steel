@@ -32,7 +32,7 @@ impl<
 {
     fn register_async_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<FutureResult> {
-            if args.len() != 0 {
+            if !args.is_empty() {
                 stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
             }
 
@@ -48,7 +48,7 @@ impl<
 impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, RET> for Engine {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 0 {
+            if !args.is_empty() {
                 stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
             }
 

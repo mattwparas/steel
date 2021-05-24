@@ -199,7 +199,7 @@ impl<'a> ConstantEvaluator<'a> {
             TokenType::BooleanLiteral(b) => Some((*b).into()),
             TokenType::Identifier(s) => {
                 // If we found a set identifier, skip it
-                if let Some(_) = self.set_idents.get(s) {
+                if self.set_idents.get(s).is_some() {
                     return None;
                 };
                 self.bindings.borrow_mut().get(s.as_str())
@@ -231,13 +231,13 @@ impl<'a> ConstantEvaluator<'a> {
                     if let Some(new_token) = steelval_to_atom(&output) {
                         let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
                         self.changed = true;
-                        return Ok(ExprKind::Atom(atom));
+                        Ok(ExprKind::Atom(atom))
                     } else if let Ok(lst) = ExprKind::try_from(&output) {
                         self.changed = true;
-                        return Ok(ExprKind::Quote(Box::new(Quote::new(
+                        Ok(ExprKind::Quote(Box::new(Quote::new(
                             lst,
                             SyntaxObject::new(TokenType::Quote, get_span(&func)),
-                        ))));
+                        ))))
                     } else {
                         debug!(
                             "Unable to convert constant-evalutable function output to value: {}",
@@ -245,7 +245,7 @@ impl<'a> ConstantEvaluator<'a> {
                         );
                         // Something went wrong
                         raw_args.insert(0, func);
-                        return Ok(ExprKind::List(List::new(raw_args)));
+                        Ok(ExprKind::List(List::new(raw_args)))
                     }
                 }
                 _ => {
@@ -255,12 +255,12 @@ impl<'a> ConstantEvaluator<'a> {
                     );
                     raw_args.insert(0, func);
                     // Not a constant evaluatable function, just return the original input
-                    return Ok(ExprKind::List(List::new(raw_args)));
+                    Ok(ExprKind::List(List::new(raw_args)))
                 }
             }
         } else {
             raw_args.insert(0, func);
-            return Ok(ExprKind::List(List::new(raw_args)));
+            Ok(ExprKind::List(List::new(raw_args)))
         }
     }
 }
@@ -594,7 +594,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             args.insert(0, constructed_func);
             // actually_used_arguments.insert(0, constructed_func);
 
-            return Ok(ExprKind::List(List::new(args)));
+            Ok(ExprKind::List(List::new(args)))
             // return Ok(ExprKind::List(List::new(actually_used_arguments)));
 
             // unimplemented!()
@@ -614,7 +614,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         self.bindings.borrow_mut().unbind(identifier);
 
-        Ok(ExprKind::Set(s.into()))
+        Ok(ExprKind::Set(s))
     }
 
     fn visit_require(&mut self, _s: crate::parser::ast::Require) -> Self::Output {
@@ -688,7 +688,9 @@ impl<'a> VisitorMut for CollectSet<'a> {
     fn visit_execute(&mut self, execute: &crate::parser::ast::Execute) -> Self::Output {
         self.visit(&execute.transducer);
         self.visit(&execute.collection);
-        execute.output_type.as_ref().map(|x| self.visit(x));
+        if let Some(x) = execute.output_type.as_ref() {
+            self.visit(x)
+        }
     }
 
     fn visit_quote(&mut self, _quote: &Quote) -> Self::Output {}
