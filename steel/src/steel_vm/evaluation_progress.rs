@@ -42,6 +42,7 @@ impl EvaluationProgress {
         self.instruction_count.set(self.instruction_count.get() + 1);
     }
 
+    #[inline(always)]
     pub fn call_and_increment(&self) -> Option<bool> {
         let b = self.callback();
         self.increment();

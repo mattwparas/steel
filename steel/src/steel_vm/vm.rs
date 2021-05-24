@@ -562,11 +562,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     // self.global_env.borrow_mut().set_binding_context(false);
                     self.ip += 1;
                 }
-
-                // OpCode::LOOKUP => {}
-                // OpCode::ECLOSURE => {}
-                // OpCode::NDEFS => {}
-                // OpCode::METALOOKUP => {}
                 _ => {
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     panic!("Unhandled opcode: {:?} @ {}", cur_inst.op_code, self.ip);
@@ -574,10 +569,10 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             }
 
             // TODO
-            // match self.callback.call_and_increment() {
-            //     Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
-            //     _ => {}
-            // }
+            match self.callback.call_and_increment() {
+                Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
+                _ => {}
+            }
         }
 
         error!(
@@ -645,10 +640,7 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                 .instrs_ref()
                 .is_empty()
             {
-                // println!("not empty case");
                 let prev_state = self.instruction_stack.pop().unwrap();
-                // self.heap.add(Rc::clone(&self.global_env));
-                // self.global_env = self.env_stack.pop().unwrap();
                 self.ip = prev_state.0;
                 self.instructions = prev_state.instrs();
             } else {
@@ -909,14 +901,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
 
         let forward_jump = offset - 1;
 
-        // println!("Forward jump to instruction: {}", forward_jump + self.ip);
-
         // Snag the number of upvalues here
         let ndefs = self.instructions[self.ip].payload_size;
         self.ip += 1;
-
-        // println!("CREATING CLOSURE with ndef value: {}", ndefs);
-        // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
         // TODO preallocate size
         let mut upvalues = Vec::with_capacity(ndefs as usize);
@@ -928,9 +915,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         // Insert metadata
         for _ in 0..ndefs {
             let instr = self.instructions[self.ip];
-
-            // println!("{:?}", instr);
-
             match (instr.op_code, instr.payload_size) {
                 (OpCode::FILLUPVALUE, n) => {
                     upvalues.push(
@@ -946,7 +930,6 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     );
                 }
                 (l, _) => {
-                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     panic!(
                         "Something went wrong in closure construction!, found: {:?} @ {}",
                         l, self.ip,
