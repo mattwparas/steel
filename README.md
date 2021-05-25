@@ -6,7 +6,11 @@ An embedded scheme interpreter in Rust.
 
 ## Getting Started
 
+<<<<<<< HEAD
 This github repository contains a client that uses the `steel`, `steel_derive`, and `steel_repl` crates (which also live in this repo). To try it out on the online playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/dev). To get started using a repl with the crates, make sure you first have rust installed.
+=======
+This github repository is a client that uses the `steel`, `steel_vm`, `steel_derive`, and `steel_repl` crates. To try it out on the online playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/dev). To get started using a repl with the crates, make sure you first have rust installed.
+>>>>>>> origin
 
 Then, clone the repo and run the following command:
 
