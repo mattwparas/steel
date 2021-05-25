@@ -517,4 +517,48 @@ mod contract_tests {
 
         assert_script_error(script);
     }
+
+    #[test]
+    fn contract_with_filter() {
+        let script = r#"
+        (define/contract (is-even? x)
+            (->/c number? boolean?)
+            (even? x))
+
+        (define res (filter is-even? (range 0 10)))
+
+        (assert! (equal? res '(0 2 4 6 8)))
+        "#;
+
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_with_map() {
+        let script = r#"
+        (define/contract (adding1 x)
+            (->/c number? number?)
+            (+ x 1))
+
+        (define res (map adding1 (range 0 5)))
+
+        (assert! (equal? res '(1 2 3 4 5)))
+        "#;
+
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_with_reduce() {
+        let script = r#"
+        (define/contract (reducer accum elem)
+            (->/c number? number? number?)
+            (+ accum elem))
+
+        (define res (transduce (taking 5) + 0 (range 0 10)))
+
+        (assert! (equal? res 10))
+        "#;
+        assert_script(script);
+    }
 }

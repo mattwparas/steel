@@ -190,6 +190,14 @@ mod register_fn_tests {
         }
     }
 
+    fn add_one(arg: usize) -> usize {
+        arg + 1
+    }
+
+    fn always_true(_arg: usize) -> bool {
+        true
+    }
+
     fn empty_function() {}
 
     #[test]
@@ -212,11 +220,17 @@ mod register_fn_tests {
         // functions that return () return void
         vm.register_fn("empty-function", empty_function);
 
+        vm.register_fn("adding-one", add_one);
+        vm.register_fn("always-true", always_true);
+
         vm.run(
             r#"
         (define foo (external-function 10 25))
         (define bar (option-function "applesauce"))
         (define baz (result-function "bananas"))
+        (define res (transduce (taking 5) external-function 0 (range 0 10)))
+        (assert! (equal? (map adding-one '(0 1 2 3)) '(1 2 3 4)))
+        (assert! (equal? (filter always-true '(0 1 2 3)) '(0 1 2 3)))
         (empty-function)
     "#,
         )
@@ -231,6 +245,9 @@ mod register_fn_tests {
 
         let baz: String = vm.extract("baz").unwrap();
         assert_eq!("bananas".to_string(), baz);
+
+        let res: usize = vm.extract("res").unwrap();
+        assert_eq!(10, res);
     }
 }
 
