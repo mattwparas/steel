@@ -60,20 +60,11 @@ impl UpValueHeap {
                 changed = prior_len != after;
             }
 
-            // self._profile_heap();
-
             // TODO fix the garbage collector
             self.mark_and_sweep(roots, function_stack);
 
-            // TODO check this
             self.threshold = (self.threshold + self.memory.len()) * GC_GROW_FACTOR;
 
-            // self._profile_heap();
-            // println!(
-            //     "Freed: {}, New heap length: {}",
-            //     prior - after,
-            //     self.memory.len()
-            // );
             self.count += 1;
         }
     }
@@ -114,9 +105,7 @@ impl UpValueHeap {
         let weak_ptr = Rc::downgrade(&upvalue);
         self.memory.push(upvalue);
 
-        // self.profile_heap();
         self.collect(roots, function_stack);
-        // self.profile_heap();
 
         weak_ptr
     }
@@ -145,15 +134,12 @@ fn traverse(val: &SteelVal) {
         SteelVal::Contract(_) => {}
         SteelVal::ContractedFunction(_) => {}
         SteelVal::ContinuationFunction(_) => {}
-        _ => {
-            // println!("Doesn't need to be traversed")
-        }
+        _ => {}
     }
 }
 
 #[inline(always)]
 fn mark_upvalue(upvalue: &Rc<RefCell<UpValue>>) {
-    // unimplemented!()
     {
         upvalue.borrow_mut().mark_reachable();
     }

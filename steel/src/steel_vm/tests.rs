@@ -1391,7 +1391,6 @@ mod local_structs {
 #[cfg(test)]
 mod set_local_tests {
     use crate::steel_vm::test_util::assert_script;
-    use crate::steel_vm::test_util::assert_script_error;
 
     #[test]
     fn set_local() {

@@ -97,25 +97,14 @@ fn display_help() {
         r#"
         :time       -- toggles the timing of expressions
         :? | :help  -- displays help dialog
-        :o          -- toggles optimizations
         :quit       -- exits the REPL
         :pwd        -- displays the current working directory
         "#
     );
 }
 
-// enum Interrupt {
-//     Interrupted,
-// }
-
-async fn finish_load_or_interrupt(
-    vm: Arc<Mutex<Engine>>,
-    exprs: String,
-    path: PathBuf,
-    optimizations: bool,
-) {
+async fn finish_load_or_interrupt(vm: Arc<Mutex<Engine>>, exprs: String, path: PathBuf) {
     tokio::spawn(async move {
-        // println!("Installed Ctrl-C handler");
         tokio::signal::ctrl_c()
             .await
             .unwrap_or_else(|err| panic!("Error installing signal handler: {}", err));
@@ -144,12 +133,7 @@ async fn finish_load_or_interrupt(
     local.await;
 }
 
-async fn finish_or_interrupt(
-    vm: Arc<Mutex<Engine>>,
-    line: String,
-    print_time: bool,
-    optimizations: bool,
-) {
+async fn finish_or_interrupt(vm: Arc<Mutex<Engine>>, line: String, print_time: bool) {
     tokio::spawn(async move {
         tokio::signal::ctrl_c()
             .await
@@ -162,15 +146,7 @@ async fn finish_or_interrupt(
     local.spawn_local(async move {
         let now = Instant::now();
 
-        // println!("running...");
-
-        let res = if optimizations {
-            vm.lock().unwrap().parse_and_execute(&line)
-        } else {
-            vm.lock()
-                .unwrap()
-                .parse_and_execute_without_optimizations(&line)
-        };
+        let res = vm.lock().unwrap().parse_and_execute(&line);
 
         match res {
             Ok(r) => r.iter().for_each(|x| match x {
@@ -236,7 +212,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     }
 
     let mut print_time = false;
-    let mut optimizations = false;
 
     // Create the runtime
     // We really only need this for interrupts
@@ -271,14 +246,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         );
                     }
                     ":pwd" => println!("{:#?}", current_dir),
-                    ":o" => {
-                        optimizations = !optimizations;
-                        println!(
-                            "{} {}",
-                            "Optimizations set to:".bright_purple(),
-                            optimizations.to_string().bright_green()
-                        );
-                    }
                     // ":env" => vm.print_bindings(),
                     ":?" | ":help" => display_help(),
                     line if line.contains(":load") => {
@@ -297,21 +264,14 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         let mut exprs = String::new();
                         file.read_to_string(&mut exprs)?;
 
-                        // let file_name = path.to_str().unwrap().to_string();
-
-                        let action = finish_load_or_interrupt(
-                            Arc::clone(&vm),
-                            exprs,
-                            path.to_path_buf(),
-                            optimizations,
-                        );
+                        let action =
+                            finish_load_or_interrupt(Arc::clone(&vm), exprs, path.to_path_buf());
 
                         rt.block_on(action)
                     }
                     _ => {
                         // TODO also include this for loading files
-                        let action =
-                            finish_or_interrupt(Arc::clone(&vm), line, print_time, optimizations);
+                        let action = finish_or_interrupt(Arc::clone(&vm), line, print_time);
 
                         rt.block_on(action)
                     }
