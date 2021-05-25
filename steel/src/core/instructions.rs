@@ -341,25 +341,6 @@ pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
     instructions.into_iter().map(|x| x.into()).collect()
 }
 
-pub fn pretty_print_instructions(instrs: &[Instruction]) {
-    for (i, instruction) in instrs.iter().enumerate() {
-        if instruction.contents.is_some() {
-            println!(
-                "{}    {:?} : {}     {}",
-                i,
-                instruction.op_code,
-                instruction.payload_size,
-                instruction.contents.as_ref().unwrap().ty
-            );
-        } else {
-            println!(
-                "{}    {:?} : {}",
-                i, instruction.op_code, instruction.payload_size
-            );
-        }
-    }
-}
-
 pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
     for (i, instruction) in instrs.iter().enumerate() {
         println!(

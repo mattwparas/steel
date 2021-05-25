@@ -1355,3 +1355,54 @@ mod identifiers_used_before_define {
         assert_script_error(script);
     }
 }
+
+#[cfg(test)]
+mod local_structs {
+    use crate::steel_vm::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script_error;
+
+    #[test]
+    fn local_struct() {
+        let script = r#"
+            (define (foo)
+                (struct Applesauce (a b c))
+                (Applesauce 1 2 3))
+
+            (foo)
+        "#;
+
+        assert_script(script);
+    }
+
+    #[test]
+    fn local_struct_inaccessible() {
+        let script = r#"
+        (define (foo)
+            (struct Applesauce (a b c))
+            (Applesauce 1 2 3))
+
+        (Applesauce 1 2 3)
+        "#;
+
+        assert_script_error(script);
+    }
+}
+
+#[cfg(test)]
+mod set_local_tests {
+    use crate::steel_vm::test_util::assert_script;
+    use crate::steel_vm::test_util::assert_script_error;
+
+    #[test]
+    fn set_local() {
+        let script = r#"
+            (define (foo a)
+                (set! a 100)
+                a)
+
+            (assert! (equal? (foo 50) 100))
+        "#;
+
+        assert_script(script);
+    }
+}

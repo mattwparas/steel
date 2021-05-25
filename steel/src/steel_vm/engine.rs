@@ -1,12 +1,4 @@
-use std::{
-    collections::HashMap,
-    io::Read,
-    path::{Path, PathBuf},
-    rc::Rc,
-};
-
 use super::{
-    evaluation_progress::Callback,
     primitives::{embed_primitives, embed_primitives_without_io, CONSTANTS},
     vm::VirtualMachineCore,
 };
@@ -18,6 +10,12 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw,
+};
+use std::{
+    collections::HashMap,
+    io::Read,
+    path::{Path, PathBuf},
+    rc::Rc,
 };
 
 use im_rc::HashMap as ImmutableHashMap;
