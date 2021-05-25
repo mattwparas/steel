@@ -3,25 +3,27 @@ use crate::rerrs::{ErrorKind, SteelErr};
 // use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-use rand::Rng;
+// use rand::Rng;
 
 pub struct NumOperations {}
 impl NumOperations {
-    pub fn random_int() -> SteelVal {
+    pub fn arithmetic_shift() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                stop!(ArityMismatch => "random-int requires an upper bound");
+            if args.len() != 2 {
+                stop!(ArityMismatch => "arithmetic-shift takes 2 arguments")
             }
+            let n = args[0].clone();
+            let m = args[1].clone();
 
-            if args.len() > 1 {
-                stop!(ArityMismatch => "random-int takes one argument")
-            }
-
-            if let SteelVal::IntV(upper_bound) = &args[0] {
-                let mut rng = rand::thread_rng();
-                return Ok(SteelVal::IntV(rng.gen_range(0..*upper_bound)));
-            } else {
-                stop!(TypeMismatch => "random-int requires an integer upper bound");
+            match (n, m) {
+                (SteelVal::IntV(n), SteelVal::IntV(m)) => {
+                    if m >= 0 {
+                        Ok(SteelVal::IntV(n << m))
+                    } else {
+                        Ok(SteelVal::IntV(n >> -m))
+                    }
+                }
+                _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
             }
         })
     }
@@ -31,15 +33,8 @@ impl NumOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "even? takes one argument")
             }
-
             if let SteelVal::IntV(n) = &args[0] {
-                // let is_odd = |x: i32| x & 1 == 1;
-                // let is_even = |x: i32| x & 1 == 0;
-                if n & 1 == 0 {
-                    Ok(SteelVal::BoolV(true))
-                } else {
-                    Ok(SteelVal::BoolV(false))
-                }
+                Ok(SteelVal::BoolV(n & 1 == 0))
             } else {
                 stop!(TypeMismatch => "even? requires an integer")
             }
@@ -53,13 +48,7 @@ impl NumOperations {
             }
 
             if let SteelVal::IntV(n) = &args[0] {
-                // let is_odd = |x: i32| x & 1 == 1;
-                // let is_even = |x: i32| x & 1 == 0;
-                if n & 1 == 1 {
-                    Ok(SteelVal::BoolV(true))
-                } else {
-                    Ok(SteelVal::BoolV(false))
-                }
+                Ok(SteelVal::BoolV(n & 1 == 1))
             } else {
                 stop!(TypeMismatch => "odd? requires an integer")
             }

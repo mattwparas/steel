@@ -1,19 +1,20 @@
 use crate::{
-    contracts::{ContractType, ContractedFunction},
     core::instructions::DenseInstruction,
-    env::Env,
     gc::Gc,
-    lazy_stream::LazyStream,
-    port::SteelPort,
     rerrs::{ErrorKind, SteelErr},
-    structs::SteelStruct,
+    steel_vm::vm::Continuation,
+    values::port::SteelPort,
+    values::structs::SteelStruct,
+    values::{
+        contracts::{ContractType, ContractedFunction},
+        lazy_stream::LazyStream,
+    },
 };
 
 use std::{
     any::Any,
     cell::RefCell,
     cmp::Ordering,
-    // convert::TryFrom,
     fmt,
     fmt::Write,
     future::Future,
@@ -21,6 +22,7 @@ use std::{
     pin::Pin,
     rc::{Rc, Weak},
     result,
+    task::Context,
 };
 
 // use std::any::Any;
@@ -28,8 +30,8 @@ use SteelVal::*;
 
 use im_rc::{HashMap, HashSet, Vector};
 
-use futures::future::Shared;
 use futures::FutureExt;
+use futures::{future::Shared, task::noop_waker_ref};
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
@@ -42,10 +44,7 @@ pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type StructClosureSignature = fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>;
 pub type BoxedFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>;
 
-// This would mean we would have to rewrite literally everything to not return Gc'd values,
-// but it would also make linked lists like impossible to use
-// Because the internals of the linked list wouldn't be as easy to use with easy shared usage
-pub type PossibleOtherFunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
+pub type BoxedAsyncFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>;
 
 // Do something like this:
 // vector of async functions
@@ -76,6 +75,29 @@ impl FutureResult {
 
     pub fn into_shared(self) -> Shared<BoxedFutureResult> {
         self.0
+    }
+}
+
+// This is an attempt to one off poll a future
+// This should enable us to use embedded async functions
+// Will require using call/cc w/ a thread queue in steel, however it should be possible
+pub(crate) fn poll_future(mut fut: Shared<BoxedFutureResult>) -> Option<Result<SteelVal>> {
+    // If the future has already been awaited (by somebody) get that value instead
+    if let Some(output) = fut.peek() {
+        return Some(output.clone());
+    }
+
+    // Otherwise, go ahead and poll the value to see if its ready
+    // The context is going to exist exclusively in Steel, hidden behind an `await`
+    let waker = noop_waker_ref();
+    let context = &mut Context::from_waker(&*waker);
+
+    // Polling requires a pinned future - TODO make sure this is correct
+    let mut_fut = Pin::new(&mut fut);
+
+    match Future::poll(mut_fut, context) {
+        std::task::Poll::Ready(r) => Some(r),
+        std::task::Poll::Pending => None,
     }
 }
 
@@ -159,13 +181,18 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
             let left_type = v.as_any();
             let left: Option<T> = left_type.downcast_ref::<T>().cloned();
             left.ok_or_else(|| {
-                let error_message =
-                    format!("Type Mismatch: Type of SteelVal did not match the given type");
+                let error_message = format!(
+                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                    std::any::type_name::<Self>()
+                );
                 SteelErr::new(ErrorKind::ConversionError, error_message)
             })
         } else {
-            let error_message =
-                "Type Mismatch: Type of SteelVal did not match the given type".to_string();
+            let error_message = format!(
+                "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                std::any::type_name::<Self>()
+            );
+
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
         }
     }
@@ -238,7 +265,7 @@ pub enum SteelVal {
     // Generic IntoIter wrapper
     // Promise(Gc<SteelVal>),
     /// Async Function wrapper
-    FutureFunc(AsyncSignature),
+    FutureFunc(BoxedAsyncFunctionSignature),
     // Boxed Future Result
     FutureV(Gc<FutureResult>),
     // Mutable Box
@@ -256,7 +283,11 @@ pub enum SteelVal {
     ContractedFunction(Gc<ContractedFunction>),
     /// Custom closure
     BoxedFunction(BoxedFunctionSignature),
+    // Continuation
+    ContinuationFunction(Gc<Continuation>),
 }
+
+// pub trait Continuation: Clone {}
 
 // TODO come back to this for the constant map
 
@@ -291,7 +322,7 @@ pub enum CollectionType {
 
 // Make a transducer actually contain an option to a rooted value, otherwise
 // it is a source agnostic transformer on the (eventual) input
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Transducer {
     // root: Gc<SteelVal>,
     pub ops: Vec<Transducers>,
@@ -311,11 +342,12 @@ impl Transducer {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Transducers {
     Map(SteelVal),    // function
     Filter(SteelVal), // function
     Take(SteelVal),   // integer
+    Drop(SteelVal),   // integer
 }
 
 impl Hash for SteelVal {
@@ -374,7 +406,8 @@ impl SteelVal {
     pub fn is_truthy(&self) -> bool {
         match &self {
             SteelVal::BoolV(false) => false,
-            SteelVal::VectorV(v) => v.is_empty(),
+            SteelVal::Void => false,
+            SteelVal::VectorV(v) => !v.is_empty(),
             _ => true,
         }
     }
@@ -527,6 +560,12 @@ impl SteelVal {
     }
 }
 
+impl SteelVal {
+    pub const INT_ZERO: SteelVal = SteelVal::IntV(0);
+    pub const INT_ONE: SteelVal = SteelVal::IntV(1);
+    pub const INT_TWO: SteelVal = SteelVal::IntV(2);
+}
+
 #[derive(Clone, Hash, Debug)]
 pub struct ConsCell {
     pub car: SteelVal,
@@ -568,27 +607,6 @@ impl Drop for ConsCell {
     }
 }
 
-// impl Drop for SteelVal {
-//     // don't want to blow the stack with destructors,
-//     // but also don't want to walk the whole list.
-//     // So walk the list until we find a non-uniquely owned item
-//     fn drop(&mut self) {
-//         let mut curr = match *self {
-//             Pair(_, ref mut next) => next.take(),
-//             _ => return,
-//         };
-//         loop {
-//             match curr {
-//                 Some(r) => match Gc::try_unwrap(r) {
-//                     Ok(Pair(_, ref mut next)) => curr = next.take(),
-//                     _ => return,
-//                 },
-//                 _ => return,
-//             }
-//         }
-//     }
-// }
-
 impl Eq for SteelVal {}
 
 // TODO add tests
@@ -608,6 +626,10 @@ impl PartialEq for SteelVal {
             (HashSetV(l), HashSetV(r)) => l == r,
             (HashMapV(l), HashMapV(r)) => l == r,
             (StructV(l), StructV(r)) => l == r,
+            (Closure(l), Closure(r)) => l == r,
+            (ContractedFunction(l), ContractedFunction(r)) => l == r,
+            (Contract(l), Contract(r)) => l == r,
+            (IterV(l), IterV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
@@ -634,22 +656,125 @@ impl PartialOrd for SteelVal {
     }
 }
 
-#[derive(Clone)]
+// Upvalues themselves need to be stored on the heap
+// Consider a separate section for them on the heap, or wrap them in a wrapper
+// before allocating on the heap
+#[derive(Clone, Debug)]
+pub struct UpValue {
+    // Either points to a stack location, or the value
+    pub(crate) location: Location,
+    // The next upvalue in the sequence
+    pub(crate) next: Option<Weak<RefCell<UpValue>>>,
+    // Reachable
+    pub(crate) reachable: bool,
+}
+
+impl PartialEq for UpValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.location == other.location
+    }
+}
+
+impl PartialOrd for UpValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (&self.location, &other.location) {
+            (Location::Stack(l), Location::Stack(r)) => Some(l.cmp(r)),
+            _ => panic!("Cannot compare two values on the heap"),
+        }
+    }
+}
+
+impl UpValue {
+    // Given a reference to the stack, either get the value from the stack index
+    // Or snag the steelval stored inside the upvalue
+    pub(crate) fn get_value(&self, stack: &[SteelVal]) -> SteelVal {
+        match self.location {
+            Location::Stack(idx) => stack[idx].clone(),
+            Location::Closed(ref v) => v.clone(),
+        }
+    }
+
+    pub(crate) fn is_reachable(&self) -> bool {
+        self.reachable
+    }
+
+    // Given a reference to the stack, either get the value from the stack index
+    // Or snag the steelval stored inside the upvalue
+    pub(crate) fn mutate_value(&mut self, stack: &mut [SteelVal], value: SteelVal) -> SteelVal {
+        match self.location {
+            Location::Stack(idx) => {
+                let old = stack[idx].clone();
+                stack[idx] = value;
+                old
+            }
+            Location::Closed(ref v) => {
+                let old = v.clone();
+                self.location = Location::Closed(value);
+                old
+            }
+        }
+    }
+
+    pub(crate) fn get_value_if_closed(&self) -> Option<&SteelVal> {
+        if let Location::Closed(ref v) = self.location {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn set_value(&mut self, val: SteelVal) {
+        self.location = Location::Closed(val);
+    }
+
+    pub(crate) fn mark_reachable(&mut self) {
+        self.reachable = true;
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.reachable = false;
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        matches!(self.location, Location::Stack(_))
+    }
+
+    pub(crate) fn index(&self) -> Option<usize> {
+        if let Location::Stack(idx) = &self.location {
+            Some(*idx)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn new(stack_index: usize, next: Option<Weak<RefCell<UpValue>>>) -> Self {
+        UpValue {
+            location: Location::Stack(stack_index),
+            next,
+            reachable: false,
+        }
+    }
+
+    pub(crate) fn set_next(&mut self, next: Weak<RefCell<UpValue>>) {
+        self.next = Some(next);
+    }
+}
+
+// Either points to a stack index, or it points to a SteelVal directly
+// When performing an OPCODE::GET_UPVALUE, index into the array in the current
+// function being executed in the stack frame, and pull it in
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) enum Location {
+    Stack(usize),
+    Closed(SteelVal),
+}
+
+#[derive(Clone, Debug)]
 pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
     body_exp: Rc<[DenseInstruction]>,
-    /// parent environment that created this Lambda.
-    /// the actual environment with correct bindings is built at runtime
-    /// once the function is called
-    // parent_env: Option<Rc<RefCell<Env>>>,
-    /// parent subenvironment that created this lambda.
-    /// the actual environment gets upgraded at runtime if needed
-    sub_expression_env: Weak<RefCell<Env>>,
-    // bytecode instruction body
-    // body_byte: Vec<Instruction>,
-    offset: usize,
     arity: usize,
-    ndef_body: usize,
+    upvalues: Vec<Weak<RefCell<UpValue>>>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -661,26 +786,20 @@ impl PartialEq for ByteCodeLambda {
 impl Hash for ByteCodeLambda {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.body_exp.as_ptr().hash(state);
-        self.sub_expression_env.as_ptr().hash(state);
+        // self.sub_expression_env.as_ptr().hash(state);
     }
 }
 
 impl ByteCodeLambda {
     pub fn new(
         body_exp: Vec<DenseInstruction>,
-        // parent_env: Option<Rc<RefCell<Env>>>,
-        sub_expression_env: Weak<RefCell<Env>>,
-        offset: usize,
         arity: usize,
-        ndef_body: usize,
+        upvalues: Vec<Weak<RefCell<UpValue>>>,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
-            // parent_env,
-            sub_expression_env,
-            offset,
             arity,
-            ndef_body,
+            upvalues,
         }
     }
 
@@ -688,20 +807,24 @@ impl ByteCodeLambda {
         Rc::clone(&self.body_exp)
     }
 
-    pub fn sub_expression_env(&self) -> &Weak<RefCell<Env>> {
-        &self.sub_expression_env
-    }
+    // pub fn sub_expression_env(&self) -> &Weak<RefCell<Env>> {
+    //     &self.sub_expression_env
+    // }
 
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
+    // pub fn offset(&self) -> usize {
+    //     self.offset
+    // }
 
     pub fn arity(&self) -> usize {
         self.arity
     }
 
-    pub fn ndef_body(&self) -> usize {
-        self.ndef_body
+    // pub fn ndef_body(&self) -> usize {
+    //     self.ndef_body
+    // }
+
+    pub fn upvalues(&self) -> &[Weak<RefCell<UpValue>>] {
+        &self.upvalues
     }
 }
 
@@ -778,118 +901,12 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         Contract(_) => write!(f, "#<contract>"),
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
         BoxedFunction(_) => write!(f, "#<function>"),
+        ContinuationFunction(_) => write!(f, "#<continuation>"),
     }
 }
 
 pub(crate) fn collect_pair_into_vector(p: &SteelVal) -> SteelVal {
     VectorV(Gc::new(SteelVal::iter(p.clone()).collect::<Vector<_>>()))
-    // let mut lst = Vector::new();
-
-    // loop {
-    //     if let Pair(cons, cdr) = p {
-    //         lst.push_back(Gc::clone(cons));
-    //         match cdr.as_ref() {
-    //             Some(rest) => match rest.as_ref() {
-    //                 Pair(_, _) => p = rest,
-    //                 _ => {
-    //                     lst.push_back(Gc::clone(rest));
-    //                     return VectorV(Gc::new(lst));
-    //                 }
-    //             },
-    //             None => {
-    //                 return VectorV(Gc::new(lst));
-    //             }
-    //         }
-    //     }
-    // }
-}
-
-#[cfg(test)]
-mod display_test {
-    // use super::*;
-    // use im_rc::vector;
-    // use steel::parser::tokens::TokenType;
-
-    // #[test]
-    // fn display_test() {
-    //     assert_eq!(SteelVal::BoolV(false).to_string(), "#false");
-    //     assert_eq!(SteelVal::NumV(1.0).to_string(), "1.0");
-    //     assert_eq!(
-    //         SteelVal::FuncV(|_args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-    //             Ok(Gc::new(SteelVal::VectorV(vector![])))
-    //         })
-    //         .to_string(),
-    //         "#<function>"
-    //     );
-    //     assert_eq!(
-    //         SteelVal::LambdaV(SteelLambda::new(
-    //             vec!["arg1".to_owned()],
-    //             Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
-    //             Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
-    //             None
-    //         ))
-    //         .to_string(),
-    //         "#<(lambda (arg1) 1.0)>"
-    //     );
-    //     assert_eq!(SteelVal::SymbolV("foo".to_string()).to_string(), "'foo");
-    // }
-
-    // #[test]
-    // fn display_list_test() {
-    //     assert_eq!(VectorV(vector![]).to_string(), "'#()");
-    //     assert_eq!(
-    //         VectorV(
-    //             vector![
-    //                 BoolV(false),
-    //                 NumV(1.0),
-    //                 LambdaV(SteelLambda::new(
-    //                     vec!["arg1".to_owned()],
-    //                     Expr::Atom(SyntaxObject::default(TokenType::NumberLiteral(1.0))),
-    //                     Some(Rc::new(RefCell::new(crate::env::Env::default_env()))),
-    //                     None
-    //                 ))
-    //             ]
-    //             .into_iter()
-    //             .map(Gc::new)
-    //             .collect()
-    //         )
-    //         .to_string(),
-    //         "\'#(#false 1.0 #<(lambda (arg1) 1.0)>)"
-    //     );
-    //     assert_eq!(
-    //         VectorV(
-    //             vector![
-    //                 VectorV(
-    //                     vector![
-    //                         NumV(1.0),
-    //                         VectorV(
-    //                             vector![NumV(2.0), NumV(3.0)]
-    //                                 .into_iter()
-    //                                 .map(Gc::new)
-    //                                 .collect()
-    //                         )
-    //                     ]
-    //                     .into_iter()
-    //                     .map(Gc::new)
-    //                     .collect()
-    //                 ),
-    //                 VectorV(
-    //                     vector![NumV(4.0), NumV(5.0)]
-    //                         .into_iter()
-    //                         .map(Gc::new)
-    //                         .collect()
-    //                 ),
-    //                 NumV(6.0),
-    //                 VectorV(vector![NumV(7.0)].into_iter().map(Gc::new).collect())
-    //             ]
-    //             .into_iter()
-    //             .map(Gc::new)
-    //             .collect()
-    //         )
-    //         .to_string(),
-    //         "'#((1.0 (2.0 3.0)) (4.0 5.0) 6.0 (7.0))"
-    //     );
-    // }
 }
 
 #[cfg(test)]

@@ -74,6 +74,22 @@ impl TransducerOperations {
         })
     }
 
+    pub fn dropping() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "dropping takes one argument");
+            }
+
+            if let IntV(_) = &args[0] {
+                let mut transducer = Transducer::new();
+                transducer.push(Transducers::Drop(args[0].clone()));
+                Ok(SteelVal::IterV(Gc::new(transducer)))
+            } else {
+                stop!(TypeMismatch => "dropping expects an integer")
+            }
+        })
+    }
+
     pub fn transducer_construct() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             Ok(SteelVal::VectorV(Gc::new(

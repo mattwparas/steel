@@ -25,6 +25,7 @@ pub trait VisitorMut {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::CallCC(cc) => self.visit_callcc(cc),
         }
     }
 
@@ -47,6 +48,7 @@ pub trait VisitorMut {
     fn visit_syntax_rules(&mut self, l: &SyntaxRules) -> Self::Output;
     fn visit_set(&mut self, s: &Set) -> Self::Output;
     fn visit_require(&mut self, s: &Require) -> Self::Output;
+    fn visit_callcc(&mut self, cc: &CallCC) -> Self::Output;
 }
 
 // TODO
@@ -74,6 +76,7 @@ pub trait VisitorMutResult {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::CallCC(cc) => self.visit_callcc(cc),
         }
     }
 
@@ -96,6 +99,7 @@ pub trait VisitorMutResult {
     fn visit_syntax_rules(&mut self, l: &SyntaxRules) -> Result<Self::Output>;
     fn visit_set(&mut self, s: &Set) -> Result<Self::Output>;
     fn visit_require(&mut self, s: &Require) -> Result<Self::Output>;
+    fn visit_callcc(&mut self, cc: &CallCC) -> Result<Self::Output>;
 }
 
 pub trait Visitor {
@@ -122,6 +126,7 @@ pub trait Visitor {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::CallCC(cc) => self.visit_callcc(cc),
         }
     }
 
@@ -144,6 +149,7 @@ pub trait Visitor {
     fn visit_syntax_rules(&self, l: &SyntaxRules) -> Self::Output;
     fn visit_set(&self, s: &Set) -> Self::Output;
     fn visit_require(&self, s: &Require) -> Self::Output;
+    fn visit_callcc(&self, cc: &CallCC) -> Self::Output;
 }
 
 pub trait ConsumingVisitor {
@@ -169,6 +175,7 @@ pub trait ConsumingVisitor {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::CallCC(cc) => self.visit_callcc(cc),
         }
     }
 
@@ -191,6 +198,7 @@ pub trait ConsumingVisitor {
     fn visit_syntax_rules(&mut self, l: SyntaxRules) -> Self::Output;
     fn visit_set(&mut self, s: Box<Set>) -> Self::Output;
     fn visit_require(&mut self, s: Require) -> Self::Output;
+    fn visit_callcc(&mut self, cc: Box<CallCC>) -> Self::Output;
 }
 
 pub trait ConsumingVisitorRef {
@@ -216,6 +224,7 @@ pub trait ConsumingVisitorRef {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::CallCC(cc) => self.visit_callcc(cc),
         }
     }
 
@@ -238,6 +247,7 @@ pub trait ConsumingVisitorRef {
     fn visit_syntax_rules(&self, l: SyntaxRules) -> Self::Output;
     fn visit_set(&self, s: Box<Set>) -> Self::Output;
     fn visit_require(&self, s: Require) -> Self::Output;
+    fn visit_callcc(&self, cc: Box<CallCC>) -> Self::Output;
 }
 
 pub trait VisitorMutRef {
@@ -264,6 +274,7 @@ pub trait VisitorMutRef {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::CallCC(cc) => self.visit_callcc(cc),
         }
     }
 
@@ -286,4 +297,5 @@ pub trait VisitorMutRef {
     fn visit_syntax_rules(&mut self, l: &mut SyntaxRules) -> Self::Output;
     fn visit_set(&mut self, s: &mut Set) -> Self::Output;
     fn visit_require(&mut self, s: &mut Require) -> Self::Output;
+    fn visit_callcc(&mut self, cc: &mut CallCC) -> Self::Output;
 }

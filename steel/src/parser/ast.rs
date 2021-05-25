@@ -6,6 +6,7 @@ use crate::parser::tokens::TokenType::*;
 use std::convert::TryFrom;
 
 use itertools::Itertools;
+use pretty::RcDoc;
 use std::fmt;
 use std::ops::Deref;
 
@@ -38,6 +39,7 @@ pub enum ExprKind {
     List(List),
     Set(Box<Set>),
     Require(Require),
+    CallCC(Box<CallCC>),
 }
 
 impl ExprKind {
@@ -131,7 +133,48 @@ impl TryFrom<&SteelVal> for ExprKind {
             Contract(_) => Err("Can't convert from contract to expression!"),
             ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
             BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
+            ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
         }
+    }
+}
+
+pub trait ToDoc {
+    fn to_doc(&self) -> RcDoc<()>;
+}
+
+impl ToDoc for ExprKind {
+    fn to_doc(&self) -> RcDoc<()> {
+        // unimplemented!()
+        match self {
+            ExprKind::Atom(a) => a.to_doc(),
+            ExprKind::If(i) => i.to_doc(),
+            ExprKind::Define(d) => d.to_doc(),
+            ExprKind::LambdaFunction(l) => l.to_doc(),
+            ExprKind::Begin(b) => b.to_doc(),
+            ExprKind::Return(r) => r.to_doc(),
+            ExprKind::Apply(a) => a.to_doc(),
+            ExprKind::Panic(p) => p.to_doc(),
+            ExprKind::Transduce(t) => t.to_doc(),
+            ExprKind::Read(r) => r.to_doc(),
+            ExprKind::Execute(e) => e.to_doc(),
+            ExprKind::Quote(q) => q.to_doc(),
+            ExprKind::Struct(s) => s.to_doc(),
+            ExprKind::Macro(m) => m.to_doc(),
+            ExprKind::SyntaxRules(s) => s.to_doc(),
+            ExprKind::Eval(e) => e.to_doc(),
+            ExprKind::List(l) => l.to_doc(),
+            ExprKind::Set(s) => s.to_doc(),
+            ExprKind::Require(r) => r.to_doc(),
+            ExprKind::CallCC(c) => c.to_doc(),
+        }
+    }
+}
+
+impl ExprKind {
+    pub fn to_pretty(&self, width: usize) -> String {
+        let mut w = Vec::new();
+        self.to_doc().render(width, &mut w).unwrap();
+        String::from_utf8(w).unwrap()
     }
 }
 
@@ -157,7 +200,56 @@ impl fmt::Display for ExprKind {
             ExprKind::List(l) => write!(f, "{}", l),
             ExprKind::Set(s) => write!(f, "{}", s),
             ExprKind::Require(r) => write!(f, "{}", r),
+            ExprKind::CallCC(cc) => write!(f, "{}", cc),
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CallCC {
+    pub expr: ExprKind,
+    pub location: SyntaxObject,
+}
+
+impl CallCC {
+    pub fn new(expr: ExprKind, location: SyntaxObject) -> Self {
+        CallCC { expr, location }
+    }
+}
+
+impl fmt::Display for CallCC {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(call/cc {})", self.expr)
+    }
+}
+
+// impl SExp {
+//     /// Return a pretty printed format of self.
+//     pub fn to_doc(&self) -> RcDoc<()> {
+//         match *self {
+//             Atom(ref x) => RcDoc::as_string(x),
+//             List(ref xs) =>
+//                 RcDoc::text("(")
+//                     .append(RcDoc::intersperse(xs.into_iter().map(|x| x.to_doc()), Doc::line()).nest(1).group())
+//                     .append(RcDoc::text(")"))
+//         }
+//     }
+// }
+
+impl ToDoc for CallCC {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(call/cc")
+            .append(RcDoc::line())
+            .append(self.expr.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
+            .group()
+    }
+}
+
+impl From<CallCC> for ExprKind {
+    fn from(val: CallCC) -> Self {
+        ExprKind::CallCC(Box::new(val))
     }
 }
 
@@ -175,6 +267,12 @@ impl Atom {
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.syn.ty.to_string())
+    }
+}
+
+impl ToDoc for Atom {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text(self.syn.ty.to_string())
     }
 }
 
@@ -207,6 +305,19 @@ impl fmt::Display for Set {
     }
 }
 
+impl ToDoc for Set {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(set!")
+            .append(RcDoc::line())
+            .append(self.variable.to_doc())
+            .append(RcDoc::line())
+            .append(self.expr.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
+            .group()
+    }
+}
+
 impl From<Set> for ExprKind {
     fn from(val: Set) -> Self {
         ExprKind::Set(Box::new(val))
@@ -219,6 +330,21 @@ pub struct If {
     pub then_expr: ExprKind,
     pub else_expr: ExprKind,
     pub location: SyntaxObject,
+}
+
+impl ToDoc for If {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(if")
+            .append(RcDoc::space())
+            .append(self.test_expr.to_doc())
+            .append(RcDoc::line())
+            .append(self.then_expr.to_doc())
+            .append(RcDoc::line())
+            .append(self.else_expr.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
+            .group()
+    }
 }
 
 impl fmt::Display for If {
@@ -268,6 +394,18 @@ impl fmt::Display for Define {
     }
 }
 
+impl ToDoc for Define {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(define")
+            .append(RcDoc::space())
+            .append(self.name.to_doc())
+            .append(RcDoc::line())
+            .append(self.body.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
+    }
+}
+
 impl Define {
     pub fn new(name: ExprKind, body: ExprKind, location: SyntaxObject) -> Self {
         Define {
@@ -302,6 +440,24 @@ impl fmt::Display for LambdaFunction {
     }
 }
 
+impl ToDoc for LambdaFunction {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(λ")
+            .append(RcDoc::space())
+            .append(RcDoc::text("("))
+            .append(
+                RcDoc::intersperse(self.args.iter().map(|x| x.to_doc()), RcDoc::line())
+                    .nest(2)
+                    .group(),
+            )
+            .append(RcDoc::text(")"))
+            .append(RcDoc::line())
+            .append(self.body.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
+    }
+}
+
 impl LambdaFunction {
     pub fn new(args: Vec<ExprKind>, body: ExprKind, location: SyntaxObject) -> Self {
         LambdaFunction {
@@ -330,6 +486,21 @@ impl fmt::Display for Begin {
     }
 }
 
+impl ToDoc for Begin {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(begin")
+            .append(RcDoc::line())
+            .append(
+                RcDoc::intersperse(self.exprs.iter().map(|x| x.to_doc()), RcDoc::line())
+                    .nest(1)
+                    .group(),
+            )
+            .append(RcDoc::text(")"))
+            .nest(1)
+            .group()
+    }
+}
+
 impl Begin {
     pub fn new(exprs: Vec<ExprKind>, location: SyntaxObject) -> Self {
         Begin { exprs, location }
@@ -354,6 +525,16 @@ impl Return {
     }
 }
 
+impl ToDoc for Return {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(return")
+            .append(RcDoc::line())
+            .append(self.expr.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
+    }
+}
+
 impl fmt::Display for Return {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(return! {})", self.expr)
@@ -375,6 +556,20 @@ pub struct Require {
 impl Require {
     pub fn new(modules: Vec<Atom>, location: SyntaxObject) -> Self {
         Require { modules, location }
+    }
+}
+
+impl ToDoc for Require {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(require")
+            .append(RcDoc::line())
+            .append(
+                RcDoc::intersperse(self.modules.iter().map(|x| x.to_doc()), RcDoc::line())
+                    .nest(2)
+                    .group(),
+            )
+            .append(RcDoc::text(")"))
+            .nest(2)
     }
 }
 
@@ -417,6 +612,20 @@ impl List {
         } else {
             None
         }
+    }
+}
+
+impl ToDoc for List {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(")
+            .append(
+                RcDoc::intersperse(self.args.iter().map(|x| x.to_doc()), RcDoc::line())
+                    .nest(1)
+                    .group(),
+            )
+            .append(RcDoc::text(")"))
+            .nest(2)
+            .group()
     }
 }
 
@@ -473,6 +682,18 @@ impl fmt::Display for Apply {
     }
 }
 
+impl ToDoc for Apply {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(apply")
+            .append(RcDoc::line())
+            .append(self.func.to_doc())
+            .append(RcDoc::line())
+            .append(self.list.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
+    }
+}
+
 impl From<Apply> for ExprKind {
     fn from(val: Apply) -> Self {
         ExprKind::Apply(Box::new(val))
@@ -488,6 +709,16 @@ pub struct Panic {
 impl Panic {
     pub fn new(message: ExprKind, location: SyntaxObject) -> Self {
         Panic { message, location }
+    }
+}
+
+impl ToDoc for Panic {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(panic")
+            .append(RcDoc::line())
+            .append(self.message.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
     }
 }
 
@@ -520,6 +751,23 @@ impl fmt::Display for Transduce {
             "(transduce {} {} {} {})",
             self.transducer, self.func, self.initial_value, self.iterable
         )
+    }
+}
+
+impl ToDoc for Transduce {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(transduce")
+            .append(RcDoc::space())
+            .append(self.transducer.to_doc())
+            .append(RcDoc::line())
+            .append(self.func.to_doc())
+            .append(RcDoc::line())
+            .append(self.initial_value.to_doc())
+            .append(RcDoc::line())
+            .append(self.iterable.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
+            .group()
     }
 }
 
@@ -564,6 +812,16 @@ impl fmt::Display for Read {
     }
 }
 
+impl ToDoc for Read {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(read")
+            .append(RcDoc::line())
+            .append(self.expr.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
+    }
+}
+
 impl Read {
     pub fn new(expr: ExprKind, location: SyntaxObject) -> Self {
         Read { expr, location }
@@ -582,6 +840,24 @@ pub struct Execute {
     pub collection: ExprKind,
     pub output_type: Option<ExprKind>,
     pub location: SyntaxObject,
+}
+
+impl ToDoc for Execute {
+    fn to_doc(&self) -> RcDoc<()> {
+        let doc = RcDoc::text("(execute")
+            .append(RcDoc::space())
+            .append(self.transducer.to_doc())
+            .append(RcDoc::line())
+            .append(self.collection.to_doc());
+
+        let doc = if let Some(output_type) = &self.output_type {
+            doc.append(RcDoc::line()).append(output_type.to_doc())
+        } else {
+            doc
+        };
+
+        doc.append(RcDoc::text(")")).nest(2).group()
+    }
 }
 
 impl fmt::Display for Execute {
@@ -634,6 +910,24 @@ impl fmt::Display for Struct {
     }
 }
 
+impl ToDoc for Struct {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(struct")
+            .append(RcDoc::space())
+            .append(self.name.to_doc())
+            .append(RcDoc::line())
+            .append(RcDoc::text("("))
+            .append(
+                RcDoc::intersperse(self.fields.iter().map(|x| x.to_doc()), RcDoc::line())
+                    .nest(2)
+                    .group(),
+            )
+            .append(RcDoc::text(")"))
+            .append(RcDoc::text(")"))
+            .nest(2)
+    }
+}
+
 impl Struct {
     pub fn new(name: ExprKind, fields: Vec<ExprKind>, location: SyntaxObject) -> Self {
         Struct {
@@ -662,6 +956,16 @@ impl Quote {
     }
 }
 
+impl ToDoc for Quote {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(quote")
+            .append(RcDoc::line())
+            .append(self.expr.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
+    }
+}
+
 impl fmt::Display for Quote {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(quote {})", self.expr)
@@ -683,6 +987,16 @@ pub struct Eval {
 impl fmt::Display for Eval {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(eval {})", self.expr)
+    }
+}
+
+impl ToDoc for Eval {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(eval")
+            .append(RcDoc::line())
+            .append(self.expr.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
     }
 }
 
@@ -709,7 +1023,20 @@ pub struct Macro {
 
 impl fmt::Display for Macro {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(define-syntax {} {}", self.name, self.syntax_rules)
+        write!(f, "(define-syntax {} {})", self.name, self.syntax_rules)
+    }
+}
+
+impl ToDoc for Macro {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(define-syntax")
+            .append(RcDoc::line())
+            .append(self.name.to_doc())
+            .append(RcDoc::line())
+            .append(self.syntax_rules.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(1)
+            .group()
     }
 }
 
@@ -759,6 +1086,28 @@ impl fmt::Display for SyntaxRules {
     }
 }
 
+impl ToDoc for SyntaxRules {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("(syntax-rules")
+            .append(RcDoc::line())
+            .append(RcDoc::text("("))
+            .append(
+                RcDoc::intersperse(self.syntax.iter().map(|x| x.to_doc()), RcDoc::line())
+                    .nest(1)
+                    .group(),
+            )
+            .append(RcDoc::text(")"))
+            .append(RcDoc::line())
+            .append(
+                RcDoc::intersperse(self.patterns.iter().map(|x| x.to_doc()), RcDoc::line())
+                    .nest(2)
+                    .group(),
+            )
+            .append(RcDoc::text(")"))
+            .nest(2)
+    }
+}
+
 impl From<SyntaxRules> for ExprKind {
     fn from(val: SyntaxRules) -> Self {
         ExprKind::SyntaxRules(val)
@@ -774,6 +1123,18 @@ pub struct PatternPair {
 impl PatternPair {
     pub fn new(pattern: ExprKind, body: ExprKind) -> Self {
         PatternPair { pattern, body }
+    }
+}
+
+impl ToDoc for PatternPair {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text("[")
+            .append(self.pattern.to_doc())
+            .append(RcDoc::line())
+            .append(self.body.to_doc())
+            .append(RcDoc::text("]"))
+            .nest(1)
+            .group()
     }
 }
 
@@ -1088,32 +1449,6 @@ where
 }
 
 #[inline]
-fn parse_quote<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
-where
-    I: Iterator<Item = ExprKind>,
-{
-    value_iter.next();
-
-    let quote = value_iter.next().ok_or_else(|| {
-        ParseError::ArityMismatch(
-            "quote expected one argument, found none".to_string(),
-            syn.span,
-            None,
-        )
-    })?;
-
-    if value_iter.next().is_some() {
-        Err(ParseError::SyntaxError(
-            "quote expects only one argument".to_string(),
-            syn.span,
-            None,
-        ))
-    } else {
-        Ok(Quote::new(quote, syn).into())
-    }
-}
-
-#[inline]
 fn parse_execute<I>(
     mut value_iter: I,
     syn: SyntaxObject,
@@ -1141,18 +1476,20 @@ where
 }
 
 #[inline]
-fn parse_return<I>(
+fn parse_single_argument<I>(
     mut value_iter: I,
     syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
+    name: &'static str,
+    constructor: fn(ExprKind, SyntaxObject) -> ExprKind,
+) -> Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
     value_iter.next();
 
-    let quote = value_iter.next().ok_or_else(|| {
+    let func = value_iter.next().ok_or_else(|| {
         ParseError::ArityMismatch(
-            "return expected one argument, found none".to_string(),
+            format!("{} expected one argument, found none", name),
             syn.span,
             None,
         )
@@ -1160,38 +1497,12 @@ where
 
     if value_iter.next().is_some() {
         Err(ParseError::SyntaxError(
-            "return expects only one argument".to_string(),
+            format!("{} expects only one argument", name),
             syn.span,
             None,
         ))
     } else {
-        Ok(Return::new(quote, syn).into())
-    }
-}
-
-#[inline]
-fn parse_panic<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
-where
-    I: Iterator<Item = ExprKind>,
-{
-    value_iter.next();
-
-    let quote = value_iter.next().ok_or_else(|| {
-        ParseError::ArityMismatch(
-            "panic expected one argument, found none".to_string(),
-            syn.span,
-            None,
-        )
-    })?;
-
-    if value_iter.next().is_some() {
-        Err(ParseError::SyntaxError(
-            "panic expects only one argument".to_string(),
-            syn.span,
-            None,
-        ))
-    } else {
-        Ok(Panic::new(quote, syn).into())
+        Ok(constructor(func, syn))
     }
 }
 
@@ -1208,12 +1519,28 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::Define => parse_define(value.into_iter(), a.syn.clone()),
                         TokenType::Let => parse_let(value.into_iter(), a.syn.clone()),
                         TokenType::Transduce => parse_transduce(value.into_iter(), a.syn.clone()),
-                        TokenType::Quote => parse_quote(value.into_iter(), a.syn.clone()),
+                        TokenType::Quote => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "quote",
+                            |expr, syn| Quote::new(expr, syn).into(),
+                        ),
                         TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
-                        TokenType::Return => parse_return(value.into_iter(), a.syn.clone()),
+                        TokenType::Return => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "return",
+                            |expr, syn| Return::new(expr, syn).into(),
+                        ),
+                        TokenType::CallCC => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "call/cc",
+                            |expr, syn| CallCC::new(expr, syn).into(),
+                        ),
                         TokenType::Require => {
                             let syn = a.syn.clone();
-                            if value.len() != 2 {
+                            if value.len() < 2 {
                                 return Err(ParseError::ArityMismatch(
                                     "require expects at least one identifier or string".to_string(),
                                     syn.span,
@@ -1239,38 +1566,18 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             Ok(ExprKind::Require(Require::new(expressions, syn)))
                         }
-                        TokenType::Eval => {
-                            let syn = a.syn.clone();
-                            if value.len() != 2 {
-                                return Err(ParseError::ArityMismatch(
-                                    "eval expected an expression".to_string(),
-                                    syn.span,
-                                    None,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            let expression = value_iter.next().unwrap();
-
-                            Ok(ExprKind::Eval(Box::new(Eval::new(expression, syn))))
-                        }
-                        TokenType::Read => {
-                            let syn = a.syn.clone();
-                            if value.len() != 2 {
-                                return Err(ParseError::ArityMismatch(
-                                    "read expected an expression".to_string(),
-                                    syn.span,
-                                    None,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            let expression = value_iter.next().unwrap();
-
-                            Ok(ExprKind::Read(Box::new(Read::new(expression, syn))))
-                        }
+                        TokenType::Eval => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "eval",
+                            |expr, syn| Eval::new(expr, syn).into(),
+                        ),
+                        TokenType::Read => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "read",
+                            |expr, syn| Read::new(expr, syn).into(),
+                        ),
                         TokenType::Set => {
                             let syn = a.syn.clone();
                             if value.len() != 3 {
@@ -1339,7 +1646,12 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                             value_iter.next();
                             Ok(ExprKind::Begin(Begin::new(value_iter.collect(), syn)))
                         }
-                        TokenType::Panic => parse_panic(value.into_iter(), a.syn.clone()),
+                        TokenType::Panic => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "panic!",
+                            |expr, syn| Panic::new(expr, syn).into(),
+                        ),
                         TokenType::Lambda => {
                             let syn = a.syn.clone();
 
@@ -1500,6 +1812,14 @@ mod display_tests {
     }
 
     #[test]
+    fn display_lambda_quote() {
+        let expression = "(lambda (x) (quote x))";
+        let parsed_expr = parse(expression);
+        let expected = "(lambda (x) (quote x))";
+        assert_eq!(parsed_expr.to_string(), expected);
+    }
+
+    #[test]
     fn display_list() {
         let expression = "(list 1 2 3 4)";
         let parsed_expr = parse(expression);
@@ -1641,5 +1961,41 @@ mod display_tests {
         let parsed_expr = parse(expression);
         let expected = "(eval (quote a))";
         assert_eq!(parsed_expr.to_string(), expected);
+    }
+}
+
+#[cfg(test)]
+mod pretty_print_tests {
+    use super::*;
+    use crate::parser::parser::{Parser, Result};
+    use std::collections::HashMap;
+    use std::rc::Rc;
+
+    // pub fn to_pretty(&self, width: usize) -> String {
+    //     let mut w = Vec::new();
+    //     self.to_doc().render(width, &mut w).unwrap();
+    //     String::from_utf8(w).unwrap()
+    // }
+
+    fn parse(expr: &str) -> ExprKind {
+        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache).collect();
+        let a = a.unwrap()[0].clone();
+        a
+    }
+
+    #[test]
+    fn pretty_set() {
+        let expression = r#"
+            (define test-function 
+                (lambda (a b c) 
+                    (begin 
+                        (set! bananas 10) 
+                        (if applesauce 100 #f)
+                        (if applesauce 100 (if applesauce 100 #f)))))"#;
+        let parsed_expr = parse(expression);
+        let _output = parsed_expr.to_pretty(45);
+
+        assert!(true)
     }
 }

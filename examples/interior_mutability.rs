@@ -4,8 +4,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use steel_vm::engine::Engine;
-use steel_vm::register_fn::RegisterFn;
+use steel::steel_vm::engine::Engine;
+use steel::steel_vm::register_fn::RegisterFn;
 
 use once_cell::sync::Lazy;
 use steel_derive::Steel; // 1.3.1

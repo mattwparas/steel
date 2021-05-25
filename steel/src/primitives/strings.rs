@@ -28,6 +28,34 @@ impl StringOperations {
         })
     }
 
+    pub fn string_to_symbol() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() == 1 {
+                if let SteelVal::StringV(s) = &args[0] {
+                    Ok(SteelVal::SymbolV(crate::gc::Gc::clone(s)))
+                } else {
+                    stop!(TypeMismatch => "string->int expected a string")
+                }
+            } else {
+                stop!(ArityMismatch => "string->int takes one argument")
+            }
+        })
+    }
+
+    pub fn int_to_string() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() == 1 {
+                if let SteelVal::IntV(s) = &args[0] {
+                    Ok(SteelVal::StringV(format!("{}", s).into()))
+                } else {
+                    stop!(TypeMismatch => "string->int expected a string")
+                }
+            } else {
+                stop!(ArityMismatch => "string->int takes one argument")
+            }
+        })
+    }
+
     pub fn string_to_int() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {

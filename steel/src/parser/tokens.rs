@@ -1,6 +1,5 @@
 use core::ops;
 use std::fmt;
-use thiserror::Error;
 use TokenType::*;
 
 use logos::{Lexer, Logos};
@@ -12,18 +11,6 @@ use std::str::FromStr;
 
 use std::convert::TryFrom;
 use std::num::ParseIntError;
-
-#[derive(Clone, Debug, PartialEq, Error)]
-pub enum TokenError {
-    #[error("Unexpected char, {0} on line: {1}")]
-    UnexpectedChar(char, usize),
-    #[error("Incomplete String on line {0}")]
-    IncompleteString(usize),
-    #[error("Invalid Escape on line {0}")]
-    InvalidEscape(usize),
-    #[error("Invalid Character on line {0}")]
-    InvalidCharacter(usize),
-}
 
 fn gen_bool(lex: &mut Lexer<TokenType>) -> Option<bool> {
     let slice = lex.slice();
@@ -194,6 +181,9 @@ pub enum TokenType {
     #[token("require")]
     Require,
 
+    #[token("call/cc")]
+    CallCC,
+
     #[token("#\\SPACE", |_| Some(' '))]
     #[token("#\\space", |_| Some(' '))]
     #[token("#\\\\", |_| Some('\\'))]
@@ -303,6 +293,7 @@ impl fmt::Display for TokenType {
             Read => write!(f, "read"),
             Eval => write!(f, "eval"),
             Require => write!(f, "require"),
+            CallCC => write!(f, "call/cc"),
         }
     }
 }

@@ -1,8 +1,9 @@
 use crate::{
+    gc::Gc,
     primitives::ListOperations,
     rerrs::ErrorKind,
     rvals::{FromSteelVal, IntoSteelVal, Result},
-    Gc, SteelErr, SteelVal,
+    SteelErr, SteelVal,
 };
 use std::collections::{HashMap, HashSet};
 

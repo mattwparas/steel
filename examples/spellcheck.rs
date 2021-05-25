@@ -4,25 +4,15 @@ extern crate steel_repl;
 
 use steel_derive::Steel;
 
+use steel::steel_vm::engine::Engine;
 use steel_repl::repl::repl_base;
-use steel_vm::engine::Engine;
-
-use std::process;
-
-// use std::env::args;
-// use std::fs;
 
 use std::cell::RefCell;
-use std::rc::Rc;
-
-use std::collections::HashMap;
-
 use std::cmp::{max, min};
-
-use steel_vm::register_fn::RegisterFn;
-
-// use env_logger::Builder;
-// use log::LevelFilter;
+use std::collections::HashMap;
+use std::process;
+use std::rc::Rc;
+use steel::steel_vm::register_fn::RegisterFn;
 
 /// An implementation of a spell check in steel, with the levenshtein distance calculated
 /// via Rust, and a BKTree implementation in steel
@@ -38,17 +28,7 @@ use steel_vm::register_fn::RegisterFn;
 fn main() {
     let mut vm = configure_engine();
 
-    let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::CONTRACTS];
-
-    for core in core_libraries {
-        let res = vm.parse_and_execute_without_optimizations(core);
-        if let Err(e) = res {
-            eprintln!("{}", e);
-            return;
-        }
-    }
-
-    let contents = include_str!("../scheme_examples/spellcheck.rkt");
+    let contents = include_str!("scripts/spellcheck.rkt");
 
     let res = vm.parse_and_execute_without_optimizations(&contents);
 

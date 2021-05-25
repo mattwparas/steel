@@ -102,6 +102,15 @@ impl Instruction {
         }
     }
 
+    pub fn new_pop_with_upvalue(idx: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::POP,
+            payload_size: idx,
+            contents: None,
+            constant: false,
+        }
+    }
+
     pub fn new_if(true_jump: usize) -> Instruction {
         Instruction {
             op_code: OpCode::IF,
@@ -115,6 +124,15 @@ impl Instruction {
         Instruction {
             op_code: OpCode::JMP,
             payload_size: jump,
+            contents: None,
+            constant: false,
+        }
+    }
+
+    pub fn new_tco_jmp() -> Instruction {
+        Instruction {
+            op_code: OpCode::TCOJMP,
+            payload_size: 0,
             contents: None,
             constant: false,
         }
@@ -174,10 +192,10 @@ impl Instruction {
         }
     }
 
-    pub fn new_pass() -> Instruction {
+    pub fn new_pass(arity: usize) -> Instruction {
         Instruction {
             op_code: OpCode::PASS,
-            payload_size: 0,
+            payload_size: arity,
             contents: None,
             constant: false,
         }
@@ -236,29 +254,91 @@ impl Instruction {
             constant: true,
         }
     }
+
+    pub fn new_inner_struct(idx: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::INNERSTRUCT,
+            payload_size: idx,
+            contents: None,
+            constant: true,
+        }
+    }
+
+    pub fn new_call_cc() -> Instruction {
+        Instruction {
+            op_code: OpCode::CALLCC,
+            payload_size: 0,
+            contents: None,
+            constant: true,
+        }
+    }
+
+    pub fn new_local(idx: usize, contents: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::READLOCAL,
+            payload_size: idx,
+            contents: Some(contents),
+            constant: false,
+        }
+    }
+
+    pub fn new_set_local(idx: usize, contents: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::SETLOCAL,
+            payload_size: idx,
+            contents: Some(contents),
+            constant: false,
+        }
+    }
+
+    pub fn new_read_upvalue(idx: usize, contents: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::READUPVALUE,
+            payload_size: idx,
+            contents: Some(contents),
+            constant: false,
+        }
+    }
+
+    pub fn new_set_upvalue(idx: usize, contents: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::SETUPVALUE,
+            payload_size: idx,
+            contents: Some(contents),
+            constant: false,
+        }
+    }
+
+    pub fn new_local_upvalue(idx: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::FILLLOCALUPVALUE,
+            payload_size: idx,
+            contents: None,
+            constant: false,
+        }
+    }
+
+    pub fn new_upvalue(idx: usize) -> Instruction {
+        Instruction {
+            op_code: OpCode::FILLUPVALUE,
+            payload_size: idx,
+            contents: None,
+            constant: false,
+        }
+    }
+
+    pub fn new_close_upvalue(flag: usize, contents: SyntaxObject) -> Instruction {
+        Instruction {
+            op_code: OpCode::CLOSEUPVALUE,
+            payload_size: flag,
+            contents: Some(contents),
+            constant: false,
+        }
+    }
 }
 
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
     instructions.into_iter().map(|x| x.into()).collect()
-}
-
-pub fn pretty_print_instructions(instrs: &[Instruction]) {
-    for (i, instruction) in instrs.iter().enumerate() {
-        if instruction.contents.is_some() {
-            println!(
-                "{}    {:?} : {}     {}",
-                i,
-                instruction.op_code,
-                instruction.payload_size,
-                instruction.contents.as_ref().unwrap().ty
-            );
-        } else {
-            println!(
-                "{}    {:?} : {}",
-                i, instruction.op_code, instruction.payload_size
-            );
-        }
-    }
 }
 
 pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
@@ -268,6 +348,58 @@ pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
             i, instruction.op_code, instruction.payload_size
         );
     }
+}
+
+pub fn disassemble(instructions: &[Instruction]) -> String {
+    let first_column_width = instructions.len().to_string().len();
+    let second_column_width = instructions
+        .iter()
+        .map(|x| format!("{:?}", x.op_code).len())
+        .max()
+        .unwrap();
+    let third_column_width = instructions
+        .iter()
+        .map(|x| x.payload_size.to_string().len())
+        .max()
+        .unwrap();
+
+    let mut buffer = String::new();
+
+    for (i, instruction) in instructions.iter().enumerate() {
+        let index = i.to_string();
+
+        buffer.push_str(index.as_str());
+        for _ in 0..(first_column_width - index.len()) {
+            buffer.push(' ');
+        }
+
+        buffer.push_str("    ");
+
+        let op_code = format!("{:?}", instruction.op_code);
+        buffer.push_str(op_code.as_str());
+        for _ in 0..(second_column_width - op_code.len()) {
+            buffer.push(' ');
+        }
+
+        buffer.push_str(" : ");
+
+        let payload_size = instruction.payload_size.to_string();
+        buffer.push_str(payload_size.as_str());
+        for _ in 0..(third_column_width - payload_size.len()) {
+            buffer.push(' ');
+        }
+
+        buffer.push_str("    ");
+
+        if let Some(syn) = instruction.contents.as_ref() {
+            let contents = syn.ty.to_string();
+            buffer.push_str(contents.as_str());
+        }
+
+        buffer.push('\n');
+    }
+
+    buffer
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Serialize, Deserialize)]

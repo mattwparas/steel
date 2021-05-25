@@ -1,81 +1,3 @@
-; (export
-;  caar
-;  cadr
-;  cdar
-;  cddr
-;  caaar
-;  caadr
-;  cadar
-;  caddr
-;  cdaar
-;  cdadr
-;  cddar
-;  cdddr
-;  caaaar
-;  caaadr
-;  caadar
-;  caaddr
-;  cadaar
-;  cadadr
-;  caddar
-;  cadddr
-;  cdaaar
-;  cdaadr
-;  cdadar
-;  cdaddr
-;  cddaar
-;  cddadr
-;  cdddar
-;  cddddr
-;  id
-;  flip
-;  curry
-;  curry2
-;  compose
-;  not
-;  foldl
-;  map
-;  foldr
-;  unfold
-;  fold
-;  reduce
-;  max
-;  min
-;  empty?
-;  length
-;  mem-helper
-;  member
-;  assq
-;  assoc
-;  filter
-;  fact)
-
-; (export even?
-;         odd?
-;         sum
-;         add1
-;         sub1
-;         zero?
-;         take
-;         drop
-;         slice
-;         displayln)
-
-; (export or
-;         and
-;         when
-;         unless
-;         cond
-;         while
-;         f>
-;         ->
-;         ->>
-;         l>
-;         swap
-;         let*
-;         letrec*
-;         letrec*-helper)
-
 (define-syntax quasiquote
   (syntax-rules (unquote unquote-splicing)
     ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
@@ -326,7 +248,7 @@
 
 
 (define (map func lst)
-  (if (empty? lst) 
+  (if (null? lst) 
       '() 
       (execute (mapping func) lst)))
 
@@ -376,12 +298,12 @@
       '() 
       (execute (filtering pred) lst)))
 
-(define (fact n)
-  (define factorial-tail (lambda (n acc) 
-                           (if (= n 0)
-                               acc
-                               (factorial-tail (- n 1)  (* acc n )))))
-  (factorial-tail n 1))
+; (define (fact n)
+;   (define factorial-tail (lambda (n acc) 
+;                            (if (= n 0)
+;                                acc
+;                                (factorial-tail (- n 1)  (* acc n )))))
+;   (factorial-tail n 1))
 
 (define even-rec? (lambda (x) (if (= x 0) #t (odd-rec? (- x 1)))))
 (define odd-rec?  (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))
@@ -410,10 +332,4 @@
 
 (define (slice l offset n)
   (take (drop l offset) n))
-
-(define (displayln object) 
-  (display object)
-  (newline))
-
-
 ;;; Macros go here:

@@ -5,7 +5,7 @@ use thiserror::Error;
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFile;
 use codespan_reporting::term;
-use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
+use codespan_reporting::term::termcolor::{ColorChoice, NoColor, StandardStream};
 
 use crate::parser::span::Span;
 
@@ -196,6 +196,22 @@ impl SteelErr {
         // }
     }
 
+    pub fn emit_result_to_string(&self, file_name: &str, file_content: &str) -> String {
+        // let writer = StandardStream::from(String::new());
+        // let mut writer = String::new();
+        let mut writer = NoColor::new(Vec::<u8>::new());
+        let config = codespan_reporting::term::Config::default();
+
+        let file = SimpleFile::new(file_name, file_content);
+
+        let error_span = Span::new(0, 0);
+
+        let report = self.report(file_name, file_content, error_span);
+        term::emit(&mut writer, &config, &file, &report).unwrap(); // TODO come back
+        let output = writer.into_inner();
+        std::str::from_utf8(&output).unwrap().to_string()
+    }
+
     fn report(&self, _file_name: &str, _file_content: &str, _error_span: Span) -> Diagnostic<()> {
         // println!("Generating error report!");
 
@@ -239,5 +255,8 @@ macro_rules! throw {
     };
     ($type:ident => $thing:expr) => {
         || SteelErr::new(ErrorKind::$type, ($thing).to_string())
+    };
+    ($type:ident => $thing:expr; $span:expr) => {
+        || SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span)
     };
 }

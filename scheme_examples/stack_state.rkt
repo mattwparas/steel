@@ -43,15 +43,19 @@
 
 (define (main)
   (let ((initial-stack '())
-        (composed (>>= computation-1 (lambda (a)
-                  (>>= computation-2 (lambda (b)
-                  (return (list a b))))))))
+        (composed (>>= computation-1 
+                      (lambda (a)
+                        (>>= computation-2 
+                             (lambda (b)
+                                (return (list a b))))))))
     (begin
       ; (display "Result: ")
       (define result (eval-stack composed initial-stack))
       ; (display result)
       ; (newline)
       result)))
+
+(main)
 
 (define (test x)
   (if (= x 10) x

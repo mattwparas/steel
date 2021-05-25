@@ -1,4 +1,4 @@
-use steel_vm::engine::Engine;
+use steel::steel_vm::engine::Engine;
 
 // It's possible to add a function that will get fun on every instruction call
 // For instance, if you wanted to see how far you were getting in the evaluation of a program
@@ -21,14 +21,14 @@ pub fn main() {
         true
     });
 
-    // This should end with "Number of instructions up to this point: 12000"
+    // This should end with "Number of instructions up to this point: 4000"
     vm.run(
         r#"
         (define (loop x)
             (if (equal? x 1000)
                 x
                 (loop (+ x 1))))
-        (loop 0)
+        (displayln (loop 0))
     "#,
     )
     .unwrap();

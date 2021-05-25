@@ -78,8 +78,8 @@ impl Visitor for CoalescingSpanVisitor {
         self.visit(&quote.expr)
     }
 
-    fn visit_struct(&self, _s: &super::ast::Struct) -> Self::Output {
-        panic!("Unexpected struct found in struct visitor");
+    fn visit_struct(&self, s: &super::ast::Struct) -> Self::Output {
+        s.location.span
     }
 
     fn visit_macro(&self, _m: &super::ast::Macro) -> Self::Output {
@@ -109,5 +109,9 @@ impl Visitor for CoalescingSpanVisitor {
 
     fn visit_require(&self, _s: &super::ast::Require) -> Self::Output {
         panic!("Unexpected require found in span visitor")
+    }
+
+    fn visit_callcc(&self, cc: &super::ast::CallCC) -> Self::Output {
+        Span::merge(cc.location.span, self.visit(&cc.expr))
     }
 }

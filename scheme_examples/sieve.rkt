@@ -2,6 +2,7 @@
 ; Tail-recursive solution :
 (define (sieve n)
   (define (aux u v)
+    (displayln v)
     (let ((p (car v)))
       (if (> (* p p) n)
         (rev-append u v)
@@ -13,9 +14,9 @@
 
 (define (wheel u v a p)
     (cond ((null? v) (reverse u))
-                    ((= (car v) a) (wheel u (cdr v) (+ a p) p))
-                    ((> (car v) a) (wheel u v (+ a p) p))
-                    (else (wheel (cons (car v) u) (cdr v) a p))))
+          ((= (car v) a) (wheel u (cdr v) (+ a p) p))
+          ((> (car v) a) (wheel u v (+ a p) p))
+          (else (wheel (cons (car v) u) (cdr v) a p))))
 
 (define (rev-append u v)
     (if (null? u) v (rev-append (cdr u) (cons (car u) v))))
@@ -23,7 +24,9 @@
 (define (range-s v k)
     (if (< k 3) v (range-s (cons k v) (- k 2))))
 
-(displayln (length (sieve 1000)))
+(sieve 10)
+
+; (displayln (length (sieve 100)))
 
 ; (let fac ([n 10])
 ;     (if (zero? n)

@@ -1,5 +1,5 @@
-use steel_vm::engine::Engine;
-use steel_vm::register_fn::RegisterFn;
+use steel::steel_vm::engine::Engine;
+use steel::steel_vm::register_fn::RegisterFn;
 
 use steel_derive::Steel;
 

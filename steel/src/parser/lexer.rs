@@ -1,23 +1,7 @@
-// pub mod parser;
-// pub mod tokens;
-
-use crate::parser::tokens::{Token, TokenError, TokenType};
-use std::iter::Iterator;
-use std::result;
-// use std::str::Chars;
-
-// use core::ops;
-use std::fmt;
-// use thiserror::Error;
-// use TokenType::*;
-
+use crate::parser::tokens::{Token, TokenType};
 use logos::{Lexer, Logos};
-
-// use steel::parser::span::Span;
-
-// use steel::parser::tokens::TokenType;
-
-pub type Result<T> = result::Result<T, TokenError>;
+use std::fmt;
+use std::iter::Iterator;
 
 #[derive(Clone)]
 pub struct TokenStream<'a> {
