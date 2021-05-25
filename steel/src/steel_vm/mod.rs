@@ -3,7 +3,6 @@ mod contracts;
 pub mod engine;
 mod evaluation_progress;
 mod heap;
-mod inline_iter;
 mod lazy_stream;
 mod primitives;
 pub mod register_fn;

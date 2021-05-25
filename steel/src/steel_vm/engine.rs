@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    convert::TryFrom,
     io::Read,
     path::{Path, PathBuf},
     rc::Rc,
@@ -16,7 +15,6 @@ use crate::{
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser},
-    primitives::ListOperations,
     rerrs::{ErrorKind, SteelErr},
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw,
@@ -224,7 +222,6 @@ impl Engine {
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr, &mut intern).collect();
         let parsed = parsed?;
-        // Ok(parsed.into_iter().map(|x| format!("{:#?}", x)).join("\n\n"))
         Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
 
@@ -358,7 +355,7 @@ impl Engine {
     /// )
     /// .unwrap();
     /// ```
-    pub fn on_progress(&mut self, callback: Callback) -> &mut Self {
+    pub fn on_progress<FN: Fn(usize) -> bool + 'static>(&mut self, callback: FN) -> &mut Self {
         self.virtual_machine.on_progress(callback);
         self
     }
@@ -486,5 +483,47 @@ impl Engine {
             self.constants = Some(hm.clone());
             hm
         }
+    }
+}
+
+#[cfg(test)]
+mod on_progress_tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    #[test]
+    fn count_every_thousand() {
+        let mut vm = Engine::new();
+
+        let external_count = Rc::new(Cell::new(0));
+        let embedded_count = Rc::clone(&external_count);
+
+        vm.on_progress(move |count| {
+            // parameter is 'usize' - number of instructions performed up to this point
+            if count % 1000 == 0 {
+                // print out a progress log every 1000 operations
+                println!("Number of instructions up to this point: {}", count);
+                embedded_count.set(embedded_count.get() + 1);
+
+                // Returning false here would quit the evaluation of the function
+                return true;
+            }
+            true
+        });
+
+        // This should end with "Number of instructions up to this point: 4000"
+        vm.run(
+            r#"
+            (define (loop x)
+                (if (equal? x 1000)
+                    x
+                    (loop (+ x 1))))
+            (displayln (loop 0))
+        "#,
+        )
+        .unwrap();
+
+        assert_eq!(external_count.get(), 4);
     }
 }

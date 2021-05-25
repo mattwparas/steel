@@ -452,9 +452,7 @@ pub(crate) fn embed_primitives(engine: &mut Engine) {
     register_meta_functions(engine);
     register_json_functions(engine);
 
-    engine
-        .register_value("error!", ControlOperations::error())
-        .register_value("random-int", NumOperations::random_int());
+    engine.register_value("error!", ControlOperations::error());
 }
 
 #[inline(always)]
@@ -479,7 +477,5 @@ pub(crate) fn embed_primitives_without_io(engine: &mut Engine) {
     register_meta_functions(engine);
     register_json_functions(engine);
 
-    engine
-        .register_value("error!", ControlOperations::error())
-        .register_value("random-int", NumOperations::random_int());
+    engine.register_value("error!", ControlOperations::error());
 }

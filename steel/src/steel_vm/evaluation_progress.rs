@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-pub type Callback = fn(usize) -> bool;
+pub type Callback = Box<dyn Fn(usize) -> bool>;
 
 trait CallbackFunc {
     fn call(&self) -> Option<bool>;
@@ -12,7 +12,6 @@ impl CallbackFunc for () {
     }
 }
 
-#[derive(Clone)]
 pub(crate) struct EvaluationProgress {
     instruction_count: Cell<usize>,
     callback: Option<Callback>,

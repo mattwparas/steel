@@ -7,26 +7,6 @@ use crate::stop;
 
 pub struct NumOperations {}
 impl NumOperations {
-    pub fn random_int() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                stop!(ArityMismatch => "random-int requires an upper bound");
-            }
-
-            if args.len() > 1 {
-                stop!(ArityMismatch => "random-int takes one argument")
-            }
-
-            if let SteelVal::IntV(upper_bound) = &args[0] {
-                // let mut rng = rand::thread_rng();
-                // return Ok(SteelVal::IntV(rng.gen_range(0..*upper_bound)));
-                unimplemented!()
-            } else {
-                stop!(TypeMismatch => "random-int requires an integer upper bound");
-            }
-        })
-    }
-
     pub fn arithmetic_shift() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {

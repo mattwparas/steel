@@ -38,8 +38,6 @@ use std::{
 
 use super::evaluation_progress::EvaluationProgress;
 
-pub type Callback = fn(usize) -> bool;
-
 use log::error;
 
 const STACK_LIMIT: usize = 1000;
@@ -73,8 +71,8 @@ impl VirtualMachineCore {
         self.global_env.extract(idx)
     }
 
-    pub fn on_progress(&mut self, callback: Callback) {
-        &self.callback.with_callback(callback);
+    pub fn on_progress<FN: Fn(usize) -> bool + 'static>(&mut self, callback: FN) {
+        &self.callback.with_callback(Box::new(callback));
     }
 
     pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {

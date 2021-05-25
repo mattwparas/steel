@@ -21,14 +21,14 @@ pub fn main() {
         true
     });
 
-    // This should end with "Number of instructions up to this point: 12000"
+    // This should end with "Number of instructions up to this point: 4000"
     vm.run(
         r#"
         (define (loop x)
             (if (equal? x 1000)
                 x
                 (loop (+ x 1))))
-        (loop 0)
+        (displayln (loop 0))
     "#,
     )
     .unwrap();
