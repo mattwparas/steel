@@ -1,4 +1,6 @@
-use super::{evaluation_progress::EvaluationProgress, heap::UpValueHeap, vm::vm};
+use super::{
+    evaluation_progress::EvaluationProgress, heap::UpValueHeap, stack::StackFrame, vm::vm,
+};
 use crate::{
     compiler::constants::ConstantTable,
     env::Env,
@@ -14,6 +16,10 @@ use log::debug;
 
 use super::stack::Stack;
 
+// let vm_stack = Rc::new(RefCell::new(&mut self.stack));
+// let vm_stack_index = Rc::new(RefCell::new(&mut self.stack_index));
+// let function_stack = Rc::new(RefCell::new(&mut self.function_stack));
+
 /// Extension trait for the application of contracted functions
 pub(crate) trait ContractedFunctionExt {
     fn apply<CT: ConstantTable>(
@@ -24,6 +30,9 @@ pub(crate) trait ContractedFunctionExt {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
     ) -> Result<SteelVal>;
 }
 
@@ -36,6 +45,9 @@ impl ContractedFunctionExt for ContractedFunction {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
     ) -> Result<SteelVal> {
         // Walk back and find the contracts to apply
         {
@@ -50,6 +62,9 @@ impl ContractedFunctionExt for ContractedFunction {
                     callback,
                     upvalue_heap,
                     global_env,
+                    stack,
+                    function_stack,
+                    stack_index,
                 )?;
 
                 parent = p.parent()
@@ -65,6 +80,9 @@ impl ContractedFunctionExt for ContractedFunction {
             callback,
             upvalue_heap,
             global_env,
+            stack,
+            function_stack,
+            stack_index,
         )
     }
 }
@@ -79,6 +97,9 @@ pub(crate) trait FlatContractExt {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
     ) -> Result<()>;
 }
 
@@ -91,6 +112,9 @@ impl FlatContractExt for FlatContract {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
     ) -> Result<()> {
         let arg_vec = vec![arg.clone()];
         let output = match self.predicate() {
@@ -133,6 +157,9 @@ pub(crate) trait FunctionContractExt {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
     ) -> Result<SteelVal>;
 }
 
@@ -147,6 +174,9 @@ impl FunctionContractExt for FunctionContract {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
     ) -> Result<SteelVal> {
         let mut verified_args = Vec::new();
 
@@ -167,6 +197,9 @@ impl FunctionContractExt for FunctionContract {
                         callback,
                         upvalue_heap,
                         global_env,
+                        stack,
+                        function_stack,
+                        stack_index,
                     ) {
                         debug!(
                             "Blame locations: {:?}, {:?}",
@@ -246,6 +279,9 @@ impl FunctionContractExt for FunctionContract {
                     callback,
                     upvalue_heap,
                     global_env,
+                    stack,
+                    function_stack,
+                    stack_index,
                 ) {
                     debug!(
                         "Blame locations: {:?}, {:?}",

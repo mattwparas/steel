@@ -12,15 +12,15 @@
          (append (flatten (car lst)) (flatten (cdr lst))))
         (else (list lst))))
 
-;; contract: (listof char?) (listof tries?) integer? -> (listof trie?)
-(define (create-children char-list lst prefix-chars)
+(define/contract (create-children char-list lst prefix-chars)
+  (->/c (listof char?) (listof trie?) (listof char?) (listof trie?))
   (cond [(= (length char-list) 1)
          (handle-last-letter char-list lst prefix-chars)]
         [else ;; you are in the middle of the word
          (handle-intern-letter char-list lst prefix-chars)]))
 
-;; contract: (listof char?) (listof trie?) integer? -> (listof trie?)
-(define (handle-last-letter char-list lst prefix-chars)
+(define/contract (handle-last-letter char-list lst prefix-chars)
+  (->/c (listof char?) (listof trie?) (listof char?) (listof trie?))
   (define char (first char-list))
   (define next-prefix (push-back prefix-chars char))
   (cond [(empty? lst) ;; children are empty, return list of empty children
@@ -33,8 +33,8 @@
          (cons (first lst)
                (create-children char-list (rest lst) prefix-chars))]))
 
-;; contract: (listof char?) (listof trie?) integer? -> (listof trie?)
 (define (handle-intern-letter char-list lst prefix-chars)
+  (->/c (listof char?) (listof trie?) (listof char?) (listof trie?))
   (define char (first char-list))
   (define next-prefix (push-back prefix-chars char))
   (cond [(empty? lst) ;; no children, pop off front and step down
@@ -53,8 +53,8 @@
                (create-children char-list (rest lst) prefix-chars))]))
 
 
-;; contract: trie? string? integer? -> trie?
-(define (insert root-trie word)
+(define/contract (insert root-trie word)
+  (->/c trie? string? trie?)
   (define char-list (string->list word))
   (trie
    (trie-char root-trie)
@@ -62,18 +62,18 @@
    (trie-end-word? root-trie)
    (trie-word-up-to root-trie)))
 
-; contract: trie? trie? -> boolean?
-(define (trie<? trie-node1 trie-node2)
+(define/contract (trie<? trie-node1 trie-node2)
+  (->/c trie? trie? boolean?)
   (< (trie-char trie-node1) (trie-char trie-node2)))
 
-;; contract: trie? -> void
-(define (pre-order-traverse trie-node)
+(define/contract (pre-order-traverse trie-node)
+  (->/c trie? any/c)
   (displayln (list (trie-char trie-node) (trie-end-word? trie-node) (trie-word-up-to trie-node)))
   (map pre-order-traverse (trie-children trie-node))
   "finished")
 
-;; contract: trie? (listof string?) -> trie?
-(define (build-trie-from-list-of-words trie list-of-words)
+(define/contract (build-trie-from-list-of-words trie list-of-words)
+  (->/c trie? (listof string?) trie?)
   (cond
     [(= (length list-of-words) 1)
      (insert trie (first list-of-words))]
@@ -83,12 +83,12 @@
       (rest list-of-words))]))
 
 
-(define (trie-sort list-of-words)
+(define/contract (trie-sort list-of-words)
+  (->/c (listof string?) (listof string?))
   (pre-order (build-trie-from-list-of-words empty-trie list-of-words)))
 
-; THIS ONE WORKS (using con and flatten)
-;; contract: trie? -> (listof string?)
-(define (pre-order trie-node)
+(define/contract (pre-order trie-node)
+  (->/c trie? (listof string?))
   (if (trie-end-word? trie-node)
     (cons (list->string (trie-word-up-to trie-node))
       (flatten (map pre-order (trie-children trie-node))))
@@ -115,7 +115,8 @@
 ))
 
 
-(define (generate-trie list-of-words)
+(define/contract (generate-trie list-of-words)
+  (->/c (listof string?) trie?)
   (build-trie-from-list-of-words empty-trie list-of-words))
 
 

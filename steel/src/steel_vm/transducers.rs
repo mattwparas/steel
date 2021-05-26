@@ -96,6 +96,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 callback,
                                 &mut local_upvalue_heap,
                                 &mut global_env_copy.borrow_mut(),
+                                &mut vm_stack_copy.borrow_mut(),
+                                &mut function_stack_copy.borrow_mut(),
+                                &mut vm_stack_index_copy.borrow_mut(),
                             )
                         }
                         SteelVal::Closure(closure) => {
@@ -210,6 +213,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                         callback,
                                         &mut local_upvalue_heap,
                                         &mut global_env_copy.borrow_mut(),
+                                        &mut vm_stack_copy.borrow_mut(),
+                                        &mut function_stack_copy.borrow_mut(),
+                                        &mut vm_stack_index_copy.borrow_mut(),
                                     );
                                     match res {
                                         Ok(k) => match k {
@@ -407,6 +413,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                 callback,
                                 &mut heap_copy.borrow_mut(),
                                 &mut global_env_copy.borrow_mut(),
+                                &mut vm_stack_copy.borrow_mut(),
+                                &mut function_stack_copy.borrow_mut(),
+                                &mut vm_stack_index_copy.borrow_mut(),
                             )
                         }
                         SteelVal::Closure(closure) => {
@@ -519,6 +528,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                                         callback,
                                         &mut heap_copy.borrow_mut(),
                                         &mut global_env_copy.borrow_mut(),
+                                        &mut vm_stack_copy.borrow_mut(),
+                                        &mut function_stack_copy.borrow_mut(),
+                                        &mut vm_stack_index_copy.borrow_mut(),
                                     );
                                     match res {
                                         Ok(k) => match k {
@@ -608,9 +620,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
         //     &mut self.global_env,
         // )
 
-        // let vm_stack_copy = Rc::clone(&vm_stack);
+        let vm_stack_copy = Rc::clone(&vm_stack);
         let vm_stack_index_copy = Rc::clone(&vm_stack_index);
-        // let function_stack_copy = Rc::clone(&function_stack);
+        let function_stack_copy = Rc::clone(&function_stack);
         let global_env_copy = Rc::clone(&global_env);
 
         let switch_statement = move |acc, x| match &reducer {
@@ -636,6 +648,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     callback,
                     &mut local_upvalue_heap,
                     &mut global_env_copy.borrow_mut(),
+                    &mut vm_stack_copy.borrow_mut(),
+                    &mut function_stack_copy.borrow_mut(),
+                    &mut vm_stack_index_copy.borrow_mut(),
                 )
             }
             SteelVal::Closure(closure) => {

@@ -1116,6 +1116,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
             self.callback,
             &mut self.upvalue_heap,
             self.global_env,
+            &mut self.stack,
+            &mut self.function_stack,
+            &mut self.stack_index,
         )?;
 
         self.stack.push(result);
@@ -1196,6 +1199,9 @@ impl<'a, CT: ConstantTable> VmCore<'a, CT> {
                     self.callback,
                     &mut self.upvalue_heap,
                     self.global_env,
+                    &mut self.stack,
+                    &mut self.function_stack,
+                    &mut self.stack_index,
                 )?;
 
                 self.stack.push(result);

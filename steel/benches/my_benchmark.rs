@@ -205,6 +205,29 @@ fn fib_28(c: &mut Criterion) {
     group.finish();
 }
 
+fn fib_28_contract(c: &mut Criterion) {
+    let mut vm = Engine::new();
+    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
+    vm.parse_and_execute_without_optimizations(
+        r#"(define/contract (fib n) 
+                (->/c integer? integer?)
+                (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))"#,
+    )
+    .unwrap();
+
+    let script = "(fib 28)";
+    let program = vm.emit_program(&script).unwrap();
+    let constant_map = program.constant_map;
+    let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
+
+    let mut group = c.benchmark_group("fib-28-contract");
+    group.sample_size(200);
+    group.bench_function("fib-28-contract", |b| {
+        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
+    });
+    group.finish();
+}
+
 // This will include the definition inside the bench
 // just to match against the Rhai benchmarks
 fn fib_20(c: &mut Criterion) {
@@ -415,12 +438,12 @@ criterion_group!(
     engine_creation,
     register_function,
     multiple_transducers,
-    // trie_sort,
-    // merge_sort,
-    // struct_construct,
-    // struct_construct_bigger,
-    // struct_get,
-    // struct_set
+    fib_28_contract // trie_sort,
+                    // merge_sort,
+                    // struct_construct,
+                    // struct_construct_bigger,
+                    // struct_get,
+                    // struct_set
 );
 
 criterion_main!(benches);

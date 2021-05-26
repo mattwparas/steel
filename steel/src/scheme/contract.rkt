@@ -5,9 +5,10 @@
                 (cond [(null? lst) #t]
                       [(pred (car lst)) (loop (cdr lst))]
                       [else #f]))
-            (if (list? lst)
-                (loop lst)
-                #f)))
+            (cond [(null? lst) #t]
+                  [(list? lst)
+                    (loop lst)]
+                  [else #f])))
 
 ;; Contracts for <
 (define (</c n)

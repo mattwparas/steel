@@ -273,6 +273,7 @@ pub(crate) fn register_identity_predicates(engine: &mut Engine) {
         .register_value("pair?", gen_pred!(Pair))
         .register_value("integer?", gen_pred!(IntV))
         .register_value("boolean?", gen_pred!(BoolV))
+        .register_value("char?", gen_pred!(CharV))
         .register_value("void?", is_void())
         .register_value("continuation?", gen_pred!(ContinuationFunction))
         .register_value("future?", gen_pred!(FutureV))

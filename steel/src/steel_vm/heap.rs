@@ -1,6 +1,7 @@
 use crate::{
     gc::Gc,
     rvals::{ByteCodeLambda, UpValue},
+    values::contracts::{ContractType, ContractedFunction, FunctionContract},
     SteelVal,
 };
 use std::cell::RefCell;
@@ -132,9 +133,37 @@ fn traverse(val: &SteelVal) {
         SteelVal::StreamV(_) => {}
         SteelVal::BoxV(_) => {}
         SteelVal::Contract(_) => {}
-        SteelVal::ContractedFunction(_) => {}
+        SteelVal::ContractedFunction(c) => {
+            visit_function_contract(&c.contract);
+            visit_closure(&c.function);
+        }
         SteelVal::ContinuationFunction(_) => {}
         _ => {}
+    }
+}
+
+fn visit_function_contract(f: &FunctionContract) {
+    for pre_condition in f.pre_conditions() {
+        visit_contract_type(pre_condition)
+    }
+    visit_contract_type(f.post_condition());
+}
+
+fn visit_contract_type(contract: &ContractType) {
+    match contract {
+        ContractType::Flat(f) => {
+            traverse(f.predicate());
+        }
+        ContractType::Function(f) => {
+            visit_function_contract(f);
+        }
+    }
+}
+
+fn visit_closure(c: &Gc<ByteCodeLambda>) {
+    for upvalue in c.upvalues() {
+        let upvalue = upvalue.upgrade().unwrap();
+        mark_upvalue(&upvalue);
     }
 }
 
