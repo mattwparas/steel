@@ -1,14 +1,4 @@
 ; #lang racket
-;; ------------------------- TRIE ---------------------------- ;;
-
-; (export trie-sort
-;         alex-is-the-best
-;         macro-test)
-
-; (require "dep.rkt")
-
-; (define (macro-test) (when #t 1500))
-
 (struct trie (char children end-word? word-up-to))
 
 ;; Rename functions for the sake of compatibility
@@ -32,7 +22,6 @@
 ;; contract: (listof char?) (listof trie?) integer? -> (listof trie?)
 (define (handle-last-letter char-list lst prefix-chars)
   (define char (first char-list))
-  ; (define next-prefix (append prefix-chars (list char)))
   (define next-prefix (push-back prefix-chars char))
   (cond [(empty? lst) ;; children are empty, return list of empty children
          (list (trie char empty #t next-prefix))]
@@ -47,7 +36,6 @@
 ;; contract: (listof char?) (listof trie?) integer? -> (listof trie?)
 (define (handle-intern-letter char-list lst prefix-chars)
   (define char (first char-list))
-  ; (define next-prefix (append prefix-chars (list char)))
   (define next-prefix (push-back prefix-chars char))
   (cond [(empty? lst) ;; no children, pop off front and step down
          (list (trie char (create-children
@@ -64,20 +52,10 @@
          (cons (first lst)
                (create-children char-list (rest lst) prefix-chars))]))
 
-;; contract: trie? string? integer? -> trie?
-; (define (insert root-trie word)
-;   (define char-list (string->list word))
-;   ; (displayln "@@@@ INSIDE INSERT @@@@")
-;   (trie
-;    (trie-char root-trie)
-;    (create-children char-list (trie-children root-trie) empty)
-;    (trie-end-word? root-trie)
-;    (trie-word-up-to root-trie)))
 
 ;; contract: trie? string? integer? -> trie?
 (define (insert root-trie word)
   (define char-list (string->list word))
-  ; (displayln "@@@@ INSIDE INSERT @@@@")
   (trie
    (trie-char root-trie)
    (create-children char-list (trie-children root-trie) empty)
@@ -96,25 +74,13 @@
 
 ;; contract: trie? (listof string?) -> trie?
 (define (build-trie-from-list-of-words trie list-of-words)
-  ; (display "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
-  ; (displayln list-of-words)
   (cond
     [(= (length list-of-words) 1)
      (insert trie (first list-of-words))]
     [else
-    ;  (displayln "recursive call")
-
      (build-trie-from-list-of-words
       (insert trie (first list-of-words))
-      (rest list-of-words))
-      
-      ]))
-
-;; ------------------ SORTING ---------------------- ;;
-
-; (define (trie-sort list-of-words)
-;   (define new-trie (build-trie-from-list-of-words empty-trie list-of-words))
-;   (pre-order new-trie))
+      (rest list-of-words))]))
 
 
 (define (trie-sort list-of-words)
@@ -128,8 +94,6 @@
       (flatten (map pre-order (trie-children trie-node))))
     (flatten (map pre-order (trie-children trie-node)))))
 
-;; a little print test
-; (define test-list (list "apple" "app" "ape" "nest"))
 
 (define test-list
   (list
@@ -151,35 +115,9 @@
 ))
 
 
-;; (define start (current-inexact-milliseconds))
-
-;; (define (loop x)
-;;   (if (equal? x 10)
-;;       x
-;;       (begin
-;;         (define trie1 (build-trie-from-list-of-words empty-trie test-list))
-;;         (displayln (trie-sort test-list))
-;;         (loop (+ x 1)))))
-
-; (define trie1 (build-trie-from-list-of-words empty-trie test-list))
-
-; (displayln (trie-sort test-list))
-
 (define (generate-trie list-of-words)
   (build-trie-from-list-of-words empty-trie list-of-words))
 
 
 (pre-order (generate-trie test-list))
 
-
-;; (loop 0)
-
-; (displayln (- (current-inexact-milliseconds) start))
-
-
-; (define (loop x)
-;   (if (equal? x 10000)
-;       x
-;       (begin
-;         (trie-sort test-list)
-;         (loop (+ x 1)))))
