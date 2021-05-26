@@ -561,4 +561,32 @@ mod contract_tests {
         "#;
         assert_script(script);
     }
+
+    #[test]
+    fn transducers_containing_contracts() {
+        let script = r#"
+        (define/contract (mapper x)
+            (->/c number? number?)
+            (+ x 1))
+
+        (define/contract (is-even? x)
+            (->/c number? boolean?)
+            (even? x))
+
+        (define x (mapping mapper))
+        (define y (filtering is-even?))
+        (define z (taking 10))
+
+        (define xyz (compose x y z))
+
+        (define exec-list (execute xyz (range 0 100)))
+        (define exec-vector (execute xyz (range 0 100) 'vector))
+        (define my-sum (transduce xyz + 0 (range 0 100)))
+        
+        (assert! (equal? exec-list '(2 4 6 8 10 12 14 16 18 20)))
+        (assert! (equal? exec-vector (vector 2 4 6 8 10 12 14 16 18 20)))
+        (assert! (equal? my-sum 110))
+        "#;
+        assert_script(script);
+    }
 }
