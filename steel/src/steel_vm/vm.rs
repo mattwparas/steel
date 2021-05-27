@@ -125,6 +125,8 @@ impl VirtualMachineCore {
             &mut self.global_upvalue_heap,
             &mut self.function_stack,
             &mut self.stack_index,
+            UseCallback,
+            ApplyContract,
         );
 
         // Clean up
@@ -1131,6 +1133,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 &mut self.stack,
                 &mut self.function_stack,
                 &mut self.stack_index,
+                self.use_callbacks,
+                self.apply_contracts,
             )?;
 
             self.stack.push(result);
@@ -1165,6 +1169,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 &mut self.stack,
                 &mut self.function_stack,
                 &mut self.stack_index,
+                self.use_callbacks,
+                self.apply_contracts,
             )?;
 
             self.stack.push(result);
@@ -1298,6 +1304,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         &mut self.stack,
                         &mut self.function_stack,
                         &mut self.stack_index,
+                        self.use_callbacks,
+                        self.apply_contracts,
                     )?;
 
                     self.stack.push(result);
@@ -1448,7 +1456,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 }
 
 #[inline(always)]
-pub(crate) fn vm<CT: ConstantTable>(
+pub(crate) fn vm<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
     instructions: Rc<[DenseInstruction]>,
     stack: &mut StackFrame,
     global_env: &mut Env,
@@ -1457,6 +1465,8 @@ pub(crate) fn vm<CT: ConstantTable>(
     upvalue_heap: &mut UpValueHeap,
     function_stack: &mut Vec<Gc<ByteCodeLambda>>,
     stack_index: &mut Stack<usize>,
+    use_callbacks: U,
+    apply_contracts: A,
 ) -> Result<SteelVal> {
     VmCore::new(
         instructions,
@@ -1467,8 +1477,8 @@ pub(crate) fn vm<CT: ConstantTable>(
         upvalue_heap,
         function_stack,
         stack_index,
-        UseCallback,
-        ApplyContract,
+        use_callbacks,
+        apply_contracts,
     )?
     .vm()
 }

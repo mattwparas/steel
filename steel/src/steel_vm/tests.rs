@@ -343,6 +343,8 @@ mod stream_tests {
     use crate::parser::span::Span;
     use crate::steel_vm::evaluation_progress::EvaluationProgress;
     use crate::steel_vm::lazy_stream::LazyStreamIter;
+    use crate::steel_vm::options::ApplyContract;
+    use crate::steel_vm::options::UseCallback;
     use crate::steel_vm::test_util::assert_script;
     use crate::values::lazy_stream::LazyStream;
     use crate::{compiler::constants::ConstantMap, env::Env};
@@ -361,6 +363,8 @@ mod stream_tests {
             &cur_inst_span,
             &callback,
             Rc::new(RefCell::new(&mut mut_ref)),
+            UseCallback,
+            ApplyContract,
         );
 
         assert!(lazy_iter.into_iter().next().is_none());

@@ -1,7 +1,8 @@
-pub trait ApplyContracts {
+pub trait ApplyContracts: Copy {
     fn enforce_contracts(&self) -> bool;
 }
 
+#[derive(Clone, Copy)]
 pub struct ApplyContract;
 
 impl ApplyContracts for ApplyContract {
@@ -11,6 +12,7 @@ impl ApplyContracts for ApplyContract {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct DoNotApplyContracts;
 
 impl ApplyContracts for DoNotApplyContracts {
@@ -20,10 +22,11 @@ impl ApplyContracts for DoNotApplyContracts {
     }
 }
 
-pub trait UseCallbacks {
+pub trait UseCallbacks: Copy {
     fn use_callbacks(&self) -> bool;
 }
 
+#[derive(Clone, Copy)]
 pub struct UseCallback;
 
 impl UseCallbacks for UseCallback {
@@ -33,6 +36,7 @@ impl UseCallbacks for UseCallback {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct DoNotUseCallback;
 
 impl UseCallbacks for DoNotUseCallback {
