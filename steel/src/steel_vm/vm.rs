@@ -79,7 +79,12 @@ impl VirtualMachineCore {
         &self.callback.with_callback(Box::new(callback));
     }
 
-    pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
+    pub fn execute_program<U: UseCallbacks, A: ApplyContracts>(
+        &mut self,
+        program: Program,
+        use_callbacks: U,
+        apply_contracts: A,
+    ) -> Result<Vec<SteelVal>> {
         let Program {
             instructions,
             constant_map,
@@ -87,7 +92,14 @@ impl VirtualMachineCore {
 
         let output = instructions
             .into_iter()
-            .map(|x| self.execute(Rc::from(x.into_boxed_slice()), &constant_map))
+            .map(|x| {
+                self.execute(
+                    Rc::from(x.into_boxed_slice()),
+                    &constant_map,
+                    use_callbacks,
+                    apply_contracts,
+                )
+            })
             .collect();
 
         output
@@ -107,14 +119,16 @@ impl VirtualMachineCore {
 
         instructions
             .into_iter()
-            .map(|code| self.execute(code, &constant_map))
+            .map(|code| self.execute(code, &constant_map, UseCallback, ApplyContract))
             .collect()
     }
 
-    pub fn execute(
+    pub fn execute<U: UseCallbacks, A: ApplyContracts>(
         &mut self,
         instructions: Rc<[DenseInstruction]>,
         constant_map: &ConstantMap,
+        use_callbacks: U,
+        apply_contracts: A,
     ) -> Result<SteelVal> {
         let result = vm(
             instructions,
@@ -125,8 +139,8 @@ impl VirtualMachineCore {
             &mut self.global_upvalue_heap,
             &mut self.function_stack,
             &mut self.stack_index,
-            UseCallback,
-            ApplyContract,
+            use_callbacks,
+            apply_contracts,
         );
 
         // Clean up
