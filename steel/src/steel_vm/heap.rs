@@ -1,7 +1,7 @@
 use crate::{
     gc::Gc,
     rvals::{ByteCodeLambda, UpValue},
-    values::contracts::{ContractType, ContractedFunction, FunctionContract},
+    values::contracts::{ContractType, FunctionContract},
     SteelVal,
 };
 use std::cell::RefCell;
