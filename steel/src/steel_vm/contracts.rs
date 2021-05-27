@@ -132,22 +132,26 @@ impl FlatContractExt for FlatContract {
         use_callbacks: U,
         apply_contracts: A,
     ) -> Result<()> {
-        let arg_vec = vec![arg.clone()];
+        // TODO make this not clone the argument
         let output = match self.predicate() {
-            SteelVal::FuncV(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
-            SteelVal::BoxedFunction(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
+            SteelVal::FuncV(func) => func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span)),
+            SteelVal::BoxedFunction(func) => {
+                func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span))
+            }
             SteelVal::Closure(closure) => {
-                // TODO make recursive call here with a very small stack
-                // probably a bit overkill, but not much else I can do here I think
+                stack_index.push(stack.len());
+                stack.push(arg.clone());
+                function_stack.push(Gc::clone(closure));
+
                 vm(
                     closure.body_exp(),
-                    &mut arg_vec.into(),
+                    stack,
                     global_env,
                     constants,
                     callback,
                     upvalue_heap,
-                    &mut vec![Gc::clone(closure)],
-                    &mut Stack::new(),
+                    function_stack,
+                    stack_index,
                     use_callbacks,
                     apply_contracts,
                 )
