@@ -1,10 +1,10 @@
-pub trait ApplyContract {
+pub trait ApplyContracts {
     fn enforce_contracts(&self) -> bool;
 }
 
-pub struct ApplyContracts;
+pub struct ApplyContract;
 
-impl ApplyContract for ApplyContracts {
+impl ApplyContracts for ApplyContract {
     #[inline(always)]
     fn enforce_contracts(&self) -> bool {
         true
@@ -13,7 +13,7 @@ impl ApplyContract for ApplyContracts {
 
 pub struct DoNotApplyContracts;
 
-impl ApplyContract for DoNotApplyContracts {
+impl ApplyContracts for DoNotApplyContracts {
     #[inline(always)]
     fn enforce_contracts(&self) -> bool {
         false

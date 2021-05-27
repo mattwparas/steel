@@ -1,5 +1,8 @@
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
-use super::vm::VmCore;
+use super::{
+    options::{ApplyContracts, UseCallbacks},
+    vm::VmCore,
+};
 use crate::{
     compiler::constants::ConstantTable,
     parser::span::Span,
@@ -28,7 +31,7 @@ use super::lazy_stream::LazyStreamIter;
 //     ($vm_stack)
 // }
 
-impl<'a, CT: ConstantTable> VmCore<'a, CT> {
+impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
     pub(crate) fn run(
         &mut self,
         ops: &[Transducers],
