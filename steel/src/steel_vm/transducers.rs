@@ -26,7 +26,7 @@ use crate::gc::Gc;
 // use super::inline_iter::*;
 use super::lazy_stream::LazyStreamIter;
 
-// TODO see if this can be done - lifetimes just don't love passing it into a function for some reason
+/// Generates the take transducer - wrapper around the take iterator
 macro_rules! generate_take {
     ($iter:expr, $num:expr, $cur_inst_span:expr) => {
         if let SteelVal::IntV(num) = $num {
@@ -40,6 +40,7 @@ macro_rules! generate_take {
     }
 }
 
+/// Generates the drop transducer - wrapper around the drop iterator
 macro_rules! generate_drop {
     ($iter:expr, $num:expr, $cur_inst_span:expr) => {
         if let SteelVal::IntV(num) = $num {
