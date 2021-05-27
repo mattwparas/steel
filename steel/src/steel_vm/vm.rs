@@ -404,10 +404,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
                     match function {
                         SteelVal::Closure(closure) => {
-                            // println!("%%%%%%%%%%%%% Calling closure from call/cc %%%%%%%%%%%%%%%");
-
                             if self.stack_index.len() == STACK_LIMIT {
-                                // println!("stacks at exit: {:?}", stacks);
                                 println!("stack frame at exit: {:?}", self.stack);
                                 stop!(Generic => "stack overflowed!"; cur_inst.span);
                             }
@@ -443,8 +440,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                             stop!(Generic => "call/cc expects a function");
                         }
                     }
-
-                    // todo!("Handling call/cc not yet implemented");
                 }
                 OpCode::READ => self.handle_read(&cur_inst.span)?,
                 OpCode::COLLECT => self.handle_collect(&cur_inst.span)?,
@@ -562,7 +557,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 OpCode::SCLOSURE => self.handle_start_closure(cur_inst.payload_size as usize),
                 OpCode::SDEF => self.handle_start_def(),
                 OpCode::EDEF => {
-                    // self.global_env.borrow_mut().set_binding_context(false);
                     self.ip += 1;
                 }
                 _ => {
