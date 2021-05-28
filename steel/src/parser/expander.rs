@@ -12,6 +12,8 @@ use std::collections::HashMap;
 
 use log::{debug, error, info};
 
+use super::ast::Quote;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SteelMacro {
     name: String,
@@ -168,6 +170,7 @@ pub enum MacroPattern {
     StringLiteral(String),
     FloatLiteral(f64),
     BooleanLiteral(bool),
+    QuotedExpr(Box<Quote>),
 }
 
 impl MacroPattern {
@@ -229,6 +232,7 @@ impl MacroPattern {
                     macro_name,
                     special_forms,
                 )?)),
+                ExprKind::Quote(q) => pattern_vec.push(MacroPattern::QuotedExpr(q)),
                 _ => {
                     stop!(BadSyntax => "illegal special form found in macro pattern");
                 }
@@ -331,6 +335,10 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                                 ..
                             },
                     }) if s == b => continue,
+                    _ => return false,
+                },
+                MacroPattern::QuotedExpr(q) => match val {
+                    ExprKind::Quote(boxed_q) if q == boxed_q => continue,
                     _ => return false,
                 },
                 MacroPattern::Nested(vec) => {
