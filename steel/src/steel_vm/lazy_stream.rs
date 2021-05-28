@@ -113,31 +113,8 @@ fn exec_func<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
             let arg_vec = vec![];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
-        // SteelVal::StructClosureV(sc) => {
-        //     let arg_vec = vec![];
-        //     (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
-        // }
         SteelVal::Closure(closure) => {
             let args = vec![];
-
-            // let parent_env = closure.sub_expression_env();
-
-            // TODO remove this unwrap
-            // let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-            //     parent_env.clone(),
-            //     offset,
-            // )));
-
-            // inner_env
-            //     .borrow_mut()
-            //     .reserve_defs(if closure.ndef_body() > 0 {
-            //         closure.ndef_body() - 1
-            //     } else {
-            //         0
-            //     });
-
             // TODO make recursive call here with a very small stack
             // probably a bit overkill, but not much else I can do here I think
             vm(
