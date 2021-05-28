@@ -58,7 +58,61 @@
      30]))
 
 
-(displayln (match-exact 1))
+(displayln (match-exact 'test))
+
+;; evaluates body if expr is a list
+;; errors otherwise
+(define-syntax match-list
+  (syntax-rules ()
+    [(match-list expr body)     
+     (let ((exp expr))
+       (if (list? exp)
+           body
+           (error! "match expected a list, found: " exp)))]))
+
+(match-list (vector 1 2 3 4 5) (displayln "Found a list!"))
+
+
+;(define-syntax cond
+;  (syntax-rules (else)
+;    [(cond [else e1 ...])
+;     (begin e1 ...)]
+;    [(cond [e1 e2 ...])
+;     (when e1 e2 ...)]
+;    [(cond [e1 e2 ...] c1 ...)
+;     (if e1
+;         (begin e2 ...)
+;         (cond c1 ...))]))
+
+;(define-syntax match-and-bind
+;  (syntax-rules ()
+;    [(match-and-bind expr pat)
+;     (
+
+
+;; What is a pattern?
+;; It is either a '?
+;; Or it is either a 
+
+;; (define (match-list pattern lst)
+
+      
+
+;(define-syntax match-and-bind
+;  (syntax-rules ()
+;    ;; else case - unable to find a match, just run the expression given
+;    [(match-and-bind expr
+;                     [else e1 ...])
+;     (begin e1 ...)]
+;    [(match-and-bind expr
+;                     [(pat body) rest ...])]))
+     
+                    
+           
+
+;(define-syntax dispatch
+;  (syntax-rules (..)
+;    [(dispatch (
 
 
 
