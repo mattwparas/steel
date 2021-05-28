@@ -1,8 +1,9 @@
 ;; Sets of useful ideas for things
+;; #lang racket
 
-(define-syntax match
-  (syntax-rules (list)
-    [(match list x) x]))
+;(define-syntax match
+;  (syntax-rules (list)
+;    [(match list x) x]))
 
 ;; Do some pattern matching destructuring with this
 ;; Pull in the let destruct macro and use that destructuring for lists
@@ -45,3 +46,34 @@
           (displayln a)
           (displayln b)
           (displayln c))
+
+
+(define-syntax match-exact
+  (syntax-rules ()
+    [(match-exact 1)
+     10]
+    [(match-exact 2)
+     20]
+    [(match-exact 'test)
+     30]))
+
+
+(displayln (match-exact 1))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
