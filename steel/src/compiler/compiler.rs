@@ -247,7 +247,7 @@ impl Compiler {
             constant_map,
             macro_env,
             module_manager,
-            opt_level: OptLevel::Zero,
+            opt_level: OptLevel::Three,
         }
     }
 
@@ -631,13 +631,13 @@ impl Compiler {
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
 
-        println!(
-            "{}",
-            statements_without_structs
-                .iter()
-                .map(|x| x.to_pretty(60))
-                .join("\n\n")
-        );
+        // println!(
+        //     "{}",
+        //     statements_without_structs
+        //         .iter()
+        //         .map(|x| x.to_pretty(60))
+        //         .join("\n\n")
+        // );
 
         self.generate_dense_instructions(statements_without_structs, results)
     }

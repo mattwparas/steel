@@ -63,16 +63,19 @@ impl<'a> ReplaceExpressions<'a> {
             // dbg!(self.bindings);
             // dbg!(variable_to_lookup);
 
+            let var = variable_to_lookup.atom_identifier_or_else(
+                throw!(BadSyntax => "macro expansion failed at lookup!"),
+            )?;
+
             let rest = self.bindings
-                .get(variable_to_lookup.atom_identifier_or_else(
-                    throw!(BadSyntax => "macro expansion failed at lookup!"),
-                )?)
-                .ok_or_else(throw!(BadSyntax => "macro expansion failed at finding the variable when expanding ellipses"))?;
+                .get(var)
+                .ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {}", var)))?;
 
             let list_of_exprs = rest.list_or_else(
                 throw!(BadSyntax => "macro expansion failed, expected list of expressions"),
             )?;
 
+            // TODO
             let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
             first_chunk.extend_from_slice(list_of_exprs);
             first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
@@ -98,13 +101,24 @@ impl<'a> ReplaceExpressions<'a> {
                             throw!(BadSyntax => "datum->syntax requires an identifier"),
                         )?;
 
+                        // TODO this is no longer correct
+                        // Should actually just visit the variable in the define name part
+                        // TODO
                         if transformer.starts_with("##") {
-                            let (_, cdr) = transformer.split_at(2);
-                            buffer.push_str(cdr);
-                        } else {
                             if let Some(body) = self.bindings.get(transformer) {
                                 buffer.push_str(body.to_string().as_str());
                             } else {
+                                let (_, cdr) = transformer.split_at(2);
+                                buffer.push_str(cdr);
+                            }
+                        } else {
+                            // Try to get the prepended variable
+                            if let Some(body) = self.bindings.get(&("##".to_string() + transformer))
+                            {
+                                // println!("Found datum: {}", transformer);
+                                buffer.push_str(body.to_string().as_str());
+                            } else {
+                                // println!("Unable to find datum: {}", transformer);
                                 buffer.push_str(transformer);
                             }
                         }
@@ -354,7 +368,7 @@ mod replace_expressions_tests {
     #[test]
     fn test_expand_datum_syntax() {
         let bindings = map! {
-            "struct-name" => atom_identifier("apple"),
+            "##struct-name" => atom_identifier("apple"),
         };
 
         let expr = ExprKind::List(List::new(vec![

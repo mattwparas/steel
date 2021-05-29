@@ -130,9 +130,26 @@ impl MacroCase {
             stop!(Generic => "unable to parse macro");
         };
 
-        let args_str: Vec<&str> = args.iter().map(|x| x.deconstruct()).flatten().collect();
+        let args_str: Vec<&str> = args
+            .iter()
+            .map(|x| x.deconstruct_without_syntax())
+            .flatten()
+            .collect();
 
-        RenameIdentifiersVisitor::new(&args_str).rename_identifiers(&mut body);
+        // let syntaxes: Vec<&str> = args
+        //     .iter()
+        //     .map(|x| x.deconstruct_syntax())
+        //     .flatten()
+        //     .collect();
+
+        // println!("Args pre mangle: {:?}", &args_str);
+
+        RenameIdentifiersVisitor::new(&args_str, &special_forms).rename_identifiers(&mut body);
+
+        let args = args.into_iter().map(|x| x.mangle(&special_forms)).collect();
+
+        // println!("Found args: {:?}", args);
+        // println!("Renamed body: {:?}", &body);
 
         Ok(MacroCase { args, body })
     }
@@ -174,6 +191,35 @@ pub enum MacroPattern {
 }
 
 impl MacroPattern {
+    fn mangle(&self, special_forms: &[String]) -> Self {
+        use MacroPattern::*;
+        match self {
+            Single(s) => {
+                if special_forms.contains(s) {
+                    Single(s.to_string())
+                } else {
+                    Single("##".to_string() + s)
+                }
+            }
+            Syntax(s) => {
+                // if special_forms.contains(s) {
+                Syntax(s.to_string())
+                // } else {
+                // Syntax("##".to_string() + s)
+                // }
+            }
+            Many(s) => {
+                if special_forms.contains(s) {
+                    Many(s.to_string())
+                } else {
+                    Many("##".to_string() + s)
+                }
+            }
+            Nested(v) => Nested(v.into_iter().map(|x| x.mangle(special_forms)).collect()),
+            _ => self.clone(),
+        }
+    }
+
     fn parse_from_list(
         list: List,
         macro_name: &str,
@@ -249,6 +295,23 @@ impl MacroPattern {
             Self::Syntax(s) => vec![&s],
             Self::Single(s) => vec![&s],
             Self::Many(s) => vec![&s],
+            Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
+            _ => vec![],
+        }
+    }
+
+    pub fn deconstruct_without_syntax(&self) -> Vec<&str> {
+        match self {
+            Self::Single(s) => vec![&s],
+            Self::Many(s) => vec![&s],
+            Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
+            _ => vec![],
+        }
+    }
+
+    pub fn deconstruct_syntax(&self) -> Vec<&str> {
+        match self {
+            Self::Single(s) => vec![&s],
             Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
             _ => vec![],
         }

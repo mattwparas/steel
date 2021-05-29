@@ -166,7 +166,7 @@
     (syntax-rules (provide gen-defines contract/out) 
         [(module name (provide ids ...) funcs ...)
          (begin
-            (define name 
+            (define (datum->syntax name) 
                 ((lambda () funcs ... 
                 (module provide ids ...))))
             (module gen-defines name ids ...))]
@@ -184,19 +184,17 @@
         [(module provide name rest ...)
          (hash-insert (module provide rest ...) 'name name)]
 
-
         ;; Module contract provides
         [(module gen-defines mod (contract/out name contract))
-         (define name (bind/c contract (hash-get mod 'name)))]
+         (define (datum->syntax name) (bind/c contract (hash-get mod 'name)))]
         [(module gen-defines mod (contract/out name contract) rest ...)
-         (begin (define name (bind/c contract (hash-get mod 'name)))
+         (begin (define (datum->syntax name) (bind/c contract (hash-get mod 'name)))
             (module gen-defines mod rest ...))]
 
-
         ;; Normal provides
-        [(module gen-defines mod name) (define name (hash-get mod 'name))]
+        [(module gen-defines mod name) (define (datum->syntax name) (hash-get mod 'name))]
         [(module gen-defines mod name rest ...)
-         (begin (define name (hash-get mod 'name))
+         (begin (define (datum->syntax name) (hash-get mod 'name))
             (module gen-defines mod rest ...))]))
 
 (define caar (lambda (pair) (car (car pair))))
