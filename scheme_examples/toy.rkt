@@ -70,7 +70,18 @@
            body
            (error! "match expected a list, found: " exp)))]))
 
-(match-list (vector 1 2 3 4 5) (displayln "Found a list!"))
+; (match-list (list 1 2 3 4 5) (displayln "Found a list!"))
+
+
+(define (matcher pattern expr)
+  (cond
+    [(list? pattern) 
+      (displayln "found a list pattern")]
+    [(symbol? pattern) (displayln "found a symbol pattern")]
+    [else (displayln "Could not match")]))
+
+
+(matcher '(list 1 2 3) (list 1 2 3))
 
 
 ;(define-syntax cond
