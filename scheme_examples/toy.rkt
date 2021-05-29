@@ -83,6 +83,53 @@
 
 (matcher '(list 1 2 3) (list 1 2 3))
 
+;; Tells me if this is a free variable (for now)
+(define (var? x)
+  (and (symbol? x) 
+      (-> x (symbol->string)
+            (string->list)
+            (first)
+            (equal? #\?))))
+
+(displayln (var? '?x))
+(displayln (var? 'not-a-variable))
+
+(define (atom? x)
+  (or (number? x)
+      (char? x)
+      (string? x)
+      (boolean? x)
+      (symbol? x)))
+
+(define (match-p pattern input bindings)
+  (cond [(var? pattern) (hash-insert bindings pattern input)]
+        [(atom? pattern) (displayln "in here") bindings]
+        [else 
+          (displayln "getting into this case")
+          (match-p (car pattern) (car input)
+                (match-p (cdr pattern) (cdr input) bindings))]))
+
+(define (match pattern input)
+  (match-p pattern input (hash)))
+
+
+(displayln (match '?x (list 1 2 3 4)))
+(displayln (match '(?x ?y ?z ?foo) (list 1 2 3 4)))
+
+(displayln (string? '(?x ?y ?z ?foo)))
+
+; (displayln (match '(?x (?x)))
+
+
+
+; (define (collect-bindings pattern input bindings)
+;   (if (or (null? pattern) (null? input) bindings)
+;       bindings
+;       ()
+  
+;   )
+
+; )
 
 ;(define-syntax cond
 ;  (syntax-rules (else)

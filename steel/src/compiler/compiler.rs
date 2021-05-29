@@ -35,7 +35,7 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
-// use itertools::Itertools;
+use itertools::Itertools;
 
 use im_rc::HashMap as ImmutableHashMap;
 
@@ -247,7 +247,7 @@ impl Compiler {
             constant_map,
             macro_env,
             module_manager,
-            opt_level: OptLevel::Three,
+            opt_level: OptLevel::Zero,
         }
     }
 
@@ -338,17 +338,20 @@ impl Compiler {
 
         let mut expanded_statements = expanded_statements;
 
-        if self.opt_level != OptLevel::Three {
-            loop {
+        match self.opt_level {
+            OptLevel::Three => loop {
                 let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
                 expanded_statements = manager.run(expanded_statements)?;
                 if !manager.changed {
                     break;
                 }
+            },
+            OptLevel::Two => {
+                expanded_statements =
+                    ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                        .run(expanded_statements)?;
             }
-        } else {
-            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
-                .run(expanded_statements)?;
+            _ => {}
         }
 
         // let expanded_statements =
@@ -544,17 +547,20 @@ impl Compiler {
 
         let mut expanded_statements = expanded_statements;
 
-        if self.opt_level != OptLevel::Three {
-            loop {
+        match self.opt_level {
+            OptLevel::Three => loop {
                 let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
                 expanded_statements = manager.run(expanded_statements)?;
                 if !manager.changed {
                     break;
                 }
+            },
+            OptLevel::Two => {
+                expanded_statements =
+                    ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                        .run(expanded_statements)?;
             }
-        } else {
-            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
-                .run(expanded_statements)?;
+            _ => {}
         }
 
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
@@ -593,17 +599,20 @@ impl Compiler {
 
         let mut expanded_statements = expanded_statements;
 
-        if self.opt_level != OptLevel::Three {
-            loop {
+        match self.opt_level {
+            OptLevel::Three => loop {
                 let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
                 expanded_statements = manager.run(expanded_statements)?;
                 if !manager.changed {
                     break;
                 }
+            },
+            OptLevel::Two => {
+                expanded_statements =
+                    ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                        .run(expanded_statements)?;
             }
-        } else {
-            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
-                .run(expanded_statements)?;
+            _ => {}
         }
 
         // let expanded_statements =
@@ -622,13 +631,13 @@ impl Compiler {
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
 
-        // println!(
-        //     "{}",
-        //     statements_without_structs
-        //         .iter()
-        //         .map(|x| x.to_pretty(60))
-        //         .join("\n\n")
-        // );
+        println!(
+            "{}",
+            statements_without_structs
+                .iter()
+                .map(|x| x.to_pretty(60))
+                .join("\n\n")
+        );
 
         self.generate_dense_instructions(statements_without_structs, results)
     }
