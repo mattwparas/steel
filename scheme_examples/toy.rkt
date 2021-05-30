@@ -36,16 +36,16 @@
                      body ...))]))
 
 ;; <var> without the <..> means bind the value there
-(destruct ((list a b c) '(1 2 3))
-          (displayln a)
-          (displayln b)
-          (displayln c))
+; (destruct ((list a b c) '(1 2 3))
+;           (displayln a)
+;           (displayln b)
+;           (displayln c))
 
 ;; <var> .. means bind the rest of the list to that parameter
-(destruct ((list a b c ..) '(1 2 3 4 5))
-          (displayln a)
-          (displayln b)
-          (displayln c))
+; (destruct ((list a b c ..) '(1 2 3 4 5))
+;           (displayln a)
+;           (displayln b)
+;           (displayln c))
 
 
 (define-syntax match-exact
@@ -58,7 +58,7 @@
      30]))
 
 
-(displayln (match-exact 'test))
+; (displayln (match-exact 'test))
 
 ;; evaluates body if expr is a list
 ;; errors otherwise
@@ -81,55 +81,172 @@
     [else (displayln "Could not match")]))
 
 
-(matcher '(list 1 2 3) (list 1 2 3))
+; (matcher '(list 1 2 3) (list 1 2 3))
 
 ;; Tells me if this is a free variable (for now)
 (define (var? x)
-  (and (symbol? x) 
-      (-> x (symbol->string)
-            (string->list)
-            (first)
-            (equal? #\?))))
+  (and (symbol? x)
+       (starts-with? (symbol->string x) "?")))
 
-(displayln (var? '?x))
-(displayln (var? 'not-a-variable))
+(define (ignore? x)
+  (equal? x '_))
 
-(define (atom? x)
-  (or (number? x)
-      (char? x)
-      (string? x)
-      (boolean? x)
-      (symbol? x)))
+(define (many? x)
+  (and (symbol? x)
+       (let ((str (symbol->string x)))
+          (and (starts-with? str "?")
+               (ends-with? str "...")))))
 
+
+(define (equal-or-insert hm key value)
+  (define existing-value (hash-try-get hm key))
+  (if existing-value
+      (if (equal? existing-value value)
+          hm
+          #f)
+      (hash-insert hm key value)))
+
+(define (collect-until-last-p input collected)
+  (if (null? (cdr input))
+      (list (car input) collected)
+      (collect-until-last-p (cdr input) (cons (car input) collected))))
+
+
+(define (collect-until-last input)
+  (collect-until-last-p input '()))
+
+;; Bindings or #false if there is not a match
 (define (match-p pattern input bindings)
-  (cond [(var? pattern) (hash-insert bindings pattern input)]
-        [(atom? pattern) (displayln "in here") bindings]
-        [else 
-          (displayln "getting into this case")
-          (match-p (car pattern) (car input)
-                (match-p (cdr pattern) (cdr input) bindings))]))
+  (cond [(and (list? pattern)
+              (not (null? pattern))
+              (many? (car pattern)))
+
+              (if (null? (cdr pattern))
+                  (equal-or-insert bindings (car pattern) input)
+                  (let ((collected (collect-until-last input)))
+                    (define remainder (car collected))
+                    (define collected-list (reverse (car (cdr collected))))
+                    (if (null? (cdr (cdr pattern)))
+                        (let ((remainder-bound 
+                                (equal-or-insert bindings 
+                                  (car (cdr pattern)) remainder)))
+                            (equal-or-insert remainder-bound (car pattern) collected-list))
+                        #f)))
+
+
+              ;; (equal-or-insert bindings (car pattern) input)
+              
+              ]
+        [(var? pattern) (equal-or-insert bindings pattern input)]
+        [(ignore? pattern) bindings]
+        [(atom? pattern) (if (equal? pattern input) bindings #f)]
+        [(null? pattern) (if (null? input) bindings #f)]
+        [(null? input) #f]
+        [else
+          (define remaining (match-p (cdr pattern) (cdr input) bindings))
+          (if remaining
+              (match-p (car pattern) (car input) remaining)
+              #f)]))
+
+;; Pretty print for testing purposes
+(define (test name input expected)
+  (if (equal? input expected)
+                (begin
+                  (display "> ")
+                  (display name)
+                  (display " ... ")
+                  (display-color "OK" 'green)
+                  (newline))
+                (begin 
+                  (display "> ")
+                  (display name)
+                  (display " ... ")
+                  (display-color "FAILED" 'red)
+                  (newline)
+                  (display "    Expected: ")
+                  (display expected)
+                  (display ", Found ")
+                  (displayln input))))
 
 (define (match pattern input)
   (match-p pattern input (hash)))
 
+;; Matches a pattern explicitly
+(test "Simple match" 
+  (match '?x '(1 2 3 4))
+  (hash '?x '(1 2 3 4)))
 
-(displayln (match '?x (list 1 2 3 4)))
-(displayln (match '(?x ?y ?z ?foo) (list 1 2 3 4)))
+;; If the pattern match fails, return false
+(test "Pattern match fails returns false"
+  (match '(10 2 ?z 5) '(1 2 3 4))
+  #f)
 
-(displayln (string? '(?x ?y ?z ?foo)))
+;; If the pattern fails because we didn't match exactly, bail
+(test "Pattern fails because constants don't match exactly"
+  (match '(1 2 3 4 5) '(1 2 3 4))
+  #f)
 
-; (displayln (match '(?x (?x)))
+;; Should fail
+(test "Lengths unequal fails"
+  (match '(?x ?y ?z 4 5) '(1 2 3 4))
+  #f)
+
+;; Should succeed with x y z bound to 1 2 3
+(test "Successful pattern match on simple list"
+  (match '(?x ?y ?z 4 5) '(1 2 3 4 5))
+  (hash '?x 1 '?y 2 '?z 3))
+
+;; Should succed with x y z bound to 1 2 3
+(test "Nested patterns match"
+  (match '(?x (?y ?z)) '(1 '(2 3)))
+  (hash '?x 1 '?y 2 '?z 3))
+
+;; Also should work
+(test "Deep nested pattern"
+  (match '(?x (?y (?z (?applesauce ?bananas))))
+                  '(1 (2 (3 (4 5)))))
+  (hash '?x 1 '?y 2 '?z 3 '?applesauce 4 '?bananas 5))
 
 
+;; Also should work
+(test "Deep nested pattern with list matching"
+  (match '(?x (?y (?z (?applesauce ?bananas))))
+                    '(1 (2 (3 (4 (1 2 3 4 5))))))
+  (hash '?x 1 '?y 2 '?z 3 '?applesauce 4 '?bananas '(1 2 3 4 5)))
 
-; (define (collect-bindings pattern input bindings)
-;   (if (or (null? pattern) (null? input) bindings)
-;       bindings
-;       ()
-  
-;   )
 
-; )
+;; Match the bindings
+(test "Pattern variables once bound retain their value"
+  (match '(?x ?y ?x) '(1 2 1))
+  (hash '?x 1 '?y 2))
+
+;; Should fail since x doesn't match what was there at first
+(test "Matching fails when variable has two different values"
+  (match '(?x ?y ?x) '(1 2 3))
+  #f)
+
+;; Shouldn't fail, should ignore whatever is in the second position
+(test "Wildcard ignores the matching at that position"
+  (match '(?x _ 3) '(1 (1 2 3) 3))
+  (hash '?x 1))
+
+;; a => 1
+;; x => '(2 3 4 5)
+(test "Basic ellipses matching works"
+  (match '(?a ?x...) '(1 2 3 4 5))
+  (hash '?a 1 '?x... '(2 3 4 5)))
+
+
+(test "Ellipses matches to empty list"
+  (match '(?first ?rest...) '(1))
+  (hash '?first 1 '?rest... '()))
+
+
+(test "Ellipses matches until next value"
+  (match '(?first ?rest... ?last) '(1 2 3 4 5))
+  (hash '?first 1 '?rest... '(2 3 4) '?last 5))
+
+; '(?x ?y ?z...) -> (list 1 2 3...)
 
 ;(define-syntax cond
 ;  (syntax-rules (else)

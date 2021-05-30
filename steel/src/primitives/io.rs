@@ -1,3 +1,5 @@
+use colored::Colorize;
+
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
@@ -18,10 +20,39 @@ impl IoFunctions {
                     _ => print!("{}", print_val),
                 }
 
-                // print!("{}", print_val);
                 Ok(SteelVal::Void)
             } else {
                 stop!(ArityMismatch => "display takes one argument");
+            }
+        })
+    }
+
+    pub fn display_color() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() == 2 {
+                let print_val = &args[0];
+                let color = &args[1];
+
+                match (&print_val, &color) {
+                    (SteelVal::StringV(s), SteelVal::SymbolV(c)) => match c.as_ref() {
+                        "green" | "Green" => print!("{}", s.to_string().bright_green()),
+                        "blue" | "Blue" => print!("{}", s.to_string().bright_blue()),
+                        "red" | "Red" => print!("{}", s.to_string().red()),
+                        _ => print!("{}", s),
+                    },
+                    (_, SteelVal::StringV(c)) => match c.as_ref() {
+                        "green" | "Green" => print!("{}", print_val.to_string().bright_green()),
+                        "blue" | "Blue" => print!("{}", print_val.to_string().bright_blue()),
+                        "red" | "Red" => print!("{}", print_val.to_string().red()),
+                        _ => print!("{}", print_val),
+                    },
+                    (_, _) => {
+                        stop!(TypeMismatch => "display-color expected a symbol as the second argument")
+                    }
+                }
+                Ok(SteelVal::Void)
+            } else {
+                stop!(ArityMismatch => "display-color takes two arguments");
             }
         })
     }

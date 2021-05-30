@@ -105,6 +105,25 @@ macro_rules! gen_pred {
             Ok(SteelVal::BoolV(false))
         })
     }};
+
+    ($variant1:ident, $variant2:ident, $variant3:ident, $variant4:ident, $variant5:ident, $variant6:ident) => {{
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if let Some(first) = args.first() {
+                match first {
+                    SteelVal::$variant1(..)
+                    | SteelVal::$variant2(..)
+                    | SteelVal::$variant3(..)
+                    | SteelVal::$variant4(..)
+                    | SteelVal::$variant5(..)
+                    | SteelVal::$variant6(..) => {
+                        return Ok(SteelVal::BoolV(true));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(SteelVal::BoolV(false))
+        })
+    }};
 }
 
 const LIST: &str = "list";
@@ -229,7 +248,9 @@ pub(crate) fn register_string_functions(engine: &mut Engine) {
         .register_value("split-whitespace", StringOperations::split_whitespace())
         .register_value("string->int", StringOperations::string_to_int())
         .register_value("int->string", StringOperations::int_to_string())
-        .register_value("string->symbol", StringOperations::string_to_symbol());
+        .register_value("string->symbol", StringOperations::string_to_symbol())
+        .register_value("starts-with?", StringOperations::starts_with())
+        .register_value("ends-with?", StringOperations::ends_with());
 }
 
 #[inline(always)]
@@ -296,6 +317,10 @@ pub(crate) fn register_identity_predicates(engine: &mut Engine) {
                 BoxedFunction,
                 ContinuationFunction
             ),
+        )
+        .register_value(
+            "atom?",
+            gen_pred!(NumV, IntV, StringV, SymbolV, BoolV, CharV),
         );
 }
 
@@ -371,6 +396,7 @@ pub(crate) fn register_symbol_functions(engine: &mut Engine) {
 pub(crate) fn register_io_functions(engine: &mut Engine) {
     engine
         .register_value("display", IoFunctions::display())
+        .register_value("display-color", IoFunctions::display_color())
         .register_value("newline", IoFunctions::newline())
         .register_value("read-to-string", IoFunctions::read_to_string());
 }
