@@ -72,15 +72,6 @@
 
 ; (match-list (list 1 2 3 4 5) (displayln "Found a list!"))
 
-
-;; (define (matcher pattern expr)
-;;   (cond
-;;     [(list? pattern)
-;;      (displayln "found a list pattern")]
-;;     [(symbol? pattern) (displayln "found a symbol pattern")]
-;;     [else (displayln "Could not match")]))
-
-
 ; (matcher '(list 1 2 3) (list 1 2 3))
 
 ;; Tells me if this is a free variable (for now)
@@ -280,35 +271,131 @@
 
 ;; Should trim the ...
 ;; Off of the many symbols to ease with use
-(define (match-expr expr)
-  (let ((match? (match '(?x) expr)))
-    (if match?
-        (let ((x (hash-get match? '?x)))
-          (display "Found x: ")
-          (displayln x))
-        (let ((match? (match '(?x ?xs...) expr)))
-           (if match?
-               (let ((x (hash-get match? '?x))
-                     (xs (hash-get match? '?xs...)))
-                 (display "Found x: ")
-                 (displayln x)
-                 (display "Found xs: ")
-                 (displayln xs))
-               (error! "Unable to match expression: " expr " to any of the given patterns"))))))
+;; (define (match-expr expr)
+;;   (let ((match? (match '(?x) expr)))
+;;     (if match?
+;;         (let ((?x (hash-get match? '?x)))
+;;           (display "Found x: ")
+;;           (displayln ?x))
+;;         (let ((match? (match '(?x ?xs...) expr)))
+;;            (if match?
+;;                (let ((?x (hash-get match? '?x))
+;;                      (?xs (hash-get match? '?xs...)))
+;;                  (display "Found x: ")
+;;                  (displayln ?x)
+;;                  (display "Found xs: ")
+;;                  (displayln ?xs))
+;;                (error! "Unable to match expression: " expr " to any of the given patterns"))))))
 
 
 
-(match-expr (list 1 2 3 4 5))
+(define-syntax syntax->pattern
+  (syntax-rules ()
+    [(syntax->pattern (var1))
+     '(var1)]
+    [(syntax->pattern (var1 var2 ...))
+       (cons 'var1 (syntax->pattern (var2 ...)))]
+    [(syntax->pattern var)
+     'var]))
+
+
+(define-syntax syntax-pattern->lets
+  (syntax-rules ()
+    [(syntax-pattern->lets (var1) bindings body)
+     ;; TODO
+     (let ((var1 (hash-get bindings 'var1)))
+       body)]
+    [(syntax-pattern->lets (var1 var2 ...) bindings body)
+     (let ((var1 (hash-get bindings 'var1)))
+       (syntax-pattern->lets (var2 ...) bindings body))]
+    [(syntax-pattern->lets var bindings body)
+     (let ((var (hash-get bindings 'var)))
+       body)]))
+
+
+;; Macro to turn syntax into a sequence of lets with the (hash-get match?)
+
+;; (define-syntax match-expression
+;;   (syntax-rules ()
+;;     [(match-expression pat expr body)
+;;      (let ((match? (match (syntax->pattern pat) expr)))
+;;        (if match?
+;;            (syntax-pattern->lets pat match? body)
+;;            (error! "Unable to match expression: " expr " to any of the given patterns")))]))
+
+;; (displayln
+;;  (match-expression
+;;   (?x ?y ?z...)
+;;   (list 1 2 3 4 5 6)
+;;   (list->vector ?z...)))
+
+;; (define-syntax cond
+;;   (syntax-rules (else)
+;;     [(cond [else e1 ...])
+;;      (begin e1 ...)]
+;;     [(cond [e1 e2 ...])
+;;      (when e1 e2 ...)]
+;;     [(cond [e1 e2 ...] c1 ...)
+;;      (if e1
+;;          (begin e2 ...)
+;;          (cond c1 ...))]))
+
+(define-syntax match-dispatch
+  (syntax-rules (else)
+    [(match-dispatch expr [else e1 ...])
+     (begin e1 ...)]
+    [(match-dispatch expr [p1 e2 ...] c1 ...)
+     (let ((match? (match (syntax->pattern p1) expr)))
+       (if match?
+           (begin e2 ...)
+           (match-dispatch expr c1 ...)))]))
+
+
+(define-syntax match!
+  (syntax-rules ()
+    [(match expr pat)
+     (let ((evald-expr expr))
+       (match-dispatch evald-expr pat))]
+    [(match expr pats ...)
+     (let ((evald-expr expr))
+       (match-dispatch evald-expr pats ...))]))
+
+
+(match! (list 1)
+        ((?x) (displayln "case 0"))
+        ((?x ?y) (displayln "case 1"))
+        ((?x ?y ?z...) (displayln "case 2"))
+        (else (displayln "didn't match!")))
 
 
 
 
-;; Something like
-;; -- Pattern -> Match, return bindings on success or nothing on failure
-;; -- Take output, use to bind variables in an expression
-;; -- Otherwise, emit failure or bail out to the else case
-;; -- TODO figure out how to do real time bindings of variables in map to syntax
-;; -- TODO make macros only overwrite the span for expressions from the macro, not passed
-;;    in ones. This makes error reporting pretty bad for things that aren't the actual syntax of the macro itself
-;;    The easiest way to do this would be to rewrite the spans of _only_ the syntax in the macro at the callsite
-;;    before rewriting the span of _all_ things
+
+
+;; (displayln (syntax->pattern (?x ?y ?z)))
+
+
+
+;; Take pattern given - as syntax?
+;; Deconstruct the pattern using quotes?
+
+
+;; TODO fix bug where using (quote <expr>) instead of '<expr>
+;; leads to a parsing error
+;; (define-syntax deck
+;;   (syntax-rules ()
+;;     [(deck (var1))
+;;         (begin
+;;         (display "Found a one element list ")
+;;         (displayln '(var1)))]
+;;     [(deck (var1 var2 ...))
+;;         (begin
+;;         (display "Popping off value: ")
+;;         (displayln 'var1)
+;;         (deck (var2 ...)))]
+;;     [(deck var)
+;;      (begin
+;;        (display "Found a single expr ")
+;;        (displayln 'var))]))
+
+;; (deck (?x ?y ?z))
