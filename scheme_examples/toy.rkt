@@ -278,6 +278,30 @@
       (match 10 (list 1 2 3 4 5))
       #f)
 
+;; Should trim the ...
+;; Off of the many symbols to ease with use
+(define (match-expr expr)
+  (let ((match? (match '(?x) expr)))
+    (if match?
+        (let ((x (hash-get match? '?x)))
+          (display "Found x: ")
+          (displayln x))
+        (let ((match? (match '(?x ?xs...) expr)))
+           (if match?
+               (let ((x (hash-get match? '?x))
+                     (xs (hash-get match? '?xs...)))
+                 (display "Found x: ")
+                 (displayln x)
+                 (display "Found xs: ")
+                 (displayln xs))
+               (error! "Unable to match expression: " expr " to any of the given patterns"))))))
+
+
+
+(match-expr (list 1 2 3 4 5))
+
+
+
 
 ;; Something like
 ;; -- Pattern -> Match, return bindings on success or nothing on failure
