@@ -1,4 +1,10 @@
-use super::{evaluation_progress::EvaluationProgress, heap::UpValueHeap, vm::vm};
+use super::{
+    evaluation_progress::EvaluationProgress,
+    heap::UpValueHeap,
+    options::{ApplyContracts, UseCallbacks},
+    stack::StackFrame,
+    vm::vm,
+};
 use crate::{
     compiler::constants::ConstantTable,
     env::Env,
@@ -14,9 +20,13 @@ use log::debug;
 
 use super::stack::Stack;
 
+// let vm_stack = Rc::new(RefCell::new(&mut self.stack));
+// let vm_stack_index = Rc::new(RefCell::new(&mut self.stack_index));
+// let function_stack = Rc::new(RefCell::new(&mut self.function_stack));
+
 /// Extension trait for the application of contracted functions
 pub(crate) trait ContractedFunctionExt {
-    fn apply<CT: ConstantTable>(
+    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arguments: Vec<SteelVal>,
         constants: &CT,
@@ -24,11 +34,16 @@ pub(crate) trait ContractedFunctionExt {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
+        use_callbacks: U,
+        apply_contracts: A,
     ) -> Result<SteelVal>;
 }
 
 impl ContractedFunctionExt for ContractedFunction {
-    fn apply<CT: ConstantTable>(
+    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arguments: Vec<SteelVal>,
         constants: &CT,
@@ -36,6 +51,11 @@ impl ContractedFunctionExt for ContractedFunction {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
+        use_callbacks: U,
+        apply_contracts: A,
     ) -> Result<SteelVal> {
         // Walk back and find the contracts to apply
         {
@@ -50,6 +70,11 @@ impl ContractedFunctionExt for ContractedFunction {
                     callback,
                     upvalue_heap,
                     global_env,
+                    stack,
+                    function_stack,
+                    stack_index,
+                    use_callbacks,
+                    apply_contracts,
                 )?;
 
                 parent = p.parent()
@@ -65,13 +90,18 @@ impl ContractedFunctionExt for ContractedFunction {
             callback,
             upvalue_heap,
             global_env,
+            stack,
+            function_stack,
+            stack_index,
+            use_callbacks,
+            apply_contracts,
         )
     }
 }
 
 /// Extension trait for the application of flat contracts
 pub(crate) trait FlatContractExt {
-    fn apply<CT: ConstantTable>(
+    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arg: SteelVal,
         constants: &CT,
@@ -79,11 +109,16 @@ pub(crate) trait FlatContractExt {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
+        use_callbacks: U,
+        apply_contracts: A,
     ) -> Result<()>;
 }
 
 impl FlatContractExt for FlatContract {
-    fn apply<CT: ConstantTable>(
+    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arg: SteelVal,
         constants: &CT,
@@ -91,23 +126,34 @@ impl FlatContractExt for FlatContract {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
+        use_callbacks: U,
+        apply_contracts: A,
     ) -> Result<()> {
-        let arg_vec = vec![arg.clone()];
+        // TODO make this not clone the argument
         let output = match self.predicate() {
-            SteelVal::FuncV(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
-            SteelVal::BoxedFunction(func) => func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span)),
+            SteelVal::FuncV(func) => func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span)),
+            SteelVal::BoxedFunction(func) => {
+                func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span))
+            }
             SteelVal::Closure(closure) => {
-                // TODO make recursive call here with a very small stack
-                // probably a bit overkill, but not much else I can do here I think
+                stack_index.push(stack.len());
+                stack.push(arg.clone());
+                function_stack.push(Gc::clone(closure));
+
                 vm(
                     closure.body_exp(),
-                    &mut arg_vec.into(),
+                    stack,
                     global_env,
                     constants,
                     callback,
                     upvalue_heap,
-                    &mut vec![Gc::clone(closure)],
-                    &mut Stack::new(),
+                    function_stack,
+                    stack_index,
+                    use_callbacks,
+                    apply_contracts,
                 )
             }
             _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),
@@ -123,7 +169,7 @@ impl FlatContractExt for FlatContract {
 
 /// Extension trait for the application of function contracts
 pub(crate) trait FunctionContractExt {
-    fn apply<CT: ConstantTable>(
+    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
         function: &ByteCodeLambda,
@@ -133,11 +179,16 @@ pub(crate) trait FunctionContractExt {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
+        use_callbacks: U,
+        apply_contracts: A,
     ) -> Result<SteelVal>;
 }
 
 impl FunctionContractExt for FunctionContract {
-    fn apply<CT: ConstantTable>(
+    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
         function: &ByteCodeLambda,
@@ -147,6 +198,11 @@ impl FunctionContractExt for FunctionContract {
         callback: &EvaluationProgress,
         upvalue_heap: &mut UpValueHeap,
         global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
+        use_callbacks: U,
+        apply_contracts: A,
     ) -> Result<SteelVal> {
         let mut verified_args = Vec::new();
 
@@ -167,6 +223,11 @@ impl FunctionContractExt for FunctionContract {
                         callback,
                         upvalue_heap,
                         global_env,
+                        stack,
+                        function_stack,
+                        stack_index,
+                        use_callbacks,
+                        apply_contracts,
                     ) {
                         debug!(
                             "Blame locations: {:?}, {:?}",
@@ -230,6 +291,8 @@ impl FunctionContractExt for FunctionContract {
                 upvalue_heap,
                 &mut Vec::new(),
                 &mut Stack::new(),
+                use_callbacks,
+                apply_contracts,
             )
         }?;
 
@@ -246,6 +309,11 @@ impl FunctionContractExt for FunctionContract {
                     callback,
                     upvalue_heap,
                     global_env,
+                    stack,
+                    function_stack,
+                    stack_index,
+                    use_callbacks,
+                    apply_contracts,
                 ) {
                     debug!(
                         "Blame locations: {:?}, {:?}",

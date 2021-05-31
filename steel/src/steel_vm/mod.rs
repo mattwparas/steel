@@ -4,6 +4,7 @@ pub mod engine;
 mod evaluation_progress;
 mod heap;
 mod lazy_stream;
+pub mod options;
 mod primitives;
 pub mod register_fn;
 mod stack;

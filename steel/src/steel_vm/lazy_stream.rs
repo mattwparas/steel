@@ -1,3 +1,5 @@
+use super::options::ApplyContracts;
+use super::options::UseCallbacks;
 use super::vm::vm;
 use super::{evaluation_progress::EvaluationProgress, heap::UpValueHeap};
 use crate::compiler::constants::ConstantTable;
@@ -15,22 +17,29 @@ use super::stack::Stack;
 use crate::values::lazy_stream::LazyStream;
 
 // Used for inlining stream iterators
-pub(crate) struct LazyStreamIter<'global, 'a, CT: ConstantTable> {
+pub(crate) struct LazyStreamIter<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>
+{
     stream: LazyStream,
     constants: &'global CT,
     cur_inst_span: &'global Span,
     callback: &'global EvaluationProgress,
     upvalue_heap: UpValueHeap,
     global_env: Rc<RefCell<&'global mut &'a mut Env>>,
+    use_callbacks: U,
+    apply_contracts: A,
 }
 
-impl<'global, 'a, CT: ConstantTable> LazyStreamIter<'global, 'a, CT> {
+impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>
+    LazyStreamIter<'global, 'a, CT, U, A>
+{
     pub fn new(
         stream: LazyStream,
         constants: &'global CT,
         cur_inst_span: &'global Span,
         callback: &'global EvaluationProgress,
         global_env: Rc<RefCell<&'global mut &'a mut Env>>,
+        use_callbacks: U,
+        apply_contracts: A,
     ) -> Self {
         Self {
             stream,
@@ -39,11 +48,15 @@ impl<'global, 'a, CT: ConstantTable> LazyStreamIter<'global, 'a, CT> {
             callback,
             upvalue_heap: UpValueHeap::new(),
             global_env,
+            use_callbacks,
+            apply_contracts,
         }
     }
 }
 
-impl<'global, 'a, CT: ConstantTable> Iterator for LazyStreamIter<'global, 'a, CT> {
+impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> Iterator
+    for LazyStreamIter<'global, 'a, CT, U, A>
+{
     type Item = Result<SteelVal>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.stream.empty_stream {
@@ -60,6 +73,8 @@ impl<'global, 'a, CT: ConstantTable> Iterator for LazyStreamIter<'global, 'a, CT
             self.callback,
             &mut self.upvalue_heap,
             &mut self.global_env.borrow_mut(),
+            self.use_callbacks,
+            self.apply_contracts,
         );
 
         if let Ok(next_value) = next_value {
@@ -79,13 +94,15 @@ impl<'global, 'a, CT: ConstantTable> Iterator for LazyStreamIter<'global, 'a, CT
 // decide what a stream will look like first before continuing with this
 // in order to make this work with transducers, just create an iterator that returns closures
 // that then maps the application of that closure on each element to get our result
-fn exec_func<CT: ConstantTable>(
+fn exec_func<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
     stack_func: SteelVal,
     constants: &CT,
     cur_inst_span: &Span,
     callback: &EvaluationProgress,
     upvalue_heap: &mut UpValueHeap,
     global_env: &mut Env,
+    use_callbacks: U,
+    apply_contracts: A,
 ) -> Result<SteelVal> {
     match stack_func {
         SteelVal::FuncV(func) => {
@@ -96,31 +113,8 @@ fn exec_func<CT: ConstantTable>(
             let arg_vec = vec![];
             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
         }
-        // SteelVal::StructClosureV(sc) => {
-        //     let arg_vec = vec![];
-        //     (sc.func)(&arg_vec, &sc.factory).map_err(|x| x.set_span(*cur_inst_span))
-        // }
         SteelVal::Closure(closure) => {
             let args = vec![];
-
-            // let parent_env = closure.sub_expression_env();
-
-            // TODO remove this unwrap
-            // let offset = closure.offset() + parent_env.upgrade().unwrap().borrow().local_offset();
-
-            // let inner_env = Rc::new(RefCell::new(Env::new_subexpression(
-            //     parent_env.clone(),
-            //     offset,
-            // )));
-
-            // inner_env
-            //     .borrow_mut()
-            //     .reserve_defs(if closure.ndef_body() > 0 {
-            //         closure.ndef_body() - 1
-            //     } else {
-            //         0
-            //     });
-
             // TODO make recursive call here with a very small stack
             // probably a bit overkill, but not much else I can do here I think
             vm(
@@ -132,6 +126,8 @@ fn exec_func<CT: ConstantTable>(
                 upvalue_heap,
                 &mut vec![Gc::clone(&closure)],
                 &mut Stack::new(),
+                use_callbacks,
+                apply_contracts,
             )
         }
         _ => stop!(TypeMismatch => "stream expected a function"; *cur_inst_span),
@@ -142,6 +138,8 @@ fn exec_func<CT: ConstantTable>(
 mod stream_tests {
     use super::*;
     use crate::compiler::constants::ConstantMap;
+    use crate::steel_vm::options::ApplyContract;
+    use crate::steel_vm::options::UseCallback;
     use crate::steel_vm::test_util::assert_script;
 
     #[test]
@@ -158,6 +156,8 @@ mod stream_tests {
             &cur_inst_span,
             &callback,
             Rc::new(RefCell::new(&mut mut_ref)),
+            UseCallback,
+            ApplyContract,
         );
 
         assert!(lazy_iter.into_iter().next().is_none());

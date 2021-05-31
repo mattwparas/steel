@@ -12,6 +12,8 @@ use std::collections::HashMap;
 
 use log::{debug, error, info};
 
+use super::ast::Quote;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SteelMacro {
     name: String,
@@ -37,9 +39,11 @@ impl SteelMacro {
         let name = ast_macro
             .name
             .atom_identifier_or_else(
-                throw!(BadSyntax => "macros only currently support identifiers as the name"),
+                throw!(BadSyntax => "macros only currently support identifiers as the name"; ast_macro.location.span),
             )?
             .to_string();
+
+        let sp = ast_macro.location.span.clone();
 
         let special_forms = ast_macro
             .syntax_rules
@@ -47,7 +51,7 @@ impl SteelMacro {
             .into_iter()
             .map(|x| {
                 x.atom_identifier_or_else(
-                    throw!(BadSyntax => "macros only support identifiers for special syntax"),
+                    throw!(BadSyntax => "macros only support identifiers for special syntax"; sp),
                 )
                 .map(|x| x.to_string())
             })
@@ -67,9 +71,9 @@ impl SteelMacro {
         })
     }
 
+    // TODO the case matching should be a little bit more informed than this
+    // I think it should also not be greedy, and should report if there are ambiguous matchings
     fn match_case(&self, expr: &List) -> Result<&MacroCase> {
-        // todo!();
-
         for case in &self.cases {
             if (case.has_ellipses() && expr.len() >= (case.arity() - 1))
                 || case.arity() == expr.len()
@@ -82,7 +86,11 @@ impl SteelMacro {
 
         error!("Macro expansion unable to match case with: {}", expr);
 
-        stop!(BadSyntax => "macro expansion unable to match case");
+        if let Some(ExprKind::Atom(a)) = expr.first() {
+            stop!(BadSyntax => "macro expansion unable to match case"; a.syn.span);
+        } else {
+            unreachable!()
+        }
     }
 
     pub fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
@@ -103,14 +111,6 @@ pub struct MacroCase {
     body: ExprKind,
 }
 
-// impl TryFrom<PatternPair> for MacroCase {
-//     type Error = SteelErr;
-
-//     fn try_from(value: PatternPair) -> std::result::Result<Self, Self::Error> {
-//         unimplemented!();
-//     }
-// }
-
 impl MacroCase {
     #[cfg(test)]
     pub fn new(args: Vec<MacroPattern>, body: ExprKind) -> Self {
@@ -130,9 +130,26 @@ impl MacroCase {
             stop!(Generic => "unable to parse macro");
         };
 
-        let args_str: Vec<&str> = args.iter().map(|x| x.deconstruct()).flatten().collect();
+        let args_str: Vec<&str> = args
+            .iter()
+            .map(|x| x.deconstruct_without_syntax())
+            .flatten()
+            .collect();
 
-        RenameIdentifiersVisitor::new(&args_str).rename_identifiers(&mut body);
+        // let syntaxes: Vec<&str> = args
+        //     .iter()
+        //     .map(|x| x.deconstruct_syntax())
+        //     .flatten()
+        //     .collect();
+
+        // println!("Args pre mangle: {:?}", &args_str);
+
+        RenameIdentifiersVisitor::new(&args_str, &special_forms).rename_identifiers(&mut body);
+
+        let args = args.into_iter().map(|x| x.mangle(&special_forms)).collect();
+
+        // println!("Found args: {:?}", args);
+        // println!("Renamed body: {:?}", &body);
 
         Ok(MacroCase { args, body })
     }
@@ -165,9 +182,44 @@ pub enum MacroPattern {
     Syntax(String),
     Many(String),
     Nested(Vec<MacroPattern>),
+    CharacterLiteral(char),
+    IntLiteral(isize),
+    StringLiteral(String),
+    FloatLiteral(f64),
+    BooleanLiteral(bool),
+    QuotedExpr(Box<Quote>),
 }
 
 impl MacroPattern {
+    fn mangle(&self, special_forms: &[String]) -> Self {
+        use MacroPattern::*;
+        match self {
+            Single(s) => {
+                if special_forms.contains(s) {
+                    Single(s.to_string())
+                } else {
+                    Single("##".to_string() + s)
+                }
+            }
+            Syntax(s) => {
+                // if special_forms.contains(s) {
+                Syntax(s.to_string())
+                // } else {
+                // Syntax("##".to_string() + s)
+                // }
+            }
+            Many(s) => {
+                if special_forms.contains(s) {
+                    Many(s.to_string())
+                } else {
+                    Many("##".to_string() + s)
+                }
+            }
+            Nested(v) => Nested(v.into_iter().map(|x| x.mangle(special_forms)).collect()),
+            _ => self.clone(),
+        }
+    }
+
     fn parse_from_list(
         list: List,
         macro_name: &str,
@@ -179,9 +231,9 @@ impl MacroPattern {
         while let Some(token) = peek_token_iter.next() {
             match token {
                 ExprKind::Atom(Atom {
-                    syn: SyntaxObject { ty: s, .. },
-                }) => {
-                    if let TokenType::Identifier(t) = s {
+                    syn: SyntaxObject { ty: s, span, .. },
+                }) => match s {
+                    TokenType::Identifier(t) => {
                         if t == macro_name || special_forms.contains(&t) {
                             pattern_vec.push(MacroPattern::Syntax(t.clone()))
                         } else {
@@ -201,15 +253,32 @@ impl MacroPattern {
                                 }
                             }
                         }
-                    } else {
-                        stop!(BadSyntax => "syntax-rules requires identifiers in the pattern");
                     }
-                }
+                    TokenType::BooleanLiteral(b) => {
+                        pattern_vec.push(MacroPattern::BooleanLiteral(b));
+                    }
+                    TokenType::IntegerLiteral(i) => {
+                        pattern_vec.push(MacroPattern::IntLiteral(i));
+                    }
+                    TokenType::CharacterLiteral(c) => {
+                        pattern_vec.push(MacroPattern::CharacterLiteral(c));
+                    }
+                    TokenType::NumberLiteral(n) => {
+                        pattern_vec.push(MacroPattern::FloatLiteral(n));
+                    }
+                    TokenType::StringLiteral(s) => {
+                        pattern_vec.push(MacroPattern::StringLiteral(s));
+                    }
+                    _ => {
+                        stop!(BadSyntax => "syntax-rules requires identifiers in the pattern"; span);
+                    }
+                },
                 ExprKind::List(l) => pattern_vec.push(MacroPattern::Nested(Self::parse_from_list(
                     l,
                     macro_name,
                     special_forms,
                 )?)),
+                ExprKind::Quote(q) => pattern_vec.push(MacroPattern::QuotedExpr(q)),
                 _ => {
                     stop!(BadSyntax => "illegal special form found in macro pattern");
                 }
@@ -227,6 +296,16 @@ impl MacroPattern {
             Self::Single(s) => vec![&s],
             Self::Many(s) => vec![&s],
             Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
+            _ => vec![],
+        }
+    }
+
+    pub fn deconstruct_without_syntax(&self) -> Vec<&str> {
+        match self {
+            Self::Single(s) => vec![&s],
+            Self::Many(s) => vec![&s],
+            Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
+            _ => vec![],
         }
     }
 
@@ -261,6 +340,60 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                                 ..
                             },
                     }) => continue,
+                    _ => return false,
+                },
+                MacroPattern::BooleanLiteral(b) => match val {
+                    ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::BooleanLiteral(s),
+                                ..
+                            },
+                    }) if s == b => continue,
+                    _ => return false,
+                },
+                MacroPattern::IntLiteral(i) => match val {
+                    ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::IntegerLiteral(s),
+                                ..
+                            },
+                    }) if s == i => continue,
+                    _ => return false,
+                },
+                MacroPattern::FloatLiteral(f) => match val {
+                    ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::NumberLiteral(s),
+                                ..
+                            },
+                    }) if s == f => continue,
+                    _ => return false,
+                },
+                MacroPattern::CharacterLiteral(c) => match val {
+                    ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::CharacterLiteral(s),
+                                ..
+                            },
+                    }) if s == c => continue,
+                    _ => return false,
+                },
+                MacroPattern::StringLiteral(s) => match val {
+                    ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::StringLiteral(b),
+                                ..
+                            },
+                    }) if s == b => continue,
+                    _ => return false,
+                },
+                MacroPattern::QuotedExpr(q) => match val {
+                    ExprKind::Quote(boxed_q) if q == boxed_q => continue,
                     _ => return false,
                 },
                 MacroPattern::Nested(vec) => {
@@ -364,6 +497,7 @@ pub fn collect_bindings(
                     stop!(BadSyntax => "macro expected a list of values, not including keywords")
                 }
             }
+            _ => {}
         }
     }
 

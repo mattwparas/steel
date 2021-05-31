@@ -1006,6 +1006,10 @@ fn upvalue_func_used_before_set(instructions: &[Instruction], upvalue: &str, idx
 
 // Use this to flatten calls to globals such that its just one instruction instead of two
 pub fn convert_call_globals(instructions: &mut [Instruction]) {
+    if instructions.is_empty() {
+        return;
+    }
+
     for i in 0..instructions.len() - 1 {
         let push = instructions.get(i);
         let func = instructions.get(i + 1);

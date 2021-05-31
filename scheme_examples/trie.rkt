@@ -119,5 +119,5 @@
   (build-trie-from-list-of-words empty-trie list-of-words))
 
 
-(pre-order (generate-trie test-list))
+(displayln (pre-order (generate-trie test-list)))
 

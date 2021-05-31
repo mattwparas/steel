@@ -35,9 +35,9 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
-// use itertools::Itertools;
-
 use im_rc::HashMap as ImmutableHashMap;
+
+// use itertools::Itertools;
 
 // TODO this needs to take into account if they are functions or not before adding them
 // don't just blindly do all global defines first - need to do them in order correctly
@@ -338,17 +338,20 @@ impl Compiler {
 
         let mut expanded_statements = expanded_statements;
 
-        if self.opt_level != OptLevel::Three {
-            loop {
+        match self.opt_level {
+            OptLevel::Three => loop {
                 let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
                 expanded_statements = manager.run(expanded_statements)?;
                 if !manager.changed {
                     break;
                 }
+            },
+            OptLevel::Two => {
+                expanded_statements =
+                    ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                        .run(expanded_statements)?;
             }
-        } else {
-            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
-                .run(expanded_statements)?;
+            _ => {}
         }
 
         // let expanded_statements =
@@ -544,17 +547,20 @@ impl Compiler {
 
         let mut expanded_statements = expanded_statements;
 
-        if self.opt_level != OptLevel::Three {
-            loop {
+        match self.opt_level {
+            OptLevel::Three => loop {
                 let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
                 expanded_statements = manager.run(expanded_statements)?;
                 if !manager.changed {
                     break;
                 }
+            },
+            OptLevel::Two => {
+                expanded_statements =
+                    ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                        .run(expanded_statements)?;
             }
-        } else {
-            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
-                .run(expanded_statements)?;
+            _ => {}
         }
 
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
@@ -593,21 +599,22 @@ impl Compiler {
 
         let mut expanded_statements = expanded_statements;
 
-        if self.opt_level != OptLevel::Three {
-            loop {
+        match self.opt_level {
+            OptLevel::Three => loop {
                 let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
                 expanded_statements = manager.run(expanded_statements)?;
+
                 if !manager.changed {
                     break;
                 }
+            },
+            OptLevel::Two => {
+                expanded_statements =
+                    ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
+                        .run(expanded_statements)?;
             }
-        } else {
-            expanded_statements = ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
-                .run(expanded_statements)?;
+            _ => {}
         }
-
-        // let expanded_statements =
-        // ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
 
         debug!("About to expand defines");
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);

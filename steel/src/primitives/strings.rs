@@ -202,6 +202,40 @@ impl StringOperations {
             }
         })
     }
+
+    pub fn starts_with() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() == 2 {
+                match (&args[0], &args[1]) {
+                    (SteelVal::StringV(s), SteelVal::StringV(p)) => {
+                        Ok(SteelVal::BoolV(s.starts_with(&p.as_str())))
+                    }
+                    _ => {
+                        stop!(ArityMismatch => "starts-with? takes two arguments")
+                    }
+                }
+            } else {
+                stop!(ArityMismatch => "starts-with? takes two arguments")
+            }
+        })
+    }
+
+    pub fn ends_with() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() == 2 {
+                match (&args[0], &args[1]) {
+                    (SteelVal::StringV(s), SteelVal::StringV(p)) => {
+                        Ok(SteelVal::BoolV(s.ends_with(&p.as_str())))
+                    }
+                    _ => {
+                        stop!(ArityMismatch => "starts-with? takes two arguments")
+                    }
+                }
+            } else {
+                stop!(ArityMismatch => "starts-with? takes two arguments")
+            }
+        })
+    }
 }
 
 #[cfg(test)]

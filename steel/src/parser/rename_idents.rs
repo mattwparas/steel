@@ -8,13 +8,15 @@ use std::collections::HashSet;
 pub struct RenameIdentifiersVisitor<'a> {
     introduced_identifiers: HashSet<String>,
     pattern_variables: &'a [&'a str],
+    syntax: &'a [String],
 }
 
 impl<'a> RenameIdentifiersVisitor<'a> {
-    pub fn new(pattern_variables: &'a [&'a str]) -> Self {
+    pub fn new(pattern_variables: &'a [&'a str], syntax: &'a [String]) -> Self {
         RenameIdentifiersVisitor {
             introduced_identifiers: HashSet::new(),
             pattern_variables,
+            syntax,
         }
     }
 
@@ -23,7 +25,7 @@ impl<'a> RenameIdentifiersVisitor<'a> {
     }
 
     pub fn is_gensym(&self, ident: &str) -> bool {
-        self.introduced_identifiers.contains(ident)
+        self.introduced_identifiers.contains(ident) || self.pattern_variables.contains(&ident)
     }
 
     pub fn rename_identifiers(&mut self, expr: &mut ExprKind) {
@@ -50,8 +52,10 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                 // If this is a special pattern variable, don't do any mangling of the variable
                 if !self.pattern_variables.contains(&s.as_str()) {
                     self.add(s);
-                    a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
+                    // a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
                 }
+
+                a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
             }
         }
 
@@ -72,8 +76,10 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                 {
                     if !self.pattern_variables.contains(&s.as_str()) {
                         self.add(s);
-                        a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
+                        // a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
                     }
+
+                    a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
                 }
             }
         }
@@ -140,7 +146,21 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
     fn visit_atom(&mut self, a: &mut super::ast::Atom) -> Self::Output {
         let token = a.syn.ty.clone();
         if let TokenType::Identifier(s) = token {
+            // If this is a special one, go ahead and don't mangle it
+            // if self.introduced_identifiers.contains(&s) {
+            //     return;
+            // }
+
+            if self.syntax.contains(&s) {
+                return;
+            }
+
             if self.is_gensym(&s) {
+                // println!("Found gen sym: {}", &s);
+                // println!("Syntax forms: {:?}", self.syntax);
+                // if self.syntax.contains(&s.as_str()) {
+                //     return;
+                // }
                 a.syn.ty = TokenType::Identifier("##".to_string() + &s);
             }
         }
@@ -223,7 +243,7 @@ mod rename_visitor_tests {
             SyntaxObject::default(TokenType::Lambda),
         )));
 
-        let mut visitor = RenameIdentifiersVisitor::new(&[]);
+        let mut visitor = RenameIdentifiersVisitor::new(&[], &[]);
 
         visitor.visit(&mut pre_condition);
 
@@ -260,7 +280,7 @@ mod rename_visitor_tests {
 
         let post_condition = pre_condition.clone();
 
-        let mut visitor = RenameIdentifiersVisitor::new(&[]);
+        let mut visitor = RenameIdentifiersVisitor::new(&[], &[]);
         visitor.visit(&mut pre_condition);
         assert_eq!(pre_condition, post_condition);
     }
@@ -281,7 +301,7 @@ mod rename_visitor_tests {
         )
         .into();
 
-        let mut visitor = RenameIdentifiersVisitor::new(&[]);
+        let mut visitor = RenameIdentifiersVisitor::new(&[], &[]);
         visitor.visit(&mut pre_condition);
         assert_eq!(pre_condition, post_condition);
     }
@@ -310,7 +330,7 @@ mod rename_visitor_tests {
         )
         .into();
 
-        let mut visitor = RenameIdentifiersVisitor::new(&[]);
+        let mut visitor = RenameIdentifiersVisitor::new(&[], &[]);
         visitor.visit(&mut pre_condition);
         assert_eq!(pre_condition, post_condition);
     }

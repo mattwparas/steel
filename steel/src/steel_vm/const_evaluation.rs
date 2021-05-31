@@ -130,6 +130,7 @@ impl ConstantEvaluatorManager {
     }
 
     pub fn run(&mut self, input: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
+        self.changed = false;
         // Collect the set expressions, ignore them for the constant folding
         for expr in &input {
             CollectSet::new(&mut self.set_idents).visit(expr);
@@ -230,14 +231,23 @@ impl<'a> ConstantEvaluator<'a> {
 
                     if let Some(new_token) = steelval_to_atom(&output) {
                         let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
+                        debug!(
+                            "Const evaluation of a function resulted in an atom: {}",
+                            atom
+                        );
                         self.changed = true;
                         Ok(ExprKind::Atom(atom))
                     } else if let Ok(lst) = ExprKind::try_from(&output) {
                         self.changed = true;
-                        Ok(ExprKind::Quote(Box::new(Quote::new(
+                        let output = ExprKind::Quote(Box::new(Quote::new(
                             lst,
                             SyntaxObject::new(TokenType::Quote, get_span(&func)),
-                        ))))
+                        )));
+                        debug!(
+                            "Const evaluation of a function resulted in a quoted value: {}",
+                            output
+                        );
+                        Ok(output)
                     } else {
                         debug!(
                             "Unable to convert constant-evalutable function output to value: {}",
@@ -276,8 +286,10 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             if let Some(test_expr) = self.to_constant(&test_expr) {
                 self.changed = true;
                 if test_expr.is_truthy() {
+                    debug!("Const evaluation resulted in taking the then branch");
                     return self.visit(f.then_expr);
                 } else {
+                    debug!("Const evaluation resulted in taking the else branch");
                     return self.visit(f.else_expr);
                 }
             }
@@ -432,13 +444,15 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         }
 
         if l.args.len() == 1 {
-            let func_expr = l.args.clone().into_iter().next().unwrap();
+            let mut args_iter = l.args.clone().into_iter();
+            let func_expr = args_iter.next().unwrap();
             let func = self.visit(func_expr)?;
 
             if let Some(evaluated_func) = self.to_constant(&func) {
+                debug!("Attempting to evaluate: {}", &func);
                 return self.eval_function(evaluated_func, func, Vec::new(), &[]);
             } else {
-                if let ExprKind::LambdaFunction(f) = func {
+                if let ExprKind::LambdaFunction(f) = &func {
                     if f.args.len() != 0 {
                         stop!(ArityMismatch => format!("function expected {} arguments, found 0", f.args.len()))
                     }
@@ -446,11 +460,13 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     // If the body is constant we can safely remove the application
                     // Otherwise we can't eliminate the additional scope depth
                     if self.to_constant(&f.body).is_some() {
-                        return Ok(f.body);
+                        return Ok(f.body.clone());
                     }
                 }
 
-                return Ok(ExprKind::List(l));
+                let new_expr = vec![func].into_iter().chain(args_iter).collect();
+
+                return Ok(ExprKind::List(List::new(new_expr)));
             }
         }
 
@@ -465,6 +481,10 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 // let span = get_span(&func_expr);
 
                 if let Some(evaluated_func) = self.to_constant(&func_expr) {
+                    debug!(
+                        "Attempting to evaluate: {} with args: {:?}",
+                        &func_expr, arguments
+                    );
                     return self.eval_function(evaluated_func, func_expr, args, &arguments);
                 }
                 // return self.eval_function(func_expr, span, &arguments);
@@ -547,6 +567,9 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             // Found no arguments are there are no non constant arguments
             if actually_used_arguments.is_empty() && non_constant_arguments.is_empty() {
                 // println!("Returning in here");
+
+                debug!("Found no used arguments or non constant arguments, returning the body");
+
                 self.changed = true;
                 return Ok(output);
             }
@@ -566,6 +589,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     .into_iter()
                     .filter(|x| self.to_constant(&x).is_none())
                     .collect();
+
+                debug!("Found a constant output from the body");
 
                 self.changed = true;
                 if non_constant_arguments.is_empty() {

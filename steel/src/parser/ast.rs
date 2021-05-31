@@ -1717,21 +1717,26 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 ));
                             }
 
+                            // println!("{}", value.iter().map(|x| x.to_pretty(60)).join("\n\n"));
+
                             let mut value_iter = value.into_iter();
                             value_iter.next();
 
                             let name = value_iter.next().unwrap();
 
-                            let syntax_rules =
-                                if let Some(ExprKind::SyntaxRules(s)) = value_iter.next() {
-                                    s
-                                } else {
-                                    return Err(ParseError::SyntaxError(
-                                        "define-syntax expected a syntax-rules object".to_string(),
-                                        syn.span,
-                                        None,
-                                    ));
-                                };
+                            let syntax = value_iter.next();
+
+                            // println!("{:?}", syntax);
+
+                            let syntax_rules = if let Some(ExprKind::SyntaxRules(s)) = syntax {
+                                s
+                            } else {
+                                return Err(ParseError::SyntaxError(
+                                    "define-syntax expected a syntax-rules object".to_string(),
+                                    syn.span,
+                                    None,
+                                ));
+                            };
 
                             Ok(ExprKind::Macro(Macro::new(name, syntax_rules, syn)))
                         }

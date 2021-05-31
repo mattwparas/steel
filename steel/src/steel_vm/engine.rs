@@ -1,4 +1,5 @@
 use super::{
+    options::{ApplyContract, DoNotApplyContracts, DoNotUseCallback, UseCallback},
     primitives::{embed_primitives, embed_primitives_without_io, CONSTANTS},
     vm::VirtualMachineCore,
 };
@@ -189,7 +190,8 @@ impl Engine {
         bytecode: Rc<[DenseInstruction]>,
         constant_map: &ConstantMap,
     ) -> Result<SteelVal> {
-        self.virtual_machine.execute(bytecode, constant_map)
+        self.virtual_machine
+            .execute(bytecode, constant_map, UseCallback, ApplyContract)
     }
 
     /// Emit the bytecode directly, with a path provided.
@@ -211,7 +213,8 @@ impl Engine {
 
     /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
     pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
-        self.virtual_machine.execute_program(program)
+        self.virtual_machine
+            .execute_program(program, UseCallback, ApplyContract)
     }
 
     /// Emit the unexpanded AST
@@ -422,7 +425,49 @@ impl Engine {
     pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine.execute_program(program)
+        self.virtual_machine
+            .execute_program(program, UseCallback, ApplyContract)
+    }
+
+    /// Execute a program, however do not run any callbacks as registered with `on_progress`.
+    pub fn run_without_callbacks(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+        let constants = self.constants();
+        let program = self.compiler.compile_program(expr, None, constants)?;
+        self.virtual_machine
+            .execute_program(program, DoNotUseCallback, ApplyContract)
+    }
+
+    /// Execute a program (as per [`run`](crate::steel_vm::engine::Engine::run)), however do not enforce any contracts. Any contracts that are added are not
+    /// enforced.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// use steel::rvals::SteelVal;
+    /// let mut vm = Engine::new();
+    /// let output = vm.run_without_contracts(r#"
+    ///        (define/contract (foo x)
+    ///           (->/c integer? any/c)
+    ///           "hello world")
+    ///
+    ///        (foo "bad-input")
+    /// "#).unwrap();
+    /// ```
+    pub fn run_without_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+        let constants = self.constants();
+        let program = self.compiler.compile_program(expr, None, constants)?;
+        self.virtual_machine
+            .execute_program(program, UseCallback, DoNotApplyContracts)
+    }
+
+    /// Execute a program without invoking any callbacks, or enforcing any contract checking
+    pub fn run_without_callbacks_or_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+        let constants = self.constants();
+        let program = self.compiler.compile_program(expr, None, constants)?;
+        self.virtual_machine
+            .execute_program(program, DoNotUseCallback, DoNotApplyContracts)
     }
 
     /// Similar to [`run`](crate::steel_vm::engine::Engine::run), however it includes path information
@@ -430,13 +475,15 @@ impl Engine {
     pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, Some(path), constants)?;
-        self.virtual_machine.execute_program(program)
+        self.virtual_machine
+            .execute_program(program, UseCallback, ApplyContract)
     }
 
     pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine.execute_program(program)
+        self.virtual_machine
+            .execute_program(program, UseCallback, ApplyContract)
     }
 
     pub fn parse_and_execute(&mut self, expr: &str) -> Result<Vec<SteelVal>> {

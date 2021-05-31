@@ -1,0 +1,8 @@
+(define (test)
+    (let ((x 10) (foo void) (bar void))
+            (let ((foo-prime (lambda (x) (if (= x 10000) x (bar (+ x 1)))))
+                (bar-prime (lambda (x) (if (= x 10000) x (foo (+ x 1))))))
+                (set! foo foo-prime)
+                (set! bar bar-prime))
+            (foo 0)))
+(assert! (= (test) 10000))

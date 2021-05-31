@@ -14,6 +14,8 @@ pub(crate) mod gc;
 mod conversions;
 pub(crate) mod parser;
 pub mod steel_vm;
+#[cfg(test)]
+mod tests;
 pub(crate) mod values;
 
 pub use self::{rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};

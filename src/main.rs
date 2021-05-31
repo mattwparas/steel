@@ -18,7 +18,10 @@ fn main() {
     // let mut builder = Builder::new();
 
     // builder
-    //     .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
+    //     .filter(
+    //         Some("steel::steel_vm::const_evaluation"),
+    //         LevelFilter::Trace,
+    //     )
     //     .init();
 
     let args = args().collect::<Vec<_>>();
