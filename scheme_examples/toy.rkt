@@ -299,8 +299,19 @@
      'var]))
 
 
+;; (displayln (syntax->pattern (?x ?y (?z ?applesauce))))
+
+
 (define-syntax syntax-pattern->lets
   (syntax-rules ()
+    [(syntax-pattern->lets ((var1)) bindings body)
+     (syntax-pattern->lets (var1) bindings body)]
+    [(syntax-pattern->lets ((var1 ...) rest ...) bindings body)
+     (syntax-pattern->lets (var1 ...) bindings
+                           (syntax-pattern->lets
+                            (rest ...)
+                            bindings
+                            body))]
     [(syntax-pattern->lets (var1) bindings body)
      ;; TODO
      (let ((var1 (hash-get bindings 'var1)))
@@ -308,6 +319,8 @@
     [(syntax-pattern->lets (var1 var2 ...) bindings body)
      (let ((var1 (hash-get bindings 'var1)))
        (syntax-pattern->lets (var2 ...) bindings body))]
+    [(syntax-pattern->lets () bindings body)
+     body]
     [(syntax-pattern->lets var bindings body)
      (let ((var (hash-get bindings 'var)))
        body)]))
@@ -347,7 +360,7 @@
     [(match-dispatch expr [p1 e2 ...] c1 ...)
      (let ((match? (match (syntax->pattern p1) expr)))
        (if match?
-           (begin e2 ...)
+           (syntax-pattern->lets p1 match? (begin e2 ...))
            (match-dispatch expr c1 ...)))]))
 
 
@@ -361,13 +374,30 @@
        (match-dispatch evald-expr pats ...))]))
 
 
-(match! (list 1)
-        ((?x) (displayln "case 0"))
-        ((?x ?y) (displayln "case 1"))
-        ((?x ?y ?z...) (displayln "case 2"))
+;; Ambiguous matches will take the first one that matches
+(match! (list (list 1 2) 3 (list 4 5))
+        (() (displayln "Empty pattern!"))
+        ((?x) (displayln ?x))
+        ((?x ?y) (displayln (+ ?x ?y)))
+        (((?x ?y) ?z (?foo ?bar)) (displayln (list ?x ?y ?z ?foo ?bar)))
+        ((?x ?y ?z...) (displayln ?z...))
         (else (displayln "didn't match!")))
 
 
+
+(define (budget-map func lst)
+  (define (loop lst accum)
+    (match! lst
+            (() accum)
+            ((?x ?xs...)
+             (loop ?xs...
+                   (cons (func ?x) accum)))
+            (else (error! "Could not match pattern"))))
+  (reverse (loop lst '())))
+
+(displayln
+ (budget-map (fn (x) (+ x 1))
+            (list 1 2 3 4 5))) ;; => '(2 3 4 5 6)
 
 
 
