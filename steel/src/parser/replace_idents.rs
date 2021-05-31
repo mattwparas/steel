@@ -83,6 +83,60 @@ impl<'a> ReplaceExpressions<'a> {
         }
     }
 
+    fn vec_expr_syntax_const_if(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
+        match vec_exprs.get(0) {
+            Some(ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Identifier(check),
+                        ..
+                    },
+            })) if check == "syntax-const-if" => {
+                if vec_exprs.len() != 4 {
+                    stop!(BadSyntax => "syntax-const-if expects a const test condition, a then and an else case");
+                }
+
+                let test_expr = vec_exprs.get(1).unwrap();
+                let then_expr = vec_exprs.get(2).unwrap();
+                let else_expr = vec_exprs.get(3).unwrap();
+
+                if let ExprKind::Atom(Atom {
+                    syn: SyntaxObject { ty, .. },
+                }) = test_expr
+                {
+                    match ty {
+                        TokenType::BooleanLiteral(_)
+                        | TokenType::IntegerLiteral(_)
+                        | TokenType::CharacterLiteral(_)
+                        | TokenType::NumberLiteral(_)
+                        | TokenType::StringLiteral(_) => return Ok(Some(then_expr.clone())),
+                        TokenType::Identifier(s) => {
+                            if let Some(ExprKind::Atom(Atom {
+                                syn: SyntaxObject { ty, .. },
+                            })) = self.bindings.get(s)
+                            {
+                                if matches!(
+                                    ty,
+                                    TokenType::BooleanLiteral(_)
+                                        | TokenType::IntegerLiteral(_)
+                                        | TokenType::CharacterLiteral(_)
+                                        | TokenType::NumberLiteral(_)
+                                        | TokenType::StringLiteral(_)
+                                ) {
+                                    return Ok(Some(then_expr.clone()));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                return Ok(Some(else_expr.clone()));
+            }
+            _ => Ok(None),
+        }
+    }
+
     fn vec_expr_datum_to_syntax(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
         match vec_exprs.get(0) {
             Some(ExprKind::Atom(Atom {
@@ -248,6 +302,10 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
     fn visit_list(&mut self, mut l: super::ast::List) -> Self::Output {
         if let Some(expanded) = self.vec_expr_datum_to_syntax(&l.args)? {
             return Ok(expanded);
+        }
+
+        if let Some(expanded) = self.vec_expr_syntax_const_if(&l.args)? {
+            return self.visit(expanded);
         }
 
         l.args = self.expand_ellipses(l.args)?;

@@ -315,16 +315,20 @@
                            (syntax-pattern->lets (rest ...) bindings body))]
     [(syntax-pattern->lets (var1) bindings body)
      ;; TODO
-     (let ((var1 (hash-try-get bindings 'var1)))
-       body)]
+     (syntax-const-if var1 body
+                      (let ((var1 (hash-try-get bindings 'var1)))
+                        body))]
     [(syntax-pattern->lets (var1 var2 ...) bindings body)
-     (let ((var1 (hash-try-get bindings 'var1)))
-       (syntax-pattern->lets (var2 ...) bindings body))]
+     (syntax-const-if var1
+                      (syntax-pattern->lets (var2 ...) bindings body)
+                      (let ((var1 (hash-try-get bindings 'var1)))
+                        (syntax-pattern->lets (var2 ...) bindings body)))]
     [(syntax-pattern->lets () bindings body)
      body]
     [(syntax-pattern->lets var bindings body)
-     (let ((var (hash-try-get bindings 'var)))
-       body)]))
+     (syntax-const-if var body
+                      (let ((var (hash-try-get bindings 'var)))
+                        body))]))
 
 
 ;; Macro to turn syntax into a sequence of lets with the (hash-get match?)
@@ -423,8 +427,19 @@
 
 
 (match! (list 1 2 3 4)
-        ((?x ?y) (displayln "Shouldn't get here!")))
-        ;; ((1 2 3 4) (displayln "else case!")))
+        ((?x ?y) (displayln "Shouldn't get here!"))
+        ((?x 2 ?y 4 5)
+         (displayln ?x)
+         (displayln ?y)))
+
+
+;; (define-syntax blagh
+;;   (syntax-rules ()
+;;     [(blagh test then els)
+;;      (syntax-const-if test then els)]))
+
+;; (blagh (list 1 2 3) (displayln "Then case!") (displayln "Else case!"))
+
 
 
 ;; (displayln (syntax->pattern (?x ?y ?z)))
