@@ -74,6 +74,7 @@ test_harness_success! {
     letrec_mutual_recursion,
     letrec_simple_recursion,
     local_struct,
+    matcher,
     merge_sort,
     read,
     set_local,

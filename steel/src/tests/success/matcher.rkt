@@ -71,7 +71,9 @@
 ;; ---------------- tests --------------------
 
 ;; Pretty print for testing purposes
+;; Throw in the assert as well for testing
 (define (test name input expected)
+  (assert! (equal? input expected))
   (if (equal? input expected)
       (begin
         (display "> ")
