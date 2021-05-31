@@ -37,6 +37,8 @@ use super::{code_generator::loop_condition_local_const_arity_two, modules::Modul
 
 use im_rc::HashMap as ImmutableHashMap;
 
+use itertools::Itertools;
+
 // TODO this needs to take into account if they are functions or not before adding them
 // don't just blindly do all global defines first - need to do them in order correctly
 fn replace_defines_with_debruijn_indices(
@@ -595,20 +597,41 @@ impl Compiler {
                 .collect::<Vec<_>>()
         );
 
-        let mut expanded_statements = expanded_statements;
+        let mut ready_expanded_statements = expanded_statements;
 
         match self.opt_level {
             OptLevel::Three => loop {
+                // println!("####### Before ######");
                 let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
-                expanded_statements = manager.run(expanded_statements)?;
+
+                // println!(
+                //     "{}",
+                //     ready_expanded_statements
+                //         .iter()
+                //         .map(|x| x.to_pretty(60))
+                //         .join("\n\n")
+                // );
+
+                ready_expanded_statements = manager.run(ready_expanded_statements)?;
+
+                // println!("####### After ######");
+
+                // println!(
+                //     "{}",
+                //     ready_expanded_statements
+                //         .iter()
+                //         .map(|x| x.to_pretty(60))
+                //         .join("\n\n")
+                // );
+
                 if !manager.changed {
                     break;
                 }
             },
             OptLevel::Two => {
-                expanded_statements =
+                ready_expanded_statements =
                     ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
-                        .run(expanded_statements)?;
+                        .run(ready_expanded_statements)?;
             }
             _ => {}
         }
@@ -617,7 +640,7 @@ impl Compiler {
         // ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
 
         debug!("About to expand defines");
-        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+        let expanded_statements = flatten_begins_and_expand_defines(ready_expanded_statements);
 
         debug!(
             "Successfully expanded defines: {:?}",

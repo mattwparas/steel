@@ -11,6 +11,9 @@ use super::ast::Atom;
 
 use std::collections::HashMap;
 
+const DATUM_TO_SYNTAX: &str = "datum->syntax";
+const SYNTAX_CONST_IF: &str = "syntax-const-if";
+
 pub fn replace_identifiers(
     expr: ExprKind,
     bindings: &HashMap<String, ExprKind>,
@@ -91,7 +94,7 @@ impl<'a> ReplaceExpressions<'a> {
                         ty: TokenType::Identifier(check),
                         ..
                     },
-            })) if check == "syntax-const-if" => {
+            })) if check == SYNTAX_CONST_IF => {
                 if vec_exprs.len() != 4 {
                     stop!(BadSyntax => "syntax-const-if expects a const test condition, a then and an else case");
                 }
@@ -145,7 +148,7 @@ impl<'a> ReplaceExpressions<'a> {
                         ty: TokenType::Identifier(check),
                         ..
                     },
-            })) if check == "datum->syntax" => {
+            })) if check == DATUM_TO_SYNTAX => {
                 let mut buffer = String::new();
                 if let Some((_, rest)) = vec_exprs.split_first() {
                     for syntax in rest {

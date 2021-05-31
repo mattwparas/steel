@@ -1,78 +1,7 @@
 ;; Sets of useful ideas for things
 ;; #lang racket
 
-;(define-syntax match
-;  (syntax-rules (list)
-;    [(match list x) x]))
-
-;; Do some pattern matching destructuring with this
-;; Pull in the let destruct macro and use that destructuring for lists
-;; (displayln (match list 10))
-
-(define-syntax destruct
-  (syntax-rules (list)
-    [(destruct ((list var) ret-value) body ...)
-     (let ((ret ret-value))
-       (destruct-list ((var) ret) body ...))]
-    [(destruct ((list var1 var2 ...) ret-value) body ...)
-     (let ((ret ret-value))
-       (destruct-list ((var1 var2 ...) ret) body ...))]))
-
-;; destruct a list
-;; maybe write a generic match library?
-(define-syntax destruct-list
-  (syntax-rules (..)
-    [(destruct-list ((var ..) ret-value) body ...)
-     (let ((var ret-value))
-       (begin body ...))]
-    ;; This should throw an error if there are remaining values in the list that
-    ;; the pattern matching isn't complete
-    [(destruct-list ((var) ret-value) body ...)
-     (let ((var (car ret-value)))
-       (begin body ...))]
-    [(destruct-list ((var1 var2 ...) ret-value) body ...)
-     (let ((var1 (car ret-value)))
-       (destruct-list ((var2 ...) (cdr ret-value))
-                      body ...))]))
-
-;; <var> without the <..> means bind the value there
-; (destruct ((list a b c) '(1 2 3))
-;           (displayln a)
-;           (displayln b)
-;           (displayln c))
-
-;; <var> .. means bind the rest of the list to that parameter
-; (destruct ((list a b c ..) '(1 2 3 4 5))
-;           (displayln a)
-;           (displayln b)
-;           (displayln c))
-
-
-(define-syntax match-exact
-  (syntax-rules ()
-    [(match-exact 1)
-     10]
-    [(match-exact 2)
-     20]
-    [(match-exact 'test)
-     30]))
-
-
-; (displayln (match-exact 'test))
-
-;; evaluates body if expr is a list
-;; errors otherwise
-(define-syntax match-list
-  (syntax-rules ()
-    [(match-list expr body)     
-     (let ((exp expr))
-       (if (list? exp)
-           body
-           (error! "match expected a list, found: " exp)))]))
-
-; (match-list (list 1 2 3 4 5) (displayln "Found a list!"))
-
-; (matcher '(list 1 2 3) (list 1 2 3))
+;; ------------------- match functions ----------------------
 
 ;; Tells me if this is a free variable (for now)
 (define (var? x)
@@ -135,6 +64,12 @@
              (match-p (car pattern) (car input) remaining)
              #f)]))
 
+(define (match pattern input)
+  (match-p pattern input (hash)))
+
+
+;; ---------------- tests --------------------
+
 ;; Pretty print for testing purposes
 (define (test name input expected)
   (if (equal? input expected)
@@ -155,8 +90,7 @@
         (display ", Found ")
         (displayln input))))
 
-(define (match pattern input)
-  (match-p pattern input (hash)))
+(displayln "--------------------- match tests ----------------------")
 
 ;; Matches a pattern explicitly
 (test "Simple match" 
@@ -273,24 +207,8 @@
       (match '_ (list 1 2 3 4 5))
       (hash))
 
-;; Should trim the ...
-;; Off of the many symbols to ease with use
-;; (define (match-expr expr)
-;;   (let ((match? (match '(?x) expr)))
-;;     (if match?
-;;         (let ((?x (hash-get match? '?x)))
-;;           (display "Found x: ")
-;;           (displayln ?x))
-;;         (let ((match? (match '(?x ?xs...) expr)))
-;;            (if match?
-;;                (let ((?x (hash-get match? '?x))
-;;                      (?xs (hash-get match? '?xs...)))
-;;                  (display "Found x: ")
-;;                  (displayln ?x)
-;;                  (display "Found xs: ")
-;;                  (displayln ?xs))
-;;                (error! "Unable to match expression: " expr " to any of the given patterns"))))))
 
+;; ----------------- match! syntax --------------------
 
 
 (define-syntax syntax->pattern
@@ -301,9 +219,6 @@
        (cons 'var1 (syntax->pattern (var2 ...)))]
     [(syntax->pattern var)
      'var]))
-
-
-(displayln (syntax->pattern (?x ?y (?z ?applesauce))))
 
 
 (define-syntax syntax-pattern->lets
@@ -331,32 +246,6 @@
                         body))]))
 
 
-;; Macro to turn syntax into a sequence of lets with the (hash-get match?)
-
-;; (define-syntax match-expression
-;;   (syntax-rules ()
-;;     [(match-expression pat expr body)
-;;      (let ((match? (match (syntax->pattern pat) expr)))
-;;        (if match?
-;;            (syntax-pattern->lets pat match? body)
-;;            (error! "Unable to match expression: " expr " to any of the given patterns")))]))
-
-;; (displayln
-;;  (match-expression
-;;   (?x ?y ?z...)
-;;   (list 1 2 3 4 5 6)
-;;   (list->vector ?z...)))
-
-;; (define-syntax cond
-;;   (syntax-rules (else)
-;;     [(cond [else e1 ...])
-;;      (begin e1 ...)]
-;;     [(cond [e1 e2 ...])
-;;      (when e1 e2 ...)]
-;;     [(cond [e1 e2 ...] c1 ...)
-;;      (if e1
-;;          (begin e2 ...)
-;;          (cond c1 ...))]))
 
 ;; TODO add case for the remaining - when there is no else case given
 ;; and it should just error out
@@ -369,24 +258,14 @@
     [(match-dispatch expr [p1 e2 ...] c1 ...)
      (let ((match? (match (syntax->pattern p1) expr)))
        (if match?
-           ;; (if (hash-empty? match?)
-               ;; (begin e2 ...)
-           ;; (begin
-             ;; (displayln match?)
-             ;; (syntax-pattern->lets p1 match? (begin e2 ...))
-             ;; )
            (syntax-pattern->lets p1 match? (begin e2 ...))
-           ;; )
            (match-dispatch expr c1 ...)))]
     ;; When there isn't an else case given, the last case
     ;; Should include a failure mode
     [(match-dispatch expr (p1 e2 ...))
      (let ((match? (match (syntax->pattern p1) expr)))
        (if match?
-           ;; (if (hash-empty? match?)
-               ;; (begin e2 ...)
            (syntax-pattern->lets p1 match? (begin e2 ...))
-           ;; )
            (error! "Unable to match expression: " expr " to any of the given patterns")))]))
 
 
@@ -400,6 +279,66 @@
        (match-dispatch evald-expr pats ...))]))
 
 
+;; --------------------- match! tests ------------------------
+
+(displayln "--------------------- match! tests ----------------------")
+
+(test "Matches constant patterns"
+      (match! (list 1 2 3 4 5)
+              ((1 2 3 4 5) 'case1))
+      'case1)
+
+
+(test "Matches patterns with constants mixed in"
+      (match! (list 1 2 3 4 5)
+              ((?x 2 ?y 4 ?z) (+ ?x ?y ?z)))
+      (+ 1 3 5))
+
+(test "Dispatches on first of multiple matching patterns"
+      (match! (list 1 2 3 4 5)
+              (?x 'case1)
+              ((?a ?b ?c ? d ?e) 'case2))
+      'case1)
+
+(test "Constants match"
+      (match! 10
+              (10 'case1))
+      'case1)
+
+(test "Successfully takes the else case on no match"
+      (match! (list 1 (list 2 (list 3)))
+              ((?x ?y ?z) 'case1)
+              (24 'case2)
+              (else 'case3))
+      'case3)
+
+
+(test "Custom map implementation succeeds"
+      ((lambda ()
+         (define (budget-map func lst)
+           (define (loop lst accum)
+             (match! lst
+                     (() accum)
+                     ((?x ?xs...)
+                      (loop ?xs...
+                            (cons (func ?x) accum)))))
+           (reverse (loop lst '())))
+         (budget-map (fn (x) (+ x 1)) (list 1 2 3 4 5))))
+      '(2 3 4 5 6))
+
+(test "Empty list matches empty list"
+      (match! '()
+              (() 'found-empty-list!)
+              ((?x ?xs...) 'found-list!))
+      'found-empty-list!)
+
+(test "Nested patterns match with bindings"
+      (match! (list (list 1 2) 3 (list 4 (list 5 6)))
+              (((?a 2) ?b (?c (5 6))) (+ ?a ?b ?c)))
+      (+ 1 3 4))
+
+
+
 ;; Ambiguous matches will take the first one that matches
 (match! (list (list 1 2) 3 (list 4 5))
         (() (displayln "Empty pattern!"))
@@ -408,7 +347,6 @@
         (((?x ?y) ?z (?foo ?bar)) (displayln (list ?x ?y ?z ?foo ?bar)))
         ((?x ?y ?z...) (displayln ?z...))
         (else (displayln "didn't match!")))
-
 
 
 (define (budget-map func lst)
@@ -428,28 +366,17 @@
 
 (match! (list 1 2 3 4)
         ((?x ?y) (displayln "Shouldn't get here!"))
-        ((?x 2 ?y 4 5)
+        ((?x 2 ?y 4)
          (displayln ?x)
          (displayln ?y)))
 
 
-;; (define-syntax blagh
-;;   (syntax-rules ()
-;;     [(blagh test then els)
-;;      (syntax-const-if test then els)]))
-
-;; (blagh (list 1 2 3) (displayln "Then case!") (displayln "Else case!"))
 
 
 
-;; (displayln (syntax->pattern (?x ?y ?z)))
 
-;; TODO -- problems
-;; Constants in patterns cause problems - perhaps remove constants
-;; from the pattern if possible - constants cause issues with the
 
-;; Take pattern given - as syntax?
-;; Deconstruct the pattern using quotes?
+
 
 
 ;; TODO fix bug where using (quote <expr>) instead of '<expr>
