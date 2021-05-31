@@ -266,7 +266,8 @@ pub(crate) fn register_hashmap_functions(engine: &mut Engine) {
         .register_value("hash-keys->vector", HashMapOperations::keys_to_vector())
         .register_value("hash-values->list", HashMapOperations::values_to_list())
         .register_value("hash-values->vector", HashMapOperations::values_to_vector())
-        .register_value("hash-clear", HashMapOperations::clear());
+        .register_value("hash-clear", HashMapOperations::clear())
+        .register_value("hash-empty?", HashMapOperations::hm_empty());
 }
 
 #[inline(always)]

@@ -269,6 +269,10 @@
       (match 10 (list 1 2 3 4 5))
       #f)
 
+(test "Wildcard passes"
+      (match '_ (list 1 2 3 4 5))
+      (hash))
+
 ;; Should trim the ...
 ;; Off of the many symbols to ease with use
 ;; (define (match-expr expr)
@@ -299,7 +303,7 @@
      'var]))
 
 
-;; (displayln (syntax->pattern (?x ?y (?z ?applesauce))))
+(displayln (syntax->pattern (?x ?y (?z ?applesauce))))
 
 
 (define-syntax syntax-pattern->lets
@@ -308,21 +312,18 @@
      (syntax-pattern->lets (var1) bindings body)]
     [(syntax-pattern->lets ((var1 ...) rest ...) bindings body)
      (syntax-pattern->lets (var1 ...) bindings
-                           (syntax-pattern->lets
-                            (rest ...)
-                            bindings
-                            body))]
+                           (syntax-pattern->lets (rest ...) bindings body))]
     [(syntax-pattern->lets (var1) bindings body)
      ;; TODO
-     (let ((var1 (hash-get bindings 'var1)))
+     (let ((var1 (hash-try-get bindings 'var1)))
        body)]
     [(syntax-pattern->lets (var1 var2 ...) bindings body)
-     (let ((var1 (hash-get bindings 'var1)))
+     (let ((var1 (hash-try-get bindings 'var1)))
        (syntax-pattern->lets (var2 ...) bindings body))]
     [(syntax-pattern->lets () bindings body)
      body]
     [(syntax-pattern->lets var bindings body)
-     (let ((var (hash-get bindings 'var)))
+     (let ((var (hash-try-get bindings 'var)))
        body)]))
 
 
@@ -353,15 +354,36 @@
 ;;          (begin e2 ...)
 ;;          (cond c1 ...))]))
 
+;; TODO add case for the remaining - when there is no else case given
+;; and it should just error out
 (define-syntax match-dispatch
   (syntax-rules (else)
+    ;; Explicitly giving an else case
     [(match-dispatch expr [else e1 ...])
      (begin e1 ...)]
+    ;; Generic recursive case
     [(match-dispatch expr [p1 e2 ...] c1 ...)
      (let ((match? (match (syntax->pattern p1) expr)))
        (if match?
+           ;; (if (hash-empty? match?)
+               ;; (begin e2 ...)
+           ;; (begin
+             ;; (displayln match?)
+             ;; (syntax-pattern->lets p1 match? (begin e2 ...))
+             ;; )
            (syntax-pattern->lets p1 match? (begin e2 ...))
-           (match-dispatch expr c1 ...)))]))
+           ;; )
+           (match-dispatch expr c1 ...)))]
+    ;; When there isn't an else case given, the last case
+    ;; Should include a failure mode
+    [(match-dispatch expr (p1 e2 ...))
+     (let ((match? (match (syntax->pattern p1) expr)))
+       (if match?
+           ;; (if (hash-empty? match?)
+               ;; (begin e2 ...)
+           (syntax-pattern->lets p1 match? (begin e2 ...))
+           ;; )
+           (error! "Unable to match expression: " expr " to any of the given patterns")))]))
 
 
 (define-syntax match!
@@ -391,8 +413,7 @@
             (() accum)
             ((?x ?xs...)
              (loop ?xs...
-                   (cons (func ?x) accum)))
-            (else (error! "Could not match pattern"))))
+                   (cons (func ?x) accum)))))
   (reverse (loop lst '())))
 
 (displayln
@@ -401,10 +422,16 @@
 
 
 
+(match! (list 1 2 3 4)
+        ((?x ?y) (displayln "Shouldn't get here!")))
+        ;; ((1 2 3 4) (displayln "else case!")))
+
 
 ;; (displayln (syntax->pattern (?x ?y ?z)))
 
-
+;; TODO -- problems
+;; Constants in patterns cause problems - perhaps remove constants
+;; from the pattern if possible - constants cause issues with the
 
 ;; Take pattern given - as syntax?
 ;; Deconstruct the pattern using quotes?

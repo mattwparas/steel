@@ -229,6 +229,22 @@ impl HashMapOperations {
             }
         })
     }
+
+    pub fn hm_empty() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "hash-empty? takes 1 argument")
+            }
+
+            let hashmap = &args[0];
+
+            if let SteelVal::HashMapV(hm) = hashmap {
+                Ok(SteelVal::BoolV(hm.is_empty()))
+            } else {
+                stop!(TypeMismatch => "hash-empty? takes a hashmap")
+            }
+        })
+    }
 }
 
 #[cfg(test)]

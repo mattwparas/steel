@@ -309,14 +309,6 @@ impl MacroPattern {
         }
     }
 
-    pub fn deconstruct_syntax(&self) -> Vec<&str> {
-        match self {
-            Self::Single(s) => vec![&s],
-            Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
-            _ => vec![],
-        }
-    }
-
     pub fn is_many(&self) -> bool {
         if let MacroPattern::Many(_) = self {
             true

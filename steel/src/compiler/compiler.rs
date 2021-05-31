@@ -35,8 +35,6 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
-use itertools::Itertools;
-
 use im_rc::HashMap as ImmutableHashMap;
 
 // TODO this needs to take into account if they are functions or not before adding them
