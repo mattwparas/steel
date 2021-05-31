@@ -3,39 +3,39 @@
 
 (define-syntax fun
   (syntax-rules (:: ->)
-    [(fun name :: (arg c -> return) body)
-     (define/contract (name arg) (->/c c return) body)]
-    [(fun name :: (arg c -> arg1 c1 -> return) body)
-     (define/contract (name arg arg1) (->/c c c1 return) body)]
-    [(fun name :: (arg c -> arg1 c1 -> arg2 c2 -> return) body)
-     (define/contract (name arg arg1 arg2) (->/c c c1 c2 return) body)]
+    [(fun name :: (arg c -> return) body ...)
+     (define/contract (name arg) (->/c c return) body ...)]
+    [(fun name :: (arg c -> arg1 c1 -> return) body ...)
+     (define/contract (name arg arg1) (->/c c c1 return) body ...)]
+    [(fun name :: (arg c -> arg1 c1 -> arg2 c2 -> return) body ...)
+     (define/contract (name arg arg1 arg2) (->/c c c1 c2 return) body ...)]
     [(fun name :: (arg c
                        -> arg1 c1
                        -> arg2 c2
                        -> arg3 c3
-                       -> return) body)
+                       -> return) body ...)
      (define/contract
        (name arg arg1 arg2 arg3)
-       (->/c c c1 c2 c3 return) body)]
+       (->/c c c1 c2 c3 return) body ...)]
     [(fun name :: (arg c
                        -> arg1 c1
                        -> arg2 c2
                        -> arg3 c3
                        -> arg4 c4
-                       -> return) body)
+                       -> return) body ...)
      (define/contract
        (name arg arg1 arg2 arg3 arg4)
-       (->/c c c1 c2 c3 c4 return) body)]
+       (->/c c c1 c2 c3 c4 return) body ...)]
     [(fun name :: (arg c
                        -> arg1 c1
                        -> arg2 c2
                        -> arg3 c3
                        -> arg4 c4
                        -> arg5 c5
-                       -> return) body)
+                       -> return) body ...)
      (define/contract
        (name arg arg1 arg2 arg3 arg4 arg5)
-       (->/c c c1 c2 c3 c4 c5 return) body)]
+       (->/c c c1 c2 c3 c4 c5 return) body ...)]
     [(fun name :: (arg c
                        -> arg1 c1
                        -> arg2 c2
@@ -43,10 +43,10 @@
                        -> arg4 c4
                        -> arg5 c5
                        -> arg6 c6
-                       -> return) body)
+                       -> return) body ...)
      (define/contract
        (name arg arg1 arg2 arg3 arg4 arg5 arg6)
-       (->/c c c1 c2 c3 c4 c5 c6 return) body)]
+       (->/c c c1 c2 c3 c4 c5 c6 return) body ...)]
     [(fun name :: (arg c
                        -> arg1 c1
                        -> arg2 c2
@@ -55,10 +55,10 @@
                        -> arg5 c5
                        -> arg6 c6
                        -> arg7 c7
-                       -> return) body)
+                       -> return) body ...)
      (define/contract
        (name arg arg1 arg2 arg3 arg4 arg5 arg6 arg7)
-       (->/c c c1 c2 c3 c4 c5 c6 c7 return) body)]
+       (->/c c c1 c2 c3 c4 c5 c6 c7 return) body ...)]
     [(fun name :: (arg c
                        -> arg1 c1
                        -> arg2 c2
@@ -67,13 +67,36 @@
                        -> arg5 c5
                        -> arg6 c6
                        -> arg7 c7
-                       -> return) body)
+                       -> arg8 c8
+                       -> return) body ...)
      (define/contract
-       (name arg arg1 arg2 arg3 arg4 arg5 arg6 arg7)
-       (->/c c c1 c2 c3 c4 c5 c6 c7 return) body)]))
+       (name arg arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8)
+       (->/c c c1 c2 c3 c4 c5 c6 c7 c8 return) body ...)]
+    [(fun name :: (arg c
+                       -> arg1 c1
+                       -> arg2 c2
+                       -> arg3 c3
+                       -> arg4 c4
+                       -> arg5 c5
+                       -> arg6 c6
+                       -> arg7 c7
+                       -> arg8 c8
+                       -> arg9 c9
+                       -> return) body ...)
+     (define/contract
+       (name arg arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9)
+       (->/c c c1 c2 c3 c4 c5 c6 c7 c8 c9 return) body ...)]))
 
 
+;; New more palatable function declarations
+;; similar to haskell / agda kinda stuff
 (fun add-two :: (left int? -> right int? -> int?)
      (+ left right))
 
 (displayln (add-two 10 20))
+
+
+(fun boop-lemma-1 :: (l any/c -> any/c)
+     (displayln l))
+
+(boop-lemma-1 "alex")
