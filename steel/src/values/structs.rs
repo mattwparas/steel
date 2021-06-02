@@ -1,4 +1,5 @@
 use crate::gc::Gc;
+use crate::primitives::ListOperations;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
@@ -263,6 +264,25 @@ pub fn struct_ref() -> SteelVal {
                 );
                 stop!(TypeMismatch => error_message)
             }
+        }
+    })
+}
+
+pub fn struct_to_list() -> SteelVal {
+    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+        if args.len() != 1 {
+            stop!(ArityMismatch => "struct->list expected one argument");
+        }
+
+        let steel_struct = &args[0].clone();
+
+        if let SteelVal::StructV(s) = &steel_struct {
+            Ok(ListOperations::built_in_list_normal_iter_non_result(
+                s.fields.iter().cloned(),
+            ))
+        } else {
+            let e = format!("struct->list expected a struct, found: {}", steel_struct);
+            stop!(TypeMismatch => e);
         }
     })
 }

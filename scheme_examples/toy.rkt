@@ -338,70 +338,6 @@
       (+ 1 3 4))
 
 
-
-;; ;; Ambiguous matches will take the first one that matches
-;; (match! (list (list 1 2) 3 (list 4 5))
-;;         (() (displayln "Empty pattern!"))
-;;         ((?x) (displayln ?x))
-;;         ((?x ?y) (displayln (+ ?x ?y)))
-;;         (((?x ?y) ?z (?foo ?bar)) (displayln (list ?x ?y ?z ?foo ?bar)))
-;;         ((?x ?y ?z...) (displayln ?z...))
-;;         (else (displayln "didn't match!")))
-
-
-;; (define (budget-map func lst)
-;;   (define (loop lst accum)
-;;     (match! lst
-;;             (() accum)
-;;             ((?x ?xs...)
-;;              (loop ?xs...
-;;                    (cons (func ?x) accum)))))
-;;   (reverse (loop lst '())))
-
-;; (displayln
-;;  (budget-map (fn (x) (+ x 1))
-;;             (list 1 2 3 4 5))) ;; => '(2 3 4 5 6)
-
-
-
-;; (match! (list 1 2 3 4)
-;;         ((?x ?y) (displayln "Shouldn't get here!"))
-;;         ((?x 2 ?y 4)
-;;          (displayln ?x)
-;;          (displayln ?y)))
-
-
-
-
-
-
-
-
-
-
-;; TODO fix bug where using (quote <expr>) instead of '<expr>
-;; leads to a parsing error
-;; (define-syntax deck
-;;   (syntax-rules ()
-;;     [(deck (var1))
-;;         (begin
-;;         (display "Found a one element list ")
-;;         (displayln '(var1)))]
-;;     [(deck (var1 var2 ...))
-;;         (begin
-;;         (display "Popping off value: ")
-;;         (displayln 'var1)
-;;         (deck (var2 ...)))]
-;;     [(deck var)
-;;      (begin
-;;        (display "Found a single expr ")
-;;        (displayln 'var))]))
-
-;; (deck (?x ?y ?z))
-
-
-
-
 ;; match struct
 ;; given a value, destruct it into each variables positions
 
@@ -426,13 +362,38 @@
 
 ;; When its a struct, we want to pop off the first pattern
 ;; Keywords inside quotes expressions do not work properly
-(displayln (match (quote (Apple y z)) '(x y z)))
+; (displayln (match (quote (Apple y z)) '(x y z)))
 
 
 ;; (displayln (match '(?x y z) (list 10 'y 'z)))
 
 
-'(Apple 1 2 3)
+; '(Apple 1 2 3)
+
+(struct Applesauce (a b c))
+
+(define (struct-pattern->indices pat)
+      (define (loop pat accum seed)
+            (if (null? pat) 
+                  accum
+                  (let ((next-index (+ 1 seed)))
+                        (loop (cdr pat) (cons next-index accum) next-index))))
+      (reverse (loop (cdr pat) '() -1)))
+
+(displayln (struct-pattern->indices '(Applesauce ?x ?y z)))
+(displayln (struct-pattern->indices '(Unit-Struct)))
+
+
+(displayln (struct->list (Applesauce 10 45 90)))
+
+(displayln (match '(?x ?y ?z) (struct->list (Applesauce 10 45 90))))
+
+
+; (define (match-struct pattern struct bindings)
+      
+
+
+; )
 
 
 ;; (define (match-wrapper pattern expr

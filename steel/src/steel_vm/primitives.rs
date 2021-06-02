@@ -6,7 +6,7 @@ use crate::primitives::{
 };
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
-use crate::values::structs::struct_ref;
+use crate::values::structs::{struct_ref, struct_to_list};
 
 #[macro_use]
 macro_rules! ensure_tonicity {
@@ -440,7 +440,8 @@ pub(crate) fn register_meta_functions(engine: &mut Engine) {
         .register_value("async-exec", MetaOperations::exec_async())
         .register_value("poll!", MetaOperations::poll_value())
         .register_value("join!", MetaOperations::join_futures())
-        .register_value("struct-ref", struct_ref());
+        .register_value("struct-ref", struct_ref())
+        .register_value("struct->list", struct_to_list());
 }
 
 #[inline(always)]
