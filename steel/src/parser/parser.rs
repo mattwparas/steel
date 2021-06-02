@@ -194,7 +194,7 @@ pub type Result<T> = result::Result<T, ParseError>;
 
 fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
     if let TokenType::Error = t.ty {
-        println!("Found an error: {}", t);
+        // println!("Found an error: {}", t);
 
         if t.source.starts_with('\"') {
             ParseError::IncompleteString(t.source.to_string(), t.span, None)
@@ -314,12 +314,14 @@ impl<'a> Parser<'a> {
                         TokenType::Error => return Err(tokentype_error_to_parse_error(&token)), // TODO
                         TokenType::QuoteTick => {
                             // quote_count += 1;
-                            self.quote_stack.push(current_frame.len());
+                            // self.quote_stack.push(current_frame.len());
+                            self.shorthand_quote_stack.push(current_frame.len());
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_quote(x, token.span));
-                            self.quote_stack.pop();
+                            // self.quote_stack.pop();
+                            self.shorthand_quote_stack.pop();
 
                             current_frame.push(quote_inner?);
                         }
@@ -389,32 +391,83 @@ impl<'a> Parser<'a> {
                                                 .push(ExprKind::List(List::new(current_frame))),
                                         }
                                     }
+                                    Some(_) if self.quote_stack.len() == 1 => {
+                                        // self.quote_stack.pop();
+
+                                        match current_frame.first() {
+                                            Some(ExprKind::Atom(Atom {
+                                                syn:
+                                                    SyntaxObject {
+                                                        ty: TokenType::Quote,
+                                                        ..
+                                                    },
+                                            })) => {
+                                                prev_frame.push(
+                                                    ExprKind::try_from(current_frame).map_err(
+                                                        |x| x.set_source(self.source_name.clone()),
+                                                    )?,
+                                                );
+                                            }
+                                            _ => prev_frame
+                                                .push(ExprKind::List(List::new(current_frame))),
+                                        }
+                                    }
                                     Some(_) => {
+                                        // println!("Inside here");
+                                        // println!("quote stack: {:?}", self.quote_stack);
                                         prev_frame.push(ExprKind::List(List::new(current_frame)))
                                     }
-                                    _ => match self.shorthand_quote_stack.last() {
-                                        Some(_) => prev_frame
-                                            .push(ExprKind::List(List::new(current_frame))),
-                                        _ => {
-                                            prev_frame.push(
-                                                ExprKind::try_from(current_frame).map_err(|x| {
-                                                    x.set_source(self.source_name.clone())
-                                                })?,
-                                            );
+                                    _ => {
+                                        // println!(
+                                        //     "Shorthand quote stack: {:?}",
+                                        //     self.shorthand_quote_stack
+                                        // );
+
+                                        // println!("Getting here!");
+
+                                        match self.shorthand_quote_stack.last() {
+                                            Some(_) => prev_frame
+                                                .push(ExprKind::List(List::new(current_frame))),
+                                            _ => {
+                                                prev_frame.push(
+                                                    ExprKind::try_from(current_frame).map_err(
+                                                        |x| x.set_source(self.source_name.clone()),
+                                                    )?,
+                                                );
+                                            }
                                         }
-                                    },
+                                    }
                                 }
                                 current_frame = prev_frame;
                             } else {
+                                // println!("Shorthand quote stack: {:?}", self.shorthand_quote_stack);
+                                // println!("Current frame: {:?}", current_frame);
+                                // println!("Quote stack: {:?}", self.quote_stack);
+
                                 match self.shorthand_quote_stack.last() {
                                     Some(last_quote_index) if stack.len() == *last_quote_index => {
-                                        self.shorthand_quote_stack.pop();
+                                        // self.shorthand_quote_stack.pop();
+
+                                        // println!("Inside here!");
+
+                                        return Ok(ExprKind::List(List::new(current_frame)));
+                                    }
+                                    Some(_) => {
+                                        // println!("Inside second one");
+
+                                        // self.shorthand_quote_stack.pop();
                                         return Ok(ExprKind::List(List::new(current_frame)));
                                     }
 
                                     _ => {
+                                        // if !self.quote_stack.is_empty() {
+                                        //     unimplemented!()
+                                        // }
+
+                                        // println!("Inside third here");
+
                                         return ExprKind::try_from(current_frame)
-                                            .map_err(|x| x.set_source(self.source_name.clone()))
+                                            .map_err(|x| x.set_source(self.source_name.clone()));
                                     }
                                 }
                             }
@@ -505,6 +558,12 @@ mod parser_tests {
         Begin, Define, Execute, If, LambdaFunction, Panic, Quote, Return, Transduce,
     };
 
+    fn parses(s: &str) {
+        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let a: Result<Vec<_>> = Parser::new(s, &mut cache).collect();
+        a.unwrap();
+    }
+
     fn assert_parse(s: &str, result: &[ExprKind]) {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache).collect();
@@ -522,6 +581,12 @@ mod parser_tests {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache).collect();
         assert!(a.is_err());
+    }
+
+    #[test]
+    fn parse_quote() {
+        // parses("(displayln (match (quote (lambda y z)) '(x y z)))")
+        parses("(displayln (match '(lambda y z) '(x y z)))")
     }
 
     #[test]
@@ -640,6 +705,11 @@ mod parser_tests {
     fn test_panic_should_err() {
         assert_parse_is_err("(panic!)");
         assert_parse_is_err("(panic! 1 2)")
+    }
+
+    #[test]
+    fn quote_multiple_args_should_err() {
+        assert_parse_is_err("(quote a b c)");
     }
 
     #[test]

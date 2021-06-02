@@ -237,6 +237,36 @@ fn setter(name: Rc<str>, idx: usize) -> SteelVal {
     SteelVal::BoxedFunction(Rc::new(f))
 }
 
+pub fn struct_ref() -> SteelVal {
+    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+        if args.len() != 2 {
+            stop!(ArityMismatch => "struct-ref expected two arguments");
+        }
+
+        let steel_struct = &args[0].clone();
+        let idx = &args[1].clone();
+
+        match (&steel_struct, &idx) {
+            (SteelVal::StructV(s), SteelVal::IntV(idx)) => {
+                if *idx < 0 {
+                    stop!(Generic => "struct-ref expected a non negative index");
+                }
+                if *idx as usize >= s.fields.len() {
+                    stop!(Generic => "struct-ref: index out of bounds");
+                }
+                Ok(s.fields[*idx as usize].clone())
+            }
+            _ => {
+                let error_message = format!(
+                    "struct-ref expected a struct and an int, found: {} and {}",
+                    steel_struct, idx
+                );
+                stop!(TypeMismatch => error_message)
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod struct_tests {
 
