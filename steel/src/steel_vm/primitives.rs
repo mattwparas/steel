@@ -6,7 +6,7 @@ use crate::primitives::{
 };
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
-use crate::values::structs::{struct_ref, struct_to_list};
+use crate::values::structs::{struct_ref, struct_to_list, struct_to_vector};
 
 #[macro_use]
 macro_rules! ensure_tonicity {
@@ -292,6 +292,7 @@ pub(crate) fn register_identity_predicates(engine: &mut Engine) {
         .register_value("string?", gen_pred!(StringV))
         .register_value("symbol?", gen_pred!(SymbolV))
         .register_value("vector?", gen_pred!(VectorV))
+        .register_value("struct?", gen_pred!(StructV))
         .register_value("list?", gen_pred!(Pair))
         .register_value("pair?", gen_pred!(Pair))
         .register_value("integer?", gen_pred!(IntV))
@@ -441,7 +442,8 @@ pub(crate) fn register_meta_functions(engine: &mut Engine) {
         .register_value("poll!", MetaOperations::poll_value())
         .register_value("join!", MetaOperations::join_futures())
         .register_value("struct-ref", struct_ref())
-        .register_value("struct->list", struct_to_list());
+        .register_value("struct->list", struct_to_list())
+        .register_value("struct->vector", struct_to_vector());
 }
 
 #[inline(always)]

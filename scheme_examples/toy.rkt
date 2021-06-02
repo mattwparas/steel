@@ -38,31 +38,35 @@
 
 ;; Bindings or #false if there is not a match
 (define (match-p pattern input bindings)
-  (cond [(and (list? pattern)
-              (not (null? pattern))
-              (many? (car pattern)))
-         (if (null? (cdr pattern))
-             (equal-or-insert bindings (car pattern) input)
-             (let ((collected (collect-until-last input)))
-               (define remainder (car collected))
-               (define collected-list (reverse (car (cdr collected))))
-               (if (null? (cdr (cdr pattern)))
-                   (let ((remainder-bound
-                          (equal-or-insert bindings
-                                           (car (cdr pattern)) remainder)))
-                     (equal-or-insert remainder-bound (car pattern) collected-list))
-                   #f)))]
-        [(var? pattern) (equal-or-insert bindings pattern input)]
-        [(ignore? pattern) bindings]
-        [(atom? pattern) (if (equal? pattern input) bindings #f)]
-        [(null? pattern) (if (null? input) bindings #f)]
-        [(null? input) #f]
-        [(and (list? pattern) (not (list? input))) #f]
-        [else
-         (define remaining (match-p (cdr pattern) (cdr input) bindings))
-         (if remaining
-             (match-p (car pattern) (car input) remaining)
-             #f)]))
+  (cond
+    ;; If its a struct, immediately do the conversion
+    ;; TODO bug arity check is not happening here
+    [(and (list? pattern) (struct? input)) (match-p pattern (struct->list input) bindings)]
+    [(and (list? pattern)
+          (not (null? pattern))
+          (many? (car pattern)))
+     (if (null? (cdr pattern))
+         (equal-or-insert bindings (car pattern) input)
+         (let ((collected (collect-until-last input)))
+           (define remainder (car collected))
+           (define collected-list (reverse (car (cdr collected))))
+           (if (null? (cdr (cdr pattern)))
+               (let ((remainder-bound
+                      (equal-or-insert bindings
+                                       (car (cdr pattern)) remainder)))
+                 (equal-or-insert remainder-bound (car pattern) collected-list))
+               #f)))]
+    [(var? pattern) (equal-or-insert bindings pattern input)]
+    [(ignore? pattern) bindings]
+    [(atom? pattern) (if (equal? pattern input) bindings #f)]
+    [(null? pattern) (if (null? input) bindings #f)]
+    [(null? input) #f]
+    [(and (list? pattern) (not (list? input))) #f]
+    [else
+     (define remaining (match-p (cdr pattern) (cdr input) bindings))
+     (if remaining
+         (match-p (car pattern) (car input) remaining)
+         #f)]))
 
 (define (match pattern input)
   (match-p pattern input (hash)))
@@ -338,6 +342,27 @@
       (+ 1 3 4))
 
 
+(define-syntax begin-scope
+  (syntax-rules ()
+    ((begin-scope body ...)
+     ((fn () body ...)))))
+
+(test "Struct matching"
+      (begin-scope
+         (struct Apples (a b c))
+         (match! (Apples 10 30 50)
+                 ((Apples ?x ?y ?z) (+ ?x ?y ?z))))
+      (+ 10 30 50))
+
+
+(test "Nested struct matching"
+      (begin-scope
+        (struct Apples (a b c))
+        (match! (Apples (Apples (Apples 10 30 50) 1 2) 3 4)
+                ((Apples (Apples (Apples ?x ?y ?z) _ _) _ _)
+                 (+ ?x ?y ?z))))
+      (+ 10 30 50))
+
 ;; match struct
 ;; given a value, destruct it into each variables positions
 
@@ -370,23 +395,37 @@
 
 ; '(Apple 1 2 3)
 
-(struct Applesauce (a b c))
+;; (struct Applesauce (a b c))
 
-(define (struct-pattern->indices pat)
-      (define (loop pat accum seed)
-            (if (null? pat) 
-                  accum
-                  (let ((next-index (+ 1 seed)))
-                        (loop (cdr pat) (cons next-index accum) next-index))))
-      (reverse (loop (cdr pat) '() -1)))
+;; (define (struct-pattern->indices pat)
+;;       (define (loop pat accum seed)
+;;             (if (null? pat)
+;;                   accum
+;;                   (let ((next-index (+ 1 seed)))
+;;                         (loop (cdr pat) (cons next-index accum) next-index))))
+;;       (reverse (loop (cdr pat) '() -1)))
 
-(displayln (struct-pattern->indices '(Applesauce ?x ?y z)))
-(displayln (struct-pattern->indices '(Unit-Struct)))
+;; (displayln (struct-pattern->indices '(Applesauce ?x ?y z)))
+;; (displayln (struct-pattern->indices '(Unit-Struct)))
 
 
-(displayln (struct->list (Applesauce 10 45 90)))
+;; (displayln (struct->list (Applesauce 10 45 90)))
 
-(displayln (match '(?x ?y ?z) (struct->list (Applesauce 10 45 90))))
+;; (displayln
+;;  (match '(Applesauce ?x ?y ?z)
+;;    (struct->list (Applesauce (Applesauce 10 20 30) 45 90))))
+
+
+;; (displayln
+;;  (match! (Applesauce (Applesauce 10 20 30) 2 3)
+;;          ((Applesauce (Applesauce ?x ?y ?z) 2 3) (+ ?x ?y ?z))
+;;          (else 'no-match)))
+
+;; (define-syntax match-struct
+;;   (syntax-rules ()
+;;     [(match-struct struct-name pattern expr)
+;;      (if ((datum->syntax struct-name?) expr)
+;;          (match (cdr pattern) (struct->list expr)))]))
 
 
 ; (define (match-struct pattern struct bindings)

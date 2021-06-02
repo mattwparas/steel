@@ -545,6 +545,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     let current_arity = self.instructions[self.ip + 1].payload_size as usize;
                     self.ip = cur_inst.payload_size as usize;
 
+                    let closure_arity = self.function_stack.last().unwrap().arity();
+
+                    if current_arity != closure_arity {
+                        stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure_arity, current_arity));
+                    }
+
                     // HACK COME BACK TO THIS
                     // if self.ip == 0 && self.heap.len() > self.heap.limit() {
                     // TODO collect here

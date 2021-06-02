@@ -172,7 +172,7 @@ pub(crate) trait FunctionContractExt {
     fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
-        function: &ByteCodeLambda,
+        function: &Gc<ByteCodeLambda>,
         arguments: &[SteelVal],
         constants: &CT,
         cur_inst_span: &Span,
@@ -191,7 +191,7 @@ impl FunctionContractExt for FunctionContract {
     fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
-        function: &ByteCodeLambda,
+        function: &Gc<ByteCodeLambda>,
         arguments: &[SteelVal],
         constants: &CT,
         cur_inst_span: &Span,
@@ -281,6 +281,8 @@ impl FunctionContractExt for FunctionContract {
             }
         }
 
+        function_stack.push(Gc::clone(function));
+
         let output = {
             vm(
                 function.body_exp(),
@@ -289,7 +291,7 @@ impl FunctionContractExt for FunctionContract {
                 constants,
                 callback,
                 upvalue_heap,
-                &mut Vec::new(),
+                function_stack,
                 &mut Stack::new(),
                 use_callbacks,
                 apply_contracts,
