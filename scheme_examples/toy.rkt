@@ -405,25 +405,34 @@
 ;; match struct
 ;; given a value, destruct it into each variables positions
 
-(struct Apple ())
-(struct Banana ())
-(struct Fruit ())
-(struct Burger ())
+;; (struct Apple ())
+;; (struct Banana ())
+;; (struct Fruit ())
+;; (struct Burger ())
 
 ;; (displayln (struct-ref (Apple) 2))
 
 
-(define (which-struct? s)
-  (cond [(Apple? s) 'Apple]
-        [(Banana? s) 'Banana]
-        [(Fruit? s) 'Fruit]
-        [else 'Unknown]))
+;; (define (which-struct? s)
+;;   (cond [(Apple? s) 'Apple]
+;;         [(Banana? s) 'Banana]
+;;         [(Fruit? s) 'Fruit]
+;;         [else 'Unknown]))
 
-(displayln (which-struct? (Apple)))
-(displayln (which-struct? (Banana)))
-(displayln (which-struct? (Fruit)))
-(displayln (which-struct? (Burger)))
+;; (displayln (which-struct? (Apple)))
+;; (displayln (which-struct? (Banana)))
+;; (displayln (which-struct? (Fruit)))
+;; (displayln (which-struct? (Burger)))
 
 ;; When its a struct, we want to pop off the first pattern
 ;; Keywords inside quotes expressions do not work properly
 (displayln (match (quote (Apple y z)) '(x y z)))
+
+
+;; (displayln (match '(?x y z) (list 10 'y 'z)))
+
+
+'(Apple 1 2 3)
+
+
+;; (define (match-wrapper pattern expr
