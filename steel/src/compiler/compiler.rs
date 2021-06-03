@@ -29,13 +29,15 @@ use crate::core::instructions::{densify, DenseInstruction};
 
 use crate::stop;
 
-use log::debug;
+use log::{debug, log_enabled};
 
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
 use im_rc::HashMap as ImmutableHashMap;
+
+use std::time::Instant;
 
 // use itertools::Itertools;
 
@@ -293,12 +295,18 @@ impl Compiler {
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
 
+        let now = Instant::now();
+
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
             Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
         } else {
             Parser::new(expr_str, &mut intern).collect()
         };
+
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+        }
 
         let parsed = parsed?;
 
@@ -454,6 +462,8 @@ impl Compiler {
         expanded_statements: Vec<ExprKind>,
         results: Vec<Vec<DenseInstruction>>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
+        let now = Instant::now();
+
         let mut results = results;
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
@@ -485,6 +495,10 @@ impl Compiler {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
             // pretty_print_instructions(extracted.as_slice());
             results.push(densify(extracted));
+        }
+
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Instruction generation time: {:?}", now.elapsed());
         }
 
         Ok(results)
@@ -535,13 +549,15 @@ impl Compiler {
 
         let expanded_statements = self.expand_expressions(exprs, None)?;
 
-        debug!(
-            "Generating instructions for the expression: {:?}",
-            expanded_statements
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-        );
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Generating instructions for the expression: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
 
         debug!("About to expand defines");
 
@@ -565,13 +581,15 @@ impl Compiler {
 
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
-        debug!(
-            "Successfully expanded defines: {:?}",
-            expanded_statements
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-        );
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Successfully expanded defines: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
 
         let statements_without_structs =
             self.debug_extract_structs(expanded_statements, &mut results)?;
@@ -587,17 +605,27 @@ impl Compiler {
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut results = Vec::new();
 
+        let now = Instant::now();
+
         let expanded_statements = self.expand_expressions(exprs, path)?;
 
-        debug!(
-            "Generating instructions for the expression: {:?}",
-            expanded_statements
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-        );
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Macro Expansion Time: {:?}", now.elapsed());
+        }
+
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Generating instructions for the expression: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
 
         let mut expanded_statements = expanded_statements;
+
+        let opt_time = Instant::now();
 
         match self.opt_level {
             OptLevel::Three => loop {
@@ -616,16 +644,26 @@ impl Compiler {
             _ => {}
         }
 
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(
+                target: "pipeline_time",
+                "Const Evaluation Time: {:?}",
+                opt_time.elapsed()
+            );
+        }
+
         debug!("About to expand defines");
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
-        debug!(
-            "Successfully expanded defines: {:?}",
-            expanded_statements
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-        );
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Successfully expanded defines: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
 
