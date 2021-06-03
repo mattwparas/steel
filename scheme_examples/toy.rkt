@@ -23,7 +23,9 @@
   (if existing-value
       (if (equal? existing-value value)
           hm
-          #f)
+          #f
+          ;; (error! "Duplicate bindings found for variable: " key)
+          )
       (hash-insert hm key value)))
 
 (define (collect-until-last-p input collected)
@@ -362,6 +364,45 @@
                 ((Apples (Apples (Apples ?x ?y ?z) _ _) _ _)
                  (+ ?x ?y ?z))))
       (+ 10 30 50))
+
+
+(struct Add (l r))
+(struct Sub (l r))
+(struct Num (n))
+(struct String (s))
+
+(define (calculate expr)
+  (match! expr
+          ((Num ?n) ?n)
+          ((Sub ?l ?r) (- (calculate ?l) (calculate ?r)))
+          ((Add ?l ?r) (+ (calculate ?l) (calculate ?r)))))
+
+;; TODO provide stack trace on errors for debug builds
+;; collecting stack trace should just be:
+;; Go to function stack: Print out last executing functions with their spans
+;; Map spans to file + call site - print out underneath the function information
+;; Will help with errors inside functions, the callstack will tell me where things actually
+;; went wrong
+
+
+;; (displayln (calculate (Add (Add (Num 10) (Num 25)) (Sub (Num 100) (Num 300)))))
+
+
+(struct tuple (inner))
+(displayln (t
+
+;; TODO multi arity functions - how do implement those? just turn everything inside into a list? maybe?
+
+
+
+  
+
+
+;; (test "Matching duplicate names fails"
+;;       (match! (list 1 2 3 4 5)
+;;               ((?x ?x ?x ?x ?x) 'should-fail))
+;;       #f)
+
 
 ;; match struct
 ;; given a value, destruct it into each variables positions
