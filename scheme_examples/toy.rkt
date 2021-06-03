@@ -393,6 +393,9 @@
 
 ;; TODO multi arity functions - how do implement those? just turn everything inside into a list? maybe?
 
+(displayln (apply list '(1 2 3 4 5 6)))
+
+
 
 ; (define-syntax case-lambda
 ;   (syntax-rules ()
