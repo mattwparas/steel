@@ -393,7 +393,19 @@
 
 ;; TODO multi arity functions - how do implement those? just turn everything inside into a list? maybe?
 
-(displayln (apply list '(1 2 3 4 5 6)))
+; (displayln (apply list '(1 2 3 4 5 6)))
+
+
+; (struct Tuple (inner))
+
+; (define-syntax tuple
+;   (syntax-rules ()
+;     [(tuple arg ...) (Tuple (vector arg ...))]))
+
+
+
+; (displayln (tuple 1 2 3 4 5))
+
 
 
 
