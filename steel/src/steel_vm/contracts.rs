@@ -234,7 +234,7 @@ impl FunctionContractExt for FunctionContract {
                             self.contract_attachment_location, name
                         );
 
-                        let message = format!("This function call caused an error - an occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location);
+                        let message = format!("This function call caused an error - it occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location);
 
                         stop!(ContractViolation => message; *cur_inst_span);
                     }

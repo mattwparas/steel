@@ -387,6 +387,9 @@
 
 ;; (displayln (calculate (Add (Add (Num 10) (Num 25)) (Sub (Num 100) (Num 300)))))
 
+(struct Some (type inner))
+(struct None (type))
+
 
 ; (struct tuple (inner))
 ; (displayln (t
