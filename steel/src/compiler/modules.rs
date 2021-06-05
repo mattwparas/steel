@@ -23,10 +23,13 @@ use crate::parser::expand_visitor::{expand, extract_macro_defs};
 use itertools::Itertools;
 use log::{debug, log_enabled};
 
-const OPTION: &str = include_str!("../scheme/option.rkt");
+const OPTION: &str = include_str!("../scheme/modules/option.rkt");
 const OPTION_NAME: &str = "std::option";
 
-static BUILT_INS: &[(&'static str, &'static str)] = &[(OPTION_NAME, OPTION)];
+const RESULT: &str = include_str!("../scheme/modules/result.rkt");
+const RESULT_NAME: &str = "std::result";
+
+static BUILT_INS: &[(&'static str, &'static str)] = &[(OPTION_NAME, OPTION), (RESULT_NAME, RESULT)];
 
 /// Manages the modules
 /// keeps some visited state on the manager for traversal

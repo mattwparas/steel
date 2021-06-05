@@ -22,11 +22,15 @@
 ;; Map - explore dynamic dispatch with contracts?
 (define (map-option option func)
     (cond [(Some? option) (Some (func (Some-value option)))]
-          [(None? option) (None)]))
+          [(None? option) option]))
 
-(define (unwrap option)
-    (if (Some?))
-)
+;; Get the inner value of the option - contract checking along the way
+;; Figure out how to turn off contracts on OptLevel3 regardless - 
+;; this would speed up performance a lot - also figure out how to map this to compile time options in Rust
+(define/contract (unwrap-some option)
+    (->/c Some? any/c)
+    (Some-value option))
+
 
 
 ; (displayln (o-map (Some 10) (fn (x) (+ x 10))))

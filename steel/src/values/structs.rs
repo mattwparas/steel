@@ -203,6 +203,10 @@ fn getter(name: Rc<str>, idx: usize) -> SteelVal {
 
         let my_struct = args[0].struct_or_else(throw!(TypeMismatch => "expected struct"))?;
 
+        if &my_struct.name != &name {
+            stop!(TypeMismatch => format!("Struct getter expected {}, found {}", name, &my_struct.name));
+        }
+
         if let Some(ret_val) = my_struct.fields.get(idx) {
             Ok(ret_val.clone())
         } else {
@@ -225,6 +229,11 @@ fn setter(name: Rc<str>, idx: usize) -> SteelVal {
         }
 
         let my_struct = args[0].struct_or_else(throw!(TypeMismatch => "expected struct"))?;
+
+        if &my_struct.name != &name {
+            stop!(TypeMismatch => format!("Struct setter expected {}, found {}", name, &my_struct.name));
+        }
+
         let value = args[1].clone();
 
         let mut new_struct = my_struct.clone();
