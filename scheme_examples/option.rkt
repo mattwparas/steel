@@ -24,6 +24,9 @@
     (cond [(Some? option) (Some (func (Some-value option)))]
           [(None? option) (None)]))
 
+(define (unwrap option)
+    (if (Some?))
+)
 
 
 ; (displayln (o-map (Some 10) (fn (x) (+ x 10))))
