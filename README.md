@@ -5,6 +5,9 @@ Steel
 
 ---
 
+<img width="300px" src="images/styled.png">
+
+
 An embeddable and extensible scheme dialect built in Rust.
 
 ![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) 
