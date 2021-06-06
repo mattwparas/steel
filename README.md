@@ -1,21 +1,20 @@
+# Steel
 <div align="center">
+    <img width="150px" src="images/styled.png">
+</div>
 
-Steel
-=====
-
----
-
-<img width="300px" src="images/styled.png">
-
+<div align="center">
 
 An embeddable and extensible scheme dialect built in Rust.
 
 ![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) 
 [![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
 
+<a href="https://mattwparas.github.io/steel-playground/dev">
+    <b>Try it on the Playground</b>
+</a>
 
 
----
 </div>
 
 ## Getting Started

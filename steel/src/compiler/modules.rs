@@ -29,6 +29,9 @@ const OPTION_NAME: &str = "std::option";
 const RESULT: &str = include_str!("../scheme/modules/result.rkt");
 const RESULT_NAME: &str = "std::result";
 
+// const DICT: &str = include_str!("../scheme/modules/test.rkt");
+// const TEST_NAME: &str = "std::test";
+
 static BUILT_INS: &[(&'static str, &'static str)] = &[(OPTION_NAME, OPTION), (RESULT_NAME, RESULT)];
 
 /// Manages the modules
