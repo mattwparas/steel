@@ -1,8 +1,19 @@
-# Steel
+<div align="center">
 
-![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) [![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
+Steel
+=====
 
-An embedded scheme interpreter in Rust.
+---
+
+An embeddable and extensible scheme dialect built in Rust.
+
+![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) 
+[![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
+
+
+
+---
+</div>
 
 ## Getting Started
 
