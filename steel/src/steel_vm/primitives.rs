@@ -232,7 +232,8 @@ pub(crate) fn register_vector_functions(engine: &mut Engine) {
         .register_value("null?", VectorOperations::list_vec_null())
         .register_value("push", VectorOperations::vec_push())
         .register_value("range-vec", VectorOperations::vec_range())
-        .register_value("vec-append", VectorOperations::vec_append());
+        .register_value("vec-append", VectorOperations::vec_append())
+        .register_value("vector-ref", VectorOperations::vec_ref());
 }
 
 #[inline(always)]

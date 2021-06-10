@@ -64,6 +64,36 @@ impl VectorOperations {
         })
     }
 
+    pub fn vec_ref() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "vector-ref takes two arguments");
+            }
+            let mut args = args.iter();
+            match (args.next(), args.next()) {
+                (Some(vec), Some(idx)) => {
+                    if let (VectorV(vec), IntV(idx)) = (vec, idx) {
+                        if idx < &0 {
+                            stop!(TypeMismatch => "vector-ref expected a positive integer");
+                        }
+
+                        let idx: usize = *idx as usize;
+
+                        if idx < vec.len() {
+                            Ok(vec[idx].clone())
+                        } else {
+                            let e = format!("Index out of bounds - attempted to access index: {} with length: {}", idx, vec.len());
+                            stop!(Generic => e);
+                        }
+                    } else {
+                        stop!(TypeMismatch => format!("vector-ref expected a vector and a number, found: {} and {}", vec, idx))
+                    }
+                }
+                _ => stop!(ArityMismatch => "vector-ref takes two arguments"),
+            }
+        })
+    }
+
     pub fn vec_range() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
