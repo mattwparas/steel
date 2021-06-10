@@ -133,8 +133,6 @@
 (fun handle-pop :: (instructions vector? -> payload any/c -> state VmState? -> (or/c VmState? integer?))
     (car (VmState-stack state)))
 
-
-
 (define event-loop
     ;; Index corresponds to the actual op code itself
     ;; This then dispatches to the correct case
