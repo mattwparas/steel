@@ -1,4 +1,5 @@
 /// The AST node for expressions.
+#[derive(Clone)]
 pub enum Expr {
     Literal(String),
     Identifier(String),
@@ -17,4 +18,5 @@ pub enum Expr {
     WhileLoop(Box<Expr>, Vec<Expr>),
     Call(String, Vec<Expr>),
     GlobalDataAddr(String),
+    Block(Vec<Expr>),
 }

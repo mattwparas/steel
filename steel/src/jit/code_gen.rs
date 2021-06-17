@@ -243,6 +243,7 @@ impl<'a> FunctionTranslator<'a> {
             Expr::WhileLoop(condition, loop_body) => {
                 self.translate_while_loop(*condition, loop_body)
             }
+            Expr::Block(body) => self.translate_block(body),
         }
     }
 
@@ -261,6 +262,18 @@ impl<'a> FunctionTranslator<'a> {
         let rhs = self.translate_expr(rhs);
         let c = self.builder.ins().icmp(cmp, lhs, rhs);
         self.builder.ins().bint(self.int, c)
+    }
+
+    // Translate a block of instructions
+    fn translate_block(&mut self, expr_block: Vec<Expr>) -> Value {
+        let block = self.builder.create_block();
+        self.builder.switch_to_block(block);
+        self.builder.seal_block(block);
+        let mut block_return = self.builder.ins().iconst(self.int, 0);
+        for expr in expr_block {
+            block_return = self.translate_expr(expr);
+        }
+        block_return
     }
 
     fn translate_if_else(

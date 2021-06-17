@@ -2,7 +2,9 @@ use crate::parser::ast;
 use crate::parser::ast::ExprKind;
 use crate::parser::visitors::VisitorMut;
 
-use im_rc::HashMap;
+use std::collections::HashSet;
+
+use super::ir::Expr;
 
 // ((lambda (x y z) (+ x y z)) 10 20 30)
 // =>
@@ -10,19 +12,41 @@ use im_rc::HashMap;
 // (y = 20)
 // (z = 30)
 // (+ x (+ y z))
-struct RenameScopedVars {
-    vars: HashMap<String, String>,
+struct RenameShadowedVars {
+    vars: HashSet<String>,
 }
 
-impl VisitorMut for RenameScopedVars {
-    type Output = Option<ExprKind>;
+impl VisitorMut for RenameShadowedVars {
+    type Output = Option<Expr>;
 
+    // Not great, but gets the job done
     fn visit_if(&mut self, f: &ast::If) -> Self::Output {
-        todo!()
+        let test = Box::new(self.visit(&f.test_expr)?);
+        let then_expr = self.visit(&f.then_expr)?;
+        let else_expr = self.visit(&f.else_expr)?;
+
+        match (&then_expr, &else_expr) {
+            (Expr::Block(t), Expr::Block(e)) => Some(Expr::IfElse(test, t.clone(), e.clone())),
+
+            (Expr::Block(t), _) => Some(Expr::IfElse(test, t.clone(), vec![else_expr])),
+
+            (_, Expr::Block(e)) => Some(Expr::IfElse(test, vec![then_expr], e.clone())),
+
+            (_, _) => Some(Expr::IfElse(test, vec![then_expr], vec![else_expr])),
+        }
     }
 
+    // Define -> Assignment
     fn visit_define(&mut self, define: &ast::Define) -> Self::Output {
-        todo!()
+        let body = self.visit(&define.body)?;
+        Some(Expr::Assign(
+            define
+                .name
+                .atom_identifier_or_else(|| unreachable!())
+                .ok()?
+                .to_owned(),
+            Box::new(body),
+        ))
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &ast::LambdaFunction) -> Self::Output {
@@ -34,49 +58,50 @@ impl VisitorMut for RenameScopedVars {
     }
 
     fn visit_return(&mut self, r: &ast::Return) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_apply(&mut self, apply: &ast::Apply) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_panic(&mut self, p: &ast::Panic) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_transduce(&mut self, transduce: &ast::Transduce) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_read(&mut self, read: &ast::Read) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_execute(&mut self, execute: &ast::Execute) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_quote(&mut self, quote: &ast::Quote) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_struct(&mut self, s: &ast::Struct) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_macro(&mut self, m: &ast::Macro) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_eval(&mut self, e: &ast::Eval) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_atom(&mut self, a: &ast::Atom) -> Self::Output {
         todo!()
     }
 
+    // Check explicit function application with let
     fn visit_list(&mut self, l: &ast::List) -> Self::Output {
         todo!()
     }
@@ -85,15 +110,17 @@ impl VisitorMut for RenameScopedVars {
         todo!()
     }
 
+    // This should be assignment
+    // but only if the variable being assigned is scoped locally to the function
     fn visit_set(&mut self, s: &ast::Set) -> Self::Output {
         todo!()
     }
 
     fn visit_require(&mut self, s: &ast::Require) -> Self::Output {
-        todo!()
+        None
     }
 
     fn visit_callcc(&mut self, cc: &ast::CallCC) -> Self::Output {
-        todo!()
+        None
     }
 }
