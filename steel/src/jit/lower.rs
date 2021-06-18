@@ -3,7 +3,7 @@ use crate::parser::ast::ExprKind;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMut;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::ir::Expr;
 
@@ -17,19 +17,23 @@ use super::ir::Expr;
 struct RenameShadowedVars {
     vars: HashSet<String>,
     name: Option<String>,
+    depth: usize,
+    in_scope: HashSet<String>,
+    shadowed: HashMap<String, String>,
     args: Option<Vec<String>>,
     ret_val: Option<String>,
 }
 
+/// Checks that the input is in fact a lowered function
 pub fn lower_function(expr: &ExprKind) -> Option<(String, Vec<String>, String, Vec<Expr>)> {
     let mut visitor = RenameShadowedVars::default();
 
     if let ExprKind::Define(d) = expr {
         if let ExprKind::LambdaFunction(_) = &d.body {
-            let func_name = d.name.atom_identifier_or_else(|| unreachable!()).ok()?;
+            // let func_name = d.name.atom_identifier_or_else(|| unreachable!()).ok()?;
             let output = visitor.visit_define(&d)?;
-            if let Expr::Assign(name, stmt) = output {
-                return Some((func_name.to_owned(), visitor.args?, name, vec![*stmt]));
+            if let Expr::Assign(func_name, stmt) = output {
+                return Some((func_name, visitor.args?, visitor.ret_val?, vec![*stmt]));
             }
         }
     }
@@ -57,21 +61,20 @@ impl VisitorMut for RenameShadowedVars {
     // Define -> Assignment
     fn visit_define(&mut self, define: &ast::Define) -> Self::Output {
         let body = self.visit(&define.body)?;
-        Some(Expr::Assign(
-            define
-                .name
-                .atom_identifier_or_else(|| unreachable!())
-                .ok()?
-                .to_owned(),
-            Box::new(body),
-        ))
+        let name = define
+            .name
+            .atom_identifier_or_else(|| unreachable!())
+            .ok()?
+            .to_owned();
+        self.in_scope.insert(name.clone());
+        Some(Expr::Assign(name, Box::new(body)))
     }
 
     // If done correctly, this _should_ be unreachable
     fn visit_lambda_function(&mut self, lambda_function: &ast::LambdaFunction) -> Self::Output {
         // TODO identify return variables
         // Do I need to specify the return or is the last value just there?
-        self.args = lambda_function
+        let args = lambda_function
             .args
             .iter()
             .map(|x| {
@@ -79,14 +82,23 @@ impl VisitorMut for RenameShadowedVars {
                     .ok()
                     .map(|x| x.to_string())
             })
-            .collect::<Option<Vec<_>>>();
+            .collect::<Option<Vec<_>>>()?;
+
+        // Make sure these are now in scope
+        for arg in &args {
+            self.in_scope.insert(arg.clone());
+        }
+
+        self.args = Some(args);
 
         // Badly attach the return value label
         self.ret_val = Some("###__return-value__###".to_string());
-        Some(Expr::Assign(
+        let output = Some(Expr::Assign(
             "###__return-value__###".to_string(),
             Box::new(self.visit(&lambda_function.body)?),
-        ))
+        ));
+
+        output
     }
 
     fn visit_begin(&mut self, begin: &ast::Begin) -> Self::Output {
@@ -159,39 +171,62 @@ impl VisitorMut for RenameShadowedVars {
         match func {
             ExprKind::LambdaFunction(lam) => {
                 // These need to be mangled?
-                let variable_names = lam
+                let mut variable_names = lam
                     .args
                     .iter()
-                    .map(|x| x.atom_identifier_or_else(|| unreachable!()).ok())
+                    .map(|x| {
+                        x.atom_identifier_or_else(|| unreachable!())
+                            .ok()
+                            .map(|x| x.to_string())
+                    })
                     .collect::<Option<Vec<_>>>()?;
+
+                // Really bad variable mangling
+                // TODO fix this
+                for variable in &mut variable_names {
+                    if self.in_scope.contains(variable) {
+                        // Put it in the shadowed
+                        // self.shadowed.insert(
+                        //     variable.clone(),
+                        //     variable.clone() + "###__depth__" + self.depth.to_string().as_str(),
+                        // );
+                        variable.push_str(
+                            &("###__depth__".to_string() + self.depth.to_string().as_str()),
+                        );
+
+                        // self.in_scope.insert(variable.clone());
+                    } else {
+                        self.in_scope.insert(variable.clone());
+                    }
+                }
 
                 // These are the lowered assignments
                 let mut assignments = variable_names
+                    .clone()
                     .into_iter()
                     .zip(args)
                     .map(|x| -> Option<Expr> {
-                        Some(Expr::Assign(x.0.to_string(), Box::new(self.visit(x.1)?)))
+                        Some(Expr::Assign(x.0, Box::new(self.visit(x.1)?)))
                     })
                     .collect::<Option<Vec<_>>>()?;
 
                 let body = self.visit(&lam.body)?;
 
+                // They're no longer in scope, take them out
+                for variable in &variable_names {
+                    self.in_scope.remove(variable);
+                }
+
                 assignments.push(body);
 
                 Some(Expr::Block(assignments))
-
-                // let assignments = lam.args.iter().map(|x| x.to_owned
-
-                //     zip(args).map(|x| Expr::Assign())
             }
             _ => {
                 let ident = func
                     .atom_identifier_or_else(|| "Not a valid function here")
                     .ok()?;
                 if let Some(binop) = symbol_to_binop(ident) {
-                    let output = self.expr_list_to_bin_op(binop, args);
-                    println!("{:?}", output);
-                    output
+                    self.expr_list_to_bin_op(binop, args)
                 } else {
                     Some(Expr::Call(
                         ident.to_owned(),
@@ -232,7 +267,7 @@ impl RenameShadowedVars {
         let left_initial = Box::new(self.visit(args_iter.next()?)?);
         let right_initial = Box::new(self.visit(args_iter.next()?)?);
 
-        args_iter.try_fold(binop(left_initial, right_initial), |accum, next| {
+        args_iter.try_fold(binop(right_initial, left_initial), |accum, next| {
             Some(binop(Box::new(accum), Box::new(self.visit(next)?)))
         })
     }

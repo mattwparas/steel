@@ -12,6 +12,8 @@ use std::process;
 use env_logger::Builder;
 use log::LevelFilter;
 
+use std::time::Instant;
+
 // use steel::jit::
 
 use core::mem;
@@ -27,7 +29,13 @@ const RECURSIVE_FIB_CODE: &str = r#"
             (+ (fib (- n 1)) (fib (- n 2)))))
 "#;
 
-fn run_fib(jit: &mut JIT, code: &ExprKind, input: isize) -> Result<isize, String> {
+const LET_CODE: &str = r#"
+    (define (test x y z)
+        (let ((x x) (y y) (z z))
+            (+ x y z)))
+"#;
+
+fn run_fib<I>(jit: &mut JIT, code: &ExprKind, input: I) -> Result<isize, String> {
     unsafe { run_code(jit, code, input) }
 }
 
@@ -63,17 +71,21 @@ fn main() -> Result<(), String> {
 
     let mut vm = configure_engine();
     let mut jit = JIT::default();
-
-    let res = vm.emit_expanded_ast(RECURSIVE_FIB_CODE);
+    let res = vm.emit_expanded_ast(LET_CODE);
 
     match res {
         Ok(func) => {
             let ast = &func[0];
             println!("{}", ast.to_pretty(60));
-            println!("fib(10) = {}", run_fib(&mut jit, ast, 10)?);
+            let now = Instant::now();
+            println!(
+                "(test 10 20 30) = {}",
+                run_fib(&mut jit, ast, (10, 20, 30))?
+            );
+            println!("Time taken: {:?}", now.elapsed());
         }
         Err(e) => {
-            e.emit_result("repl.rkt", RECURSIVE_FIB_CODE);
+            e.emit_result("repl.rkt", LET_CODE);
         }
     }
 

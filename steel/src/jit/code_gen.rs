@@ -48,6 +48,11 @@ impl JIT {
             lower_function(input).ok_or_else(|| "Unable to lower the input AST".to_string())?;
         // type_check_please(&input).map_err(|e| e.to_string())?;
 
+        println!("Function name: {}", name);
+        println!("Params: {:?}", params);
+        println!("Return value: {}", the_return);
+        println!("Statements: {:?}", stmts);
+
         // Then, translate the AST nodes into Cranelift IR.
         self.translate(params, the_return, stmts)?;
 
@@ -261,13 +266,20 @@ impl<'a> FunctionTranslator<'a> {
 
     // Translate a block of instructions
     fn translate_block(&mut self, expr_block: Vec<Expr>) -> Value {
-        let block = self.builder.create_block();
-        self.builder.switch_to_block(block);
-        self.builder.seal_block(block);
+        // let block = self.builder.create_block();
+
+        // self.builder.append_block_param(block, self.int);
+
+        // self.builder.ins().jump(block, &[]);
+
+        // self.builder.switch_to_block(block);
+        // self.builder.seal_block(block);
         let mut block_return = self.builder.ins().iconst(self.int, 0);
         for expr in expr_block {
-            block_return = self.translate_expr(expr);
+            block_return = self.translate_expr(expr)
         }
+        // block_return
+        // self.builder.block_params(block)[0]
         block_return
     }
 
@@ -439,8 +451,10 @@ fn declare_variables_in_stmt(
     expr: &Expr,
 ) {
     match *expr {
-        Expr::Assign(ref name, _) => {
+        Expr::Assign(ref name, ref expr) => {
             declare_variable(int, builder, variables, index, name);
+            // Declare variables on the right hand side as well
+            declare_variables_in_stmt(int, builder, variables, index, expr);
         }
         Expr::IfElse(ref _condition, ref then_body, ref else_body) => {
             for stmt in then_body {
@@ -452,6 +466,11 @@ fn declare_variables_in_stmt(
         }
         Expr::WhileLoop(ref _condition, ref loop_body) => {
             for stmt in loop_body {
+                declare_variables_in_stmt(int, builder, variables, index, &stmt);
+            }
+        }
+        Expr::Block(ref body) => {
+            for stmt in body {
                 declare_variables_in_stmt(int, builder, variables, index, &stmt);
             }
         }
