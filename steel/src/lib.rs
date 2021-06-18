@@ -14,9 +14,9 @@ pub(crate) mod gc;
 mod conversions;
 
 #[cfg(feature = "jit")]
-pub(crate) mod jit;
+pub mod jit;
 
-pub(crate) mod parser;
+pub mod parser;
 pub mod steel_vm;
 #[cfg(test)]
 mod tests;

@@ -1,5 +1,5 @@
 /// The AST node for expressions.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     Literal(String),
     Identifier(String),

@@ -188,8 +188,16 @@ impl VisitorMut for RenameShadowedVars {
                 let ident = func
                     .atom_identifier_or_else(|| "Not a valid function here")
                     .ok()?;
-                let binop = symbol_to_binop(ident)?;
-                self.expr_list_to_bin_op(binop, args)
+                if let Some(binop) = symbol_to_binop(ident) {
+                    let output = self.expr_list_to_bin_op(binop, args);
+                    println!("{:?}", output);
+                    output
+                } else {
+                    Some(Expr::Call(
+                        ident.to_owned(),
+                        args.map(|x| self.visit(x)).collect::<Option<Vec<_>>>()?,
+                    ))
+                }
             }
         }
     }
