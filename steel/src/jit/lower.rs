@@ -1,5 +1,6 @@
 use crate::parser::ast;
 use crate::parser::ast::ExprKind;
+use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMut;
 
 use std::collections::HashSet;
@@ -12,8 +13,28 @@ use super::ir::Expr;
 // (y = 20)
 // (z = 30)
 // (+ x (+ y z))
+#[derive(Default)]
 struct RenameShadowedVars {
     vars: HashSet<String>,
+    name: Option<String>,
+    args: Option<Vec<String>>,
+    ret_val: Option<String>,
+}
+
+pub fn lower_function(expr: &ExprKind) -> Option<(String, Vec<String>, String, Vec<Expr>)> {
+    let mut visitor = RenameShadowedVars::default();
+
+    if let ExprKind::Define(d) = expr {
+        if let ExprKind::LambdaFunction(_) = &d.body {
+            let func_name = d.name.atom_identifier_or_else(|| unreachable!()).ok()?;
+            let output = visitor.visit_define(&d)?;
+            if let Expr::Assign(name, stmt) = output {
+                return Some((func_name.to_owned(), visitor.args?, name, vec![*stmt]));
+            }
+        }
+    }
+
+    None
 }
 
 impl VisitorMut for RenameShadowedVars {
@@ -27,11 +48,8 @@ impl VisitorMut for RenameShadowedVars {
 
         match (&then_expr, &else_expr) {
             (Expr::Block(t), Expr::Block(e)) => Some(Expr::IfElse(test, t.clone(), e.clone())),
-
             (Expr::Block(t), _) => Some(Expr::IfElse(test, t.clone(), vec![else_expr])),
-
             (_, Expr::Block(e)) => Some(Expr::IfElse(test, vec![then_expr], e.clone())),
-
             (_, _) => Some(Expr::IfElse(test, vec![then_expr], vec![else_expr])),
         }
     }
@@ -49,78 +67,181 @@ impl VisitorMut for RenameShadowedVars {
         ))
     }
 
+    // If done correctly, this _should_ be unreachable
     fn visit_lambda_function(&mut self, lambda_function: &ast::LambdaFunction) -> Self::Output {
-        todo!()
+        // TODO identify return variables
+        // Do I need to specify the return or is the last value just there?
+        self.args = lambda_function
+            .args
+            .iter()
+            .map(|x| {
+                x.atom_identifier_or_else(|| unreachable!())
+                    .ok()
+                    .map(|x| x.to_string())
+            })
+            .collect::<Option<Vec<_>>>();
+
+        // Badly attach the return value label
+        self.ret_val = Some("###__return-value__###".to_string());
+        Some(Expr::Assign(
+            "###__return-value__###".to_string(),
+            Box::new(self.visit(&lambda_function.body)?),
+        ))
     }
 
     fn visit_begin(&mut self, begin: &ast::Begin) -> Self::Output {
-        todo!()
+        let body = begin
+            .exprs
+            .iter()
+            .map(|e| self.visit(e))
+            .collect::<Option<Vec<_>>>()?;
+        Some(Expr::Block(body))
     }
 
-    fn visit_return(&mut self, r: &ast::Return) -> Self::Output {
+    fn visit_return(&mut self, _r: &ast::Return) -> Self::Output {
         None
     }
 
-    fn visit_apply(&mut self, apply: &ast::Apply) -> Self::Output {
+    fn visit_apply(&mut self, _apply: &ast::Apply) -> Self::Output {
         None
     }
 
-    fn visit_panic(&mut self, p: &ast::Panic) -> Self::Output {
+    fn visit_panic(&mut self, _p: &ast::Panic) -> Self::Output {
         None
     }
 
-    fn visit_transduce(&mut self, transduce: &ast::Transduce) -> Self::Output {
+    fn visit_transduce(&mut self, _transduce: &ast::Transduce) -> Self::Output {
         None
     }
 
-    fn visit_read(&mut self, read: &ast::Read) -> Self::Output {
+    fn visit_read(&mut self, _read: &ast::Read) -> Self::Output {
         None
     }
 
-    fn visit_execute(&mut self, execute: &ast::Execute) -> Self::Output {
+    fn visit_execute(&mut self, _execute: &ast::Execute) -> Self::Output {
         None
     }
 
-    fn visit_quote(&mut self, quote: &ast::Quote) -> Self::Output {
+    fn visit_quote(&mut self, _quote: &ast::Quote) -> Self::Output {
         None
     }
 
-    fn visit_struct(&mut self, s: &ast::Struct) -> Self::Output {
+    fn visit_struct(&mut self, _s: &ast::Struct) -> Self::Output {
         None
     }
 
-    fn visit_macro(&mut self, m: &ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, _m: &ast::Macro) -> Self::Output {
         None
     }
 
-    fn visit_eval(&mut self, e: &ast::Eval) -> Self::Output {
+    fn visit_eval(&mut self, _e: &ast::Eval) -> Self::Output {
         None
     }
 
     fn visit_atom(&mut self, a: &ast::Atom) -> Self::Output {
-        todo!()
+        use TokenType::*;
+        match &a.syn.ty {
+            Identifier(s) => Some(Expr::Identifier(s.clone())),
+            IntegerLiteral(i) => Some(Expr::Literal(i.to_string())),
+            _ => None,
+        }
     }
 
     // Check explicit function application with let
     fn visit_list(&mut self, l: &ast::List) -> Self::Output {
-        todo!()
+        // The first should be the function, and the rest should be the args
+        let mut args = l.iter();
+
+        // The corresponds to either a symbol, or a lambda function in this case
+        // Anything else we don't care about
+        let func = args.next()?;
+
+        match func {
+            ExprKind::LambdaFunction(lam) => {
+                // These need to be mangled?
+                let variable_names = lam
+                    .args
+                    .iter()
+                    .map(|x| x.atom_identifier_or_else(|| unreachable!()).ok())
+                    .collect::<Option<Vec<_>>>()?;
+
+                // These are the lowered assignments
+                let mut assignments = variable_names
+                    .into_iter()
+                    .zip(args)
+                    .map(|x| -> Option<Expr> {
+                        Some(Expr::Assign(x.0.to_string(), Box::new(self.visit(x.1)?)))
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+
+                let body = self.visit(&lam.body)?;
+
+                assignments.push(body);
+
+                Some(Expr::Block(assignments))
+
+                // let assignments = lam.args.iter().map(|x| x.to_owned
+
+                //     zip(args).map(|x| Expr::Assign())
+            }
+            _ => {
+                let ident = func
+                    .atom_identifier_or_else(|| "Not a valid function here")
+                    .ok()?;
+                let binop = symbol_to_binop(ident)?;
+                self.expr_list_to_bin_op(binop, args)
+            }
+        }
     }
 
-    fn visit_syntax_rules(&mut self, l: &ast::SyntaxRules) -> Self::Output {
-        todo!()
+    fn visit_syntax_rules(&mut self, _l: &ast::SyntaxRules) -> Self::Output {
+        None
     }
 
     // This should be assignment
     // but only if the variable being assigned is scoped locally to the function
-    fn visit_set(&mut self, s: &ast::Set) -> Self::Output {
+    fn visit_set(&mut self, _s: &ast::Set) -> Self::Output {
         todo!()
     }
 
-    fn visit_require(&mut self, s: &ast::Require) -> Self::Output {
+    fn visit_require(&mut self, _s: &ast::Require) -> Self::Output {
         None
     }
 
-    fn visit_callcc(&mut self, cc: &ast::CallCC) -> Self::Output {
+    fn visit_callcc(&mut self, _cc: &ast::CallCC) -> Self::Output {
         None
+    }
+}
+
+impl RenameShadowedVars {
+    fn expr_list_to_bin_op<'a>(
+        &mut self,
+        binop: fn(Box<Expr>, Box<Expr>) -> Expr,
+        exprs: impl DoubleEndedIterator<Item = &'a ExprKind>,
+    ) -> Option<Expr> {
+        let mut args_iter = exprs.into_iter().rev();
+
+        let left_initial = Box::new(self.visit(args_iter.next()?)?);
+        let right_initial = Box::new(self.visit(args_iter.next()?)?);
+
+        args_iter.try_fold(binop(left_initial, right_initial), |accum, next| {
+            Some(binop(Box::new(accum), Box::new(self.visit(next)?)))
+        })
+    }
+}
+
+fn symbol_to_binop(symbol: &str) -> Option<fn(Box<Expr>, Box<Expr>) -> Expr> {
+    match symbol {
+        "+" => Some(Expr::Add),
+        "-" => Some(Expr::Sub),
+        "/" => Some(Expr::Div),
+        "*" => Some(Expr::Mul),
+        "=" | "equal?" | "eq?" => Some(Expr::Eq),
+        "<" => Some(Expr::Lt),
+        ">" => Some(Expr::Gt),
+        "!=" => Some(Expr::Ne),
+        ">=" => Some(Expr::Ge),
+        "<=" => Some(Expr::Le),
+        _ => None,
     }
 }
