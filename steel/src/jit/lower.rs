@@ -262,12 +262,12 @@ impl RenameShadowedVars {
         binop: fn(Box<Expr>, Box<Expr>) -> Expr,
         exprs: impl DoubleEndedIterator<Item = &'a ExprKind>,
     ) -> Option<Expr> {
-        let mut args_iter = exprs.into_iter().rev();
+        let mut args_iter = exprs.into_iter();
 
         let left_initial = Box::new(self.visit(args_iter.next()?)?);
         let right_initial = Box::new(self.visit(args_iter.next()?)?);
 
-        args_iter.try_fold(binop(right_initial, left_initial), |accum, next| {
+        args_iter.try_fold(binop(left_initial, right_initial), |accum, next| {
             Some(binop(Box::new(accum), Box::new(self.visit(next)?)))
         })
     }

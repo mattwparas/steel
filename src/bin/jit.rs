@@ -1,9 +1,9 @@
 extern crate steel;
 extern crate steel_derive;
-extern crate steel_repl;
+// extern crate steel_repl;
 
 use steel::steel_vm::{engine::Engine, register_fn::RegisterAsyncFn};
-use steel_repl::repl::repl_base;
+// use steel_repl::repl::repl_base;
 
 use std::env::args;
 use std::fs;
@@ -31,8 +31,8 @@ const RECURSIVE_FIB_CODE: &str = r#"
 
 const LET_CODE: &str = r#"
     (define (test x y z)
-        (let ((x x) (y y) (z z))
-            (+ x y z)))
+        ;; (let ((x x) (y y) (z z))
+            (+ x y z))
 "#;
 
 fn run_fib<I>(jit: &mut JIT, code: &ExprKind, input: I) -> Result<isize, String> {
