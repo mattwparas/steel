@@ -31,12 +31,12 @@ const RECURSIVE_FIB_CODE: &str = r#"
 
 const LET_CODE: &str = r#"
     (define (test x y z)
-        ;; (let ((x x) (y y) (z z))
-            (+ x y z))
+                                                   ;; (let ((x x) (y y) (z z))
+            (if (= 10 x) (+ x y) 42))
 "#;
 
-fn run_fib<I>(jit: &mut JIT, code: &ExprKind, input: I) -> Result<isize, String> {
-    unsafe { run_code(jit, code, input) }
+fn run_fib(jit: &mut JIT, code: &ExprKind, input: (isize, isize, isize)) -> Result<isize, String> {
+    unsafe { run_code::<isize>(jit, code, input) }
 }
 
 /// Executes the given code using the cranelift JIT compiler.
@@ -47,15 +47,19 @@ fn run_fib<I>(jit: &mut JIT, code: &ExprKind, input: I) -> Result<isize, String>
 ///
 /// This function is unsafe since it relies on the caller to provide it with the correct
 /// input and output types. Using incorrect types at this point may corrupt the program's state.
-unsafe fn run_code<I, O>(jit: &mut JIT, code: &ExprKind, input: I) -> Result<O, String> {
+unsafe fn run_code<O>(
+    jit: &mut JIT,
+    code: &ExprKind,
+    input: (isize, isize, isize),
+) -> Result<O, String> {
     // Pass the string to the JIT, and it returns a raw pointer to machine code.
     let code_ptr = jit.compile(code)?;
     // Cast the raw pointer to a typed function pointer. This is unsafe, because
     // this is the critical point where you have to trust that the generated code
     // is safe to be called.
-    let code_fn = mem::transmute::<_, fn(I) -> O>(code_ptr);
+    let code_fn = mem::transmute::<_, fn(isize, isize, isize) -> O>(code_ptr);
     // And now we can call it!
-    Ok(code_fn(input))
+    Ok(code_fn(input.0, input.1, input.2))
 }
 
 fn main() -> Result<(), String> {
@@ -80,7 +84,7 @@ fn main() -> Result<(), String> {
             let now = Instant::now();
             println!(
                 "(test 10 20 30) = {}",
-                run_fib(&mut jit, ast, (10, 20, 30))?
+                run_fib(&mut jit, ast, (10isize, 20isize, 30isize))? // run_fib(&mut jit, ast, 10isize)?
             );
             println!("Time taken: {:?}", now.elapsed());
         }

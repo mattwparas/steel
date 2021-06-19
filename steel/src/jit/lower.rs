@@ -33,6 +33,7 @@ pub fn lower_function(expr: &ExprKind) -> Option<(String, Vec<String>, String, V
             // let func_name = d.name.atom_identifier_or_else(|| unreachable!()).ok()?;
             let output = visitor.visit_define(&d)?;
             if let Expr::Assign(func_name, stmt) = output {
+                // return Some((func_name, visitor.args?, visitor.ret_val?, vec![*stmt]));
                 return Some((func_name, visitor.args?, visitor.ret_val?, vec![*stmt]));
             }
         }

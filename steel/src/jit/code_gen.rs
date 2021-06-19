@@ -56,6 +56,8 @@ impl JIT {
         // Then, translate the AST nodes into Cranelift IR.
         self.translate(params, the_return, stmts)?;
 
+        println!("\n\n{}\n\n", self.ctx.func);
+
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
         //
@@ -73,7 +75,12 @@ impl JIT {
         // defined. For this toy demo for now, we'll just finalize the
         // function below.
         self.module
-            .define_function(id, &mut self.ctx, &mut codegen::binemit::NullTrapSink {})
+            .define_function(
+                id,
+                &mut self.ctx,
+                &mut codegen::binemit::NullTrapSink {},
+                &mut codegen::binemit::NullStackMapSink {},
+            )
             .map_err(|e| e.to_string())?;
 
         // Now that compilation is finished, we can clear out the context state.
@@ -129,6 +136,8 @@ impl JIT {
         // Cranelift is designed to support more.
         self.ctx.func.signature.returns.push(AbiParam::new(int));
 
+        println!("Function signature: {:?}", self.ctx.func.signature);
+
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
 
@@ -176,6 +185,10 @@ impl JIT {
 
         // Tell the builder we're done with this function.
         trans.builder.finalize();
+
+        // debug out what we can at this point
+        // println!("\n{}", trans.builder.display(trans.module.isa()));
+
         Ok(())
     }
 }
@@ -266,14 +279,18 @@ impl<'a> FunctionTranslator<'a> {
 
     // Translate a block of instructions
     fn translate_block(&mut self, expr_block: Vec<Expr>) -> Value {
-        // let block = self.builder.create_block();
+        let block = self.builder.create_block();
 
         // self.builder.append_block_param(block, self.int);
 
+        self.builder.append_block_params_for_function_params(block);
+
+        // unimplemented!();
+
         // self.builder.ins().jump(block, &[]);
 
-        // self.builder.switch_to_block(block);
-        // self.builder.seal_block(block);
+        self.builder.switch_to_block(block);
+        self.builder.seal_block(block);
         let mut block_return = self.builder.ins().iconst(self.int, 0);
         for expr in expr_block {
             block_return = self.translate_expr(expr)
@@ -486,6 +503,7 @@ fn declare_variable(
     index: &mut usize,
     name: &str,
 ) -> Variable {
+    println!("Declaring: {}", name);
     let var = Variable::new(*index);
     if !variables.contains_key(name) {
         variables.insert(name.into(), var);
