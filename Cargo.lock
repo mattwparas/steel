@@ -1340,6 +1340,7 @@ dependencies = [
  "futures",
  "im-rc",
  "itertools 0.10.0",
+ "lazy_static",
  "log",
  "logos",
  "pretty",
@@ -1350,6 +1351,7 @@ dependencies = [
  "steel",
  "structopt",
  "thiserror",
+ "typed-arena",
  "unindent",
 ]
 

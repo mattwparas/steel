@@ -18,11 +18,23 @@ struct RenameShadowedVars {
     vars: HashSet<String>,
     name: Option<String>,
     depth: usize,
-    in_scope: HashSet<String>,
-    shadowed: HashMap<String, String>,
+    // in_scope: HashSet<String>,
+    shadowed: HashMap<String, Vec<String>>,
     args: Option<Vec<String>>,
     ret_val: Option<String>,
 }
+
+// If a new variable is introduced, we should just insert it into the map with an empty shadow
+// Removing should only remove if the
+#[derive(Default)]
+struct ScopeMap {
+    inner: HashMap<String, Vec<String>>,
+}
+
+// impl ScopeMap {
+
+//     fn insert()
+// }
 
 /// Checks that the input is in fact a lowered function
 pub fn lower_function(expr: &ExprKind) -> Option<(String, Vec<String>, String, Vec<Expr>)> {
@@ -67,7 +79,7 @@ impl VisitorMut for RenameShadowedVars {
             .atom_identifier_or_else(|| unreachable!())
             .ok()?
             .to_owned();
-        self.in_scope.insert(name.clone());
+        // self.in_scope.insert(name.clone());
         Some(Expr::Assign(name, Box::new(body)))
     }
 
@@ -86,9 +98,9 @@ impl VisitorMut for RenameShadowedVars {
             .collect::<Option<Vec<_>>>()?;
 
         // Make sure these are now in scope
-        for arg in &args {
-            self.in_scope.insert(arg.clone());
-        }
+        // for arg in &args {
+        //     self.in_scope.insert(arg.clone());
+        // }
 
         self.args = Some(args);
 
@@ -184,22 +196,22 @@ impl VisitorMut for RenameShadowedVars {
 
                 // Really bad variable mangling
                 // TODO fix this
-                for variable in &mut variable_names {
-                    if self.in_scope.contains(variable) {
-                        // Put it in the shadowed
-                        // self.shadowed.insert(
-                        //     variable.clone(),
-                        //     variable.clone() + "###__depth__" + self.depth.to_string().as_str(),
-                        // );
-                        variable.push_str(
-                            &("###__depth__".to_string() + self.depth.to_string().as_str()),
-                        );
+                // for variable in &mut variable_names {
+                //     if self.in_scope.contains(variable) {
+                //         // Put it in the shadowed
+                //         // self.shadowed.insert(
+                //         //     variable.clone(),
+                //         //     variable.clone() + "###__depth__" + self.depth.to_string().as_str(),
+                //         // );
+                //         variable.push_str(
+                //             &("###__depth__".to_string() + self.depth.to_string().as_str()),
+                //         );
 
-                        // self.in_scope.insert(variable.clone());
-                    } else {
-                        self.in_scope.insert(variable.clone());
-                    }
-                }
+                //         // self.in_scope.insert(variable.clone());
+                //     } else {
+                //         self.in_scope.insert(variable.clone());
+                //     }
+                // }
 
                 // These are the lowered assignments
                 let mut assignments = variable_names
@@ -214,9 +226,9 @@ impl VisitorMut for RenameShadowedVars {
                 let body = self.visit(&lam.body)?;
 
                 // They're no longer in scope, take them out
-                for variable in &variable_names {
-                    self.in_scope.remove(variable);
-                }
+                // for variable in &variable_names {
+                //     self.in_scope.remove(variable);
+                // }
 
                 assignments.push(body);
 

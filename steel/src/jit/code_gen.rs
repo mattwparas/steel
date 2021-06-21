@@ -1,12 +1,24 @@
+use crate::gc::Gc;
 use crate::jit::ir::*;
 use crate::parser::ast::ExprKind;
+use crate::rvals::ConsCell;
+use crate::SteelVal;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 use std::collections::HashMap;
 use std::slice;
 
+// use lazy_static::lazy_static;
+use std::cell::RefCell;
+// use typed_arena::Arena;
+
 use super::lower::lower_function;
+use super::sig::{JitFunctionPointer, Sig};
+
+thread_local! {
+    pub static MEMORY: RefCell<Vec<Gc<SteelVal>>> = RefCell::new(Vec::new());
+}
 
 /// The basic JIT class.
 pub struct JIT {
@@ -27,10 +39,102 @@ pub struct JIT {
     module: JITModule,
 }
 
+// Prints a value used by the compiled code. Our JIT exposes this
+// function to compiled code with the name "print".
+// TODO audit the unsafe
+unsafe extern "C" fn car(value: isize) -> isize {
+    // let lst: Box<SteelVal> = std::mem::transmute(value);
+
+    let lst = &*(value as *const SteelVal);
+
+    println!("car address: {:?}", value);
+
+    if let SteelVal::Pair(c) = lst {
+        let ret_value = &c.car;
+
+        println!("car output: {:?}", ret_value);
+        (ret_value as *const SteelVal) as isize
+    } else {
+        panic!("car expected a list, found: {:?}", lst);
+    }
+
+    // unimplemented!()
+}
+
+// TODO implement the cdr and see what happens
+// Safety: The caller must assure that the value being passed in is a reference to
+// a GC value
+unsafe extern "C" fn cdr(value: isize) -> isize {
+    // let lst: Box<SteelVal> = Box::from_raw(value as *mut SteelVal);
+
+    let lst = &*(value as *const SteelVal);
+
+    println!("cdr address: {:?}", value);
+
+    if let SteelVal::Pair(c) = lst {
+        let rest = c
+            .cdr()
+            .as_ref()
+            .map(Gc::clone)
+            .expect("cdr expects a non empty list");
+
+        let new_pair = Gc::new(SteelVal::Pair(rest));
+
+        // We want to increment the life time of this so that references are valid later
+        JIT::allocate(&new_pair);
+
+        println!("cdr output: {:?}", new_pair);
+
+        // Return the handle to the allocated value
+        new_pair.as_ptr() as isize
+    } else {
+        panic!("cdr expected a list");
+    }
+}
+
+// TODO
+// Implement values with a tag to know if they're a primitive or a reference
+// type - would let me not have to register non values in memory
+unsafe extern "C" fn cons(car: isize, cdr: isize) -> isize {
+    println!("cons: car address: {}", car);
+    println!("cons: cdr address: {}", cdr);
+
+    let car = &*(car as *const SteelVal);
+    let cdr = &*(cdr as *const SteelVal);
+
+    if let SteelVal::Pair(cdr) = cdr {
+        let new_value = Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(
+            car.clone(),
+            Some(Gc::clone(cdr)),
+        ))));
+
+        JIT::allocate(&new_value);
+
+        new_value.as_ptr() as isize
+    } else {
+        panic!("cons requires a list as the second argument")
+    }
+}
+
+fn register_primitives(builder: &mut JITBuilder) {
+    let addr: *const u8 = car as *const u8;
+    builder.symbol("car", addr);
+
+    let addr: *const u8 = cdr as *const u8;
+    builder.symbol("cdr", addr);
+
+    let addr: *const u8 = cons as *const u8;
+    builder.symbol("cons", addr);
+}
+
 impl Default for JIT {
     fn default() -> Self {
-        let builder = JITBuilder::new(cranelift_module::default_libcall_names());
+        let mut builder = JITBuilder::new(cranelift_module::default_libcall_names());
+
+        register_primitives(&mut builder);
+
         let module = JITModule::new(builder);
+
         Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
@@ -41,12 +145,43 @@ impl Default for JIT {
 }
 
 impl JIT {
+    // Wipes out the memory stores in the typed area
+    pub fn new() -> Self {
+        JIT::free();
+        Self::default()
+    }
+
+    // Wipe out the memory
+    pub fn free() {
+        MEMORY.with(|x| {
+            *x.borrow_mut() = Vec::new();
+        });
+    }
+
+    // Keep track of the refs that get heap allocated
+    fn allocate(value: &Gc<SteelVal>) {
+        MEMORY.with(|x| x.borrow_mut().push(Gc::clone(value)))
+    }
+
+    // pub unsafe fn compile_and_transmute(
+    //     &mut self,
+    //     input: &ExprKind,
+    //     sig: Sig,
+    // ) -> Result, String> {
+    //     let code_ptr = self.compile(input)?;
+    //     let code_fn = std::mem::transmute::<_, T>(code_ptr);
+    //     Ok(code_fn)
+    // }
+
     /// Compile a string in the toy language into machine code.
-    pub fn compile(&mut self, input: &ExprKind) -> Result<*const u8, String> {
+    pub fn compile(&mut self, input: &ExprKind) -> Result<JitFunctionPointer, String> {
         // First, parse the string, producing AST nodes.
         let (name, params, the_return, stmts) =
             lower_function(input).ok_or_else(|| "Unable to lower the input AST".to_string())?;
         // type_check_please(&input).map_err(|e| e.to_string())?;
+
+        // Get the arity from the number of parameters of the function we're compiling
+        let arity = Sig::from_usize(params.len());
 
         println!("Function name: {}", name);
         println!("Params: {:?}", params);
@@ -94,7 +229,7 @@ impl JIT {
         // We can now retrieve a pointer to the machine code.
         let code = self.module.get_finalized_function(id);
 
-        Ok(code)
+        Ok(JitFunctionPointer::new(arity, code))
     }
 
     /// Create a zero-initialized data section.
