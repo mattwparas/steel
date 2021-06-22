@@ -47,7 +47,7 @@ unsafe extern "C" fn car(value: isize) -> isize {
 
     let lst = &*(value as *const SteelVal);
 
-    println!("car address: {:?}", value);
+    println!("car address: {:p}", lst);
 
     if let SteelVal::Pair(c) = lst {
         let ret_value = &c.car;
@@ -69,7 +69,7 @@ unsafe extern "C" fn cdr(value: isize) -> isize {
 
     let lst = &*(value as *const SteelVal);
 
-    println!("cdr address: {:?}", value);
+    println!("cdr address: {:p}", lst);
 
     if let SteelVal::Pair(c) = lst {
         let rest = c
@@ -96,11 +96,11 @@ unsafe extern "C" fn cdr(value: isize) -> isize {
 // Implement values with a tag to know if they're a primitive or a reference
 // type - would let me not have to register non values in memory
 unsafe extern "C" fn cons(car: isize, cdr: isize) -> isize {
-    println!("cons: car address: {}", car);
-    println!("cons: cdr address: {}", cdr);
-
     let car = &*(car as *const SteelVal);
     let cdr = &*(cdr as *const SteelVal);
+
+    println!("cons: car address: {:p}", car);
+    println!("cons: cdr address: {:p}", cdr);
 
     if let SteelVal::Pair(cdr) = cdr {
         let new_value = Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(
