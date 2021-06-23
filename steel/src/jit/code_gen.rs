@@ -108,6 +108,7 @@ unsafe extern "C" fn cons(car: isize, cdr: isize) -> isize {
             Some(Gc::clone(cdr)),
         ))));
 
+        // Register the allocated value so that it lives long enough
         JIT::allocate(&new_value);
 
         new_value.as_ptr() as isize
