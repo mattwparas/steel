@@ -42,7 +42,9 @@ const LET_CODE: &str = r#"
 const CAR_CODE: &str = r#"
     (define (wrapper number lst)
         ;; (cons 100 (cons (car (cdr lst)) lst)))
-        (car (cdr (cons number lst))))
+        ;; (car (cdr (cons number lst))))
+        ;; (+ number 20)
+        (cdr lst))
 "#;
 
 // fn run_fib(jit: &mut JIT, code: &ExprKind, input: isize) -> Result<isize, String> {

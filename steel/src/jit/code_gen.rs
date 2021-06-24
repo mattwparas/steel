@@ -1,8 +1,10 @@
 use crate::gc::Gc;
 use crate::jit::ir::*;
+use crate::jit::value::{to_encoded_double, to_encoded_double_from_const_ptr};
 use crate::parser::ast::ExprKind;
 use crate::rvals::ConsCell;
 use crate::SteelVal;
+use cranelift::prelude::types::{F64, I64};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
@@ -15,6 +17,7 @@ use std::cell::RefCell;
 
 use super::lower::lower_function;
 use super::sig::{JitFunctionPointer, Sig};
+use super::value::get_ref_from_double;
 
 thread_local! {
     pub static MEMORY: RefCell<Vec<Gc<SteelVal>>> = RefCell::new(Vec::new());
@@ -42,18 +45,22 @@ pub struct JIT {
 // Prints a value used by the compiled code. Our JIT exposes this
 // function to compiled code with the name "print".
 // TODO audit the unsafe
-unsafe extern "C" fn car(value: isize) -> isize {
+unsafe extern "C" fn car(value: f64) -> f64 {
     // let lst: Box<SteelVal> = std::mem::transmute(value);
 
-    let lst = &*(value as *const SteelVal);
+    // let lst = &*(value as *const SteelVal);
 
-    println!("car address: {:p}", lst);
+    let lst = get_ref_from_double(value);
+
+    // println!("car address: {:p}", lst);
 
     if let SteelVal::Pair(c) = lst {
         let ret_value = &c.car;
 
         println!("car output: {:?}", ret_value);
-        (ret_value as *const SteelVal) as isize
+        to_encoded_double_from_const_ptr(ret_value as *const SteelVal)
+
+        // (ret_value as *const SteelVal) as isize
     } else {
         panic!("car expected a list, found: {:?}", lst);
     }
@@ -64,12 +71,14 @@ unsafe extern "C" fn car(value: isize) -> isize {
 // TODO implement the cdr and see what happens
 // Safety: The caller must assure that the value being passed in is a reference to
 // a GC value
-unsafe extern "C" fn cdr(value: isize) -> isize {
+unsafe extern "C" fn cdr(value: f64) -> f64 {
     // let lst: Box<SteelVal> = Box::from_raw(value as *mut SteelVal);
 
-    let lst = &*(value as *const SteelVal);
+    // let lst = &*(value as *const SteelVal);
 
-    println!("cdr address: {:p}", lst);
+    // println!("cdr address: {:p}", lst);
+
+    let lst = get_ref_from_double(value);
 
     if let SteelVal::Pair(c) = lst {
         let rest = c
@@ -85,8 +94,10 @@ unsafe extern "C" fn cdr(value: isize) -> isize {
 
         println!("cdr output: {:?}", new_pair);
 
+        to_encoded_double(&new_pair)
+
         // Return the handle to the allocated value
-        new_pair.as_ptr() as isize
+        // new_pair.as_ptr() as isize
     } else {
         panic!("cdr expected a list");
     }
@@ -205,6 +216,8 @@ impl JIT {
             .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
+        println!("Made it here!");
+
         // Define the function to jit. This finishes compilation, although
         // there may be outstanding relocations to perform. Currently, jit
         // cannot finish relocations until all functions to be called are
@@ -217,7 +230,12 @@ impl JIT {
                 &mut codegen::binemit::NullTrapSink {},
                 &mut codegen::binemit::NullStackMapSink {},
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                println!("{:?}", e);
+                e.to_string()
+            })?;
+
+        println!("Defined function!");
 
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
@@ -262,7 +280,10 @@ impl JIT {
     ) -> Result<(), String> {
         // Our toy language currently only supports I64 values, though Cranelift
         // supports other types.
-        let int = self.module.target_config().pointer_type();
+        // TODO come back to this to figure out the best way to handle different targets
+        // let int = self.module.target_config().pointer_type();
+
+        let int = F64;
 
         for _p in &params {
             self.ctx.func.signature.params.push(AbiParam::new(int));
@@ -339,19 +360,71 @@ struct FunctionTranslator<'a> {
 }
 
 impl<'a> FunctionTranslator<'a> {
+    // Comes in as a float
+    // This unboxes the value first by applying the bitwise and
+    // then casting to an int
+    fn decode_float_to_int(&mut self, value: Value) -> Value {
+        let bitmask: i64 = unsafe { std::mem::transmute(!super::value::INT32_TAG) };
+        let mask = self.builder.ins().iconst(I64, bitmask);
+
+        let cast = self.builder.ins().bitcast(I64, value);
+        self.builder.ins().band(cast, mask)
+        // self.builder.ins().bor(cast, mask)
+
+        // println!("Finished decoding float");
+        // output
+    }
+
+    // This takes in an int, then applies the bitwise and
+    // then we cast this to a float when we're done
+    fn encode_int_to_float(&mut self, value: Value) -> Value {
+        let bitmask: i64 = unsafe { std::mem::transmute(super::value::INT32_TAG) };
+        let mask = self.builder.ins().iconst(I64, bitmask);
+        // let encoded_int = self.builder.ins().band(value, mask);
+        let encoded_int = self.builder.ins().bor(value, mask);
+
+        self.builder.ins().bitcast(F64, encoded_int)
+    }
+
     /// When you write out instructions in Cranelift, you get back `Value`s. You
     /// can then use these references in other instructions.
     fn translate_expr(&mut self, expr: Expr) -> Value {
         match expr {
             Expr::Literal(literal) => {
                 let imm: i32 = literal.parse().unwrap();
-                self.builder.ins().iconst(self.int, i64::from(imm))
+                // Literal needs to be encoded as an int first
+                // let value = self.builder.ins().iconst(self.int, i64::from(imm));
+
+                let value = self.builder.ins().iconst(I64, i64::from(imm));
+
+                println!("Encoding literal: {}", imm);
+                self.encode_int_to_float(value)
             }
 
             Expr::Add(lhs, rhs) => {
                 let lhs = self.translate_expr(*lhs);
                 let rhs = self.translate_expr(*rhs);
-                self.builder.ins().iadd(lhs, rhs)
+
+                println!("About to decode the floats to ints");
+
+                let decoded_lhs = self.decode_float_to_int(lhs);
+                let decoded_rhs = self.decode_float_to_int(rhs);
+
+                println!("Finished decoding ints");
+                // println!("Successfully decoded ")
+
+                // let output = self.builder.ins().iadd(lhs, rhs);
+                let output = self.builder.ins().iadd(decoded_lhs, decoded_rhs);
+
+                println!("Generated add instruction");
+
+                let output = self.encode_int_to_float(output);
+
+                println!("Encoding the result back to a float");
+
+                output
+
+                // self.builder.ins().xo
             }
 
             Expr::Sub(lhs, rhs) => {
@@ -427,7 +500,10 @@ impl<'a> FunctionTranslator<'a> {
 
         self.builder.switch_to_block(block);
         self.builder.seal_block(block);
-        let mut block_return = self.builder.ins().iconst(self.int, 0);
+        // TODO
+        // let mut block_return = self.builder.ins().iconst(self.int, 0);
+
+        let mut block_return = self.builder.ins().f64const(0.0);
         for expr in expr_block {
             block_return = self.translate_expr(expr)
         }
@@ -462,7 +538,9 @@ impl<'a> FunctionTranslator<'a> {
 
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
-        let mut then_return = self.builder.ins().iconst(self.int, 0);
+        // let mut then_return = self.builder.ins().iconst(self.int, 0);
+
+        let mut then_return = self.builder.ins().f64const(0.0);
         for expr in then_body {
             then_return = self.translate_expr(expr);
         }
@@ -472,7 +550,9 @@ impl<'a> FunctionTranslator<'a> {
 
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
-        let mut else_return = self.builder.ins().iconst(self.int, 0);
+        // let mut else_return = self.builder.ins().iconst(self.int, 0);
+
+        let mut else_return = self.builder.ins().f64const(0.0);
         for expr in else_body {
             else_return = self.translate_expr(expr);
         }
@@ -584,7 +664,7 @@ fn declare_variables(
         let var = declare_variable(int, builder, &mut variables, &mut index, name);
         builder.def_var(var, val);
     }
-    let zero = builder.ins().iconst(int, 0);
+    let zero = builder.ins().f64const(0.0);
     let return_variable = declare_variable(int, builder, &mut variables, &mut index, the_return);
     builder.def_var(return_variable, zero);
     for expr in stmts {

@@ -6,9 +6,9 @@ use crate::SteelVal;
 // }
 
 // Tags
-const PTR_TAG: u64 = 0xfffa000000000000;
-const MAX_DOUBLE: u64 = 0xfff8000000000000;
-const INT32_TAG: u64 = 0xfff9000000000000;
+pub const PTR_TAG: u64 = 0xfffa000000000000;
+pub const MAX_DOUBLE: u64 = 0xfff8000000000000;
+pub const INT32_TAG: u64 = 0xfff9000000000000;
 
 pub fn to_float(bits: u64) -> f64 {
     unsafe { std::mem::transmute(bits) }
@@ -41,6 +41,19 @@ pub fn get_pointer(bits: f64) -> u64 {
     bits & !PTR_TAG
 }
 
+pub fn from_i32(value: i32) -> f64 {
+    let bits = unsafe {
+        let bits: u64 = std::mem::transmute(i64::from(value));
+        bits | INT32_TAG
+    };
+
+    to_float(bits)
+}
+
+// inline Value(const int32_t number) {
+//     asBits = number | Int32Tag;
+// }
+
 // If this is a double, just return it
 pub fn get_double(bits: u64) -> f64 {
     assert!(is_double(bits));
@@ -48,8 +61,37 @@ pub fn get_double(bits: u64) -> f64 {
     to_float(bits)
 }
 
+pub fn get_int32(value: f64) -> i64 {
+    unsafe { std::mem::transmute(value.to_bits() & !INT32_TAG) }
+}
+
+// inline int32_t getInt32() const {
+//     assert(isInt32());
+
+//     return static_cast<int32_t>(asBits & ~Int32Tag);
+// }
+
 pub fn to_encoded_double(value: &Gc<SteelVal>) -> f64 {
     coerce_value(value.as_ptr() as u64)
+}
+
+// TODO move this to a trait
+pub fn to_encoded_double_from_const_ptr(value: *const SteelVal) -> f64 {
+    coerce_value(value as u64)
+}
+
+pub fn decode(ptr: f64) -> SteelVal {
+    let bits = ptr.to_bits();
+    if is_int32(bits) {
+        println!("Decoding an int");
+        SteelVal::IntV(get_int32(ptr) as isize)
+    } else if is_double(bits) {
+        println!("Decoding a double");
+        SteelVal::NumV(ptr)
+    } else {
+        println!("Decoding a steelval ref");
+        unsafe { get_ref_from_double(ptr) }
+    }
 }
 
 pub unsafe fn get_ref_from_double(ptr: f64) -> SteelVal {
@@ -85,6 +127,14 @@ mod value_tests {
 
         assert!(is_double(value.to_bits()))
     }
+
+    // #[test]
+    // fn test_addition() {
+    //     let left = 10;
+    //     let right = 20;
+
+    //     // let encoded_left =
+    // }
 
     // #[test]
     // fn test_is_float_encoded_value()

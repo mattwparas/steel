@@ -1,5 +1,6 @@
 use crate::gc::Gc;
 use crate::jit::code_gen::JIT;
+use crate::jit::value::{decode, to_encoded_double};
 use crate::steel_vm::stack::StackFrame;
 use crate::SteelVal;
 
@@ -91,7 +92,7 @@ impl JitFunctionPointer {
                 return coerced_back;
             }
             Sig::Two => {
-                let func: fn(isize, isize) -> isize = std::mem::transmute(fn_ptr);
+                let func: fn(f64, f64) -> f64 = std::mem::transmute(fn_ptr);
 
                 let second = stack.pop().expect("Empty stack!");
                 let first = stack.pop().expect("Empty stack!");
@@ -100,14 +101,17 @@ impl JitFunctionPointer {
                 let coerced_first = Gc::new(first);
 
                 let output = func(
-                    coerced_first.as_ptr() as isize,
-                    coerced_second.as_ptr() as isize,
+                    to_encoded_double(&coerced_first),
+                    to_encoded_double(&coerced_second),
                 );
-                let coerced_back = if let Some(inner) = (output as *const SteelVal).as_ref() {
-                    inner.clone()
-                } else {
-                    panic!("Illegal value returned from JIT")
-                };
+
+                let coerced_back = decode(output);
+
+                // let coerced_back = if let Some(inner) = (output as *const SteelVal).as_ref() {
+                //     inner.clone()
+                // } else {
+                //     panic!("Illegal value returned from JIT")
+                // };
 
                 JIT::free();
                 return coerced_back;
