@@ -41,10 +41,10 @@ const LET_CODE: &str = r#"
 
 const CAR_CODE: &str = r#"
     (define (wrapper number lst)
-        ;; (cons 100 (cons (car (cdr lst)) lst)))
-        ;; (car (cdr (cons number lst))))
+        ;; (cons 100 (cons (car (cdr lst)) lst)
+         (car (cons (+ number 200) lst)))
         ;; (+ number 20))
-        (+ 100 number))
+        ;; (+ 100 number))
         ;; (cdr lst))
         ;; (fake-add number 20))
 "#;
@@ -87,7 +87,7 @@ fn main() -> Result<(), String> {
 
     let mut vm = configure_engine();
     let mut jit = JIT::default();
-    let res = vm.emit_expanded_ast(CAR_CODE);
+    let res = vm.emit_expanded_ast(RECURSIVE_FIB_CODE);
 
     match res {
         Ok(func) => {
@@ -108,9 +108,9 @@ fn main() -> Result<(), String> {
             println!("Compilation time: {:?}", now.elapsed());
             let mut args = Stack::new();
 
-            args.push(SteelVal::IntV(100));
+            args.push(SteelVal::IntV(40));
 
-            args.push(lst);
+            // args.push(lst);
 
             let now = Instant::now();
             let result = function.call_func(&mut args);

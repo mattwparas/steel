@@ -116,23 +116,26 @@ unsafe extern "C" fn fake_add(l: f64, r: f64) -> f64 {
 // TODO
 // Implement values with a tag to know if they're a primitive or a reference
 // type - would let me not have to register non values in memory
-unsafe extern "C" fn cons(car: isize, cdr: isize) -> isize {
-    let car = &*(car as *const SteelVal);
-    let cdr = &*(cdr as *const SteelVal);
+unsafe extern "C" fn cons(car: f64, cdr: f64) -> f64 {
+    // let car = &*(car as *const SteelVal);
+    // let cdr = &*(cdr as *const SteelVal);
 
-    println!("cons: car address: {:p}", car);
-    println!("cons: cdr address: {:p}", cdr);
+    // println!("cons: car address: {:p}", car);
+    // println!("cons: cdr address: {:p}", cdr);
+
+    let car = decode(car);
+    let cdr = decode(cdr);
 
     if let SteelVal::Pair(cdr) = cdr {
         let new_value = Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(
             car.clone(),
-            Some(Gc::clone(cdr)),
+            Some(cdr),
         ))));
 
         // Register the allocated value so that it lives long enough
         JIT::allocate(&new_value);
 
-        new_value.as_ptr() as isize
+        to_encoded_double(&new_value)
     } else {
         panic!("cons requires a list as the second argument")
     }
@@ -449,7 +452,16 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Sub(lhs, rhs) => {
                 let lhs = self.translate_expr(*lhs);
                 let rhs = self.translate_expr(*rhs);
-                self.builder.ins().isub(lhs, rhs)
+
+                let decoded_lhs = self.decode_float_to_int(lhs);
+                let decoded_rhs = self.decode_float_to_int(rhs);
+
+                let output = self.builder.ins().isub(decoded_lhs, decoded_rhs);
+
+                self.encode_int_to_float(output)
+                // let output = self.
+
+                // self.builder.ins().isub(lhs, rhs)
             }
 
             Expr::Mul(lhs, rhs) => {
@@ -501,8 +513,12 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_icmp(&mut self, cmp: IntCC, lhs: Expr, rhs: Expr) -> Value {
         let lhs = self.translate_expr(lhs);
         let rhs = self.translate_expr(rhs);
-        let c = self.builder.ins().icmp(cmp, lhs, rhs);
-        self.builder.ins().bint(self.int, c)
+
+        let encoded_lhs = self.decode_float_to_int(lhs);
+        let encoded_rhs = self.decode_float_to_int(rhs);
+
+        let c = self.builder.ins().icmp(cmp, encoded_lhs, encoded_rhs);
+        self.builder.ins().bint(I64, c)
     }
 
     // Translate a block of instructions

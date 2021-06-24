@@ -80,13 +80,20 @@ impl JitFunctionPointer {
             Sig::One => {
                 let input = stack.pop().expect("Empty stack!");
                 let coerced = Gc::new(input);
-                let func: fn(isize) -> isize = std::mem::transmute(fn_ptr);
-                let output = func(coerced.as_ptr() as isize);
-                let coerced_back = if let Some(inner) = (output as *const SteelVal).as_ref() {
-                    inner.clone()
-                } else {
-                    panic!("Illegal value returned from JIT")
-                };
+                let func: fn(f64) -> f64 = std::mem::transmute(fn_ptr);
+
+                let now = std::time::Instant::now();
+
+                let output = func(to_encoded_double(&coerced));
+
+                println!("Function Run Time: {:?}", now.elapsed());
+                // let coerced_back = if let Some(inner) = (output as *const SteelVal).as_ref() {
+                //     inner.clone()
+                // } else {
+                //     panic!("Illegal value returned from JIT")
+                // };
+
+                let coerced_back = decode(output);
 
                 JIT::free();
                 return coerced_back;
