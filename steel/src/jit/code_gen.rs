@@ -378,10 +378,13 @@ impl<'a> FunctionTranslator<'a> {
     // then casting to an int
     fn decode_float_to_int(&mut self, value: Value) -> Value {
         let bitmask: i64 = unsafe { std::mem::transmute(!super::value::INT32_TAG) };
-        let mask = self.builder.ins().iconst(I64, bitmask);
+        // let mask = self.builder.ins().iconst(I64, bitmask);
 
         let cast = self.builder.ins().bitcast(I64, value);
-        self.builder.ins().band(cast, mask)
+        self.builder.ins().band_imm(cast, bitmask)
+
+        // TODO add unwrapping normal steelvalue if thats possible
+
         // self.builder.ins().bor(cast, mask)
 
         // println!("Finished decoding float");
@@ -392,9 +395,9 @@ impl<'a> FunctionTranslator<'a> {
     // then we cast this to a float when we're done
     fn encode_int_to_float(&mut self, value: Value) -> Value {
         let bitmask: i64 = unsafe { std::mem::transmute(super::value::INT32_TAG) };
-        let mask = self.builder.ins().iconst(I64, bitmask);
+        // let mask = self.builder.ins().iconst(I64, bitmask);
         // let encoded_int = self.builder.ins().band(value, mask);
-        let encoded_int = self.builder.ins().bor(value, mask);
+        let encoded_int = self.builder.ins().bor_imm(value, bitmask);
 
         self.builder.ins().bitcast(F64, encoded_int)
     }
@@ -408,10 +411,13 @@ impl<'a> FunctionTranslator<'a> {
                 // Literal needs to be encoded as an int first
                 // let value = self.builder.ins().iconst(self.int, i64::from(imm));
 
-                let value = self.builder.ins().iconst(I64, i64::from(imm));
+                // let value = self.builder.ins().iconst(I64, i64::from(imm));
 
-                println!("Encoding literal: {}", imm);
-                self.encode_int_to_float(value)
+                // println!("Encoding literal: {}", imm);
+                // self.encode_int_to_float(value)
+
+                let encoded = from_i32(imm);
+                self.builder.ins().f64const(encoded)
             }
 
             Expr::Add(lhs, rhs) => {

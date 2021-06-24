@@ -72,7 +72,11 @@ pub fn get_int32(value: f64) -> i64 {
 // }
 
 pub fn to_encoded_double(value: &Gc<SteelVal>) -> f64 {
-    coerce_value(value.as_ptr() as u64)
+    match value.as_ref() {
+        SteelVal::IntV(i) => from_i32(*i as i32),
+        SteelVal::NumV(n) => *n,
+        _ => coerce_value(value.as_ptr() as u64),
+    }
 }
 
 // TODO move this to a trait
@@ -126,6 +130,15 @@ mod value_tests {
         let value: f64 = 10.0;
 
         assert!(is_double(value.to_bits()))
+    }
+
+    #[test]
+    fn test_ints() {
+        let value: i32 = 1000;
+        let encoded = from_i32(value);
+        let decoded = decode(encoded);
+
+        assert_eq!(SteelVal::IntV(1000), decoded);
     }
 
     // #[test]
