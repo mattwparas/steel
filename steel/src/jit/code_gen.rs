@@ -1,6 +1,6 @@
 use crate::gc::Gc;
 use crate::jit::ir::*;
-use crate::jit::value::{to_encoded_double, to_encoded_double_from_const_ptr};
+use crate::jit::value::{decode, to_encoded_double, to_encoded_double_from_const_ptr};
 use crate::parser::ast::ExprKind;
 use crate::rvals::ConsCell;
 use crate::SteelVal;
@@ -17,7 +17,7 @@ use std::cell::RefCell;
 
 use super::lower::lower_function;
 use super::sig::{JitFunctionPointer, Sig};
-use super::value::get_ref_from_double;
+use super::value::{from_i32, get_ref_from_double};
 
 thread_local! {
     pub static MEMORY: RefCell<Vec<Gc<SteelVal>>> = RefCell::new(Vec::new());
@@ -103,6 +103,16 @@ unsafe extern "C" fn cdr(value: f64) -> f64 {
     }
 }
 
+unsafe extern "C" fn fake_add(l: f64, r: f64) -> f64 {
+    let left = decode(l);
+    let right = decode(r);
+
+    match (left, right) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => from_i32((l + r) as i32),
+        _ => panic!("Fake add expects 2 numbers"),
+    }
+}
+
 // TODO
 // Implement values with a tag to know if they're a primitive or a reference
 // type - would let me not have to register non values in memory
@@ -137,6 +147,9 @@ fn register_primitives(builder: &mut JITBuilder) {
 
     let addr: *const u8 = cons as *const u8;
     builder.symbol("cons", addr);
+
+    let addr: *const u8 = fake_add as *const u8;
+    builder.symbol("fake-add", addr);
 }
 
 impl Default for JIT {
