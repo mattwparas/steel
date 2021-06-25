@@ -533,7 +533,7 @@ impl<'a> FunctionTranslator<'a> {
 
         // self.builder.ins().jump(block, &[]);
 
-        self.builder.switch_to_block(block);
+        // self.builder.switch_to_block(block);
         self.builder.seal_block(block);
         // TODO
         // let mut block_return = self.builder.ins().iconst(self.int, 0);

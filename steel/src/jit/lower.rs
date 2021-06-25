@@ -3,7 +3,9 @@ use crate::parser::ast::ExprKind;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMut;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+
+use im_rc::HashMap;
 
 use super::ir::Expr;
 
@@ -18,18 +20,18 @@ struct RenameShadowedVars {
     vars: HashSet<String>,
     name: Option<String>,
     depth: usize,
-    // in_scope: HashSet<String>,
-    shadowed: HashMap<String, Vec<String>>,
+    in_scope: HashSet<String>,
+    shadowed: HashMap<String, usize>,
     args: Option<Vec<String>>,
     ret_val: Option<String>,
 }
 
 // If a new variable is introduced, we should just insert it into the map with an empty shadow
 // Removing should only remove if the
-#[derive(Default)]
-struct ScopeMap {
-    inner: HashMap<String, Vec<String>>,
-}
+// #[derive(Default)]
+// struct ScopeMap {
+//     inner: HashMap<String, Vec<String>>,
+// }
 
 // impl ScopeMap {
 
@@ -98,9 +100,9 @@ impl VisitorMut for RenameShadowedVars {
             .collect::<Option<Vec<_>>>()?;
 
         // Make sure these are now in scope
-        // for arg in &args {
-        //     self.in_scope.insert(arg.clone());
-        // }
+        for arg in &args {
+            self.in_scope.insert(arg.clone());
+        }
 
         self.args = Some(args);
 
@@ -166,7 +168,16 @@ impl VisitorMut for RenameShadowedVars {
     fn visit_atom(&mut self, a: &ast::Atom) -> Self::Output {
         use TokenType::*;
         match &a.syn.ty {
-            Identifier(s) => Some(Expr::Identifier(s.clone())),
+            Identifier(s) => {
+                if let Some(depth) = self.shadowed.get(s) {
+                    // Create this busted shadowed nonsense
+                    Some(Expr::Identifier(
+                        "###__depth__".to_string() + depth.to_string().as_str() + s.as_str(),
+                    ))
+                } else {
+                    Some(Expr::Identifier(s.clone()))
+                }
+            }
             IntegerLiteral(i) => Some(Expr::Literal(i.to_string())),
             _ => None,
         }
@@ -183,8 +194,10 @@ impl VisitorMut for RenameShadowedVars {
 
         match func {
             ExprKind::LambdaFunction(lam) => {
+                self.depth += 1;
+
                 // These need to be mangled?
-                let mut variable_names = lam
+                let variable_names = lam
                     .args
                     .iter()
                     .map(|x| {
@@ -193,6 +206,8 @@ impl VisitorMut for RenameShadowedVars {
                             .map(|x| x.to_string())
                     })
                     .collect::<Option<Vec<_>>>()?;
+
+                let pre_variables = self.shadowed.clone();
 
                 // Really bad variable mangling
                 // TODO fix this
@@ -219,16 +234,40 @@ impl VisitorMut for RenameShadowedVars {
                     .into_iter()
                     .zip(args)
                     .map(|x| -> Option<Expr> {
-                        Some(Expr::Assign(x.0, Box::new(self.visit(x.1)?)))
+                        Some(Expr::Assign(
+                            {
+                                if self.in_scope.contains(&x.0) {
+                                    "###__depth__".to_string()
+                                        + self.depth.to_string().as_str()
+                                        + x.0.as_str()
+                                } else {
+                                    x.0
+                                }
+                            },
+                            Box::new(self.visit(x.1)?),
+                        ))
                     })
                     .collect::<Option<Vec<_>>>()?;
+
+                for variable in &variable_names {
+                    if self.in_scope.contains(variable) {
+                        println!("Shadowing: {}", variable);
+                        self.shadowed.insert(variable.clone(), self.depth);
+                    }
+                }
 
                 let body = self.visit(&lam.body)?;
 
                 // They're no longer in scope, take them out
-                // for variable in &variable_names {
-                //     self.in_scope.remove(variable);
-                // }
+                for variable in &variable_names {
+                    self.in_scope.remove(variable);
+                    self.shadowed.remove(variable);
+                }
+
+                // Just reset the state for now
+                self.shadowed = pre_variables;
+
+                self.depth -= 1;
 
                 assignments.push(body);
 
