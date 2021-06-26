@@ -17,13 +17,12 @@ use super::ir::Expr;
 // (+ x (+ y z))
 #[derive(Default)]
 struct RenameShadowedVars {
-    vars: HashSet<String>,
-    name: Option<String>,
     depth: usize,
     in_scope: HashSet<String>,
     shadowed: HashMap<String, usize>,
     args: Option<Vec<String>>,
     ret_val: Option<String>,
+    legal_vars: HashSet<String>,
 }
 
 // If a new variable is introduced, we should just insert it into the map with an empty shadow
@@ -208,25 +207,6 @@ impl VisitorMut for RenameShadowedVars {
                     .collect::<Option<Vec<_>>>()?;
 
                 let pre_variables = self.shadowed.clone();
-
-                // Really bad variable mangling
-                // TODO fix this
-                // for variable in &mut variable_names {
-                //     if self.in_scope.contains(variable) {
-                //         // Put it in the shadowed
-                //         // self.shadowed.insert(
-                //         //     variable.clone(),
-                //         //     variable.clone() + "###__depth__" + self.depth.to_string().as_str(),
-                //         // );
-                //         variable.push_str(
-                //             &("###__depth__".to_string() + self.depth.to_string().as_str()),
-                //         );
-
-                //         // self.in_scope.insert(variable.clone());
-                //     } else {
-                //         self.in_scope.insert(variable.clone());
-                //     }
-                // }
 
                 // These are the lowered assignments
                 let mut assignments = variable_names
