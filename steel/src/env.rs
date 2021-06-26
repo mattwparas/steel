@@ -36,6 +36,17 @@ impl Env {
         }
     }
 
+    pub(crate) fn print_diagnostics(&self) {
+        for (idx, value) in self.bindings_vec.iter().enumerate() {
+            if let SteelVal::Closure(b) = value {
+                let count = b.call_count();
+                if count > 0 {
+                    println!("Function: {} - Count: {}", idx, b.call_count());
+                }
+            }
+        }
+    }
+
     /// Search starting from the current environment
     /// for `idx`, looking through the parent chain in order.
     ///

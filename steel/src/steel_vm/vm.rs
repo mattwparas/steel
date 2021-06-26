@@ -102,6 +102,9 @@ impl VirtualMachineCore {
             })
             .collect();
 
+        // TODO
+        self.global_env.print_diagnostics();
+
         output
     }
 
@@ -1012,6 +1015,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
+        closure.increment_call_count();
+
         // Snag the current functions arity & remove the last function call
         let current_executing = self.function_stack.pop();
 
@@ -1354,6 +1359,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         span: &Span,
     ) -> Result<()> {
         // println!("Calling normal function");
+
+        // Jit profiling
+        closure.increment_call_count();
 
         // Push on the function stack so we have access to it later
         self.function_stack.push(Gc::clone(closure));

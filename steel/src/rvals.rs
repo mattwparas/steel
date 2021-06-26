@@ -33,6 +33,8 @@ use im_rc::{HashMap, HashSet, Vector};
 use futures::FutureExt;
 use futures::{future::Shared, task::noop_waker_ref};
 
+use std::cell::Cell;
+
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
     Rc::new(RefCell::new(x))
@@ -775,6 +777,7 @@ pub struct ByteCodeLambda {
     body_exp: Rc<[DenseInstruction]>,
     arity: usize,
     upvalues: Vec<Weak<RefCell<UpValue>>>,
+    call_count: Cell<usize>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -800,6 +803,7 @@ impl ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
             arity,
             upvalues,
+            call_count: Cell::new(0),
         }
     }
 
@@ -825,6 +829,15 @@ impl ByteCodeLambda {
 
     pub fn upvalues(&self) -> &[Weak<RefCell<UpValue>>] {
         &self.upvalues
+    }
+
+    pub fn increment_call_count(&self) {
+        // self.call_count += 1;
+        self.call_count.set(self.call_count.get() + 1);
+    }
+
+    pub fn call_count(&self) -> usize {
+        self.call_count.get()
     }
 }
 
