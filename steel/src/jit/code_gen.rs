@@ -18,7 +18,7 @@ use std::cell::RefCell;
 
 use super::lower::lower_function;
 use super::sig::{JitFunctionPointer, Sig};
-use super::value::{encode_bool, from_i32, get_ref_from_double, FALSE_VALUE, TRUE_VALUE};
+use super::value::{encode_bool, from_i32, get_ref_from_double, FALSE_VALUE};
 
 thread_local! {
     pub static MEMORY: RefCell<Vec<Gc<SteelVal>>> = RefCell::new(Vec::new());
@@ -143,14 +143,14 @@ unsafe extern "C" fn cons(car: f64, cdr: f64) -> f64 {
     }
 }
 
-unsafe extern "C" fn equals(left: f64, right: f64) -> f64 {
+unsafe extern "C" fn _equals(left: f64, right: f64) -> f64 {
     let left = decode(left);
     let right = decode(right);
 
     encode_bool(left == right)
 }
 
-unsafe extern "C" fn less_than_or_equals(left: f64, right: f64) -> f64 {
+unsafe extern "C" fn _less_than_or_equals(left: f64, right: f64) -> f64 {
     let left = decode(left);
     let right = decode(right);
 

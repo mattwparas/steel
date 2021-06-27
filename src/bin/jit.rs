@@ -94,7 +94,7 @@ fn main() -> Result<(), String> {
 
     let mut vm = configure_engine();
     let mut jit = JIT::default();
-    let res = vm.emit_expanded_ast(BUILD_UP_NEW_LIST);
+    let res = vm.emit_expanded_ast(RECURSIVE_FIB_CODE);
 
     match res {
         Ok(func) => {
@@ -118,47 +118,19 @@ fn main() -> Result<(), String> {
             println!("Compilation time: {:?}", now.elapsed());
             let mut args = Stack::new();
 
-            // args.push(SteelVal::IntV(40));
+            args.push(SteelVal::IntV(40));
             // args.push(SteelVal::IntV(12));
 
             // args.push(lst);
 
-            args.push(lst);
-            args.push(empty_lst);
+            // args.push(lst);
+            // args.push(empty_lst);
 
             let now = Instant::now();
             let result = function.call_func(&mut args);
             println!("Run time: {:?}", now.elapsed());
 
             println!("Output: {:?}", result);
-
-            // println!(
-            //     "(test 10 20 30) = {}",
-            //     run_fib(&mut jit, ast, (10isize, 20isize, 30isize))? // run_fib(&mut jit, ast, 10isize)?
-            // );
-
-            // let code_ptr = jit.compile(code)?;
-
-            // let function_signature =
-
-            // let coerced = Gc::new(lst);
-
-            // let output = run_fib(&mut jit, ast, coerced.as_ptr() as isize)?;
-
-            // // Coerce the value _back_ to a SteelVal
-            // let coerced_back: &SteelVal = unsafe {
-            //     if let Some(inner) = (output as *const SteelVal).as_ref() {
-            //         inner
-            //     } else {
-            //         panic!("We got back an illegal value from the JIT");
-            //     }
-            // };
-
-            // println!(
-            //     "(wrapper (list 1 2 3 4 5)) = {:?}",
-            //     &coerced_back // run_fib(&mut jit, ast, 10isize)?
-            // );
-            // println!("Time taken: {:?}", now.elapsed());
         }
         Err(e) => {
             e.emit_result("repl.rkt", CAR_CODE);
