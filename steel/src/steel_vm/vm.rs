@@ -1141,8 +1141,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        if cf.arity() != payload_size {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
+        // if cf.arity() != payload_size {
+        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
+        // }
+
+        if let Some(arity) = cf.arity() {
+            if arity != payload_size {
+                stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, payload_size); *span);
+            }
         }
 
         if self.apply_contracts.enforce_contracts() {
@@ -1166,7 +1172,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             self.ip += 1;
             Ok(())
         } else {
-            self.handle_function_call_closure(&cf.function, payload_size, span)
+            self.handle_function_call(cf.function.clone(), payload_size, span)
         }
     }
 
@@ -1177,8 +1183,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        if cf.arity() != payload_size {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
+        // if cf.arity() != payload_size {
+        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
+        // }
+
+        if let Some(arity) = cf.arity() {
+            if arity != payload_size {
+                stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, payload_size); *span);
+            }
         }
 
         if self.apply_contracts.enforce_contracts() {
@@ -1202,7 +1214,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             self.ip += 1;
             Ok(())
         } else {
-            self.handle_tail_call_closure(&cf.function, payload_size, span)
+            self.handle_tail_call(cf.function.clone(), payload_size, span)
         }
     }
 
@@ -1314,8 +1326,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 self.ip += 4;
             }
             ContractedFunction(cf) => {
-                if cf.arity() != 2 {
-                    stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), 2); *span);
+                if let Some(arity) = cf.arity() {
+                    if arity != 2 {
+                        stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, 2); *span);
+                    }
                 }
 
                 if self.apply_contracts.enforce_contracts() {
@@ -1336,7 +1350,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     self.stack.push(result);
                     self.ip += 4;
                 } else {
-                    self.handle_lazy_closure(&cf.function, local, const_value, span)?;
+                    self.handle_lazy_function_call(cf.function.clone(), local, const_value, span)?;
                 }
             }
             ContinuationFunction(_cc) => {

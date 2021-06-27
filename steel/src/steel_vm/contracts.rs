@@ -172,7 +172,8 @@ pub(crate) trait FunctionContractExt {
     fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
-        function: &Gc<ByteCodeLambda>,
+        // function: &Gc<ByteCodeLambda>,
+        function: &SteelVal,
         arguments: &[SteelVal],
         constants: &CT,
         cur_inst_span: &Span,
@@ -191,7 +192,8 @@ impl FunctionContractExt for FunctionContract {
     fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
-        function: &Gc<ByteCodeLambda>,
+        // function: &Gc<ByteCodeLambda>,
+        function: &SteelVal,
         arguments: &[SteelVal],
         constants: &CT,
         cur_inst_span: &Span,
@@ -271,32 +273,66 @@ impl FunctionContractExt for FunctionContract {
                         verified_args.push(new_arg);
                     }
 
+                    _ => verified_args.push(
+                        ContractedFunction::new(fc.clone(), arg.clone(), name.clone()).into(),
+                    ),
                     // TODO fix name, don't pass in None
-                    SteelVal::Closure(c) => verified_args
-                        .push(ContractedFunction::new(fc.clone(), c.clone(), name.clone()).into()),
-                    _ => {
-                        stop!(ContractViolation => "contracts not yet supported with non user defined"; *cur_inst_span)
-                    }
+                    // SteelVal::Closure(c) => verified_args
+                    //     .push(ContractedFunction::new(fc.clone(), c.clone(), name.clone()).into()),
+                    // _ => {
+                    //     stop!(ContractViolation => "contracts not yet supported with non user defined"; *cur_inst_span)
+                    // }
                 },
             }
         }
 
-        function_stack.push(Gc::clone(function));
+        let output = match function {
+            SteelVal::Closure(function) => {
+                function_stack.push(Gc::clone(function));
 
-        let output = {
-            vm(
-                function.body_exp(),
-                &mut verified_args.into(),
-                global_env, // TODO remove this as well
-                constants,
-                callback,
-                upvalue_heap,
-                function_stack,
-                &mut Stack::new(),
-                use_callbacks,
-                apply_contracts,
-            )
-        }?;
+                vm(
+                    function.body_exp(),
+                    &mut verified_args.into(),
+                    global_env, // TODO remove this as well
+                    constants,
+                    callback,
+                    upvalue_heap,
+                    function_stack,
+                    &mut Stack::new(),
+                    use_callbacks,
+                    apply_contracts,
+                )?
+            }
+            SteelVal::BoxedFunction(f) => {
+                // f(&[local, const_value]).map_err(|x| x.set_span(*span))?)
+                // self.ip += 4;
+                // todo!()
+                f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
+            }
+            SteelVal::FuncV(f) => {
+                // self.stack
+                // .push(f(&[local, const_value]).map_err(|x| x.set_span(*span))?);
+                // self.ip += 4;
+                // todo!()
+
+                f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
+            }
+            SteelVal::FutureFunc(f) => {
+                // let result = SteelVal::FutureV(Gc::new(
+                // f(&[local, const_value]).map_err(|x| x.set_span(*span))?,
+                // ));
+
+                // self.stack.push(result);
+                // self.ip += 4;
+                // todo!()
+                SteelVal::FutureV(Gc::new(
+                    f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?,
+                ))
+            }
+            _ => {
+                todo!("Implement contract application for non bytecode values");
+            }
+        };
 
         match self.post_condition().as_ref() {
             ContractType::Flat(f) => {
@@ -378,12 +414,13 @@ impl FunctionContractExt for FunctionContract {
                 }
 
                 // TODO don't pass in None
-                SteelVal::Closure(c) => {
-                    Ok(ContractedFunction::new(fc.clone(), c, name.clone()).into())
-                }
-                _ => {
-                    stop!(ContractViolation => "contracts not yet supported with non user defined"; *cur_inst_span)
-                }
+                // SteelVal::Closure(c) => {
+                //     Ok(ContractedFunction::new(fc.clone(), c, name.clone()).into())
+                // }
+                // _ => {
+                //     stop!(ContractViolation => "contracts not yet supported with non user defined"; *cur_inst_span)
+                // }
+                _ => Ok(ContractedFunction::new(fc.clone(), output, name.clone()).into()),
             },
         }
     }
