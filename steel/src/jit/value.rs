@@ -10,6 +10,34 @@ pub const PTR_TAG: u64 = 0xfffa000000000000;
 pub const MAX_DOUBLE: u64 = 0xfff8000000000000;
 pub const INT32_TAG: u64 = 0xfff9000000000000;
 
+// pub const BOOLEAN_MASK: u64 = 0xfffb000000000002;
+// pub const TRUE_VALUE: u64 = BOOLEAN_MASK | 3;
+// pub const FALSE_VALUE: u64 = BOOLEAN_MASK | 2;
+
+// pub const BOOELAN_MASK: 0xfff
+
+// TODO should this be true - 6 false - 7 or the other way around
+pub const TRUE_VALUE: u64 = 0x07;
+pub const FALSE_VALUE: u64 = 0x06;
+
+// pub const BOOL_TAG: u64 = 0x06;
+
+pub fn is_bool(bits: u64) -> bool {
+    bits == TRUE_VALUE || bits == FALSE_VALUE
+}
+
+pub fn get_as_bool(bits: u64) -> u64 {
+    bits & 0x1
+}
+
+pub fn get_as_rust_bool(bits: u64) -> bool {
+    is_bool(bits) && bits == TRUE_VALUE
+}
+
+pub fn encode_bool(b: bool) -> f64 {
+    unsafe { std::mem::transmute(if b { TRUE_VALUE } else { FALSE_VALUE }) }
+}
+
 pub fn to_float(bits: u64) -> f64 {
     unsafe { std::mem::transmute(bits) }
 }
@@ -75,6 +103,13 @@ pub fn to_encoded_double(value: &Gc<SteelVal>) -> f64 {
     match value.as_ref() {
         SteelVal::IntV(i) => from_i32(*i as i32),
         SteelVal::NumV(n) => *n,
+        SteelVal::BoolV(b) => {
+            if *b {
+                to_float(TRUE_VALUE)
+            } else {
+                to_float(FALSE_VALUE)
+            }
+        }
         _ => coerce_value(value.as_ptr() as u64),
     }
 }
@@ -87,13 +122,15 @@ pub fn to_encoded_double_from_const_ptr(value: *const SteelVal) -> f64 {
 pub fn decode(ptr: f64) -> SteelVal {
     let bits = ptr.to_bits();
     if is_int32(bits) {
-        println!("Decoding an int");
+        // println!("Decoding an int");
         SteelVal::IntV(get_int32(ptr) as isize)
     } else if is_double(bits) {
-        println!("Decoding a double");
+        // println!("Decoding a double");
         SteelVal::NumV(ptr)
+    } else if is_bool(bits) {
+        SteelVal::BoolV(get_as_rust_bool(bits))
     } else {
-        println!("Decoding a steelval ref");
+        // println!("Decoding a steelval ref");
         unsafe { get_ref_from_double(ptr) }
     }
 }
@@ -139,6 +176,21 @@ mod value_tests {
         let decoded = decode(encoded);
 
         assert_eq!(SteelVal::IntV(1000), decoded);
+    }
+
+    #[test]
+    fn test_bools() {
+        let encoded_true: f64 = unsafe { std::mem::transmute(TRUE_VALUE) };
+
+        let output = get_as_rust_bool(encoded_true.to_bits());
+
+        assert_eq!(output, true);
+
+        let encoded_false: f64 = unsafe { std::mem::transmute(FALSE_VALUE) };
+
+        let output = get_as_rust_bool(encoded_false.to_bits());
+
+        assert_eq!(output, false);
     }
 
     // #[test]

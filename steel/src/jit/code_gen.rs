@@ -17,7 +17,7 @@ use std::cell::RefCell;
 
 use super::lower::lower_function;
 use super::sig::{JitFunctionPointer, Sig};
-use super::value::{from_i32, get_ref_from_double};
+use super::value::{encode_bool, from_i32, get_ref_from_double, FALSE_VALUE, TRUE_VALUE};
 
 thread_local! {
     pub static MEMORY: RefCell<Vec<Gc<SteelVal>>> = RefCell::new(Vec::new());
@@ -136,6 +136,20 @@ unsafe extern "C" fn cons(car: f64, cdr: f64) -> f64 {
     }
 }
 
+unsafe extern "C" fn equals(left: f64, right: f64) -> f64 {
+    let left = decode(left);
+    let right = decode(right);
+
+    encode_bool(left == right)
+}
+
+unsafe extern "C" fn less_than_or_equals(left: f64, right: f64) -> f64 {
+    let left = decode(left);
+    let right = decode(right);
+
+    encode_bool(left <= right)
+}
+
 fn register_primitives(builder: &mut JITBuilder) {
     let addr: *const u8 = car as *const u8;
     builder.symbol("car", addr);
@@ -146,8 +160,11 @@ fn register_primitives(builder: &mut JITBuilder) {
     let addr: *const u8 = cons as *const u8;
     builder.symbol("cons", addr);
 
-    // let addr: *const u8 = fake_add as *const u8;
-    // builder.symbol("fake-add", addr);
+    let addr: *const u8 = equals as *const u8;
+    builder.symbol("=", addr);
+
+    // let addr: *const u8 = less_than_or_equals as *const u8;
+    // builder.symbol("<=", addr);
 }
 
 impl Default for JIT {
@@ -384,27 +401,19 @@ impl<'a> FunctionTranslator<'a> {
     // then casting to an int
     fn decode_float_to_int(&mut self, value: Value) -> Value {
         let bitmask: i64 = unsafe { std::mem::transmute(!super::value::INT32_TAG) };
-        // let mask = self.builder.ins().iconst(I64, bitmask);
-
         let cast = self.builder.ins().bitcast(I64, value);
         self.builder.ins().band_imm(cast, bitmask)
-
-        // TODO add unwrapping normal steelvalue if thats possible
-
-        // self.builder.ins().bor(cast, mask)
-
-        // println!("Finished decoding float");
-        // output
     }
+
+    // fn decode_bool(&mut self, value: Value) -> Value {
+    //     self.builder.ins().isub_imm()
+    // }
 
     // This takes in an int, then applies the bitwise and
     // then we cast this to a float when we're done
     fn encode_int_to_float(&mut self, value: Value) -> Value {
         let bitmask: i64 = unsafe { std::mem::transmute(super::value::INT32_TAG) };
-        // let mask = self.builder.ins().iconst(I64, bitmask);
-        // let encoded_int = self.builder.ins().band(value, mask);
         let encoded_int = self.builder.ins().bor_imm(value, bitmask);
-
         self.builder.ins().bitcast(F64, encoded_int)
     }
 
@@ -482,9 +491,15 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Eq(lhs, rhs) => self.translate_icmp(IntCC::Equal, *lhs, *rhs),
             Expr::Ne(lhs, rhs) => self.translate_icmp(IntCC::NotEqual, *lhs, *rhs),
             Expr::Lt(lhs, rhs) => self.translate_icmp(IntCC::SignedLessThan, *lhs, *rhs),
+
             Expr::Le(lhs, rhs) => self.translate_icmp(IntCC::SignedLessThanOrEqual, *lhs, *rhs),
+            // Expr::Le(lhs, rhs) => {
+            //     // self.translate_call("<=".to_string(), vec![*lhs, *rhs])
+            //     self.translate_icmp(IntCC::SignedLessThanOrEqual, *lhs, *rhs)
+            // }
             Expr::Gt(lhs, rhs) => self.translate_icmp(IntCC::SignedGreaterThan, *lhs, *rhs),
             Expr::Ge(lhs, rhs) => self.translate_icmp(IntCC::SignedGreaterThanOrEqual, *lhs, *rhs),
+
             Expr::Call(name, args) => self.translate_call(name, args),
             Expr::GlobalDataAddr(name) => self.translate_global_data_addr(name),
             Expr::Identifier(name) => {
@@ -513,6 +528,8 @@ impl<'a> FunctionTranslator<'a> {
         new_value
     }
 
+    // icmp needs to keep track of the value
+    // TODO remove using icmp
     fn translate_icmp(&mut self, cmp: IntCC, lhs: Expr, rhs: Expr) -> Value {
         let lhs = self.translate_expr(lhs);
         let rhs = self.translate_expr(rhs);
@@ -521,7 +538,12 @@ impl<'a> FunctionTranslator<'a> {
         let encoded_rhs = self.decode_float_to_int(rhs);
 
         let c = self.builder.ins().icmp(cmp, encoded_lhs, encoded_rhs);
-        self.builder.ins().bint(I64, c)
+
+        // self.builder.ins().bint(IntTo, x)
+        // let encoded = self.builder.ins.icmp(c)
+
+        let one_or_zero = self.builder.ins().bint(I64, c);
+        self.builder.ins().iadd_imm(one_or_zero, FALSE_VALUE as i64)
     }
 
     // Translate a block of instructions
@@ -557,6 +579,13 @@ impl<'a> FunctionTranslator<'a> {
         else_body: Vec<Expr>,
     ) -> Value {
         let condition_value = self.translate_expr(condition);
+        // let encoded_condition = self.decode_float_to_int(condition_value);
+
+        // Decode the condition - compare it to the fixed value we use for true
+        let condition_value = self
+            .builder
+            .ins()
+            .iadd_imm(condition_value, -(FALSE_VALUE as i64));
 
         // TODO insert way to decode value from boolean to value cranelift can understand?
 

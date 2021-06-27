@@ -91,7 +91,7 @@ fn main() -> Result<(), String> {
 
     let mut vm = configure_engine();
     let mut jit = JIT::default();
-    let res = vm.emit_expanded_ast(LET_CODE);
+    let res = vm.emit_expanded_ast(RECURSIVE_FIB_CODE);
 
     match res {
         Ok(func) => {
@@ -113,7 +113,7 @@ fn main() -> Result<(), String> {
             let mut args = Stack::new();
 
             args.push(SteelVal::IntV(40));
-            args.push(SteelVal::IntV(12));
+            // args.push(SteelVal::IntV(12));
 
             // args.push(lst);
 
