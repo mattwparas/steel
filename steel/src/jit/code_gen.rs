@@ -8,7 +8,7 @@ use cranelift::prelude::types::{F64, I64};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::slice;
 
 // use lazy_static::lazy_static;
@@ -72,12 +72,6 @@ unsafe extern "C" fn car(value: f64) -> f64 {
 // Safety: The caller must assure that the value being passed in is a reference to
 // a GC value
 unsafe extern "C" fn cdr(value: f64) -> f64 {
-    // let lst: Box<SteelVal> = Box::from_raw(value as *mut SteelVal);
-
-    // let lst = &*(value as *const SteelVal);
-
-    // println!("cdr address: {:p}", lst);
-
     let lst = get_ref_from_double(value);
 
     if let SteelVal::Pair(c) = lst {
@@ -103,26 +97,27 @@ unsafe extern "C" fn cdr(value: f64) -> f64 {
     }
 }
 
-unsafe extern "C" fn fake_add(l: f64, r: f64) -> f64 {
-    let left = decode(l);
-    let right = decode(r);
+// TODO how to do booleans?
+unsafe extern "C" fn empty(l: f64) -> f64 {
+    let lst = decode(l);
 
-    match (left, right) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => from_i32((l + r) as i32),
-        _ => panic!("Fake add expects 2 numbers"),
-    }
+    let output = if let SteelVal::VectorV(v) = lst {
+        v.is_empty().into()
+    } else {
+        SteelVal::BoolV(false)
+    };
+
+    let gcd = Gc::new(output);
+
+    JIT::allocate(&gcd);
+
+    to_encoded_double(&gcd)
 }
 
 // TODO
 // Implement values with a tag to know if they're a primitive or a reference
 // type - would let me not have to register non values in memory
 unsafe extern "C" fn cons(car: f64, cdr: f64) -> f64 {
-    // let car = &*(car as *const SteelVal);
-    // let cdr = &*(cdr as *const SteelVal);
-
-    // println!("cons: car address: {:p}", car);
-    // println!("cons: cdr address: {:p}", cdr);
-
     let car = decode(car);
     let cdr = decode(cdr);
 
@@ -151,8 +146,8 @@ fn register_primitives(builder: &mut JITBuilder) {
     let addr: *const u8 = cons as *const u8;
     builder.symbol("cons", addr);
 
-    let addr: *const u8 = fake_add as *const u8;
-    builder.symbol("fake-add", addr);
+    // let addr: *const u8 = fake_add as *const u8;
+    // builder.symbol("fake-add", addr);
 }
 
 impl Default for JIT {
@@ -203,9 +198,17 @@ impl JIT {
 
     /// Compile a string in the toy language into machine code.
     pub fn compile(&mut self, input: &ExprKind) -> Result<JitFunctionPointer, String> {
+        // TOOD lift this out of this function
+        let mut legal_vars = HashSet::new();
+
+        // Register the functions that are legal to reference inside the machine code
+        legal_vars.insert("car".to_string());
+        legal_vars.insert("cdr".to_string());
+        legal_vars.insert("cons".to_string());
+
         // First, parse the string, producing AST nodes.
-        let (name, params, the_return, stmts) =
-            lower_function(input).ok_or_else(|| "Unable to lower the input AST".to_string())?;
+        let (name, params, the_return, stmts) = lower_function(input, &mut legal_vars)
+            .ok_or_else(|| "Unable to lower the input AST".to_string())?;
         // type_check_please(&input).map_err(|e| e.to_string())?;
 
         // Get the arity from the number of parameters of the function we're compiling
@@ -554,6 +557,8 @@ impl<'a> FunctionTranslator<'a> {
         else_body: Vec<Expr>,
     ) -> Value {
         let condition_value = self.translate_expr(condition);
+
+        // TODO insert way to decode value from boolean to value cranelift can understand?
 
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();

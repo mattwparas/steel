@@ -49,6 +49,10 @@ const CAR_CODE: &str = r#"
         ;; (fake-add number 20))
 "#;
 
+// const BUILD_UP_NEW_LIST: &str = r#"
+//     (define (recur lst)
+// "#;
+
 // fn run_fib(jit: &mut JIT, code: &ExprKind, input: isize) -> Result<isize, String> {
 //     unsafe { run_code::<isize>(jit, code, input) }
 // }

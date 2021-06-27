@@ -15,14 +15,26 @@ use super::ir::Expr;
 // (y = 20)
 // (z = 30)
 // (+ x (+ y z))
-#[derive(Default)]
-struct RenameShadowedVars {
+struct RenameShadowedVars<'a> {
     depth: usize,
     in_scope: HashSet<String>,
     shadowed: HashMap<String, usize>,
     args: Option<Vec<String>>,
     ret_val: Option<String>,
-    legal_vars: HashSet<String>,
+    legal_vars: &'a HashSet<String>,
+}
+
+impl<'a> RenameShadowedVars<'a> {
+    pub fn new(legal_vars: &'a HashSet<String>) -> Self {
+        Self {
+            depth: 0,
+            in_scope: HashSet::new(),
+            shadowed: HashMap::new(),
+            args: None,
+            ret_val: None,
+            legal_vars,
+        }
+    }
 }
 
 // If a new variable is introduced, we should just insert it into the map with an empty shadow
@@ -38,10 +50,20 @@ struct RenameShadowedVars {
 // }
 
 /// Checks that the input is in fact a lowered function
-pub fn lower_function(expr: &ExprKind) -> Option<(String, Vec<String>, String, Vec<Expr>)> {
-    let mut visitor = RenameShadowedVars::default();
+pub fn lower_function(
+    expr: &ExprKind,
+    bound_vars: &mut HashSet<String>,
+) -> Option<(String, Vec<String>, String, Vec<Expr>)> {
+    // let mut visitor = RenameShadowedVars::default();
 
     if let ExprKind::Define(d) = expr {
+        let function_name = d.name.atom_identifier_or_else(|| unreachable!()).ok()?;
+
+        // Register the function itself as a legal function to be used
+        bound_vars.insert(function_name.to_string());
+
+        let mut visitor = RenameShadowedVars::new(&bound_vars);
+
         if let ExprKind::LambdaFunction(_) = &d.body {
             // let func_name = d.name.atom_identifier_or_else(|| unreachable!()).ok()?;
             let output = visitor.visit_define(&d)?;
@@ -55,7 +77,7 @@ pub fn lower_function(expr: &ExprKind) -> Option<(String, Vec<String>, String, V
     None
 }
 
-impl VisitorMut for RenameShadowedVars {
+impl<'a> VisitorMut for RenameShadowedVars<'a> {
     type Output = Option<Expr>;
 
     // Not great, but gets the job done
@@ -164,10 +186,14 @@ impl VisitorMut for RenameShadowedVars {
         None
     }
 
+    // TODO fix this
     fn visit_atom(&mut self, a: &ast::Atom) -> Self::Output {
         use TokenType::*;
         match &a.syn.ty {
             Identifier(s) => {
+                // Short circuit if we reference a function that we can't yet reference
+                self.validate_identifier(s.as_str())?;
+
                 if let Some(depth) = self.shadowed.get(s) {
                     // Create this busted shadowed nonsense
                     Some(Expr::Identifier(
@@ -257,9 +283,12 @@ impl VisitorMut for RenameShadowedVars {
                 let ident = func
                     .atom_identifier_or_else(|| "Not a valid function here")
                     .ok()?;
+
                 if let Some(binop) = symbol_to_binop(ident) {
                     self.expr_list_to_bin_op(binop, args)
                 } else {
+                    self.validate_identifier(ident)?;
+
                     Some(Expr::Call(
                         ident.to_owned(),
                         args.map(|x| self.visit(x)).collect::<Option<Vec<_>>>()?,
@@ -288,11 +317,11 @@ impl VisitorMut for RenameShadowedVars {
     }
 }
 
-impl RenameShadowedVars {
-    fn expr_list_to_bin_op<'a>(
+impl<'a> RenameShadowedVars<'a> {
+    fn expr_list_to_bin_op<'b>(
         &mut self,
         binop: fn(Box<Expr>, Box<Expr>) -> Expr,
-        exprs: impl DoubleEndedIterator<Item = &'a ExprKind>,
+        exprs: impl DoubleEndedIterator<Item = &'b ExprKind>,
     ) -> Option<Expr> {
         let mut args_iter = exprs.into_iter();
 
@@ -302,6 +331,21 @@ impl RenameShadowedVars {
         args_iter.try_fold(binop(left_initial, right_initial), |accum, next| {
             Some(binop(Box::new(accum), Box::new(self.visit(next)?)))
         })
+    }
+
+    fn validate_identifier(&self, ident: &str) -> Option<()> {
+        if !self.shadowed.contains_key(ident)
+            && !self.in_scope.contains(ident)
+            && !self.legal_vars.contains(ident)
+        {
+            println!(
+                "Found a variable that cannot be referenced, aborting compilation: {}",
+                ident
+            );
+            None
+        } else {
+            Some(())
+        }
     }
 }
 

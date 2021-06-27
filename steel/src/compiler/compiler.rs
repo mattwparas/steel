@@ -628,14 +628,19 @@ impl Compiler {
         let opt_time = Instant::now();
 
         match self.opt_level {
-            OptLevel::Three => loop {
-                let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
-                expanded_statements = manager.run(expanded_statements)?;
+            // TODO
+            // Cut this off at 10 iterations no matter what
+            OptLevel::Three => {
+                for _ in 0..10 {
+                    let mut manager =
+                        ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
+                    expanded_statements = manager.run(expanded_statements)?;
 
-                if !manager.changed {
-                    break;
+                    if !manager.changed {
+                        break;
+                    }
                 }
-            },
+            }
             OptLevel::Two => {
                 expanded_statements =
                     ConstantEvaluatorManager::new(constants.clone(), self.opt_level)

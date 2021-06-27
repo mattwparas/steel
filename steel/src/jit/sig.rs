@@ -59,6 +59,25 @@ impl JitFunctionPointer {
     }
 }
 
+macro_rules! pop_values_and_call {
+    ($func:expr, $stack:expr => $($param:ident),* => $($reference:ident),*) => {
+        {
+
+            $(
+                let $param = Gc::new($stack.pop().expect("Empty stack"));
+            )*
+
+            let output = decode($func($(
+                to_encoded_double(&$reference)
+            ,)*));
+
+            JIT::free();
+
+            return output;
+        }
+    };
+}
+
 impl JitFunctionPointer {
     pub fn call_func(&self, stack: &mut StackFrame) -> SteelVal {
         unsafe { self.call_func_unsafe(stack) }
@@ -78,60 +97,54 @@ impl JitFunctionPointer {
                 SteelVal::IntV(output)
             }
             Sig::One => {
-                let input = stack.pop().expect("Empty stack!");
-                let coerced = Gc::new(input);
+                // let input = stack.pop().expect("Empty stack!");
+                // let coerced = Gc::new(input);
                 let func: fn(f64) -> f64 = std::mem::transmute(fn_ptr);
 
-                let now = std::time::Instant::now();
+                pop_values_and_call!(func, stack => first => first);
 
-                let output = func(to_encoded_double(&coerced));
+                // let now = std::time::Instant::now();
 
-                println!("Function Run Time: {:?}", now.elapsed());
-                // let coerced_back = if let Some(inner) = (output as *const SteelVal).as_ref() {
-                //     inner.clone()
-                // } else {
-                //     panic!("Illegal value returned from JIT")
-                // };
+                // let output = func(to_encoded_double(&coerced));
 
-                let coerced_back = decode(output);
+                // println!("Function Run Time: {:?}", now.elapsed());
 
-                JIT::free();
-                return coerced_back;
+                // let coerced_back = decode(output);
+
+                // JIT::free();
+                // return coerced_back;
             }
             Sig::Two => {
                 let func: fn(f64, f64) -> f64 = std::mem::transmute(fn_ptr);
 
-                let second = stack.pop().expect("Empty stack!");
-                let first = stack.pop().expect("Empty stack!");
-
-                let coerced_second = Gc::new(second);
-                let coerced_first = Gc::new(first);
-
-                let output = func(
-                    to_encoded_double(&coerced_first),
-                    to_encoded_double(&coerced_second),
-                );
-
-                let coerced_back = decode(output);
-
-                // let coerced_back = if let Some(inner) = (output as *const SteelVal).as_ref() {
-                //     inner.clone()
-                // } else {
-                //     panic!("Illegal value returned from JIT")
-                // };
-
-                JIT::free();
-                return coerced_back;
+                pop_values_and_call!(func, stack => first, second => second, first);
             }
             Sig::Three => {
-                // let func: fn(isize, isize, isize) -> isize = std::mem::transmute(fn_ptr);
-                unimplemented!()
+                let func: fn(f64, f64, f64) -> f64 = std::mem::transmute(fn_ptr);
+                pop_values_and_call!(func, stack => first, second, third => third, second, first);
             }
-            Sig::Four => todo!(),
-            Sig::Five => todo!(),
-            Sig::Six => todo!(),
-            Sig::Seven => todo!(),
-            Sig::Eight => todo!(),
+            Sig::Four => {
+                let func: fn(f64, f64, f64, f64) -> f64 = std::mem::transmute(fn_ptr);
+                pop_values_and_call!(func, stack => first, second, third, fourth => fourth, third, second, first);
+            }
+            Sig::Five => {
+                let func: fn(f64, f64, f64, f64, f64) -> f64 = std::mem::transmute(fn_ptr);
+                pop_values_and_call!(func, stack => first, second, third, fourth, fifth => fifth, fourth, third, second, first);
+            }
+            Sig::Six => {
+                let func: fn(f64, f64, f64, f64, f64, f64) -> f64 = std::mem::transmute(fn_ptr);
+                pop_values_and_call!(func, stack => first, second, third, fourth, fifth, sixth => sixth, fifth, fourth, third, second, first);
+            }
+            Sig::Seven => {
+                let func: fn(f64, f64, f64, f64, f64, f64, f64) -> f64 =
+                    std::mem::transmute(fn_ptr);
+                pop_values_and_call!(func, stack => first, second, third, fourth, fifth, sixth, seventh => seventh, sixth, fifth, fourth, third, second, first);
+            }
+            Sig::Eight => {
+                let func: fn(f64, f64, f64, f64, f64, f64, f64, f64) -> f64 =
+                    std::mem::transmute(fn_ptr);
+                pop_values_and_call!(func, stack => first, second, third, fourth, fifth, sixth, seventh, eigth => eigth, seventh, sixth, fifth, fourth, third, second, first);
+            }
             Sig::Nine => todo!(),
             Sig::Ten => todo!(),
         }
