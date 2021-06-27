@@ -4,16 +4,6 @@ use crate::jit::value::{decode, to_encoded_double};
 use crate::steel_vm::stack::StackFrame;
 use crate::SteelVal;
 
-// If the argument is native, use it on its own
-// I should know based on the type signature and return value, whether inputs need to be treated as native
-// or if they need to be boxed back up again
-pub enum ArgType {
-    Int,
-    Float,
-    Bool,
-    Steel,
-}
-
 pub enum Sig {
     NoArgs = 0,
     One,
@@ -97,22 +87,8 @@ impl JitFunctionPointer {
                 SteelVal::IntV(output)
             }
             Sig::One => {
-                // let input = stack.pop().expect("Empty stack!");
-                // let coerced = Gc::new(input);
                 let func: fn(f64) -> f64 = std::mem::transmute(fn_ptr);
-
                 pop_values_and_call!(func, stack => first => first);
-
-                // let now = std::time::Instant::now();
-
-                // let output = func(to_encoded_double(&coerced));
-
-                // println!("Function Run Time: {:?}", now.elapsed());
-
-                // let coerced_back = decode(output);
-
-                // JIT::free();
-                // return coerced_back;
             }
             Sig::Two => {
                 let func: fn(f64, f64) -> f64 = std::mem::transmute(fn_ptr);

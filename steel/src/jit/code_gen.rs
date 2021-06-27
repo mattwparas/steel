@@ -8,6 +8,7 @@ use cranelift::prelude::types::{F64, I64};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
+use im_rc::Vector;
 use std::collections::{HashMap, HashSet};
 use std::slice;
 
@@ -75,23 +76,22 @@ unsafe extern "C" fn cdr(value: f64) -> f64 {
     let lst = get_ref_from_double(value);
 
     if let SteelVal::Pair(c) = lst {
-        let rest = c
-            .cdr()
-            .as_ref()
-            .map(Gc::clone)
-            .expect("cdr expects a non empty list");
+        let rest = c.cdr().as_ref().map(Gc::clone);
 
-        let new_pair = Gc::new(SteelVal::Pair(rest));
+        if let Some(rest) = rest {
+            let new_pair = Gc::new(SteelVal::Pair(rest));
 
-        // We want to increment the life time of this so that references are valid later
-        JIT::allocate(&new_pair);
+            // We want to increment the life time of this so that references are valid later
+            JIT::allocate(&new_pair);
 
-        println!("cdr output: {:?}", new_pair);
+            println!("cdr output: {:?}", new_pair);
 
-        to_encoded_double(&new_pair)
-
-        // Return the handle to the allocated value
-        // new_pair.as_ptr() as isize
+            to_encoded_double(&new_pair)
+        } else {
+            let empty_list = Gc::new(SteelVal::VectorV(Gc::new(Vector::new())));
+            JIT::allocate(&empty_list);
+            to_encoded_double(&empty_list)
+        }
     } else {
         panic!("cdr expected a list");
     }
@@ -101,17 +101,11 @@ unsafe extern "C" fn cdr(value: f64) -> f64 {
 unsafe extern "C" fn empty(l: f64) -> f64 {
     let lst = decode(l);
 
-    let output = if let SteelVal::VectorV(v) = lst {
-        v.is_empty().into()
+    encode_bool(if let SteelVal::VectorV(v) = lst {
+        v.is_empty()
     } else {
-        SteelVal::BoolV(false)
-    };
-
-    let gcd = Gc::new(output);
-
-    JIT::allocate(&gcd);
-
-    to_encoded_double(&gcd)
+        false
+    })
 }
 
 // TODO
@@ -121,18 +115,31 @@ unsafe extern "C" fn cons(car: f64, cdr: f64) -> f64 {
     let car = decode(car);
     let cdr = decode(cdr);
 
-    if let SteelVal::Pair(cdr) = cdr {
-        let new_value = Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(
-            car.clone(),
-            Some(cdr),
-        ))));
+    match &cdr {
+        SteelVal::Pair(cdr) => {
+            let new_value = Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(
+                car.clone(),
+                Some(cdr.clone()),
+            ))));
 
-        // Register the allocated value so that it lives long enough
-        JIT::allocate(&new_value);
+            // Register the allocated value so that it lives long enough
+            JIT::allocate(&new_value);
+            to_encoded_double(&new_value)
+        }
+        SteelVal::VectorV(l) => {
+            let new_value = if l.is_empty() {
+                Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(car, None))))
+            } else {
+                Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(
+                    car,
+                    Some(Gc::new(ConsCell::new(cdr, None))),
+                ))))
+            };
 
-        to_encoded_double(&new_value)
-    } else {
-        panic!("cons requires a list as the second argument")
+            JIT::allocate(&new_value);
+            to_encoded_double(&new_value)
+        }
+        _ => panic!("cons requires a list as the second argument"),
     }
 }
 
@@ -160,8 +167,8 @@ fn register_primitives(builder: &mut JITBuilder) {
     let addr: *const u8 = cons as *const u8;
     builder.symbol("cons", addr);
 
-    let addr: *const u8 = equals as *const u8;
-    builder.symbol("=", addr);
+    let addr: *const u8 = empty as *const u8;
+    builder.symbol("empty?", addr);
 
     // let addr: *const u8 = less_than_or_equals as *const u8;
     // builder.symbol("<=", addr);
@@ -222,6 +229,7 @@ impl JIT {
         legal_vars.insert("car".to_string());
         legal_vars.insert("cdr".to_string());
         legal_vars.insert("cons".to_string());
+        legal_vars.insert("empty?".to_string());
 
         // First, parse the string, producing AST nodes.
         let (name, params, the_return, stmts) = lower_function(input, &mut legal_vars)
@@ -543,7 +551,10 @@ impl<'a> FunctionTranslator<'a> {
         // let encoded = self.builder.ins.icmp(c)
 
         let one_or_zero = self.builder.ins().bint(I64, c);
-        self.builder.ins().iadd_imm(one_or_zero, FALSE_VALUE as i64)
+
+        // Encode the resulting value back to the encoded constant
+        let int_bool = self.builder.ins().iadd_imm(one_or_zero, FALSE_VALUE as i64);
+        self.builder.ins().bitcast(F64, int_bool)
     }
 
     // Translate a block of instructions
@@ -553,10 +564,6 @@ impl<'a> FunctionTranslator<'a> {
         // self.builder.append_block_param(block, self.int);
 
         self.builder.append_block_params_for_function_params(block);
-
-        // unimplemented!();
-
-        // self.builder.ins().jump(block, &[]);
 
         // self.builder.switch_to_block(block);
         self.builder.seal_block(block);
@@ -579,13 +586,16 @@ impl<'a> FunctionTranslator<'a> {
         else_body: Vec<Expr>,
     ) -> Value {
         let condition_value = self.translate_expr(condition);
+        // Cast this back from a float to an int
+        let decoded_value = self.builder.ins().bitcast(I64, condition_value);
         // let encoded_condition = self.decode_float_to_int(condition_value);
 
-        // Decode the condition - compare it to the fixed value we use for true
+        // Decode the condition - translate whatever value we have back to 0
+        // The _only_ value that will give us false here, is the FALSE_VALUE constant
         let condition_value = self
             .builder
             .ins()
-            .iadd_imm(condition_value, -(FALSE_VALUE as i64));
+            .iadd_imm(decoded_value, -(FALSE_VALUE as i64));
 
         // TODO insert way to decode value from boolean to value cranelift can understand?
 

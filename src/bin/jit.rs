@@ -49,9 +49,12 @@ const CAR_CODE: &str = r#"
         ;; (fake-add number 20))
 "#;
 
-// const BUILD_UP_NEW_LIST: &str = r#"
-//     (define (recur lst)
-// "#;
+const BUILD_UP_NEW_LIST: &str = r#"
+    (define (reverse lst new-list)
+        (if (empty? lst)
+            new-list
+            (reverse (cdr lst) (cons (car lst) new-list))))
+"#;
 
 // fn run_fib(jit: &mut JIT, code: &ExprKind, input: isize) -> Result<isize, String> {
 //     unsafe { run_code::<isize>(jit, code, input) }
@@ -91,7 +94,7 @@ fn main() -> Result<(), String> {
 
     let mut vm = configure_engine();
     let mut jit = JIT::default();
-    let res = vm.emit_expanded_ast(RECURSIVE_FIB_CODE);
+    let res = vm.emit_expanded_ast(BUILD_UP_NEW_LIST);
 
     match res {
         Ok(func) => {
@@ -105,6 +108,9 @@ fn main() -> Result<(), String> {
             let lst =
                 ListOperations::built_in_list_func_flat(&input).expect("Unable to construct list");
 
+            let empty_lst = ListOperations::built_in_list_func_flat(&[])
+                .expect("Unable to construct empty list");
+
             // let output = run_fib(&mut jit, ast, )
 
             let now = Instant::now();
@@ -112,10 +118,13 @@ fn main() -> Result<(), String> {
             println!("Compilation time: {:?}", now.elapsed());
             let mut args = Stack::new();
 
-            args.push(SteelVal::IntV(40));
+            // args.push(SteelVal::IntV(40));
             // args.push(SteelVal::IntV(12));
 
             // args.push(lst);
+
+            args.push(lst);
+            args.push(empty_lst);
 
             let now = Instant::now();
             let result = function.call_func(&mut args);
