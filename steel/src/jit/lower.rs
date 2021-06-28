@@ -287,7 +287,7 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
                 if let Some(binop) = symbol_to_binop(ident) {
                     self.expr_list_to_bin_op(binop, args)
                 } else {
-                    self.validate_identifier(ident)?;
+                    self.validate_function_call_ident(ident)?;
 
                     Some(Expr::Call(
                         ident.to_owned(),
@@ -331,6 +331,18 @@ impl<'a> RenameShadowedVars<'a> {
         args_iter.try_fold(binop(left_initial, right_initial), |accum, next| {
             Some(binop(Box::new(accum), Box::new(self.visit(next)?)))
         })
+    }
+
+    fn validate_function_call_ident(&self, ident: &str) -> Option<()> {
+        if !self.legal_vars.contains(ident) {
+            println!(
+                "Found a variable that cannot be referenced, aborting compilation: {}",
+                ident
+            );
+            None
+        } else {
+            Some(())
+        }
     }
 
     fn validate_identifier(&self, ident: &str) -> Option<()> {

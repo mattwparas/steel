@@ -280,11 +280,41 @@ impl Compiler {
         path: Option<PathBuf>,
         constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<Program> {
-        let instructions = self.emit_instructions(expr_str, path, constants)?;
+        // let instructions = self.emit_instructions(expr_str, path, constants)?;
+
+        let (ast, instructions) = self.emit_instructions_with_ast(expr_str, path, constants)?;
 
         // TODO Perhaps use a different representation for the constant map
-        let program = Program::new(instructions, self.constant_map.clone());
+        // TODO find a way to pass through the AST nicely for the runtime profiling
+        let program = Program::new(instructions, self.constant_map.clone(), ast);
         Ok(program)
+    }
+
+    pub fn emit_instructions_with_ast(
+        &mut self,
+        expr_str: &str,
+        path: Option<PathBuf>,
+        constants: ImmutableHashMap<String, SteelVal>,
+    ) -> Result<(Vec<ExprKind>, Vec<Vec<DenseInstruction>>)> {
+        let mut intern = HashMap::new();
+
+        let now = Instant::now();
+
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
+            Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
+        } else {
+            Parser::new(expr_str, &mut intern).collect()
+        };
+
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+        }
+
+        let parsed = parsed?;
+
+        // TODO fix this hack
+        self.emit_instructions_from_exprs(parsed, path, constants)
     }
 
     pub fn emit_instructions(
@@ -310,7 +340,10 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        self.emit_instructions_from_exprs(parsed, path, constants)
+        // TODO fix this hack
+        Ok(self
+            .emit_instructions_from_exprs(parsed, path, constants)?
+            .1)
     }
 
     pub fn emit_debug_instructions(
@@ -459,7 +492,7 @@ impl Compiler {
 
     pub fn generate_dense_instructions(
         &mut self,
-        expanded_statements: Vec<ExprKind>,
+        expanded_statements: &[ExprKind],
         results: Vec<Vec<DenseInstruction>>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let now = Instant::now();
@@ -474,7 +507,7 @@ impl Compiler {
             // let mut instructions: Vec<Instruction> = Vec::new();
 
             let mut instructions =
-                CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(&expr)?;
+                CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(expr)?;
 
             // TODO double check that arity map doesn't exist anymore
             // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
@@ -602,7 +635,7 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
         constants: ImmutableHashMap<String, SteelVal>,
-    ) -> Result<Vec<Vec<DenseInstruction>>> {
+    ) -> Result<(Vec<ExprKind>, Vec<Vec<DenseInstruction>>)> {
         let mut results = Vec::new();
 
         let now = Instant::now();
@@ -671,15 +704,9 @@ impl Compiler {
         }
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
+        let dense_instructions =
+            self.generate_dense_instructions(&statements_without_structs, results)?;
 
-        // println!(
-        //     "{}",
-        //     statements_without_structs
-        //         .iter()
-        //         .map(|x| x.to_pretty(60))
-        //         .join("\n\n")
-        // );
-
-        self.generate_dense_instructions(statements_without_structs, results)
+        Ok((statements_without_structs, dense_instructions))
     }
 }

@@ -1,5 +1,6 @@
 use crate::compiler::constants::ConstantMap;
 use crate::core::instructions::DenseInstruction;
+use crate::parser::ast::ExprKind;
 use crate::rvals::Result;
 use serde::{Deserialize, Serialize};
 
@@ -55,13 +56,19 @@ impl SerializableProgram {
 pub struct Program {
     pub instructions: Vec<Vec<DenseInstruction>>,
     pub constant_map: ConstantMap,
+    pub ast: Vec<ExprKind>,
 }
 
 impl Program {
-    pub fn new(instructions: Vec<Vec<DenseInstruction>>, constant_map: ConstantMap) -> Self {
+    pub fn new(
+        instructions: Vec<Vec<DenseInstruction>>,
+        constant_map: ConstantMap,
+        ast: Vec<ExprKind>,
+    ) -> Self {
         Program {
             instructions,
             constant_map,
+            ast,
         }
     }
 

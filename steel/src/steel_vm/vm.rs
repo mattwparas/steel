@@ -7,6 +7,7 @@ use super::{
     heap::UpValueHeap,
     stack::{Stack, StackFrame},
 };
+use crate::jit::code_gen::JIT;
 use crate::{
     compiler::{
         constants::{ConstantMap, ConstantTable},
@@ -53,6 +54,8 @@ pub struct VirtualMachineCore {
     stack: StackFrame,
     function_stack: Vec<Gc<ByteCodeLambda>>,
     stack_index: Stack<usize>,
+    #[cfg(feature = "jit")]
+    jit: JIT,
 }
 
 impl VirtualMachineCore {
@@ -64,6 +67,8 @@ impl VirtualMachineCore {
             stack: StackFrame::with_capacity(256),
             function_stack: Vec::with_capacity(64),
             stack_index: Stack::with_capacity(64),
+            #[cfg(feature = "jit")]
+            jit: JIT::default(),
         }
     }
 
@@ -79,6 +84,8 @@ impl VirtualMachineCore {
         &self.callback.with_callback(Box::new(callback));
     }
 
+    // fn vec_exprs_to_map(&mut self, exprs: Vec<ExprKind>) {}
+
     pub fn execute_program<U: UseCallbacks, A: ApplyContracts>(
         &mut self,
         program: Program,
@@ -88,7 +95,24 @@ impl VirtualMachineCore {
         let Program {
             instructions,
             constant_map,
+            ast,
         } = program;
+
+        // TODO come back to this
+        // Don't want to necessarily pre-compile _anything_ yet
+        #[cfg(feature = "jit")]
+        {
+            // for expr in ast {
+            //     match self.jit.compile(&expr) {
+            //         Ok(ptr) => {
+            //             println!("Found JIT-able function!")
+            //         }
+            //         Err(_) => {
+            //             println!("Unable to compile function!");
+            //         }
+            //     }
+            // }
+        }
 
         let output = instructions
             .into_iter()
@@ -112,6 +136,7 @@ impl VirtualMachineCore {
         let Program {
             instructions,
             constant_map,
+            ..
         } = program;
 
         let instructions: Vec<_> = instructions
