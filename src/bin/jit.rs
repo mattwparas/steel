@@ -56,6 +56,14 @@ const BUILD_UP_NEW_LIST: &str = r#"
             (reverse (cdr lst) (cons (car lst) new-list))))
 "#;
 
+// TODO - figure out how to decode the inner value
+//      - add a check for if its a reference type, decode using the external function
+//      - otherwise, decode like usual?
+const ADD_FROM_LIST: &str = r#"
+    (define (car-then-add lst)
+        (+ (car lst) 100))
+"#;
+
 // fn run_fib(jit: &mut JIT, code: &ExprKind, input: isize) -> Result<isize, String> {
 //     unsafe { run_code::<isize>(jit, code, input) }
 // }
@@ -94,7 +102,7 @@ fn main() -> Result<(), String> {
 
     let mut vm = configure_engine();
     let mut jit = JIT::default();
-    let res = vm.emit_expanded_ast(RECURSIVE_FIB_CODE);
+    let res = vm.emit_expanded_ast(ADD_FROM_LIST);
 
     match res {
         Ok(func) => {
@@ -118,7 +126,9 @@ fn main() -> Result<(), String> {
             println!("Compilation time: {:?}", now.elapsed());
             let mut args = Stack::new();
 
-            args.push(SteelVal::IntV(40));
+            args.push(lst);
+
+            // args.push(SteelVal::IntV(40));
             // args.push(SteelVal::IntV(12));
 
             // args.push(lst);

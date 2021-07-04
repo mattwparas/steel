@@ -114,6 +114,21 @@ pub fn to_encoded_double(value: &Gc<SteelVal>) -> f64 {
     }
 }
 
+pub fn to_encoded_double_raw(value: &SteelVal) -> f64 {
+    match value {
+        SteelVal::IntV(i) => from_i32(*i as i32),
+        SteelVal::NumV(n) => *n,
+        SteelVal::BoolV(b) => {
+            if *b {
+                to_float(TRUE_VALUE)
+            } else {
+                to_float(FALSE_VALUE)
+            }
+        }
+        _ => coerce_value((value as *const SteelVal) as u64),
+    }
+}
+
 // TODO move this to a trait
 pub fn to_encoded_double_from_const_ptr(value: *const SteelVal) -> f64 {
     coerce_value(value as u64)

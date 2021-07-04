@@ -1,6 +1,8 @@
 use crate::gc::Gc;
 use crate::jit::ir::*;
-use crate::jit::value::{decode, to_encoded_double, to_encoded_double_from_const_ptr};
+use crate::jit::value::{
+    decode, to_encoded_double, to_encoded_double_from_const_ptr, to_encoded_double_raw,
+};
 use crate::parser::ast::ExprKind;
 use crate::rvals::ConsCell;
 use crate::SteelVal;
@@ -59,7 +61,7 @@ unsafe extern "C" fn car(value: f64) -> f64 {
         let ret_value = &c.car;
 
         println!("car output: {:?}", ret_value);
-        to_encoded_double_from_const_ptr(ret_value as *const SteelVal)
+        to_encoded_double_raw(ret_value)
 
         // (ret_value as *const SteelVal) as isize
     } else {
@@ -157,6 +159,17 @@ unsafe extern "C" fn _less_than_or_equals(left: f64, right: f64) -> f64 {
     encode_bool(left <= right)
 }
 
+// unsafe extern "C" fn addition(left: f64, right: f64) -> f64 {
+//     let left = decode(left);
+//     let right = decode(right);
+
+//     if let (SteelVal::IntV(l), SteelVal::IntV(r)) = (left, right) {
+//         to_encoded_double(SteelVal::IntV(l + r))
+//     } else {
+//         panic!("Addition expected two numbers")
+//     }
+// }
+
 fn register_primitives(builder: &mut JITBuilder) {
     let addr: *const u8 = car as *const u8;
     builder.symbol("car", addr);
@@ -169,6 +182,9 @@ fn register_primitives(builder: &mut JITBuilder) {
 
     let addr: *const u8 = empty as *const u8;
     builder.symbol("empty?", addr);
+
+    // let addr: *const u8 = addition as *const u8;
+    // builder.symbol("add", addr);
 
     // let addr: *const u8 = less_than_or_equals as *const u8;
     // builder.symbol("<=", addr);
@@ -411,6 +427,13 @@ impl<'a> FunctionTranslator<'a> {
         let bitmask: i64 = unsafe { std::mem::transmute(!super::value::INT32_TAG) };
         let cast = self.builder.ins().bitcast(I64, value);
         self.builder.ins().band_imm(cast, bitmask)
+    }
+
+    // TODO
+    // currently decode float to int just takes an encoded value and blindly decodes to an integer
+    fn decode_float_or_steelval_to_int(&mut self, value: Value) -> Value {
+        // let bitmask
+        unimplemented!()
     }
 
     // fn decode_bool(&mut self, value: Value) -> Value {
