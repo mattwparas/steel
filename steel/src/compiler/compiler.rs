@@ -284,10 +284,30 @@ impl Compiler {
 
         let (ast, instructions) = self.emit_instructions_with_ast(expr_str, path, constants)?;
 
+        let map = self.map_ast_to_defines(ast);
+
         // TODO Perhaps use a different representation for the constant map
         // TODO find a way to pass through the AST nicely for the runtime profiling
-        let program = Program::new(instructions, self.constant_map.clone(), ast);
+        let program = Program::new(instructions, self.constant_map.clone(), map);
         Ok(program)
+    }
+
+    //
+    fn map_ast_to_defines(&self, ast: Vec<ExprKind>) -> HashMap<usize, ExprKind> {
+        let mut hm = HashMap::new();
+
+        // Include ast for mapped symbol ->
+        for expr in ast {
+            if let ExprKind::Define(d) = &expr {
+                if let Some(name) = d.name.atom_identifier_or_else(|| unreachable!()).ok() {
+                    if let Ok(idx) = self.symbol_map.get(name) {
+                        hm.insert(idx, expr);
+                    }
+                }
+            }
+        }
+
+        hm
     }
 
     pub fn emit_instructions_with_ast(

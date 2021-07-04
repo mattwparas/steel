@@ -1,6 +1,7 @@
 use crate::{
     core::instructions::DenseInstruction,
     gc::Gc,
+    jit::sig::JitFunctionPointer,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::Continuation,
     values::port::SteelPort,
@@ -287,6 +288,8 @@ pub enum SteelVal {
     BoxedFunction(BoxedFunctionSignature),
     // Continuation
     ContinuationFunction(Gc<Continuation>),
+    // Function Pointer
+    CompiledFunction(JitFunctionPointer),
 }
 
 // pub trait Continuation: Clone {}
@@ -778,6 +781,7 @@ pub struct ByteCodeLambda {
     arity: usize,
     upvalues: Vec<Weak<RefCell<UpValue>>>,
     call_count: Cell<usize>,
+    cant_be_compiled: Cell<bool>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -804,6 +808,7 @@ impl ByteCodeLambda {
             arity,
             upvalues,
             call_count: Cell::new(0),
+            cant_be_compiled: Cell::new(false),
         }
     }
 
@@ -838,6 +843,14 @@ impl ByteCodeLambda {
 
     pub fn call_count(&self) -> usize {
         self.call_count.get()
+    }
+
+    pub fn set_cannot_be_compiled(&self) {
+        self.cant_be_compiled.set(true)
+    }
+
+    pub fn has_attempted_to_be_compiled(&self) -> bool {
+        self.cant_be_compiled.get()
     }
 }
 
@@ -915,6 +928,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
         BoxedFunction(_) => write!(f, "#<function>"),
         ContinuationFunction(_) => write!(f, "#<continuation>"),
+        CompiledFunction(_) => write!(f, "#<compiled-function>"),
     }
 }
 

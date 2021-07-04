@@ -103,6 +103,7 @@ fn exec_func<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
     global_env: &mut Env,
     use_callbacks: U,
     apply_contracts: A,
+    // jit: &mut JIT,
 ) -> Result<SteelVal> {
     match stack_func {
         SteelVal::FuncV(func) => {
@@ -128,6 +129,7 @@ fn exec_func<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
                 &mut Stack::new(),
                 use_callbacks,
                 apply_contracts,
+                None, // jit,
             )
         }
         _ => stop!(TypeMismatch => "stream expected a function"; *cur_inst_span),

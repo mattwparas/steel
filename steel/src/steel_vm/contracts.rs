@@ -154,6 +154,7 @@ impl FlatContractExt for FlatContract {
                     stack_index,
                     use_callbacks,
                     apply_contracts,
+                    None,
                 )
             }
             _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),
@@ -301,6 +302,7 @@ impl FunctionContractExt for FunctionContract {
                     &mut Stack::new(),
                     use_callbacks,
                     apply_contracts,
+                    None,
                 )?
             }
             SteelVal::BoxedFunction(f) => {

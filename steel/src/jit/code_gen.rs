@@ -241,8 +241,8 @@ impl JIT {
 
         println!("Function name: {}", name);
         println!("Params: {:?}", params);
-        println!("Return value: {}", the_return);
-        println!("Statements: {:?}", stmts);
+        // println!("Return value: {}", the_return);
+        // println!("Statements: {:?}", stmts);
 
         // Then, translate the AST nodes into Cranelift IR.
         self.translate(params, the_return, stmts)?;
@@ -260,7 +260,7 @@ impl JIT {
             .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
-        println!("Made it here!");
+        // println!("Made it here!");
 
         // Define the function to jit. This finishes compilation, although
         // there may be outstanding relocations to perform. Currently, jit
@@ -279,7 +279,7 @@ impl JIT {
                 e.to_string()
             })?;
 
-        println!("Defined function!");
+        // println!("Defined function!");
 
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);

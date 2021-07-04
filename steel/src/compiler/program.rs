@@ -3,6 +3,7 @@ use crate::core::instructions::DenseInstruction;
 use crate::parser::ast::ExprKind;
 use crate::rvals::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub struct ProgramBuilder(Vec<Vec<DenseInstruction>>);
 
@@ -56,14 +57,14 @@ impl SerializableProgram {
 pub struct Program {
     pub instructions: Vec<Vec<DenseInstruction>>,
     pub constant_map: ConstantMap,
-    pub ast: Vec<ExprKind>,
+    pub ast: HashMap<usize, ExprKind>,
 }
 
 impl Program {
     pub fn new(
         instructions: Vec<Vec<DenseInstruction>>,
         constant_map: ConstantMap,
-        ast: Vec<ExprKind>,
+        ast: HashMap<usize, ExprKind>,
     ) -> Self {
         Program {
             instructions,

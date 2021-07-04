@@ -4,6 +4,7 @@ use crate::jit::value::{decode, to_encoded_double};
 use crate::steel_vm::stack::StackFrame;
 use crate::SteelVal;
 
+#[derive(Clone, Copy)]
 pub enum Sig {
     NoArgs = 0,
     One,
@@ -38,6 +39,7 @@ impl Sig {
     }
 }
 
+#[derive(Clone)]
 pub struct JitFunctionPointer {
     signature: Sig,
     fn_ptr: *const u8,
@@ -46,6 +48,10 @@ pub struct JitFunctionPointer {
 impl JitFunctionPointer {
     pub(crate) fn new(signature: Sig, fn_ptr: *const u8) -> Self {
         JitFunctionPointer { signature, fn_ptr }
+    }
+
+    pub(crate) fn arity(&self) -> usize {
+        (self.signature as u8) as usize
     }
 }
 
