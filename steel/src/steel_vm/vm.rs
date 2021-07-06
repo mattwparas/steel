@@ -9,7 +9,6 @@ use super::{
 };
 use crate::jit::code_gen::JIT;
 use crate::jit::sig::JitFunctionPointer;
-use crate::parser::ast;
 use crate::{
     compiler::{
         constants::{ConstantMap, ConstantTable},
