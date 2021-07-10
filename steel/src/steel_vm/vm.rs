@@ -47,7 +47,7 @@ use super::evaluation_progress::EvaluationProgress;
 use log::error;
 
 const STACK_LIMIT: usize = 1000;
-const JIT_THRESHOLD: usize = 10000;
+const JIT_THRESHOLD: usize = 100;
 
 pub struct VirtualMachineCore {
     global_env: Env,
@@ -1126,6 +1126,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             ContractedFunction(cf) => {
                 self.call_contracted_function_tail_call(cf, payload_size, span)?
             }
+            CompiledFunction(function) => {
+                self.call_compiled_function(function, payload_size, span)?
+            }
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => self.handle_tail_call_closure(closure, payload_size, span)?,
             _ => {
@@ -1494,6 +1497,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         );
 
                         return self.call_compiled_function(&compiled_func, payload_size, span);
+                    } else {
+                        // Mark this function as being unable to be compiled
+                        closure.set_cannot_be_compiled();
                     }
                 }
             }

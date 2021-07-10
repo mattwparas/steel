@@ -60,17 +60,33 @@ pub fn lower_function(
         let function_name = d.name.atom_identifier_or_else(|| unreachable!()).ok()?;
 
         // Register the function itself as a legal function to be used
+        // NOTE: Unbind the function name if compilation fails
         bound_vars.insert(function_name.to_string());
 
         let mut visitor = RenameShadowedVars::new(&bound_vars);
 
         if let ExprKind::LambdaFunction(_) = &d.body {
             // let func_name = d.name.atom_identifier_or_else(|| unreachable!()).ok()?;
-            let output = visitor.visit_define(&d)?;
-            if let Expr::Assign(func_name, stmt) = output {
-                // return Some((func_name, visitor.args?, visitor.ret_val?, vec![*stmt]));
-                return Some((func_name, visitor.args?, visitor.ret_val?, vec![*stmt]));
+            // let output = visitor.visit_define(&d)?;
+
+            match visitor.visit_define(&d) {
+                Some(Expr::Assign(func_name, stmt)) => {
+                    // return Some((func_name, visitor.args?, visitor.ret_val?, vec![*stmt]));
+                    return Some((func_name, visitor.args?, visitor.ret_val?, vec![*stmt]));
+                }
+                _ => {
+                    // Make this function name illegal if compilation failed
+                    bound_vars.remove(function_name);
+                }
             }
+
+            // Make this function name illegal if compilation failed
+            // bound_vars.remove(function_name);
+
+            // if let Expr::Assign(func_name, stmt) = output {
+            //     // return Some((func_name, visitor.args?, visitor.ret_val?, vec![*stmt]));
+            //     return Some((func_name, visitor.args?, visitor.ret_val?, vec![*stmt]));
+            // }
         }
     }
 
@@ -334,14 +350,16 @@ impl<'a> RenameShadowedVars<'a> {
     }
 
     fn validate_function_call_ident(&self, ident: &str) -> Option<()> {
-        if !self.legal_vars.contains(ident) {
+        if self.legal_vars.contains(ident) {
+            println!("Validated: {}", ident);
+            println!("Legal vars: {:#?}", self.legal_vars);
+            Some(())
+        } else {
             println!(
                 "Found a variable that cannot be referenced, aborting compilation: {}",
                 ident
             );
             None
-        } else {
-            Some(())
         }
     }
 

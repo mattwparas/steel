@@ -64,6 +64,11 @@ const ADD_FROM_LIST: &str = r#"
         (+ (car lst) 100))
 "#;
 
+const CALL_ADD_FROM_LIST: &str = r#"
+    (define (call-add-from-list lst)
+        (car-then-add lst))
+"#;
+
 // fn run_fib(jit: &mut JIT, code: &ExprKind, input: isize) -> Result<isize, String> {
 //     unsafe { run_code::<isize>(jit, code, input) }
 // }
@@ -123,6 +128,13 @@ fn main() -> Result<(), String> {
 
             let now = Instant::now();
             let function = jit.compile(ast)?;
+
+            let second_ast = vm
+                .emit_expanded_ast(CALL_ADD_FROM_LIST)
+                .expect("Couldn't compile call-add-from-list");
+
+            let second_function = jit.compile(&second_ast[0])?;
+
             println!("Compilation time: {:?}", now.elapsed());
             let mut args = Stack::new();
 
@@ -137,7 +149,7 @@ fn main() -> Result<(), String> {
             // args.push(empty_lst);
 
             let now = Instant::now();
-            let result = function.call_func(&mut args);
+            let result = second_function.call_func(&mut args);
             println!("Run time: {:?}", now.elapsed());
 
             println!("Output: {:?}", result);

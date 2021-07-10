@@ -43,6 +43,27 @@ pub struct JIT {
     /// The module, with the jit backend, which manages the JIT'd
     /// functions.
     module: JITModule,
+
+    /// Legal vars - functions that are currently deemed legal to reference
+    legal_vars: HashSet<String>,
+}
+
+unsafe extern "C" fn length(value: f64) -> f64 {
+    let lst = get_ref_from_double(value);
+
+    if let SteelVal::Pair(_) = lst {
+        let count = SteelVal::iter(lst).count() as isize;
+        // to_encoded_double()
+        // unimplemented!();
+    }
+
+    unimplemented!()
+}
+
+unsafe extern "C" fn empty_const() -> f64 {
+    let empty_list = Gc::new(SteelVal::VectorV(Gc::new(Vector::new())));
+    JIT::allocate(&empty_list);
+    to_encoded_double(&empty_list)
 }
 
 // Prints a value used by the compiled code. Our JIT exposes this
@@ -60,7 +81,7 @@ unsafe extern "C" fn car(value: f64) -> f64 {
     if let SteelVal::Pair(c) = lst {
         let ret_value = &c.car;
 
-        println!("car output: {:?}", ret_value);
+        // println!("car output: {:?}", ret_value);
         to_encoded_double_raw(ret_value)
 
         // (ret_value as *const SteelVal) as isize
@@ -86,7 +107,7 @@ unsafe extern "C" fn cdr(value: f64) -> f64 {
             // We want to increment the life time of this so that references are valid later
             JIT::allocate(&new_pair);
 
-            println!("cdr output: {:?}", new_pair);
+            // println!("cdr output: {:?}", new_pair);
 
             to_encoded_double(&new_pair)
         } else {
@@ -141,7 +162,10 @@ unsafe extern "C" fn cons(car: f64, cdr: f64) -> f64 {
             JIT::allocate(&new_value);
             to_encoded_double(&new_value)
         }
-        _ => panic!("cons requires a list as the second argument"),
+        _ => panic!(
+            "cons requires a list as the second argument, found: {}",
+            cdr
+        ),
     }
 }
 
@@ -182,12 +206,10 @@ fn register_primitives(builder: &mut JITBuilder) {
 
     let addr: *const u8 = empty as *const u8;
     builder.symbol("empty?", addr);
+    builder.symbol("null?", addr);
 
-    // let addr: *const u8 = addition as *const u8;
-    // builder.symbol("add", addr);
-
-    // let addr: *const u8 = less_than_or_equals as *const u8;
-    // builder.symbol("<=", addr);
+    let addr: *const u8 = empty_const as *const u8;
+    builder.symbol("empty", addr);
 }
 
 impl Default for JIT {
@@ -198,12 +220,16 @@ impl Default for JIT {
 
         let module = JITModule::new(builder);
 
-        Self {
+        let mut output = Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
             data_ctx: DataContext::new(),
             module,
-        }
+            legal_vars: HashSet::new(),
+        };
+
+        output.register_primitives();
+        output
     }
 }
 
@@ -226,6 +252,21 @@ impl JIT {
         MEMORY.with(|x| x.borrow_mut().push(Gc::clone(value)))
     }
 
+    fn register_primitives(&mut self) {
+        self.register_symbol("car");
+        self.register_symbol("cdr");
+        self.register_symbol("cons");
+        self.register_symbol("empty?");
+        self.register_symbol("null?");
+        self.register_symbol("empty");
+    }
+
+    fn register_symbol(&mut self, name: &str) {
+        println!("Registering function: {}", name);
+
+        self.legal_vars.insert(name.to_string());
+    }
+
     // pub unsafe fn compile_and_transmute(
     //     &mut self,
     //     input: &ExprKind,
@@ -239,16 +280,17 @@ impl JIT {
     /// Compile a string in the toy language into machine code.
     pub fn compile(&mut self, input: &ExprKind) -> Result<JitFunctionPointer, String> {
         // TOOD lift this out of this function
-        let mut legal_vars = HashSet::new();
+        // let mut legal_vars = HashSet::new();
 
         // Register the functions that are legal to reference inside the machine code
-        legal_vars.insert("car".to_string());
-        legal_vars.insert("cdr".to_string());
-        legal_vars.insert("cons".to_string());
-        legal_vars.insert("empty?".to_string());
+        // legal_vars.insert("car".to_string());
+        // legal_vars.insert("cdr".to_string());
+        // legal_vars.insert("cons".to_string());
+        // legal_vars.insert("empty?".to_string());
+        // legal_vars.insert("null?".to_string());
 
         // First, parse the string, producing AST nodes.
-        let (name, params, the_return, stmts) = lower_function(input, &mut legal_vars)
+        let (name, params, the_return, stmts) = lower_function(input, &mut self.legal_vars)
             .ok_or_else(|| "Unable to lower the input AST".to_string())?;
         // type_check_please(&input).map_err(|e| e.to_string())?;
 
@@ -307,6 +349,9 @@ impl JIT {
 
         // We can now retrieve a pointer to the machine code.
         let code = self.module.get_finalized_function(id);
+
+        // This _is_ a legal function now after the function is finalized
+        self.register_symbol(&name);
 
         Ok(JitFunctionPointer::new(arity, code))
     }
