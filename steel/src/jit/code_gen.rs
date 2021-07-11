@@ -210,6 +210,24 @@ fn register_primitives(builder: &mut JITBuilder) {
 
     let addr: *const u8 = empty_const as *const u8;
     builder.symbol("empty", addr);
+
+    let outer_value = "hello world!";
+
+    // First convert function to this using register function
+    let outer = move |args: &[SteelVal]| -> SteelVal {
+        println!("{}", outer_value);
+        SteelVal::BoolV(false)
+    };
+
+    unsafe extern "C" fn func(x: f64) -> f64 {
+        unimplemented!()
+        // to_encoded_double(decode(x))
+    }
+
+    // How do you take a closure and turn it into something not a closure without macros?
+    // Unique type is unable to be encoded into a JIT callable function
+    let addr: *const u8 = func as *const u8;
+    builder.symbol("external-func", addr);
 }
 
 impl Default for JIT {
@@ -248,7 +266,7 @@ impl JIT {
     }
 
     // Keep track of the refs that get heap allocated
-    fn allocate(value: &Gc<SteelVal>) {
+    pub(crate) fn allocate(value: &Gc<SteelVal>) {
         MEMORY.with(|x| x.borrow_mut().push(Gc::clone(value)))
     }
 

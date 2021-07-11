@@ -1,5 +1,8 @@
 use crate::gc::Gc;
+use crate::rvals::{FromSteelVal, IntoSteelVal};
 use crate::SteelVal;
+
+use super::code_gen::JIT;
 
 // pub fn is_negative_zero(number: f64) -> bool {
 //     number == 0 && (number as isize) != 0
@@ -92,6 +95,47 @@ pub fn get_double(bits: u64) -> f64 {
 pub fn get_int32(value: f64) -> i64 {
     unsafe { std::mem::transmute(value.to_bits() & !INT32_TAG) }
 }
+
+pub(crate) trait ToNanTaggedValue {
+    fn encode(self) -> f64;
+}
+
+impl ToNanTaggedValue for &Gc<SteelVal> {
+    fn encode(self) -> f64 {
+        to_encoded_double(self)
+    }
+}
+
+impl ToNanTaggedValue for &SteelVal {
+    fn encode(self) -> f64 {
+        to_encoded_double_raw(self)
+    }
+}
+
+impl<T: IntoSteelVal> ToNanTaggedValue for T {
+    fn encode(self) -> f64 {
+        let value = self
+            .into_steelval()
+            .expect("Value coercion to steelval failed!");
+
+        let boxed = Gc::new(value);
+
+        JIT::allocate(&boxed);
+
+        boxed.encode()
+    }
+}
+
+// Take a pointer to a value that implements from steel val and retrieve it
+// Since these functions do coercion, this might be expensive and it may be better
+// to move back and forth directly
+pub(crate) fn from_nan_tagged_value<T: FromSteelVal>(ptr: f64) -> T {
+    T::from_steelval(decode(ptr)).expect("Unable to coerce type from steelval")
+}
+
+// pub trait FromSteelVal: Sized {
+//     fn from_steelval(val: SteelVal) -> Result<Self>;
+// }
 
 // inline int32_t getInt32() const {
 //     assert(isInt32());
