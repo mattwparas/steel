@@ -14,7 +14,7 @@ async fn await_within() -> usize {
 pub fn main() {
     let mut vm = Engine::new();
 
-    // You can even register async finctions
+    // You can even register async functions
     // Using these in a script requires invoking them from an async context
     // Or, explicitly poll them yourself in a non async context if you would
     // like to not invoke it from an async context

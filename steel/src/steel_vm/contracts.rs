@@ -20,10 +20,6 @@ use log::debug;
 
 use super::stack::Stack;
 
-// let vm_stack = Rc::new(RefCell::new(&mut self.stack));
-// let vm_stack_index = Rc::new(RefCell::new(&mut self.stack_index));
-// let function_stack = Rc::new(RefCell::new(&mut self.function_stack));
-
 /// Extension trait for the application of contracted functions
 pub(crate) trait ContractedFunctionExt {
     fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
@@ -306,31 +302,12 @@ impl FunctionContractExt for FunctionContract {
                 )?
             }
             SteelVal::BoxedFunction(f) => {
-                // f(&[local, const_value]).map_err(|x| x.set_span(*span))?)
-                // self.ip += 4;
-                // todo!()
                 f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
             }
-            SteelVal::FuncV(f) => {
-                // self.stack
-                // .push(f(&[local, const_value]).map_err(|x| x.set_span(*span))?);
-                // self.ip += 4;
-                // todo!()
-
-                f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
-            }
-            SteelVal::FutureFunc(f) => {
-                // let result = SteelVal::FutureV(Gc::new(
-                // f(&[local, const_value]).map_err(|x| x.set_span(*span))?,
-                // ));
-
-                // self.stack.push(result);
-                // self.ip += 4;
-                // todo!()
-                SteelVal::FutureV(Gc::new(
-                    f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?,
-                ))
-            }
+            SteelVal::FuncV(f) => f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?,
+            SteelVal::FutureFunc(f) => SteelVal::FutureV(Gc::new(
+                f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?,
+            )),
             _ => {
                 todo!("Implement contract application for non bytecode values");
             }
