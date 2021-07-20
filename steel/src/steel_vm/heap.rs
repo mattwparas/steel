@@ -135,7 +135,10 @@ fn traverse(val: &SteelVal) {
         SteelVal::Contract(_) => {}
         SteelVal::ContractedFunction(c) => {
             visit_function_contract(&c.contract);
-            visit_closure(&c.function);
+            if let SteelVal::Closure(func) = &c.function {
+                visit_closure(func);
+            }
+            // visit_closure(&c.function);
         }
         SteelVal::ContinuationFunction(_) => {}
         _ => {}

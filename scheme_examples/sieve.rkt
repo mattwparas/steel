@@ -25,11 +25,3 @@
     (if (< k 3) v (range-s (cons k v) (- k 2))))
 
 (sieve 10)
-
-; (displayln (length (sieve 100)))
-
-; (let fac ([n 10])
-;     (if (zero? n)
-;         1
-;         (* n (fac (sub1 n)))))
-; 3628800

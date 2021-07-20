@@ -1,4 +1,9 @@
-use crate::rvals::{Result, SteelVal};
+use std::collections::HashMap;
+
+use crate::{
+    parser::ast::ExprKind,
+    rvals::{Result, SteelVal},
+};
 
 // TODO
 pub const fn _new_void() -> SteelVal {
@@ -18,6 +23,7 @@ pub const fn _new_false() -> SteelVal {
 #[derive(Debug)]
 pub struct Env {
     pub(crate) bindings_vec: Vec<SteelVal>,
+    pub(crate) ast_map: HashMap<usize, ExprKind>,
 }
 
 pub trait MacroEnv {
@@ -33,7 +39,30 @@ impl Env {
     pub fn root() -> Self {
         Env {
             bindings_vec: Vec::new(),
+            ast_map: HashMap::new(),
         }
+    }
+
+    pub(crate) fn print_diagnostics(&self) {
+        for (idx, value) in self.bindings_vec.iter().enumerate() {
+            if let SteelVal::Closure(b) = value {
+                let count = b.call_count();
+                if count > 0 {
+                    println!("Function: {} - Count: {}", idx, b.call_count());
+                }
+            }
+        }
+    }
+
+    // Appends the values from the map into the other
+    pub(crate) fn add_hashmap(&mut self, map: HashMap<usize, ExprKind>) {
+        for (key, value) in map {
+            self.ast_map.insert(key, value);
+        }
+    }
+
+    pub(crate) fn get_expr(&mut self, idx: usize) -> Option<&ExprKind> {
+        self.ast_map.get(&idx)
     }
 
     /// Search starting from the current environment

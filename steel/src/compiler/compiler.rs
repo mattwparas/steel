@@ -29,13 +29,15 @@ use crate::core::instructions::{densify, DenseInstruction};
 
 use crate::stop;
 
-use log::debug;
+use log::{debug, log_enabled};
 
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
 
 use im_rc::HashMap as ImmutableHashMap;
+
+use std::time::Instant;
 
 // use itertools::Itertools;
 
@@ -278,11 +280,61 @@ impl Compiler {
         path: Option<PathBuf>,
         constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<Program> {
-        let instructions = self.emit_instructions(expr_str, path, constants)?;
+        // let instructions = self.emit_instructions(expr_str, path, constants)?;
+
+        let (ast, instructions) = self.emit_instructions_with_ast(expr_str, path, constants)?;
+
+        let map = self.map_ast_to_defines(ast);
 
         // TODO Perhaps use a different representation for the constant map
-        let program = Program::new(instructions, self.constant_map.clone());
+        // TODO find a way to pass through the AST nicely for the runtime profiling
+        let program = Program::new(instructions, self.constant_map.clone(), map);
         Ok(program)
+    }
+
+    //
+    fn map_ast_to_defines(&self, ast: Vec<ExprKind>) -> HashMap<usize, ExprKind> {
+        let mut hm = HashMap::new();
+
+        // Include ast for mapped symbol ->
+        for expr in ast {
+            if let ExprKind::Define(d) = &expr {
+                if let Some(name) = d.name.atom_identifier_or_else(|| unreachable!()).ok() {
+                    if let Ok(idx) = self.symbol_map.get(name) {
+                        hm.insert(idx, expr);
+                    }
+                }
+            }
+        }
+
+        hm
+    }
+
+    pub fn emit_instructions_with_ast(
+        &mut self,
+        expr_str: &str,
+        path: Option<PathBuf>,
+        constants: ImmutableHashMap<String, SteelVal>,
+    ) -> Result<(Vec<ExprKind>, Vec<Vec<DenseInstruction>>)> {
+        let mut intern = HashMap::new();
+
+        let now = Instant::now();
+
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
+            Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
+        } else {
+            Parser::new(expr_str, &mut intern).collect()
+        };
+
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+        }
+
+        let parsed = parsed?;
+
+        // TODO fix this hack
+        self.emit_instructions_from_exprs(parsed, path, constants)
     }
 
     pub fn emit_instructions(
@@ -293,6 +345,8 @@ impl Compiler {
     ) -> Result<Vec<Vec<DenseInstruction>>> {
         let mut intern = HashMap::new();
 
+        let now = Instant::now();
+
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
             Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
@@ -300,9 +354,16 @@ impl Compiler {
             Parser::new(expr_str, &mut intern).collect()
         };
 
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+        }
+
         let parsed = parsed?;
 
-        self.emit_instructions_from_exprs(parsed, path, constants)
+        // TODO fix this hack
+        Ok(self
+            .emit_instructions_from_exprs(parsed, path, constants)?
+            .1)
     }
 
     pub fn emit_debug_instructions(
@@ -451,9 +512,11 @@ impl Compiler {
 
     pub fn generate_dense_instructions(
         &mut self,
-        expanded_statements: Vec<ExprKind>,
+        expanded_statements: &[ExprKind],
         results: Vec<Vec<DenseInstruction>>,
     ) -> Result<Vec<Vec<DenseInstruction>>> {
+        let now = Instant::now();
+
         let mut results = results;
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
@@ -464,7 +527,7 @@ impl Compiler {
             // let mut instructions: Vec<Instruction> = Vec::new();
 
             let mut instructions =
-                CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(&expr)?;
+                CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(expr)?;
 
             // TODO double check that arity map doesn't exist anymore
             // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
@@ -485,6 +548,10 @@ impl Compiler {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
             // pretty_print_instructions(extracted.as_slice());
             results.push(densify(extracted));
+        }
+
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Instruction generation time: {:?}", now.elapsed());
         }
 
         Ok(results)
@@ -535,13 +602,15 @@ impl Compiler {
 
         let expanded_statements = self.expand_expressions(exprs, None)?;
 
-        debug!(
-            "Generating instructions for the expression: {:?}",
-            expanded_statements
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-        );
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Generating instructions for the expression: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
 
         debug!("About to expand defines");
 
@@ -565,13 +634,15 @@ impl Compiler {
 
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
-        debug!(
-            "Successfully expanded defines: {:?}",
-            expanded_statements
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-        );
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Successfully expanded defines: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
 
         let statements_without_structs =
             self.debug_extract_structs(expanded_statements, &mut results)?;
@@ -584,30 +655,45 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
         constants: ImmutableHashMap<String, SteelVal>,
-    ) -> Result<Vec<Vec<DenseInstruction>>> {
+    ) -> Result<(Vec<ExprKind>, Vec<Vec<DenseInstruction>>)> {
         let mut results = Vec::new();
+
+        let now = Instant::now();
 
         let expanded_statements = self.expand_expressions(exprs, path)?;
 
-        debug!(
-            "Generating instructions for the expression: {:?}",
-            expanded_statements
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-        );
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Macro Expansion Time: {:?}", now.elapsed());
+        }
+
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Generating instructions for the expression: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
 
         let mut expanded_statements = expanded_statements;
 
-        match self.opt_level {
-            OptLevel::Three => loop {
-                let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
-                expanded_statements = manager.run(expanded_statements)?;
+        let opt_time = Instant::now();
 
-                if !manager.changed {
-                    break;
+        match self.opt_level {
+            // TODO
+            // Cut this off at 10 iterations no matter what
+            OptLevel::Three => {
+                for _ in 0..10 {
+                    let mut manager =
+                        ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
+                    expanded_statements = manager.run(expanded_statements)?;
+
+                    if !manager.changed {
+                        break;
+                    }
                 }
-            },
+            }
             OptLevel::Two => {
                 expanded_statements =
                     ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
@@ -616,27 +702,31 @@ impl Compiler {
             _ => {}
         }
 
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(
+                target: "pipeline_time",
+                "Const Evaluation Time: {:?}",
+                opt_time.elapsed()
+            );
+        }
+
         debug!("About to expand defines");
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
-        debug!(
-            "Successfully expanded defines: {:?}",
-            expanded_statements
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-        );
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Successfully expanded defines: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
+        let dense_instructions =
+            self.generate_dense_instructions(&statements_without_structs, results)?;
 
-        // println!(
-        //     "{}",
-        //     statements_without_structs
-        //         .iter()
-        //         .map(|x| x.to_pretty(60))
-        //         .join("\n\n")
-        // );
-
-        self.generate_dense_instructions(statements_without_structs, results)
+        Ok((statements_without_structs, dense_instructions))
     }
 }

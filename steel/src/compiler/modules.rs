@@ -21,7 +21,18 @@ use std::time::SystemTime;
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
 use itertools::Itertools;
-use log::debug;
+use log::{debug, log_enabled};
+
+const OPTION: &str = include_str!("../scheme/modules/option.rkt");
+const OPTION_NAME: &str = "std::option";
+
+const RESULT: &str = include_str!("../scheme/modules/result.rkt");
+const RESULT_NAME: &str = "std::result";
+
+// const DICT: &str = include_str!("../scheme/modules/test.rkt");
+// const TEST_NAME: &str = "std::test";
+
+static BUILT_INS: &[(&'static str, &'static str)] = &[(OPTION_NAME, OPTION), (RESULT_NAME, RESULT)];
 
 /// Manages the modules
 /// keeps some visited state on the manager for traversal
@@ -133,6 +144,7 @@ struct ModuleBuilder<'a> {
     source_ast: Vec<ExprKind>,
     macro_map: HashMap<String, SteelMacro>,
     requires: Vec<PathBuf>,
+    built_ins: Vec<PathBuf>,
     provides: Vec<ExprKind>,
     compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
     visited: &'a mut HashSet<PathBuf>,
@@ -163,6 +175,7 @@ impl<'a> ModuleBuilder<'a> {
             source_ast,
             macro_map: HashMap::new(),
             requires: Vec::new(),
+            built_ins: Vec::new(),
             provides: Vec::new(),
             compiled_modules,
             visited,
@@ -179,7 +192,7 @@ impl<'a> ModuleBuilder<'a> {
 
         if self.provides.is_empty() && !self.main {
             self.visited.insert(self.name.clone());
-            println!("getting inside here!");
+            // println!("getting inside here!");
             return Ok(Vec::new());
         }
 
@@ -208,6 +221,7 @@ impl<'a> ModuleBuilder<'a> {
         self.extract_macro_defs()?;
         let mut new_exprs = Vec::new();
 
+        // TODO include built ins here
         if self.requires.is_empty() && !self.main {
             // We're at a leaf, put into the cache
             // println!("putting {:?} in the cache", self.name);
@@ -254,10 +268,66 @@ impl<'a> ModuleBuilder<'a> {
                 let mut module_exprs = new_module.compile()?;
 
                 debug!("Inside {:?} - append {:?}", self.name, module);
-                debug!(
-                    "appending with {:?}",
-                    module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
-                );
+                if log_enabled!(log::Level::Debug) {
+                    debug!(
+                        "appending with {:?}",
+                        module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
+                    );
+                }
+
+                new_exprs.append(&mut module_exprs);
+
+                // TODO evaluate this
+
+                // let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
+                // ast.append(&mut module_exprs);
+                // new_module.source_ast = ast;
+
+                if !new_module.provides.is_empty() {
+                    new_exprs.push(new_module.into_compiled_module()?);
+                }
+            }
+
+            // TODO come back for parsing built ins
+            for module in &self.built_ins {
+                // We've established nothing has changed with this file
+                // Check to see if its in the cache first
+                // Otherwise go ahead and compile
+                // If we already have compiled this module, get it from the cache
+                if let Some(m) = self.compiled_modules.get(module) {
+                    debug!("Getting {:?} from the module cache", module);
+                    // println!("Already found in the cache: {:?}", module);
+                    new_exprs.push(m.to_module_ast_node());
+                    // No need to do anything
+                    continue;
+                }
+
+                // TODO this is some bad crap here don't do this
+                let input = BUILT_INS
+                    .iter()
+                    .find(|x| x.0 == module.to_str().unwrap())
+                    .unwrap()
+                    .1;
+
+                let mut new_module = ModuleBuilder::new_built_in(
+                    module.clone(),
+                    input,
+                    &mut self.compiled_modules,
+                    &mut self.visited,
+                    &mut self.file_metadata,
+                )?;
+
+                // Walk the tree and compile any dependencies
+                // This will eventually put the module in the cache
+                let mut module_exprs = new_module.compile()?;
+
+                debug!("Inside {:?} - append {:?}", self.name, module);
+                if log_enabled!(log::Level::Debug) {
+                    debug!(
+                        "appending with {:?}",
+                        module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
+                    );
+                }
 
                 new_exprs.append(&mut module_exprs);
 
@@ -385,6 +455,12 @@ impl<'a> ModuleBuilder<'a> {
                             },
                     } = atom
                     {
+                        // Try this?
+                        if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == s.as_str()) {
+                            self.built_ins.push(PathBuf::from(lib.0));
+                            continue;
+                        }
+
                         let mut current = self.name.clone();
                         if current.is_file() {
                             current.pop();
@@ -410,6 +486,16 @@ impl<'a> ModuleBuilder<'a> {
         Ok(())
     }
 
+    fn new_built_in(
+        name: PathBuf,
+        input: &str,
+        compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
+        visited: &'a mut HashSet<PathBuf>,
+        file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+    ) -> Result<Self> {
+        ModuleBuilder::raw(name, compiled_modules, visited, file_metadata).parse_builtin(input)
+    }
+
     fn new_from_path(
         name: PathBuf,
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
@@ -431,11 +517,23 @@ impl<'a> ModuleBuilder<'a> {
             source_ast: Vec::new(),
             macro_map: HashMap::new(),
             requires: Vec::new(),
+            built_ins: Vec::new(),
             provides: Vec::new(),
             compiled_modules,
             visited,
             file_metadata,
         }
+    }
+
+    fn parse_builtin(mut self, input: &str) -> Result<Self> {
+        let mut intern = HashMap::new();
+
+        let parsed = Parser::new_from_source(input, &mut intern, self.name.clone())
+            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+
+        self.source_ast = parsed;
+
+        Ok(self)
     }
 
     fn parse_from_path(mut self) -> Result<Self> {

@@ -217,6 +217,12 @@ impl Engine {
             .execute_program(program, UseCallback, ApplyContract)
     }
 
+    /// Directly emit the expanded ast
+    pub fn emit_expanded_ast(&mut self, expr: &str) -> Result<Vec<ExprKind>> {
+        let constants = self.constants();
+        self.compiler.emit_expanded_ast(expr, constants)
+    }
+
     /// Emit the unexpanded AST
     pub fn emit_ast_to_string(expr: &str) -> Result<String> {
         let mut intern = HashMap::new();

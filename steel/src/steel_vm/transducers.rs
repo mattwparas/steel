@@ -159,6 +159,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                 &mut vm_stack_index_copy.borrow_mut(),
                                 use_callbacks,
                                 apply_contracts,
+                                None,
                             );
 
                             output
@@ -255,6 +256,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                         &mut vm_stack_index_copy.borrow_mut(),
                                         use_callbacks,
                                         apply_contracts,
+                                        None,
                                     );
 
                                     match res {
@@ -396,6 +398,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                 &mut vm_stack_index_copy.borrow_mut(),
                                 use_callbacks,
                                 apply_contracts,
+                                None,
                             );
 
                             output
@@ -490,6 +493,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                         &mut vm_stack_index_copy.borrow_mut(),
                                         use_callbacks,
                                         apply_contracts,
+                                        None,
                                     );
 
                                     match res {
@@ -570,6 +574,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     &mut vm_stack_index_copy.borrow_mut(),
                     use_callbacks,
                     apply_contracts,
+                    None,
                 )
             }
 

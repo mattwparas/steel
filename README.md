@@ -1,8 +1,21 @@
 # Steel
+<div align="center">
+    <img width="150px" src="images/styled.png">
+</div>
 
-![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) [![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
+<div align="center">
 
-An embedded scheme interpreter in Rust.
+An embeddable and extensible scheme dialect built in Rust.
+
+![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) 
+[![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
+
+<a href="https://mattwparas.github.io/steel-playground/dev">
+    <b>Try it on the Playground</b>
+</a>
+
+
+</div>
 
 ## Getting Started
 
@@ -247,6 +260,15 @@ A few notes on modules:
 * Cyclical dependencies are not allowed
 * Modules will be only compiled once and used across multiple files. If `A` requires `B` and `C`, and `B` requires `C`, `C` will be compiled once and shared between `A` and `B`. 
 * Modules will be recompiled when changed, and any dependent files will also be recompiled as necessary
+
+## Performance
+
+Preliminary benchmarks show the following on my machine:
+
+| Benchmark | Steel | Python |
+|-----------|-------|--------|
+| (fib 28) | 82.46ms | 65.10 ms|
+| (ack 3 3) | 0.88 ms | 0.195 ms|
 
 ## Examples of embedding Rust values in the virtual machine
 

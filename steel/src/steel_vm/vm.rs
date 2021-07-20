@@ -7,6 +7,8 @@ use super::{
     heap::UpValueHeap,
     stack::{Stack, StackFrame},
 };
+use crate::jit::code_gen::JIT;
+use crate::jit::sig::JitFunctionPointer;
 use crate::{
     compiler::{
         constants::{ConstantMap, ConstantTable},
@@ -45,6 +47,7 @@ use super::evaluation_progress::EvaluationProgress;
 use log::error;
 
 const STACK_LIMIT: usize = 1000;
+const JIT_THRESHOLD: usize = 100;
 
 pub struct VirtualMachineCore {
     global_env: Env,
@@ -53,6 +56,8 @@ pub struct VirtualMachineCore {
     stack: StackFrame,
     function_stack: Vec<Gc<ByteCodeLambda>>,
     stack_index: Stack<usize>,
+    #[cfg(feature = "jit")]
+    jit: JIT,
 }
 
 impl VirtualMachineCore {
@@ -64,6 +69,8 @@ impl VirtualMachineCore {
             stack: StackFrame::with_capacity(256),
             function_stack: Vec::with_capacity(64),
             stack_index: Stack::with_capacity(64),
+            #[cfg(feature = "jit")]
+            jit: JIT::default(),
         }
     }
 
@@ -79,6 +86,8 @@ impl VirtualMachineCore {
         &self.callback.with_callback(Box::new(callback));
     }
 
+    // fn vec_exprs_to_map(&mut self, exprs: Vec<ExprKind>) {}
+
     pub fn execute_program<U: UseCallbacks, A: ApplyContracts>(
         &mut self,
         program: Program,
@@ -88,7 +97,27 @@ impl VirtualMachineCore {
         let Program {
             instructions,
             constant_map,
+            ast,
         } = program;
+
+        // TODO come back to this
+        // Don't want to necessarily pre-compile _anything_ yet
+        #[cfg(feature = "jit")]
+        {
+            // for (index, expr) in &ast {
+            //     match self.jit.compile(&expr) {
+            //         Ok(ptr) => {
+            //             println!("Found JIT-able function at index: {}!", index)
+            //         }
+            //         Err(_) => {
+            //             println!("Unable to compile function!");
+            //         }
+            //     }
+            // }
+        }
+
+        // Add the new functions to the hashmap for the JIT
+        self.global_env.add_hashmap(ast);
 
         let output = instructions
             .into_iter()
@@ -102,6 +131,9 @@ impl VirtualMachineCore {
             })
             .collect();
 
+        // TODO
+        self.global_env.print_diagnostics();
+
         output
     }
 
@@ -109,6 +141,7 @@ impl VirtualMachineCore {
         let Program {
             instructions,
             constant_map,
+            ..
         } = program;
 
         let instructions: Vec<_> = instructions
@@ -141,6 +174,7 @@ impl VirtualMachineCore {
             &mut self.stack_index,
             use_callbacks,
             apply_contracts,
+            Some(&mut self.jit),
         );
 
         // Clean up
@@ -219,6 +253,7 @@ pub(crate) struct VmCore<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContrac
     pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
     pub(crate) use_callbacks: U,
     pub(crate) apply_contracts: A,
+    pub(crate) jit: Option<&'a mut JIT>,
 }
 
 impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
@@ -233,6 +268,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         stack_index: &'a mut Stack<usize>,
         use_callbacks: U,
         apply_contracts: A,
+        jit: Option<&'a mut JIT>,
     ) -> Result<VmCore<'a, CT, U, A>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
@@ -253,6 +289,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             function_stack,
             use_callbacks,
             apply_contracts,
+            jit,
         })
     }
 
@@ -544,6 +581,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 OpCode::TCOJMP => {
                     let current_arity = self.instructions[self.ip + 1].payload_size as usize;
                     self.ip = cur_inst.payload_size as usize;
+
+                    let closure_arity = self.function_stack.last().unwrap().arity();
+
+                    if current_arity != closure_arity {
+                        stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure_arity, current_arity));
+                    }
 
                     // HACK COME BACK TO THIS
                     // if self.ip == 0 && self.heap.len() > self.heap.limit() {
@@ -858,7 +901,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     fn handle_call_global(&mut self, index: usize, payload_size: usize, span: &Span) -> Result<()> {
         let func = self.global_env.repl_lookup_idx(index)?;
         self.ip += 1;
-        self.handle_function_call(func, payload_size, span)
+        // TODO - handle this a bit more elegantly
+        // self.handle_function_call(func, payload_size, span)
+        self.handle_global_function_call(func, payload_size, span, index)
     }
 
     #[inline(always)]
@@ -1006,6 +1051,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
+        closure.increment_call_count();
+
         // Snag the current functions arity & remove the last function call
         let current_executing = self.function_stack.pop();
 
@@ -1079,6 +1126,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             ContractedFunction(cf) => {
                 self.call_contracted_function_tail_call(cf, payload_size, span)?
             }
+            CompiledFunction(function) => {
+                self.call_compiled_function(function, payload_size, span)?
+            }
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => self.handle_tail_call_closure(closure, payload_size, span)?,
             _ => {
@@ -1130,8 +1180,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        if cf.arity() != payload_size {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
+        // if cf.arity() != payload_size {
+        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
+        // }
+
+        if let Some(arity) = cf.arity() {
+            if arity != payload_size {
+                stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, payload_size); *span);
+            }
         }
 
         if self.apply_contracts.enforce_contracts() {
@@ -1155,7 +1211,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             self.ip += 1;
             Ok(())
         } else {
-            self.handle_function_call_closure(&cf.function, payload_size, span)
+            self.handle_function_call(cf.function.clone(), payload_size, span)
         }
     }
 
@@ -1166,8 +1222,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        if cf.arity() != payload_size {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
+        // if cf.arity() != payload_size {
+        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
+        // }
+
+        if let Some(arity) = cf.arity() {
+            if arity != payload_size {
+                stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, payload_size); *span);
+            }
         }
 
         if self.apply_contracts.enforce_contracts() {
@@ -1191,7 +1253,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             self.ip += 1;
             Ok(())
         } else {
-            self.handle_tail_call_closure(&cf.function, payload_size, span)
+            self.handle_tail_call(cf.function.clone(), payload_size, span)
         }
     }
 
@@ -1303,8 +1365,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 self.ip += 4;
             }
             ContractedFunction(cf) => {
-                if cf.arity() != 2 {
-                    stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), 2); *span);
+                if let Some(arity) = cf.arity() {
+                    if arity != 2 {
+                        stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, 2); *span);
+                    }
                 }
 
                 if self.apply_contracts.enforce_contracts() {
@@ -1325,7 +1389,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     self.stack.push(result);
                     self.ip += 4;
                 } else {
-                    self.handle_lazy_closure(&cf.function, local, const_value, span)?;
+                    self.handle_lazy_function_call(cf.function.clone(), local, const_value, span)?;
                 }
             }
             ContinuationFunction(_cc) => {
@@ -1348,6 +1412,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         span: &Span,
     ) -> Result<()> {
         // println!("Calling normal function");
+
+        // Jit profiling
+        closure.increment_call_count();
 
         // Push on the function stack so we have access to it later
         self.function_stack.push(Gc::clone(closure));
@@ -1386,6 +1453,125 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     }
 
     #[inline(always)]
+    fn call_compiled_function(
+        &mut self,
+        function: &JitFunctionPointer,
+        payload_size: usize,
+        span: &Span,
+    ) -> Result<()> {
+        if function.arity() != payload_size {
+            stop!(ArityMismatch => format!("function expected {} arguments, found {}", function.arity(), payload_size); *span);
+        }
+
+        let result = function.call_func(self.stack);
+
+        // println!("Calling function!");
+
+        self.stack.push(result);
+        self.ip += 1;
+
+        Ok(())
+    }
+
+    // TODO improve this a bit
+    #[inline(always)]
+    fn handle_function_call_closure_jit(
+        &mut self,
+        closure: &Gc<ByteCodeLambda>,
+        payload_size: usize,
+        span: &Span,
+        ast_index: usize,
+    ) -> Result<()> {
+        // Jit profiling
+        closure.increment_call_count();
+
+        // TODO
+        if closure.call_count() > JIT_THRESHOLD && !closure.has_attempted_to_be_compiled() {
+            // unimplemented!();
+            if let Some(jit) = &mut self.jit {
+                if let Some(function_ast) = self.global_env.get_expr(ast_index) {
+                    if let Ok(compiled_func) = jit.compile(function_ast) {
+                        self.global_env.repl_define_idx(
+                            ast_index,
+                            SteelVal::CompiledFunction(compiled_func.clone()),
+                        );
+
+                        return self.call_compiled_function(&compiled_func, payload_size, span);
+                    } else {
+                        // Mark this function as being unable to be compiled
+                        closure.set_cannot_be_compiled();
+                    }
+                }
+            }
+        }
+
+        // Push on the function stack so we have access to it later
+        self.function_stack.push(Gc::clone(closure));
+
+        if closure.arity() != payload_size {
+            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
+        }
+
+        // self.current_arity = Some(closure.arity());
+
+        if self.stack_index.len() == STACK_LIMIT {
+            println!("stack frame at exit: {:?}", self.stack);
+            stop!(Generic => "stack overflowed!"; *span);
+        }
+
+        self.stack_index.push(self.stack.len() - payload_size);
+
+        // TODO use new heap
+        // self.heap
+        //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+        // self.heap.collect_garbage();
+
+        self.instruction_stack.push(InstructionPointer::new(
+            self.ip + 1,
+            Rc::clone(&self.instructions),
+        ));
+        self.pop_count += 1;
+
+        // Move args into the stack, push stack onto stacks
+        // let stack = std::mem::replace(&mut self.stack, args.into());
+        // self.stacks.push(stack);
+
+        self.instructions = closure.body_exp();
+        self.ip = 0;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn handle_global_function_call(
+        &mut self,
+        stack_func: SteelVal,
+        payload_size: usize,
+        span: &Span,
+        ast_index: usize,
+    ) -> Result<()> {
+        use SteelVal::*;
+
+        match &stack_func {
+            BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
+            FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
+            FutureFunc(f) => self.call_future_func(f, payload_size)?,
+            ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
+            ContinuationFunction(cc) => self.call_continuation(cc)?,
+            Closure(closure) => {
+                self.handle_function_call_closure_jit(closure, payload_size, span, ast_index)?
+            }
+            CompiledFunction(function) => {
+                self.call_compiled_function(function, payload_size, span)?
+            }
+            _ => {
+                println!("{:?}", stack_func);
+                stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
     fn handle_function_call(
         &mut self,
         stack_func: SteelVal,
@@ -1401,6 +1587,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => self.handle_function_call_closure(closure, payload_size, span)?,
+            CompiledFunction(function) => {
+                self.call_compiled_function(function, payload_size, span)?
+            }
             _ => {
                 println!("{:?}", stack_func);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);
@@ -1481,6 +1670,7 @@ pub(crate) fn vm<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
     stack_index: &mut Stack<usize>,
     use_callbacks: U,
     apply_contracts: A,
+    jit: Option<&mut JIT>,
 ) -> Result<SteelVal> {
     VmCore::new(
         instructions,
@@ -1493,6 +1683,7 @@ pub(crate) fn vm<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         stack_index,
         use_callbacks,
         apply_contracts,
+        jit,
     )?
     .vm()
 }

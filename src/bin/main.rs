@@ -9,20 +9,17 @@ use std::env::args;
 use std::fs;
 use std::process;
 
-// use env_logger::Builder;
-// use log::LevelFilter;
+use env_logger::Builder;
+use log::LevelFilter;
 
 fn main() {
     // env_logger::init();
 
-    // let mut builder = Builder::new();
+    let mut builder = Builder::new();
 
-    // builder
-    //     .filter(
-    //         Some("steel::steel_vm::const_evaluation"),
-    //         LevelFilter::Trace,
-    //     )
-    //     .init();
+    builder
+        .filter(Some("pipeline_time"), LevelFilter::Trace)
+        .init();
 
     let args = args().collect::<Vec<_>>();
 

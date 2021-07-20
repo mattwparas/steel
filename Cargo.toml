@@ -9,17 +9,20 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 once_cell = "1.5.2"
-steel = { path = "./steel" }
+steel = { path = "./steel", features = ["jit"] }
 steel_derive = { path = "./steel_derive"}
 steel_repl = { path = "./steel_repl" }
 env_logger = "0.8.2"
 log = "0.4.11"
 
+# [[bin]]
+# name = "main"
+
 [workspace]
 members = [
     "steel",
     "steel_derive",
-    "steel_repl"
+    "steel_repl",
 ]
 
 [profile.release]

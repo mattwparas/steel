@@ -7,7 +7,7 @@ mod lazy_stream;
 pub mod options;
 mod primitives;
 pub mod register_fn;
-mod stack;
+pub mod stack;
 #[cfg(test)]
 mod test_util;
 #[cfg(test)]

@@ -76,6 +76,16 @@ fn multiple_transducers(c: &mut Criterion) {
     benchmark_template(c, "multiple-transducers", script, warmup);
 }
 
+fn ackermann(c: &mut Criterion) {
+    let warmup = r#"
+    (define (ackermann m n)
+        (cond [(zero? m) (add1 n)]
+              [(zero? n) (ackermann (sub1 m) 1)]
+              [else (ackermann (sub1 m) (ackermann m (sub1 n)))]))"#;
+    let script = r#"(ackermann 3 3)"#;
+    benchmark_template(c, "ackermann-3-3", script, warmup);
+}
+
 fn ten_thousand_iterations(c: &mut Criterion) {
     let script = "(test 0)";
     let warmup = "(define test (lambda (x) (if (= x 10000) x (test (+ x 1)))))";
@@ -438,12 +448,13 @@ criterion_group!(
     engine_creation,
     register_function,
     multiple_transducers,
-    fib_28_contract // trie_sort,
-                    // merge_sort,
-                    // struct_construct,
-                    // struct_construct_bigger,
-                    // struct_get,
-                    // struct_set
+    fib_28_contract,
+    ackermann // trie_sort,
+              // merge_sort,
+              // struct_construct,
+              // struct_construct_bigger,
+              // struct_get,
+              // struct_set
 );
 
 criterion_main!(benches);

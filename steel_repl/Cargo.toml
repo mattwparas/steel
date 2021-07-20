@@ -10,7 +10,7 @@ edition = "2018"
 rustyline = "6.2.0"
 rustyline-derive = "0.2.0"
 colored = "1.9"
-steel = { path = "../steel", features = ["modules"] }
+steel = { path = "../steel", features = ["modules", "jit"] }
 tokio = { version = "1.3.0", features = ["signal", "rt", "rt-multi-thread", "sync"] }
 futures = "0.3.13"
 once_cell = "1.5.2"

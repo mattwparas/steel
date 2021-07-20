@@ -1,4 +1,6 @@
 use crate::gc::Gc;
+use crate::primitives::ListOperations;
+use crate::primitives::VectorOperations;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
@@ -201,6 +203,10 @@ fn getter(name: Rc<str>, idx: usize) -> SteelVal {
 
         let my_struct = args[0].struct_or_else(throw!(TypeMismatch => "expected struct"))?;
 
+        if &my_struct.name != &name {
+            stop!(TypeMismatch => format!("Struct getter expected {}, found {}", name, &my_struct.name));
+        }
+
         if let Some(ret_val) = my_struct.fields.get(idx) {
             Ok(ret_val.clone())
         } else {
@@ -223,6 +229,11 @@ fn setter(name: Rc<str>, idx: usize) -> SteelVal {
         }
 
         let my_struct = args[0].struct_or_else(throw!(TypeMismatch => "expected struct"))?;
+
+        if &my_struct.name != &name {
+            stop!(TypeMismatch => format!("Struct setter expected {}, found {}", name, &my_struct.name));
+        }
+
         let value = args[1].clone();
 
         let mut new_struct = my_struct.clone();
@@ -235,6 +246,77 @@ fn setter(name: Rc<str>, idx: usize) -> SteelVal {
     };
 
     SteelVal::BoxedFunction(Rc::new(f))
+}
+
+pub fn struct_ref() -> SteelVal {
+    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+        if args.len() != 2 {
+            stop!(ArityMismatch => "struct-ref expected two arguments");
+        }
+
+        let steel_struct = &args[0].clone();
+        let idx = &args[1].clone();
+
+        match (&steel_struct, &idx) {
+            (SteelVal::StructV(s), SteelVal::IntV(idx)) => {
+                if *idx < 0 {
+                    stop!(Generic => "struct-ref expected a non negative index");
+                }
+                if *idx as usize >= s.fields.len() {
+                    stop!(Generic => "struct-ref: index out of bounds");
+                }
+                Ok(s.fields[*idx as usize].clone())
+            }
+            _ => {
+                let error_message = format!(
+                    "struct-ref expected a struct and an int, found: {} and {}",
+                    steel_struct, idx
+                );
+                stop!(TypeMismatch => error_message)
+            }
+        }
+    })
+}
+
+pub fn struct_to_list() -> SteelVal {
+    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+        if args.len() != 1 {
+            stop!(ArityMismatch => "struct->list expected one argument");
+        }
+
+        let steel_struct = &args[0].clone();
+
+        if let SteelVal::StructV(s) = &steel_struct {
+            let name = SteelVal::SymbolV(s.name.to_string().into());
+
+            Ok(ListOperations::built_in_list_normal_iter_non_result(
+                vec![name].into_iter().chain(s.fields.iter().cloned()),
+            ))
+        } else {
+            let e = format!("struct->list expected a struct, found: {}", steel_struct);
+            stop!(TypeMismatch => e);
+        }
+    })
+}
+
+pub fn struct_to_vector() -> SteelVal {
+    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+        if args.len() != 1 {
+            stop!(ArityMismatch => "struct->list expected one argument");
+        }
+
+        let steel_struct = &args[0].clone();
+
+        if let SteelVal::StructV(s) = &steel_struct {
+            let name = SteelVal::SymbolV(s.name.to_string().into());
+            VectorOperations::vec_construct_iter_normal(
+                vec![name].into_iter().chain(s.fields.iter().cloned()),
+            )
+        } else {
+            let e = format!("struct->list expected a struct, found: {}", steel_struct);
+            stop!(TypeMismatch => e);
+        }
+    })
 }
 
 #[cfg(test)]

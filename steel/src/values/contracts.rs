@@ -1,6 +1,6 @@
+use crate::gc::Gc;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
-use crate::{gc::Gc, rvals::ByteCodeLambda};
 use itertools::Itertools;
 use std::fmt;
 
@@ -45,6 +45,14 @@ impl From<FlatContract> for SteelVal {
     fn from(val: FlatContract) -> SteelVal {
         SteelVal::Contract(Gc::new(ContractType::Flat(val)))
     }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct DependentContract {
+    pre_conditions: Box<[Gc<ContractType>]>,
+    post_condition: Gc<ContractType>,
+    contract_attachment_locations: Option<String>,
+    parent: Option<Gc<FunctionContract>>,
 }
 
 /// Struct for function contracts. Contains all of the necessary information
@@ -166,7 +174,7 @@ impl fmt::Display for ContractType {
 #[derive(Clone)]
 pub struct ContractedFunction {
     pub contract: FunctionContract,
-    pub function: Gc<ByteCodeLambda>,
+    pub function: SteelVal,
     pub name: Option<String>,
 }
 
@@ -177,11 +185,7 @@ impl PartialEq for ContractedFunction {
 }
 
 impl ContractedFunction {
-    pub fn new(
-        contract: FunctionContract,
-        function: Gc<ByteCodeLambda>,
-        name: Option<String>,
-    ) -> Self {
+    pub fn new(contract: FunctionContract, function: SteelVal, name: Option<String>) -> Self {
         ContractedFunction {
             contract,
             function,
@@ -189,8 +193,12 @@ impl ContractedFunction {
         }
     }
 
-    pub fn arity(&self) -> usize {
-        self.function.arity()
+    pub fn arity(&self) -> Option<usize> {
+        if let SteelVal::Closure(func) = &self.function {
+            Some(func.arity())
+        } else {
+            None
+        }
     }
 
     #[inline(always)]
@@ -215,14 +223,21 @@ impl ContractedFunction {
             stop!(TypeMismatch => "bind/c requires a function contract")
         };
 
-        let function = if let SteelVal::Closure(b) = function {
-            b.clone()
-        } else {
-            stop!(TypeMismatch => "bind/c requires a bytecode function, not a primitive")
-        };
+        if !function.is_function() {
+            stop!(TypeMismatch => "bind/c requires a function");
+        }
 
-        if contract.arity() != function.arity() {
-            stop!(TypeMismatch => format!("contract did not match function arity: function has arity: {}, contract has arity: {}", function.arity(), contract.arity()));
+        // let function = if let SteelVal::Closure(b) = function {
+        //     b.clone()
+        // } else {
+        //     stop!(TypeMismatch => "bind/c requires a bytecode function, not a primitive")
+        // };
+
+        // Check the arity only if we have it
+        if let SteelVal::Closure(function) = &function {
+            if contract.arity() != function.arity() {
+                stop!(TypeMismatch => format!("contract did not match function arity: function has arity: {}, contract has arity: {}", function.arity(), contract.arity()));
+            }
         }
 
         Ok(ContractedFunction::new(contract, function, name).into())
