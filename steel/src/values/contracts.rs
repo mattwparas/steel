@@ -47,6 +47,14 @@ impl From<FlatContract> for SteelVal {
     }
 }
 
+#[derive(Clone, PartialEq)]
+pub struct DependentContract {
+    pre_conditions: Box<[Gc<ContractType>]>,
+    post_condition: Gc<ContractType>,
+    contract_attachment_locations: Option<String>,
+    parent: Option<Gc<FunctionContract>>,
+}
+
 /// Struct for function contracts. Contains all of the necessary information
 /// for contract evaluation and blaming, including the pre and post conditions, the contract
 /// attachment location, and the parent contract from which this contract was derived (if any)
