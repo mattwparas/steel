@@ -529,9 +529,29 @@ impl SteelVal {
         }
     }
 
+    pub fn contract_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<Gc<ContractType>, E> {
+        match self {
+            Self::Contract(c) => Ok(c.clone()),
+            _ => Err(err()),
+        }
+    }
+
     pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
         match self {
             Self::SymbolV(v) => Ok(&v),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn clone_symbol_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<String, E> {
+        match self {
+            Self::SymbolV(v) => Ok(v.unwrap()),
             _ => Err(err()),
         }
     }

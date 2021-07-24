@@ -41,6 +41,12 @@ impl ContractOperations {
         })
     }
 
+    pub fn make_dependent_contract() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            unimplemented!();
+        })
+    }
+
     pub fn make_flat_contract() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {

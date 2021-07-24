@@ -2,6 +2,7 @@ use crate::gc::Gc;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use itertools::Itertools;
+use std::collections::HashMap;
 use std::fmt;
 
 /// Flat contracts are simply predicates to apply to a value. These can be immediately applied
@@ -47,12 +48,147 @@ impl From<FlatContract> for SteelVal {
     }
 }
 
+// (x) (>= x) -- contains a vector of the arguments and then the contract
 #[derive(Clone, PartialEq)]
-pub struct DependentContract {
-    pre_conditions: Box<[Gc<ContractType>]>,
-    post_condition: Gc<ContractType>,
-    contract_attachment_locations: Option<String>,
+pub(crate) struct DependentPair {
+    argument_name: String,
+    arguments: Vec<String>,
+    contract: Gc<ContractType>,
+}
+
+impl DependentPair {
+    fn new(argument_name: String, arguments: Vec<String>, contract: Gc<ContractType>) -> Self {
+        DependentPair {
+            argument_name,
+            arguments,
+            contract,
+        }
+    }
+}
+
+impl fmt::Display for DependentPair {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "[({}) {}]",
+            self.arguments.iter().join(" "),
+            self.contract.to_string()
+        )
+    }
+}
+
+// The arg positions -> which argument maps to which index in the input
+// the pre-conditions - array of dependent pairs
+// post-condition - dependent pair
+// the rest is the same
+#[derive(Clone, PartialEq)]
+pub(crate) struct DependentContract {
+    arg_positions: HashMap<String, usize>,
+    pre_conditions: Box<[DependentPair]>,
+    post_condition: DependentPair,
+    pub(crate) contract_attachment_locations: Option<String>,
     parent: Option<Gc<FunctionContract>>,
+}
+
+fn parse_list(lst: SteelVal) -> Result<(String, Vec<String>, Gc<ContractType>)> {
+    if let SteelVal::Pair(_) = &lst {
+        let mut iter = SteelVal::iter(lst);
+
+        let ident = iter
+            .next()
+            .ok_or_else(throw!(ArityMismatch => "make-dependent-function/c expected a symbol"))?
+            .symbol_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a symbol"))?
+            .to_string();
+
+        let raw_arguments = iter.next().ok_or_else(throw!(ArityMismatch => "make-dependent-function/c expected a list in the second position"))?;
+
+        let arguments = if let SteelVal::Pair(_) = &raw_arguments {
+            SteelVal::iter(raw_arguments)
+                .map(|x| x.clone_symbol_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a symbol in the list of arguments")))
+                .collect::<Result<Vec<_>>>()
+        } else {
+            stop!(TypeMismatch => "make-dependent-function/c expected a list of symbols");
+        }?;
+
+        let contract = iter
+            .next()
+            .ok_or_else(throw!(ArityMismatch => "make-dependent-function/c expected a contract in the third position"))?
+            .contract_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a contract in the third position"))?;
+
+        if iter.next().is_some() {
+            stop!(ArityMismatch => "make-dependent-function/c condition expects 3 arguments, found (at least) 4");
+        }
+
+        Ok((ident, arguments, contract))
+    } else {
+        stop!(TypeMismatch => "make-dependent-function/c expects a list");
+    }
+}
+
+impl DependentContract {
+    pub(crate) fn new_from_steelvals(
+        pre_condition_lists: &[SteelVal],
+        post_condition_list: SteelVal,
+    ) -> Result<SteelVal> {
+        let mut arg_positions = HashMap::new();
+        let mut pre_conditions = Vec::new();
+
+        for (index, pre_condition) in pre_condition_lists.iter().enumerate() {
+            let (ident, arguments, contract) = parse_list(pre_condition.clone())?;
+
+            // Insert the index of the name in order
+            arg_positions.insert(ident.clone(), index);
+
+            if index == 0 && !arguments.is_empty() {
+                stop!(ArityMismatch => "dependent contract depends on values not present!");
+            }
+
+            if index != 0 {
+                for argument in &arguments {
+                    if !arg_positions.contains_key(argument) {
+                        stop!(Generic => "dependent contract must depend on variable in scope!");
+                    }
+                }
+            }
+
+            let pre_condition = DependentPair::new(ident, arguments, contract);
+            pre_conditions.push(pre_condition);
+        }
+
+        let post_condition = {
+            let (ident, arguments, contract) = parse_list(post_condition_list)?;
+
+            for argument in &arguments {
+                if !arg_positions.contains_key(argument) {
+                    stop!(Generic => "dependent contract result (range) condition must depend on one of arguments (domain)");
+                }
+            }
+
+            DependentPair::new(ident, arguments, contract)
+        };
+
+        let pre_conditions = pre_conditions.into_boxed_slice();
+        let dep_contract = DependentContract {
+            arg_positions,
+            pre_conditions,
+            post_condition,
+            contract_attachment_locations: None,
+            parent: None,
+        };
+
+        unimplemented!()
+    }
+}
+
+impl fmt::Display for DependentContract {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "(->i ({}) {})",
+            self.pre_conditions.iter().map(|x| x.to_string()).join(" "),
+            self.post_condition.to_string()
+        )
+    }
 }
 
 /// Struct for function contracts. Contains all of the necessary information
