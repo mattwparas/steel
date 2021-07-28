@@ -43,7 +43,12 @@ impl ContractOperations {
 
     pub fn make_dependent_contract() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            unimplemented!();
+            if let Some((last, elements)) = args.split_last() {
+                let last = last.clone();
+                DependentContract::new_from_steelvals(elements, last)
+            } else {
+                stop!(ArityMismatch => "function contract missing range position")
+            }
         })
     }
 

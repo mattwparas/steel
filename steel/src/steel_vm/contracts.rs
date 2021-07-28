@@ -262,12 +262,253 @@ impl FunctionContractExt for DependentContract {
         for (i, (arg, dependent_pair)) in
             arguments.iter().zip(self.pre_conditions.iter()).enumerate()
         {
-            let thunk = &dependent_pair.contract;
+            let thunk = &dependent_pair.thunk;
 
-            unimplemented!()
+            let arg_stack = dependent_pair
+                .arguments
+                .iter()
+                .map(|named_argument| {
+                    self.arg_positions
+                        .get(named_argument)
+                        .map(|x| arguments.get(*x))
+                        .flatten()
+                        .cloned()
+                })
+                .collect::<Option<Vec<SteelVal>>>()
+                .expect("missing argument in dependent contract");
+
+            let contract = {
+                function_stack.push(Gc::clone(thunk));
+                vm(
+                    thunk.body_exp(),
+                    &mut arg_stack.into(), // TODO change this from verified args to the stack of arguments it needs
+                    global_env,            // TODO remove this as well
+                    constants,
+                    callback,
+                    upvalue_heap,
+                    function_stack,
+                    &mut Stack::new(),
+                    use_callbacks,
+                    apply_contracts,
+                    None,
+                )?
+                .contract_or_else(
+                    throw!(TypeMismatch => "dependent contract expected a contract"),
+                )?
+            };
+
+            match contract.as_ref() {
+                ContractType::Flat(f) => {
+                    debug!("applying flat contract in pre condition: {}", f.name);
+
+                    if let Err(e) = f.apply(
+                        arg.clone(),
+                        constants,
+                        cur_inst_span,
+                        callback,
+                        upvalue_heap,
+                        global_env,
+                        stack,
+                        function_stack,
+                        stack_index,
+                        use_callbacks,
+                        apply_contracts,
+                    ) {
+                        debug!(
+                            "Blame locations: {:?}, {:?}",
+                            self.contract_attachment_location, name
+                        );
+
+                        let message = format!("This function call caused an error - it occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location);
+
+                        stop!(ContractViolation => message; *cur_inst_span);
+                    }
+
+                    verified_args.push(arg.clone());
+                }
+                ContractType::Function(fc) => match arg {
+                    SteelVal::ContractedFunction(contracted_function) => {
+                        let mut pre_parent = contracted_function.contract.clone();
+                        pre_parent.set_attachment_location(contracted_function.name.clone());
+
+                        let parent = Gc::new(pre_parent);
+
+                        let func = contracted_function.function.clone();
+
+                        debug!(
+                            "Setting the parent: {} on a precondition function: {}",
+                            parent.to_string(),
+                            fc.to_string()
+                        );
+
+                        // Get the contract down from the
+                        let mut fc = fc.clone();
+                        fc.set_parent(parent);
+                        debug!(
+                            "Inside: {:?}, Setting attachment location in range to: {:?}",
+                            name, contracted_function.name
+                        );
+                        fc.set_attachment_location(contracted_function.name.clone());
+
+                        // TODO Don't pass in None
+                        let new_arg = ContractedFunction::new(fc, func, name.clone()).into();
+
+                        verified_args.push(new_arg);
+                    }
+
+                    _ => verified_args.push(
+                        ContractedFunction::new(fc.clone(), arg.clone(), name.clone()).into(),
+                    ),
+                },
+            }
         }
 
-        unimplemented!()
+        let output = match function {
+            SteelVal::Closure(function) => {
+                function_stack.push(Gc::clone(function));
+
+                vm(
+                    function.body_exp(),
+                    &mut verified_args.into(),
+                    global_env, // TODO remove this as well
+                    constants,
+                    callback,
+                    upvalue_heap,
+                    function_stack,
+                    &mut Stack::new(),
+                    use_callbacks,
+                    apply_contracts,
+                    None,
+                )?
+            }
+            SteelVal::BoxedFunction(f) => {
+                f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
+            }
+            SteelVal::FuncV(f) => f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?,
+            SteelVal::FutureFunc(f) => SteelVal::FutureV(Gc::new(
+                f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?,
+            )),
+            _ => {
+                todo!("Implement contract application for non bytecode values");
+            }
+        };
+
+        let thunk = &self.post_condition.thunk;
+
+        let arg_stack = self
+            .post_condition
+            .arguments
+            .iter()
+            .map(|named_argument| {
+                self.arg_positions
+                    .get(named_argument)
+                    .map(|x| arguments.get(*x))
+                    .flatten()
+                    .cloned()
+            })
+            .collect::<Option<Vec<SteelVal>>>()
+            .expect("missing argument in dependent contract");
+
+        let contract = {
+            function_stack.push(Gc::clone(thunk));
+            vm(
+                thunk.body_exp(),
+                &mut arg_stack.into(), // TODO change this from verified args to the stack of arguments it needs
+                global_env,            // TODO remove this as well
+                constants,
+                callback,
+                upvalue_heap,
+                function_stack,
+                &mut Stack::new(),
+                use_callbacks,
+                apply_contracts,
+                None,
+            )?
+            .contract_or_else(throw!(TypeMismatch => "dependent contract expected a contract"))?
+        };
+
+        match contract.as_ref() {
+            ContractType::Flat(f) => {
+                // unimplemented!();
+
+                debug!("applying flat contract in post condition: {}", f.name);
+
+                if let Err(e) = f.apply(
+                    output.clone(),
+                    constants,
+                    cur_inst_span,
+                    callback,
+                    upvalue_heap,
+                    global_env,
+                    stack,
+                    function_stack,
+                    stack_index,
+                    use_callbacks,
+                    apply_contracts,
+                ) {
+                    debug!(
+                        "Blame locations: {:?}, {:?}",
+                        self.contract_attachment_location, name
+                    );
+
+                    debug!("Parent exists: {}", self.parent().is_some());
+
+                    let blame_location = if self.contract_attachment_location.is_none() {
+                        name
+                    } else {
+                        &self.contract_attachment_location
+                    };
+
+                    // TODO clean this up
+                    if let Some(blame_location) = blame_location {
+                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
+                        {}
+                        blaming: {} - broke its own contract", self.to_string(), e.to_string(), blame_location);
+
+                        stop!(ContractViolation => error_message; *cur_inst_span);
+                    } else {
+                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
+                        {}
+                        blaming: None - broke its own contract", self.to_string(), e.to_string());
+
+                        stop!(ContractViolation => error_message; *cur_inst_span);
+                    }
+                }
+
+                Ok(output)
+            }
+            ContractType::Function(fc) => match output {
+                SteelVal::ContractedFunction(contracted_function) => {
+                    let mut pre_parent = contracted_function.contract.clone();
+                    pre_parent.set_attachment_location(contracted_function.name.clone());
+
+                    let parent = Gc::new(pre_parent);
+
+                    let func = contracted_function.function.clone();
+
+                    debug!(
+                        "Setting the parent: {} on a postcondition function: {}",
+                        parent.to_string(),
+                        fc.to_string()
+                    );
+
+                    // Get the contract down from the parent
+                    let mut fc = fc.clone();
+                    fc.set_parent(parent);
+                    debug!(
+                        "Inside: {:?}, Setting attachment location in range to: {:?}",
+                        name, contracted_function.name
+                    );
+
+                    // TODO Don't pass in None here
+                    let output = ContractedFunction::new(fc, func, name.clone()).into();
+
+                    Ok(output)
+                }
+
+                _ => Ok(ContractedFunction::new(fc.clone(), output, name.clone()).into()),
+            },
+        }
     }
 }
 

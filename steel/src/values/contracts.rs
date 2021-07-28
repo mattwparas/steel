@@ -1,6 +1,6 @@
 use crate::gc::Gc;
 use crate::rerrs::{ErrorKind, SteelErr};
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{ByteCodeLambda, Result, SteelVal};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt;
@@ -53,15 +53,22 @@ impl From<FlatContract> for SteelVal {
 pub(crate) struct DependentPair {
     pub(crate) argument_name: String,
     pub(crate) arguments: Vec<String>,
-    pub(crate) contract: Gc<ContractType>,
+    pub(crate) thunk: Gc<ByteCodeLambda>,
+    pub(crate) thunk_name: String,
 }
 
 impl DependentPair {
-    fn new(argument_name: String, arguments: Vec<String>, contract: Gc<ContractType>) -> Self {
+    fn new(
+        argument_name: String,
+        arguments: Vec<String>,
+        thunk: Gc<ByteCodeLambda>,
+        thunk_name: String,
+    ) -> Self {
         DependentPair {
             argument_name,
             arguments,
-            contract,
+            thunk,
+            thunk_name,
         }
     }
 }
@@ -72,7 +79,7 @@ impl fmt::Display for DependentPair {
             f,
             "[({}) {}]",
             self.arguments.iter().join(" "),
-            self.contract.to_string()
+            self.thunk_name
         )
     }
 }
@@ -90,7 +97,7 @@ pub struct DependentContract {
     parent: Option<Gc<FunctionKind>>,
 }
 
-fn parse_list(lst: SteelVal) -> Result<(String, Vec<String>, Gc<ContractType>)> {
+fn parse_list(lst: SteelVal) -> Result<(String, Vec<String>, Gc<ByteCodeLambda>, String)> {
     if let SteelVal::Pair(_) = &lst {
         let mut iter = SteelVal::iter(lst);
 
@@ -113,13 +120,18 @@ fn parse_list(lst: SteelVal) -> Result<(String, Vec<String>, Gc<ContractType>)> 
         let contract = iter
             .next()
             .ok_or_else(throw!(ArityMismatch => "make-dependent-function/c expected a contract in the third position"))?
-            .contract_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a contract in the third position"))?;
+            .closure_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a contract in the third position"))?;
+
+        let thunk_name = iter
+            .next()
+            .ok_or_else(throw!(ArityMismatch => "make-dependent-function/c expected a name in the fourth position"))?
+            .symbol_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a symbol"))?.to_string();
 
         if iter.next().is_some() {
-            stop!(ArityMismatch => "make-dependent-function/c condition expects 3 arguments, found (at least) 4");
+            stop!(ArityMismatch => "make-dependent-function/c condition expects 4 arguments, found (at least) 5");
         }
 
-        Ok((ident, arguments, contract))
+        Ok((ident, arguments, contract, thunk_name))
     } else {
         stop!(TypeMismatch => "make-dependent-function/c expects a list");
     }
@@ -134,7 +146,7 @@ impl DependentContract {
         let mut pre_conditions = Vec::new();
 
         for (index, pre_condition) in pre_condition_lists.iter().enumerate() {
-            let (ident, arguments, contract) = parse_list(pre_condition.clone())?;
+            let (ident, arguments, contract, thunk_name) = parse_list(pre_condition.clone())?;
 
             // Insert the index of the name in order
             arg_positions.insert(ident.clone(), index);
@@ -151,12 +163,12 @@ impl DependentContract {
                 }
             }
 
-            let pre_condition = DependentPair::new(ident, arguments, contract);
+            let pre_condition = DependentPair::new(ident, arguments, contract, thunk_name);
             pre_conditions.push(pre_condition);
         }
 
         let post_condition = {
-            let (ident, arguments, contract) = parse_list(post_condition_list)?;
+            let (ident, arguments, contract, thunk_name) = parse_list(post_condition_list)?;
 
             for argument in &arguments {
                 if !arg_positions.contains_key(argument) {
@@ -164,7 +176,7 @@ impl DependentContract {
                 }
             }
 
-            DependentPair::new(ident, arguments, contract)
+            DependentPair::new(ident, arguments, contract, thunk_name)
         };
 
         let pre_conditions = pre_conditions.into_boxed_slice();
@@ -176,7 +188,9 @@ impl DependentContract {
             parent: None,
         };
 
-        unimplemented!()
+        Ok(SteelVal::Contract(Gc::new(ContractType::Function(
+            FunctionKind::Dependent(dep_contract),
+        ))))
     }
 }
 

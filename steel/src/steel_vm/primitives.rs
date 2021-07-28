@@ -344,6 +344,10 @@ pub(crate) fn register_contract_functions(engine: &mut Engine) {
         .register_value("bind/c", ContractOperations::bind_contract_to_function())
         .register_value("make-flat/c", ContractOperations::make_flat_contract())
         .register_value(
+            "make-dependent-function/c",
+            ContractOperations::make_dependent_contract(),
+        )
+        .register_value(
             "make-function/c",
             ContractOperations::make_function_contract(),
         )
