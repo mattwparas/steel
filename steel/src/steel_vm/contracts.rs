@@ -13,7 +13,10 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::{ByteCodeLambda, Result, SteelVal},
     stop,
-    values::contracts::{ContractType, ContractedFunction, FlatContract, FunctionContract},
+    values::contracts::{
+        Contract, ContractType, ContractedFunction, DependentContract, FlatContract,
+        FunctionContract, FunctionKind,
+    },
 };
 
 use log::debug;
@@ -185,6 +188,89 @@ pub(crate) trait FunctionContractExt {
     ) -> Result<SteelVal>;
 }
 
+impl FunctionContractExt for FunctionKind {
+    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+        &self,
+        name: &Option<String>,
+        function: &SteelVal,
+        arguments: &[SteelVal],
+        constants: &CT,
+        cur_inst_span: &Span,
+        callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
+        use_callbacks: U,
+        apply_contracts: A,
+    ) -> Result<SteelVal> {
+        match self {
+            Self::Basic(fc) => fc.apply(
+                name,
+                function,
+                arguments,
+                constants,
+                cur_inst_span,
+                callback,
+                upvalue_heap,
+                global_env,
+                stack,
+                function_stack,
+                stack_index,
+                use_callbacks,
+                apply_contracts,
+            ),
+            Self::Dependent(dc) => dc.apply(
+                name,
+                function,
+                arguments,
+                constants,
+                cur_inst_span,
+                callback,
+                upvalue_heap,
+                global_env,
+                stack,
+                function_stack,
+                stack_index,
+                use_callbacks,
+                apply_contracts,
+            ),
+        }
+    }
+}
+
+impl FunctionContractExt for DependentContract {
+    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+        &self,
+        name: &Option<String>,
+        function: &SteelVal,
+        arguments: &[SteelVal],
+        constants: &CT,
+        cur_inst_span: &Span,
+        callback: &EvaluationProgress,
+        upvalue_heap: &mut UpValueHeap,
+        global_env: &mut Env,
+        stack: &mut StackFrame,
+        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &mut Stack<usize>,
+        use_callbacks: U,
+        apply_contracts: A,
+    ) -> Result<SteelVal> {
+        let mut verified_args: Vec<SteelVal> = Vec::new();
+
+        for (i, (arg, dependent_pair)) in
+            arguments.iter().zip(self.pre_conditions.iter()).enumerate()
+        {
+            let thunk = &dependent_pair.contract;
+
+            unimplemented!()
+        }
+
+        unimplemented!()
+    }
+}
+
 impl FunctionContractExt for FunctionContract {
     fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
@@ -212,7 +298,6 @@ impl FunctionContractExt for FunctionContract {
             match contract.as_ref() {
                 ContractType::Flat(f) => {
                     debug!("applying flat contract in pre condition: {}", f.name);
-                    // unimplemented!();
 
                     if let Err(e) = f.apply(
                         arg.clone(),

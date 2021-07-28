@@ -51,9 +51,9 @@ impl From<FlatContract> for SteelVal {
 // (x) (>= x) -- contains a vector of the arguments and then the contract
 #[derive(Clone, PartialEq)]
 pub(crate) struct DependentPair {
-    argument_name: String,
-    arguments: Vec<String>,
-    contract: Gc<ContractType>,
+    pub(crate) argument_name: String,
+    pub(crate) arguments: Vec<String>,
+    pub(crate) contract: Gc<ContractType>,
 }
 
 impl DependentPair {
@@ -82,12 +82,12 @@ impl fmt::Display for DependentPair {
 // post-condition - dependent pair
 // the rest is the same
 #[derive(Clone, PartialEq)]
-pub(crate) struct DependentContract {
-    arg_positions: HashMap<String, usize>,
-    pre_conditions: Box<[DependentPair]>,
-    post_condition: DependentPair,
-    pub(crate) contract_attachment_locations: Option<String>,
-    parent: Option<Gc<FunctionContract>>,
+pub struct DependentContract {
+    pub(crate) arg_positions: HashMap<String, usize>,
+    pub(crate) pre_conditions: Box<[DependentPair]>,
+    pub(crate) post_condition: DependentPair,
+    pub(crate) contract_attachment_location: Option<String>,
+    parent: Option<Gc<FunctionKind>>,
 }
 
 fn parse_list(lst: SteelVal) -> Result<(String, Vec<String>, Gc<ContractType>)> {
@@ -172,12 +172,37 @@ impl DependentContract {
             arg_positions,
             pre_conditions,
             post_condition,
-            contract_attachment_locations: None,
+            contract_attachment_location: None,
             parent: None,
         };
 
         unimplemented!()
     }
+}
+
+impl Contract for DependentContract {
+    fn arity(&self) -> usize {
+        self.pre_conditions.len()
+    }
+
+    fn set_parent(&mut self, p: Gc<FunctionKind>) {
+        self.parent = Some(p);
+    }
+
+    fn parent(&self) -> Option<Gc<FunctionKind>> {
+        (&self.parent).as_ref().map(Gc::clone)
+    }
+
+    fn set_attachment_location(&mut self, loc: Option<String>) {
+        self.contract_attachment_location = loc
+    }
+}
+
+pub trait Contract {
+    fn set_parent(&mut self, p: Gc<FunctionKind>);
+    fn parent(&self) -> Option<Gc<FunctionKind>>;
+    fn set_attachment_location(&mut self, loc: Option<String>);
+    fn arity(&self) -> usize;
 }
 
 impl fmt::Display for DependentContract {
@@ -203,7 +228,25 @@ pub struct FunctionContract {
     /// Location/Name of contract attachment
     pub(crate) contract_attachment_location: Option<String>,
     /// Stack of function contracts to also abide by, checked at application
-    parent: Option<Gc<FunctionContract>>,
+    parent: Option<Gc<FunctionKind>>,
+}
+
+impl Contract for FunctionContract {
+    fn arity(&self) -> usize {
+        self.pre_conditions.len()
+    }
+
+    fn set_parent(&mut self, p: Gc<FunctionKind>) {
+        self.parent = Some(p);
+    }
+
+    fn parent(&self) -> Option<Gc<FunctionKind>> {
+        (&self.parent).as_ref().map(Gc::clone)
+    }
+
+    fn set_attachment_location(&mut self, loc: Option<String>) {
+        self.contract_attachment_location = loc
+    }
 }
 
 impl fmt::Display for FunctionContract {
@@ -243,23 +286,19 @@ impl FunctionContract {
         Ok(FunctionContract::new(pre_conditions, post_condition, None, None).into())
     }
 
-    pub fn set_parent(&mut self, p: Gc<FunctionContract>) {
-        self.parent = Some(p);
+    pub fn pre_conditions(&self) -> &[Gc<ContractType>] {
+        &self.pre_conditions
     }
 
-    pub fn parent(&self) -> Option<Gc<FunctionContract>> {
-        (&self.parent).as_ref().map(Gc::clone)
-    }
-
-    pub fn set_attachment_location(&mut self, loc: Option<String>) {
-        self.contract_attachment_location = loc
+    pub fn post_condition(&self) -> &Gc<ContractType> {
+        &self.post_condition
     }
 
     pub fn new(
         pre_conditions: Box<[Gc<ContractType>]>,
         post_condition: Gc<ContractType>,
         contract_attachment_location: Option<String>,
-        parent: Option<Gc<FunctionContract>>,
+        parent: Option<Gc<FunctionKind>>,
     ) -> Self {
         FunctionContract {
             pre_conditions,
@@ -268,23 +307,11 @@ impl FunctionContract {
             parent,
         }
     }
-
-    pub fn arity(&self) -> usize {
-        self.pre_conditions.len()
-    }
-
-    pub fn pre_conditions(&self) -> &[Gc<ContractType>] {
-        &self.pre_conditions
-    }
-
-    pub fn post_condition(&self) -> &Gc<ContractType> {
-        &self.post_condition
-    }
 }
 
 impl From<FunctionContract> for SteelVal {
     fn from(val: FunctionContract) -> SteelVal {
-        SteelVal::Contract(Gc::new(ContractType::Function(val)))
+        SteelVal::Contract(Gc::new(ContractType::Function(FunctionKind::Basic(val))))
     }
 }
 
@@ -293,7 +320,52 @@ impl From<FunctionContract> for SteelVal {
 #[derive(Clone, PartialEq)]
 pub enum ContractType {
     Flat(FlatContract),
-    Function(FunctionContract),
+    Function(FunctionKind),
+}
+
+#[derive(Clone, PartialEq)]
+pub enum FunctionKind {
+    Basic(FunctionContract),
+    Dependent(DependentContract),
+}
+
+impl Contract for FunctionKind {
+    fn arity(&self) -> usize {
+        match self {
+            Self::Basic(fc) => fc.arity(),
+            Self::Dependent(dc) => dc.arity(),
+        }
+    }
+
+    fn set_parent(&mut self, p: Gc<FunctionKind>) {
+        match self {
+            Self::Basic(fc) => fc.set_parent(p),
+            Self::Dependent(dc) => dc.set_parent(p),
+        }
+    }
+
+    fn parent(&self) -> Option<Gc<FunctionKind>> {
+        match self {
+            Self::Basic(fc) => fc.parent(),
+            Self::Dependent(dc) => dc.parent(),
+        }
+    }
+
+    fn set_attachment_location(&mut self, loc: Option<String>) {
+        match self {
+            Self::Basic(fc) => fc.set_attachment_location(loc),
+            Self::Dependent(dc) => dc.set_attachment_location(loc),
+        }
+    }
+}
+
+impl fmt::Display for FunctionKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Basic(fc) => write!(f, "{}", fc),
+            Self::Dependent(dc) => write!(f, "{}", dc),
+        }
+    }
 }
 
 impl fmt::Display for ContractType {
@@ -309,7 +381,7 @@ impl fmt::Display for ContractType {
 /// Contains the contract, the function, and the name of the contract (for blaming)
 #[derive(Clone)]
 pub struct ContractedFunction {
-    pub contract: FunctionContract,
+    pub contract: FunctionKind,
     pub function: SteelVal,
     pub name: Option<String>,
 }
@@ -321,7 +393,7 @@ impl PartialEq for ContractedFunction {
 }
 
 impl ContractedFunction {
-    pub fn new(contract: FunctionContract, function: SteelVal, name: Option<String>) -> Self {
+    pub fn new(contract: FunctionKind, function: SteelVal, name: Option<String>) -> Self {
         ContractedFunction {
             contract,
             function,

@@ -1,7 +1,7 @@
 use crate::{
     gc::Gc,
     rvals::{ByteCodeLambda, UpValue},
-    values::contracts::{ContractType, FunctionContract},
+    values::contracts::{ContractType, FunctionContract, FunctionKind},
     SteelVal,
 };
 use std::cell::RefCell;
@@ -145,11 +145,18 @@ fn traverse(val: &SteelVal) {
     }
 }
 
-fn visit_function_contract(f: &FunctionContract) {
-    for pre_condition in f.pre_conditions() {
-        visit_contract_type(pre_condition)
+fn visit_function_contract(f: &FunctionKind) {
+    match f {
+        FunctionKind::Basic(f) => {
+            for pre_condition in f.pre_conditions() {
+                visit_contract_type(pre_condition)
+            }
+            visit_contract_type(f.post_condition());
+        }
+        FunctionKind::Dependent(dc) => {
+            unimplemented!()
+        }
     }
-    visit_contract_type(f.post_condition());
 }
 
 fn visit_contract_type(contract: &ContractType) {

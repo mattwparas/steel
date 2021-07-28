@@ -539,6 +539,16 @@ impl SteelVal {
         }
     }
 
+    pub fn closure_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<Gc<ByteCodeLambda>, E> {
+        match self {
+            Self::Closure(c) => Ok(c.clone()),
+            _ => Err(err()),
+        }
+    }
+
     pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
         match self {
             Self::SymbolV(v) => Ok(&v),
