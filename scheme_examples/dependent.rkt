@@ -90,6 +90,28 @@
 
 (foo 1 2)
 
+
+(contract/out o-map (->/c (t : predicate?) (Option/c t) (->/c t Option?) Option?))
+
+(define (map-option option func)
+    (cond [(Some? option) (Some (func (Some-value option)))]
+          [(None? option) option]))
+
+;; Define a generic that is then bound and enforced to be equivalent for each of the fields
+;; For instance:
+(->t [(K : predicate?)
+      (V : predicate?)]
+
+      (Option/c t)
+
+; (->i ([option Option?]
+;       [func (option) (and/c (->/c _ Option?) )]
+
+; ))
+
+;; Implement generics as well
+;; dependent contracts could take an optional parameter that must be unified - i.e. the same
+
 ; (->i ([x number?]
 ;         [y (x) (>=/c x)])
 ;         [lolol (x y) (and/c number? (>=/c (+ x y)))])
