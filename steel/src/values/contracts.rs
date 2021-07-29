@@ -10,7 +10,7 @@ use std::fmt;
 #[derive(Clone, PartialEq)]
 pub struct FlatContract {
     /// Steel Function of any kind
-    predicate: SteelVal,
+    pub(crate) predicate: SteelVal,
     /// Name of the function for blaming purposes
     pub(crate) name: String,
 }
@@ -77,7 +77,8 @@ impl fmt::Display for DependentPair {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "[({}) {}]",
+            "[{} ({}) {}]",
+            self.argument_name,
             self.arguments.iter().join(" "),
             self.thunk_name
         )
@@ -103,18 +104,22 @@ fn parse_list(lst: SteelVal) -> Result<(String, Vec<String>, Gc<ByteCodeLambda>,
 
         let ident = iter
             .next()
-            .ok_or_else(throw!(ArityMismatch => "make-dependent-function/c expected a symbol"))?
-            .symbol_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a symbol"))?
+            .ok_or_else(throw!(ArityMismatch => "make-dependent-function/c expected a symbol in the first position"))?
+            .symbol_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a symbol in the first position"))?
             .to_string();
 
         let raw_arguments = iter.next().ok_or_else(throw!(ArityMismatch => "make-dependent-function/c expected a list in the second position"))?;
 
-        let arguments = if let SteelVal::Pair(_) = &raw_arguments {
-            SteelVal::iter(raw_arguments)
+        let arguments = match &raw_arguments {
+            SteelVal::Pair(_) => {
+                SteelVal::iter(raw_arguments)
                 .map(|x| x.clone_symbol_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a symbol in the list of arguments")))
                 .collect::<Result<Vec<_>>>()
-        } else {
-            stop!(TypeMismatch => "make-dependent-function/c expected a list of symbols");
+            }
+            SteelVal::VectorV(v) if v.is_empty() => {
+                Ok(Vec::new())
+            }
+            _ => stop!(TypeMismatch => format!("make-dependent-function/c expected a list of symbols, found: {}", raw_arguments)),
         }?;
 
         let contract = iter
@@ -125,7 +130,7 @@ fn parse_list(lst: SteelVal) -> Result<(String, Vec<String>, Gc<ByteCodeLambda>,
         let thunk_name = iter
             .next()
             .ok_or_else(throw!(ArityMismatch => "make-dependent-function/c expected a name in the fourth position"))?
-            .symbol_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a symbol"))?.to_string();
+            .to_string();
 
         if iter.next().is_some() {
             stop!(ArityMismatch => "make-dependent-function/c condition expects 4 arguments, found (at least) 5");

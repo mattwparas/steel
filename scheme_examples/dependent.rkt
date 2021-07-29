@@ -1,12 +1,6 @@
 ; #lang racket
 
 
-(define/contract (foo x y)
-    (->i ([x number?]
-          [y (x) (>=/c x)])
-          [lolol (x y) (and/c number? (>=/c (+ x y)))])
-    (+ x y 1))
-
 ;; the symbols that each of the conditions accepts must be validated
 ;; there should be a map of symbol to argument as well
 ;; i.e. x -> 1st, y -> 2nd
@@ -34,20 +28,20 @@
 (define-syntax dependent-condition
     (syntax-rules ()
         [(dependent-condition (ident func))
-         (list 'ident '() (make/c (lambda () (make/c func 'func )) 'test ))]
+         (list 'ident '() (lambda () (make/c func 'func )) 'func )]
         [(dependent-condition (ident (arg) func))
-         (list 'ident '(arg) (make/c (lambda (arg) (make/c func 'func )) 'test ))]
+         (list 'ident '(arg) (lambda (arg) (make/c func 'func )) 'func )]
         [(dependent-condition (ident (args ...) func))
-         (list 'ident '(args ...) (make/c (lambda (args ...) (make/c func 'func )) 'test ))]))
+         (list 'ident '(args ...) (lambda (args ...) (make/c func 'func )) 'func )]))
 
 
 (define-syntax ->i
   (syntax-rules ()
     [(->i r) ;; alias ->i to ->/c
      (->/c r)]
-    [(->i a b)
+    [(->i (a) b)
      (make-dependent-function/c (dependent-condition a) (dependent-condition b))]
-    [(->i a b c)
+    [(->i (a b) c)
      (make-dependent-function/c (dependent-condition a) (dependent-condition b) (dependent-condition c))]
 
     ; [(->/i a b c d)
@@ -74,11 +68,11 @@
                       
                       ))
 
-(define/contract (foo x y)
-    (->/c (>=/c 10) (>=/c 20) (>=/c 30))
-    (+ x y))
+; (define/contract (foo x y)
+;     (->/c (>=/c 10) (>=/c 20) (>=/c 30))
+;     (+ x y))
 
-(displayln (foo 5 20))
+; (displayln (foo 5 20))
 
 ;; - make-dependent/c
 ;; - each precondition should have (list of args, contract, name)
@@ -87,3 +81,15 @@
 
 
 ; (define (make-dependent/c ))
+
+(define/contract (foo x y)
+    (->i ([x number?]
+          [y (x) (>=/c x)])
+          [lolol (x y) (and/c number? (>=/c (+ x y)))])
+    (+ x y 1))
+
+(foo 1 2)
+
+; (->i ([x number?]
+;         [y (x) (>=/c x)])
+;         [lolol (x y) (and/c number? (>=/c (+ x y)))])

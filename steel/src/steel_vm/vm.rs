@@ -9,6 +9,8 @@ use super::{
 };
 use crate::jit::code_gen::JIT;
 use crate::jit::sig::JitFunctionPointer;
+use crate::steel_vm::contracts::FlatContractExt;
+use crate::values::contracts::ContractType;
 use crate::{
     compiler::{
         constants::{ConstantMap, ConstantTable},
@@ -1392,6 +1394,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     self.handle_lazy_function_call(cf.function.clone(), local, const_value, span)?;
                 }
             }
+            // Contract(c) => self.call_contract(c, payload_size, span)?,
             ContinuationFunction(_cc) => {
                 unimplemented!("calling continuation lazily not yet handled");
             }
@@ -1563,12 +1566,30 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             CompiledFunction(function) => {
                 self.call_compiled_function(function, payload_size, span)?
             }
+            Contract(c) => self.call_contract(c, payload_size, span)?,
             _ => {
                 println!("{:?}", stack_func);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);
             }
         }
         Ok(())
+    }
+
+    #[inline(always)]
+    fn call_contract(
+        &mut self,
+        contract: &Gc<ContractType>,
+        payload_size: usize,
+        span: &Span,
+    ) -> Result<()> {
+        match contract.as_ref() {
+            ContractType::Flat(f) => {
+                self.handle_function_call(f.predicate.clone(), payload_size, span)
+            }
+            _ => {
+                stop!(BadSyntax => "Function application not a procedure - cannot apply function contract to argument");
+            }
+        }
     }
 
     #[inline(always)]
@@ -1590,6 +1611,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             CompiledFunction(function) => {
                 self.call_compiled_function(function, payload_size, span)?
             }
+            Contract(c) => self.call_contract(c, payload_size, span)?,
             _ => {
                 println!("{:?}", stack_func);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);

@@ -17,8 +17,12 @@ fn main() {
 
     let mut builder = Builder::new();
 
+    // builder
+    //     .filter(Some("pipeline_time"), LevelFilter::Trace)
+    //     .init();
+
     builder
-        .filter(Some("pipeline_time"), LevelFilter::Trace)
+        .filter(Some("steel::steel_vm::contracts"), LevelFilter::Trace)
         .init();
 
     let args = args().collect::<Vec<_>>();
