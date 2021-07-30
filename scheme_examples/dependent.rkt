@@ -90,19 +90,57 @@
 
 (foo 1 2)
 
+;; Get the contract that uniquely identifies this predicate
+; (define (make-identity-pred obj)
+;     (cond [(string? obj) string?]
+;           [(integer? obj) integer?]
+;           [(struct? s) 
+;             (let ((struct-list (struct->list s)))
+;                 (lambda (input)
+;                     (if (struct? input)
+;                         (let ((input-list-struct (struct->list input)))
+;                             (and/c (equal? (car struct-list) (car input-list-struct))
+;                                    (all equal? ))
+                    
+;                     )
+                    
+                    
+                    
+;                     )
+                    
+                
+;                 )
+                
+          
+          
+;           ]
+    
+    
+;     ))
 
-(contract/out o-map (->/c (t : predicate?) (Option/c t) (->/c t Option?) Option?))
 
-(define (map-option option func)
-    (cond [(Some? option) (Some (func (Some-value option)))]
-          [(None? option) option]))
+;; Identity contract
+;; Get the predicate that satisfies the most limited type information for a given func
+;; Returns the contract that satisfies a given type most succinctly?
+
+(define/contract (option-map option func)
+    (->i ([option (Option/c _)?]
+          [func (option) (->/c option Option?)])
+          [result Option?]))
+
+
+; (contract/out o-map (->/c (t : predicate?) (Option/c t) (->/c t Option?) Option?))
+
+; (define (map-option option func)
+;     (cond [(Some? option) (Some (func (Some-value option)))]
+;           [(None? option) option]))
 
 ;; Define a generic that is then bound and enforced to be equivalent for each of the fields
 ;; For instance:
-(->t [(K : predicate?)
-      (V : predicate?)]
+; (->t [(K : predicate?)
+;       (V : predicate?)]
 
-      (Option/c t)
+;       (Option/c t)
 
 ; (->i ([option Option?]
 ;       [func (option) (and/c (->/c _ Option?) )]
