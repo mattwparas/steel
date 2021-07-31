@@ -181,7 +181,7 @@
 
 ;; Map - explore dynamic dispatch with contracts?
 (define/contract (map-option option func)
-    (->i ([option (Option/c any/c)]
+    (->i ([option Option?]
           [func (option) (->/c (inner-value-contract option) any/c)])
           [result Option?])
 
@@ -196,7 +196,12 @@
 
 
 (define test (Some 10))
-(map-option test (lambda (x) (+ x 10)))
+
+; (define/contract (add10 word)
+;     (->/c string? string?)
+;     word)
+
+(displayln (map-option test (lambda (x) (string->int x))))
 
 
 
