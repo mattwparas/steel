@@ -90,43 +90,114 @@
 
 (foo 1 2)
 
+(define (all func lst)
+  (if (null? lst)
+      #t
+      (if (func (car lst))
+          (all func (cdr lst))
+          #f)))
+
+(define (all/c func lst)
+    (make/c (all func lst) (list 'all func lst)))
+
+(define string?/c (make/c string? 'string?/c))
+(define symbol?/c (make/c symbol? 'symbol?/c))
+(define integer?/c (make/c integer? 'integer?/c))
+(define float?/c (make/c float? 'float/c))
+; (define )
+
+(define (lst-func-loop funcs args)
+    (if (empty? funcs) 
+        #t
+        (let ((result ((car funcs) (car args))))
+            (if result
+                (lst-func-loop (cdr funcs) (cdr args))
+                #f))))
+
 ;; Get the contract that uniquely identifies this predicate
-; (define (make-identity-pred obj)
-;     (cond [(string? obj) string?]
-;           [(integer? obj) integer?]
-;           [(struct? s) 
-;             (let ((struct-list (struct->list s)))
-;                 (lambda (input)
-;                     (if (struct? input)
-;                         (let ((input-list-struct (struct->list input)))
-;                             (and/c (equal? (car struct-list) (car input-list-struct))
-;                                    (all equal? ))
-                    
-;                     )
-                    
-                    
-                    
-;                     )
-                    
-                
-;                 )
-                
-          
-          
-;           ]
-    
-    
-;     ))
+;; Down to the predicate - we want to match the predicates along the way
+;; Doesn't need to explicitly match this way - could do it other ways but this way works nicely
+(define (make-identity-pred obj)
+    (cond [(string? obj) string?/c]
+          [(symbol? obj) symbol?/c]
+          [(integer? obj) integer?/c]
+          [(float? obj) float?/c]
+          ;; If its a struct, get the contracts for all of the children fields as well
+          ;; creating an exact copy of the shape of the struct on the way back up
+          [(struct? obj)
+            (make/c 
+                (let ((struct-list (struct->list obj)))
+                (lambda (input)
+                    ; (let ((struct-list (struct->list obj)))
+                        (displayln obj)
+                        ; (displayln struct-list)
+                        ; (displayln input)
+                        (if (struct? input)
+                            (let ((input-list-struct (struct->list input)))
+                                ;; If the structs match the name/type, check the children
+                                (and (equal? (car struct-list) (car input-list-struct))
+                                    (let ((children (map make-identity-pred (cdr struct-list))))
+                                            ; (displayln children)
+                                            ; (displayln input-list-struct)
+                                            (lst-func-loop
+                                                (map make-identity-pred (cdr struct-list))
+                                                (cdr input-list-struct)))))
+                                            
+                        #f))) 'struct-contract)]))
+
+(struct Applesauce (a b c))
+(struct Bananas (foo bar baz))
+
+(define identity-contract (make-identity-pred (Applesauce "test" 'hello (Bananas 1 2 3))))
+
+; (define identity-contract (make-identity-pred (Applesauce (Bananas 1 2 3) 'hello 10)))
+
+(displayln (identity-contract (Applesauce "blagh" 'test (Bananas 3 4 5))))
+
 
 
 ;; Identity contract
 ;; Get the predicate that satisfies the most limited type information for a given func
 ;; Returns the contract that satisfies a given type most succinctly?
 
-(define/contract (option-map option func)
-    (->i ([option (Option/c _)?]
-          [func (option) (->/c option Option?)])
-          [result Option?]))
+(struct Some (value))
+(struct None ())
+
+;; Contracts for option
+(define (Option/c pred)
+    (make/c (fn (x) 
+                (cond [(Some? x) (pred (Some-value x))]
+                      [(None? x) #t]
+                      [else #f])) 
+            'Option/c))
+
+(define (Option? value)
+    (or (Some? value) (None? value)))
+
+(define (inner-value-contract option)
+    (cond [(Some? option) (make-identity-pred (unwrap-some option))]
+          [(None? option) any/c]
+          [else any/c]))
+
+;; Map - explore dynamic dispatch with contracts?
+(define/contract (map-option option func)
+    (->i ([option (Option/c any/c)]
+          [func (option) (->/c (inner-value-contract option) any/c)])
+          [result Option?])
+
+    (cond [(Some? option) (Some (func (Some-value option)))]
+          [(None? option) (None)]))
+
+;; Get the inner value of the option - contract checking along the way
+;; Figure out how to turn off contracts on OptLevel3 regardless - 
+;; this would speed up performance a lot - also figure out how to map this to compile time options in Rust
+(define (unwrap-some option)
+    (Some-value option))
+
+
+(define test (Some 10))
+(map-option test (lambda (x) (+ x 10)))
+
 
 
 ; (contract/out o-map (->/c (t : predicate?) (Option/c t) (->/c t Option?) Option?))

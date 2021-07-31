@@ -134,7 +134,7 @@ impl VirtualMachineCore {
             .collect();
 
         // TODO
-        self.global_env.print_diagnostics();
+        // self.global_env.print_diagnostics();
 
         output
     }
@@ -939,6 +939,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
     #[inline(always)]
     fn handle_upvalue(&mut self, index: usize) {
+        // println!("Stack at upvalue: {:?}", self.stack);
+
         let value = self
             .function_stack
             .last()
@@ -950,6 +952,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     .get_value(&self.stack)
             })
             .unwrap();
+
+        // println!("Getting upvalue: {}", value);
 
         self.stack.push(value);
         self.ip += 1;

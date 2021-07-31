@@ -53,6 +53,8 @@ impl UpValueHeap {
         if self.memory.len() > self.threshold {
             // let prior = self.memory.len();
 
+            println!("Freeing memory");
+
             let mut changed = true;
             while changed {
                 let prior_len = self.memory.len();
@@ -86,6 +88,8 @@ impl UpValueHeap {
                 mark_upvalue(&upvalue);
             }
         }
+
+        // println!("Freeing heap");
 
         // sweep
         self.memory
@@ -132,7 +136,7 @@ fn traverse(val: &SteelVal) {
         SteelVal::FutureV(_) => {}
         SteelVal::StreamV(_) => {}
         SteelVal::BoxV(_) => {}
-        SteelVal::Contract(_) => {}
+        SteelVal::Contract(c) => visit_contract_type(c),
         SteelVal::ContractedFunction(c) => {
             visit_function_contract(&c.contract);
             if let SteelVal::Closure(func) = &c.function {

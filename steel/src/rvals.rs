@@ -723,6 +723,8 @@ impl UpValue {
     // Given a reference to the stack, either get the value from the stack index
     // Or snag the steelval stored inside the upvalue
     pub(crate) fn get_value(&self, stack: &[SteelVal]) -> SteelVal {
+        // println!("Getting value from: {:?}", self.location);
+        // println!("Stack: {:?}", stack);
         match self.location {
             Location::Stack(idx) => stack[idx].clone(),
             Location::Closed(ref v) => v.clone(),
@@ -954,7 +956,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         // Promise(_) => write!(f, "#<promise>"),
         StreamV(_) => write!(f, "#<stream>"),
         BoxV(b) => write!(f, "#<box {:?}>", b.borrow()),
-        Contract(_) => write!(f, "#<contract>"),
+        Contract(c) => write!(f, "{}", c.to_string()),
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
         BoxedFunction(_) => write!(f, "#<function>"),
         ContinuationFunction(_) => write!(f, "#<continuation>"),

@@ -279,15 +279,20 @@ impl FunctionContractExt for DependentContract {
 
             let contract = {
                 function_stack.push(Gc::clone(thunk));
+                stack_index.push(stack.len());
+                for arg in arg_stack {
+                    stack.push(arg);
+                }
+
                 vm(
                     thunk.body_exp(),
-                    &mut arg_stack.into(), // TODO change this from verified args to the stack of arguments it needs
-                    global_env,            // TODO remove this as well
+                    stack, // TODO change this from verified args to the stack of arguments it needs
+                    global_env, // TODO remove this as well
                     constants,
                     callback,
                     upvalue_heap,
                     function_stack,
-                    &mut Stack::new(),
+                    stack_index,
                     use_callbacks,
                     apply_contracts,
                     None,
@@ -367,15 +372,20 @@ impl FunctionContractExt for DependentContract {
             SteelVal::Closure(function) => {
                 function_stack.push(Gc::clone(function));
 
+                stack_index.push(stack.len());
+                for arg in verified_args {
+                    stack.push(arg);
+                }
+
                 vm(
                     function.body_exp(),
-                    &mut verified_args.into(),
+                    stack,
                     global_env, // TODO remove this as well
                     constants,
                     callback,
                     upvalue_heap,
                     function_stack,
-                    &mut Stack::new(),
+                    stack_index,
                     use_callbacks,
                     apply_contracts,
                     None,
@@ -411,15 +421,21 @@ impl FunctionContractExt for DependentContract {
 
         let contract = {
             function_stack.push(Gc::clone(thunk));
+
+            stack_index.push(stack.len());
+            for arg in arg_stack {
+                stack.push(arg);
+            }
+
             vm(
                 thunk.body_exp(),
-                &mut arg_stack.into(), // TODO change this from verified args to the stack of arguments it needs
-                global_env,            // TODO remove this as well
+                stack, // TODO change this from verified args to the stack of arguments it needs
+                global_env, // TODO remove this as well
                 constants,
                 callback,
                 upvalue_heap,
                 function_stack,
-                &mut Stack::new(),
+                stack_index,
                 use_callbacks,
                 apply_contracts,
                 None,
@@ -602,19 +618,32 @@ impl FunctionContractExt for FunctionContract {
             }
         }
 
+        // TODO use actual VM with real stack instead
+
         let output = match function {
             SteelVal::Closure(function) => {
                 function_stack.push(Gc::clone(function));
 
+                // Set the state prior to the recursive call
+                stack_index.push(stack.len());
+
+                for arg in verified_args {
+                    stack.push(arg);
+                }
+
+                // vm_stack_copy.borrow_mut().push(arg?);
+
+                // function_stack_copy.borrow_mut().push(Gc::clone(closure));
+
                 vm(
                     function.body_exp(),
-                    &mut verified_args.into(),
+                    stack,
                     global_env, // TODO remove this as well
                     constants,
                     callback,
                     upvalue_heap,
                     function_stack,
-                    &mut Stack::new(),
+                    stack_index,
                     use_callbacks,
                     apply_contracts,
                     None,
