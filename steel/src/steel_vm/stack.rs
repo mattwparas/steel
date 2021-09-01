@@ -36,6 +36,10 @@ impl<T> Stack<T> {
         self.0.split_off(idx)
     }
 
+    pub fn peek_range_mut(&mut self, range: RangeFrom<usize>) -> &mut [T] {
+        &mut self.0[range]
+    }
+
     pub fn peek_range(&self, range: RangeFrom<usize>) -> &[T] {
         &self.0[range]
     }
