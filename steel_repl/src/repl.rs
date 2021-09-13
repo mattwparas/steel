@@ -57,6 +57,7 @@ impl Validator for RustylineHelper {
 }
 
 impl Hinter for RustylineHelper {
+    type Hint = String;
     fn hint(&self, _line: &str, _pos: usize, _context: &Context) -> Option<String> {
         None
     }

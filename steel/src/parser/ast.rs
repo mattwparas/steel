@@ -135,6 +135,8 @@ impl TryFrom<&SteelVal> for ExprKind {
             BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
             ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
             CompiledFunction(_) => Err("Can't convert from function to expression!"),
+            ListV(_) => Err("Can't convert from list to expression!"),
+            MutFunc(_) => Err("Can't convert from function to expression!"),
         }
     }
 }

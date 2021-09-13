@@ -36,6 +36,8 @@ use futures::{future::Shared, task::noop_waker_ref};
 
 use std::cell::Cell;
 
+use im_lists::list::List;
+
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
     Rc::new(RefCell::new(x))
@@ -43,6 +45,7 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
+pub type MutFunctionSignature = fn(&mut [SteelVal]) -> Result<SteelVal>;
 // pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type StructClosureSignature = fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>;
 pub type BoxedFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>;
@@ -290,6 +293,10 @@ pub enum SteelVal {
     ContinuationFunction(Gc<Continuation>),
     // Function Pointer
     CompiledFunction(JitFunctionPointer),
+    // List
+    ListV(List<SteelVal>),
+    // Mutable functions
+    MutFunc(MutFunctionSignature),
 }
 
 // pub trait Continuation: Clone {}
@@ -961,6 +968,8 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         BoxedFunction(_) => write!(f, "#<function>"),
         ContinuationFunction(_) => write!(f, "#<continuation>"),
         CompiledFunction(_) => write!(f, "#<compiled-function>"),
+        ListV(l) => write!(f, "#<list {:?}>", l),
+        MutFunc(_) => write!(f, "#<function>"),
     }
 }
 

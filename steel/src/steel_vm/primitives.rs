@@ -223,6 +223,11 @@ pub(crate) fn register_list_functions(engine: &mut Engine) {
 }
 
 #[inline(always)]
+pub(crate) fn register_test_list_functions(engine: &mut Engine) {
+    engine.register_value("new-test-list", crate::primitives::alternative_list::LIST);
+}
+
+#[inline(always)]
 pub(crate) fn register_vector_functions(engine: &mut Engine) {
     engine
         .register_value("vector", VectorOperations::vec_construct())
@@ -473,6 +478,9 @@ pub(crate) fn embed_primitives(engine: &mut Engine) {
 
     register_number_functions(engine);
     register_list_functions(engine);
+
+    register_test_list_functions(engine);
+
     register_vector_functions(engine);
     register_string_functions(engine);
     register_hashmap_functions(engine);
