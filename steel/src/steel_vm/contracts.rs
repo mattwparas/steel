@@ -153,6 +153,7 @@ impl FlatContractExt for FlatContract {
                     stack_index,
                     use_callbacks,
                     apply_contracts,
+                    // #[cfg(feature = "jit")]
                     None,
                 )
             }
@@ -295,6 +296,7 @@ impl FunctionContractExt for DependentContract {
                     stack_index,
                     use_callbacks,
                     apply_contracts,
+                    // #[cfg(feature = "jit")]
                     None,
                 )?
                 .contract_or_else(
@@ -388,6 +390,7 @@ impl FunctionContractExt for DependentContract {
                     stack_index,
                     use_callbacks,
                     apply_contracts,
+                    // #[cfg(feature = "jit")]
                     None,
                 )?
             }
@@ -438,6 +441,7 @@ impl FunctionContractExt for DependentContract {
                 stack_index,
                 use_callbacks,
                 apply_contracts,
+                // #[cfg(feature = "jit")]
                 None,
             )?
             .contract_or_else(throw!(TypeMismatch => "dependent contract expected a contract"))?
@@ -646,6 +650,7 @@ impl FunctionContractExt for FunctionContract {
                     stack_index,
                     use_callbacks,
                     apply_contracts,
+                    // #[cfg(feature = "jit")]
                     None,
                 )?
             }

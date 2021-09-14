@@ -224,7 +224,11 @@ pub(crate) fn register_list_functions(engine: &mut Engine) {
 
 #[inline(always)]
 pub(crate) fn register_test_list_functions(engine: &mut Engine) {
-    engine.register_value("new-test-list", crate::primitives::alternative_list::LIST);
+    engine
+        .register_value("new-test-list", crate::primitives::alternative_list::LIST)
+        .register_value("test-cons", crate::primitives::alternative_list::CONS)
+        .register_value("test-range", crate::primitives::alternative_list::RANGE)
+        .register_value("test-length", crate::primitives::alternative_list::LENGTH);
 }
 
 #[inline(always)]

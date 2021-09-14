@@ -69,6 +69,7 @@ declare_const_ref_functions! {
     LAST => last,
     TAKE => take,
     LIST_REF => list_ref,
+    RANGE => range,
 }
 
 declare_const_mut_ref_functions! {
@@ -90,16 +91,45 @@ fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
         stop!(ArityMismatch => "cons takes only two arguments")
     }
-    let mut args = args.iter().cloned();
-    match (args.next(), args.next()) {
-        (Some(elem), Some(lst)) => match (elem, lst) {
-            (left, SteelVal::ListV(mut l)) => {
-                l.cons_mut(left);
-                Ok(SteelVal::ListV(l.clone()))
-            }
-            (left, right) => Ok(SteelVal::ListV(list![left, right])),
-        },
-        _ => stop!(ArityMismatch => "cons takes two arguments"),
+    match (args[0].clone(), &mut args[1]) {
+        (left, SteelVal::ListV(right)) => {
+            println!("Strong count: {:?}", right.strong_count());
+            right.cons_mut(left);
+            Ok(SteelVal::ListV(right.clone()))
+        }
+        (left, right) => Ok(SteelVal::ListV(list![left, right.clone()])),
+    }
+
+    // match (&args[1].clone(), &mut args[0]) {
+    //     (right, SteelVal::ListV(left)) => {
+    //         println!("Strong count: {:?}", left.strong_count());
+    //         right.cons_mut(left);
+    //         Ok(SteelVal::ListV(right.clone()))
+    //     }
+    //     (right, left) => Ok(SteelVal::ListV(list![left, right])),
+    // }
+}
+
+fn range(args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(new_range, args, 2);
+
+    if let (SteelVal::IntV(lower), SteelVal::IntV(upper)) = (&args[0], &args[1]) {
+        if *lower < 0 {
+            stop!(Generic => "range expects a positive integer");
+        }
+
+        if *upper < 0 {
+            stop!(Generic => "range expects a positive integer");
+        }
+
+        Ok(SteelVal::ListV(
+            (*lower as usize..*upper as usize)
+                .into_iter()
+                .map(|x| SteelVal::IntV(x as isize))
+                .collect(),
+        ))
+    } else {
+        stop!(ArityMismatch => "range takes two integers")
     }
 }
 

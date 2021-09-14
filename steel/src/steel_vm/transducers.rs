@@ -1,3 +1,5 @@
+use im_lists::list::List;
+
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
 use super::{
     options::{ApplyContracts, UseCallbacks},
@@ -86,6 +88,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 self.apply_contracts,
             )),
             SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
+            SteelVal::ListV(l) => Box::new(l.iter().cloned().map(Ok)),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
@@ -161,6 +164,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                 &mut vm_stack_index_copy.borrow_mut(),
                                 use_callbacks,
                                 apply_contracts,
+                                // #[cfg(feature = "jit")]
                                 None,
                             );
 
@@ -293,6 +297,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 match n.as_ref() {
                     "list" => ListOperations::built_in_list_normal_iter(iter),
                     "vector" => VectorOperations::vec_construct_iter(iter),
+                    "test-list" => iter.collect::<Result<List<_>>>().map(SteelVal::ListV),
                     _ => stop!(Generic => "Cannot collect into an undefined type"),
                 }
             } else {
@@ -336,6 +341,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 self.apply_contracts,
             )),
             SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
+            SteelVal::ListV(l) => Box::new(l.iter().cloned().map(Ok)),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
@@ -399,6 +405,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                 &mut vm_stack_index_copy.borrow_mut(),
                                 use_callbacks,
                                 apply_contracts,
+                                // #[cfg(feature = "jit")]
                                 None,
                             );
 

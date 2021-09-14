@@ -1,7 +1,6 @@
 use crate::{
     core::instructions::DenseInstruction,
     gc::Gc,
-    jit::sig::JitFunctionPointer,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::Continuation,
     values::port::SteelPort,
@@ -11,6 +10,9 @@ use crate::{
         lazy_stream::LazyStream,
     },
 };
+
+// #[cfg(feature = "jit")]
+use crate::jit::sig::JitFunctionPointer;
 
 use std::{
     any::Any,
@@ -292,6 +294,7 @@ pub enum SteelVal {
     // Continuation
     ContinuationFunction(Gc<Continuation>),
     // Function Pointer
+    // #[cfg(feature = "jit")]
     CompiledFunction(JitFunctionPointer),
     // List
     ListV(List<SteelVal>),

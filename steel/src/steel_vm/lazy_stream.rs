@@ -129,6 +129,7 @@ fn exec_func<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
                 &mut Stack::new(),
                 use_callbacks,
                 apply_contracts,
+                // #[cfg(feature = "jit")]
                 None, // jit,
             )
         }

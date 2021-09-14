@@ -7,7 +7,10 @@ use super::{
     heap::UpValueHeap,
     stack::{Stack, StackFrame},
 };
+
+// #[cfg(feature = "jit")]
 use crate::jit::code_gen::JIT;
+// #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
 use crate::steel_vm::contracts::FlatContractExt;
 use crate::values::contracts::ContractType;
@@ -58,7 +61,7 @@ pub struct VirtualMachineCore {
     stack: StackFrame,
     function_stack: Vec<Gc<ByteCodeLambda>>,
     stack_index: Stack<usize>,
-    #[cfg(feature = "jit")]
+    // #[cfg(feature = "jit")]
     jit: JIT,
 }
 
@@ -71,7 +74,7 @@ impl VirtualMachineCore {
             stack: StackFrame::with_capacity(256),
             function_stack: Vec::with_capacity(64),
             stack_index: Stack::with_capacity(64),
-            #[cfg(feature = "jit")]
+            // #[cfg(feature = "jit")]
             jit: JIT::default(),
         }
     }
@@ -85,7 +88,7 @@ impl VirtualMachineCore {
     }
 
     pub fn on_progress<FN: Fn(usize) -> bool + 'static>(&mut self, callback: FN) {
-        &self.callback.with_callback(Box::new(callback));
+        self.callback.with_callback(Box::new(callback));
     }
 
     // fn vec_exprs_to_map(&mut self, exprs: Vec<ExprKind>) {}
@@ -176,6 +179,7 @@ impl VirtualMachineCore {
             &mut self.stack_index,
             use_callbacks,
             apply_contracts,
+            // #[cfg(feature = "jit")]
             Some(&mut self.jit),
         );
 
@@ -255,6 +259,7 @@ pub(crate) struct VmCore<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContrac
     pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
     pub(crate) use_callbacks: U,
     pub(crate) apply_contracts: A,
+    // #[cfg(feature = "jit")]
     pub(crate) jit: Option<&'a mut JIT>,
 }
 
@@ -270,6 +275,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         stack_index: &'a mut Stack<usize>,
         use_callbacks: U,
         apply_contracts: A,
+        // #[cfg(feature = "jit")]
         jit: Option<&'a mut JIT>,
     ) -> Result<VmCore<'a, CT, U, A>> {
         if instructions.is_empty() {
@@ -291,6 +297,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             function_stack,
             use_callbacks,
             apply_contracts,
+            // #[cfg(feature = "jit")]
             jit,
         })
     }
@@ -581,6 +588,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     }
                 }
                 OpCode::TCOJMP => {
+                    println!("At tco jump");
+
                     let current_arity = self.instructions[self.ip + 1].payload_size as usize;
                     self.ip = cur_inst.payload_size as usize;
 
@@ -604,7 +613,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         self.stack.set_idx(offset + i, self.stack[back + i].clone());
                     }
 
+                    // println!("stack before truncating: {:?}", self.stack);
+
+                    // self.stack.truncate(offset + current_arity);
                     self.stack.truncate(offset + current_arity);
+
+                    // println!("stack after truncating: {:?}", self.stack);
                 }
                 OpCode::JMP => {
                     self.ip = cur_inst.payload_size as usize;
@@ -1057,6 +1071,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
+        println!("##########################################");
+
         closure.increment_call_count();
 
         // Snag the current functions arity & remove the last function call
@@ -1128,6 +1144,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         match &stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
+            MutFunc(f) => self.call_primitive_mut_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             ContractedFunction(cf) => {
                 self.call_contracted_function_tail_call(cf, payload_size, span)?
@@ -1158,6 +1175,27 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         self.stack.truncate(self.stack.len() - payload_size);
 
         self.stack.push(result);
+        self.ip += 1;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn call_primitive_mut_func(
+        &mut self,
+        f: &fn(&mut [SteelVal]) -> Result<SteelVal>,
+        payload_size: usize,
+        span: &Span,
+    ) -> Result<()> {
+        println!("Stack: {:?}", self.stack);
+
+        let result = f(self.stack.peek_range_mut(self.stack.len() - payload_size..))
+            .map_err(|x| x.set_span(*span))?;
+
+        self.stack.truncate(self.stack.len() - payload_size);
+
+        self.stack.push(result);
+
+        println!("Stack after: {:?}", self.stack);
         self.ip += 1;
         Ok(())
     }
@@ -1492,24 +1530,28 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // Jit profiling
         closure.increment_call_count();
 
-        // TODO
-        if closure.call_count() > JIT_THRESHOLD && !closure.has_attempted_to_be_compiled() {
-            // unimplemented!();
-            if let Some(jit) = &mut self.jit {
-                if let Some(function_ast) = self.global_env.get_expr(ast_index) {
-                    if let Ok(compiled_func) = jit.compile(function_ast) {
-                        self.global_env.repl_define_idx(
-                            ast_index,
-                            SteelVal::CompiledFunction(compiled_func.clone()),
-                        );
+        // TODO take this out
 
-                        return self.call_compiled_function(&compiled_func, payload_size, span);
-                    } else {
-                        // Mark this function as being unable to be compiled
-                        closure.set_cannot_be_compiled();
-                    }
-                }
-            }
+        #[cfg(feature = "jit")]
+        {
+            // if closure.call_count() > JIT_THRESHOLD && !closure.has_attempted_to_be_compiled() {
+            //     // unimplemented!();
+            //     if let Some(jit) = &mut self.jit {
+            //         if let Some(function_ast) = self.global_env.get_expr(ast_index) {
+            //             if let Ok(compiled_func) = jit.compile(function_ast) {
+            //                 self.global_env.repl_define_idx(
+            //                     ast_index,
+            //                     SteelVal::CompiledFunction(compiled_func.clone()),
+            //                 );
+
+            //                 return self.call_compiled_function(&compiled_func, payload_size, span);
+            //             } else {
+            //                 // Mark this function as being unable to be compiled
+            //                 closure.set_cannot_be_compiled();
+            //             }
+            //         }
+            //     }
+            // }
         }
 
         // Push on the function stack so we have access to it later
@@ -1560,6 +1602,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
         match &stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size, span)?,
+            MutFunc(f) => self.call_primitive_mut_func(f, payload_size, span)?,
             FuncV(f) => self.call_primitive_func(f, payload_size, span)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
@@ -1696,6 +1739,7 @@ pub(crate) fn vm<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
     stack_index: &mut Stack<usize>,
     use_callbacks: U,
     apply_contracts: A,
+    // #[cfg(feature = "jit")]
     jit: Option<&mut JIT>,
 ) -> Result<SteelVal> {
     VmCore::new(
@@ -1709,6 +1753,7 @@ pub(crate) fn vm<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         stack_index,
         use_callbacks,
         apply_contracts,
+        // #[cfg(feature = "jit")]
         jit,
     )?
     .vm()
