@@ -280,7 +280,7 @@ impl JIT {
     }
 
     fn register_symbol(&mut self, name: &str) {
-        println!("Registering function: {}", name);
+        // println!("Registering function: {}", name);
 
         self.legal_vars.insert(name.to_string());
     }

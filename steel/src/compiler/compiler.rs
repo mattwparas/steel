@@ -1,5 +1,5 @@
 use crate::compiler::{
-    code_generator::{convert_call_globals, CodeGenerator},
+    code_generator::{convert_call_globals, convert_last_usages, CodeGenerator},
     constants::{ConstantMap, ConstantTable},
     map::SymbolMap,
     passes::begin::flatten_begins_and_expand_defines,
@@ -543,6 +543,8 @@ impl Compiler {
 
         // TODO
         loop_condition_local_const_arity_two(&mut instruction_buffer);
+
+        // convert_last_usages(&mut instruction_buffer);
 
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();

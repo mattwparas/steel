@@ -741,6 +741,13 @@ impl UpValue {
         }
     }
 
+    pub(crate) fn try_move_value(&mut self, stack: &mut [SteelVal]) -> SteelVal {
+        match self.location {
+            Location::Stack(idx) => std::mem::replace(&mut stack[idx], SteelVal::Void),
+            Location::Closed(ref v) => v.clone(),
+        }
+    }
+
     pub(crate) fn is_reachable(&self) -> bool {
         self.reachable
     }

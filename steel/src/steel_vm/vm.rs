@@ -515,8 +515,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 }
                 OpCode::PUSH => self.handle_push(cur_inst.payload_size as usize)?,
                 OpCode::READLOCAL => self.handle_local(cur_inst.payload_size as usize)?,
+                OpCode::MOVEREADLOCAL => self.handle_move_local(cur_inst.payload_size as usize)?,
                 OpCode::SETLOCAL => self.handle_set_local(cur_inst.payload_size as usize),
                 OpCode::READUPVALUE => self.handle_upvalue(cur_inst.payload_size as usize),
+                OpCode::MOVEREADUPVALUE => self.handle_move_upvalue(cur_inst.payload_size as usize),
                 OpCode::SETUPVALUE => self.handle_set_upvalue(cur_inst.payload_size as usize),
                 OpCode::APPLY => self.handle_apply(cur_inst.span)?,
                 OpCode::CLEAR => {
@@ -588,7 +590,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     }
                 }
                 OpCode::TCOJMP => {
-                    println!("At tco jump");
+                    // println!("At tco jump");
 
                     let current_arity = self.instructions[self.ip + 1].payload_size as usize;
                     self.ip = cur_inst.payload_size as usize;
@@ -952,6 +954,16 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     }
 
     #[inline(always)]
+    fn handle_move_local(&mut self, index: usize) -> Result<()> {
+        let offset = self.stack_index.last().copied().unwrap_or(0);
+        // let value = self.stack[index + offset].clone();
+        let value = std::mem::replace(&mut self.stack.0[index + offset], SteelVal::Void);
+        self.stack.push(value);
+        self.ip += 1;
+        Ok(())
+    }
+
+    #[inline(always)]
     fn handle_upvalue(&mut self, index: usize) {
         // println!("Stack at upvalue: {:?}", self.stack);
 
@@ -968,6 +980,18 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             .unwrap();
 
         // println!("Getting upvalue: {}", value);
+
+        self.stack.push(value);
+        self.ip += 1;
+    }
+
+    #[inline(always)]
+    fn handle_move_upvalue(&mut self, index: usize) {
+        let value = self.function_stack.last().unwrap().upvalues()[index]
+            .upgrade()
+            .expect("Upvalue dropped too early!")
+            .borrow_mut()
+            .try_move_value(&mut self.stack.0);
 
         self.stack.push(value);
         self.ip += 1;
@@ -1186,7 +1210,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        println!("Stack: {:?}", self.stack);
+        // println!("Stack: {:?}", self.stack);
 
         let result = f(self.stack.peek_range_mut(self.stack.len() - payload_size..))
             .map_err(|x| x.set_span(*span))?;
@@ -1195,7 +1219,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
         self.stack.push(result);
 
-        println!("Stack after: {:?}", self.stack);
+        // println!("Stack after: {:?}", self.stack);
         self.ip += 1;
         Ok(())
     }

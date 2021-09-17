@@ -17,7 +17,10 @@ use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
+use itertools::Itertools;
 use log::info;
+
+use std::collections::HashSet;
 
 // use super::codegen::{check_and_transform_mutual_recursion, transform_tail_call};
 
@@ -417,6 +420,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             // TODO check this here - reimplement mutual recursion
             let b = check_and_transform_mutual_recursion(&mut body_instructions);
+
+            // TODO
+            convert_last_usages(&mut body_instructions);
 
             // let b = false;
 
@@ -1003,6 +1009,238 @@ fn upvalue_func_used_before_set(instructions: &[Instruction], upvalue: &str, idx
 
     false
 }
+
+// TODO run this for every function, not the entire program
+pub fn convert_last_usages(instructions: &mut [Instruction]) {
+    if instructions.is_empty() {
+        return;
+    }
+
+    let mut variables: HashSet<String> = HashSet::new();
+
+    for instruction in instructions.iter() {
+        match instruction {
+            Instruction {
+                op_code: OpCode::READLOCAL,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(local),
+                        ..
+                    }),
+                ..
+            }
+            | Instruction {
+                op_code: OpCode::READUPVALUE,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(local),
+                        ..
+                    }),
+                ..
+            } => variables.insert(local.to_string()),
+            _ => continue,
+        };
+    }
+
+    // Always include the starting value
+    let mut exit_function_points: Vec<usize> = vec![0];
+
+    // Find the tail call'd exit points
+    for (idx, instruction) in instructions.iter().enumerate() {
+        match instruction {
+            Instruction {
+                op_code: OpCode::TCOJMP,
+                ..
+            }
+            // only do this with built ins - thats when we want to transfer ownership
+            // Instruction {
+            //     op_code: OpCode::CALLGLOBALTAIL,
+            //     ..
+            // }
+            | Instruction {
+                op_code: OpCode::TAILCALL,
+                ..
+            } => exit_function_points.push(idx),
+            _ => continue,
+        }
+    }
+
+    println!("Exit points: {:?}", exit_function_points);
+
+    for (right, left) in exit_function_points.into_iter().rev().tuple_windows() {
+        let mut stack = Vec::new();
+
+        println!("Looking at window: {:?}", (left, right));
+
+        // TODO need to use the original slice indices, so offset by left
+        for (index, instruction) in instructions[left..right].iter().rev().enumerate() {
+            match instruction {
+                // TODO
+                // If theres another function call in this branch we want to ignore it
+                Instruction {
+                    op_code: OpCode::JMP,
+                    contents,
+                    ..
+                } => {
+                    println!("Found branch, ignoring");
+                    break;
+                }
+                Instruction {
+                    op_code: OpCode::READLOCAL,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(local),
+                            ..
+                        }),
+                    ..
+                }
+                | Instruction {
+                    op_code: OpCode::READUPVALUE,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(local),
+                            ..
+                        }),
+                    ..
+                } => {
+                    stack.push((right - index - 1, local.to_string()));
+                }
+                _ => continue,
+            }
+        }
+
+        println!("stack: {:?}", stack);
+
+        let mut seen = HashSet::new();
+        let filtered: Vec<_> = stack
+            .iter()
+            // .rev()
+            .filter(|pair| {
+                let valid = variables.contains(&pair.1);
+                let var_seen = seen.contains(&pair.1);
+                if valid && !var_seen {
+                    seen.insert(&pair.1);
+                    true
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        // Sort the stack by the variable name
+        // stack.sort_by(|x, y| x.1.cmp(&y.1));
+
+        // let filtered: Vec<_> = stack.into_iter().dedup_by(|x, y| x.1 == y.1).collect();
+
+        println!("Filtered: {:?}", filtered);
+
+        for (index, _var) in filtered {
+            match instructions[*index].op_code {
+                OpCode::READLOCAL => {
+                    println!("Transforming move read local: {}", _var);
+                    instructions[*index].op_code = OpCode::MOVEREADLOCAL;
+                }
+                OpCode::READUPVALUE => {
+                    println!("Skipping read upvalue: {}", _var);
+                    continue;
+                }
+                // OpCode::CALLGLOBAL | OpCode::FUNC => {
+                //     continue;
+                // }
+
+                // Instruction {
+                //     op_code: OpCode::
+                // }
+                // Instruction {
+                //     op_code: OpCode::READLOCAL,
+                //     ..
+                // } => {
+
+                // }
+                // Instruction {
+                //     op_code: OpCode::READUPVALUE,
+                //     ..
+                // } => {
+                //     continue;
+                //     // println!("Transforming move read upvalue");
+                //     // instructions[*index].op_code = OpCode::MOVEREADUPVALUE;
+                // }
+                instr => println!("{:?}", instr),
+            }
+        }
+
+        // let mut filtered = Vec::new();
+
+        // for pair in filtered.iter().rev() {
+
+        // }
+
+        // TODO - iterate backwards to see if the value is there first
+
+        // println!("{:?}", filtered);
+    }
+
+    // println!("Right: {}, Left: {}", right, left);
+}
+
+// for exit_point in exit_function_points {
+//     let mut stack = Vec::new();
+
+//     for instruction in instructions[0..exit_point].iter_mut() {
+//         match instruction {
+//             Instruction {
+//                 op_code: OpCode::READLOCAL,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(local),
+//                         ..
+//                     }),
+//                 ..
+//             }
+//             | Instruction {
+//                 op_code: OpCode::READUPVALUE,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(local),
+//                         ..
+//                     }),
+//                 ..
+//             } => {
+//                 stack.push(local);
+//             }
+//             _ => continue,
+//         }
+//     }
+
+//     // todo!()
+// }
+
+// for instruction in instructions {
+//     match instruction {
+//         Instruction {
+//             op_code: OpCode::READLOCAL,
+//             contents:
+//                 Some(SyntaxObject {
+//                     ty: TokenType::Identifier(local),
+//                     ..
+//                 }),
+//             ..
+//         }
+//         | Instruction {
+//             op_code: OpCode::READUPVALUE,
+//             contents:
+//                 Some(SyntaxObject {
+//                     ty: TokenType::Identifier(local),
+//                     ..
+//                 }),
+//             ..
+//         } => {
+//             todo!()
+//         }
+//         _ => continue,
+//     }
+// }
+// }
 
 // Use this to flatten calls to globals such that its just one instruction instead of two
 pub fn convert_call_globals(instructions: &mut [Instruction]) {
