@@ -12,7 +12,7 @@ use super::{
 use crate::jit::code_gen::JIT;
 // #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
-use crate::steel_vm::contracts::FlatContractExt;
+// use crate::steel_vm::contracts::FlatContractExt;
 use crate::values::contracts::ContractType;
 use crate::{
     compiler::{

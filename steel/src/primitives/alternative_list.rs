@@ -70,6 +70,8 @@ declare_const_ref_functions! {
     TAKE => take,
     LIST_REF => list_ref,
     RANGE => range,
+    IS_EMPTY => is_empty,
+    CAR => car,
 }
 
 declare_const_mut_ref_functions! {
@@ -85,6 +87,16 @@ declare_const_mut_ref_functions! {
 
 fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
+}
+
+fn is_empty(args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(is_empty, args, 1);
+
+    if let SteelVal::ListV(l) = &args[0] {
+        Ok(l.is_empty().into())
+    } else {
+        stop!(TypeMismatch => "test-empty? expects a list")
+    }
 }
 
 fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
@@ -176,18 +188,33 @@ fn first(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
 }
 
+fn car(args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(car, args, 1);
+    if let SteelVal::ListV(l) = &args[0] {
+        l.car()
+            .ok_or_else(throw!(Generic => "first resulted in an error - empty list"))
+    } else {
+        stop!(TypeMismatch => "first expects a list")
+    }
+}
+
 fn rest(args: &mut [SteelVal]) -> Result<SteelVal> {
     arity_check!(rest, args, 1);
 
     if let SteelVal::ListV(l) = &mut args[0] {
+        if l.is_empty() {
+            stop!(Generic => "rest expects a non empty list");
+        }
+
         match l.rest_mut() {
             Some(l) => Ok(SteelVal::ListV(l.clone())),
             None => {
-                if l.is_empty() {
-                    stop!(Generic => "rest expects a non empty list");
-                } else {
-                    Ok(SteelVal::ListV(l.clone()))
-                }
+                Ok(SteelVal::ListV(l.clone()))
+                // if l.is_empty() {
+                //     stop!(Generic => "rest expects a non empty list");
+                // } else {
+
+                // }
             }
         }
     } else {

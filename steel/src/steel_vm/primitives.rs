@@ -228,7 +228,13 @@ pub(crate) fn register_test_list_functions(engine: &mut Engine) {
         .register_value("new-test-list", crate::primitives::alternative_list::LIST)
         .register_value("test-cons", crate::primitives::alternative_list::CONS)
         .register_value("test-range", crate::primitives::alternative_list::RANGE)
-        .register_value("test-length", crate::primitives::alternative_list::LENGTH);
+        .register_value("test-length", crate::primitives::alternative_list::LENGTH)
+        .register_value(
+            "test-is-empty",
+            crate::primitives::alternative_list::IS_EMPTY,
+        )
+        .register_value("test-car", crate::primitives::alternative_list::CAR)
+        .register_value("test-rest", crate::primitives::alternative_list::REST);
 }
 
 #[inline(always)]
