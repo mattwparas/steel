@@ -1,17 +1,13 @@
 use super::{
-    evaluation_progress::EvaluationProgress,
-    heap::UpValueHeap,
     options::{ApplyContracts, UseCallbacks},
-    stack::StackFrame,
-    vm::{vm, VmCore},
+    vm::VmCore,
 };
 use crate::{
     compiler::constants::ConstantTable,
-    env::Env,
     gc::Gc,
     parser::span::Span,
     rerrs::{ErrorKind, SteelErr},
-    rvals::{ByteCodeLambda, Result, SteelVal},
+    rvals::{Result, SteelVal},
     stop,
     values::contracts::{
         Contract, ContractType, ContractedFunction, DependentContract, FlatContract,
@@ -21,26 +17,9 @@ use crate::{
 
 use log::debug;
 
-use super::stack::Stack;
-
 /// Extension trait for the application of contracted functions
 // TODO replace this with an &mut VmCore instead
 pub(crate) trait ContractedFunctionExt {
-    // fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
-    //     &self,
-    //     arguments: Vec<SteelVal>,
-    //     constants: &CT,
-    //     cur_inst_span: &Span,
-    //     callback: &EvaluationProgress,
-    //     upvalue_heap: &mut UpValueHeap,
-    //     global_env: &mut Env,
-    //     stack: &mut StackFrame,
-    //     function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-    //     stack_index: &mut Stack<usize>,
-    //     use_callbacks: U,
-    //     apply_contracts: A,
-    // ) -> Result<SteelVal>;
-
     fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arguments: Vec<SteelVal>,
@@ -48,16 +27,6 @@ pub(crate) trait ContractedFunctionExt {
         context: &mut VmCore<'a, CT, U, A>,
     ) -> Result<SteelVal>;
 }
-
-// impl ContractedFunction {
-//     fn test_apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
-//         &self,
-//         arguments: Vec<SteelVal>,
-//         context: &mut VmCore<'a, CT, U, A>,
-//     ) -> Result<SteelVal> {
-//         todo!()
-//     }
-// }
 
 impl ContractedFunctionExt for ContractedFunction {
     fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
@@ -104,28 +73,7 @@ impl FlatContractExt for FlatContract {
             SteelVal::BoxedFunction(func) => {
                 func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span))
             }
-            SteelVal::Closure(closure) => {
-                ctx.call_with_one_arg(closure, arg.clone())
-
-                // stack_index.push(stack.len());
-                // stack.push(arg.clone());
-                // function_stack.push(Gc::clone(closure));
-
-                // vm(
-                //     closure.body_exp(),
-                //     stack,
-                //     global_env,
-                //     constants,
-                //     callback,
-                //     upvalue_heap,
-                //     function_stack,
-                //     stack_index,
-                //     use_callbacks,
-                //     apply_contracts,
-                //     // #[cfg(feature = "jit")]
-                //     None,
-                // )
-            }
+            SteelVal::Closure(closure) => ctx.call_with_one_arg(closure, arg.clone()),
             _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),
         }?;
 
@@ -196,29 +144,9 @@ impl FunctionContractExt for DependentContract {
                 .expect("missing argument in dependent contract");
 
             let contract = {
-                ctx.call_with_args(thunk, arg_stack)?
-                    // function_stack.push(Gc::clone(thunk));
-                    // stack_index.push(stack.len());
-                    // for arg in arg_stack {
-                    //     stack.push(arg);
-                    // }
-                    // vm(
-                    //     thunk.body_exp(),
-                    //     stack, // TODO change this from verified args to the stack of arguments it needs
-                    //     global_env, // TODO remove this as well
-                    //     constants,
-                    //     callback,
-                    //     upvalue_heap,
-                    //     function_stack,
-                    //     stack_index,
-                    //     use_callbacks,
-                    //     apply_contracts,
-                    //     // #[cfg(feature = "jit")]
-                    //     None,
-                    // )?
-                    .contract_or_else(
-                        throw!(TypeMismatch => "dependent contract expected a contract"),
-                    )?
+                ctx.call_with_args(thunk, arg_stack)?.contract_or_else(
+                    throw!(TypeMismatch => "dependent contract expected a contract"),
+                )?
             };
 
             match contract.as_ref() {
@@ -276,31 +204,7 @@ impl FunctionContractExt for DependentContract {
         }
 
         let output = match function {
-            SteelVal::Closure(function) => {
-                ctx.call_with_args(function, verified_args)?
-
-                // function_stack.push(Gc::clone(function));
-
-                // stack_index.push(stack.len());
-                // for arg in verified_args {
-                //     stack.push(arg);
-                // }
-
-                // vm(
-                //     function.body_exp(),
-                //     stack,
-                //     global_env, // TODO remove this as well
-                //     constants,
-                //     callback,
-                //     upvalue_heap,
-                //     function_stack,
-                //     stack_index,
-                //     use_callbacks,
-                //     apply_contracts,
-                //     // #[cfg(feature = "jit")]
-                //     None,
-                // )?
-            }
+            SteelVal::Closure(function) => ctx.call_with_args(function, verified_args)?,
             SteelVal::BoxedFunction(f) => {
                 f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
             }
@@ -330,50 +234,16 @@ impl FunctionContractExt for DependentContract {
             .expect("missing argument in dependent contract");
 
         let contract = {
-            ctx.call_with_args(thunk, arg_stack)?
-                // function_stack.push(Gc::clone(thunk));
-                // stack_index.push(stack.len());
-                // for arg in arg_stack {
-                //     stack.push(arg);
-                // }
-                // vm(
-                //     thunk.body_exp(),
-                //     stack, // TODO change this from verified args to the stack of arguments it needs
-                //     global_env, // TODO remove this as well
-                //     constants,
-                //     callback,
-                //     upvalue_heap,
-                //     function_stack,
-                //     stack_index,
-                //     use_callbacks,
-                //     apply_contracts,
-                //     // #[cfg(feature = "jit")]
-                //     None,
-                // )?
-                .contract_or_else(
-                    throw!(TypeMismatch => "dependent contract expected a contract"),
-                )?
+            ctx.call_with_args(thunk, arg_stack)?.contract_or_else(
+                throw!(TypeMismatch => "dependent contract expected a contract"),
+            )?
         };
 
         match contract.as_ref() {
             ContractType::Flat(f) => {
-                // unimplemented!();
-
                 debug!("applying flat contract in post condition: {}", f.name);
 
-                if let Err(e) = f.apply(
-                    output.clone(),
-                    cur_inst_span,
-                    ctx
-                    // callback,
-                    // upvalue_heap,
-                    // global_env,
-                    // stack,
-                    // function_stack,
-                    // stack_index,
-                    // use_callbacks,
-                    // apply_contracts,
-                ) {
+                if let Err(e) = f.apply(output.clone(), cur_inst_span, ctx) {
                     debug!(
                         "Blame locations: {:?}, {:?}",
                         self.contract_attachment_location, name
@@ -515,34 +385,6 @@ impl FunctionContractExt for FunctionContract {
         let output = match function {
             SteelVal::Closure(function) => {
                 ctx.call_with_args(function, verified_args.into_iter())?
-
-                // function_stack.push(Gc::clone(function));
-
-                // // Set the state prior to the recursive call
-                // stack_index.push(stack.len());
-
-                // for arg in verified_args {
-                //     stack.push(arg);
-                // }
-
-                // // vm_stack_copy.borrow_mut().push(arg?);
-
-                // // function_stack_copy.borrow_mut().push(Gc::clone(closure));
-
-                // vm(
-                //     function.body_exp(),
-                //     stack,
-                //     global_env, // TODO remove this as well
-                //     constants,
-                //     callback,
-                //     upvalue_heap,
-                //     function_stack,
-                //     stack_index,
-                //     use_callbacks,
-                //     apply_contracts,
-                //     // #[cfg(feature = "jit")]
-                //     None,
-                // )?
             }
             SteelVal::BoxedFunction(f) => {
                 f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?

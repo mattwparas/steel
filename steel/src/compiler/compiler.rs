@@ -1,5 +1,5 @@
 use crate::compiler::{
-    code_generator::{convert_call_globals, convert_last_usages, CodeGenerator},
+    code_generator::{convert_call_globals, CodeGenerator},
     constants::{ConstantMap, ConstantTable},
     map::SymbolMap,
     passes::begin::flatten_begins_and_expand_defines,

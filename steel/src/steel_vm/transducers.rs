@@ -17,16 +17,7 @@ use crate::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use super::heap::UpValueHeap;
-use crate::env::Env;
-
 use super::contracts::ContractedFunctionExt;
-
-use super::vm::vm;
-use crate::gc::Gc;
-
-// use super::inline_iter::*;
-use super::lazy_stream::LazyStreamIter;
 
 /// Generates the take transducer - wrapper around the take iterator
 macro_rules! generate_take {

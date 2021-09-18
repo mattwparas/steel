@@ -1079,7 +1079,6 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
                 // If theres another function call in this branch we want to ignore it
                 Instruction {
                     op_code: OpCode::JMP,
-                    contents,
                     ..
                 } => {
                     println!("Found branch, ignoring");
