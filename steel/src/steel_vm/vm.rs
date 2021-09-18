@@ -438,6 +438,59 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         res
     }
 
+    #[inline(always)]
+    pub(crate) fn call_func_or_else<F: FnOnce() -> SteelErr>(
+        &mut self,
+        func: &SteelVal,
+        arg: SteelVal,
+        cur_inst_span: &Span,
+        err: F,
+    ) -> Result<SteelVal> {
+        match func {
+            SteelVal::FuncV(func) => {
+                let arg_vec = [arg];
+                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+            }
+            SteelVal::BoxedFunction(func) => {
+                let arg_vec = [arg];
+                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+            }
+            SteelVal::ContractedFunction(cf) => {
+                let arg_vec = vec![arg];
+                cf.apply(arg_vec, cur_inst_span, self)
+            }
+            SteelVal::Closure(closure) => self.call_with_one_arg(closure, arg),
+            _ => Err(err()),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn call_func_or_else_two_args<F: FnOnce() -> SteelErr>(
+        &mut self,
+        func: &SteelVal,
+        arg1: SteelVal,
+        arg2: SteelVal,
+        cur_inst_span: &Span,
+        err: F,
+    ) -> Result<SteelVal> {
+        match func {
+            SteelVal::FuncV(func) => {
+                let arg_vec = [arg1, arg2];
+                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+            }
+            SteelVal::BoxedFunction(func) => {
+                let arg_vec = [arg1, arg2];
+                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+            }
+            SteelVal::ContractedFunction(cf) => {
+                let arg_vec = vec![arg1, arg2];
+                cf.apply(arg_vec, cur_inst_span, self)
+            }
+            SteelVal::Closure(closure) => self.call_with_two_args(closure, arg1, arg2),
+            _ => Err(err()),
+        }
+    }
+
     // Call with an arbitrary number of arguments
     pub(crate) fn call_with_args(
         &mut self,
