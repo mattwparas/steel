@@ -418,6 +418,35 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         SteelVal::ContinuationFunction(Gc::new(captured_continuation))
     }
 
+    // Call with an arbitrary number of arguments
+    pub(crate) fn call_with_args(
+        &mut self,
+        closure: &Gc<ByteCodeLambda>,
+        args: impl Iterator<Item = SteelVal>,
+    ) -> Result<SteelVal> {
+        let prev_length = self.stack.len();
+        self.stack_index.push(prev_length);
+        for arg in args {
+            self.stack.push(arg);
+        }
+        self.function_stack.push(Gc::clone(closure));
+
+        let old_ip = self.ip;
+        let old_instructions = std::mem::replace(&mut self.instructions, closure.body_exp());
+        let old_pop_count = self.pop_count;
+
+        self.ip = 0;
+        self.pop_count = 1;
+
+        let res = self.vm();
+
+        self.ip = old_ip;
+        self.instructions = old_instructions;
+        self.pop_count = old_pop_count;
+
+        res
+    }
+
     // Calling convention
     pub(crate) fn call_with_two_args(
         &mut self,
