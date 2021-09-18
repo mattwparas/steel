@@ -99,25 +99,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         )
                     };
 
-                    // let switch_statement = move |arg| match &stack_func {
-                    //     SteelVal::FuncV(func) => {
-                    //         let arg_vec = [arg?];
-                    //         func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-                    //     }
-                    //     SteelVal::BoxedFunction(func) => {
-                    //         let arg_vec = [arg?];
-                    //         func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-                    //     }
-                    //     SteelVal::ContractedFunction(cf) => {
-                    //         let arg_vec = vec![arg?];
-                    //         cf.apply(arg_vec, cur_inst_span, &mut bundle_copy.borrow_mut())
-                    //     }
-                    //     SteelVal::Closure(closure) => {
-                    //         bundle_copy.borrow_mut().call_with_one_arg(closure, arg?)
-                    //     }
-                    //     _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
-                    // };
-
                     Box::new(iter.map(switch_statement))
                 }
                 Transducers::Filter(stack_func) => {
@@ -139,73 +120,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                     _ => None,
                                 },
                                 Err(e) => Some(Err(e)),
-                                // _ => None,
                             }
-                            // match stack_func {
-                            //     SteelVal::FuncV(func) => {
-                            //         let arg_vec = [arg.clone()];
-                            //         let res =
-                            //             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
-                            //         match res {
-                            //             Ok(k) => match k {
-                            //                 SteelVal::BoolV(true) => Some(Ok(arg)),
-                            //                 SteelVal::BoolV(false) => None,
-                            //                 _ => None,
-                            //             },
-                            //             Err(e) => Some(Err(e)),
-                            //             // _ => None,
-                            //         }
-                            //     }
-                            //     SteelVal::BoxedFunction(func) => {
-                            //         let arg_vec = [arg.clone()];
-                            //         let res =
-                            //             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
-                            //         match res {
-                            //             Ok(k) => match k {
-                            //                 SteelVal::BoolV(true) => Some(Ok(arg)),
-                            //                 SteelVal::BoolV(false) => None,
-                            //                 _ => None,
-                            //             },
-                            //             Err(e) => Some(Err(e)),
-                            //             // _ => None,
-                            //         }
-                            //     }
-                            //     SteelVal::ContractedFunction(cf) => {
-                            //         let arg_vec = vec![arg.clone()];
-                            //         let res = cf.apply(
-                            //             arg_vec,
-                            //             cur_inst_span,
-                            //             &mut bundle_copy.borrow_mut(),
-                            //         );
-                            //         match res {
-                            //             Ok(k) => match k {
-                            //                 SteelVal::BoolV(true) => Some(Ok(arg)),
-                            //                 SteelVal::BoolV(false) => None,
-                            //                 _ => None,
-                            //             },
-                            //             Err(e) => Some(Err(e)),
-                            //         }
-                            //     }
-                            //     SteelVal::Closure(closure) => {
-                            //         let res = bundle_copy
-                            //             .borrow_mut()
-                            //             .call_with_one_arg(closure, arg.clone());
-
-                            //         match res {
-                            //             Ok(k) => match k {
-                            //                 SteelVal::BoolV(true) => Some(Ok(arg)),
-                            //                 SteelVal::BoolV(false) => None,
-                            //                 _ => None,
-                            //             },
-                            //             Err(e) => Some(Err(e)),
-                            //         }
-                            //     }
-                            //     _ => Some(Err(SteelErr::new(
-                            //         ErrorKind::TypeMismatch,
-                            //         "filter expected a function".to_string(),
-                            //     )
-                            //     .with_span(*cur_inst_span))),
-                            // }
                         }
 
                         _ => Some(arg),
@@ -279,25 +194,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         )
                     };
 
-                    // let switch_statement = move |arg| match &stack_func {
-                    //     SteelVal::FuncV(func) => {
-                    //         let arg_vec = [arg?];
-                    //         func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-                    //     }
-                    //     SteelVal::BoxedFunction(func) => {
-                    //         let arg_vec = [arg?];
-                    //         func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-                    //     }
-                    //     SteelVal::ContractedFunction(cf) => {
-                    //         let arg_vec = vec![arg?];
-                    //         cf.apply(arg_vec, cur_inst_span, &mut bundle_copy.borrow_mut())
-                    //     }
-                    //     SteelVal::Closure(closure) => {
-                    //         bundle_copy.borrow_mut().call_with_one_arg(closure, arg?)
-                    //     }
-                    //     _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
-                    // };
-
                     Box::new(iter.map(switch_statement))
                 }
                 Transducers::Filter(stack_func) => {
@@ -319,75 +215,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                     _ => None,
                                 },
                                 Err(e) => Some(Err(e)),
-                                // _ => None,
                             }
-
-                            // match stack_func {
-                            //     SteelVal::FuncV(func) => {
-                            //         let arg_vec = [arg.clone()];
-                            //         let res =
-                            //             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
-                            //         match res {
-                            //             Ok(k) => match k {
-                            //                 SteelVal::BoolV(true) => Some(Ok(arg)),
-                            //                 SteelVal::BoolV(false) => None,
-                            //                 _ => None,
-                            //             },
-                            //             Err(e) => Some(Err(e)),
-                            //             // _ => None,
-                            //         }
-                            //     }
-                            //     SteelVal::BoxedFunction(func) => {
-                            //         let arg_vec = [arg.clone()];
-                            //         let res =
-                            //             func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span));
-                            //         match res {
-                            //             Ok(k) => match k {
-                            //                 SteelVal::BoolV(true) => Some(Ok(arg)),
-                            //                 SteelVal::BoolV(false) => None,
-                            //                 _ => None,
-                            //             },
-                            //             Err(e) => Some(Err(e)),
-                            //             // _ => None,
-                            //         }
-                            //     }
-                            //     SteelVal::ContractedFunction(cf) => {
-                            //         let arg_vec = vec![arg.clone()];
-                            //         let res = cf.apply(
-                            //             arg_vec,
-                            //             cur_inst_span,
-                            //             &mut bundle_copy.borrow_mut(),
-                            //         );
-
-                            //         match res {
-                            //             Ok(k) => match k {
-                            //                 SteelVal::BoolV(true) => Some(Ok(arg)),
-                            //                 SteelVal::BoolV(false) => None,
-                            //                 _ => None,
-                            //             },
-                            //             Err(e) => Some(Err(e)),
-                            //         }
-                            //     }
-                            //     SteelVal::Closure(closure) => {
-                            //         let res = bundle_copy
-                            //             .borrow_mut()
-                            //             .call_with_one_arg(closure, arg.clone());
-
-                            //         match res {
-                            //             Ok(k) => match k {
-                            //                 SteelVal::BoolV(true) => Some(Ok(arg)),
-                            //                 SteelVal::BoolV(false) => None,
-                            //                 _ => None,
-                            //             },
-                            //             Err(e) => Some(Err(e)),
-                            //         }
-                            //     }
-                            //     _ => Some(Err(SteelErr::new(
-                            //         ErrorKind::TypeMismatch,
-                            //         "filter expected a function".to_string(),
-                            //     )
-                            //     .with_span(*cur_inst_span))),
-                            // }
                         }
 
                         _ => Some(arg),
@@ -411,27 +239,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 throw!(TypeMismatch => "reduce expected a function"; *cur_inst_span),
             )
         };
-
-        // let switch_statement = move |acc, x| match &reducer {
-        //     SteelVal::FuncV(func) => {
-        //         let arg_vec = [acc?, x?];
-        //         func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-        //     }
-        //     SteelVal::BoxedFunction(func) => {
-        //         let arg_vec = [acc?, x?];
-        //         func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
-        //     }
-        //     SteelVal::ContractedFunction(cf) => {
-        //         let arg_vec = vec![acc?, x?];
-
-        //         cf.apply(arg_vec, cur_inst_span, &mut bundle_copy.borrow_mut())
-        //     }
-        //     SteelVal::Closure(closure) => bundle_copy
-        //         .borrow_mut()
-        //         .call_with_two_args(closure, acc?, x?),
-
-        //     _ => stop!(TypeMismatch => "reduce expected a function"; *cur_inst_span),
-        // };
 
         iter.fold(Ok(initial_value), switch_statement)
     }
