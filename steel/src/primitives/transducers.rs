@@ -36,7 +36,7 @@ impl TransducerOperations {
                     transducer.push(Transducers::Map(args[0].clone()));
                     Ok(SteelVal::IterV(Gc::new(transducer)))
                 }
-                _ => stop!(TypeMismatch => "mapping expects a function"),
+                v => stop!(TypeMismatch => format!("mapping expects a function, found: {:?}", v)),
             }
         })
     }

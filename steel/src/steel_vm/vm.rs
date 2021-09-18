@@ -418,7 +418,65 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         SteelVal::ContinuationFunction(Gc::new(captured_continuation))
     }
 
-    fn vm(mut self) -> Result<SteelVal> {
+    // Calling convention
+    pub(crate) fn call_with_two_args(
+        &mut self,
+        closure: &Gc<ByteCodeLambda>,
+        arg1: SteelVal,
+        arg2: SteelVal,
+    ) -> Result<SteelVal> {
+        let prev_length = self.stack.len();
+        self.stack_index.push(prev_length);
+        self.stack.push(arg1);
+        self.stack.push(arg2);
+        self.function_stack.push(Gc::clone(closure));
+
+        let old_ip = self.ip;
+        let old_instructions = std::mem::replace(&mut self.instructions, closure.body_exp());
+        let old_pop_count = self.pop_count;
+
+        self.ip = 0;
+        self.pop_count = 1;
+
+        let res = self.vm();
+
+        self.ip = old_ip;
+        self.instructions = old_instructions;
+        self.pop_count = old_pop_count;
+
+        res
+    }
+
+    // Calling convention
+    pub(crate) fn call_with_one_arg(
+        &mut self,
+        closure: &Gc<ByteCodeLambda>,
+        arg: SteelVal,
+    ) -> Result<SteelVal> {
+        let prev_length = self.stack.len();
+        self.stack_index.push(prev_length);
+        self.stack.push(arg);
+        self.function_stack.push(Gc::clone(closure));
+
+        // Get the old ones
+        let old_ip = self.ip;
+        let old_instructions = std::mem::replace(&mut self.instructions, closure.body_exp());
+        let old_pop_count = self.pop_count;
+
+        // Set the basic stuff
+        self.ip = 0;
+        self.pop_count = 1;
+
+        let res = self.vm();
+
+        self.ip = old_ip;
+        self.instructions = old_instructions;
+        self.pop_count = old_pop_count;
+
+        res
+    }
+
+    pub(crate) fn vm(&mut self) -> Result<SteelVal> {
         let mut cur_inst;
 
         while self.ip < self.instructions.len() {
@@ -1095,7 +1153,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        println!("##########################################");
+        // println!("##########################################");
 
         closure.increment_call_count();
 
@@ -1261,19 +1319,21 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         if self.apply_contracts.enforce_contracts() {
             let args = self.stack.split_off(self.stack.len() - payload_size);
 
-            let result = cf.apply(
-                args,
-                self.constants,
-                span,
-                self.callback,
-                &mut self.upvalue_heap,
-                self.global_env,
-                &mut self.stack,
-                &mut self.function_stack,
-                &mut self.stack_index,
-                self.use_callbacks,
-                self.apply_contracts,
-            )?;
+            let result = cf.apply(args, span, self)?;
+
+            // let result = cf.apply(
+            //     args,
+            //     self.constants,
+            //     span,
+            //     self.callback,
+            //     &mut self.upvalue_heap,
+            //     self.global_env,
+            //     &mut self.stack,
+            //     &mut self.function_stack,
+            //     &mut self.stack_index,
+            //     self.use_callbacks,
+            //     self.apply_contracts,
+            // )?;
 
             self.stack.push(result);
             self.ip += 1;
@@ -1303,19 +1363,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         if self.apply_contracts.enforce_contracts() {
             let args = self.stack.split_off(self.stack.len() - payload_size);
 
-            let result = cf.apply(
-                args,
-                self.constants,
-                span,
-                self.callback,
-                &mut self.upvalue_heap,
-                self.global_env,
-                &mut self.stack,
-                &mut self.function_stack,
-                &mut self.stack_index,
-                self.use_callbacks,
-                self.apply_contracts,
-            )?;
+            let result = cf.apply(args, span, self)?;
 
             self.stack.push(result);
             self.ip += 1;
@@ -1440,19 +1488,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 }
 
                 if self.apply_contracts.enforce_contracts() {
-                    let result = cf.apply(
-                        vec![local, const_value],
-                        self.constants,
-                        span,
-                        self.callback,
-                        &mut self.upvalue_heap,
-                        self.global_env,
-                        &mut self.stack,
-                        &mut self.function_stack,
-                        &mut self.stack_index,
-                        self.use_callbacks,
-                        self.apply_contracts,
-                    )?;
+                    let result = cf.apply(vec![local, const_value], span, self)?;
 
                     self.stack.push(result);
                     self.ip += 4;

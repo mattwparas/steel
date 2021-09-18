@@ -72,44 +72,32 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             _ => CollectionType::List,
         };
 
-        let global_env: Rc<RefCell<&mut &'a mut Env>> = Rc::new(RefCell::new(&mut self.global_env));
+        // let global_env: Rc<RefCell<&mut &'a mut Env>> = Rc::new(RefCell::new(&mut self.global_env));
 
         // Initialize the iterator to be the iterator over whatever is given, stop if its not iterable
         let mut iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
             SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(Ok)),
             SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(Ok)),
-            SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-                lazy_stream.unwrap(),
-                self.constants,
-                cur_inst_span,
-                self.callback,
-                Rc::clone(&global_env),
-                self.use_callbacks,
-                self.apply_contracts,
-            )),
+            // SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
+            //     lazy_stream.unwrap(),
+            //     self.constants,
+            //     cur_inst_span,
+            //     self.callback,
+            //     Rc::clone(&global_env),
+            //     self.use_callbacks,
+            //     self.apply_contracts,
+            // )),
             SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
             SteelVal::ListV(l) => Box::new(l.iter().cloned().map(Ok)),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
-        let constants = self.constants;
-        let callback = self.callback;
-        let vm_stack = Rc::new(RefCell::new(&mut self.stack));
-        let vm_stack_index = Rc::new(RefCell::new(&mut self.stack_index));
-        let function_stack = Rc::new(RefCell::new(&mut self.function_stack));
-        let upvalue_heap = Rc::new(RefCell::new(&mut self.upvalue_heap));
-
-        let use_callbacks = self.use_callbacks;
-        let apply_contracts = self.apply_contracts;
+        let bundle = Rc::new(RefCell::new(self));
 
         for t in ops {
             iter = match t {
                 Transducers::Map(stack_func) => {
-                    let vm_stack_copy = Rc::clone(&vm_stack);
-                    let vm_stack_index_copy = Rc::clone(&vm_stack_index);
-                    let function_stack_copy = Rc::clone(&function_stack);
-                    let global_env_copy = Rc::clone(&global_env);
-                    let upvalue_heap_copy = Rc::clone(&upvalue_heap);
+                    let bundle_copy = Rc::clone(&bundle);
 
                     let switch_statement = move |arg| match &stack_func {
                         SteelVal::FuncV(func) => {
@@ -122,53 +110,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         }
                         SteelVal::ContractedFunction(cf) => {
                             let arg_vec = vec![arg?];
-                            // let mut local_upvalue_heap = UpValueHeap::new();
-                            cf.apply(
-                                arg_vec,
-                                constants,
-                                cur_inst_span,
-                                callback,
-                                &mut upvalue_heap_copy.borrow_mut(),
-                                &mut global_env_copy.borrow_mut(),
-                                &mut vm_stack_copy.borrow_mut(),
-                                &mut function_stack_copy.borrow_mut(),
-                                &mut vm_stack_index_copy.borrow_mut(),
-                                use_callbacks,
-                                apply_contracts,
-                            )
+                            cf.apply(arg_vec, cur_inst_span, &mut bundle_copy.borrow_mut())
                         }
                         SteelVal::Closure(closure) => {
-                            // let mut local_upvalue_heap = UpValueHeap::new();
-
-                            // Set the state prior to the recursive call
-                            vm_stack_index_copy
-                                .borrow_mut()
-                                .push(vm_stack_copy.borrow().len());
-
-                            vm_stack_copy.borrow_mut().push(arg?);
-
-                            function_stack_copy.borrow_mut().push(Gc::clone(closure));
-
-                            // println!("Calling vm inside map");
-
-                            // TODO make recursive call here with a very small stack
-                            // probably a bit overkill, but not much else I can do here I think
-                            let output = vm(
-                                closure.body_exp(),
-                                &mut vm_stack_copy.borrow_mut(),
-                                &mut global_env_copy.borrow_mut(),
-                                constants,
-                                callback,
-                                &mut upvalue_heap_copy.borrow_mut(),
-                                &mut function_stack_copy.borrow_mut(),
-                                &mut vm_stack_index_copy.borrow_mut(),
-                                use_callbacks,
-                                apply_contracts,
-                                // #[cfg(feature = "jit")]
-                                None,
-                            );
-
-                            output
+                            bundle_copy.borrow_mut().call_with_one_arg(closure, arg?)
                         }
                         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
                     };
@@ -176,11 +121,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     Box::new(iter.map(switch_statement))
                 }
                 Transducers::Filter(stack_func) => {
-                    let vm_stack_copy = Rc::clone(&vm_stack);
-                    let vm_stack_index_copy = Rc::clone(&vm_stack_index);
-                    let function_stack_copy = Rc::clone(&function_stack);
-                    let global_env_copy = Rc::clone(&global_env);
-                    let upvalue_heap_copy = Rc::clone(&upvalue_heap);
+                    let bundle_copy = Rc::clone(&bundle);
 
                     let switch_statement = move |arg: Result<SteelVal>| match arg {
                         Ok(arg) => {
@@ -215,19 +156,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                 }
                                 SteelVal::ContractedFunction(cf) => {
                                     let arg_vec = vec![arg.clone()];
-                                    // let mut local_upvalue_heap = UpValueHeap::new();
                                     let res = cf.apply(
                                         arg_vec,
-                                        constants,
                                         cur_inst_span,
-                                        callback,
-                                        &mut upvalue_heap_copy.borrow_mut(),
-                                        &mut global_env_copy.borrow_mut(),
-                                        &mut vm_stack_copy.borrow_mut(),
-                                        &mut function_stack_copy.borrow_mut(),
-                                        &mut vm_stack_index_copy.borrow_mut(),
-                                        use_callbacks,
-                                        apply_contracts,
+                                        &mut bundle_copy.borrow_mut(),
                                     );
                                     match res {
                                         Ok(k) => match k {
@@ -239,30 +171,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                     }
                                 }
                                 SteelVal::Closure(closure) => {
-                                    // Set the state prior to the recursive call
-                                    vm_stack_index_copy
+                                    let res = bundle_copy
                                         .borrow_mut()
-                                        .push(vm_stack_copy.borrow().len());
-
-                                    vm_stack_copy.borrow_mut().push(arg.clone());
-
-                                    function_stack_copy.borrow_mut().push(Gc::clone(closure));
-
-                                    // TODO make recursive call here with a very small stack
-                                    // probably a bit overkill, but not much else I can do here I think
-                                    let res = vm(
-                                        closure.body_exp(),
-                                        &mut vm_stack_copy.borrow_mut(),
-                                        &mut global_env_copy.borrow_mut(),
-                                        constants,
-                                        callback,
-                                        &mut upvalue_heap_copy.borrow_mut(),
-                                        &mut function_stack_copy.borrow_mut(),
-                                        &mut vm_stack_index_copy.borrow_mut(),
-                                        use_callbacks,
-                                        apply_contracts,
-                                        None,
-                                    );
+                                        .call_with_one_arg(closure, arg.clone());
 
                                     match res {
                                         Ok(k) => match k {
@@ -319,43 +230,29 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         reducer: SteelVal,
         cur_inst_span: &Span,
     ) -> Result<SteelVal> {
-        let constants = self.constants;
-        let callback = self.callback;
-        let vm_stack = Rc::new(RefCell::new(&mut self.stack));
-        let vm_stack_index = Rc::new(RefCell::new(&mut self.stack_index));
-        let function_stack = Rc::new(RefCell::new(&mut self.function_stack));
-        let heap = Rc::new(RefCell::new(&mut self.upvalue_heap));
-
-        let global_env = Rc::new(RefCell::new(&mut self.global_env));
-
         let mut iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
             SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(Ok)),
             SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(Ok)),
-            SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-                lazy_stream.unwrap(),
-                self.constants,
-                cur_inst_span,
-                self.callback,
-                Rc::clone(&global_env),
-                self.use_callbacks,
-                self.apply_contracts,
-            )),
+            // SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
+            //     lazy_stream.unwrap(),
+            //     self.constants,
+            //     cur_inst_span,
+            //     self.callback,
+            //     Rc::clone(&global_env),
+            //     self.use_callbacks,
+            //     self.apply_contracts,
+            // )),
             SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
             SteelVal::ListV(l) => Box::new(l.iter().cloned().map(Ok)),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
-        let use_callbacks = self.use_callbacks;
-        let apply_contracts = self.apply_contracts;
+        let bundle = Rc::new(RefCell::new(self));
 
         for t in ops {
             iter = match t {
                 Transducers::Map(stack_func) => {
-                    let vm_stack_copy = Rc::clone(&vm_stack);
-                    let vm_stack_index_copy = Rc::clone(&vm_stack_index);
-                    let function_stack_copy = Rc::clone(&function_stack);
-                    let global_env_copy = Rc::clone(&global_env);
-                    let heap_copy = Rc::clone(&heap);
+                    let bundle_copy = Rc::clone(&bundle);
 
                     let switch_statement = move |arg| match &stack_func {
                         SteelVal::FuncV(func) => {
@@ -368,48 +265,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         }
                         SteelVal::ContractedFunction(cf) => {
                             let arg_vec = vec![arg?];
-                            cf.apply(
-                                arg_vec,
-                                constants,
-                                cur_inst_span,
-                                callback,
-                                &mut heap_copy.borrow_mut(),
-                                &mut global_env_copy.borrow_mut(),
-                                &mut vm_stack_copy.borrow_mut(),
-                                &mut function_stack_copy.borrow_mut(),
-                                &mut vm_stack_index_copy.borrow_mut(),
-                                use_callbacks,
-                                apply_contracts,
-                            )
+                            cf.apply(arg_vec, cur_inst_span, &mut bundle_copy.borrow_mut())
                         }
                         SteelVal::Closure(closure) => {
-                            // Set the state prior to the recursive call
-                            vm_stack_index_copy
-                                .borrow_mut()
-                                .push(vm_stack_copy.borrow().len());
-
-                            vm_stack_copy.borrow_mut().push(arg?);
-
-                            function_stack_copy.borrow_mut().push(Gc::clone(closure));
-
-                            // TODO make recursive call here with a very small stack
-                            // probably a bit overkill, but not much else I can do here I think
-                            let output = vm(
-                                closure.body_exp(),
-                                &mut vm_stack_copy.borrow_mut(),
-                                &mut global_env_copy.borrow_mut(),
-                                constants,
-                                callback,
-                                &mut heap_copy.borrow_mut(),
-                                &mut function_stack_copy.borrow_mut(),
-                                &mut vm_stack_index_copy.borrow_mut(),
-                                use_callbacks,
-                                apply_contracts,
-                                // #[cfg(feature = "jit")]
-                                None,
-                            );
-
-                            output
+                            bundle_copy.borrow_mut().call_with_one_arg(closure, arg?)
                         }
                         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
                     };
@@ -417,11 +276,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     Box::new(iter.map(switch_statement))
                 }
                 Transducers::Filter(stack_func) => {
-                    let vm_stack_copy = Rc::clone(&vm_stack);
-                    let vm_stack_index_copy = Rc::clone(&vm_stack_index);
-                    let function_stack_copy = Rc::clone(&function_stack);
-                    let global_env_copy = Rc::clone(&global_env);
-                    let heap_copy = Rc::clone(&heap);
+                    let bundle_copy = Rc::clone(&bundle);
 
                     let switch_statement = move |arg: Result<SteelVal>| match arg {
                         Ok(arg) => {
@@ -458,17 +313,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                     let arg_vec = vec![arg.clone()];
                                     let res = cf.apply(
                                         arg_vec,
-                                        constants,
                                         cur_inst_span,
-                                        callback,
-                                        &mut heap_copy.borrow_mut(),
-                                        &mut global_env_copy.borrow_mut(),
-                                        &mut vm_stack_copy.borrow_mut(),
-                                        &mut function_stack_copy.borrow_mut(),
-                                        &mut vm_stack_index_copy.borrow_mut(),
-                                        use_callbacks,
-                                        apply_contracts,
+                                        &mut bundle_copy.borrow_mut(),
                                     );
+
                                     match res {
                                         Ok(k) => match k {
                                             SteelVal::BoolV(true) => Some(Ok(arg)),
@@ -479,30 +327,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                     }
                                 }
                                 SteelVal::Closure(closure) => {
-                                    // Set the state prior to the recursive call
-                                    vm_stack_index_copy
+                                    let res = bundle_copy
                                         .borrow_mut()
-                                        .push(vm_stack_copy.borrow().len());
-
-                                    vm_stack_copy.borrow_mut().push(arg.clone());
-
-                                    function_stack_copy.borrow_mut().push(Gc::clone(closure));
-
-                                    // TODO make recursive call here with a very small stack
-                                    // probably a bit overkill, but not much else I can do here I think
-                                    let res = vm(
-                                        closure.body_exp(),
-                                        &mut vm_stack_copy.borrow_mut(),
-                                        &mut global_env_copy.borrow_mut(),
-                                        constants,
-                                        callback,
-                                        &mut heap_copy.borrow_mut(),
-                                        &mut function_stack_copy.borrow_mut(),
-                                        &mut vm_stack_index_copy.borrow_mut(),
-                                        use_callbacks,
-                                        apply_contracts,
-                                        None,
-                                    );
+                                        .call_with_one_arg(closure, arg.clone());
 
                                     match res {
                                         Ok(k) => match k {
@@ -531,10 +358,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             }
         }
 
-        let vm_stack_copy = Rc::clone(&vm_stack);
-        let vm_stack_index_copy = Rc::clone(&vm_stack_index);
-        let function_stack_copy = Rc::clone(&function_stack);
-        let global_env_copy = Rc::clone(&global_env);
+        let bundle_copy = Rc::clone(&bundle);
 
         let switch_statement = move |acc, x| match &reducer {
             SteelVal::FuncV(func) => {
@@ -547,44 +371,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec = vec![acc?, x?];
-                let mut local_upvalue_heap = UpValueHeap::new();
-                cf.apply(
-                    arg_vec,
-                    constants,
-                    cur_inst_span,
-                    callback,
-                    &mut local_upvalue_heap,
-                    &mut global_env_copy.borrow_mut(),
-                    &mut vm_stack_copy.borrow_mut(),
-                    &mut function_stack_copy.borrow_mut(),
-                    &mut vm_stack_index_copy.borrow_mut(),
-                    use_callbacks,
-                    apply_contracts,
-                )
+
+                cf.apply(arg_vec, cur_inst_span, &mut bundle_copy.borrow_mut())
             }
-            SteelVal::Closure(closure) => {
-                // Set the state prior to the recursive call
-                vm_stack_index.borrow_mut().push(vm_stack.borrow().len());
-
-                vm_stack.borrow_mut().push(acc?);
-                vm_stack.borrow_mut().push(x?);
-
-                function_stack.borrow_mut().push(Gc::clone(closure));
-
-                vm(
-                    closure.body_exp(),
-                    &mut vm_stack.borrow_mut(),
-                    &mut global_env_copy.borrow_mut(),
-                    constants,
-                    callback,
-                    &mut heap.borrow_mut(),
-                    &mut function_stack.borrow_mut(),
-                    &mut vm_stack_index_copy.borrow_mut(),
-                    use_callbacks,
-                    apply_contracts,
-                    None,
-                )
-            }
+            SteelVal::Closure(closure) => bundle_copy
+                .borrow_mut()
+                .call_with_two_args(closure, acc?, x?),
 
             _ => stop!(TypeMismatch => "reduce expected a function"; *cur_inst_span),
         };

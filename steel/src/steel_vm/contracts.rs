@@ -3,7 +3,7 @@ use super::{
     heap::UpValueHeap,
     options::{ApplyContracts, UseCallbacks},
     stack::StackFrame,
-    vm::vm,
+    vm::{vm, VmCore},
 };
 use crate::{
     compiler::constants::ConstantTable,
@@ -24,37 +24,47 @@ use log::debug;
 use super::stack::Stack;
 
 /// Extension trait for the application of contracted functions
+// TODO replace this with an &mut VmCore instead
 pub(crate) trait ContractedFunctionExt {
-    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    // fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    //     &self,
+    //     arguments: Vec<SteelVal>,
+    //     constants: &CT,
+    //     cur_inst_span: &Span,
+    //     callback: &EvaluationProgress,
+    //     upvalue_heap: &mut UpValueHeap,
+    //     global_env: &mut Env,
+    //     stack: &mut StackFrame,
+    //     function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+    //     stack_index: &mut Stack<usize>,
+    //     use_callbacks: U,
+    //     apply_contracts: A,
+    // ) -> Result<SteelVal>;
+
+    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arguments: Vec<SteelVal>,
-        constants: &CT,
         cur_inst_span: &Span,
-        callback: &EvaluationProgress,
-        upvalue_heap: &mut UpValueHeap,
-        global_env: &mut Env,
-        stack: &mut StackFrame,
-        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-        stack_index: &mut Stack<usize>,
-        use_callbacks: U,
-        apply_contracts: A,
+        context: &mut VmCore<'a, CT, U, A>,
     ) -> Result<SteelVal>;
 }
 
+// impl ContractedFunction {
+//     fn test_apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+//         &self,
+//         arguments: Vec<SteelVal>,
+//         context: &mut VmCore<'a, CT, U, A>,
+//     ) -> Result<SteelVal> {
+//         todo!()
+//     }
+// }
+
 impl ContractedFunctionExt for ContractedFunction {
-    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arguments: Vec<SteelVal>,
-        constants: &CT,
         cur_inst_span: &Span,
-        callback: &EvaluationProgress,
-        upvalue_heap: &mut UpValueHeap,
-        global_env: &mut Env,
-        stack: &mut StackFrame,
-        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-        stack_index: &mut Stack<usize>,
-        use_callbacks: U,
-        apply_contracts: A,
+        ctx: &mut VmCore<'a, CT, U, A>,
     ) -> Result<SteelVal> {
         // Walk back and find the contracts to apply
         {
@@ -64,16 +74,16 @@ impl ContractedFunctionExt for ContractedFunction {
                     &self.name,
                     &self.function,
                     &arguments,
-                    constants,
+                    ctx.constants,
                     cur_inst_span,
-                    callback,
-                    upvalue_heap,
-                    global_env,
-                    stack,
-                    function_stack,
-                    stack_index,
-                    use_callbacks,
-                    apply_contracts,
+                    ctx.callback,
+                    ctx.upvalue_heap,
+                    ctx.global_env,
+                    ctx.stack,
+                    ctx.function_stack,
+                    ctx.stack_index,
+                    ctx.use_callbacks,
+                    ctx.apply_contracts,
                 )?;
 
                 parent = p.parent()
@@ -84,16 +94,16 @@ impl ContractedFunctionExt for ContractedFunction {
             &self.name,
             &self.function,
             &arguments,
-            constants,
+            ctx.constants,
             cur_inst_span,
-            callback,
-            upvalue_heap,
-            global_env,
-            stack,
-            function_stack,
-            stack_index,
-            use_callbacks,
-            apply_contracts,
+            ctx.callback,
+            ctx.upvalue_heap,
+            ctx.global_env,
+            ctx.stack,
+            ctx.function_stack,
+            ctx.stack_index,
+            ctx.use_callbacks,
+            ctx.apply_contracts,
         )
     }
 }
