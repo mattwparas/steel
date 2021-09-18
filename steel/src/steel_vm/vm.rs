@@ -422,7 +422,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     pub(crate) fn call_with_args(
         &mut self,
         closure: &Gc<ByteCodeLambda>,
-        args: impl Iterator<Item = SteelVal>,
+        args: impl IntoIterator<Item = SteelVal>,
     ) -> Result<SteelVal> {
         let prev_length = self.stack.len();
         self.stack_index.push(prev_length);

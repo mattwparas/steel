@@ -70,76 +70,33 @@ impl ContractedFunctionExt for ContractedFunction {
         {
             let mut parent = self.contract.parent();
             while let Some(p) = parent {
-                p.apply(
-                    &self.name,
-                    &self.function,
-                    &arguments,
-                    ctx.constants,
-                    cur_inst_span,
-                    ctx.callback,
-                    ctx.upvalue_heap,
-                    ctx.global_env,
-                    ctx.stack,
-                    ctx.function_stack,
-                    ctx.stack_index,
-                    ctx.use_callbacks,
-                    ctx.apply_contracts,
-                )?;
+                p.apply(&self.name, &self.function, &arguments, cur_inst_span, ctx)?;
 
                 parent = p.parent()
             }
         }
 
-        self.contract.apply(
-            &self.name,
-            &self.function,
-            &arguments,
-            ctx.constants,
-            cur_inst_span,
-            ctx.callback,
-            ctx.upvalue_heap,
-            ctx.global_env,
-            ctx.stack,
-            ctx.function_stack,
-            ctx.stack_index,
-            ctx.use_callbacks,
-            ctx.apply_contracts,
-        )
+        self.contract
+            .apply(&self.name, &self.function, &arguments, cur_inst_span, ctx)
     }
 }
 
 /// Extension trait for the application of flat contracts
 pub(crate) trait FlatContractExt {
-    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arg: SteelVal,
-        constants: &CT,
         cur_inst_span: &Span,
-        callback: &EvaluationProgress,
-        upvalue_heap: &mut UpValueHeap,
-        global_env: &mut Env,
-        stack: &mut StackFrame,
-        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-        stack_index: &mut Stack<usize>,
-        use_callbacks: U,
-        apply_contracts: A,
+        ctx: &mut VmCore<'a, CT, U, A>,
     ) -> Result<()>;
 }
 
 impl FlatContractExt for FlatContract {
-    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arg: SteelVal,
-        constants: &CT,
         cur_inst_span: &Span,
-        callback: &EvaluationProgress,
-        upvalue_heap: &mut UpValueHeap,
-        global_env: &mut Env,
-        stack: &mut StackFrame,
-        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-        stack_index: &mut Stack<usize>,
-        use_callbacks: U,
-        apply_contracts: A,
+        ctx: &mut VmCore<'a, CT, U, A>,
     ) -> Result<()> {
         // TODO make this not clone the argument
         let output = match self.predicate() {
@@ -148,24 +105,26 @@ impl FlatContractExt for FlatContract {
                 func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => {
-                stack_index.push(stack.len());
-                stack.push(arg.clone());
-                function_stack.push(Gc::clone(closure));
+                ctx.call_with_one_arg(closure, arg.clone())
 
-                vm(
-                    closure.body_exp(),
-                    stack,
-                    global_env,
-                    constants,
-                    callback,
-                    upvalue_heap,
-                    function_stack,
-                    stack_index,
-                    use_callbacks,
-                    apply_contracts,
-                    // #[cfg(feature = "jit")]
-                    None,
-                )
+                // stack_index.push(stack.len());
+                // stack.push(arg.clone());
+                // function_stack.push(Gc::clone(closure));
+
+                // vm(
+                //     closure.body_exp(),
+                //     stack,
+                //     global_env,
+                //     constants,
+                //     callback,
+                //     upvalue_heap,
+                //     function_stack,
+                //     stack_index,
+                //     use_callbacks,
+                //     apply_contracts,
+                //     // #[cfg(feature = "jit")]
+                //     None,
+                // )
             }
             _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),
         }?;
@@ -180,93 +139,41 @@ impl FlatContractExt for FlatContract {
 
 /// Extension trait for the application of function contracts
 pub(crate) trait FunctionContractExt {
-    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
         // function: &Gc<ByteCodeLambda>,
         function: &SteelVal,
         arguments: &[SteelVal],
-        constants: &CT,
         cur_inst_span: &Span,
-        callback: &EvaluationProgress,
-        upvalue_heap: &mut UpValueHeap,
-        global_env: &mut Env,
-        stack: &mut StackFrame,
-        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-        stack_index: &mut Stack<usize>,
-        use_callbacks: U,
-        apply_contracts: A,
+        ctx: &mut VmCore<'a, CT, U, A>,
     ) -> Result<SteelVal>;
 }
 
 impl FunctionContractExt for FunctionKind {
-    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
         function: &SteelVal,
         arguments: &[SteelVal],
-        constants: &CT,
         cur_inst_span: &Span,
-        callback: &EvaluationProgress,
-        upvalue_heap: &mut UpValueHeap,
-        global_env: &mut Env,
-        stack: &mut StackFrame,
-        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-        stack_index: &mut Stack<usize>,
-        use_callbacks: U,
-        apply_contracts: A,
+        ctx: &mut VmCore<'a, CT, U, A>,
     ) -> Result<SteelVal> {
         match self {
-            Self::Basic(fc) => fc.apply(
-                name,
-                function,
-                arguments,
-                constants,
-                cur_inst_span,
-                callback,
-                upvalue_heap,
-                global_env,
-                stack,
-                function_stack,
-                stack_index,
-                use_callbacks,
-                apply_contracts,
-            ),
-            Self::Dependent(dc) => dc.apply(
-                name,
-                function,
-                arguments,
-                constants,
-                cur_inst_span,
-                callback,
-                upvalue_heap,
-                global_env,
-                stack,
-                function_stack,
-                stack_index,
-                use_callbacks,
-                apply_contracts,
-            ),
+            Self::Basic(fc) => fc.apply(name, function, arguments, cur_inst_span, ctx),
+            Self::Dependent(dc) => dc.apply(name, function, arguments, cur_inst_span, ctx),
         }
     }
 }
 
 impl FunctionContractExt for DependentContract {
-    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
         function: &SteelVal,
         arguments: &[SteelVal],
-        constants: &CT,
         cur_inst_span: &Span,
-        callback: &EvaluationProgress,
-        upvalue_heap: &mut UpValueHeap,
-        global_env: &mut Env,
-        stack: &mut StackFrame,
-        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-        stack_index: &mut Stack<usize>,
-        use_callbacks: U,
-        apply_contracts: A,
+        ctx: &mut VmCore<'a, CT, U, A>,
     ) -> Result<SteelVal> {
         let mut verified_args: Vec<SteelVal> = Vec::new();
 
@@ -289,48 +196,36 @@ impl FunctionContractExt for DependentContract {
                 .expect("missing argument in dependent contract");
 
             let contract = {
-                function_stack.push(Gc::clone(thunk));
-                stack_index.push(stack.len());
-                for arg in arg_stack {
-                    stack.push(arg);
-                }
-
-                vm(
-                    thunk.body_exp(),
-                    stack, // TODO change this from verified args to the stack of arguments it needs
-                    global_env, // TODO remove this as well
-                    constants,
-                    callback,
-                    upvalue_heap,
-                    function_stack,
-                    stack_index,
-                    use_callbacks,
-                    apply_contracts,
-                    // #[cfg(feature = "jit")]
-                    None,
-                )?
-                .contract_or_else(
-                    throw!(TypeMismatch => "dependent contract expected a contract"),
-                )?
+                ctx.call_with_args(thunk, arg_stack)?
+                    // function_stack.push(Gc::clone(thunk));
+                    // stack_index.push(stack.len());
+                    // for arg in arg_stack {
+                    //     stack.push(arg);
+                    // }
+                    // vm(
+                    //     thunk.body_exp(),
+                    //     stack, // TODO change this from verified args to the stack of arguments it needs
+                    //     global_env, // TODO remove this as well
+                    //     constants,
+                    //     callback,
+                    //     upvalue_heap,
+                    //     function_stack,
+                    //     stack_index,
+                    //     use_callbacks,
+                    //     apply_contracts,
+                    //     // #[cfg(feature = "jit")]
+                    //     None,
+                    // )?
+                    .contract_or_else(
+                        throw!(TypeMismatch => "dependent contract expected a contract"),
+                    )?
             };
 
             match contract.as_ref() {
                 ContractType::Flat(f) => {
                     debug!("applying flat contract in pre condition: {}", f.name);
 
-                    if let Err(e) = f.apply(
-                        arg.clone(),
-                        constants,
-                        cur_inst_span,
-                        callback,
-                        upvalue_heap,
-                        global_env,
-                        stack,
-                        function_stack,
-                        stack_index,
-                        use_callbacks,
-                        apply_contracts,
-                    ) {
+                    if let Err(e) = f.apply(arg.clone(), cur_inst_span, ctx) {
                         debug!(
                             "Blame locations: {:?}, {:?}",
                             self.contract_attachment_location, name
@@ -382,27 +277,29 @@ impl FunctionContractExt for DependentContract {
 
         let output = match function {
             SteelVal::Closure(function) => {
-                function_stack.push(Gc::clone(function));
+                ctx.call_with_args(function, verified_args)?
 
-                stack_index.push(stack.len());
-                for arg in verified_args {
-                    stack.push(arg);
-                }
+                // function_stack.push(Gc::clone(function));
 
-                vm(
-                    function.body_exp(),
-                    stack,
-                    global_env, // TODO remove this as well
-                    constants,
-                    callback,
-                    upvalue_heap,
-                    function_stack,
-                    stack_index,
-                    use_callbacks,
-                    apply_contracts,
-                    // #[cfg(feature = "jit")]
-                    None,
-                )?
+                // stack_index.push(stack.len());
+                // for arg in verified_args {
+                //     stack.push(arg);
+                // }
+
+                // vm(
+                //     function.body_exp(),
+                //     stack,
+                //     global_env, // TODO remove this as well
+                //     constants,
+                //     callback,
+                //     upvalue_heap,
+                //     function_stack,
+                //     stack_index,
+                //     use_callbacks,
+                //     apply_contracts,
+                //     // #[cfg(feature = "jit")]
+                //     None,
+                // )?
             }
             SteelVal::BoxedFunction(f) => {
                 f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
@@ -433,28 +330,29 @@ impl FunctionContractExt for DependentContract {
             .expect("missing argument in dependent contract");
 
         let contract = {
-            function_stack.push(Gc::clone(thunk));
-
-            stack_index.push(stack.len());
-            for arg in arg_stack {
-                stack.push(arg);
-            }
-
-            vm(
-                thunk.body_exp(),
-                stack, // TODO change this from verified args to the stack of arguments it needs
-                global_env, // TODO remove this as well
-                constants,
-                callback,
-                upvalue_heap,
-                function_stack,
-                stack_index,
-                use_callbacks,
-                apply_contracts,
-                // #[cfg(feature = "jit")]
-                None,
-            )?
-            .contract_or_else(throw!(TypeMismatch => "dependent contract expected a contract"))?
+            ctx.call_with_args(thunk, arg_stack)?
+                // function_stack.push(Gc::clone(thunk));
+                // stack_index.push(stack.len());
+                // for arg in arg_stack {
+                //     stack.push(arg);
+                // }
+                // vm(
+                //     thunk.body_exp(),
+                //     stack, // TODO change this from verified args to the stack of arguments it needs
+                //     global_env, // TODO remove this as well
+                //     constants,
+                //     callback,
+                //     upvalue_heap,
+                //     function_stack,
+                //     stack_index,
+                //     use_callbacks,
+                //     apply_contracts,
+                //     // #[cfg(feature = "jit")]
+                //     None,
+                // )?
+                .contract_or_else(
+                    throw!(TypeMismatch => "dependent contract expected a contract"),
+                )?
         };
 
         match contract.as_ref() {
@@ -465,16 +363,16 @@ impl FunctionContractExt for DependentContract {
 
                 if let Err(e) = f.apply(
                     output.clone(),
-                    constants,
                     cur_inst_span,
-                    callback,
-                    upvalue_heap,
-                    global_env,
-                    stack,
-                    function_stack,
-                    stack_index,
-                    use_callbacks,
-                    apply_contracts,
+                    ctx
+                    // callback,
+                    // upvalue_heap,
+                    // global_env,
+                    // stack,
+                    // function_stack,
+                    // stack_index,
+                    // use_callbacks,
+                    // apply_contracts,
                 ) {
                     debug!(
                         "Blame locations: {:?}, {:?}",
@@ -543,21 +441,13 @@ impl FunctionContractExt for DependentContract {
 }
 
 impl FunctionContractExt for FunctionContract {
-    fn apply<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
         function: &SteelVal,
         arguments: &[SteelVal],
-        constants: &CT,
         cur_inst_span: &Span,
-        callback: &EvaluationProgress,
-        upvalue_heap: &mut UpValueHeap,
-        global_env: &mut Env,
-        stack: &mut StackFrame,
-        function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-        stack_index: &mut Stack<usize>,
-        use_callbacks: U,
-        apply_contracts: A,
+        ctx: &mut VmCore<'a, CT, U, A>,
     ) -> Result<SteelVal> {
         let mut verified_args = Vec::new();
 
@@ -570,19 +460,7 @@ impl FunctionContractExt for FunctionContract {
                 ContractType::Flat(f) => {
                     debug!("applying flat contract in pre condition: {}", f.name);
 
-                    if let Err(e) = f.apply(
-                        arg.clone(),
-                        constants,
-                        cur_inst_span,
-                        callback,
-                        upvalue_heap,
-                        global_env,
-                        stack,
-                        function_stack,
-                        stack_index,
-                        use_callbacks,
-                        apply_contracts,
-                    ) {
+                    if let Err(e) = f.apply(arg.clone(), cur_inst_span, ctx) {
                         debug!(
                             "Blame locations: {:?}, {:?}",
                             self.contract_attachment_location, name
@@ -636,33 +514,35 @@ impl FunctionContractExt for FunctionContract {
 
         let output = match function {
             SteelVal::Closure(function) => {
-                function_stack.push(Gc::clone(function));
+                ctx.call_with_args(function, verified_args.into_iter())?
 
-                // Set the state prior to the recursive call
-                stack_index.push(stack.len());
+                // function_stack.push(Gc::clone(function));
 
-                for arg in verified_args {
-                    stack.push(arg);
-                }
+                // // Set the state prior to the recursive call
+                // stack_index.push(stack.len());
 
-                // vm_stack_copy.borrow_mut().push(arg?);
+                // for arg in verified_args {
+                //     stack.push(arg);
+                // }
 
-                // function_stack_copy.borrow_mut().push(Gc::clone(closure));
+                // // vm_stack_copy.borrow_mut().push(arg?);
 
-                vm(
-                    function.body_exp(),
-                    stack,
-                    global_env, // TODO remove this as well
-                    constants,
-                    callback,
-                    upvalue_heap,
-                    function_stack,
-                    stack_index,
-                    use_callbacks,
-                    apply_contracts,
-                    // #[cfg(feature = "jit")]
-                    None,
-                )?
+                // // function_stack_copy.borrow_mut().push(Gc::clone(closure));
+
+                // vm(
+                //     function.body_exp(),
+                //     stack,
+                //     global_env, // TODO remove this as well
+                //     constants,
+                //     callback,
+                //     upvalue_heap,
+                //     function_stack,
+                //     stack_index,
+                //     use_callbacks,
+                //     apply_contracts,
+                //     // #[cfg(feature = "jit")]
+                //     None,
+                // )?
             }
             SteelVal::BoxedFunction(f) => {
                 f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
@@ -682,19 +562,7 @@ impl FunctionContractExt for FunctionContract {
 
                 debug!("applying flat contract in post condition: {}", f.name);
 
-                if let Err(e) = f.apply(
-                    output.clone(),
-                    constants,
-                    cur_inst_span,
-                    callback,
-                    upvalue_heap,
-                    global_env,
-                    stack,
-                    function_stack,
-                    stack_index,
-                    use_callbacks,
-                    apply_contracts,
-                ) {
+                if let Err(e) = f.apply(output.clone(), cur_inst_span, ctx) {
                     debug!(
                         "Blame locations: {:?}, {:?}",
                         self.contract_attachment_location, name
