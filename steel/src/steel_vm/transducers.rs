@@ -137,6 +137,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 Transducers::Window(num) => {
                     todo!()
                 }
+                Transducers::TakeWhile(func) => {
+                    todo!()
+                }
+                Transducers::DropWhile(func) => {
+                    todo!()
+                }
                 Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),
                 Transducers::Drop(num) => generate_drop!(iter, num, cur_inst_span),
             }
@@ -239,6 +245,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     todo!()
                 }
                 Transducers::Window(num) => {
+                    todo!()
+                }
+                Transducers::TakeWhile(func) => {
+                    todo!()
+                }
+                Transducers::DropWhile(func) => {
                     todo!()
                 }
                 Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),

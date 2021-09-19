@@ -359,13 +359,15 @@ impl Transducer {
 
 #[derive(Clone, PartialEq)]
 pub enum Transducers {
-    Map(SteelVal),     // function
-    Filter(SteelVal),  // function
-    Take(SteelVal),    // integer
-    Drop(SteelVal),    // integer
-    FlatMap(SteelVal), // function
-    Flatten,           // Takes nothing
-    Window(SteelVal),  // integer
+    Map(SteelVal),       // function
+    Filter(SteelVal),    // function
+    Take(SteelVal),      // integer
+    Drop(SteelVal),      // integer
+    FlatMap(SteelVal),   // function
+    Flatten,             // Takes nothing
+    Window(SteelVal),    // integer
+    TakeWhile(SteelVal), // function
+    DropWhile(SteelVal), // function
 }
 
 impl Hash for SteelVal {
