@@ -83,15 +83,15 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
-        let bundle = Rc::new(RefCell::new(self));
+        let vm = Rc::new(RefCell::new(self));
 
         for t in ops {
             iter = match t {
                 Transducers::Map(stack_func) => {
-                    let bundle_copy = Rc::clone(&bundle);
+                    let vm_copy = Rc::clone(&vm);
 
                     let switch_statement = move |arg| {
-                        bundle_copy.borrow_mut().call_func_or_else(
+                        vm_copy.borrow_mut().call_func_or_else(
                             stack_func,
                             arg?,
                             cur_inst_span,
@@ -102,11 +102,11 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     Box::new(iter.map(switch_statement))
                 }
                 Transducers::Filter(stack_func) => {
-                    let bundle_copy = Rc::clone(&bundle);
+                    let vm_copy = Rc::clone(&vm);
 
                     let switch_statement = move |arg: Result<SteelVal>| match arg {
                         Ok(arg) => {
-                            let res = bundle_copy.borrow_mut().call_func_or_else(
+                            let res = vm_copy.borrow_mut().call_func_or_else(
                                 stack_func,
                                 arg.clone(),
                                 cur_inst_span,
@@ -127,6 +127,15 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     };
 
                     Box::new(iter.filter_map(switch_statement))
+                }
+                Transducers::FlatMap(stack_func) => {
+                    todo!()
+                }
+                Transducers::Flatten => {
+                    todo!()
+                }
+                Transducers::Window(num) => {
+                    todo!()
                 }
                 Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),
                 Transducers::Drop(num) => generate_drop!(iter, num, cur_inst_span),
@@ -178,15 +187,15 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
-        let bundle = Rc::new(RefCell::new(self));
+        let vm = Rc::new(RefCell::new(self));
 
         for t in ops {
             iter = match t {
                 Transducers::Map(stack_func) => {
-                    let bundle_copy = Rc::clone(&bundle);
+                    let vm_copy = Rc::clone(&vm);
 
                     let switch_statement = move |arg| {
-                        bundle_copy.borrow_mut().call_func_or_else(
+                        vm_copy.borrow_mut().call_func_or_else(
                             stack_func,
                             arg?,
                             cur_inst_span,
@@ -197,11 +206,11 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     Box::new(iter.map(switch_statement))
                 }
                 Transducers::Filter(stack_func) => {
-                    let bundle_copy = Rc::clone(&bundle);
+                    let vm_copy = Rc::clone(&vm);
 
                     let switch_statement = move |arg: Result<SteelVal>| match arg {
                         Ok(arg) => {
-                            let res = bundle_copy.borrow_mut().call_func_or_else(
+                            let res = vm_copy.borrow_mut().call_func_or_else(
                                 stack_func,
                                 arg.clone(),
                                 cur_inst_span,
@@ -223,15 +232,24 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
                     Box::new(iter.filter_map(switch_statement))
                 }
+                Transducers::FlatMap(stack_func) => {
+                    todo!()
+                }
+                Transducers::Flatten => {
+                    todo!()
+                }
+                Transducers::Window(num) => {
+                    todo!()
+                }
                 Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),
                 Transducers::Drop(num) => generate_drop!(iter, num, cur_inst_span),
             }
         }
 
-        let bundle_copy = Rc::clone(&bundle);
+        let vm_copy = Rc::clone(&vm);
 
         let switch_statement = move |acc, x| {
-            bundle_copy.borrow_mut().call_func_or_else_two_args(
+            vm_copy.borrow_mut().call_func_or_else_two_args(
                 &reducer,
                 acc?,
                 x?,
