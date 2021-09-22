@@ -12,6 +12,7 @@ use super::{
 use crate::jit::code_gen::JIT;
 // #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
+use crate::rvals::Transducers;
 // use crate::steel_vm::contracts::FlatContractExt;
 use crate::values::contracts::ContractType;
 use crate::{
@@ -266,6 +267,21 @@ pub trait VmContext {
         function: &SteelVal,
         args: List<SteelVal>,
     ) -> Result<SteelVal>;
+
+    fn call_transduce(
+        &mut self,
+        ops: &[Transducers],
+        root: SteelVal,
+        initial_value: SteelVal,
+        reducer: SteelVal,
+    ) -> Result<SteelVal>;
+
+    fn call_execute(
+        &mut self,
+        ops: &[Transducers],
+        root: SteelVal,
+        collection_type: Option<SteelVal>,
+    ) -> Result<SteelVal>;
 }
 
 // For when we want a reference to the built in context as well -> In the event we want to call something
@@ -315,6 +331,27 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for Vm
             &span,
             throw!(TypeMismatch => format!("application not a procedure: {}", function)),
         )
+    }
+
+    fn call_transduce(
+        &mut self,
+        ops: &[Transducers],
+        root: SteelVal,
+        initial_value: SteelVal,
+        reducer: SteelVal,
+    ) -> Result<SteelVal> {
+        let span = Span::default();
+        self.transduce(ops, root, initial_value, reducer, &span)
+    }
+
+    fn call_execute(
+        &mut self,
+        ops: &[Transducers],
+        root: SteelVal,
+        collection_type: Option<SteelVal>,
+    ) -> Result<SteelVal> {
+        let span = Span::default();
+        self.run(ops, root, collection_type, &span)
     }
 }
 

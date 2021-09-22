@@ -3,7 +3,7 @@ use im_lists::list::List;
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
 use super::{
     options::{ApplyContracts, UseCallbacks},
-    vm::VmCore,
+    vm::{VmContext, VmCore},
 };
 use crate::{
     compiler::constants::ConstantTable,
@@ -47,7 +47,63 @@ macro_rules! generate_drop {
     }
 }
 
+// let output_type = self.stack.pop().unwrap();
+//         let list = self.stack.pop().unwrap();
+//         let transducer = self.stack.pop().unwrap();
+
+//         if let SteelVal::IterV(transducer) = &transducer {
+//             let ret_val = self.run(&transducer.ops, list, Some(output_type), span);
+//             self.stack.push(ret_val?);
+//         } else {
+//             stop!(Generic => "Transducer execute takes a list"; *span);
+//         }
+//         self.ip += 1;
+//         Ok(())
+
+// let list = self.stack.pop().unwrap();
+//         let initial_value = self.stack.pop().unwrap();
+//         let reducer = self.stack.pop().unwrap();
+//         let transducer = self.stack.pop().unwrap();
+
+//         if let SteelVal::IterV(transducer) = &transducer {
+//             let ret_val = self.transduce(&transducer.ops, list, initial_value, reducer, span);
+//             self.stack.push(ret_val?);
+//         } else {
+//             stop!(Generic => "Transduce must take an iterable");
+//         }
+
 // trait Output
+
+pub(crate) const TRANSDUCE: SteelVal = SteelVal::BuiltIn(transduce);
+pub(crate) const EXECUTE: SteelVal = SteelVal::BuiltIn(execute);
+
+fn transduce(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
+    let mut arg_iter = args.into_iter();
+    let transducer = arg_iter.next().unwrap();
+    let reducer = arg_iter.next().unwrap();
+    let initial_value = arg_iter.next().unwrap();
+    let list = arg_iter.next().unwrap();
+
+    if let SteelVal::IterV(transducer) = &transducer {
+        ctx.call_transduce(&transducer.ops, list, initial_value, reducer)
+    } else {
+        stop!(Generic => "Transduce must take an iterable");
+    }
+}
+
+fn execute(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
+    let mut arg_iter = args.into_iter();
+
+    let transducer = arg_iter.next().unwrap();
+    let list = arg_iter.next().unwrap();
+    let output_type = arg_iter.next();
+
+    if let SteelVal::IterV(transducer) = &transducer {
+        ctx.call_execute(&transducer.ops, list, output_type)
+    } else {
+        stop!(Generic => "Transducer execute takes a list");
+    }
+}
 
 impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
     pub(crate) fn run(
