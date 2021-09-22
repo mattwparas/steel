@@ -2,7 +2,7 @@ use crate::{
     core::instructions::DenseInstruction,
     gc::Gc,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::Continuation,
+    steel_vm::vm::{BuiltInSignature, Continuation, VmCore},
     values::port::SteelPort,
     values::structs::SteelStruct,
     values::{
@@ -300,8 +300,16 @@ pub enum SteelVal {
     ListV(List<SteelVal>),
     // Mutable functions
     MutFunc(MutFunctionSignature),
+    // Built in functions
+    BuiltIn(BuiltInSignature),
 }
 
+// trait Blargh {}
+// trait Blagh {}
+
+// enum Test {
+//     Func(fn(usize, usize) -> usize),
+// }
 // pub trait Continuation: Clone {}
 
 // TODO come back to this for the constant map
@@ -985,6 +993,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         CompiledFunction(_) => write!(f, "#<compiled-function>"),
         ListV(l) => write!(f, "#<list {:?}>", l),
         MutFunc(_) => write!(f, "#<function>"),
+        BuiltIn(_) => write!(f, "#<function>"),
     }
 }
 

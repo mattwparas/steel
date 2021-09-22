@@ -1,5 +1,6 @@
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
+use crate::steel_vm::vm::VmContext;
 use crate::{stop, throw};
 use im_lists::{list, list::List};
 
@@ -81,9 +82,37 @@ declare_const_mut_ref_functions! {
     APPEND => append,
 }
 
+pub(crate) const TEST_MAP: SteelVal = SteelVal::BuiltIn(test_map);
+
 // TODO replace all usages with const
 // const LENGTH: SteelVal = SteelVal::FuncV(length);
 // const NEW: SteelVal = SteelVal::FuncV(new);
+
+fn test_map(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
+    arity_check!(test_map, args, 2);
+
+    let mut arg_iter = args.into_iter();
+    let arg1 = arg_iter.next().unwrap();
+    let arg2 = arg_iter.next().unwrap();
+
+    if let SteelVal::ListV(l) = arg2 {
+        if arg1.is_function() {
+            // unimplemented!()
+
+            Ok(SteelVal::ListV(
+                l.into_iter()
+                    .map(|x| ctx.call_function_one_arg_or_else(&arg1, x))
+                    .collect::<Result<_>>()?,
+            ))
+
+            // ctx.call_function_one_arg_or_else(function, arg)
+        } else {
+            stop!(TypeMismatch => "test-map expected a function")
+        }
+    } else {
+        stop!(TypeMismatch => "test-map expects a list")
+    }
+}
 
 fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))

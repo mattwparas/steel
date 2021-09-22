@@ -80,6 +80,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             // )),
             SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
             SteelVal::ListV(l) => Box::new(l.iter().cloned().map(Ok)),
+            SteelVal::StructV(s) => Box::new(s.iter().cloned().map(Ok)),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
@@ -129,10 +130,101 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     Box::new(iter.filter_map(switch_statement))
                 }
                 Transducers::FlatMap(stack_func) => {
-                    todo!()
+                    let vm_copy = Rc::clone(&vm);
+
+                    let switch_statement =
+                        move |arg: Result<SteelVal>| -> Box<dyn Iterator<Item = Result<SteelVal>>> {
+                            match arg {
+                                Ok(arg) => {
+                                    let res = vm_copy.borrow_mut().call_func_or_else(
+                                    stack_func,
+                                    arg,
+                                    cur_inst_span,
+                                    throw!(TypeMismatch => "map expected a function"; *cur_inst_span),
+                                );
+
+                                    match res {
+                                        Ok(x) => {
+                                            match x {
+                                                SteelVal::VectorV(v) => {
+                                                    Box::new(v.unwrap().into_iter().map(Ok))
+                                                }
+                                                // SteelVal::Pair(_) => {
+                                                //     Box::new(SteelVal::iter(root).into_iter().map(Ok))
+                                                // }
+                                                // TODO this needs to be fixed
+                                                SteelVal::StringV(s) => Box::new(
+                                                    s.chars()
+                                                        .map(|x| Ok(SteelVal::CharV(x)))
+                                                        .collect::<Vec<_>>()
+                                                        .into_iter(),
+                                                ),
+                                                SteelVal::ListV(l) => {
+                                                    Box::new(l.into_iter().map(Ok))
+                                                }
+                                                SteelVal::StructV(s) => {
+                                                    Box::new(s.unwrap().fields.into_iter().map(Ok))
+                                                }
+                                                els => {
+                                                    let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {}", els)).with_span(*cur_inst_span);
+
+                                                    Box::new(std::iter::once(Err(err)))
+                                                }
+                                            }
+                                        }
+                                        err => Box::new(std::iter::once(err)),
+                                    }
+                                }
+
+                                err => Box::new(std::iter::once(err)),
+                            }
+                        };
+
+                    Box::new(iter.flat_map(switch_statement))
                 }
                 Transducers::Flatten => {
-                    todo!()
+                    // TODO check if arg is iterable then iterator over it
+                    // for things that aren't iterable, throw an error
+                    // otherwise, do the generic iterable and extend it
+                    // todo!()
+                    // let switch_statement = move |arg| {
+
+                    // }
+
+                    let switch_statement =
+                        move |arg: Result<SteelVal>| -> Box<dyn Iterator<Item = Result<SteelVal>>> {
+                            match arg {
+                                Ok(x) => {
+                                    match x {
+                                        SteelVal::VectorV(v) => {
+                                            Box::new(v.unwrap().into_iter().map(Ok))
+                                        }
+                                        // SteelVal::Pair(_) => {
+                                        //     Box::new(SteelVal::iter(root).into_iter().map(Ok))
+                                        // }
+                                        // TODO this needs to be fixed
+                                        SteelVal::StringV(s) => Box::new(
+                                            s.chars()
+                                                .map(|x| Ok(SteelVal::CharV(x)))
+                                                .collect::<Vec<_>>()
+                                                .into_iter(),
+                                        ),
+                                        SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
+                                        SteelVal::StructV(s) => {
+                                            Box::new(s.unwrap().fields.into_iter().map(Ok))
+                                        }
+                                        els => {
+                                            let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {}", els)).with_span(*cur_inst_span);
+
+                                            Box::new(std::iter::once(Err(err)))
+                                        }
+                                    }
+                                }
+                                err => Box::new(std::iter::once(err)),
+                            }
+                        };
+
+                    Box::new(iter.flat_map(switch_statement))
                 }
                 Transducers::Window(num) => {
                     todo!()
@@ -190,6 +282,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             // )),
             SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
             SteelVal::ListV(l) => Box::new(l.iter().cloned().map(Ok)),
+            SteelVal::StructV(s) => Box::new(s.iter().cloned().map(Ok)),
             _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
         };
 
@@ -242,7 +335,43 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     todo!()
                 }
                 Transducers::Flatten => {
-                    todo!()
+                    // TODO figure out how to use strings here
+                    let switch_statement =
+                        move |arg: Result<SteelVal>| -> Box<dyn Iterator<Item = Result<SteelVal>>> {
+                            match arg {
+                                Ok(x) => {
+                                    match x {
+                                        SteelVal::VectorV(v) => {
+                                            Box::new(v.unwrap().into_iter().map(Ok))
+                                        }
+                                        // SteelVal::Pair(_) => {
+                                        //     Box::new(SteelVal::iter(root).into_iter().map(Ok))
+                                        // }
+                                        // TODO this needs to be fixed
+                                        SteelVal::StringV(s) => Box::new(
+                                            s.chars()
+                                                .map(|x| Ok(SteelVal::CharV(x)))
+                                                .collect::<Vec<_>>()
+                                                .into_iter(),
+                                        ),
+                                        SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
+                                        SteelVal::StructV(s) => {
+                                            Box::new(s.unwrap().fields.into_iter().map(Ok))
+                                        }
+                                        els => {
+                                            let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {}", els)).with_span(*cur_inst_span);
+
+                                            Box::new(std::iter::once(Err(err)))
+                                        }
+                                    }
+                                }
+                                err => Box::new(std::iter::once(err)),
+                            }
+                        };
+
+                    Box::new(iter.flat_map(switch_statement))
+
+                    // todo!()
                 }
                 Transducers::Window(num) => {
                     todo!()

@@ -14,7 +14,13 @@ use crate::parser::ast::Struct;
 #[derive(Clone, Debug, PartialEq)]
 pub struct SteelStruct {
     name: Rc<str>,
-    fields: Vec<SteelVal>,
+    pub(crate) fields: Vec<SteelVal>,
+}
+
+impl SteelStruct {
+    pub fn iter(&self) -> impl Iterator<Item = &SteelVal> {
+        self.fields.iter()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

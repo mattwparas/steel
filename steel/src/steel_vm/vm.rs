@@ -244,6 +244,59 @@ fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
     Ok(())
 }
 
+pub trait VmContext {
+    // This allows for some funky self calling business
+    fn call_function_one_arg_or_else(
+        &mut self,
+        function: &SteelVal,
+        arg: SteelVal,
+    ) -> Result<SteelVal>;
+
+    // Call with two args
+    fn call_function_two_arg_or_else(
+        &mut self,
+        function: &SteelVal,
+        arg1: SteelVal,
+        arg2: SteelVal,
+    ) -> Result<SteelVal>;
+}
+
+// For when we want a reference to the built in context as well -> In the event we want to call something
+// See if this is even possible -> if you ever want to offload function calls to the
+pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;
+
+impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for VmCore<'a, CT, U, A> {
+    fn call_function_one_arg_or_else(
+        &mut self,
+        function: &SteelVal,
+        arg: SteelVal,
+    ) -> Result<SteelVal> {
+        let span = Span::default();
+        self.call_func_or_else(
+            function,
+            arg,
+            &span,
+            throw!(TypeMismatch => format!("application not a procedure: {}", function)),
+        )
+    }
+
+    fn call_function_two_arg_or_else(
+        &mut self,
+        function: &SteelVal,
+        arg1: SteelVal,
+        arg2: SteelVal,
+    ) -> Result<SteelVal> {
+        let span = Span::default();
+        self.call_func_or_else_two_args(
+            function,
+            arg1,
+            arg2,
+            &span,
+            throw!(TypeMismatch => format!("application not a procedure: {}", function)),
+        )
+    }
+}
+
 pub(crate) struct VmCore<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: &'a mut StackFrame,
@@ -1322,6 +1375,26 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     }
 
     #[inline(always)]
+    fn call_builtin_func(
+        &mut self,
+        func: &BuiltInSignature,
+        payload_size: usize,
+        span: &Span,
+    ) -> Result<()> {
+        println!("Stack: {:?}", self.stack);
+        println!("Payload size: {}", payload_size);
+
+        let args = self.stack.split_off(self.stack.len() - payload_size);
+        let result = func(args, self).map_err(|x| x.set_span(*span))?;
+
+        // self.stack.truncate(self.stack.len() - payload_size);
+
+        self.stack.push(result);
+        self.ip += 1;
+        Ok(())
+    }
+
+    #[inline(always)]
     fn call_primitive_mut_func(
         &mut self,
         f: &fn(&mut [SteelVal]) -> Result<SteelVal>,
@@ -1734,6 +1807,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 self.call_compiled_function(function, payload_size, span)?
             }
             Contract(c) => self.call_contract(c, payload_size, span)?,
+            BuiltIn(f) => self.call_builtin_func(f, payload_size, span)?,
             _ => {
                 println!("{:?}", stack_func);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);

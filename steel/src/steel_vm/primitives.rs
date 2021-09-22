@@ -234,7 +234,8 @@ pub(crate) fn register_test_list_functions(engine: &mut Engine) {
             crate::primitives::alternative_list::IS_EMPTY,
         )
         .register_value("test-car", crate::primitives::alternative_list::CAR)
-        .register_value("test-rest", crate::primitives::alternative_list::REST);
+        .register_value("test-rest", crate::primitives::alternative_list::REST)
+        .register_value("test-map", crate::primitives::alternative_list::TEST_MAP);
 }
 
 #[inline(always)]
@@ -403,6 +404,8 @@ pub(crate) fn register_transducer_functions(engine: &mut Engine) {
     engine
         .register_value("compose", TransducerOperations::compose())
         .register_value("mapping", TransducerOperations::map())
+        .register_value("flattening", TransducerOperations::flatten())
+        .register_value("flat-mapping", TransducerOperations::flat_map())
         .register_value("filtering", TransducerOperations::filter())
         .register_value("taking", TransducerOperations::take())
         .register_value("dropping", TransducerOperations::dropping());

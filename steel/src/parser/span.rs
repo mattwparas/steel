@@ -2,7 +2,7 @@ use core::ops::Range;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 pub struct Span {
     start: usize,
     end: usize,

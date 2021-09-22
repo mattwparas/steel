@@ -1065,12 +1065,12 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
         }
     }
 
-    println!("Exit points: {:?}", exit_function_points);
+    // println!("Exit points: {:?}", exit_function_points);
 
     for (right, left) in exit_function_points.into_iter().rev().tuple_windows() {
         let mut stack = Vec::new();
 
-        println!("Looking at window: {:?}", (left, right));
+        // println!("Looking at window: {:?}", (left, right));
 
         // TODO need to use the original slice indices, so offset by left
         for (index, instruction) in instructions[left..right].iter().rev().enumerate() {
@@ -1081,7 +1081,7 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
                     op_code: OpCode::JMP,
                     ..
                 } => {
-                    println!("Found branch, ignoring");
+                    // println!("Found branch, ignoring");
                     break;
                 }
                 Instruction {
@@ -1108,8 +1108,6 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
             }
         }
 
-        println!("stack: {:?}", stack);
-
         let mut seen = HashSet::new();
         let filtered: Vec<_> = stack
             .iter()
@@ -1131,16 +1129,14 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
 
         // let filtered: Vec<_> = stack.into_iter().dedup_by(|x, y| x.1 == y.1).collect();
 
-        println!("Filtered: {:?}", filtered);
-
         for (index, _var) in filtered {
             match instructions[*index].op_code {
                 OpCode::READLOCAL => {
-                    println!("Transforming move read local: {}", _var);
+                    // println!("Transforming move read local: {}", _var);
                     instructions[*index].op_code = OpCode::MOVEREADLOCAL;
                 }
                 OpCode::READUPVALUE => {
-                    println!("Skipping read upvalue: {}", _var);
+                    // println!("Skipping read upvalue: {}", _var);
                     continue;
                 }
                 // OpCode::CALLGLOBAL | OpCode::FUNC => {
@@ -1164,7 +1160,7 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
                 //     // println!("Transforming move read upvalue");
                 //     // instructions[*index].op_code = OpCode::MOVEREADUPVALUE;
                 // }
-                instr => println!("{:?}", instr),
+                _ => {} // instr => println!("{:?}", instr),
             }
         }
 

@@ -41,6 +41,37 @@ impl TransducerOperations {
         })
     }
 
+    pub fn flat_map() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "mapping takes one argument");
+            }
+
+            match &args[0] {
+                Closure(_) | FuncV(_) | BoxedFunction(_) | ContractedFunction(_) => {
+                    let mut transducer = Transducer::new();
+                    transducer.push(Transducers::FlatMap(args[0].clone()));
+                    Ok(SteelVal::IterV(Gc::new(transducer)))
+                }
+                v => {
+                    stop!(TypeMismatch => format!("flat-mapping expects a function, found: {:?}", v))
+                }
+            }
+        })
+    }
+
+    pub fn flatten() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 0 {
+                stop!(ArityMismatch => "flattening takes no arguments");
+            }
+
+            let mut transducer = Transducer::new();
+            transducer.push(Transducers::Flatten);
+            Ok(SteelVal::IterV(Gc::new(transducer)))
+        })
+    }
+
     pub fn filter() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
