@@ -91,6 +91,8 @@ fn transduce(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
     }
 }
 
+// Execute and transduce should be able to be merged into one function
+// Then based on the args we can determine which kind it is
 fn execute(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
     let mut arg_iter = args.into_iter();
 
