@@ -759,9 +759,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     }
                 }
                 OpCode::READ => self.handle_read(&cur_inst.span)?,
-                OpCode::COLLECT => self.handle_collect(&cur_inst.span)?,
-                OpCode::COLLECTTO => self.handle_collect_to(&cur_inst.span)?,
-                OpCode::TRANSDUCE => self.handle_transduce(&cur_inst.span)?,
+                // OpCode::COLLECT => self.handle_collect(&cur_inst.span)?,
+                // OpCode::COLLECTTO => self.handle_collect_to(&cur_inst.span)?,
+                // OpCode::TRANSDUCE => self.handle_transduce(&cur_inst.span)?,
                 OpCode::SET => self.handle_set(cur_inst.payload_size as usize)?,
                 OpCode::PUSHCONST => {
                     let val = self.constants.get(cur_inst.payload_size as usize);
@@ -1433,6 +1433,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             }
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => self.handle_tail_call_closure(closure, payload_size, span)?,
+            BuiltIn(f) => self.call_builtin_func(f, payload_size, span)?,
             _ => {
                 stop!(BadSyntax => "TailCall - Application not a procedure or function type not supported"; *span);
             }

@@ -511,14 +511,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     //     Ok(())
     // }
 
-    fn visit_transduce(&mut self, transduce: &crate::parser::ast::Transduce) -> Self::Output {
-        self.visit(&transduce.transducer)?;
-        self.visit(&transduce.func)?;
-        self.visit(&transduce.initial_value)?;
-        self.visit(&transduce.iterable)?;
-        self.push(Instruction::new_transduce());
-        Ok(())
-    }
+    // fn visit_transduce(&mut self, transduce: &crate::parser::ast::Transduce) -> Self::Output {
+    //     self.visit(&transduce.transducer)?;
+    //     self.visit(&transduce.func)?;
+    //     self.visit(&transduce.initial_value)?;
+    //     self.visit(&transduce.iterable)?;
+    //     self.push(Instruction::new_transduce());
+    //     Ok(())
+    // }
 
     fn visit_read(&mut self, read: &crate::parser::ast::Read) -> Self::Output {
         self.visit(&read.expr)?;
@@ -526,18 +526,18 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    fn visit_execute(&mut self, execute: &crate::parser::ast::Execute) -> Self::Output {
-        self.visit(&execute.transducer)?;
-        self.visit(&execute.collection)?;
+    // fn visit_execute(&mut self, execute: &crate::parser::ast::Execute) -> Self::Output {
+    //     self.visit(&execute.transducer)?;
+    //     self.visit(&execute.collection)?;
 
-        if let Some(output_type) = &execute.output_type {
-            self.visit(output_type)?;
-            self.push(Instruction::new_collect_to());
-        } else {
-            self.push(Instruction::new_collect());
-        }
-        Ok(())
-    }
+    //     if let Some(output_type) = &execute.output_type {
+    //         self.visit(output_type)?;
+    //         self.push(Instruction::new_collect_to());
+    //     } else {
+    //         self.push(Instruction::new_collect());
+    //     }
+    //     Ok(())
+    // }
 
     fn visit_quote(&mut self, quote: &crate::parser::ast::Quote) -> Self::Output {
         let converted = SteelVal::try_from(quote.expr.clone())?;

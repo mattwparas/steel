@@ -28,9 +28,9 @@ pub enum ExprKind {
     Return(Box<Return>),
     // Apply(Box<Apply>),
     // Panic(Box<Panic>),
-    Transduce(Box<Transduce>),
+    // Transduce(Box<Transduce>),
     Read(Box<Read>),
-    Execute(Box<Execute>),
+    // Execute(Box<Execute>),
     Quote(Box<Quote>),
     Struct(Box<Struct>),
     Macro(Macro),
@@ -158,9 +158,9 @@ impl ToDoc for ExprKind {
             ExprKind::Return(r) => r.to_doc(),
             // ExprKind::Apply(a) => a.to_doc(),
             // ExprKind::Panic(p) => p.to_doc(),
-            ExprKind::Transduce(t) => t.to_doc(),
+            // ExprKind::Transduce(t) => t.to_doc(),
             ExprKind::Read(r) => r.to_doc(),
-            ExprKind::Execute(e) => e.to_doc(),
+            // ExprKind::Execute(e) => e.to_doc(),
             ExprKind::Quote(q) => q.to_doc(),
             ExprKind::Struct(s) => s.to_doc(),
             ExprKind::Macro(m) => m.to_doc(),
@@ -193,9 +193,9 @@ impl fmt::Display for ExprKind {
             ExprKind::Return(r) => write!(f, "{}", r),
             // ExprKind::Apply(a) => write!(f, "{}", a),
             // ExprKind::Panic(p) => write!(f, "{}", p),
-            ExprKind::Transduce(t) => write!(f, "{}", t),
+            // ExprKind::Transduce(t) => write!(f, "{}", t),
             ExprKind::Read(r) => write!(f, "{}", r),
-            ExprKind::Execute(e) => write!(f, "{}", e),
+            // ExprKind::Execute(e) => write!(f, "{}", e),
             ExprKind::Quote(q) => write!(f, "{}", q),
             ExprKind::Struct(s) => write!(f, "{}", s),
             ExprKind::Macro(m) => write!(f, "{}", m),
@@ -739,65 +739,65 @@ impl IntoIterator for List {
 // }
 
 // transducer func initial_value iterable
-#[derive(Clone, Debug, PartialEq)]
-pub struct Transduce {
-    pub transducer: ExprKind,
-    pub func: ExprKind,
-    pub initial_value: ExprKind,
-    pub iterable: ExprKind,
-    pub location: SyntaxObject,
-}
+// #[derive(Clone, Debug, PartialEq)]
+// pub struct Transduce {
+//     pub transducer: ExprKind,
+//     pub func: ExprKind,
+//     pub initial_value: ExprKind,
+//     pub iterable: ExprKind,
+//     pub location: SyntaxObject,
+// }
 
-impl fmt::Display for Transduce {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "(transduce {} {} {} {})",
-            self.transducer, self.func, self.initial_value, self.iterable
-        )
-    }
-}
+// impl fmt::Display for Transduce {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         write!(
+//             f,
+//             "(transduce {} {} {} {})",
+//             self.transducer, self.func, self.initial_value, self.iterable
+//         )
+//     }
+// }
 
-impl ToDoc for Transduce {
-    fn to_doc(&self) -> RcDoc<()> {
-        RcDoc::text("(transduce")
-            .append(RcDoc::space())
-            .append(self.transducer.to_doc())
-            .append(RcDoc::line())
-            .append(self.func.to_doc())
-            .append(RcDoc::line())
-            .append(self.initial_value.to_doc())
-            .append(RcDoc::line())
-            .append(self.iterable.to_doc())
-            .append(RcDoc::text(")"))
-            .nest(2)
-            .group()
-    }
-}
+// impl ToDoc for Transduce {
+//     fn to_doc(&self) -> RcDoc<()> {
+//         RcDoc::text("(transduce")
+//             .append(RcDoc::space())
+//             .append(self.transducer.to_doc())
+//             .append(RcDoc::line())
+//             .append(self.func.to_doc())
+//             .append(RcDoc::line())
+//             .append(self.initial_value.to_doc())
+//             .append(RcDoc::line())
+//             .append(self.iterable.to_doc())
+//             .append(RcDoc::text(")"))
+//             .nest(2)
+//             .group()
+//     }
+// }
 
-impl Transduce {
-    pub fn new(
-        transducer: ExprKind,
-        func: ExprKind,
-        initial_value: ExprKind,
-        iterable: ExprKind,
-        location: SyntaxObject,
-    ) -> Self {
-        Transduce {
-            transducer,
-            func,
-            initial_value,
-            iterable,
-            location,
-        }
-    }
-}
+// impl Transduce {
+//     pub fn new(
+//         transducer: ExprKind,
+//         func: ExprKind,
+//         initial_value: ExprKind,
+//         iterable: ExprKind,
+//         location: SyntaxObject,
+//     ) -> Self {
+//         Transduce {
+//             transducer,
+//             func,
+//             initial_value,
+//             iterable,
+//             location,
+//         }
+//     }
+// }
 
-impl From<Transduce> for ExprKind {
-    fn from(val: Transduce) -> Self {
-        ExprKind::Transduce(Box::new(val))
-    }
-}
+// impl From<Transduce> for ExprKind {
+//     fn from(val: Transduce) -> Self {
+//         ExprKind::Transduce(Box::new(val))
+//     }
+// }
 
 // impl Transduce {
 //     fn accept(visitor_mut: &mut impl VisitorMut) {
@@ -838,63 +838,63 @@ impl From<Read> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Execute {
-    pub transducer: ExprKind,
-    pub collection: ExprKind,
-    pub output_type: Option<ExprKind>,
-    pub location: SyntaxObject,
-}
+// #[derive(Clone, Debug, PartialEq)]
+// pub struct Execute {
+//     pub transducer: ExprKind,
+//     pub collection: ExprKind,
+//     pub output_type: Option<ExprKind>,
+//     pub location: SyntaxObject,
+// }
 
-impl ToDoc for Execute {
-    fn to_doc(&self) -> RcDoc<()> {
-        let doc = RcDoc::text("(execute")
-            .append(RcDoc::space())
-            .append(self.transducer.to_doc())
-            .append(RcDoc::line())
-            .append(self.collection.to_doc());
+// impl ToDoc for Execute {
+//     fn to_doc(&self) -> RcDoc<()> {
+//         let doc = RcDoc::text("(execute")
+//             .append(RcDoc::space())
+//             .append(self.transducer.to_doc())
+//             .append(RcDoc::line())
+//             .append(self.collection.to_doc());
 
-        let doc = if let Some(output_type) = &self.output_type {
-            doc.append(RcDoc::line()).append(output_type.to_doc())
-        } else {
-            doc
-        };
+//         let doc = if let Some(output_type) = &self.output_type {
+//             doc.append(RcDoc::line()).append(output_type.to_doc())
+//         } else {
+//             doc
+//         };
 
-        doc.append(RcDoc::text(")")).nest(2).group()
-    }
-}
+//         doc.append(RcDoc::text(")")).nest(2).group()
+//     }
+// }
 
-impl fmt::Display for Execute {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(o) = &self.output_type {
-            write!(f, "(execute {} {} {})", self.transducer, self.collection, o)
-        } else {
-            write!(f, "(execute {} {})", self.transducer, self.collection)
-        }
-    }
-}
+// impl fmt::Display for Execute {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         if let Some(o) = &self.output_type {
+//             write!(f, "(execute {} {} {})", self.transducer, self.collection, o)
+//         } else {
+//             write!(f, "(execute {} {})", self.transducer, self.collection)
+//         }
+//     }
+// }
 
-impl Execute {
-    pub fn new(
-        transducer: ExprKind,
-        collection: ExprKind,
-        output_type: Option<ExprKind>,
-        location: SyntaxObject,
-    ) -> Self {
-        Execute {
-            transducer,
-            collection,
-            output_type,
-            location,
-        }
-    }
-}
+// impl Execute {
+//     pub fn new(
+//         transducer: ExprKind,
+//         collection: ExprKind,
+//         output_type: Option<ExprKind>,
+//         location: SyntaxObject,
+//     ) -> Self {
+//         Execute {
+//             transducer,
+//             collection,
+//             output_type,
+//             location,
+//         }
+//     }
+// }
 
-impl From<Execute> for ExprKind {
-    fn from(val: Execute) -> Self {
-        ExprKind::Execute(Box::new(val))
-    }
-}
+// impl From<Execute> for ExprKind {
+//     fn from(val: Execute) -> Self {
+//         ExprKind::Execute(Box::new(val))
+//     }
+// }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Struct {
@@ -1399,85 +1399,85 @@ where
     Ok(ExprKind::List(List::new(function)))
 }
 
-#[inline]
-fn parse_transduce<I>(
-    mut value_iter: I,
-    syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
-where
-    I: Iterator<Item = ExprKind>,
-{
-    value_iter.next();
+// #[inline]
+// fn parse_transduce<I>(
+//     mut value_iter: I,
+//     syn: SyntaxObject,
+// ) -> std::result::Result<ExprKind, ParseError>
+// where
+//     I: Iterator<Item = ExprKind>,
+// {
+//     value_iter.next();
 
-    let t = Transduce::new(
-        value_iter.next().ok_or_else(|| {
-            ParseError::SyntaxError(
-                "transducer expected a transducer, found none".to_string(),
-                syn.span,
-                None,
-            )
-        })?,
-        value_iter.next().ok_or_else(|| {
-            ParseError::SyntaxError(
-                "transducer expected a function, found none".to_string(),
-                syn.span,
-                None,
-            )
-        })?,
-        value_iter.next().ok_or_else(|| {
-            ParseError::SyntaxError(
-                "transducer expected a initial value, found none".to_string(),
-                syn.span,
-                None,
-            )
-        })?,
-        value_iter.next().ok_or_else(|| {
-            ParseError::SyntaxError(
-                "transducer expected an iterable, found none".to_string(),
-                syn.span,
-                None,
-            )
-        })?,
-        syn.clone(),
-    );
+//     let t = Transduce::new(
+//         value_iter.next().ok_or_else(|| {
+//             ParseError::SyntaxError(
+//                 "transducer expected a transducer, found none".to_string(),
+//                 syn.span,
+//                 None,
+//             )
+//         })?,
+//         value_iter.next().ok_or_else(|| {
+//             ParseError::SyntaxError(
+//                 "transducer expected a function, found none".to_string(),
+//                 syn.span,
+//                 None,
+//             )
+//         })?,
+//         value_iter.next().ok_or_else(|| {
+//             ParseError::SyntaxError(
+//                 "transducer expected a initial value, found none".to_string(),
+//                 syn.span,
+//                 None,
+//             )
+//         })?,
+//         value_iter.next().ok_or_else(|| {
+//             ParseError::SyntaxError(
+//                 "transducer expected an iterable, found none".to_string(),
+//                 syn.span,
+//                 None,
+//             )
+//         })?,
+//         syn.clone(),
+//     );
 
-    if value_iter.next().is_some() {
-        Err(ParseError::ArityMismatch(
-            "Transduce expected 4 arguments".to_string(),
-            syn.span,
-            None,
-        ))
-    } else {
-        Ok(t.into())
-    }
-}
+//     if value_iter.next().is_some() {
+//         Err(ParseError::ArityMismatch(
+//             "Transduce expected 4 arguments".to_string(),
+//             syn.span,
+//             None,
+//         ))
+//     } else {
+//         Ok(t.into())
+//     }
+// }
 
-#[inline]
-fn parse_execute<I>(
-    mut value_iter: I,
-    syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
-where
-    I: Iterator<Item = ExprKind>,
-{
-    value_iter.next();
+// #[inline]
+// fn parse_execute<I>(
+//     mut value_iter: I,
+//     syn: SyntaxObject,
+// ) -> std::result::Result<ExprKind, ParseError>
+// where
+//     I: Iterator<Item = ExprKind>,
+// {
+//     value_iter.next();
 
-    let transducer = value_iter.next().ok_or_else(|| ParseError::ArityMismatch("execute expects 2 (or possibly 3) arguments, and a transducer in the first position, found none".to_string(), syn.span, None))?;
+//     let transducer = value_iter.next().ok_or_else(|| ParseError::ArityMismatch("execute expects 2 (or possibly 3) arguments, and a transducer in the first position, found none".to_string(), syn.span, None))?;
 
-    let collection = value_iter.next().ok_or_else(|| ParseError::ArityMismatch("execute expects 2 (or possibly 3) arguments, and a collection in the second position, found none".to_string(), syn.span, None))?;
+//     let collection = value_iter.next().ok_or_else(|| ParseError::ArityMismatch("execute expects 2 (or possibly 3) arguments, and a collection in the second position, found none".to_string(), syn.span, None))?;
 
-    let output_type = value_iter.next();
+//     let output_type = value_iter.next();
 
-    if value_iter.next().is_some() {
-        Err(ParseError::SyntaxError(
-            "execute takes at most 3 arguments".to_string(),
-            syn.span,
-            None,
-        ))
-    } else {
-        Ok(Execute::new(transducer, collection, output_type, syn).into())
-    }
-}
+//     if value_iter.next().is_some() {
+//         Err(ParseError::SyntaxError(
+//             "execute takes at most 3 arguments".to_string(),
+//             syn.span,
+//             None,
+//         ))
+//     } else {
+//         Ok(Execute::new(transducer, collection, output_type, syn).into())
+//     }
+// }
 
 #[inline]
 fn parse_single_argument<I>(
@@ -1522,14 +1522,14 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::If => parse_if(value.into_iter(), a.syn.clone()),
                         TokenType::Define => parse_define(value.into_iter(), a.syn.clone()),
                         TokenType::Let => parse_let(value.into_iter(), a.syn.clone()),
-                        TokenType::Transduce => parse_transduce(value.into_iter(), a.syn.clone()),
+                        // TokenType::Transduce => parse_transduce(value.into_iter(), a.syn.clone()),
                         TokenType::Quote => parse_single_argument(
                             value.into_iter(),
                             a.syn.clone(),
                             "quote",
                             |expr, syn| Quote::new(expr, syn).into(),
                         ),
-                        TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
+                        // TokenType::Execute => parse_execute(value.into_iter(), a.syn.clone()),
                         TokenType::Return => parse_single_argument(
                             value.into_iter(),
                             a.syn.clone(),

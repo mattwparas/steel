@@ -238,8 +238,8 @@ pub(crate) fn register_test_list_functions(engine: &mut Engine) {
         .register_value("test-map", crate::primitives::alternative_list::TEST_MAP)
         // TODO move this to somewhere better than here
         .register_value("apply", crate::primitives::alternative_list::TEST_APPLY)
-        .register_value("test-transduce", crate::steel_vm::transducers::TRANSDUCE)
-        .register_value("test-execute", crate::steel_vm::transducers::EXECUTE);
+        .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
+        .register_value("execute", crate::steel_vm::transducers::EXECUTE);
 }
 
 #[inline(always)]

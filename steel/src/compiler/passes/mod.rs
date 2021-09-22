@@ -22,9 +22,9 @@ pub trait Folder {
             ExprKind::Return(r) => self.visit_return(r),
             // ExprKind::Apply(a) => self.visit_apply(a),
             // ExprKind::Panic(p) => self.visit_panic(p),
-            ExprKind::Transduce(t) => self.visit_transduce(t),
+            // ExprKind::Transduce(t) => self.visit_transduce(t),
             ExprKind::Read(r) => self.visit_read(r),
-            ExprKind::Execute(e) => self.visit_execute(e),
+            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
@@ -83,14 +83,14 @@ pub trait Folder {
     //     ExprKind::Panic(p)
     // }
 
-    #[inline]
-    fn visit_transduce(&mut self, mut transduce: Box<Transduce>) -> ExprKind {
-        transduce.transducer = self.visit(transduce.transducer);
-        transduce.func = self.visit(transduce.func);
-        transduce.initial_value = self.visit(transduce.initial_value);
-        transduce.iterable = self.visit(transduce.iterable);
-        ExprKind::Transduce(transduce)
-    }
+    // #[inline]
+    // fn visit_transduce(&mut self, mut transduce: Box<Transduce>) -> ExprKind {
+    //     transduce.transducer = self.visit(transduce.transducer);
+    //     transduce.func = self.visit(transduce.func);
+    //     transduce.initial_value = self.visit(transduce.initial_value);
+    //     transduce.iterable = self.visit(transduce.iterable);
+    //     ExprKind::Transduce(transduce)
+    // }
 
     #[inline]
     fn visit_read(&mut self, mut read: Box<Read>) -> ExprKind {
@@ -98,13 +98,13 @@ pub trait Folder {
         ExprKind::Read(read)
     }
 
-    #[inline]
-    fn visit_execute(&mut self, mut execute: Box<Execute>) -> ExprKind {
-        execute.transducer = self.visit(execute.transducer);
-        execute.collection = self.visit(execute.collection);
-        execute.output_type = execute.output_type.map(|x| self.visit(x));
-        ExprKind::Execute(execute)
-    }
+    // #[inline]
+    // fn visit_execute(&mut self, mut execute: Box<Execute>) -> ExprKind {
+    //     execute.transducer = self.visit(execute.transducer);
+    //     execute.collection = self.visit(execute.collection);
+    //     execute.output_type = execute.output_type.map(|x| self.visit(x));
+    //     ExprKind::Execute(execute)
+    // }
 
     #[inline]
     fn visit_quote(&mut self, mut quote: Box<Quote>) -> ExprKind {
@@ -173,9 +173,9 @@ pub trait VisitorMutUnit {
             ExprKind::Return(r) => self.visit_return(r),
             // ExprKind::Apply(a) => self.visit_apply(a),
             // ExprKind::Panic(p) => self.visit_panic(p),
-            ExprKind::Transduce(t) => self.visit_transduce(t),
+            // ExprKind::Transduce(t) => self.visit_transduce(t),
             ExprKind::Read(r) => self.visit_read(r),
-            ExprKind::Execute(e) => self.visit_execute(e),
+            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
@@ -229,25 +229,25 @@ pub trait VisitorMutUnit {
     //     self.visit(&p.message);
     // }
 
-    #[inline]
-    fn visit_transduce(&mut self, transduce: &Transduce) {
-        self.visit(&transduce.transducer);
-        self.visit(&transduce.func);
-        self.visit(&transduce.initial_value);
-        self.visit(&transduce.iterable);
-    }
+    // #[inline]
+    // fn visit_transduce(&mut self, transduce: &Transduce) {
+    //     self.visit(&transduce.transducer);
+    //     self.visit(&transduce.func);
+    //     self.visit(&transduce.initial_value);
+    //     self.visit(&transduce.iterable);
+    // }
 
     #[inline]
     fn visit_read(&mut self, read: &Read) {
         self.visit(&read.expr);
     }
 
-    #[inline]
-    fn visit_execute(&mut self, execute: &Execute) {
-        self.visit(&execute.transducer);
-        self.visit(&execute.collection);
-        execute.output_type.as_ref().map(|x| self.visit(x));
-    }
+    // #[inline]
+    // fn visit_execute(&mut self, execute: &Execute) {
+    //     self.visit(&execute.transducer);
+    //     self.visit(&execute.collection);
+    //     execute.output_type.as_ref().map(|x| self.visit(x));
+    // }
 
     #[inline]
     fn visit_quote(&mut self, quote: &Quote) {

@@ -142,10 +142,10 @@ pub enum TokenType {
     Define,
     #[token("let")]
     Let,
-    #[token("transduce")]
-    Transduce,
-    #[token("execute")]
-    Execute,
+    // #[token("transduce")]
+    // Transduce,
+    // #[token("execute")]
+    // Execute,
     #[token("return!")]
     Return,
     #[token("begin")]

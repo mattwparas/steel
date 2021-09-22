@@ -210,32 +210,32 @@ impl Instruction {
         }
     }
 
-    pub fn new_collect() -> Instruction {
-        Instruction {
-            op_code: OpCode::COLLECT,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
+    // pub fn new_collect() -> Instruction {
+    //     Instruction {
+    //         op_code: OpCode::COLLECT,
+    //         payload_size: 0,
+    //         contents: None,
+    //         constant: false,
+    //     }
+    // }
 
-    pub fn new_collect_to() -> Instruction {
-        Instruction {
-            op_code: OpCode::COLLECTTO,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
+    // pub fn new_collect_to() -> Instruction {
+    //     Instruction {
+    //         op_code: OpCode::COLLECTTO,
+    //         payload_size: 0,
+    //         contents: None,
+    //         constant: false,
+    //     }
+    // }
 
-    pub fn new_transduce() -> Instruction {
-        Instruction {
-            op_code: OpCode::TRANSDUCE,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
+    // pub fn new_transduce() -> Instruction {
+    //     Instruction {
+    //         op_code: OpCode::TRANSDUCE,
+    //         payload_size: 0,
+    //         contents: None,
+    //         constant: false,
+    //     }
+    // }
 
     pub fn new_read() -> Instruction {
         Instruction {

@@ -174,17 +174,17 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
     //     None
     // }
 
-    fn visit_transduce(&mut self, _transduce: &ast::Transduce) -> Self::Output {
-        None
-    }
+    // fn visit_transduce(&mut self, _transduce: &ast::Transduce) -> Self::Output {
+    //     None
+    // }
 
     fn visit_read(&mut self, _read: &ast::Read) -> Self::Output {
         None
     }
 
-    fn visit_execute(&mut self, _execute: &ast::Execute) -> Self::Output {
-        None
-    }
+    // fn visit_execute(&mut self, _execute: &ast::Execute) -> Self::Output {
+    //     None
+    // }
 
     fn visit_quote(&mut self, _quote: &ast::Quote) -> Self::Output {
         None

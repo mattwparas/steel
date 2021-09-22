@@ -108,18 +108,18 @@ impl TryFrom<SyntaxObject> for SteelVal {
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),
-            Transduce => Ok(SymbolV("transduce".into())),
-            Execute => Ok(SymbolV("execute".into())),
+            // Transduce => Ok(SymbolV("transduce".into())),
+            // Execute => Ok(SymbolV("execute".into())),
             Return => Ok(SymbolV("return!".into())),
             Begin => Ok(SymbolV("begin".into())),
-            Panic => Ok(SymbolV("panic!".into())),
+            // Panic => Ok(SymbolV("panic!".into())),
             Lambda => Ok(SymbolV("lambda".into())),
             Quote => Ok(SymbolV("quote".into())),
             DefineSyntax => Ok(SymbolV("define-syntax".into())),
             SyntaxRules => Ok(SymbolV("syntax-rules".into())),
             Ellipses => Ok(SymbolV("...".into())),
             Struct => Ok(SymbolV("struct".into())),
-            Apply => Ok(SymbolV("apply".into())),
+            // Apply => Ok(SymbolV("apply".into())),
             Set => Ok(SymbolV("set!".into())),
             Read => Ok(SymbolV("read".into())),
             Eval => Ok(SymbolV("eval".into())),
@@ -554,9 +554,7 @@ mod parser_tests {
     // use super::TokenType::*;
     use super::*;
     use crate::parser::ast::ExprKind;
-    use crate::parser::ast::{
-        Begin, Define, Execute, If, LambdaFunction, Quote, Return, Transduce,
-    };
+    use crate::parser::ast::{Begin, Define, If, LambdaFunction, Quote, Return};
 
     fn parses(s: &str) {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
@@ -730,12 +728,12 @@ mod parser_tests {
         assert_parse_is_err("(let (a) 10)");
     }
 
-    #[test]
-    fn test_execute_should_err() {
-        assert_parse_is_err("(execute)");
-        assert_parse_is_err("(execute 1)");
-        assert_parse_is_err("(execute 1 2 3 4)");
-    }
+    // #[test]
+    // fn test_execute_should_err() {
+    //     assert_parse_is_err("(execute)");
+    //     assert_parse_is_err("(execute 1)");
+    //     assert_parse_is_err("(execute 1 2 3 4)");
+    // }
 
     #[test]
     fn test_if_should_err() {
@@ -745,14 +743,14 @@ mod parser_tests {
         assert_parse_is_err("(if 1 2 3 4)");
     }
 
-    #[test]
-    fn test_transduce_should_err() {
-        assert_parse_is_err("(transduce)");
-        assert_parse_is_err("(transduce 1)");
-        assert_parse_is_err("(transduce 1 2)");
-        assert_parse_is_err("(transduce 1 2 3)");
-        assert_parse_is_err("(transduce 1 2 3 4 5)");
-    }
+    // #[test]
+    // fn test_transduce_should_err() {
+    //     assert_parse_is_err("(transduce)");
+    //     assert_parse_is_err("(transduce 1)");
+    //     assert_parse_is_err("(transduce 1 2)");
+    //     assert_parse_is_err("(transduce 1 2 3)");
+    //     assert_parse_is_err("(transduce 1 2 3 4 5)");
+    // }
 
     #[test]
     fn test_define_should_err() {
@@ -1266,59 +1264,59 @@ mod parser_tests {
         )
     }
 
-    #[test]
-    fn test_transduce() {
-        assert_parse(
-            "(transduce a b c d)",
-            &[ExprKind::Transduce(Box::new(Transduce::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "c".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "d".to_string(),
-                )))),
-                SyntaxObject::default(TokenType::Transduce),
-            )))],
-        )
-    }
+    // #[test]
+    // fn test_transduce() {
+    //     assert_parse(
+    //         "(transduce a b c d)",
+    //         &[ExprKind::Transduce(Box::new(Transduce::new(
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                 "a".to_string(),
+    //             )))),
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                 "b".to_string(),
+    //             )))),
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                 "c".to_string(),
+    //             )))),
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                 "d".to_string(),
+    //             )))),
+    //             SyntaxObject::default(TokenType::Transduce),
+    //         )))],
+    //     )
+    // }
 
-    #[test]
-    fn test_transduce_complex() {
-        assert_parse(
-            "(if #t (transduce a b c d) (if #f 10 20))",
-            &[ExprKind::If(Box::new(If::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(true)))),
-                ExprKind::Transduce(Box::new(Transduce::new(
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "a".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "b".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "c".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "d".to_string(),
-                    )))),
-                    SyntaxObject::default(TokenType::Transduce),
-                ))),
-                ExprKind::If(Box::new(If::new(
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(false)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
-                    SyntaxObject::default(If),
-                ))),
-                SyntaxObject::default(If),
-            )))],
-        )
-    }
+    // #[test]
+    // fn test_transduce_complex() {
+    //     assert_parse(
+    //         "(if #t (transduce a b c d) (if #f 10 20))",
+    //         &[ExprKind::If(Box::new(If::new(
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(true)))),
+    //             ExprKind::Transduce(Box::new(Transduce::new(
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                     "a".to_string(),
+    //                 )))),
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                     "b".to_string(),
+    //                 )))),
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                     "c".to_string(),
+    //                 )))),
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                     "d".to_string(),
+    //                 )))),
+    //                 SyntaxObject::default(TokenType::Transduce),
+    //             ))),
+    //             ExprKind::If(Box::new(If::new(
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(false)))),
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
+    //                 SyntaxObject::default(If),
+    //             ))),
+    //             SyntaxObject::default(If),
+    //         )))],
+    //     )
+    // }
 
     #[test]
     fn test_define_simple() {
@@ -1511,41 +1509,41 @@ mod parser_tests {
         )
     }
 
-    #[test]
-    fn test_execute_two_arguments() {
-        assert_parse(
-            "(execute a b)",
-            &[ExprKind::Execute(Box::new(Execute::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
-                None,
-                SyntaxObject::default(TokenType::Execute),
-            )))],
-        )
-    }
+    // #[test]
+    // fn test_execute_two_arguments() {
+    //     assert_parse(
+    //         "(execute a b)",
+    //         &[ExprKind::Execute(Box::new(Execute::new(
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                 "a".to_string(),
+    //             )))),
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                 "b".to_string(),
+    //             )))),
+    //             None,
+    //             SyntaxObject::default(TokenType::Execute),
+    //         )))],
+    //     )
+    // }
 
-    #[test]
-    fn test_execute_three_arguments() {
-        assert_parse(
-            "(execute a b c)",
-            &[ExprKind::Execute(Box::new(Execute::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
-                Some(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    Identifier("c".to_string()),
-                )))),
-                SyntaxObject::default(TokenType::Execute),
-            )))],
-        )
-    }
+    // #[test]
+    // fn test_execute_three_arguments() {
+    //     assert_parse(
+    //         "(execute a b c)",
+    //         &[ExprKind::Execute(Box::new(Execute::new(
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                 "a".to_string(),
+    //             )))),
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                 "b".to_string(),
+    //             )))),
+    //             Some(ExprKind::Atom(Atom::new(SyntaxObject::default(
+    //                 Identifier("c".to_string()),
+    //             )))),
+    //             SyntaxObject::default(TokenType::Execute),
+    //         )))],
+    //     )
+    // }
 
     #[test]
     fn test_return_normal() {
@@ -1648,57 +1646,57 @@ mod parser_tests {
         )
     }
 
-    #[test]
-    fn test_execute() {
-        assert_parse(
-            "(execute a b)",
-            &[ExprKind::Execute(Box::new(Execute::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
-                None,
-                SyntaxObject::default(TokenType::Execute),
-            )))],
-        )
-    }
+    // #[test]
+    // fn test_execute() {
+    //     assert_parse(
+    //         "(execute a b)",
+    //         &[ExprKind::Execute(Box::new(Execute::new(
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                 "a".to_string(),
+    //             )))),
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                 "b".to_string(),
+    //             )))),
+    //             None,
+    //             SyntaxObject::default(TokenType::Execute),
+    //         )))],
+    //     )
+    // }
 
-    #[test]
-    fn test_execute_nested() {
-        assert_parse(
-            "(if (empty? lst) '() (execute a b))",
-            &[ExprKind::If(Box::new(If::new(
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "empty?".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "lst".to_string(),
-                    )))),
-                ])),
-                ExprKind::Quote(
-                    Quote::new(
-                        List::new(vec![]).into(),
-                        SyntaxObject::default(TokenType::Quote),
-                    )
-                    .into(),
-                ),
-                ExprKind::Execute(Box::new(Execute::new(
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "a".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "b".to_string(),
-                    )))),
-                    None,
-                    SyntaxObject::default(TokenType::Execute),
-                ))),
-                SyntaxObject::default(TokenType::If),
-            )))],
-        )
-    }
+    // #[test]
+    // fn test_execute_nested() {
+    //     assert_parse(
+    //         "(if (empty? lst) '() (execute a b))",
+    //         &[ExprKind::If(Box::new(If::new(
+    //             ExprKind::List(List::new(vec![
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                     "empty?".to_string(),
+    //                 )))),
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                     "lst".to_string(),
+    //                 )))),
+    //             ])),
+    //             ExprKind::Quote(
+    //                 Quote::new(
+    //                     List::new(vec![]).into(),
+    //                     SyntaxObject::default(TokenType::Quote),
+    //                 )
+    //                 .into(),
+    //             ),
+    //             ExprKind::Execute(Box::new(Execute::new(
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                     "a".to_string(),
+    //                 )))),
+    //                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+    //                     "b".to_string(),
+    //                 )))),
+    //                 None,
+    //                 SyntaxObject::default(TokenType::Execute),
+    //             ))),
+    //             SyntaxObject::default(TokenType::If),
+    //         )))],
+    //     )
+    // }
 
     #[test]
     fn test_quote_with_inner_nested() {

@@ -86,34 +86,34 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
     //     ListOperations::built_in_list_func_flat(&expr)
     // }
 
-    fn visit_transduce(&self, transduce: Box<super::ast::Transduce>) -> Self::Output {
-        let expr = [
-            SteelVal::try_from(transduce.location)?,
-            self.visit(transduce.transducer)?,
-            self.visit(transduce.func)?,
-            self.visit(transduce.initial_value)?,
-            self.visit(transduce.iterable)?,
-        ];
-        ListOperations::built_in_list_func_flat(&expr)
-    }
+    // fn visit_transduce(&self, transduce: Box<super::ast::Transduce>) -> Self::Output {
+    //     let expr = [
+    //         SteelVal::try_from(transduce.location)?,
+    //         self.visit(transduce.transducer)?,
+    //         self.visit(transduce.func)?,
+    //         self.visit(transduce.initial_value)?,
+    //         self.visit(transduce.iterable)?,
+    //     ];
+    //     ListOperations::built_in_list_func_flat(&expr)
+    // }
 
     fn visit_read(&self, read: Box<super::ast::Read>) -> Self::Output {
         let expr = [SteelVal::try_from(read.location)?, self.visit(read.expr)?];
         ListOperations::built_in_list_func_flat(&expr)
     }
 
-    fn visit_execute(&self, execute: Box<super::ast::Execute>) -> Self::Output {
-        let mut exprs = vec![
-            SteelVal::try_from(execute.location)?,
-            self.visit(execute.transducer)?,
-            self.visit(execute.collection)?,
-        ];
+    // fn visit_execute(&self, execute: Box<super::ast::Execute>) -> Self::Output {
+    //     let mut exprs = vec![
+    //         SteelVal::try_from(execute.location)?,
+    //         self.visit(execute.transducer)?,
+    //         self.visit(execute.collection)?,
+    //     ];
 
-        if let Some(output) = execute.output_type {
-            exprs.push(self.visit(output)?);
-        }
-        ListOperations::built_in_list_func_flat(&exprs)
-    }
+    //     if let Some(output) = execute.output_type {
+    //         exprs.push(self.visit(output)?);
+    //     }
+    //     ListOperations::built_in_list_func_flat(&exprs)
+    // }
 
     fn visit_quote(&self, quote: Box<super::ast::Quote>) -> Self::Output {
         self.visit(quote.expr)

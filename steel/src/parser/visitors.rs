@@ -13,9 +13,9 @@ pub trait VisitorMut {
             ExprKind::Return(r) => self.visit_return(r),
             // ExprKind::Apply(a) => self.visit_apply(a),
             // ExprKind::Panic(p) => self.visit_panic(p),
-            ExprKind::Transduce(t) => self.visit_transduce(t),
+            // ExprKind::Transduce(t) => self.visit_transduce(t),
             ExprKind::Read(r) => self.visit_read(r),
-            ExprKind::Execute(e) => self.visit_execute(e),
+            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
@@ -36,9 +36,9 @@ pub trait VisitorMut {
     fn visit_return(&mut self, r: &Return) -> Self::Output;
     // fn visit_apply(&mut self, apply: &Apply) -> Self::Output;
     // fn visit_panic(&mut self, p: &Panic) -> Self::Output;
-    fn visit_transduce(&mut self, transduce: &Transduce) -> Self::Output;
+    // fn visit_transduce(&mut self, transduce: &Transduce) -> Self::Output;
     fn visit_read(&mut self, read: &Read) -> Self::Output;
-    fn visit_execute(&mut self, execute: &Execute) -> Self::Output;
+    // fn visit_execute(&mut self, execute: &Execute) -> Self::Output;
     fn visit_quote(&mut self, quote: &Quote) -> Self::Output;
     fn visit_struct(&mut self, s: &Struct) -> Self::Output;
     fn visit_macro(&mut self, m: &Macro) -> Self::Output;
@@ -64,9 +64,9 @@ pub trait VisitorMutResult {
             ExprKind::Return(r) => self.visit_return(r),
             // ExprKind::Apply(a) => self.visit_apply(a),
             // ExprKind::Panic(p) => self.visit_panic(p),
-            ExprKind::Transduce(t) => self.visit_transduce(t),
+            // ExprKind::Transduce(t) => self.visit_transduce(t),
             ExprKind::Read(r) => self.visit_read(r),
-            ExprKind::Execute(e) => self.visit_execute(e),
+            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
@@ -87,9 +87,9 @@ pub trait VisitorMutResult {
     fn visit_return(&mut self, r: &Return) -> Result<Self::Output>;
     // fn visit_apply(&mut self, apply: &Apply) -> Result<Self::Output>;
     // fn visit_panic(&mut self, p: &Panic) -> Result<Self::Output>;
-    fn visit_transduce(&mut self, transduce: &Transduce) -> Result<Self::Output>;
+    // fn visit_transduce(&mut self, transduce: &Transduce) -> Result<Self::Output>;
     fn visit_read(&mut self, read: &Read) -> Result<Self::Output>;
-    fn visit_execute(&mut self, execute: &Execute) -> Result<Self::Output>;
+    // fn visit_execute(&mut self, execute: &Execute) -> Result<Self::Output>;
     fn visit_quote(&mut self, quote: &Quote) -> Result<Self::Output>;
     fn visit_struct(&mut self, s: &Struct) -> Result<Self::Output>;
     fn visit_macro(&mut self, m: &Macro) -> Result<Self::Output>;
@@ -114,9 +114,9 @@ pub trait Visitor {
             ExprKind::Return(r) => self.visit_return(r),
             // ExprKind::Apply(a) => self.visit_apply(a),
             // ExprKind::Panic(p) => self.visit_panic(p),
-            ExprKind::Transduce(t) => self.visit_transduce(t),
+            // ExprKind::Transduce(t) => self.visit_transduce(t),
             ExprKind::Read(r) => self.visit_read(r),
-            ExprKind::Execute(e) => self.visit_execute(e),
+            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
@@ -137,9 +137,9 @@ pub trait Visitor {
     fn visit_return(&self, r: &Return) -> Self::Output;
     // fn visit_apply(&self, apply: &Apply) -> Self::Output;
     // fn visit_panic(&self, p: &Panic) -> Self::Output;
-    fn visit_transduce(&self, transduce: &Transduce) -> Self::Output;
+    // fn visit_transduce(&self, transduce: &Transduce) -> Self::Output;
     fn visit_read(&self, read: &Read) -> Self::Output;
-    fn visit_execute(&self, execute: &Execute) -> Self::Output;
+    // fn visit_execute(&self, execute: &Execute) -> Self::Output;
     fn visit_quote(&self, quote: &Quote) -> Self::Output;
     fn visit_struct(&self, s: &Struct) -> Self::Output;
     fn visit_macro(&self, m: &Macro) -> Self::Output;
@@ -163,9 +163,9 @@ pub trait ConsumingVisitor {
             ExprKind::Return(r) => self.visit_return(r),
             // ExprKind::Apply(a) => self.visit_apply(a),
             // ExprKind::Panic(p) => self.visit_panic(p),
-            ExprKind::Transduce(t) => self.visit_transduce(t),
+            // ExprKind::Transduce(t) => self.visit_transduce(t),
             ExprKind::Read(r) => self.visit_read(r),
-            ExprKind::Execute(e) => self.visit_execute(e),
+            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
@@ -186,9 +186,9 @@ pub trait ConsumingVisitor {
     fn visit_return(&mut self, r: Box<Return>) -> Self::Output;
     // fn visit_apply(&mut self, apply: Box<Apply>) -> Self::Output;
     // fn visit_panic(&mut self, p: Box<Panic>) -> Self::Output;
-    fn visit_transduce(&mut self, transduce: Box<Transduce>) -> Self::Output;
+    // fn visit_transduce(&mut self, transduce: Box<Transduce>) -> Self::Output;
     fn visit_read(&mut self, read: Box<Read>) -> Self::Output;
-    fn visit_execute(&mut self, execute: Box<Execute>) -> Self::Output;
+    // fn visit_execute(&mut self, execute: Box<Execute>) -> Self::Output;
     fn visit_quote(&mut self, quote: Box<Quote>) -> Self::Output;
     fn visit_struct(&mut self, s: Box<Struct>) -> Self::Output;
     fn visit_macro(&mut self, m: Macro) -> Self::Output;
@@ -212,9 +212,9 @@ pub trait ConsumingVisitorRef {
             ExprKind::Return(r) => self.visit_return(r),
             // ExprKind::Apply(a) => self.visit_apply(a),
             // ExprKind::Panic(p) => self.visit_panic(p),
-            ExprKind::Transduce(t) => self.visit_transduce(t),
+            // ExprKind::Transduce(t) => self.visit_transduce(t),
             ExprKind::Read(r) => self.visit_read(r),
-            ExprKind::Execute(e) => self.visit_execute(e),
+            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
@@ -235,9 +235,9 @@ pub trait ConsumingVisitorRef {
     fn visit_return(&self, r: Box<Return>) -> Self::Output;
     // fn visit_apply(&self, apply: Box<Apply>) -> Self::Output;
     // fn visit_panic(&self, p: Box<Panic>) -> Self::Output;
-    fn visit_transduce(&self, transduce: Box<Transduce>) -> Self::Output;
+    // fn visit_transduce(&self, transduce: Box<Transduce>) -> Self::Output;
     fn visit_read(&self, read: Box<Read>) -> Self::Output;
-    fn visit_execute(&self, execute: Box<Execute>) -> Self::Output;
+    // fn visit_execute(&self, execute: Box<Execute>) -> Self::Output;
     fn visit_quote(&self, quote: Box<Quote>) -> Self::Output;
     fn visit_struct(&self, s: Box<Struct>) -> Self::Output;
     fn visit_macro(&self, m: Macro) -> Self::Output;
@@ -262,9 +262,9 @@ pub trait VisitorMutRef {
             ExprKind::Return(r) => self.visit_return(r),
             // ExprKind::Apply(a) => self.visit_apply(a),
             // ExprKind::Panic(p) => self.visit_panic(p),
-            ExprKind::Transduce(t) => self.visit_transduce(t),
+            // ExprKind::Transduce(t) => self.visit_transduce(t),
             ExprKind::Read(r) => self.visit_read(r),
-            ExprKind::Execute(e) => self.visit_execute(e),
+            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
@@ -285,9 +285,9 @@ pub trait VisitorMutRef {
     fn visit_return(&mut self, r: &mut Return) -> Self::Output;
     // fn visit_apply(&mut self, apply: &mut Apply) -> Self::Output;
     // fn visit_panic(&mut self, p: &mut Panic) -> Self::Output;
-    fn visit_transduce(&mut self, transduce: &mut Transduce) -> Self::Output;
+    // fn visit_transduce(&mut self, transduce: &mut Transduce) -> Self::Output;
     fn visit_read(&mut self, read: &mut Read) -> Self::Output;
-    fn visit_execute(&mut self, execute: &mut Execute) -> Self::Output;
+    // fn visit_execute(&mut self, execute: &mut Execute) -> Self::Output;
     fn visit_quote(&mut self, quote: &mut Quote) -> Self::Output;
     fn visit_struct(&mut self, s: &mut Struct) -> Self::Output;
     fn visit_macro(&mut self, m: &mut Macro) -> Self::Output;

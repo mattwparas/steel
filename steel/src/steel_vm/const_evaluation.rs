@@ -385,28 +385,28 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     //     Ok(ExprKind::Panic(p))
     // }
 
-    fn visit_transduce(
-        &mut self,
-        mut transduce: Box<crate::parser::ast::Transduce>,
-    ) -> Self::Output {
-        transduce.transducer = self.visit(transduce.transducer)?;
-        transduce.func = self.visit(transduce.func)?;
-        transduce.initial_value = self.visit(transduce.initial_value)?;
-        transduce.iterable = self.visit(transduce.iterable)?;
-        Ok(ExprKind::Transduce(transduce))
-    }
+    // fn visit_transduce(
+    //     &mut self,
+    //     mut transduce: Box<crate::parser::ast::Transduce>,
+    // ) -> Self::Output {
+    //     transduce.transducer = self.visit(transduce.transducer)?;
+    //     transduce.func = self.visit(transduce.func)?;
+    //     transduce.initial_value = self.visit(transduce.initial_value)?;
+    //     transduce.iterable = self.visit(transduce.iterable)?;
+    //     Ok(ExprKind::Transduce(transduce))
+    // }
 
     fn visit_read(&mut self, mut read: Box<crate::parser::ast::Read>) -> Self::Output {
         read.expr = self.visit(read.expr)?;
         Ok(ExprKind::Read(read))
     }
 
-    fn visit_execute(&mut self, mut execute: Box<crate::parser::ast::Execute>) -> Self::Output {
-        execute.transducer = self.visit(execute.transducer)?;
-        execute.collection = self.visit(execute.collection)?;
-        execute.output_type = execute.output_type.map(|x| self.visit(x)).transpose()?;
-        Ok(ExprKind::Execute(execute))
-    }
+    // fn visit_execute(&mut self, mut execute: Box<crate::parser::ast::Execute>) -> Self::Output {
+    //     execute.transducer = self.visit(execute.transducer)?;
+    //     execute.collection = self.visit(execute.collection)?;
+    //     execute.output_type = execute.output_type.map(|x| self.visit(x)).transpose()?;
+    //     Ok(ExprKind::Execute(execute))
+    // }
 
     fn visit_quote(&mut self, quote: Box<crate::parser::ast::Quote>) -> Self::Output {
         Ok(ExprKind::Quote(quote))
@@ -699,24 +699,24 @@ impl<'a> VisitorMut for CollectSet<'a> {
     //     self.visit(&p.message);
     // }
 
-    fn visit_transduce(&mut self, transduce: &crate::parser::ast::Transduce) -> Self::Output {
-        self.visit(&transduce.transducer);
-        self.visit(&transduce.func);
-        self.visit(&transduce.initial_value);
-        self.visit(&transduce.iterable);
-    }
+    // fn visit_transduce(&mut self, transduce: &crate::parser::ast::Transduce) -> Self::Output {
+    //     self.visit(&transduce.transducer);
+    //     self.visit(&transduce.func);
+    //     self.visit(&transduce.initial_value);
+    //     self.visit(&transduce.iterable);
+    // }
 
     fn visit_read(&mut self, read: &crate::parser::ast::Read) -> Self::Output {
         self.visit(&read.expr);
     }
 
-    fn visit_execute(&mut self, execute: &crate::parser::ast::Execute) -> Self::Output {
-        self.visit(&execute.transducer);
-        self.visit(&execute.collection);
-        if let Some(x) = execute.output_type.as_ref() {
-            self.visit(x)
-        }
-    }
+    // fn visit_execute(&mut self, execute: &crate::parser::ast::Execute) -> Self::Output {
+    //     self.visit(&execute.transducer);
+    //     self.visit(&execute.collection);
+    //     if let Some(x) = execute.output_type.as_ref() {
+    //         self.visit(x)
+    //     }
+    // }
 
     fn visit_quote(&mut self, _quote: &Quote) -> Self::Output {}
 

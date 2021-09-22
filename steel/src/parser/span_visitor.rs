@@ -56,23 +56,23 @@ impl Visitor for CoalescingSpanVisitor {
     //     Span::merge(p.location.span, self.visit(&p.message))
     // }
 
-    fn visit_transduce(&self, transduce: &super::ast::Transduce) -> Self::Output {
-        Span::merge(transduce.location.span, self.visit(&transduce.iterable))
-    }
+    // fn visit_transduce(&self, transduce: &super::ast::Transduce) -> Self::Output {
+    //     Span::merge(transduce.location.span, self.visit(&transduce.iterable))
+    // }
 
     fn visit_read(&self, read: &super::ast::Read) -> Self::Output {
         Span::merge(read.location.span, self.visit(&read.expr))
     }
 
-    fn visit_execute(&self, execute: &super::ast::Execute) -> Self::Output {
-        let last = if let Some(output_type) = &execute.output_type {
-            self.visit(output_type)
-        } else {
-            self.visit(&execute.collection)
-        };
+    // fn visit_execute(&self, execute: &super::ast::Execute) -> Self::Output {
+    //     let last = if let Some(output_type) = &execute.output_type {
+    //         self.visit(output_type)
+    //     } else {
+    //         self.visit(&execute.collection)
+    //     };
 
-        Span::merge(execute.location.span, last)
-    }
+    //     Span::merge(execute.location.span, last)
+    // }
 
     fn visit_quote(&self, quote: &super::ast::Quote) -> Self::Output {
         self.visit(&quote.expr)
