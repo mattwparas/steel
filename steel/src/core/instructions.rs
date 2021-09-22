@@ -39,15 +39,6 @@ impl Instruction {
         }
     }
 
-    // pub fn new_apply(span: SyntaxObject) -> Instruction {
-    //     Instruction {
-    //         op_code: OpCode::APPLY,
-    //         payload_size: 0,
-    //         contents: Some(span),
-    //         constant: false,
-    //     }
-    // }
-
     pub fn new_clear() -> Instruction {
         Instruction {
             op_code: OpCode::CLEAR,
@@ -209,33 +200,6 @@ impl Instruction {
             constant: false,
         }
     }
-
-    // pub fn new_collect() -> Instruction {
-    //     Instruction {
-    //         op_code: OpCode::COLLECT,
-    //         payload_size: 0,
-    //         contents: None,
-    //         constant: false,
-    //     }
-    // }
-
-    // pub fn new_collect_to() -> Instruction {
-    //     Instruction {
-    //         op_code: OpCode::COLLECTTO,
-    //         payload_size: 0,
-    //         contents: None,
-    //         constant: false,
-    //     }
-    // }
-
-    // pub fn new_transduce() -> Instruction {
-    //     Instruction {
-    //         op_code: OpCode::TRANSDUCE,
-    //         payload_size: 0,
-    //         contents: None,
-    //         constant: false,
-    //     }
-    // }
 
     pub fn new_read() -> Instruction {
         Instruction {

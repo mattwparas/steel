@@ -75,36 +75,10 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    // fn visit_apply(&mut self, mut apply: Box<super::ast::Apply>) -> Self::Output {
-    //     apply.func = self.visit(apply.func)?;
-    //     apply.list = self.visit(apply.list)?;
-    //     Ok(ExprKind::Apply(apply))
-    // }
-
-    // fn visit_panic(&mut self, mut p: Box<super::ast::Panic>) -> Self::Output {
-    //     p.message = self.visit(p.message)?;
-    //     Ok(ExprKind::Panic(p))
-    // }
-
-    // fn visit_transduce(&mut self, mut transduce: Box<super::ast::Transduce>) -> Self::Output {
-    //     transduce.transducer = self.visit(transduce.transducer)?;
-    //     transduce.func = self.visit(transduce.func)?;
-    //     transduce.initial_value = self.visit(transduce.initial_value)?;
-    //     transduce.iterable = self.visit(transduce.iterable)?;
-    //     Ok(ExprKind::Transduce(transduce))
-    // }
-
     fn visit_read(&mut self, mut read: Box<super::ast::Read>) -> Self::Output {
         read.expr = self.visit(read.expr)?;
         Ok(ExprKind::Read(read))
     }
-
-    // fn visit_execute(&mut self, mut execute: Box<super::ast::Execute>) -> Self::Output {
-    //     execute.transducer = self.visit(execute.transducer)?;
-    //     execute.collection = self.visit(execute.collection)?;
-    //     execute.output_type = execute.output_type.map(|x| self.visit(x)).transpose()?;
-    //     Ok(ExprKind::Execute(execute))
-    // }
 
     fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
         quote.expr = self.visit(quote.expr)?;

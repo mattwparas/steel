@@ -759,9 +759,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     }
                 }
                 OpCode::READ => self.handle_read(&cur_inst.span)?,
-                // OpCode::COLLECT => self.handle_collect(&cur_inst.span)?,
-                // OpCode::COLLECTTO => self.handle_collect_to(&cur_inst.span)?,
-                // OpCode::TRANSDUCE => self.handle_transduce(&cur_inst.span)?,
                 OpCode::SET => self.handle_set(cur_inst.payload_size as usize)?,
                 OpCode::PUSHCONST => {
                     let val = self.constants.get(cur_inst.payload_size as usize);
@@ -980,54 +977,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
             None
         }
-    }
-
-    #[inline(always)]
-    fn handle_transduce(&mut self, span: &Span) -> Result<()> {
-        let list = self.stack.pop().unwrap();
-        let initial_value = self.stack.pop().unwrap();
-        let reducer = self.stack.pop().unwrap();
-        let transducer = self.stack.pop().unwrap();
-
-        if let SteelVal::IterV(transducer) = &transducer {
-            let ret_val = self.transduce(&transducer.ops, list, initial_value, reducer, span);
-            self.stack.push(ret_val?);
-        } else {
-            stop!(Generic => "Transduce must take an iterable");
-        }
-        self.ip += 1;
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn handle_collect_to(&mut self, span: &Span) -> Result<()> {
-        let output_type = self.stack.pop().unwrap();
-        let list = self.stack.pop().unwrap();
-        let transducer = self.stack.pop().unwrap();
-
-        if let SteelVal::IterV(transducer) = &transducer {
-            let ret_val = self.run(&transducer.ops, list, Some(output_type), span);
-            self.stack.push(ret_val?);
-        } else {
-            stop!(Generic => "Transducer execute takes a list"; *span);
-        }
-        self.ip += 1;
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn handle_collect(&mut self, span: &Span) -> Result<()> {
-        let list = self.stack.pop().unwrap();
-        let transducer = self.stack.pop().unwrap();
-
-        if let SteelVal::IterV(transducer) = &transducer {
-            let ret_val = self.run(&transducer.ops, list, None, span);
-            self.stack.push(ret_val?);
-        } else {
-            stop!(Generic => "Transducer execute takes a list"; *span);
-        }
-        self.ip += 1;
-        Ok(())
     }
 
     #[inline(always)]
@@ -1945,60 +1894,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     fn handle_start_def(&mut self) {
         self.ip += 1;
     }
-
-    // #[inline(always)]
-    // fn handle_apply(&mut self, span: Span) -> Result<()> {
-    //     let list = self.stack.pop().unwrap();
-    //     let func = self.stack.pop().unwrap();
-
-    //     let mut args = match ListOperations::collect_into_vec(&list) {
-    //         Ok(args) => args,
-    //         Err(_) => stop!(TypeMismatch => "apply expected a list"; span),
-    //     };
-
-    //     match &func {
-    //         SteelVal::FuncV(f) => {
-    //             let result = f(&args).map_err(|x| x.set_span(span))?;
-    //             self.stack.push(result);
-    //             self.ip += 1;
-    //         }
-    //         SteelVal::BoxedFunction(f) => {
-    //             let result = f(&args).map_err(|x| x.set_span(span))?;
-    //             self.stack.push(result);
-    //             self.ip += 1;
-    //         }
-    //         SteelVal::Closure(closure) => {
-    //             if self.stack_index.len() == STACK_LIMIT {
-    //                 // println!("stacks at exit: {:?}", stacks);
-    //                 println!("stack frame at exit: {:?}", self.stack);
-    //                 stop!(Generic => "stack overflowed!"; span);
-    //             }
-
-    //             // self.global_env = inner_env;
-    //             self.instruction_stack.push(InstructionPointer::new(
-    //                 self.ip + 1,
-    //                 Rc::clone(&self.instructions),
-    //             ));
-    //             self.pop_count += 1;
-
-    //             self.function_stack.push(Gc::clone(closure));
-
-    //             let payload_size = args.len();
-
-    //             // Append the arguments to the function
-    //             self.stack.append_vec(&mut args);
-
-    //             self.stack_index.push(self.stack.len() - payload_size);
-
-    //             self.instructions = closure.body_exp();
-    //             self.ip = 0;
-    //         }
-    //         _ => {
-    //             stop!(BadSyntax => "Apply - Application not a procedure or function type not supported"; span);
-    //         }
-    //     }
-    //     Ok(())
-    // }
 }
 
 #[inline(always)]

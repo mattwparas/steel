@@ -97,35 +97,9 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
         self.visit(&mut r.expr)
     }
 
-    // fn visit_apply(&mut self, apply: &mut super::ast::Apply) -> Self::Output {
-    //     self.visit(&mut apply.func);
-    //     self.visit(&mut apply.list);
-    // }
-
-    // fn visit_panic(&mut self, p: &mut super::ast::Panic) -> Self::Output {
-    //     self.visit(&mut p.message);
-    // }
-
-    // fn visit_transduce(&mut self, transduce: &mut super::ast::Transduce) -> Self::Output {
-    //     // todo!()
-    //     self.visit(&mut transduce.transducer);
-    //     self.visit(&mut transduce.func);
-    //     self.visit(&mut transduce.initial_value);
-    //     self.visit(&mut transduce.iterable);
-    // }
-
     fn visit_read(&mut self, read: &mut super::ast::Read) -> Self::Output {
         self.visit(&mut read.expr);
     }
-
-    // fn visit_execute(&mut self, execute: &mut super::ast::Execute) -> Self::Output {
-    //     self.visit(&mut execute.transducer);
-    //     self.visit(&mut execute.collection);
-
-    //     if let Some(ref mut o) = execute.output_type {
-    //         self.visit(o);
-    //     }
-    // }
 
     fn visit_quote(&mut self, quote: &mut super::ast::Quote) -> Self::Output {
         self.visit(&mut quote.expr);
@@ -255,21 +229,6 @@ mod rename_visitor_tests {
         let mut pre_condition = ExprKind::If(Box::new(If::new(
             ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(true)))),
             ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(true)))),
-            // ExprKind::Transduce(Box::new(Transduce::new(
-            //     ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-            //         "a".to_string(),
-            //     )))),
-            //     ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-            //         "b".to_string(),
-            //     )))),
-            //     ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-            //         "c".to_string(),
-            //     )))),
-            //     ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-            //         "d".to_string(),
-            //     )))),
-            //     SyntaxObject::default(TokenType::Transduce),
-            // ))),
             ExprKind::If(Box::new(If::new(
                 ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(false)))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
