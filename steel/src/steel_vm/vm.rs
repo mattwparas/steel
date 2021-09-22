@@ -49,6 +49,7 @@ use std::{
 
 use super::evaluation_progress::EvaluationProgress;
 
+use im_lists::list::List;
 use log::error;
 
 const STACK_LIMIT: usize = 1000;
@@ -259,6 +260,12 @@ pub trait VmContext {
         arg1: SteelVal,
         arg2: SteelVal,
     ) -> Result<SteelVal>;
+
+    fn call_function_many_args_or_else(
+        &mut self,
+        function: &SteelVal,
+        args: List<SteelVal>,
+    ) -> Result<SteelVal>;
 }
 
 // For when we want a reference to the built in context as well -> In the event we want to call something
@@ -291,6 +298,20 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for Vm
             function,
             arg1,
             arg2,
+            &span,
+            throw!(TypeMismatch => format!("application not a procedure: {}", function)),
+        )
+    }
+
+    fn call_function_many_args_or_else(
+        &mut self,
+        function: &SteelVal,
+        args: List<SteelVal>,
+    ) -> Result<SteelVal> {
+        let span = Span::default();
+        self.call_func_or_else_many_args(
+            function,
+            args,
             &span,
             throw!(TypeMismatch => format!("application not a procedure: {}", function)),
         )
@@ -540,6 +561,32 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 cf.apply(arg_vec, cur_inst_span, self)
             }
             SteelVal::Closure(closure) => self.call_with_two_args(closure, arg1, arg2),
+            _ => Err(err()),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn call_func_or_else_many_args<F: FnOnce() -> SteelErr>(
+        &mut self,
+        func: &SteelVal,
+        args: impl IntoIterator<Item = SteelVal>,
+        cur_inst_span: &Span,
+        err: F,
+    ) -> Result<SteelVal> {
+        match func {
+            SteelVal::FuncV(func) => {
+                let arg_vec: Vec<_> = args.into_iter().collect();
+                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+            }
+            SteelVal::BoxedFunction(func) => {
+                let arg_vec: Vec<_> = args.into_iter().collect();
+                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+            }
+            SteelVal::ContractedFunction(cf) => {
+                let arg_vec: Vec<_> = args.into_iter().collect();
+                cf.apply(arg_vec, cur_inst_span, self)
+            }
+            SteelVal::Closure(closure) => self.call_with_args(closure, args),
             _ => Err(err()),
         }
     }
@@ -1381,13 +1428,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        println!("Stack: {:?}", self.stack);
-        println!("Payload size: {}", payload_size);
-
         let args = self.stack.split_off(self.stack.len() - payload_size);
         let result = func(args, self).map_err(|x| x.set_span(*span))?;
-
-        // self.stack.truncate(self.stack.len() - payload_size);
 
         self.stack.push(result);
         self.ip += 1;

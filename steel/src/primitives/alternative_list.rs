@@ -83,6 +83,7 @@ declare_const_mut_ref_functions! {
 }
 
 pub(crate) const TEST_MAP: SteelVal = SteelVal::BuiltIn(test_map);
+pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
 
 // TODO replace all usages with const
 // const LENGTH: SteelVal = SteelVal::FuncV(length);
@@ -106,6 +107,24 @@ fn test_map(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
             ))
 
             // ctx.call_function_one_arg_or_else(function, arg)
+        } else {
+            stop!(TypeMismatch => "test-map expected a function")
+        }
+    } else {
+        stop!(TypeMismatch => "test-map expects a list")
+    }
+}
+
+fn apply(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
+    arity_check!(apply, args, 2);
+
+    let mut arg_iter = args.into_iter();
+    let arg1 = arg_iter.next().unwrap();
+    let arg2 = arg_iter.next().unwrap();
+
+    if let SteelVal::ListV(l) = arg2 {
+        if arg1.is_function() {
+            ctx.call_function_many_args_or_else(&arg1, l)
         } else {
             stop!(TypeMismatch => "test-map expected a function")
         }
