@@ -555,7 +555,7 @@ mod parser_tests {
     use super::*;
     use crate::parser::ast::ExprKind;
     use crate::parser::ast::{
-        Begin, Define, Execute, If, LambdaFunction, Panic, Quote, Return, Transduce,
+        Begin, Define, Execute, If, LambdaFunction, Quote, Return, Transduce,
     };
 
     fn parses(s: &str) {
@@ -701,11 +701,11 @@ mod parser_tests {
         assert_parse_err("('", ParseError::UnexpectedEOF(None));
     }
 
-    #[test]
-    fn test_panic_should_err() {
-        assert_parse_is_err("(panic!)");
-        assert_parse_is_err("(panic! 1 2)")
-    }
+    // #[test]
+    // fn test_panic_should_err() {
+    //     assert_parse_is_err("(panic!)");
+    //     assert_parse_is_err("(panic! 1 2)")
+    // }
 
     #[test]
     fn quote_multiple_args_should_err() {
@@ -1573,16 +1573,16 @@ mod parser_tests {
         )
     }
 
-    #[test]
-    fn test_panic_normal() {
-        assert_parse(
-            "(panic! 10)",
-            &[ExprKind::Panic(Box::new(Panic::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                SyntaxObject::default(TokenType::Panic),
-            )))],
-        )
-    }
+    // #[test]
+    // fn test_panic_normal() {
+    //     assert_parse(
+    //         "(panic! 10)",
+    //         &[ExprKind::Panic(Box::new(Panic::new(
+    //             ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+    //             SyntaxObject::default(TokenType::Panic),
+    //         )))],
+    //     )
+    // }
 
     #[test]
     fn test_lambda_function() {

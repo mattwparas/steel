@@ -166,13 +166,13 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
         None
     }
 
-    fn visit_apply(&mut self, _apply: &ast::Apply) -> Self::Output {
-        None
-    }
+    // fn visit_apply(&mut self, _apply: &ast::Apply) -> Self::Output {
+    //     None
+    // }
 
-    fn visit_panic(&mut self, _p: &ast::Panic) -> Self::Output {
-        None
-    }
+    // fn visit_panic(&mut self, _p: &ast::Panic) -> Self::Output {
+    //     None
+    // }
 
     fn visit_transduce(&mut self, _transduce: &ast::Transduce) -> Self::Output {
         None

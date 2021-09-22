@@ -72,19 +72,19 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
         ListOperations::built_in_list_func_flat(&expr)
     }
 
-    fn visit_apply(&self, apply: Box<super::ast::Apply>) -> Self::Output {
-        let expr = [
-            SteelVal::try_from(apply.location)?,
-            self.visit(apply.func)?,
-            self.visit(apply.list)?,
-        ];
-        ListOperations::built_in_list_func_flat(&expr)
-    }
+    // fn visit_apply(&self, apply: Box<super::ast::Apply>) -> Self::Output {
+    //     let expr = [
+    //         SteelVal::try_from(apply.location)?,
+    //         self.visit(apply.func)?,
+    //         self.visit(apply.list)?,
+    //     ];
+    //     ListOperations::built_in_list_func_flat(&expr)
+    // }
 
-    fn visit_panic(&self, p: Box<super::ast::Panic>) -> Self::Output {
-        let expr = [SteelVal::try_from(p.location)?, self.visit(p.message)?];
-        ListOperations::built_in_list_func_flat(&expr)
-    }
+    // fn visit_panic(&self, p: Box<super::ast::Panic>) -> Self::Output {
+    //     let expr = [SteelVal::try_from(p.location)?, self.visit(p.message)?];
+    //     ListOperations::built_in_list_func_flat(&expr)
+    // }
 
     fn visit_transduce(&self, transduce: Box<super::ast::Transduce>) -> Self::Output {
         let expr = [

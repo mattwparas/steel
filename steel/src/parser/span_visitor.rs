@@ -45,16 +45,16 @@ impl Visitor for CoalescingSpanVisitor {
         Span::merge(r.location.span, self.visit(&r.expr))
     }
 
-    fn visit_apply(&self, apply: &super::ast::Apply) -> Self::Output {
-        Span::merge(
-            apply.location.span,
-            Span::merge(self.visit(&apply.func), self.visit(&apply.list)),
-        )
-    }
+    // fn visit_apply(&self, apply: &super::ast::Apply) -> Self::Output {
+    //     Span::merge(
+    //         apply.location.span,
+    //         Span::merge(self.visit(&apply.func), self.visit(&apply.list)),
+    //     )
+    // }
 
-    fn visit_panic(&self, p: &super::ast::Panic) -> Self::Output {
-        Span::merge(p.location.span, self.visit(&p.message))
-    }
+    // fn visit_panic(&self, p: &super::ast::Panic) -> Self::Output {
+    //     Span::merge(p.location.span, self.visit(&p.message))
+    // }
 
     fn visit_transduce(&self, transduce: &super::ast::Transduce) -> Self::Output {
         Span::merge(transduce.location.span, self.visit(&transduce.iterable))

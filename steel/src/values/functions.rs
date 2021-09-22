@@ -4,6 +4,7 @@ use crate::{
         BoxedFunctionSignature, ByteCodeLambda, FunctionSignature, MutFunctionSignature,
         SteelVal::*,
     },
+    steel_vm::vm::BuiltInSignature,
     values::contracts::ContractedFunction,
 };
 
@@ -13,4 +14,5 @@ pub(crate) enum Function {
     FuncV(FunctionSignature),
     ContractedFunction(Gc<ContractedFunction>),
     MutFuncV(MutFunctionSignature),
+    Builtin(BuiltInSignature),
 }

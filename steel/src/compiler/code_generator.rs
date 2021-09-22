@@ -496,20 +496,20 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    fn visit_apply(&mut self, apply: &crate::parser::ast::Apply) -> Self::Output {
-        // todo!()
-        self.visit(&apply.func)?;
-        self.visit(&apply.list)?;
-        self.push(Instruction::new_apply(apply.location.clone()));
-        Ok(())
-    }
+    // fn visit_apply(&mut self, apply: &crate::parser::ast::Apply) -> Self::Output {
+    //     // todo!()
+    //     self.visit(&apply.func)?;
+    //     self.visit(&apply.list)?;
+    //     self.push(Instruction::new_apply(apply.location.clone()));
+    //     Ok(())
+    // }
 
-    fn visit_panic(&mut self, p: &crate::parser::ast::Panic) -> Self::Output {
-        // todo!()
-        self.visit(&p.message)?;
-        self.push(Instruction::new_panic(p.location.clone()));
-        Ok(())
-    }
+    // fn visit_panic(&mut self, p: &crate::parser::ast::Panic) -> Self::Output {
+    //     // todo!()
+    //     self.visit(&p.message)?;
+    //     self.push(Instruction::new_panic(p.location.clone()));
+    //     Ok(())
+    // }
 
     fn visit_transduce(&mut self, transduce: &crate::parser::ast::Transduce) -> Self::Output {
         self.visit(&transduce.transducer)?;

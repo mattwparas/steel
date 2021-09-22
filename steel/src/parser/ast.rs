@@ -26,8 +26,8 @@ pub enum ExprKind {
     LambdaFunction(Box<LambdaFunction>),
     Begin(Begin),
     Return(Box<Return>),
-    Apply(Box<Apply>),
-    Panic(Box<Panic>),
+    // Apply(Box<Apply>),
+    // Panic(Box<Panic>),
     Transduce(Box<Transduce>),
     Read(Box<Read>),
     Execute(Box<Execute>),
@@ -156,8 +156,8 @@ impl ToDoc for ExprKind {
             ExprKind::LambdaFunction(l) => l.to_doc(),
             ExprKind::Begin(b) => b.to_doc(),
             ExprKind::Return(r) => r.to_doc(),
-            ExprKind::Apply(a) => a.to_doc(),
-            ExprKind::Panic(p) => p.to_doc(),
+            // ExprKind::Apply(a) => a.to_doc(),
+            // ExprKind::Panic(p) => p.to_doc(),
             ExprKind::Transduce(t) => t.to_doc(),
             ExprKind::Read(r) => r.to_doc(),
             ExprKind::Execute(e) => e.to_doc(),
@@ -191,8 +191,8 @@ impl fmt::Display for ExprKind {
             ExprKind::LambdaFunction(l) => write!(f, "{}", l),
             ExprKind::Begin(b) => write!(f, "{}", b),
             ExprKind::Return(r) => write!(f, "{}", r),
-            ExprKind::Apply(a) => write!(f, "{}", a),
-            ExprKind::Panic(p) => write!(f, "{}", p),
+            // ExprKind::Apply(a) => write!(f, "{}", a),
+            // ExprKind::Panic(p) => write!(f, "{}", p),
             ExprKind::Transduce(t) => write!(f, "{}", t),
             ExprKind::Read(r) => write!(f, "{}", r),
             ExprKind::Execute(e) => write!(f, "{}", e),
@@ -663,80 +663,80 @@ impl IntoIterator for List {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Apply {
-    pub func: ExprKind,
-    pub list: ExprKind,
-    pub location: SyntaxObject,
-}
+// #[derive(Clone, Debug, PartialEq)]
+// pub struct Apply {
+//     pub func: ExprKind,
+//     pub list: ExprKind,
+//     pub location: SyntaxObject,
+// }
 
-impl Apply {
-    pub fn new(func: ExprKind, list: ExprKind, location: SyntaxObject) -> Self {
-        Apply {
-            func,
-            list,
-            location,
-        }
-    }
-}
+// impl Apply {
+//     pub fn new(func: ExprKind, list: ExprKind, location: SyntaxObject) -> Self {
+//         Apply {
+//             func,
+//             list,
+//             location,
+//         }
+//     }
+// }
 
-impl fmt::Display for Apply {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(apply {} {})", self.func, self.list)
-    }
-}
+// impl fmt::Display for Apply {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         write!(f, "(apply {} {})", self.func, self.list)
+//     }
+// }
 
-impl ToDoc for Apply {
-    fn to_doc(&self) -> RcDoc<()> {
-        RcDoc::text("(apply")
-            .append(RcDoc::line())
-            .append(self.func.to_doc())
-            .append(RcDoc::line())
-            .append(self.list.to_doc())
-            .append(RcDoc::text(")"))
-            .nest(2)
-    }
-}
+// impl ToDoc for Apply {
+//     fn to_doc(&self) -> RcDoc<()> {
+//         RcDoc::text("(apply")
+//             .append(RcDoc::line())
+//             .append(self.func.to_doc())
+//             .append(RcDoc::line())
+//             .append(self.list.to_doc())
+//             .append(RcDoc::text(")"))
+//             .nest(2)
+//     }
+// }
 
-impl From<Apply> for ExprKind {
-    fn from(val: Apply) -> Self {
-        ExprKind::Apply(Box::new(val))
-    }
-}
+// impl From<Apply> for ExprKind {
+//     fn from(val: Apply) -> Self {
+//         ExprKind::Apply(Box::new(val))
+//     }
+// }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Panic {
-    pub message: ExprKind,
-    pub location: SyntaxObject,
-}
+// #[derive(Clone, Debug, PartialEq)]
+// pub struct Panic {
+//     pub message: ExprKind,
+//     pub location: SyntaxObject,
+// }
 
-impl Panic {
-    pub fn new(message: ExprKind, location: SyntaxObject) -> Self {
-        Panic { message, location }
-    }
-}
+// impl Panic {
+//     pub fn new(message: ExprKind, location: SyntaxObject) -> Self {
+//         Panic { message, location }
+//     }
+// }
 
-impl ToDoc for Panic {
-    fn to_doc(&self) -> RcDoc<()> {
-        RcDoc::text("(panic")
-            .append(RcDoc::line())
-            .append(self.message.to_doc())
-            .append(RcDoc::text(")"))
-            .nest(2)
-    }
-}
+// impl ToDoc for Panic {
+//     fn to_doc(&self) -> RcDoc<()> {
+//         RcDoc::text("(panic")
+//             .append(RcDoc::line())
+//             .append(self.message.to_doc())
+//             .append(RcDoc::text(")"))
+//             .nest(2)
+//     }
+// }
 
-impl fmt::Display for Panic {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(panic! {})", self.message)
-    }
-}
+// impl fmt::Display for Panic {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         write!(f, "(panic! {})", self.message)
+//     }
+// }
 
-impl From<Panic> for ExprKind {
-    fn from(val: Panic) -> Self {
-        ExprKind::Panic(Box::new(val))
-    }
-}
+// impl From<Panic> for ExprKind {
+//     fn from(val: Panic) -> Self {
+//         ExprKind::Panic(Box::new(val))
+//     }
+// }
 
 // transducer func initial_value iterable
 #[derive(Clone, Debug, PartialEq)]
@@ -1601,23 +1601,23 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 identifier, expression, syn,
                             ))))
                         }
-                        TokenType::Apply => {
-                            let syn = a.syn.clone();
-                            if value.len() != 3 {
-                                return Err(ParseError::ArityMismatch(
-                                    format!(
-                                        "apply expects a symbol (for a function) and a list of fields, found {} arguments instead",value.len()
-                                    ), syn.span, None
-                                ));
-                            }
+                        // TokenType::Apply => {
+                        //     let syn = a.syn.clone();
+                        //     if value.len() != 3 {
+                        //         return Err(ParseError::ArityMismatch(
+                        //             format!(
+                        //                 "apply expects a symbol (for a function) and a list of fields, found {} arguments instead",value.len()
+                        //             ), syn.span, None
+                        //         ));
+                        //     }
 
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            let function = value_iter.next().unwrap();
-                            let list = value_iter.next().unwrap();
+                        //     let mut value_iter = value.into_iter();
+                        //     value_iter.next();
+                        //     let function = value_iter.next().unwrap();
+                        //     let list = value_iter.next().unwrap();
 
-                            Ok(ExprKind::Apply(Box::new(Apply::new(function, list, syn))))
-                        }
+                        //     Ok(ExprKind::Apply(Box::new(Apply::new(function, list, syn))))
+                        // }
                         TokenType::Struct => {
                             let syn = a.syn.clone();
 
@@ -1650,12 +1650,12 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                             value_iter.next();
                             Ok(ExprKind::Begin(Begin::new(value_iter.collect(), syn)))
                         }
-                        TokenType::Panic => parse_single_argument(
-                            value.into_iter(),
-                            a.syn.clone(),
-                            "panic!",
-                            |expr, syn| Panic::new(expr, syn).into(),
-                        ),
+                        // TokenType::Panic => parse_single_argument(
+                        //     value.into_iter(),
+                        //     a.syn.clone(),
+                        //     "panic!",
+                        //     |expr, syn| Panic::new(expr, syn).into(),
+                        // ),
                         TokenType::Lambda => {
                             let syn = a.syn.clone();
 

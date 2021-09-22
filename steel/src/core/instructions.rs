@@ -39,14 +39,14 @@ impl Instruction {
         }
     }
 
-    pub fn new_apply(span: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::APPLY,
-            payload_size: 0,
-            contents: Some(span),
-            constant: false,
-        }
-    }
+    // pub fn new_apply(span: SyntaxObject) -> Instruction {
+    //     Instruction {
+    //         op_code: OpCode::APPLY,
+    //         payload_size: 0,
+    //         contents: Some(span),
+    //         constant: false,
+    //     }
+    // }
 
     pub fn new_clear() -> Instruction {
         Instruction {

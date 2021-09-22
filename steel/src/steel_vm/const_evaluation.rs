@@ -374,16 +374,16 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_apply(&mut self, mut apply: Box<crate::parser::ast::Apply>) -> Self::Output {
-        apply.func = self.visit(apply.func)?;
-        apply.list = self.visit(apply.list)?;
-        Ok(ExprKind::Apply(apply))
-    }
+    // fn visit_apply(&mut self, mut apply: Box<crate::parser::ast::Apply>) -> Self::Output {
+    //     apply.func = self.visit(apply.func)?;
+    //     apply.list = self.visit(apply.list)?;
+    //     Ok(ExprKind::Apply(apply))
+    // }
 
-    fn visit_panic(&mut self, mut p: Box<crate::parser::ast::Panic>) -> Self::Output {
-        p.message = self.visit(p.message)?;
-        Ok(ExprKind::Panic(p))
-    }
+    // fn visit_panic(&mut self, mut p: Box<crate::parser::ast::Panic>) -> Self::Output {
+    //     p.message = self.visit(p.message)?;
+    //     Ok(ExprKind::Panic(p))
+    // }
 
     fn visit_transduce(
         &mut self,
@@ -690,14 +690,14 @@ impl<'a> VisitorMut for CollectSet<'a> {
         self.visit(&r.expr);
     }
 
-    fn visit_apply(&mut self, apply: &crate::parser::ast::Apply) -> Self::Output {
-        self.visit(&apply.func);
-        self.visit(&apply.list);
-    }
+    // fn visit_apply(&mut self, apply: &crate::parser::ast::Apply) -> Self::Output {
+    //     self.visit(&apply.func);
+    //     self.visit(&apply.list);
+    // }
 
-    fn visit_panic(&mut self, p: &crate::parser::ast::Panic) -> Self::Output {
-        self.visit(&p.message);
-    }
+    // fn visit_panic(&mut self, p: &crate::parser::ast::Panic) -> Self::Output {
+    //     self.visit(&p.message);
+    // }
 
     fn visit_transduce(&mut self, transduce: &crate::parser::ast::Transduce) -> Self::Output {
         self.visit(&transduce.transducer);

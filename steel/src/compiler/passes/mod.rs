@@ -20,8 +20,8 @@ pub trait Folder {
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Apply(a) => self.visit_apply(a),
-            ExprKind::Panic(p) => self.visit_panic(p),
+            // ExprKind::Apply(a) => self.visit_apply(a),
+            // ExprKind::Panic(p) => self.visit_panic(p),
             ExprKind::Transduce(t) => self.visit_transduce(t),
             ExprKind::Read(r) => self.visit_read(r),
             ExprKind::Execute(e) => self.visit_execute(e),
@@ -70,18 +70,18 @@ pub trait Folder {
         ExprKind::Return(r)
     }
 
-    #[inline]
-    fn visit_apply(&mut self, mut apply: Box<Apply>) -> ExprKind {
-        apply.func = self.visit(apply.func);
-        apply.list = self.visit(apply.list);
-        ExprKind::Apply(apply)
-    }
+    // #[inline]
+    // fn visit_apply(&mut self, mut apply: Box<Apply>) -> ExprKind {
+    //     apply.func = self.visit(apply.func);
+    //     apply.list = self.visit(apply.list);
+    //     ExprKind::Apply(apply)
+    // }
 
-    #[inline]
-    fn visit_panic(&mut self, mut p: Box<Panic>) -> ExprKind {
-        p.message = self.visit(p.message);
-        ExprKind::Panic(p)
-    }
+    // #[inline]
+    // fn visit_panic(&mut self, mut p: Box<Panic>) -> ExprKind {
+    //     p.message = self.visit(p.message);
+    //     ExprKind::Panic(p)
+    // }
 
     #[inline]
     fn visit_transduce(&mut self, mut transduce: Box<Transduce>) -> ExprKind {
@@ -171,8 +171,8 @@ pub trait VisitorMutUnit {
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Apply(a) => self.visit_apply(a),
-            ExprKind::Panic(p) => self.visit_panic(p),
+            // ExprKind::Apply(a) => self.visit_apply(a),
+            // ExprKind::Panic(p) => self.visit_panic(p),
             ExprKind::Transduce(t) => self.visit_transduce(t),
             ExprKind::Read(r) => self.visit_read(r),
             ExprKind::Execute(e) => self.visit_execute(e),
@@ -218,16 +218,16 @@ pub trait VisitorMutUnit {
         self.visit(&r.expr);
     }
 
-    #[inline]
-    fn visit_apply(&mut self, apply: &Apply) {
-        self.visit(&apply.func);
-        self.visit(&apply.list);
-    }
+    // #[inline]
+    // fn visit_apply(&mut self, apply: &Apply) {
+    //     self.visit(&apply.func);
+    //     self.visit(&apply.list);
+    // }
 
-    #[inline]
-    fn visit_panic(&mut self, p: &Panic) {
-        self.visit(&p.message);
-    }
+    // #[inline]
+    // fn visit_panic(&mut self, p: &Panic) {
+    //     self.visit(&p.message);
+    // }
 
     #[inline]
     fn visit_transduce(&mut self, transduce: &Transduce) {

@@ -75,16 +75,16 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_apply(&mut self, mut apply: Box<super::ast::Apply>) -> Self::Output {
-        apply.func = self.visit(apply.func)?;
-        apply.list = self.visit(apply.list)?;
-        Ok(ExprKind::Apply(apply))
-    }
+    // fn visit_apply(&mut self, mut apply: Box<super::ast::Apply>) -> Self::Output {
+    //     apply.func = self.visit(apply.func)?;
+    //     apply.list = self.visit(apply.list)?;
+    //     Ok(ExprKind::Apply(apply))
+    // }
 
-    fn visit_panic(&mut self, mut p: Box<super::ast::Panic>) -> Self::Output {
-        p.message = self.visit(p.message)?;
-        Ok(ExprKind::Panic(p))
-    }
+    // fn visit_panic(&mut self, mut p: Box<super::ast::Panic>) -> Self::Output {
+    //     p.message = self.visit(p.message)?;
+    //     Ok(ExprKind::Panic(p))
+    // }
 
     fn visit_transduce(&mut self, mut transduce: Box<super::ast::Transduce>) -> Self::Output {
         transduce.transducer = self.visit(transduce.transducer)?;

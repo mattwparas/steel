@@ -150,8 +150,8 @@ pub enum TokenType {
     Return,
     #[token("begin")]
     Begin,
-    #[token("panic!")]
-    Panic,
+    // #[token("panic!")]
+    // Panic,
     #[regex("(lambda)|(fn)|(λ)")]
     Lambda,
     #[token("quote")]
@@ -166,9 +166,8 @@ pub enum TokenType {
     #[token("struct")]
     Struct,
 
-    #[token("apply")]
-    Apply,
-
+    // #[token("apply")]
+    // Apply,
     #[token("set!")]
     Set,
 

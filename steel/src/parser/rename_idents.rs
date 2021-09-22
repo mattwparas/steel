@@ -97,14 +97,14 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
         self.visit(&mut r.expr)
     }
 
-    fn visit_apply(&mut self, apply: &mut super::ast::Apply) -> Self::Output {
-        self.visit(&mut apply.func);
-        self.visit(&mut apply.list);
-    }
+    // fn visit_apply(&mut self, apply: &mut super::ast::Apply) -> Self::Output {
+    //     self.visit(&mut apply.func);
+    //     self.visit(&mut apply.list);
+    // }
 
-    fn visit_panic(&mut self, p: &mut super::ast::Panic) -> Self::Output {
-        self.visit(&mut p.message);
-    }
+    // fn visit_panic(&mut self, p: &mut super::ast::Panic) -> Self::Output {
+    //     self.visit(&mut p.message);
+    // }
 
     fn visit_transduce(&mut self, transduce: &mut super::ast::Transduce) -> Self::Output {
         // todo!()

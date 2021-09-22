@@ -738,7 +738,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 OpCode::READUPVALUE => self.handle_upvalue(cur_inst.payload_size as usize),
                 OpCode::MOVEREADUPVALUE => self.handle_move_upvalue(cur_inst.payload_size as usize),
                 OpCode::SETUPVALUE => self.handle_set_upvalue(cur_inst.payload_size as usize),
-                OpCode::APPLY => self.handle_apply(cur_inst.span)?,
+                // OpCode::APPLY => self.handle_apply(cur_inst.span)?,
                 OpCode::CLEAR => {
                     self.ip += 1;
                 }
@@ -1908,59 +1908,59 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         self.ip += 1;
     }
 
-    #[inline(always)]
-    fn handle_apply(&mut self, span: Span) -> Result<()> {
-        let list = self.stack.pop().unwrap();
-        let func = self.stack.pop().unwrap();
+    // #[inline(always)]
+    // fn handle_apply(&mut self, span: Span) -> Result<()> {
+    //     let list = self.stack.pop().unwrap();
+    //     let func = self.stack.pop().unwrap();
 
-        let mut args = match ListOperations::collect_into_vec(&list) {
-            Ok(args) => args,
-            Err(_) => stop!(TypeMismatch => "apply expected a list"; span),
-        };
+    //     let mut args = match ListOperations::collect_into_vec(&list) {
+    //         Ok(args) => args,
+    //         Err(_) => stop!(TypeMismatch => "apply expected a list"; span),
+    //     };
 
-        match &func {
-            SteelVal::FuncV(f) => {
-                let result = f(&args).map_err(|x| x.set_span(span))?;
-                self.stack.push(result);
-                self.ip += 1;
-            }
-            SteelVal::BoxedFunction(f) => {
-                let result = f(&args).map_err(|x| x.set_span(span))?;
-                self.stack.push(result);
-                self.ip += 1;
-            }
-            SteelVal::Closure(closure) => {
-                if self.stack_index.len() == STACK_LIMIT {
-                    // println!("stacks at exit: {:?}", stacks);
-                    println!("stack frame at exit: {:?}", self.stack);
-                    stop!(Generic => "stack overflowed!"; span);
-                }
+    //     match &func {
+    //         SteelVal::FuncV(f) => {
+    //             let result = f(&args).map_err(|x| x.set_span(span))?;
+    //             self.stack.push(result);
+    //             self.ip += 1;
+    //         }
+    //         SteelVal::BoxedFunction(f) => {
+    //             let result = f(&args).map_err(|x| x.set_span(span))?;
+    //             self.stack.push(result);
+    //             self.ip += 1;
+    //         }
+    //         SteelVal::Closure(closure) => {
+    //             if self.stack_index.len() == STACK_LIMIT {
+    //                 // println!("stacks at exit: {:?}", stacks);
+    //                 println!("stack frame at exit: {:?}", self.stack);
+    //                 stop!(Generic => "stack overflowed!"; span);
+    //             }
 
-                // self.global_env = inner_env;
-                self.instruction_stack.push(InstructionPointer::new(
-                    self.ip + 1,
-                    Rc::clone(&self.instructions),
-                ));
-                self.pop_count += 1;
+    //             // self.global_env = inner_env;
+    //             self.instruction_stack.push(InstructionPointer::new(
+    //                 self.ip + 1,
+    //                 Rc::clone(&self.instructions),
+    //             ));
+    //             self.pop_count += 1;
 
-                self.function_stack.push(Gc::clone(closure));
+    //             self.function_stack.push(Gc::clone(closure));
 
-                let payload_size = args.len();
+    //             let payload_size = args.len();
 
-                // Append the arguments to the function
-                self.stack.append_vec(&mut args);
+    //             // Append the arguments to the function
+    //             self.stack.append_vec(&mut args);
 
-                self.stack_index.push(self.stack.len() - payload_size);
+    //             self.stack_index.push(self.stack.len() - payload_size);
 
-                self.instructions = closure.body_exp();
-                self.ip = 0;
-            }
-            _ => {
-                stop!(BadSyntax => "Apply - Application not a procedure or function type not supported"; span);
-            }
-        }
-        Ok(())
-    }
+    //             self.instructions = closure.body_exp();
+    //             self.ip = 0;
+    //         }
+    //         _ => {
+    //             stop!(BadSyntax => "Apply - Application not a procedure or function type not supported"; span);
+    //         }
+    //     }
+    //     Ok(())
+    // }
 }
 
 #[inline(always)]

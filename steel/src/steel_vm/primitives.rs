@@ -236,10 +236,8 @@ pub(crate) fn register_test_list_functions(engine: &mut Engine) {
         .register_value("test-car", crate::primitives::alternative_list::CAR)
         .register_value("test-rest", crate::primitives::alternative_list::REST)
         .register_value("test-map", crate::primitives::alternative_list::TEST_MAP)
-        .register_value(
-            "test-apply",
-            crate::primitives::alternative_list::TEST_APPLY,
-        );
+        // TODO move this to somewhere better than here
+        .register_value("apply", crate::primitives::alternative_list::TEST_APPLY);
 }
 
 #[inline(always)]
