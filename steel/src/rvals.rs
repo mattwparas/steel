@@ -376,6 +376,7 @@ pub enum Transducers {
     Window(SteelVal),    // integer
     TakeWhile(SteelVal), // function
     DropWhile(SteelVal), // function
+    Extend(SteelVal),    // Collection
 }
 
 impl Hash for SteelVal {
@@ -486,6 +487,30 @@ impl Iterator for Iter {
 }
 
 impl SteelVal {
+    // pub fn res_iterator
+
+    pub(crate) fn res_iterator(&self) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + '_>> {
+        match self {
+            SteelVal::VectorV(v) => Ok(Box::new(v.iter().cloned().map(Ok))),
+            // SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(Ok)),
+            // SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
+            //     lazy_stream.unwrap(),
+            //     self.constants,
+            //     cur_inst_span,
+            //     self.callback,
+            //     Rc::clone(&global_env),
+            //     self.use_callbacks,
+            //     self.apply_contracts,
+            // )),
+            SteelVal::StringV(s) => Ok(Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x))))),
+            SteelVal::ListV(l) => Ok(Box::new(l.iter().cloned().map(Ok))),
+            SteelVal::StructV(s) => Ok(Box::new(s.iter().cloned().map(Ok))),
+            _ => {
+                stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", self))
+            }
+        }
+    }
+
     pub fn bool_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<bool, E> {
         match self {
             Self::BoolV(v) => Ok(*v),

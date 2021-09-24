@@ -17,8 +17,6 @@ use crate::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
-// use super::contracts::ContractedFunctionExt;
-
 /// Generates the take transducer - wrapper around the take iterator
 macro_rules! generate_take {
     ($iter:expr, $num:expr, $cur_inst_span:expr) => {
@@ -47,33 +45,6 @@ macro_rules! generate_drop {
     }
 }
 
-// let output_type = self.stack.pop().unwrap();
-//         let list = self.stack.pop().unwrap();
-//         let transducer = self.stack.pop().unwrap();
-
-//         if let SteelVal::IterV(transducer) = &transducer {
-//             let ret_val = self.run(&transducer.ops, list, Some(output_type), span);
-//             self.stack.push(ret_val?);
-//         } else {
-//             stop!(Generic => "Transducer execute takes a list"; *span);
-//         }
-//         self.ip += 1;
-//         Ok(())
-
-// let list = self.stack.pop().unwrap();
-//         let initial_value = self.stack.pop().unwrap();
-//         let reducer = self.stack.pop().unwrap();
-//         let transducer = self.stack.pop().unwrap();
-
-//         if let SteelVal::IterV(transducer) = &transducer {
-//             let ret_val = self.transduce(&transducer.ops, list, initial_value, reducer, span);
-//             self.stack.push(ret_val?);
-//         } else {
-//             stop!(Generic => "Transduce must take an iterable");
-//         }
-
-// trait Output
-
 pub(crate) const TRANSDUCE: SteelVal = SteelVal::BuiltIn(transduce);
 pub(crate) const EXECUTE: SteelVal = SteelVal::BuiltIn(execute);
 
@@ -87,7 +58,7 @@ fn transduce(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
     if let SteelVal::IterV(transducer) = &transducer {
         ctx.call_transduce(&transducer.ops, list, initial_value, reducer)
     } else {
-        stop!(Generic => "Transduce must take an iterable");
+        stop!(Generic => format!("transduce must take a transducer, found: {}", transducer));
     }
 }
 
@@ -103,7 +74,7 @@ fn execute(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
     if let SteelVal::IterV(transducer) = &transducer {
         ctx.call_execute(&transducer.ops, list, output_type)
     } else {
-        stop!(Generic => "Transducer execute takes a list");
+        stop!(Generic => format!("Transducer execute must take a transducer, found: {}", transducer));
     }
 }
 
@@ -121,26 +92,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             _ => CollectionType::List,
         };
 
-        // let global_env: Rc<RefCell<&mut &'a mut Env>> = Rc::new(RefCell::new(&mut self.global_env));
-
-        // Initialize the iterator to be the iterator over whatever is given, stop if its not iterable
-        let mut iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
-            SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(Ok)),
-            SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(Ok)),
-            // SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-            //     lazy_stream.unwrap(),
-            //     self.constants,
-            //     cur_inst_span,
-            //     self.callback,
-            //     Rc::clone(&global_env),
-            //     self.use_callbacks,
-            //     self.apply_contracts,
-            // )),
-            SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
-            SteelVal::ListV(l) => Box::new(l.iter().cloned().map(Ok)),
-            SteelVal::StructV(s) => Box::new(s.iter().cloned().map(Ok)),
-            _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
-        };
+        let mut iter = root.res_iterator()?;
 
         let vm = Rc::new(RefCell::new(self));
 
@@ -293,6 +245,33 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 Transducers::DropWhile(func) => {
                     todo!()
                 }
+                Transducers::Extend(collection) => {
+                    let extender: Box<dyn Iterator<Item = Result<SteelVal>>> = match collection
+                        .clone()
+                    {
+                        SteelVal::VectorV(v) => Box::new(v.unwrap().into_iter().map(Ok)),
+                        // TODO this needs to be fixed
+                        SteelVal::StringV(s) => Box::new(
+                            s.chars()
+                                .map(|x| Ok(SteelVal::CharV(x)))
+                                .collect::<Vec<_>>()
+                                .into_iter(),
+                        ),
+                        SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
+                        SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
+                        els => {
+                            let err = SteelErr::new(
+                                ErrorKind::TypeMismatch,
+                                format!("extending expected a traversable value, found: {}", els),
+                            )
+                            .with_span(*cur_inst_span);
+
+                            Box::new(std::iter::once(Err(err)))
+                        }
+                    };
+
+                    Box::new(iter.chain(extender))
+                }
                 Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),
                 Transducers::Drop(num) => generate_drop!(iter, num, cur_inst_span),
             }
@@ -326,23 +305,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         reducer: SteelVal,
         cur_inst_span: &Span,
     ) -> Result<SteelVal> {
-        let mut iter: Box<dyn Iterator<Item = Result<SteelVal>>> = match &root {
-            SteelVal::VectorV(v) => Box::new(v.iter().cloned().map(Ok)),
-            SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(Ok)),
-            // SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-            //     lazy_stream.unwrap(),
-            //     self.constants,
-            //     cur_inst_span,
-            //     self.callback,
-            //     Rc::clone(&global_env),
-            //     self.use_callbacks,
-            //     self.apply_contracts,
-            // )),
-            SteelVal::StringV(s) => Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x)))),
-            SteelVal::ListV(l) => Box::new(l.iter().cloned().map(Ok)),
-            SteelVal::StructV(s) => Box::new(s.iter().cloned().map(Ok)),
-            _ => stop!(TypeMismatch => "Iterators not yet implemented for this type"),
-        };
+        let mut iter = root.res_iterator()?;
 
         let vm = Rc::new(RefCell::new(self));
 
@@ -438,6 +401,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     todo!()
                 }
                 Transducers::DropWhile(func) => {
+                    todo!()
+                }
+                Transducers::Extend(collection) => {
                     todo!()
                 }
                 Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),

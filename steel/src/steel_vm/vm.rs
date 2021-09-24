@@ -570,6 +570,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 let arg_vec = vec![arg];
                 cf.apply(arg_vec, cur_inst_span, self)
             }
+            SteelVal::MutFunc(func) => {
+                let mut arg_vec: Vec<_> = vec![arg];
+                func(&mut arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+            }
+            SteelVal::BuiltIn(func) => {
+                let arg_vec: Vec<_> = vec![arg];
+                func(arg_vec, self).map_err(|x| x.set_span(*cur_inst_span))
+            }
             SteelVal::Closure(closure) => self.call_with_one_arg(closure, arg),
             _ => Err(err()),
         }
@@ -597,6 +605,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 let arg_vec = vec![arg1, arg2];
                 cf.apply(arg_vec, cur_inst_span, self)
             }
+            SteelVal::MutFunc(func) => {
+                let mut arg_vec: Vec<_> = vec![arg1, arg2];
+                func(&mut arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+            }
+            SteelVal::BuiltIn(func) => {
+                let arg_vec: Vec<_> = vec![arg1, arg2];
+                func(arg_vec, self).map_err(|x| x.set_span(*cur_inst_span))
+            }
             SteelVal::Closure(closure) => self.call_with_two_args(closure, arg1, arg2),
             _ => Err(err()),
         }
@@ -622,6 +638,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
                 cf.apply(arg_vec, cur_inst_span, self)
+            }
+            SteelVal::MutFunc(func) => {
+                let mut arg_vec: Vec<_> = args.into_iter().collect();
+                func(&mut arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+            }
+            SteelVal::BuiltIn(func) => {
+                let arg_vec: Vec<_> = args.into_iter().collect();
+                func(arg_vec, self).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => self.call_with_args(closure, args),
             _ => Err(err()),
@@ -1483,20 +1507,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
             let result = cf.apply(args, span, self)?;
 
-            // let result = cf.apply(
-            //     args,
-            //     self.constants,
-            //     span,
-            //     self.callback,
-            //     &mut self.upvalue_heap,
-            //     self.global_env,
-            //     &mut self.stack,
-            //     &mut self.function_stack,
-            //     &mut self.stack_index,
-            //     self.use_callbacks,
-            //     self.apply_contracts,
-            // )?;
-
             self.stack.push(result);
             self.ip += 1;
             Ok(())
@@ -1882,9 +1892,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 self.call_compiled_function(function, payload_size, span)?
             }
             Contract(c) => self.call_contract(c, payload_size, span)?,
+            BuiltIn(f) => self.call_builtin_func(f, payload_size, span)?,
             _ => {
-                println!("{:?}", stack_func);
-                stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);
+                // println!("{:?}", stack_func);
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); *span);
             }
         }
         Ok(())
