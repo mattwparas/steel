@@ -102,7 +102,7 @@ fn test_map(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
 
             Ok(SteelVal::ListV(
                 l.into_iter()
-                    .map(|x| ctx.call_function_one_arg_or_else(&arg1, x))
+                    .map(|x| ctx.call_function_one_arg(&arg1, x))
                     .collect::<Result<_>>()?,
             ))
 
@@ -124,7 +124,7 @@ fn apply(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
 
     if let SteelVal::ListV(l) = arg2 {
         if arg1.is_function() {
-            ctx.call_function_many_args_or_else(&arg1, l)
+            ctx.call_function_many_args(&arg1, l)
         } else {
             stop!(TypeMismatch => "test-map expected a function")
         }
@@ -256,14 +256,7 @@ fn rest(args: &mut [SteelVal]) -> Result<SteelVal> {
 
         match l.rest_mut() {
             Some(l) => Ok(SteelVal::ListV(l.clone())),
-            None => {
-                Ok(SteelVal::ListV(l.clone()))
-                // if l.is_empty() {
-                //     stop!(Generic => "rest expects a non empty list");
-                // } else {
-
-                // }
-            }
+            None => Ok(SteelVal::ListV(l.clone())),
         }
     } else {
         stop!(TypeMismatch => "rest expects a list")

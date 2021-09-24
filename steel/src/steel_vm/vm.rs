@@ -248,21 +248,17 @@ fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
 
 pub trait VmContext {
     // This allows for some funky self calling business
-    fn call_function_one_arg_or_else(
-        &mut self,
-        function: &SteelVal,
-        arg: SteelVal,
-    ) -> Result<SteelVal>;
+    fn call_function_one_arg(&mut self, function: &SteelVal, arg: SteelVal) -> Result<SteelVal>;
 
     // Call with two args
-    fn call_function_two_arg_or_else(
+    fn call_function_two_arg(
         &mut self,
         function: &SteelVal,
         arg1: SteelVal,
         arg2: SteelVal,
     ) -> Result<SteelVal>;
 
-    fn call_function_many_args_or_else(
+    fn call_function_many_args(
         &mut self,
         function: &SteelVal,
         args: List<SteelVal>,
@@ -289,11 +285,7 @@ pub trait VmContext {
 pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;
 
 impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for VmCore<'a, CT, U, A> {
-    fn call_function_one_arg_or_else(
-        &mut self,
-        function: &SteelVal,
-        arg: SteelVal,
-    ) -> Result<SteelVal> {
+    fn call_function_one_arg(&mut self, function: &SteelVal, arg: SteelVal) -> Result<SteelVal> {
         let span = Span::default();
         self.call_func_or_else(
             function,
@@ -303,7 +295,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for Vm
         )
     }
 
-    fn call_function_two_arg_or_else(
+    fn call_function_two_arg(
         &mut self,
         function: &SteelVal,
         arg1: SteelVal,
@@ -319,7 +311,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for Vm
         )
     }
 
-    fn call_function_many_args_or_else(
+    fn call_function_many_args(
         &mut self,
         function: &SteelVal,
         args: List<SteelVal>,
