@@ -38,20 +38,20 @@ impl<T: FromSteelVal> FromSteelVal for Vec<T> {
                     )),
                 }
             }
-            SteelVal::Pair(_) => {
-                let result_vec_vals: Result<Self> = SteelVal::iter(val.clone())
-                    .into_iter()
-                    .map(FromSteelVal::from_steelval)
-                    .collect();
+            // SteelVal::Pair(_) => {
+            //     let result_vec_vals: Result<Self> = SteelVal::iter(val.clone())
+            //         .into_iter()
+            //         .map(FromSteelVal::from_steelval)
+            //         .collect();
 
-                match result_vec_vals {
-                    Ok(x) => Ok(x),
-                    _ => Err(SteelErr::new(
-                        ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
-                    )),
-                }
-            }
+            //     match result_vec_vals {
+            //         Ok(x) => Ok(x),
+            //         _ => Err(SteelErr::new(
+            //             ErrorKind::ConversionError,
+            //             "Could not convert SteelVal list to Vector of values".to_string(),
+            //         )),
+            //     }
+            // }
             SteelVal::VectorV(v) => {
                 let result_vec_vals: Result<Self> = v
                     .iter()
@@ -163,7 +163,6 @@ impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
 #[cfg(test)]
 mod conversion_tests {
     use super::*;
-    use crate::rvals::ConsCell;
     use im_lists::list;
     use im_rc::vector;
 
@@ -182,10 +181,7 @@ mod conversion_tests {
 
     #[test]
     fn vec_from_list() {
-        let input_list = SteelVal::Pair(Gc::new(ConsCell::new(
-            SteelVal::IntV(1),
-            Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
-        )));
+        let input_list = SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)]);
 
         let expected = vec![1, 2];
         let result = <Vec<i32>>::from_steelval(input_list).unwrap();

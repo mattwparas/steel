@@ -120,7 +120,7 @@ impl UpValueHeap {
 // 'reachable' should be values living in the heap, stack, and in the
 fn traverse(val: &SteelVal) {
     match val {
-        SteelVal::Pair(_) => {}
+        // SteelVal::Pair(_) => {}
         SteelVal::VectorV(_) => {}
         SteelVal::HashMapV(_) => {}
         SteelVal::HashSetV(_) => {}

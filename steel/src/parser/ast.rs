@@ -16,8 +16,6 @@ use crate::rvals::SteelVal::*;
 
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 
-use crate::rvals::collect_pair_into_vector;
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprKind {
     Atom(Atom),
@@ -102,15 +100,15 @@ impl TryFrom<&SteelVal> for ExprKind {
             )))),
             Custom(_) => Err("Can't convert from Custom Type to expression!"),
             // Pair(_, _) => Err("Can't convert from pair"), // TODO
-            Pair(_) => {
-                if let VectorV(ref lst) = collect_pair_into_vector(r) {
-                    let items: std::result::Result<Vec<Self>, Self::Error> =
-                        lst.iter().map(|x| Self::try_from(x)).collect();
-                    Ok(ExprKind::List(List::new(items?)))
-                } else {
-                    Err("Couldn't convert from list to expression")
-                }
-            }
+            // Pair(_) => {
+            //     if let VectorV(ref lst) = collect_pair_into_vector(r) {
+            //         let items: std::result::Result<Vec<Self>, Self::Error> =
+            //             lst.iter().map(|x| Self::try_from(x)).collect();
+            //         Ok(ExprKind::List(List::new(items?)))
+            //     } else {
+            //         Err("Couldn't convert from list to expression")
+            //     }
+            // }
             ListV(l) => {
                 let items: std::result::Result<Vec<Self>, Self::Error> =
                     l.iter().map(|x| Self::try_from(x)).collect();

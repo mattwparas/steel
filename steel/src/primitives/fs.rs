@@ -1,4 +1,3 @@
-use crate::primitives::lists::ListOperations;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
@@ -84,14 +83,14 @@ impl FsFunctions {
                     if p.is_dir() {
                         let iter = p.read_dir();
                         match iter {
-                            Ok(i) => {
-                                ListOperations::built_in_list_normal_iter(i.into_iter().map(|x| {
-                                    match x?.path().to_str() {
+                            Ok(i) => Ok(SteelVal::ListV(
+                                i.into_iter()
+                                    .map(|x| match x?.path().to_str() {
                                         Some(s) => Ok(SteelVal::StringV(s.into())),
                                         None => Ok(SteelVal::BoolV(false)),
-                                    }
-                                }))
-                            }
+                                    })
+                                    .collect::<Result<_>>()?,
+                            )),
                             Err(e) => stop!(Generic => e.to_string()),
                         }
                     } else {

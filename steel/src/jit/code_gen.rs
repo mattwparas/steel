@@ -51,11 +51,11 @@ pub struct JIT {
 unsafe extern "C" fn length(value: f64) -> f64 {
     let lst = get_ref_from_double(value);
 
-    if let SteelVal::Pair(_) = lst {
-        let count = SteelVal::iter(lst).count() as isize;
-        // to_encoded_double()
-        // unimplemented!();
-    }
+    // todo!()
+
+    // if let SteelVal::Pair(_) = lst {
+    //     let count = SteelVal::iter(lst).count() as isize;
+    // }
 
     unimplemented!()
 }
@@ -72,22 +72,16 @@ unsafe extern "C" fn empty_const() -> f64 {
 unsafe extern "C" fn car(value: f64) -> f64 {
     // let lst: Box<SteelVal> = std::mem::transmute(value);
 
-    // let lst = &*(value as *const SteelVal);
+    todo!()
 
-    let lst = get_ref_from_double(value);
+    // let lst = get_ref_from_double(value);
 
-    // println!("car address: {:p}", lst);
-
-    if let SteelVal::Pair(c) = lst {
-        let ret_value = &c.car;
-
-        // println!("car output: {:?}", ret_value);
-        to_encoded_double_raw(ret_value)
-
-        // (ret_value as *const SteelVal) as isize
-    } else {
-        panic!("car expected a list, found: {:?}", lst);
-    }
+    // if let SteelVal::Pair(c) = lst {
+    //     let ret_value = &c.car;
+    //     to_encoded_double_raw(ret_value)
+    // } else {
+    //     panic!("car expected a list, found: {:?}", lst);
+    // }
 
     // unimplemented!()
 }
@@ -98,26 +92,28 @@ unsafe extern "C" fn car(value: f64) -> f64 {
 unsafe extern "C" fn cdr(value: f64) -> f64 {
     let lst = get_ref_from_double(value);
 
-    if let SteelVal::Pair(c) = lst {
-        let rest = c.cdr().as_ref().map(Gc::clone);
+    todo!()
 
-        if let Some(rest) = rest {
-            let new_pair = Gc::new(SteelVal::Pair(rest));
+    // if let SteelVal::Pair(c) = lst {
+    //     let rest = c.cdr().as_ref().map(Gc::clone);
 
-            // We want to increment the life time of this so that references are valid later
-            JIT::allocate(&new_pair);
+    //     if let Some(rest) = rest {
+    //         let new_pair = Gc::new(SteelVal::Pair(rest));
 
-            // println!("cdr output: {:?}", new_pair);
+    //         // We want to increment the life time of this so that references are valid later
+    //         JIT::allocate(&new_pair);
 
-            to_encoded_double(&new_pair)
-        } else {
-            let empty_list = Gc::new(SteelVal::VectorV(Gc::new(Vector::new())));
-            JIT::allocate(&empty_list);
-            to_encoded_double(&empty_list)
-        }
-    } else {
-        panic!("cdr expected a list");
-    }
+    //         // println!("cdr output: {:?}", new_pair);
+
+    //         to_encoded_double(&new_pair)
+    //     } else {
+    //         let empty_list = Gc::new(SteelVal::VectorV(Gc::new(Vector::new())));
+    //         JIT::allocate(&empty_list);
+    //         to_encoded_double(&empty_list)
+    //     }
+    // } else {
+    //     panic!("cdr expected a list");
+    // }
 }
 
 // TODO how to do booleans?
@@ -138,35 +134,37 @@ unsafe extern "C" fn cons(car: f64, cdr: f64) -> f64 {
     let car = decode(car);
     let cdr = decode(cdr);
 
-    match &cdr {
-        SteelVal::Pair(cdr) => {
-            let new_value = Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(
-                car.clone(),
-                Some(cdr.clone()),
-            ))));
+    todo!()
 
-            // Register the allocated value so that it lives long enough
-            JIT::allocate(&new_value);
-            to_encoded_double(&new_value)
-        }
-        SteelVal::VectorV(l) => {
-            let new_value = if l.is_empty() {
-                Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(car, None))))
-            } else {
-                Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(
-                    car,
-                    Some(Gc::new(ConsCell::new(cdr, None))),
-                ))))
-            };
+    // match &cdr {
+    //     SteelVal::Pair(cdr) => {
+    //         let new_value = Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(
+    //             car.clone(),
+    //             Some(cdr.clone()),
+    //         ))));
 
-            JIT::allocate(&new_value);
-            to_encoded_double(&new_value)
-        }
-        _ => panic!(
-            "cons requires a list as the second argument, found: {}",
-            cdr
-        ),
-    }
+    //         // Register the allocated value so that it lives long enough
+    //         JIT::allocate(&new_value);
+    //         to_encoded_double(&new_value)
+    //     }
+    //     SteelVal::VectorV(l) => {
+    //         let new_value = if l.is_empty() {
+    //             Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(car, None))))
+    //         } else {
+    //             Gc::new(SteelVal::Pair(Gc::new(ConsCell::new(
+    //                 car,
+    //                 Some(Gc::new(ConsCell::new(cdr, None))),
+    //             ))))
+    //         };
+
+    //         JIT::allocate(&new_value);
+    //         to_encoded_double(&new_value)
+    //     }
+    //     _ => panic!(
+    //         "cons requires a list as the second argument, found: {}",
+    //         cdr
+    //     ),
+    // }
 }
 
 unsafe extern "C" fn _equals(left: f64, right: f64) -> f64 {

@@ -74,7 +74,8 @@ declare_const_ref_functions! {
     IS_EMPTY => is_empty,
     CAR => car,
     LIST_TO_STRING => list_to_string,
-    FIRST => car
+    FIRST => car,
+    PAIR => pair,
 }
 
 declare_const_mut_ref_functions! {
@@ -147,7 +148,17 @@ fn is_empty(args: &[SteelVal]) -> Result<SteelVal> {
     if let SteelVal::ListV(l) = &args[0] {
         Ok(l.is_empty().into())
     } else {
-        stop!(TypeMismatch => "test-empty? expects a list")
+        stop!(TypeMismatch => "empty? expects a list")
+    }
+}
+
+fn pair(args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(pair, args, 1);
+
+    if let SteelVal::ListV(l) = &args[0] {
+        Ok(l.iter().next().is_some().into())
+    } else {
+        stop!(TypeMismatch => format!("pair expects a list, found: {}", &args[0]))
     }
 }
 

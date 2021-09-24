@@ -5,6 +5,7 @@ use crate::{
     rvals::{Result, SteelVal},
     throw,
 };
+use im_lists::list::List;
 use im_rc::HashMap;
 use serde_json::{Map, Number, Value};
 use std::convert::{TryFrom, TryInto};
@@ -89,9 +90,11 @@ impl TryFrom<Value> for SteelVal {
             Value::Bool(t) => Ok(SteelVal::BoolV(t)),
             Value::Number(n) => <SteelVal>::try_from(n),
             Value::String(s) => Ok(SteelVal::StringV(s.into())),
-            Value::Array(v) => {
-                ListOperations::built_in_list_func_iter_result(v.into_iter().map(|x| x.try_into()))
-            }
+            Value::Array(v) => Ok(SteelVal::ListV(
+                v.into_iter()
+                    .map(|x| <SteelVal>::try_from(x))
+                    .collect::<Result<List<SteelVal>>>()?,
+            )),
             Value::Object(m) => m.try_into(),
         }
     }
@@ -117,11 +120,11 @@ impl TryFrom<SteelVal> for Value {
             SteelVal::NumV(n) => Ok(Value::Number(Number::from_f64(n).unwrap())),
             SteelVal::IntV(n) => Ok(Value::Number(Number::from(n))),
             SteelVal::CharV(c) => Ok(Value::String(c.to_string())),
-            SteelVal::Pair(_) => Ok(Value::Array(
-                SteelVal::iter(val)
-                    .map(|x| x.try_into())
-                    .collect::<Result<Vec<_>>>()?,
-            )),
+            // SteelVal::Pair(_) => Ok(Value::Array(
+            //     SteelVal::iter(val)
+            //         .map(|x| x.try_into())
+            //         .collect::<Result<Vec<_>>>()?,
+            // )),
             SteelVal::ListV(l) => Ok(Value::Array(
                 l.into_iter()
                     .map(|x| x.try_into())

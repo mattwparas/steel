@@ -244,6 +244,7 @@ pub(crate) fn register_test_list_functions(engine: &mut Engine) {
             crate::primitives::alternative_list::LIST_TO_STRING,
         )
         .register_value("push-back", crate::primitives::alternative_list::PUSH_BACK)
+        .register_value("pair?", crate::primitives::alternative_list::PAIR)
         // .register_value("test-push-back", crate::primitives::alternative_list::PU)
         .register_value("test-map", crate::primitives::alternative_list::TEST_MAP)
         // TODO move this to somewhere better than here
@@ -324,8 +325,8 @@ pub(crate) fn register_identity_predicates(engine: &mut Engine) {
         .register_value("symbol?", gen_pred!(SymbolV))
         .register_value("vector?", gen_pred!(VectorV))
         .register_value("struct?", gen_pred!(StructV))
-        .register_value("list?", gen_pred!(Pair, ListV))
-        .register_value("pair?", gen_pred!(Pair))
+        .register_value("list?", gen_pred!(ListV))
+        // .register_value("pair?", gen_pred!(ListV))
         .register_value("integer?", gen_pred!(IntV))
         .register_value("boolean?", gen_pred!(BoolV))
         .register_value("char?", gen_pred!(CharV))

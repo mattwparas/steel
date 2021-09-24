@@ -114,15 +114,17 @@ fn main() -> Result<(), String> {
             let ast = &func[0];
             println!("{}", ast.to_pretty(60));
 
-            let input = vec![1isize, 2, 3, 4, 5]
-                .into_iter()
-                .map(SteelVal::IntV)
-                .collect::<Vec<_>>();
-            let lst =
-                ListOperations::built_in_list_func_flat(&input).expect("Unable to construct list");
+            // let input = vec![1isize, 2, 3, 4, 5]
+            //     .into_iter()
+            //     .map(SteelVal::IntV)
+            //     .collect::<Vec<_>>();
+            // let lst =
+            //     ListOperations::built_in_list_func_flat(&input).expect("Unable to construct list");
 
-            let empty_lst = ListOperations::built_in_list_func_flat(&[])
-                .expect("Unable to construct empty list");
+            // let empty_lst = ListOperations::built_in_list_func_flat(&[])
+            //     .expect("Unable to construct empty list");
+
+            todo!();
 
             // let output = run_fib(&mut jit, ast, )
 
@@ -138,7 +140,7 @@ fn main() -> Result<(), String> {
             println!("Compilation time: {:?}", now.elapsed());
             let mut args = Stack::new();
 
-            args.push(lst);
+            // args.push(lst);
 
             // args.push(SteelVal::IntV(40));
             // args.push(SteelVal::IntV(12));

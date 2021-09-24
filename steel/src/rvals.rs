@@ -237,7 +237,7 @@ pub enum SteelVal {
     /// Represents a cons cell
     /// cons, cdr, optional parent pointer
     // Pair(Gc<SteelVal>, Option<Gc<SteelVal>>),
-    Pair(Gc<ConsCell>),
+    // Pair(Gc<ConsCell>),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
     VectorV(Gc<Vector<SteelVal>>), // TODO wrap in GC
@@ -388,9 +388,9 @@ impl Hash for SteelVal {
             }
             IntV(i) => i.hash(state),
             CharV(c) => c.hash(state),
-            Pair(cell) => {
-                cell.hash(state);
-            }
+            // Pair(cell) => {
+            //     cell.hash(state);
+            // }
             VectorV(v) => v.hash(state),
             Void => {
                 unimplemented!();
@@ -423,14 +423,14 @@ impl Hash for SteelVal {
 pub struct Iter(Option<Gc<ConsCell>>);
 
 impl SteelVal {
-    pub fn iter(_self: SteelVal) -> Iter {
-        // Iter(Some(_self))
-        if let SteelVal::Pair(cell) = _self {
-            Iter(Some(cell))
-        } else {
-            panic!("Cannot iterate over a non list");
-        }
-    }
+    // pub fn iter(_self: SteelVal) -> Iter {
+    //     // Iter(Some(_self))
+    //     if let SteelVal::Pair(cell) = _self {
+    //         Iter(Some(cell))
+    //     } else {
+    //         panic!("Cannot iterate over a non list");
+    //     }
+    // }
 
     pub fn is_truthy(&self) -> bool {
         match &self {
@@ -447,7 +447,7 @@ impl SteelVal {
             BoolV(_)
                 | IntV(_)
                 | CharV(_)
-                | Pair(_)
+                // | Pair(_)
                 | VectorV(_)
                 | StringV(_)
                 | SymbolV(_)
@@ -704,7 +704,7 @@ impl PartialEq for SteelVal {
             (VectorV(l), VectorV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
             (CharV(l), CharV(r)) => l == r,
-            (Pair(_), Pair(_)) => collect_pair_into_vector(self) == collect_pair_into_vector(other),
+            // (Pair(_), Pair(_)) => collect_pair_into_vector(self) == collect_pair_into_vector(other),
             (HashSetV(l), HashSetV(r)) => l == r,
             (HashMapV(l), HashMapV(r)) => l == r,
             (StructV(l), StructV(r)) => l == r,
@@ -946,7 +946,7 @@ impl fmt::Display for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | Pair(_) | ListV(_) => write!(f, "'")?,
+            SymbolV(_) | ListV(_) => write!(f, "'")?,
             VectorV(_) => write!(f, "'#")?,
             _ => (),
         };
@@ -959,7 +959,7 @@ impl fmt::Debug for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | Pair(_) | ListV(_) => write!(f, "'")?,
+            SymbolV(_) | ListV(_) => write!(f, "'")?,
             VectorV(_) => write!(f, "'#")?,
             _ => (),
         };
@@ -995,10 +995,10 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, ")")
         }
         Custom(x) => write!(f, "#<{}>", x.display()?),
-        Pair(_) => {
-            let v = collect_pair_into_vector(val);
-            display_helper(&v, f)
-        }
+        // Pair(_) => {
+        //     let v = collect_pair_into_vector(val);
+        //     display_helper(&v, f)
+        // }
         StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
         // StructClosureV(_) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
@@ -1042,9 +1042,9 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
     }
 }
 
-pub(crate) fn collect_pair_into_vector(p: &SteelVal) -> SteelVal {
-    VectorV(Gc::new(SteelVal::iter(p.clone()).collect::<Vector<_>>()))
-}
+// pub(crate) fn collect_pair_into_vector(p: &SteelVal) -> SteelVal {
+//     VectorV(Gc::new(SteelVal::iter(p.clone()).collect::<Vector<_>>()))
+// }
 
 #[cfg(test)]
 mod or_else_tests {

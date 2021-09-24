@@ -54,11 +54,11 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
             .args
             .into_iter()
             .map(|x| self.visit(x))
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<List<_>>>()?;
 
         let expr = [
             SteelVal::try_from(lambda_function.location)?,
-            ListOperations::built_in_list_func_flat(&args)?,
+            SteelVal::ListV(args),
             self.visit(lambda_function.body)?,
         ];
 
@@ -99,12 +99,12 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
             .fields
             .into_iter()
             .map(|x| self.visit(x))
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<List<_>>>()?;
 
         let expr = [
             SteelVal::try_from(s.location)?,
             self.visit(s.name)?,
-            ListOperations::built_in_list_func_flat(&fields)?,
+            SteelVal::ListV(fields),
         ];
 
         Ok(SteelVal::ListV(
