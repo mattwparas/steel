@@ -53,4 +53,4 @@
             (newline)
             result)))
 
-(assert! (equal? '((5 4) (3 2)) (main)))
+; (assert! (equal? '((5 4) (3 2)) (main)))

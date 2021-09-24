@@ -1004,7 +1004,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     #[inline(always)]
     fn handle_struct(&mut self, offset: usize) -> Result<()> {
         let val = self.constants.get(offset);
-        let mut iter = SteelVal::iter(val);
+
+        let mut iter = if let SteelVal::ListV(l) = val {
+            l.into_iter()
+        } else {
+            stop!(Generic => "ICE: Struct expected a list");
+        };
 
         // List of indices e.g. '(25 26 27 28) to bind struct functions to
         let indices = iter.next().unwrap();
@@ -1034,7 +1039,13 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // Store them with the indices
         let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
 
-        for ((_, func), idx) in funcs.into_iter().zip(SteelVal::iter(indices)) {
+        let index_iter = if let SteelVal::ListV(l) = indices {
+            l.into_iter()
+        } else {
+            stop!(Generic => "ICE: Struct expected a list");
+        };
+
+        for ((_, func), idx) in funcs.into_iter().zip(index_iter) {
             let idx = if let SteelVal::IntV(idx) = idx {
                 idx as usize
             } else {
@@ -1049,7 +1060,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     #[inline(always)]
     fn handle_inner_struct(&mut self, offset: usize) -> Result<()> {
         let val = self.constants.get(offset);
-        let mut iter = SteelVal::iter(val);
+
+        let mut iter = if let SteelVal::ListV(l) = val {
+            l.into_iter()
+        } else {
+            stop!(Generic => "ICE: Struct expected a list");
+        };
 
         // List of indices e.g. '(25 26 27 28) to bind struct functions to
         let _ = iter.next().unwrap();
@@ -1103,12 +1119,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
             match parsed {
                 Ok(v) => {
-                    let converted: Result<Vec<SteelVal>> =
+                    let converted: Result<List<SteelVal>> =
                         v.into_iter().map(SteelVal::try_from).collect();
 
-                    // let converted = Gc::new(SteelVal::try_from(v[0].clone())?);
-                    self.stack
-                        .push(ListOperations::built_in_list_func_flat_non_gc(converted?)?);
+                    self.stack.push(SteelVal::ListV(converted?));
                     self.ip += 1;
                 }
                 Err(e) => stop!(Generic => format!("{}", e); *span),

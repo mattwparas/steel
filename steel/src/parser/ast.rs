@@ -111,6 +111,12 @@ impl TryFrom<&SteelVal> for ExprKind {
                     Err("Couldn't convert from list to expression")
                 }
             }
+            ListV(l) => {
+                let items: std::result::Result<Vec<Self>, Self::Error> =
+                    l.iter().map(|x| Self::try_from(x)).collect();
+
+                Ok(ExprKind::List(List::new(items?)))
+            }
             CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 CharacterLiteral(*x),
             )))),
@@ -131,7 +137,6 @@ impl TryFrom<&SteelVal> for ExprKind {
             BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
             ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
             CompiledFunction(_) => Err("Can't convert from function to expression!"),
-            ListV(_) => Err("Can't convert from list to expression!"),
             MutFunc(_) => Err("Can't convert from function to expression!"),
             BuiltIn(_) => Err("Can't convert from function to expression!"),
         }

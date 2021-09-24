@@ -53,7 +53,7 @@ impl UpValueHeap {
         if self.memory.len() > self.threshold {
             // let prior = self.memory.len();
 
-            println!("Freeing memory");
+            // println!("Freeing memory");
 
             let mut changed = true;
             while changed {

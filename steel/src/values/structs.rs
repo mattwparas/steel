@@ -1,5 +1,4 @@
 use crate::gc::Gc;
-use crate::primitives::ListOperations;
 use crate::primitives::VectorOperations;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
@@ -62,9 +61,10 @@ impl<'a> StructFuncBuilder<'a> {
             .collect();
 
         let mut name = vec![
-            crate::primitives::ListOperations::built_in_list_normal_iter_non_result(
-                indices.into_iter(),
-            ),
+            // crate::primitives::ListOperations::built_in_list_normal_iter_non_result(
+            //     indices.into_iter(),
+            // ),
+            SteelVal::ListV(indices.into_iter().collect()),
             SteelVal::StringV(self.name.into()),
         ];
 
@@ -77,7 +77,8 @@ impl<'a> StructFuncBuilder<'a> {
         name.extend(fields);
 
         // TODO who knows if this actually works
-        crate::primitives::ListOperations::built_in_list_normal_iter_non_result(name.into_iter())
+        SteelVal::ListV(name.into())
+        // crate::primitives::ListOperations::built_in_list_normal_iter_non_result(name.into_iter())
     }
 
     pub fn to_func_vec(&self) -> Result<Vec<(String, SteelVal)>> {
@@ -295,9 +296,15 @@ pub fn struct_to_list() -> SteelVal {
         if let SteelVal::StructV(s) = &steel_struct {
             let name = SteelVal::SymbolV(s.name.to_string().into());
 
-            Ok(ListOperations::built_in_list_normal_iter_non_result(
-                vec![name].into_iter().chain(s.fields.iter().cloned()),
+            Ok(SteelVal::ListV(
+                std::iter::once(name)
+                    .chain(s.fields.iter().cloned())
+                    .collect(),
             ))
+
+            // Ok(ListOperations::built_in_list_normal_iter_non_result(
+            //     vec![name].into_iter().chain(s.fields.iter().cloned()),
+            // ))
         } else {
             let e = format!("struct->list expected a struct, found: {}", steel_struct);
             stop!(TypeMismatch => e);

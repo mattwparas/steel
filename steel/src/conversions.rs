@@ -164,15 +164,18 @@ impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
 mod conversion_tests {
     use super::*;
     use crate::rvals::ConsCell;
+    use im_lists::list;
     use im_rc::vector;
 
     #[test]
     fn vec_into_list() {
         let input_vec = vec![1, 2];
-        let expected = SteelVal::Pair(Gc::new(ConsCell::new(
-            SteelVal::IntV(1),
-            Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
-        )));
+        // let expected = SteelVal::Pair(Gc::new(ConsCell::new(
+        //     SteelVal::IntV(1),
+        //     Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
+        // )));
+
+        let expected = list![SteelVal::IntV(1), SteelVal::IntV(2)].into();
 
         assert_eq!(input_vec.into_steelval().unwrap(), expected)
     }

@@ -122,6 +122,11 @@ impl TryFrom<SteelVal> for Value {
                     .map(|x| x.try_into())
                     .collect::<Result<Vec<_>>>()?,
             )),
+            SteelVal::ListV(l) => Ok(Value::Array(
+                l.into_iter()
+                    .map(|x| x.try_into())
+                    .collect::<Result<Vec<_>>>()?,
+            )),
             SteelVal::VectorV(v) => Ok(Value::Array(
                 v.iter()
                     .map(|x| x.clone().try_into())

@@ -220,6 +220,7 @@ impl VectorOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 match &args[0] {
+                    SteelVal::ListV(l) => Ok(l.is_empty().into()),
                     SteelVal::VectorV(v) => Ok(v.is_empty().into()),
                     _ => Ok(SteelVal::BoolV(false)),
                 }

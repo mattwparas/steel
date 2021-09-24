@@ -275,9 +275,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         if let Some(collection_type) = collection_type {
             if let SteelVal::SymbolV(n) = collection_type {
                 match n.as_ref() {
-                    "list" => ListOperations::built_in_list_normal_iter(iter),
+                    // "list" => ListOperations::built_in_list_normal_iter(iter),
                     "vector" => VectorOperations::vec_construct_iter(iter),
-                    "test-list" => iter.collect::<Result<List<_>>>().map(SteelVal::ListV),
+                    "list" => iter.collect::<Result<List<_>>>().map(SteelVal::ListV),
                     _ => stop!(Generic => "Cannot collect into an undefined type"),
                 }
             } else {
@@ -285,7 +285,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             }
         } else {
             match output_type {
-                CollectionType::List => ListOperations::built_in_list_normal_iter(iter),
+                CollectionType::List => iter.collect::<Result<List<_>>>().map(SteelVal::ListV),
                 CollectionType::Vector => VectorOperations::vec_construct_iter(iter),
             }
         }

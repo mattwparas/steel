@@ -99,8 +99,8 @@ pub struct DependentContract {
 }
 
 fn parse_list(lst: SteelVal) -> Result<(String, Vec<String>, Gc<ByteCodeLambda>, String)> {
-    if let SteelVal::Pair(_) = &lst {
-        let mut iter = SteelVal::iter(lst);
+    if let SteelVal::ListV(l) = lst {
+        let mut iter = l.into_iter();
 
         let ident = iter
             .next()
@@ -111,13 +111,10 @@ fn parse_list(lst: SteelVal) -> Result<(String, Vec<String>, Gc<ByteCodeLambda>,
         let raw_arguments = iter.next().ok_or_else(throw!(ArityMismatch => "make-dependent-function/c expected a list in the second position"))?;
 
         let arguments = match &raw_arguments {
-            SteelVal::Pair(_) => {
-                SteelVal::iter(raw_arguments)
+            SteelVal::ListV(l) => {
+                l.iter()
                 .map(|x| x.clone_symbol_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a symbol in the list of arguments")))
                 .collect::<Result<Vec<_>>>()
-            }
-            SteelVal::VectorV(v) if v.is_empty() => {
-                Ok(Vec::new())
             }
             _ => stop!(TypeMismatch => format!("make-dependent-function/c expected a list of symbols, found: {}", raw_arguments)),
         }?;

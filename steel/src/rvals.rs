@@ -712,6 +712,7 @@ impl PartialEq for SteelVal {
             (ContractedFunction(l), ContractedFunction(r)) => l == r,
             (Contract(l), Contract(r)) => l == r,
             (IterV(l), IterV(r)) => l == r,
+            (ListV(l), ListV(r)) => l == r,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);
@@ -945,7 +946,7 @@ impl fmt::Display for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | Pair(_) => write!(f, "'")?,
+            SymbolV(_) | Pair(_) | ListV(_) => write!(f, "'")?,
             VectorV(_) => write!(f, "'#")?,
             _ => (),
         };
@@ -958,7 +959,7 @@ impl fmt::Debug for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | Pair(_) => write!(f, "'")?,
+            SymbolV(_) | Pair(_) | ListV(_) => write!(f, "'")?,
             VectorV(_) => write!(f, "'#")?,
             _ => (),
         };
@@ -1015,7 +1016,27 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         BoxedFunction(_) => write!(f, "#<function>"),
         ContinuationFunction(_) => write!(f, "#<continuation>"),
         CompiledFunction(_) => write!(f, "#<compiled-function>"),
-        ListV(l) => write!(f, "#<list {:?}>", l),
+        ListV(l) => {
+            write!(f, "(")?;
+
+            let mut iter = l.iter().peekable();
+
+            while let Some(item) = iter.next() {
+                display_helper(item, f)?;
+                if iter.peek().is_some() {
+                    write!(f, " ")?
+                }
+            }
+
+            // for item in l.iter().pe
+
+            // for item in l {
+            //     display_helper(item, f)?;
+            //     write!(f, " ")?;
+            // }
+            write!(f, ")")
+        }
+        // write!(f, "#<list {:?}>", l),
         MutFunc(_) => write!(f, "#<function>"),
         BuiltIn(_) => write!(f, "#<function>"),
     }

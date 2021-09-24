@@ -73,13 +73,17 @@ declare_const_ref_functions! {
     RANGE => range,
     IS_EMPTY => is_empty,
     CAR => car,
+    LIST_TO_STRING => list_to_string,
+    FIRST => car
 }
 
 declare_const_mut_ref_functions! {
     CONS => cons,
-    FIRST => first,
+    // FIRST => first,
     REST => rest,
+    CDR => cdr,
     APPEND => append,
+    PUSH_BACK => push_back,
 }
 
 pub(crate) const TEST_MAP: SteelVal = SteelVal::BuiltIn(test_map);
@@ -225,16 +229,16 @@ fn last(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-fn first(args: &mut [SteelVal]) -> Result<SteelVal> {
-    arity_check!(first, args, 1);
+// fn first(args: &mut [SteelVal]) -> Result<SteelVal> {
+//     arity_check!(first, args, 1);
 
-    if let SteelVal::ListV(l) = &mut args[0] {
-        l.pop_front()
-            .ok_or_else(throw!(Generic => "first resulted in an error - empty list"))
-    } else {
-        stop!(TypeMismatch => "first expects a list")
-    }
-}
+//     if let SteelVal::ListV(l) = &mut args[0] {
+//         l.pop_front()
+//             .ok_or_else(throw!(Generic => "first resulted in an error - empty list"))
+//     } else {
+//         stop!(TypeMismatch => "first expects a list")
+//     }
+// }
 
 fn car(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(car, args, 1);
@@ -243,6 +247,23 @@ fn car(args: &[SteelVal]) -> Result<SteelVal> {
             .ok_or_else(throw!(Generic => "first resulted in an error - empty list"))
     } else {
         stop!(TypeMismatch => "first expects a list")
+    }
+}
+
+fn cdr(args: &mut [SteelVal]) -> Result<SteelVal> {
+    arity_check!(rest, args, 1);
+
+    if let SteelVal::ListV(l) = &mut args[0] {
+        if l.is_empty() {
+            stop!(Generic => "cdr expects a non empty list");
+        }
+
+        match l.rest_mut() {
+            Some(l) => Ok(SteelVal::ListV(l.clone())),
+            None => Ok(SteelVal::ListV(l.clone())),
+        }
+    } else {
+        stop!(TypeMismatch => "cdr expects a list")
     }
 }
 
@@ -302,6 +323,39 @@ fn list_ref(args: &[SteelVal]) -> Result<SteelVal> {
         }
     } else {
         stop!(TypeMismatch => "list expects a list and an integer")
+    }
+}
+
+fn list_to_string(args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(list_to_string, args, 1);
+
+    if let SteelVal::ListV(l) = &args[0] {
+        let collected_string = l
+            .iter()
+            .map(|x| {
+                x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
+            })
+            .collect::<Result<String>>()?;
+
+        Ok(SteelVal::StringV(collected_string.into()))
+    } else {
+        stop!(TypeMismatch => "first expects a list")
+    }
+}
+
+// TODO this could be broken using &mut
+// need to think about it more
+fn push_back(args: &mut [SteelVal]) -> Result<SteelVal> {
+    arity_check!(push_back, args, 2);
+
+    let arg = args[1].clone();
+
+    if let SteelVal::ListV(l) = &mut args[0] {
+        l.push_back(arg);
+
+        Ok(args[0].clone())
+    } else {
+        stop!(TypeMismatch => "push-back expects a list")
     }
 }
 

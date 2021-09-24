@@ -89,7 +89,8 @@ macro_rules! gen_pred {
         })
     }};
 
-    ($variant1:ident, $variant2:ident, $variant3:ident, $variant4:ident, $variant5:ident) => {{
+    // TODO replace this with something better
+    ($variant1:ident, $variant2:ident, $variant3:ident, $variant4:ident, $variant5:ident, $variant6: ident, $variant7: ident) => {{
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if let Some(first) = args.first() {
                 match first {
@@ -97,7 +98,9 @@ macro_rules! gen_pred {
                     | SteelVal::$variant2(..)
                     | SteelVal::$variant3(..)
                     | SteelVal::$variant4(..)
-                    | SteelVal::$variant5(..) => {
+                    | SteelVal::$variant5(..)
+                    | SteelVal::$variant6(..)
+                    | SteelVal::$variant7(..) => {
                         return Ok(SteelVal::BoolV(true));
                     }
                     _ => {}
@@ -206,35 +209,42 @@ pub const CONSTANTS: &[&str] = &[
 
 #[inline(always)]
 pub(crate) fn register_list_functions(engine: &mut Engine) {
-    engine
-        .register_value(LIST, ListOperations::list())
-        .register_value(CAR, ListOperations::car())
-        .register_value(CDR, ListOperations::cdr())
-        .register_value(FIRST, ListOperations::car())
-        .register_value(REST, ListOperations::cdr())
-        .register_value(CONS, ListOperations::cons())
-        .register_value(APPEND, ListOperations::append())
-        .register_value(PUSH_BACK, ListOperations::push_back())
-        .register_value(RANGE, ListOperations::range())
-        .register_value(LENGTH, ListOperations::list_length())
-        .register_value(REVERSE, ListOperations::reverse())
-        .register_value(LIST_TO_VECTOR, ListOperations::list_to_vec())
-        .register_value(LIST_TO_STRING, ListOperations::list_to_string());
+    // engine
+    //     .register_value(LIST, ListOperations::list())
+    //     .register_value(CAR, ListOperations::car())
+    //     .register_value(CDR, ListOperations::cdr())
+    //     .register_value(FIRST, ListOperations::car())
+    //     .register_value(REST, ListOperations::cdr())
+    //     .register_value(CONS, ListOperations::cons())
+    //     .register_value(APPEND, ListOperations::append())
+    //     .register_value(PUSH_BACK, ListOperations::push_back())
+    //     .register_value(RANGE, ListOperations::range())
+    //     .register_value(LENGTH, ListOperations::list_length())
+    //     .register_value(REVERSE, ListOperations::reverse())
+    //     .register_value(LIST_TO_VECTOR, ListOperations::list_to_vec())
+    //     .register_value(LIST_TO_STRING, ListOperations::list_to_string());
 }
 
 #[inline(always)]
 pub(crate) fn register_test_list_functions(engine: &mut Engine) {
     engine
-        .register_value("new-test-list", crate::primitives::alternative_list::LIST)
-        .register_value("test-cons", crate::primitives::alternative_list::CONS)
-        .register_value("test-range", crate::primitives::alternative_list::RANGE)
-        .register_value("test-length", crate::primitives::alternative_list::LENGTH)
+        .register_value("list", crate::primitives::alternative_list::LIST)
+        .register_value("cons", crate::primitives::alternative_list::CONS)
+        .register_value("range", crate::primitives::alternative_list::RANGE)
+        .register_value("length", crate::primitives::alternative_list::LENGTH)
+        .register_value("empty?", crate::primitives::alternative_list::IS_EMPTY)
+        .register_value("car", crate::primitives::alternative_list::CAR)
+        .register_value("first", crate::primitives::alternative_list::CAR)
+        .register_value("cdr", crate::primitives::alternative_list::CDR)
+        .register_value("rest", crate::primitives::alternative_list::REST)
+        .register_value("append", crate::primitives::alternative_list::APPEND)
+        .register_value("reverse", crate::primitives::alternative_list::REVERSE)
         .register_value(
-            "test-is-empty",
-            crate::primitives::alternative_list::IS_EMPTY,
+            "list->string",
+            crate::primitives::alternative_list::LIST_TO_STRING,
         )
-        .register_value("test-car", crate::primitives::alternative_list::CAR)
-        .register_value("test-rest", crate::primitives::alternative_list::REST)
+        .register_value("push-back", crate::primitives::alternative_list::PUSH_BACK)
+        // .register_value("test-push-back", crate::primitives::alternative_list::PU)
         .register_value("test-map", crate::primitives::alternative_list::TEST_MAP)
         // TODO move this to somewhere better than here
         .register_value("apply", crate::primitives::alternative_list::TEST_APPLY)
@@ -314,7 +324,7 @@ pub(crate) fn register_identity_predicates(engine: &mut Engine) {
         .register_value("symbol?", gen_pred!(SymbolV))
         .register_value("vector?", gen_pred!(VectorV))
         .register_value("struct?", gen_pred!(StructV))
-        .register_value("list?", gen_pred!(Pair))
+        .register_value("list?", gen_pred!(Pair, ListV))
         .register_value("pair?", gen_pred!(Pair))
         .register_value("integer?", gen_pred!(IntV))
         .register_value("boolean?", gen_pred!(BoolV))
@@ -329,7 +339,9 @@ pub(crate) fn register_identity_predicates(engine: &mut Engine) {
                 FuncV,
                 ContractedFunction,
                 BoxedFunction,
-                ContinuationFunction
+                ContinuationFunction,
+                MutFunc,
+                BuiltIn
             ),
         )
         .register_value(
@@ -339,7 +351,9 @@ pub(crate) fn register_identity_predicates(engine: &mut Engine) {
                 FuncV,
                 ContractedFunction,
                 BoxedFunction,
-                ContinuationFunction
+                ContinuationFunction,
+                MutFunc,
+                BuiltIn
             ),
         )
         .register_value(
