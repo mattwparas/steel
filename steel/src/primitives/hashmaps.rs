@@ -4,7 +4,6 @@ use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use im_rc::HashMap;
 
-use crate::primitives::ListOperations;
 use crate::primitives::VectorOperations;
 
 use crate::primitives::utils::SliceExt;
@@ -153,8 +152,7 @@ impl HashMapOperations {
             let hashmap = &args[0];
 
             if let SteelVal::HashMapV(hm) = hashmap {
-                let keys = hm.keys().cloned().collect::<Vec<SteelVal>>();
-                ListOperations::built_in_list_func_flat(&keys)
+                Ok(SteelVal::ListV(hm.keys().cloned().collect()))
             } else {
                 stop!(TypeMismatch => "hm-keys->list takes a hashmap")
             }
@@ -171,8 +169,9 @@ impl HashMapOperations {
             let hashmap = &args[0];
 
             if let SteelVal::HashMapV(hm) = hashmap {
-                let keys = hm.values().cloned().collect::<Vec<SteelVal>>();
-                ListOperations::built_in_list_func_flat(&keys)
+                // let keys = hm.values().cloned().collect::<Vec<SteelVal>>();
+                // ListOperations::built_in_list_func_flat(&keys)
+                Ok(SteelVal::ListV(hm.values().cloned().collect()))
             } else {
                 stop!(TypeMismatch => "hm-values->list takes a hashmap")
             }

@@ -2,9 +2,9 @@ use crate::gc::Gc;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
+use im_lists::list::List;
 use im_rc::HashSet;
 
-use crate::primitives::ListOperations;
 use crate::primitives::VectorOperations;
 
 pub struct HashSetOperations {}
@@ -84,8 +84,9 @@ impl HashSetOperations {
             let hashset = &args[0];
 
             if let SteelVal::HashSetV(hs) = hashset {
-                let keys = hs.iter().cloned().collect::<Vec<SteelVal>>();
-                ListOperations::built_in_list_func_flat(&keys)
+                Ok(SteelVal::ListV(
+                    hs.iter().cloned().collect::<List<SteelVal>>(),
+                ))
             } else {
                 stop!(TypeMismatch => "hm-keys->list takes a hashmap")
             }
@@ -132,10 +133,8 @@ impl HashSetOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "list->hashset takes one argument")
             }
-            if let SteelVal::Pair(_) = &args[0] {
-                let root = &args[0];
-                let hashset: HashSet<SteelVal> = SteelVal::iter(root.clone()).collect();
-                Ok(SteelVal::HashSetV(Gc::new(hashset)))
+            if let SteelVal::ListV(l) = &args[0] {
+                Ok(SteelVal::HashSetV(Gc::new(l.iter().cloned().collect())))
             } else {
                 stop!(TypeMismatch => "list->hashset takes a hashset");
             }

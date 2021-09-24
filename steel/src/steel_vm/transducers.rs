@@ -159,9 +159,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                                 SteelVal::VectorV(v) => {
                                                     Box::new(v.unwrap().into_iter().map(Ok))
                                                 }
-                                                // SteelVal::Pair(_) => {
-                                                //     Box::new(SteelVal::iter(root).into_iter().map(Ok))
-                                                // }
                                                 // TODO this needs to be fixed
                                                 SteelVal::StringV(s) => Box::new(
                                                     s.chars()
@@ -209,9 +206,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                         SteelVal::VectorV(v) => {
                                             Box::new(v.unwrap().into_iter().map(Ok))
                                         }
-                                        // SteelVal::Pair(_) => {
-                                        //     Box::new(SteelVal::iter(root).into_iter().map(Ok))
-                                        // }
                                         // TODO this needs to be fixed
                                         SteelVal::StringV(s) => Box::new(
                                             s.chars()
@@ -365,9 +359,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                         SteelVal::VectorV(v) => {
                                             Box::new(v.unwrap().into_iter().map(Ok))
                                         }
-                                        // SteelVal::Pair(_) => {
-                                        //     Box::new(SteelVal::iter(root).into_iter().map(Ok))
-                                        // }
                                         // TODO this needs to be fixed
                                         SteelVal::StringV(s) => Box::new(
                                             s.chars()
