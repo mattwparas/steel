@@ -1,6 +1,5 @@
 use crate::{
     gc::Gc,
-    primitives::ListOperations,
     rerrs::ErrorKind,
     rvals::{FromSteelVal, IntoSteelVal, Result},
     SteelErr, SteelVal,
@@ -13,7 +12,7 @@ impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
         let vec_vals: Result<Vec<SteelVal>> = self.into_iter().map(|x| x.into_steelval()).collect();
 
         match vec_vals {
-            Ok(l) => ListOperations::built_in_list_func_flat(&l),
+            Ok(l) => Ok(SteelVal::ListV(l.into())),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
                 "Could not convert vector of values to SteelVal list".to_string(),
@@ -25,6 +24,20 @@ impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
 impl<T: FromSteelVal> FromSteelVal for Vec<T> {
     fn from_steelval(val: SteelVal) -> Result<Self> {
         match val {
+            SteelVal::ListV(l) => {
+                let result_vec_vals: Result<Self> = l
+                    .into_iter()
+                    .map(|x| FromSteelVal::from_steelval(x))
+                    .collect();
+
+                match result_vec_vals {
+                    Ok(x) => Ok(x),
+                    _ => Err(SteelErr::new(
+                        ErrorKind::ConversionError,
+                        "Could not convert SteelVal list to Vector of values".to_string(),
+                    )),
+                }
+            }
             SteelVal::Pair(_) => {
                 let result_vec_vals: Result<Self> = SteelVal::iter(val.clone())
                     .into_iter()

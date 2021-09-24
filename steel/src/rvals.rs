@@ -492,7 +492,6 @@ impl SteelVal {
     pub(crate) fn res_iterator(&self) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + '_>> {
         match self {
             SteelVal::VectorV(v) => Ok(Box::new(v.iter().cloned().map(Ok))),
-            // SteelVal::Pair(_) => Box::new(SteelVal::iter(root).into_iter().map(Ok)),
             // SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
             //     lazy_stream.unwrap(),
             //     self.constants,
