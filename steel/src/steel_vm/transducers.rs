@@ -79,29 +79,6 @@ fn execute(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
     }
 }
 
-// pub(crate) fn normal_res_iterator(
-//     val: &SteelVal,
-// ) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + '_>> {
-//     match val {
-//         SteelVal::VectorV(v) => Ok(Box::new(v.iter().cloned().map(Ok))),
-//         // SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-//         //     lazy_stream.unwrap(),
-//         //     self.constants,
-//         //     cur_inst_span,
-//         //     self.callback,
-//         //     Rc::clone(&global_env),
-//         //     self.use_callbacks,
-//         //     self.apply_contracts,
-//         // )),
-//         SteelVal::StringV(s) => Ok(Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x))))),
-//         SteelVal::ListV(l) => Ok(Box::new(l.iter().cloned().map(Ok))),
-//         SteelVal::StructV(s) => Ok(Box::new(s.iter().cloned().map(Ok))),
-//         _ => {
-//             stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", val))
-//         }
-//     }
-// }
-
 impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
     pub(crate) fn res_iterator(
         value: &'global SteelVal,

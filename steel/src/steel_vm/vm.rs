@@ -817,6 +817,27 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
                     self.handle_lazy_function_call(func, local_value, const_val, &cur_inst.span)?;
                 }
+                OpCode::MOVECGLOCALCONST => {
+                    let move_read_local = self.instructions[self.ip + 1];
+                    let push_const = self.instructions[self.ip + 2];
+
+                    // Snag the function
+                    let func = self
+                        .global_env
+                        .repl_lookup_idx(cur_inst.payload_size as usize)?;
+
+                    // get the local by moving its position
+                    let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let local_value = std::mem::replace(
+                        &mut self.stack.0[move_read_local.payload_size as usize + offset],
+                        SteelVal::Void,
+                    );
+
+                    // get the const
+                    let const_val = self.constants.get(push_const.payload_size as usize);
+
+                    self.handle_lazy_function_call(func, local_value, const_val, &cur_inst.span)?;
+                }
                 OpCode::CALLGLOBAL => {
                     let next_inst = self.instructions[self.ip + 1];
                     self.handle_call_global(
@@ -1678,6 +1699,19 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 unimplemented!("calling continuation lazily not yet handled");
             }
             Closure(closure) => self.handle_lazy_closure(closure, local, const_value, span)?,
+            MutFunc(func) => {
+                let mut args = [local, const_value];
+                self.stack
+                    .push(func(&mut args).map_err(|x| x.set_span(*span))?);
+
+                self.ip += 4;
+            }
+            BuiltIn(func) => {
+                let args = vec![local, const_value];
+                let result = func(args, self).map_err(|x| x.set_span(*span))?;
+                self.stack.push(result);
+                self.ip += 4;
+            }
             _ => {
                 println!("{:?}", stack_func);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);

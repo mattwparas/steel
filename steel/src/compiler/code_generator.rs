@@ -1350,6 +1350,51 @@ pub fn loop_condition_local_const_arity_two(instructions: &mut [Instruction]) {
                     x.payload_size = const_idx;
                 }
             }
+            (
+                Some(Instruction {
+                    op_code: OpCode::MOVEREADLOCAL,
+                    payload_size: local_idx,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::PUSHCONST,
+                    payload_size: const_idx,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    payload_size: ident,
+                    contents: identifier,
+                    ..
+                }),
+                // HAS to be arity 2 in this case
+                Some(Instruction {
+                    op_code: OpCode::PASS,
+                    payload_size: 2,
+                    ..
+                }),
+            ) => {
+                let local_idx = *local_idx;
+                let const_idx = *const_idx;
+                let ident = *ident;
+                let identifier = identifier.clone();
+
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::MOVECGLOCALCONST;
+                    x.payload_size = ident;
+                    x.contents = identifier;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.op_code = OpCode::MOVEREADLOCAL;
+                    x.payload_size = local_idx;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 2) {
+                    x.op_code = OpCode::PUSHCONST;
+                    x.payload_size = const_idx;
+                }
+            }
             _ => {}
         }
     }
