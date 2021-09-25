@@ -4,8 +4,8 @@ use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
-use crate::rvals::Transducer;
-use crate::rvals::Transducers;
+use crate::values::transducers::Transducer;
+use crate::values::transducers::Transducers;
 
 pub struct TransducerOperations {}
 impl TransducerOperations {

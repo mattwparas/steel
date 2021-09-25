@@ -4,3 +4,5 @@ pub(crate) mod json_vals;
 pub(crate) mod lazy_stream;
 pub(crate) mod port;
 pub(crate) mod structs;
+pub(crate) mod transducers;
+pub(crate) mod upvalue;

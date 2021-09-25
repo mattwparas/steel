@@ -1,9 +1,11 @@
 use crate::gc::Gc;
 use crate::rerrs::{ErrorKind, SteelErr};
-use crate::rvals::{ByteCodeLambda, Result, SteelVal};
+use crate::rvals::{Result, SteelVal};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt;
+
+use super::functions::ByteCodeLambda;
 
 /// Flat contracts are simply predicates to apply to a value. These can be immediately applied
 /// at attachment to a value.

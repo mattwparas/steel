@@ -11,8 +11,9 @@ use crate::{
     parser::span::Span,
     primitives::VectorOperations,
     rerrs::{ErrorKind, SteelErr},
-    rvals::{CollectionType, Result, SteelVal, Transducers},
+    rvals::{Result, SteelVal},
     stop,
+    values::transducers::{CollectionType, Transducers},
 };
 
 use std::cell::RefCell;
@@ -80,6 +81,10 @@ fn execute(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
 }
 
 impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
+    // With transducers, we also need reducers
+    // reducers should define _how_ a value is going to be converted away
+    // from the iterator stream
+    // This could either be a function that returns a single value, or a generic collection type
     pub(crate) fn res_iterator(
         value: &'global SteelVal,
         vm_ctx: Rc<RefCell<&'global mut Self>>,
@@ -95,6 +100,12 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
             SteelVal::StringV(s) => Ok(Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x))))),
             SteelVal::ListV(l) => Ok(Box::new(l.iter().cloned().map(Ok))),
             SteelVal::StructV(s) => Ok(Box::new(s.iter().cloned().map(Ok))),
+            SteelVal::HashSetV(hs) => Ok(Box::new(hs.iter().cloned().map(Ok))),
+            SteelVal::HashMapV(hm) => {
+                Ok(Box::new(hm.iter().map(|x| {
+                    Ok(SteelVal::ListV(im_lists::list![x.0.clone(), x.1.clone()]))
+                })))
+            }
             _ => {
                 stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", value))
             }
@@ -113,8 +124,6 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
             SteelVal::VectorV(_) => CollectionType::Vector,
             _ => CollectionType::List,
         };
-
-        // let vm = Rc::new(RefCell::new(&mut self));
 
         let vm = Rc::new(RefCell::new(self));
 

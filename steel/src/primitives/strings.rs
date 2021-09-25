@@ -227,11 +227,11 @@ impl StringOperations {
                         Ok(SteelVal::BoolV(s.ends_with(&p.as_str())))
                     }
                     _ => {
-                        stop!(ArityMismatch => "starts-with? takes two arguments")
+                        stop!(ArityMismatch => "ends-with? takes two arguments")
                     }
                 }
             } else {
-                stop!(ArityMismatch => "starts-with? takes two arguments")
+                stop!(ArityMismatch => "ends-with? takes two arguments")
             }
         })
     }

@@ -4,11 +4,13 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
-    values::structs::SteelStruct,
     values::{
         contracts::{ContractType, ContractedFunction},
+        functions::ByteCodeLambda,
         lazy_stream::LazyStream,
+        transducers::Transducer,
     },
+    values::{structs::SteelStruct, upvalue::UpValue},
 };
 
 // #[cfg(feature = "jit")]
@@ -304,14 +306,6 @@ pub enum SteelVal {
     BuiltIn(BuiltInSignature),
 }
 
-// trait Blargh {}
-// trait Blagh {}
-
-// enum Test {
-//     Func(fn(usize, usize) -> usize),
-// }
-// pub trait Continuation: Clone {}
-
 // TODO come back to this for the constant map
 
 // impl Serialize for SteelVal {
@@ -337,47 +331,6 @@ pub enum SteelVal {
 //         }
 //     }
 // }
-
-pub enum CollectionType {
-    List,
-    Vector,
-}
-
-// Make a transducer actually contain an option to a rooted value, otherwise
-// it is a source agnostic transformer on the (eventual) input
-#[derive(Clone, PartialEq)]
-pub struct Transducer {
-    // root: Gc<SteelVal>,
-    pub ops: Vec<Transducers>,
-}
-
-impl Transducer {
-    pub fn new() -> Self {
-        Transducer { ops: Vec::new() }
-    }
-
-    pub fn append(&mut self, mut other: Self) {
-        self.ops.append(&mut other.ops)
-    }
-
-    pub fn push(&mut self, t: Transducers) {
-        self.ops.push(t);
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub enum Transducers {
-    Map(SteelVal),       // function
-    Filter(SteelVal),    // function
-    Take(SteelVal),      // integer
-    Drop(SteelVal),      // integer
-    FlatMap(SteelVal),   // function
-    Flatten,             // Takes nothing
-    Window(SteelVal),    // integer
-    TakeWhile(SteelVal), // function
-    DropWhile(SteelVal), // function
-    Extend(SteelVal),    // Collection
-}
 
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -418,20 +371,7 @@ impl Hash for SteelVal {
     }
 }
 
-// pub struct Iter(Option<SteelVal>);
-
-// pub struct Iter(Option<Gc<ConsCell>>);
-
 impl SteelVal {
-    // pub fn iter(_self: SteelVal) -> Iter {
-    //     // Iter(Some(_self))
-    //     if let SteelVal::Pair(cell) = _self {
-    //         Iter(Some(cell))
-    //     } else {
-    //         panic!("Cannot iterate over a non list");
-    //     }
-    // }
-
     pub fn is_truthy(&self) -> bool {
         match &self {
             SteelVal::BoolV(false) => false,
@@ -656,208 +596,6 @@ impl PartialOrd for SteelVal {
             (IntV(l), IntV(r)) => l.partial_cmp(r),
             _ => None, // unimplemented for other types
         }
-    }
-}
-
-// Upvalues themselves need to be stored on the heap
-// Consider a separate section for them on the heap, or wrap them in a wrapper
-// before allocating on the heap
-#[derive(Clone, Debug)]
-pub struct UpValue {
-    // Either points to a stack location, or the value
-    pub(crate) location: Location,
-    // The next upvalue in the sequence
-    pub(crate) next: Option<Weak<RefCell<UpValue>>>,
-    // Reachable
-    pub(crate) reachable: bool,
-}
-
-impl PartialEq for UpValue {
-    fn eq(&self, other: &Self) -> bool {
-        self.location == other.location
-    }
-}
-
-impl PartialOrd for UpValue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (&self.location, &other.location) {
-            (Location::Stack(l), Location::Stack(r)) => Some(l.cmp(r)),
-            _ => panic!("Cannot compare two values on the heap"),
-        }
-    }
-}
-
-impl UpValue {
-    // Given a reference to the stack, either get the value from the stack index
-    // Or snag the steelval stored inside the upvalue
-    pub(crate) fn get_value(&self, stack: &[SteelVal]) -> SteelVal {
-        // println!("Getting value from: {:?}", self.location);
-        // println!("Stack: {:?}", stack);
-        match self.location {
-            Location::Stack(idx) => stack[idx].clone(),
-            Location::Closed(ref v) => v.clone(),
-        }
-    }
-
-    pub(crate) fn try_move_value(&mut self, stack: &mut [SteelVal]) -> SteelVal {
-        match self.location {
-            Location::Stack(idx) => std::mem::replace(&mut stack[idx], SteelVal::Void),
-            Location::Closed(ref v) => v.clone(),
-        }
-    }
-
-    pub(crate) fn is_reachable(&self) -> bool {
-        self.reachable
-    }
-
-    // Given a reference to the stack, either get the value from the stack index
-    // Or snag the steelval stored inside the upvalue
-    pub(crate) fn mutate_value(&mut self, stack: &mut [SteelVal], value: SteelVal) -> SteelVal {
-        match self.location {
-            Location::Stack(idx) => {
-                let old = stack[idx].clone();
-                stack[idx] = value;
-                old
-            }
-            Location::Closed(ref v) => {
-                let old = v.clone();
-                self.location = Location::Closed(value);
-                old
-            }
-        }
-    }
-
-    pub(crate) fn get_value_if_closed(&self) -> Option<&SteelVal> {
-        if let Location::Closed(ref v) = self.location {
-            Some(v)
-        } else {
-            None
-        }
-    }
-
-    pub(crate) fn set_value(&mut self, val: SteelVal) {
-        self.location = Location::Closed(val);
-    }
-
-    pub(crate) fn mark_reachable(&mut self) {
-        self.reachable = true;
-    }
-
-    pub(crate) fn reset(&mut self) {
-        self.reachable = false;
-    }
-
-    pub(crate) fn is_open(&self) -> bool {
-        matches!(self.location, Location::Stack(_))
-    }
-
-    pub(crate) fn index(&self) -> Option<usize> {
-        if let Location::Stack(idx) = &self.location {
-            Some(*idx)
-        } else {
-            None
-        }
-    }
-
-    pub(crate) fn new(stack_index: usize, next: Option<Weak<RefCell<UpValue>>>) -> Self {
-        UpValue {
-            location: Location::Stack(stack_index),
-            next,
-            reachable: false,
-        }
-    }
-
-    pub(crate) fn set_next(&mut self, next: Weak<RefCell<UpValue>>) {
-        self.next = Some(next);
-    }
-}
-
-// Either points to a stack index, or it points to a SteelVal directly
-// When performing an OPCODE::GET_UPVALUE, index into the array in the current
-// function being executed in the stack frame, and pull it in
-#[derive(Clone, PartialEq, Debug)]
-pub(crate) enum Location {
-    Stack(usize),
-    Closed(SteelVal),
-}
-
-#[derive(Clone, Debug)]
-pub struct ByteCodeLambda {
-    /// body of the function with identifiers yet to be bound
-    body_exp: Rc<[DenseInstruction]>,
-    arity: usize,
-    upvalues: Vec<Weak<RefCell<UpValue>>>,
-    call_count: Cell<usize>,
-    cant_be_compiled: Cell<bool>,
-}
-
-impl PartialEq for ByteCodeLambda {
-    fn eq(&self, other: &Self) -> bool {
-        self.body_exp == other.body_exp && self.arity == other.arity
-    }
-}
-
-impl Hash for ByteCodeLambda {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.body_exp.as_ptr().hash(state);
-        // self.sub_expression_env.as_ptr().hash(state);
-    }
-}
-
-impl ByteCodeLambda {
-    pub fn new(
-        body_exp: Vec<DenseInstruction>,
-        arity: usize,
-        upvalues: Vec<Weak<RefCell<UpValue>>>,
-    ) -> ByteCodeLambda {
-        ByteCodeLambda {
-            body_exp: Rc::from(body_exp.into_boxed_slice()),
-            arity,
-            upvalues,
-            call_count: Cell::new(0),
-            cant_be_compiled: Cell::new(false),
-        }
-    }
-
-    pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
-        Rc::clone(&self.body_exp)
-    }
-
-    // pub fn sub_expression_env(&self) -> &Weak<RefCell<Env>> {
-    //     &self.sub_expression_env
-    // }
-
-    // pub fn offset(&self) -> usize {
-    //     self.offset
-    // }
-
-    pub fn arity(&self) -> usize {
-        self.arity
-    }
-
-    // pub fn ndef_body(&self) -> usize {
-    //     self.ndef_body
-    // }
-
-    pub fn upvalues(&self) -> &[Weak<RefCell<UpValue>>] {
-        &self.upvalues
-    }
-
-    pub fn increment_call_count(&self) {
-        // self.call_count += 1;
-        self.call_count.set(self.call_count.get() + 1);
-    }
-
-    pub fn call_count(&self) -> usize {
-        self.call_count.get()
-    }
-
-    pub fn set_cannot_be_compiled(&self) {
-        self.cant_be_compiled.set(true)
-    }
-
-    pub fn has_attempted_to_be_compiled(&self) -> bool {
-        self.cant_be_compiled.get()
     }
 }
 

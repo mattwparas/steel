@@ -210,27 +210,24 @@ pub const CONSTANTS: &[&str] = &[
 #[inline(always)]
 pub(crate) fn register_list_functions(engine: &mut Engine) {
     engine
-        .register_value(LIST, crate::primitives::alternative_list::LIST)
-        .register_value(CONS, crate::primitives::alternative_list::CONS)
-        .register_value(RANGE, crate::primitives::alternative_list::RANGE)
-        .register_value(LENGTH, crate::primitives::alternative_list::LENGTH)
-        .register_value("empty?", crate::primitives::alternative_list::IS_EMPTY)
-        .register_value(CAR, crate::primitives::alternative_list::CAR)
-        .register_value(FIRST, crate::primitives::alternative_list::CAR)
-        .register_value(CDR, crate::primitives::alternative_list::CDR)
-        .register_value(REST, crate::primitives::alternative_list::REST)
-        .register_value(APPEND, crate::primitives::alternative_list::APPEND)
-        .register_value(REVERSE, crate::primitives::alternative_list::REVERSE)
-        .register_value(
-            "list->string",
-            crate::primitives::alternative_list::LIST_TO_STRING,
-        )
-        .register_value("push-back", crate::primitives::alternative_list::PUSH_BACK)
-        .register_value("pair?", crate::primitives::alternative_list::PAIR)
+        .register_value(LIST, crate::primitives::lists::LIST)
+        .register_value(CONS, crate::primitives::lists::CONS)
+        .register_value(RANGE, crate::primitives::lists::RANGE)
+        .register_value(LENGTH, crate::primitives::lists::LENGTH)
+        .register_value("empty?", crate::primitives::lists::IS_EMPTY)
+        .register_value(CAR, crate::primitives::lists::CAR)
+        .register_value(FIRST, crate::primitives::lists::CAR)
+        .register_value(CDR, crate::primitives::lists::CDR)
+        .register_value(REST, crate::primitives::lists::REST)
+        .register_value(APPEND, crate::primitives::lists::APPEND)
+        .register_value(REVERSE, crate::primitives::lists::REVERSE)
+        .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
+        .register_value("push-back", crate::primitives::lists::PUSH_BACK)
+        .register_value("pair?", crate::primitives::lists::PAIR)
         // .register_value("test-push-back", crate::primitives::alternative_list::PU)
-        .register_value("test-map", crate::primitives::alternative_list::TEST_MAP)
+        .register_value("test-map", crate::primitives::lists::TEST_MAP)
         // TODO move this to somewhere better than here
-        .register_value("apply", crate::primitives::alternative_list::TEST_APPLY)
+        .register_value("apply", crate::primitives::lists::TEST_APPLY)
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         .register_value("execute", crate::steel_vm::transducers::EXECUTE);
 }

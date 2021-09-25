@@ -12,16 +12,17 @@ use super::{
 use crate::jit::code_gen::JIT;
 // #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
-use crate::rvals::Transducers;
+use crate::values::transducers::Transducers;
 // use crate::steel_vm::contracts::FlatContractExt;
 use crate::values::contracts::ContractType;
+use crate::values::upvalue::UpValue;
 use crate::{
     compiler::{
         constants::{ConstantMap, ConstantTable},
         program::Program,
     },
     core::{instructions::DenseInstruction, opcode::OpCode},
-    rvals::{FutureResult, UpValue},
+    rvals::FutureResult,
     values::contracts::ContractedFunction,
 };
 
@@ -34,8 +35,9 @@ use crate::{
         span::Span,
     },
     rerrs::{ErrorKind, SteelErr},
-    rvals::{ByteCodeLambda, Result, SteelVal},
+    rvals::{Result, SteelVal},
     stop,
+    values::functions::ByteCodeLambda,
     values::structs::SteelStruct,
 };
 use std::{

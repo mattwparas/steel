@@ -1,10 +1,10 @@
-pub mod alternative_list;
 mod contracts;
 mod control;
 mod fs;
 mod hashmaps;
 mod hashsets;
 mod io;
+pub mod lists;
 mod meta_ops;
 mod nums;
 mod ports;
