@@ -2,7 +2,7 @@ use crate::{
     core::instructions::DenseInstruction,
     gc::Gc,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{BuiltInSignature, Continuation, VmCore},
+    steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
     values::structs::SteelStruct,
     values::{
@@ -420,7 +420,7 @@ impl Hash for SteelVal {
 
 // pub struct Iter(Option<SteelVal>);
 
-pub struct Iter(Option<Gc<ConsCell>>);
+// pub struct Iter(Option<Gc<ConsCell>>);
 
 impl SteelVal {
     // pub fn iter(_self: SteelVal) -> Iter {
@@ -473,18 +473,18 @@ impl SteelVal {
 // Change this to not be option<steelval> but rather option<conscell>
 // pub struct Iter(Option<SteelVal>);
 
-impl Iterator for Iter {
-    type Item = SteelVal;
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(_self) = &self.0 {
-            let ret_val = Some(_self.car.clone());
-            self.0 = _self.cdr.as_ref().map(Gc::clone);
-            ret_val
-        } else {
-            None
-        }
-    }
-}
+// impl Iterator for Iter {
+//     type Item = SteelVal;
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if let Some(_self) = &self.0 {
+//             let ret_val = Some(_self.car.clone());
+//             self.0 = _self.cdr.as_ref().map(Gc::clone);
+//             ret_val
+//         } else {
+//             None
+//         }
+//     }
+// }
 
 impl SteelVal {
     // pub fn res_iterator
@@ -648,46 +648,46 @@ impl SteelVal {
     pub const INT_TWO: SteelVal = SteelVal::IntV(2);
 }
 
-#[derive(Clone, Hash, Debug)]
-pub struct ConsCell {
-    pub car: SteelVal,
-    pub cdr: Option<Gc<ConsCell>>,
-}
+// #[derive(Clone, Hash, Debug)]
+// pub struct ConsCell {
+//     pub car: SteelVal,
+//     pub cdr: Option<Gc<ConsCell>>,
+// }
 
-impl ConsCell {
-    pub fn new(car: SteelVal, cdr: Option<Gc<ConsCell>>) -> Self {
-        ConsCell { car, cdr }
-    }
+// impl ConsCell {
+//     pub fn new(car: SteelVal, cdr: Option<Gc<ConsCell>>) -> Self {
+//         ConsCell { car, cdr }
+//     }
 
-    pub fn car(&self) -> SteelVal {
-        self.car.clone()
-    }
+//     pub fn car(&self) -> SteelVal {
+//         self.car.clone()
+//     }
 
-    pub fn cdr(&self) -> &Option<Gc<ConsCell>> {
-        &self.cdr
-    }
-}
+//     pub fn cdr(&self) -> &Option<Gc<ConsCell>> {
+//         &self.cdr
+//     }
+// }
 
-impl Drop for ConsCell {
-    // don't want to blow the stack with destructors,
-    // but also don't want to walk the whole list.
-    // So walk the list until we find a non-uniquely owned item
-    fn drop(&mut self) {
-        let mut cur = self.cdr.take();
-        loop {
-            match cur {
-                Some(r) => match Gc::try_unwrap(r) {
-                    Ok(ConsCell {
-                        car: _,
-                        cdr: ref mut next,
-                    }) => cur = next.take(),
-                    _ => return,
-                },
-                _ => return,
-            }
-        }
-    }
-}
+// impl Drop for ConsCell {
+//     // don't want to blow the stack with destructors,
+//     // but also don't want to walk the whole list.
+//     // So walk the list until we find a non-uniquely owned item
+//     fn drop(&mut self) {
+//         let mut cur = self.cdr.take();
+//         loop {
+//             match cur {
+//                 Some(r) => match Gc::try_unwrap(r) {
+//                     Ok(ConsCell {
+//                         car: _,
+//                         cdr: ref mut next,
+//                     }) => cur = next.take(),
+//                     _ => return,
+//                 },
+//                 _ => return,
+//             }
+//         }
+//     }
+// }
 
 impl Eq for SteelVal {}
 

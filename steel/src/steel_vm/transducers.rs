@@ -8,7 +8,7 @@ use super::{
 use crate::{
     compiler::constants::ConstantTable,
     parser::span::Span,
-    primitives::{ListOperations, VectorOperations},
+    primitives::VectorOperations,
     rerrs::{ErrorKind, SteelErr},
     rvals::{CollectionType, Result, SteelVal, Transducers},
     stop,

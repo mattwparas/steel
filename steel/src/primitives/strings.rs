@@ -242,9 +242,9 @@ impl StringOperations {
 #[cfg(test)]
 mod string_operation_tests {
     use super::*;
-    use crate::gc::Gc;
+    // use crate::gc::Gc;
     use crate::rerrs::ErrorKind;
-    use crate::rvals::ConsCell;
+    // use crate::rvals::ConsCell;
     use crate::throw;
     use im_lists::list;
 

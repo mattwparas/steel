@@ -1,6 +1,6 @@
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal::*;
-use crate::rvals::{ConsCell, Result, SteelVal};
+use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
 use im_rc::Vector;

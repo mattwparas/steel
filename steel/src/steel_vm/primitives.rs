@@ -141,7 +141,7 @@ const PUSH_BACK: &str = "push-back";
 const RANGE: &str = "range";
 const LENGTH: &str = "length";
 const REVERSE: &str = "reverse";
-const LIST_TO_VECTOR: &str = "list->vector";
+// const LIST_TO_VECTOR: &str = "list->vector";
 const LIST_TO_STRING: &str = "list->string";
 const NULL_HUH: &str = "null?";
 const INT_HUH: &str = "int?";
@@ -209,24 +209,6 @@ pub const CONSTANTS: &[&str] = &[
 
 #[inline(always)]
 pub(crate) fn register_list_functions(engine: &mut Engine) {
-    // engine
-    //     .register_value(LIST, ListOperations::list())
-    //     .register_value(CAR, ListOperations::car())
-    //     .register_value(CDR, ListOperations::cdr())
-    //     .register_value(FIRST, ListOperations::car())
-    //     .register_value(REST, ListOperations::cdr())
-    //     .register_value(CONS, ListOperations::cons())
-    //     .register_value(APPEND, ListOperations::append())
-    //     .register_value(PUSH_BACK, ListOperations::push_back())
-    //     .register_value(RANGE, ListOperations::range())
-    //     .register_value(LENGTH, ListOperations::list_length())
-    //     .register_value(REVERSE, ListOperations::reverse())
-    //     .register_value(LIST_TO_VECTOR, ListOperations::list_to_vec())
-    //     .register_value(LIST_TO_STRING, ListOperations::list_to_string());
-}
-
-#[inline(always)]
-pub(crate) fn register_test_list_functions(engine: &mut Engine) {
     engine
         .register_value("list", crate::primitives::alternative_list::LIST)
         .register_value("cons", crate::primitives::alternative_list::CONS)
@@ -510,8 +492,6 @@ pub(crate) fn embed_primitives(engine: &mut Engine) {
 
     register_number_functions(engine);
     register_list_functions(engine);
-
-    register_test_list_functions(engine);
 
     register_vector_functions(engine);
     register_string_functions(engine);
