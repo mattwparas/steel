@@ -1518,10 +1518,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        // if cf.arity() != payload_size {
-        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
-        // }
-
         if let Some(arity) = cf.arity() {
             if arity != payload_size {
                 stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, payload_size); *span);
@@ -1548,10 +1544,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        // if cf.arity() != payload_size {
-        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", cf.arity(), payload_size); *span);
-        // }
-
         if let Some(arity) = cf.arity() {
             if arity != payload_size {
                 stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, payload_size); *span);
@@ -1727,8 +1719,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        // println!("Calling normal function");
-
         // Jit profiling
         closure.increment_call_count();
 

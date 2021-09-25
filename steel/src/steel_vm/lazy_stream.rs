@@ -1,19 +1,12 @@
 use super::options::ApplyContracts;
 use super::options::UseCallbacks;
-use super::vm::vm;
 use super::vm::VmCore;
-use super::{evaluation_progress::EvaluationProgress, heap::UpValueHeap};
 use crate::compiler::constants::ConstantTable;
-use crate::env::Env;
-use crate::gc::Gc;
 use crate::parser::span::Span;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
-use crate::stop;
 use std::cell::RefCell;
 use std::rc::Rc;
-
-use super::stack::Stack;
 
 use crate::values::lazy_stream::LazyStream;
 
