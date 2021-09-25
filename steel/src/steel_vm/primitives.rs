@@ -1,8 +1,8 @@
 use super::engine::Engine;
 use crate::primitives::{
     ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
-    IoFunctions, ListOperations, MetaOperations, NumOperations, PortOperations, StreamOperations,
-    StringOperations, SymbolOperations, TransducerOperations, VectorOperations,
+    IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations, StringOperations,
+    SymbolOperations, TransducerOperations, VectorOperations,
 };
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
@@ -210,17 +210,17 @@ pub const CONSTANTS: &[&str] = &[
 #[inline(always)]
 pub(crate) fn register_list_functions(engine: &mut Engine) {
     engine
-        .register_value("list", crate::primitives::alternative_list::LIST)
-        .register_value("cons", crate::primitives::alternative_list::CONS)
-        .register_value("range", crate::primitives::alternative_list::RANGE)
-        .register_value("length", crate::primitives::alternative_list::LENGTH)
+        .register_value(LIST, crate::primitives::alternative_list::LIST)
+        .register_value(CONS, crate::primitives::alternative_list::CONS)
+        .register_value(RANGE, crate::primitives::alternative_list::RANGE)
+        .register_value(LENGTH, crate::primitives::alternative_list::LENGTH)
         .register_value("empty?", crate::primitives::alternative_list::IS_EMPTY)
-        .register_value("car", crate::primitives::alternative_list::CAR)
-        .register_value("first", crate::primitives::alternative_list::CAR)
-        .register_value("cdr", crate::primitives::alternative_list::CDR)
-        .register_value("rest", crate::primitives::alternative_list::REST)
-        .register_value("append", crate::primitives::alternative_list::APPEND)
-        .register_value("reverse", crate::primitives::alternative_list::REVERSE)
+        .register_value(CAR, crate::primitives::alternative_list::CAR)
+        .register_value(FIRST, crate::primitives::alternative_list::CAR)
+        .register_value(CDR, crate::primitives::alternative_list::CDR)
+        .register_value(REST, crate::primitives::alternative_list::REST)
+        .register_value(APPEND, crate::primitives::alternative_list::APPEND)
+        .register_value(REVERSE, crate::primitives::alternative_list::REVERSE)
         .register_value(
             "list->string",
             crate::primitives::alternative_list::LIST_TO_STRING,

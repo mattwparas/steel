@@ -1,6 +1,5 @@
 use crate::{
     gc::Gc,
-    primitives::ListOperations,
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     throw,

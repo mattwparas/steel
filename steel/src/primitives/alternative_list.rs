@@ -375,3 +375,152 @@ impl From<List<SteelVal>> for SteelVal {
         SteelVal::ListV(l)
     }
 }
+
+#[cfg(test)]
+mod list_operation_tests {
+
+    use super::*;
+    use crate::rerrs::ErrorKind;
+    use crate::throw;
+    use im_rc::vector;
+
+    #[test]
+    fn cons_test_normal_input() {
+        let mut args = [SteelVal::IntV(1), SteelVal::IntV(2)];
+        let res = cons(&mut args);
+        let expected = SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)]);
+
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn cons_single_input() {
+        let mut args = [SteelVal::IntV(1)];
+        let res = cons(&mut args);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
+    }
+
+    #[test]
+    fn cons_no_input() {
+        let res = cons(&mut []);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
+    }
+
+    #[test]
+    fn cons_with_empty_list() {
+        let mut args = [SteelVal::IntV(1), SteelVal::ListV(List::new())];
+        let res = cons(&mut args);
+        let expected = SteelVal::ListV(list![SteelVal::IntV(1)]);
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn cons_with_non_empty_vector() {
+        let mut args = [SteelVal::IntV(1), SteelVal::ListV(list![SteelVal::IntV(2)])];
+        let res = cons(&mut args);
+        let expected = SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)]);
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn car_normal_input() {
+        let args = [SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)])];
+        let res = car(&args);
+        let expected = SteelVal::IntV(1);
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn car_bad_input() {
+        let args = [SteelVal::IntV(1)];
+        let res = car(&args);
+        let expected = ErrorKind::TypeMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
+    }
+
+    #[test]
+    fn car_too_many_args() {
+        let args = [SteelVal::IntV(1), SteelVal::IntV(2)];
+        let res = car(&args);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
+    }
+
+    #[test]
+    fn cdr_normal_input_2_elements() {
+        let mut args = [SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)])];
+        let res = cdr(&mut args);
+        let expected = SteelVal::ListV(list![SteelVal::IntV(2)]);
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn cdr_normal_input_3_elements() {
+        let mut args = [SteelVal::ListV(list![
+            SteelVal::IntV(1),
+            SteelVal::IntV(2),
+            SteelVal::IntV(3)
+        ])];
+        let res = cdr(&mut args);
+        let expected = SteelVal::ListV(list![SteelVal::IntV(2), SteelVal::IntV(3)]);
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn cdr_bad_input() {
+        let mut args = [SteelVal::IntV(1)];
+        let res = cdr(&mut args);
+        let expected = ErrorKind::TypeMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
+    }
+
+    #[test]
+    fn cdr_too_many_args() {
+        let mut args = [SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
+        let res = cdr(&mut args);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
+    }
+
+    #[test]
+    fn cdr_single_element_list() {
+        let mut args = [SteelVal::ListV(list![SteelVal::NumV(1.0)])];
+        let res = cdr(&mut args);
+        let expected = SteelVal::ListV(List::new());
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
+    fn range_tests_arity_too_few() {
+        let args = [SteelVal::IntV(1)];
+        let res = range(&args);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
+    }
+
+    #[test]
+    fn range_test_arity_too_many() {
+        let args = [
+            SteelVal::NumV(1.0),
+            SteelVal::NumV(2.0),
+            SteelVal::NumV(3.0),
+        ];
+        let res = range(&args);
+        let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
+    }
+
+    #[test]
+    fn range_test_normal_input() {
+        let args = [SteelVal::IntV(0), SteelVal::IntV(3)];
+        let res = range(&args);
+        let expected = SteelVal::ListV(list![
+            SteelVal::IntV(0),
+            SteelVal::IntV(1),
+            SteelVal::IntV(2)
+        ]);
+        assert_eq!(res.unwrap(), expected);
+    }
+}

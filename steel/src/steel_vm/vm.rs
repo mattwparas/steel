@@ -33,7 +33,6 @@ use crate::{
         parser::{ParseError, Parser},
         span::Span,
     },
-    primitives::ListOperations,
     rerrs::{ErrorKind, SteelErr},
     rvals::{ByteCodeLambda, Result, SteelVal},
     stop,

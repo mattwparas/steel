@@ -3,7 +3,7 @@ extern crate steel_derive;
 // extern crate steel_repl;
 
 use steel::gc::Gc;
-use steel::primitives::ListOperations;
+// use steel::primitives::ListOperations;
 use steel::steel_vm::stack::Stack;
 use steel::steel_vm::{engine::Engine, register_fn::RegisterAsyncFn};
 use steel::SteelVal;

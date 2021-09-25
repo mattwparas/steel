@@ -10,8 +10,6 @@ use super::ast::Atom;
 
 use std::convert::TryFrom;
 
-use crate::primitives::ListOperations;
-
 pub struct TryFromExprKindForSteelVal {}
 
 impl TryFromExprKindForSteelVal {

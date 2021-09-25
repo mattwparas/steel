@@ -4,8 +4,6 @@ use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
-use crate::primitives::lists::ListOperations;
-
 macro_rules! ok_string {
     ($string:expr) => {
         Ok(SteelVal::StringV($string.into()))
