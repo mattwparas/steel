@@ -2,6 +2,7 @@ use im_lists::list::List;
 
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
 use super::{
+    lazy_stream::LazyStreamIter,
     options::{ApplyContracts, UseCallbacks},
     vm::{VmContext, VmCore},
 };
@@ -78,7 +79,51 @@ fn execute(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
     }
 }
 
-impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
+// pub(crate) fn normal_res_iterator(
+//     val: &SteelVal,
+// ) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + '_>> {
+//     match val {
+//         SteelVal::VectorV(v) => Ok(Box::new(v.iter().cloned().map(Ok))),
+//         // SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
+//         //     lazy_stream.unwrap(),
+//         //     self.constants,
+//         //     cur_inst_span,
+//         //     self.callback,
+//         //     Rc::clone(&global_env),
+//         //     self.use_callbacks,
+//         //     self.apply_contracts,
+//         // )),
+//         SteelVal::StringV(s) => Ok(Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x))))),
+//         SteelVal::ListV(l) => Ok(Box::new(l.iter().cloned().map(Ok))),
+//         SteelVal::StructV(s) => Ok(Box::new(s.iter().cloned().map(Ok))),
+//         _ => {
+//             stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", val))
+//         }
+//     }
+// }
+
+impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
+    pub(crate) fn res_iterator(
+        value: &'global SteelVal,
+        vm_ctx: Rc<RefCell<&'global mut Self>>,
+        cur_inst_span: &'global Span,
+    ) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + 'global>> {
+        match value {
+            SteelVal::VectorV(v) => Ok(Box::new(v.iter().cloned().map(Ok))),
+            SteelVal::StreamV(lazy_stream) => Ok(Box::new(LazyStreamIter::new(
+                lazy_stream.unwrap(),
+                vm_ctx,
+                cur_inst_span,
+            ))),
+            SteelVal::StringV(s) => Ok(Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x))))),
+            SteelVal::ListV(l) => Ok(Box::new(l.iter().cloned().map(Ok))),
+            SteelVal::StructV(s) => Ok(Box::new(s.iter().cloned().map(Ok))),
+            _ => {
+                stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", value))
+            }
+        }
+    }
+
     pub(crate) fn run(
         &mut self,
         ops: &[Transducers],
@@ -92,9 +137,11 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             _ => CollectionType::List,
         };
 
-        let mut iter = root.res_iterator()?;
+        // let vm = Rc::new(RefCell::new(&mut self));
 
         let vm = Rc::new(RefCell::new(self));
+
+        let mut iter = Self::res_iterator(&root, Rc::clone(&vm), cur_inst_span)?;
 
         for t in ops {
             iter = match t {
@@ -299,9 +346,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         reducer: SteelVal,
         cur_inst_span: &Span,
     ) -> Result<SteelVal> {
-        let mut iter = root.res_iterator()?;
-
         let vm = Rc::new(RefCell::new(self));
+
+        let mut iter = Self::res_iterator(&root, Rc::clone(&vm), cur_inst_span)?;
 
         for t in ops {
             iter = match t {

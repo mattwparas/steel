@@ -445,7 +445,7 @@ impl ConsumingVisitor for RewriteSpan {
 
 #[cfg(test)]
 mod replace_expressions_tests {
-    use crate::parser::ast::{If, LambdaFunction, List};
+    use crate::parser::ast::{LambdaFunction, List};
 
     use super::*;
 

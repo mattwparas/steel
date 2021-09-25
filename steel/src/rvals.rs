@@ -468,47 +468,8 @@ impl SteelVal {
     }
 }
 
-// impl Iterator for
-
-// Change this to not be option<steelval> but rather option<conscell>
-// pub struct Iter(Option<SteelVal>);
-
-// impl Iterator for Iter {
-//     type Item = SteelVal;
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if let Some(_self) = &self.0 {
-//             let ret_val = Some(_self.car.clone());
-//             self.0 = _self.cdr.as_ref().map(Gc::clone);
-//             ret_val
-//         } else {
-//             None
-//         }
-//     }
-// }
-
 impl SteelVal {
     // pub fn res_iterator
-
-    pub(crate) fn res_iterator(&self) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + '_>> {
-        match self {
-            SteelVal::VectorV(v) => Ok(Box::new(v.iter().cloned().map(Ok))),
-            // SteelVal::StreamV(lazy_stream) => Box::new(LazyStreamIter::new(
-            //     lazy_stream.unwrap(),
-            //     self.constants,
-            //     cur_inst_span,
-            //     self.callback,
-            //     Rc::clone(&global_env),
-            //     self.use_callbacks,
-            //     self.apply_contracts,
-            // )),
-            SteelVal::StringV(s) => Ok(Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x))))),
-            SteelVal::ListV(l) => Ok(Box::new(l.iter().cloned().map(Ok))),
-            SteelVal::StructV(s) => Ok(Box::new(s.iter().cloned().map(Ok))),
-            _ => {
-                stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", self))
-            }
-        }
-    }
 
     pub fn bool_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<bool, E> {
         match self {
@@ -647,47 +608,6 @@ impl SteelVal {
     pub const INT_ONE: SteelVal = SteelVal::IntV(1);
     pub const INT_TWO: SteelVal = SteelVal::IntV(2);
 }
-
-// #[derive(Clone, Hash, Debug)]
-// pub struct ConsCell {
-//     pub car: SteelVal,
-//     pub cdr: Option<Gc<ConsCell>>,
-// }
-
-// impl ConsCell {
-//     pub fn new(car: SteelVal, cdr: Option<Gc<ConsCell>>) -> Self {
-//         ConsCell { car, cdr }
-//     }
-
-//     pub fn car(&self) -> SteelVal {
-//         self.car.clone()
-//     }
-
-//     pub fn cdr(&self) -> &Option<Gc<ConsCell>> {
-//         &self.cdr
-//     }
-// }
-
-// impl Drop for ConsCell {
-//     // don't want to blow the stack with destructors,
-//     // but also don't want to walk the whole list.
-//     // So walk the list until we find a non-uniquely owned item
-//     fn drop(&mut self) {
-//         let mut cur = self.cdr.take();
-//         loop {
-//             match cur {
-//                 Some(r) => match Gc::try_unwrap(r) {
-//                     Ok(ConsCell {
-//                         car: _,
-//                         cdr: ref mut next,
-//                     }) => cur = next.take(),
-//                     _ => return,
-//                 },
-//                 _ => return,
-//             }
-//         }
-//     }
-// }
 
 impl Eq for SteelVal {}
 

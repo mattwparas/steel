@@ -282,37 +282,37 @@ mod register_type_tests {
     }
 }
 
-#[cfg(test)]
-mod stream_tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
+// #[cfg(test)]
+// mod stream_tests {
+//     use std::cell::RefCell;
+//     use std::rc::Rc;
 
-    use crate::parser::span::Span;
-    use crate::steel_vm::evaluation_progress::EvaluationProgress;
-    use crate::steel_vm::lazy_stream::LazyStreamIter;
-    use crate::steel_vm::options::ApplyContract;
-    use crate::steel_vm::options::UseCallback;
-    use crate::values::lazy_stream::LazyStream;
-    use crate::{compiler::constants::ConstantMap, env::Env};
+//     use crate::parser::span::Span;
+//     use crate::steel_vm::evaluation_progress::EvaluationProgress;
+//     use crate::steel_vm::lazy_stream::LazyStreamIter;
+//     use crate::steel_vm::options::ApplyContract;
+//     use crate::steel_vm::options::UseCallback;
+//     use crate::values::lazy_stream::LazyStream;
+//     use crate::{compiler::constants::ConstantMap, env::Env};
 
-    #[test]
-    fn test_empty_stream_creates_no_iter() {
-        let constants = ConstantMap::new();
-        let cur_inst_span = Span::new(0, 0);
-        let callback = EvaluationProgress::new();
-        let mut global_env = Env::root();
-        let mut mut_ref = &mut global_env;
+//     // #[test]
+//     // fn test_empty_stream_creates_no_iter() {
+//     //     let constants = ConstantMap::new();
+//     //     let cur_inst_span = Span::new(0, 0);
+//     //     let callback = EvaluationProgress::new();
+//     //     let mut global_env = Env::root();
+//     //     let mut mut_ref = &mut global_env;
 
-        let lazy_iter = LazyStreamIter::new(
-            LazyStream::new_empty_stream(),
-            &constants,
-            &cur_inst_span,
-            &callback,
-            Rc::new(RefCell::new(&mut mut_ref)),
-            UseCallback,
-            ApplyContract,
-        );
+//     //     let lazy_iter = LazyStreamIter::new(
+//     //         LazyStream::new_empty_stream(),
+//     //         &constants,
+//     //         &cur_inst_span,
+//     //         &callback,
+//     //         Rc::new(RefCell::new(&mut mut_ref)),
+//     //         UseCallback,
+//     //         ApplyContract,
+//     //     );
 
-        assert!(lazy_iter.into_iter().next().is_none());
-    }
-}
+//     //     assert!(lazy_iter.into_iter().next().is_none());
+//     // }
+// }

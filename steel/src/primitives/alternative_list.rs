@@ -381,8 +381,6 @@ mod list_operation_tests {
 
     use super::*;
     use crate::rerrs::ErrorKind;
-    use crate::throw;
-    use im_rc::vector;
 
     #[test]
     fn cons_test_normal_input() {
