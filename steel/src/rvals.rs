@@ -25,20 +25,37 @@ use std::{
     future::Future,
     hash::{Hash, Hasher},
     pin::Pin,
-    rc::{Rc, Weak},
+    rc::Rc,
     result,
     task::Context,
 };
 
-// use std::any::Any;
+// TODO
+#[macro_export]
+macro_rules! list {
+    () => { $crate::rvals::SteelVal::ListV(
+        im_lists::list![]
+    ) };
+
+    ( $($x:expr),* ) => {{
+        $crate::rvals::SteelVal::ListV(im_lists::list![$(
+            $crate::rvals::IntoSteelVal::into_steelval($x).unwrap()
+        ), *])
+    }};
+
+    ( $($x:expr ,)* ) => {{
+        $crate::rvals::SteeVal::ListV(im_lists::list![$(
+            $crate::rvals::IntoSteelVal::into_steelval($x).unwrap()
+        )*])
+    }};
+}
+
 use SteelVal::*;
 
 use im_rc::{HashMap, HashSet, Vector};
 
 use futures::FutureExt;
 use futures::{future::Shared, task::noop_waker_ref};
-
-use std::cell::Cell;
 
 use im_lists::list::List;
 
@@ -110,33 +127,6 @@ pub(crate) fn poll_future(mut fut: Shared<BoxedFutureResult>) -> Option<Result<S
         std::task::Poll::Pending => None,
     }
 }
-
-// async fn join_futures(args: &[AsyncSignature]) -> Vec<Result<Gc<SteelVal>>> {
-//     futures::future::join_all(args.into_iter().map(|x| x(&[])))
-// }
-
-/*
-The alternative is providing some way to just throw an entire process onto another thread via deep cloning...
-This might be slower ultimately but it might make sense for some shallow functions
-
-especially since creating the root is honestly pretty cheap... function pointers are not terribly expensive
-
-create a temporary sendable env that can be moved across to another thread
-this just spawns a new instance of the VM by duplicating it, moving it to the transient thread, and then rebuilds the instance
-to continue operation
-
-there is some overhead here but I think it might be worth it?
-*/
-
-// async fn embedded_nonblocking() -> SteelVal {
-//     unimplemented!()
-// }
-
-// fn embedded_nonblocking_2() -> impl Future<Output = SteelVal> {
-//     unimplemented!();
-// }
-
-// Box<Fn(i32) -> i32>
 
 pub trait Custom {}
 

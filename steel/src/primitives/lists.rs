@@ -410,7 +410,10 @@ mod list_operation_tests {
     fn cons_with_empty_list() {
         let mut args = [SteelVal::IntV(1), SteelVal::ListV(List::new())];
         let res = cons(&mut args);
-        let expected = SteelVal::ListV(list![SteelVal::IntV(1)]);
+        // let expected = SteelVal::ListV(list![SteelVal::IntV(1)]);
+
+        let expected = crate::list![1i32];
+
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -418,13 +421,13 @@ mod list_operation_tests {
     fn cons_with_non_empty_vector() {
         let mut args = [SteelVal::IntV(1), SteelVal::ListV(list![SteelVal::IntV(2)])];
         let res = cons(&mut args);
-        let expected = SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)]);
+        let expected = crate::list![1i32, 2i32];
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn car_normal_input() {
-        let args = [SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)])];
+        let args = [crate::list![1i32, 2i32]];
         let res = car(&args);
         let expected = SteelVal::IntV(1);
         assert_eq!(res.unwrap(), expected);
@@ -448,21 +451,17 @@ mod list_operation_tests {
 
     #[test]
     fn cdr_normal_input_2_elements() {
-        let mut args = [SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)])];
+        let mut args = [crate::list![1i32, 2i32]];
         let res = cdr(&mut args);
-        let expected = SteelVal::ListV(list![SteelVal::IntV(2)]);
+        let expected = crate::list![2i32];
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn cdr_normal_input_3_elements() {
-        let mut args = [SteelVal::ListV(list![
-            SteelVal::IntV(1),
-            SteelVal::IntV(2),
-            SteelVal::IntV(3)
-        ])];
+        let mut args = [crate::list![1i32, 2i32, 3i32]];
         let res = cdr(&mut args);
-        let expected = SteelVal::ListV(list![SteelVal::IntV(2), SteelVal::IntV(3)]);
+        let expected = crate::list![2i32, 3i32];
         assert_eq!(res.unwrap(), expected);
     }
 

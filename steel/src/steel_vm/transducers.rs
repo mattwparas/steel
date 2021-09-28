@@ -50,6 +50,10 @@ macro_rules! generate_drop {
 pub(crate) const TRANSDUCE: SteelVal = SteelVal::BuiltIn(transduce);
 pub(crate) const EXECUTE: SteelVal = SteelVal::BuiltIn(execute);
 
+// Transduce - reducer has intitial value?
+// Change this so -> first value is sequence
+// sequence argument is a transducer or a sequence of transducers
+// last argument must be a reducer
 fn transduce(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
     let mut arg_iter = args.into_iter();
     let transducer = arg_iter.next().unwrap();
