@@ -39,6 +39,7 @@ pub enum Transducers {
     TakeWhile(SteelVal), // function
     DropWhile(SteelVal), // function
     Extend(SteelVal),    // Collection
+    Cycle,
 }
 
 // This should just describe how a sequence of values can be reduced

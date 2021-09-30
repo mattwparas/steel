@@ -30,7 +30,7 @@ impl UpValueHeap {
         }
     }
 
-    fn _profile_heap(&self) {
+    pub(crate) fn profile_heap(&self) {
         let mapped = self
             .memory
             .iter()
@@ -48,7 +48,7 @@ impl UpValueHeap {
 
     // This does not handle cycles, perhaps add an explicit cycle detection via traversal
     // to mark things reachable?
-    fn collect<'a>(
+    pub(crate) fn collect<'a>(
         &mut self,
         roots: impl Iterator<Item = &'a SteelVal>,
         function_stack: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
@@ -186,6 +186,10 @@ fn visit_closure(c: &Gc<ByteCodeLambda>) {
 
 #[inline(always)]
 fn mark_upvalue(upvalue: &Rc<RefCell<UpValue>>) {
+    if upvalue.borrow().is_reachable() {
+        return;
+    }
+
     {
         upvalue.borrow_mut().mark_reachable();
     }

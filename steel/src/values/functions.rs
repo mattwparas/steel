@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    core::instructions::DenseInstruction,
+    core::{instructions::DenseInstruction, opcode::OpCode},
     gc::Gc,
     rvals::{BoxedFunctionSignature, FunctionSignature, MutFunctionSignature, SteelVal::*},
     steel_vm::vm::BuiltInSignature,
@@ -26,11 +26,12 @@ pub(crate) enum Function {
 #[derive(Clone, Debug)]
 pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
-    body_exp: Rc<[DenseInstruction]>,
+    pub(crate) body_exp: Rc<[DenseInstruction]>,
     arity: usize,
     upvalues: Vec<Weak<RefCell<UpValue>>>,
     call_count: Cell<usize>,
     cant_be_compiled: Cell<bool>,
+    pub(crate) is_let: bool,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -51,6 +52,7 @@ impl ByteCodeLambda {
         body_exp: Vec<DenseInstruction>,
         arity: usize,
         upvalues: Vec<Weak<RefCell<UpValue>>>,
+        is_let: bool,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
@@ -58,6 +60,7 @@ impl ByteCodeLambda {
             upvalues,
             call_count: Cell::new(0),
             cant_be_compiled: Cell::new(false),
+            is_let,
         }
     }
 
@@ -71,6 +74,10 @@ impl ByteCodeLambda {
 
     pub fn upvalues(&self) -> &[Weak<RefCell<UpValue>>] {
         &self.upvalues
+    }
+
+    pub(crate) fn debug_upvalues(&self) -> Vec<Rc<RefCell<UpValue>>> {
+        self.upvalues.iter().map(|x| x.upgrade().unwrap()).collect()
     }
 
     pub fn increment_call_count(&self) {

@@ -14,6 +14,9 @@ use std::process;
 use std::rc::Rc;
 use steel::steel_vm::register_fn::RegisterFn;
 
+use env_logger::Builder;
+use log::LevelFilter;
+
 /// An implementation of a spell check in steel, with the levenshtein distance calculated
 /// via Rust, and a BKTree implementation in steel
 /// For optimal performance, implementing the entire spellchecker in Rust and exposing
@@ -26,6 +29,12 @@ use steel::steel_vm::register_fn::RegisterFn;
 /// This will launch a repl instance after building the spellchecker
 /// see `spellcheck.rkt` for the exact script
 fn main() {
+    let mut builder = Builder::new();
+
+    builder
+        .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
+        .init();
+
     let mut vm = configure_engine();
 
     let contents = include_str!("scripts/spellcheck.rkt");

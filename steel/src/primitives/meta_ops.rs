@@ -20,13 +20,26 @@ impl MetaOperations {
             // let mut error_message = String::new();
 
             if args.len() == 1 {
-                if let SteelVal::Closure(bytecode_lambda) = &args[0] {
-                    crate::core::instructions::pretty_print_dense_instructions(
-                        &bytecode_lambda.body_exp(),
-                    );
-                    Ok(SteelVal::Void)
-                } else {
-                    stop!(TypeMismatch => "inspect-bytecode expects a closure object");
+                match &args[0] {
+                    SteelVal::Closure(bytecode_lambda) => {
+                        crate::core::instructions::pretty_print_dense_instructions(
+                            &bytecode_lambda.body_exp(),
+                        );
+                        Ok(SteelVal::Void)
+                    }
+                    SteelVal::ContractedFunction(c) => {
+                        if let SteelVal::Closure(bytecode_lambda) = &c.function {
+                            crate::core::instructions::pretty_print_dense_instructions(
+                                &bytecode_lambda.body_exp(),
+                            );
+                            Ok(SteelVal::Void)
+                        } else {
+                            stop!(TypeMismatch => "inspect-bytecode expects a closure object");
+                        }
+                    }
+                    _ => {
+                        stop!(TypeMismatch => "inspect-bytecode expects a closure object");
+                    }
                 }
             } else {
                 stop!(ArityMismatch => "inspect-bytecode takes only one argument");
@@ -155,6 +168,27 @@ impl MetaOperations {
                 }
             } else {
                 stop!(Generic => "poll! accepts futures only");
+            }
+        })
+    }
+
+    pub fn block_on() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(Generic => "block-on! only takes one argument");
+            }
+
+            if let SteelVal::FutureV(fut) = args[0].clone() {
+                loop {
+                    let fut = fut.unwrap();
+                    let ready = poll_future(fut.into_shared());
+                    match ready {
+                        Some(v) => return v,
+                        None => {}
+                    }
+                }
+            } else {
+                stop!(Generic => "block-on! accepts futures only");
             }
         })
     }

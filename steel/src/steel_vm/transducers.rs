@@ -276,6 +276,9 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
                 Transducers::DropWhile(func) => {
                     todo!()
                 }
+                Transducers::Cycle => {
+                    todo!()
+                }
                 Transducers::Extend(collection) => {
                     let extender: Box<dyn Iterator<Item = Result<SteelVal>>> = match collection
                         .clone()
@@ -432,6 +435,9 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
                     todo!()
                 }
                 Transducers::Extend(collection) => {
+                    todo!()
+                }
+                Transducers::Cycle => {
                     todo!()
                 }
                 Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),

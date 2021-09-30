@@ -88,7 +88,7 @@
           [lolol (x y) (and/c number? (>=/c (+ x y)))])
     (+ x y 1))
 
-(foo 1 2)
+; (foo 1 2)
 
 (define (all func lst)
   (if (null? lst)

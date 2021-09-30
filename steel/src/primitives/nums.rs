@@ -257,7 +257,9 @@ impl NumOperations {
                         found_float = true;
                         sum_float = *n;
                     }
-                    _ => stop!(TypeMismatch => "'-' expected a number type"),
+                    _ => {
+                        stop!(TypeMismatch => format!("'-' expected a number type, found: {}", first))
+                    }
                 }
             }
 

@@ -549,6 +549,9 @@ impl Compiler {
         for idx in index_buffer {
             let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
             // pretty_print_instructions(extracted.as_slice());
+
+            // println!("{}", crate::core::instructions::disassemble(&extracted));
+
             results.push(densify(extracted));
         }
 

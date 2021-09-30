@@ -22,7 +22,7 @@ fn main() {
     //     .init();
 
     builder
-        .filter(Some("steel::steel_vm::contracts"), LevelFilter::Trace)
+        .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
         .init();
 
     let args = args().collect::<Vec<_>>();

@@ -34,11 +34,24 @@ impl UpValue {
     // Given a reference to the stack, either get the value from the stack index
     // Or snag the steelval stored inside the upvalue
     pub(crate) fn get_value(&self, stack: &[SteelVal]) -> SteelVal {
-        // println!("Getting value from: {:?}", self.location);
-        // println!("Stack: {:?}", stack);
+        println!("Getting value from: {:?}", self.location);
+        println!("Stack: {:?}", stack);
         match self.location {
             Location::Stack(idx) => stack[idx].clone(),
             Location::Closed(ref v) => v.clone(),
+        }
+    }
+
+    // TODO - HACK - when closing upvalues, there appears to be a problem with
+    // the upvalue not actually being there - in this case I'm not sure if
+    // the problem is actually that the value _needs_ to be there, or a miscompilation
+    // of some kind
+    pub(crate) fn try_get_value(&self, stack: &[SteelVal]) -> Option<SteelVal> {
+        println!("Getting value from: {:?}", self.location);
+        println!("Stack: {:?}", stack);
+        match self.location {
+            Location::Stack(idx) => stack.get(idx).cloned(),
+            Location::Closed(ref v) => Some(v.clone()),
         }
     }
 

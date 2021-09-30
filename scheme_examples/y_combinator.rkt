@@ -23,11 +23,11 @@
              (+ (f (- x 1)) (f (- x 2))))))))
 
 
-(display (fac 6))
-(newline)
+; (display (fac 6))
+; (newline)
  
-(display (fib 13))
-(newline)
+; (display (fib 13))
+; (newline)
 
 
 ; 0    SCLOSURE : 18

@@ -1,6 +1,8 @@
 use steel::steel_vm::engine::Engine;
-
 use steel::steel_vm::register_fn::RegisterAsyncFn;
+
+use env_logger::Builder;
+use log::LevelFilter;
 
 async fn test_function() -> usize {
     println!("Inside async function!");
@@ -12,6 +14,12 @@ async fn await_within() -> usize {
 }
 
 pub fn main() {
+    let mut builder = Builder::new();
+
+    builder
+        .filter(Some("steel::steel_vm::contracts"), LevelFilter::Trace)
+        .init();
+
     let mut vm = Engine::new();
 
     // You can even register async functions

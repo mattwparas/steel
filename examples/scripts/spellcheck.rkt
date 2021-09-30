@@ -8,12 +8,6 @@
 
 ;; ------------------- utils ------------------------
 
-(define (reduce op z lst)
-  (cond ((null? lst) z)    ; just pass it in as another argument
-    (else (reduce op
-                  (op z (car lst))  ; NB! `z` as first arg
-                  (cdr lst)))))
-
 (define (flatten lst)
   (cond ((null? lst) '())
         ((list? lst)
@@ -91,7 +85,7 @@
 ;; For now just exclude anything longer than 6 letters for the sake of time
 (define (generate bktree func)
     (define next-word (func))
-    ;; (displayln next-word)
+    ; (displayln next-word)
     (if next-word
         (if (> 6 (string-length next-word))
             (generate (insert-word bktree next-word) func)
@@ -104,7 +98,7 @@
       (read-to-list (cons next-word lst))
       lst))
 
-(displayln "Lazily generating the bk tree")
+(displayln "Generating the bk tree")
 (define *bktree* (generate empty-bk-tree get-next-word!))
 (displayln "Done!")
 

@@ -179,6 +179,8 @@ pub struct CodeGenerator<'a> {
     variable_data: Option<Rc<RefCell<VariableData>>>, // enclosing: Option<&'a mut CodeGenerator<'a>>,
     let_context: bool,
     stack_offset: usize,
+    top_level_define: bool,
+    rooted: bool,
 }
 
 impl<'a> CodeGenerator<'a> {
@@ -192,6 +194,8 @@ impl<'a> CodeGenerator<'a> {
             variable_data: None,
             let_context: false,
             stack_offset: 0,
+            top_level_define: false,
+            rooted: false,
             // enclosing: None,
         }
     }
@@ -202,16 +206,19 @@ impl<'a> CodeGenerator<'a> {
         instructions: Vec<Instruction>,
         depth: u32,
         variable_data: Option<Rc<RefCell<VariableData>>>,
+        defining_context: Option<String>,
     ) -> Self {
         CodeGenerator {
             instructions,
             constant_map,
-            defining_context: None,
+            defining_context,
             symbol_map,
             depth,
             variable_data,
             let_context: false,
             stack_offset: 0,
+            top_level_define: false,
+            rooted: false,
             // enclosing,
         }
     }
@@ -301,6 +308,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             // Set this for tail call optimization ease
             self.defining_context = defining_context;
+            self.top_level_define = true;
 
             self.visit(&define.body)?;
 
@@ -320,6 +328,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             // Clean up the defining context state
             self.defining_context = None;
+            self.top_level_define = false;
         } else {
             panic!(
                 "Complex defines not supported in bytecode generation: {}",
@@ -338,6 +347,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         let idx = self.len();
         self.push(Instruction::new_sclosure());
+
+        // println!("Creating closure at depth: {}", self.depth);
+        self.push(Instruction::new_pass(if self.let_context && !self.rooted {
+            1
+        } else {
+            0
+        }));
 
         let mut body_instructions = Vec::new();
 
@@ -391,6 +407,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             body_instructions,
             self.depth + 1, // pass through the depth
             Some(Rc::clone(&variable_data)),
+            if self.top_level_define || self.let_context {
+                self.defining_context.clone()
+            } else {
+                None
+            },
+            // self.defining_context.clone(),
         ) // pass through the locals here
         .compile(&lambda_function.body)?;
 
@@ -415,31 +437,48 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         body_instructions.push(Instruction::new_pop_with_upvalue(
             variable_data.borrow().locals.len(),
         ));
+
         if let Some(ctx) = &self.defining_context {
-            transform_tail_call(&mut body_instructions, ctx);
+            // if !self.let_context {
+            if self.top_level_define || self.let_context {
+                if self.top_level_define {
+                    transform_tail_call(&mut body_instructions, ctx);
+                }
 
-            // TODO check this here - reimplement mutual recursion
-            let b = check_and_transform_mutual_recursion(&mut body_instructions);
+                // TODO check this here - reimplement mutual recursion
+                let mut b = check_and_transform_mutual_recursion(&mut body_instructions);
 
-            // TODO
-            convert_last_usages(&mut body_instructions);
+                // if self.top_level_define {
+                //     // If we're already converted the mutual recursion lower, then we check again for a faster TCO jump
+                //     b = convert_mutual_recursion_to_tail_call(&mut body_instructions, &ctx) || b;
+                // }
 
-            // let b = false;
+                // println!(
+                //     "Converting last usages with let context: {} and top level define: {}",
+                //     self.let_context, self.top_level_define,
+                // );
 
-            if b {
-                info!("Transformed mutual recursion for: {}", ctx);
-                // println!("Transformed mutual recursion for: {}", ctx);
+                // TODO - this is broken still
+
+                if self.top_level_define {
+                    convert_last_usages(&mut body_instructions);
+                }
+
+                // let b = false;
+
+                if b {
+                    info!("Transformed mutual recursion for: {}", ctx);
+                    // println!("Transformed mutual recursion for: {}", ctx);
+                }
             }
-        }
-        // TODO come back here
-        else if self.let_context {
-            // TODO
+        } else if self.let_context {
             let b = check_and_transform_mutual_recursion(&mut body_instructions);
 
             // let b = false;
 
             if b {
                 info!("Transformed mutual recursion inside local context");
+                // println!("defining context: {:?}", self.defining_context);
                 // println!("Transformed mutual recursion inside local context");
             }
         }
@@ -653,6 +692,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         let mut tail_call_offsets: Vec<(&str, std::ops::Range<usize>)> = Vec::new();
 
+        // let defining_context_before = self.defining_context.take();
+        let mut defining_context_before = None;
+
         // emit instructions for the args
         for (idx, expr) in l.args[1..].iter().enumerate() {
             // Snag the length before the compilation
@@ -660,13 +702,18 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             if let_context {
                 if let crate::parser::ast::ExprKind::LambdaFunction(_) = expr {
+                    // println!("Setting let context to true");
                     self.let_context = true;
+                    self.rooted = true;
+                    defining_context_before = self.defining_context.take();
                 } else {
                     self.let_context = false;
                 }
             }
 
             self.visit(expr)?;
+
+            self.rooted = false;
 
             // Snag the length after
             let post = self.len();
@@ -687,13 +734,22 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
-        self.let_context = false;
+        if self.defining_context.is_none() {
+            self.defining_context = defining_context_before;
+        }
+
+        // Set the context of the body to be as if we are in a function application
+        self.let_context = let_context;
+
+        // self.let_context = false;
 
         // Capture the beginning
         let body_begin = self.len();
 
         // emit instructions for the func
         self.visit(&l.args[0])?;
+
+        // self.let_context = false;
 
         // Capture the end for checking
         let body_end = self.len();
@@ -826,6 +882,56 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 }
 
+fn convert_mutual_recursion_to_tail_call(
+    instructions: &mut [Instruction],
+    defining_context: &str,
+) -> bool {
+    let mut transformed = false;
+
+    if instructions.is_empty() {
+        return false;
+    }
+
+    for index in 2..instructions.len() {
+        let prev_instruction = instructions.get(index - 1);
+        let prev_func_push = instructions.get(index - 2);
+
+        match (prev_instruction, prev_func_push) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::TAILCALL,
+                    payload_size: arity,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            ..
+                        }),
+                    ..
+                }),
+            ) => {
+                let arity = *arity;
+                if s == defining_context {
+                    let new_jmp = Instruction::new_tco_jmp();
+                    // inject tail call jump
+                    instructions[index - 2] = new_jmp;
+                    instructions[index - 1] = Instruction::new_pass(arity);
+                    transformed = true;
+
+                    info!("Tail call optimization performed for: {}", defining_context);
+                    // println!("Tail call optimization performed for: {}", defining_context);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    transformed
+}
+
 fn transform_tail_call(instructions: &mut [Instruction], defining_context: &str) -> bool {
     let last_idx = instructions.len() - 1;
 
@@ -836,6 +942,26 @@ fn transform_tail_call(instructions: &mut [Instruction], defining_context: &str)
     for (idx, instruction) in instructions.iter().enumerate() {
         if instruction.op_code == OpCode::JMP && instruction.payload_size == last_idx {
             indices.push(idx);
+        }
+
+        if instruction.op_code == OpCode::JMP {
+            // If we found a jump, go to where it said to jump to
+            let mut next = &instructions[instruction.payload_size];
+            let mut last;
+
+            while next.op_code == OpCode::JMP {
+                if next.payload_size == last_idx {
+                    indices.push(idx);
+                    break;
+                } else {
+                    last = next;
+                    next = &instructions[instruction.payload_size];
+
+                    if last == next {
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -886,6 +1012,8 @@ fn transform_tail_call(instructions: &mut [Instruction], defining_context: &str)
 fn transform_letrec_tail_call(instructions: &mut [Instruction], defining_context: &str) -> bool {
     // let last_idx = instructions.len() - 1;
 
+    // println!("Inside transform letrec tail call!");
+
     let mut last_idx = instructions.len() - 1;
     while last_idx > 0 {
         if let Some(Instruction {
@@ -905,6 +1033,26 @@ fn transform_letrec_tail_call(instructions: &mut [Instruction], defining_context
     for (idx, instruction) in instructions.iter().enumerate() {
         if instruction.op_code == OpCode::JMP && instruction.payload_size == last_idx {
             indices.push(idx);
+        }
+
+        if instruction.op_code == OpCode::JMP {
+            // If we found a jump, go to where it said to jump to
+            let mut next = &instructions[instruction.payload_size];
+            let mut last;
+
+            while next.op_code == OpCode::JMP {
+                if next.payload_size == last_idx {
+                    indices.push(idx);
+                    break;
+                } else {
+                    last = next;
+                    next = &instructions[instruction.payload_size];
+
+                    if last == next {
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -1002,6 +1150,7 @@ fn upvalue_func_used_before_set(instructions: &[Instruction], upvalue: &str, idx
         }) = instructions.get(i)
         {
             if upvalue == s {
+                // println!("Upvalue func used before set returned true");
                 return true;
             }
         }
@@ -1448,6 +1597,8 @@ fn identify_let_rec(
     None
 }
 
+// (define (blagh) (if (vector 1 2 3 4 5) (if (vector) (cons 1 2) (cons 3 4)) 10))
+
 // Note, this should be called AFTER `transform_tail_call`
 fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> bool {
     let last_idx = instructions.len() - 1;
@@ -1460,6 +1611,30 @@ fn check_and_transform_mutual_recursion(instructions: &mut [Instruction]) -> boo
     for (idx, instruction) in instructions.iter().enumerate() {
         if instruction.op_code == OpCode::JMP && instruction.payload_size == last_idx {
             indices.push(idx);
+            continue;
+        }
+
+        // println!("{}", crate::core::instructions::disassemble(instructions));
+
+        // // Iterate until the end of the jumps, include them
+        if instruction.op_code == OpCode::JMP {
+            // If we found a jump, go to where it said to jump to
+            let mut next = &instructions[instruction.payload_size];
+            let mut last;
+
+            while next.op_code == OpCode::JMP {
+                if next.payload_size == last_idx {
+                    indices.push(idx);
+                    break;
+                } else {
+                    last = next;
+                    next = &instructions[instruction.payload_size];
+
+                    if last == next {
+                        break;
+                    }
+                }
+            }
         }
     }
 
