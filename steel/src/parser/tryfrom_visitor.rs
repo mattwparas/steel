@@ -155,4 +155,8 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
             std::array::IntoIter::new(expr).into_iter().collect(),
         ))
     }
+
+    fn visit_let(&self, l: Box<super::ast::Let>) -> Self::Output {
+        todo!()
+    }
 }

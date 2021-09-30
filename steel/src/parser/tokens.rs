@@ -142,6 +142,9 @@ pub enum TokenType {
     Define,
     #[token("let")]
     Let,
+
+    #[token("test-let")]
+    TestLet,
     // #[token("transduce")]
     // Transduce,
     // #[token("execute")]
@@ -276,6 +279,7 @@ impl fmt::Display for TokenType {
             If => write!(f, "if"),
             Define => write!(f, "define"),
             Let => write!(f, "let"),
+            TestLet => write!(f, "test-let"),
             // Transduce => write!(f, "transduce"),
             // Execute => write!(f, "execute"),
             Return => write!(f, "return!"),

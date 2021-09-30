@@ -114,4 +114,8 @@ impl Visitor for CoalescingSpanVisitor {
     fn visit_callcc(&self, cc: &super::ast::CallCC) -> Self::Output {
         Span::merge(cc.location.span, self.visit(&cc.expr))
     }
+
+    fn visit_let(&self, l: &super::ast::Let) -> Self::Output {
+        todo!()
+    }
 }

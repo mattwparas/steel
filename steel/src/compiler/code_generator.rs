@@ -535,48 +535,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    // fn visit_apply(&mut self, apply: &crate::parser::ast::Apply) -> Self::Output {
-    //     // todo!()
-    //     self.visit(&apply.func)?;
-    //     self.visit(&apply.list)?;
-    //     self.push(Instruction::new_apply(apply.location.clone()));
-    //     Ok(())
-    // }
-
-    // fn visit_panic(&mut self, p: &crate::parser::ast::Panic) -> Self::Output {
-    //     // todo!()
-    //     self.visit(&p.message)?;
-    //     self.push(Instruction::new_panic(p.location.clone()));
-    //     Ok(())
-    // }
-
-    // fn visit_transduce(&mut self, transduce: &crate::parser::ast::Transduce) -> Self::Output {
-    //     self.visit(&transduce.transducer)?;
-    //     self.visit(&transduce.func)?;
-    //     self.visit(&transduce.initial_value)?;
-    //     self.visit(&transduce.iterable)?;
-    //     self.push(Instruction::new_transduce());
-    //     Ok(())
-    // }
-
     fn visit_read(&mut self, read: &crate::parser::ast::Read) -> Self::Output {
         self.visit(&read.expr)?;
         self.push(Instruction::new_read());
         Ok(())
     }
-
-    // fn visit_execute(&mut self, execute: &crate::parser::ast::Execute) -> Self::Output {
-    //     self.visit(&execute.transducer)?;
-    //     self.visit(&execute.collection)?;
-
-    //     if let Some(output_type) = &execute.output_type {
-    //         self.visit(output_type)?;
-    //         self.push(Instruction::new_collect_to());
-    //     } else {
-    //         self.push(Instruction::new_collect());
-    //     }
-    //     Ok(())
-    // }
 
     fn visit_quote(&mut self, quote: &crate::parser::ast::Quote) -> Self::Output {
         let converted = SteelVal::try_from(quote.expr.clone())?;
@@ -879,6 +842,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         self.push(Instruction::new_call_cc());
         // self.push(Instruction::new_pop());
         Ok(())
+    }
+
+    // Certainly the most complicated case
+    fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {
+        todo!()
     }
 }
 

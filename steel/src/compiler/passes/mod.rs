@@ -31,6 +31,7 @@ pub trait Folder {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::CallCC(cc) => self.visit_callcc(cc),
+            ExprKind::Let(l) => self.visit_let(l),
         }
     }
 
@@ -40,6 +41,20 @@ pub trait Folder {
         f.then_expr = self.visit(f.then_expr);
         f.else_expr = self.visit(f.else_expr);
         ExprKind::If(f)
+    }
+
+    #[inline]
+    fn visit_let(&mut self, mut l: Box<Let>) -> ExprKind {
+        let mut visited_bindings = Vec::new();
+
+        for (binding, expr) in l.bindings {
+            visited_bindings.push((self.visit(binding), self.visit(expr)));
+        }
+
+        l.bindings = visited_bindings;
+        l.body_expr = self.visit(l.body_expr);
+
+        ExprKind::Let(l)
     }
 
     #[inline]
@@ -152,6 +167,7 @@ pub trait VisitorMutUnit {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::CallCC(cc) => self.visit_callcc(cc),
+            ExprKind::Let(l) => self.visit_let(l),
         }
     }
 
@@ -160,6 +176,12 @@ pub trait VisitorMutUnit {
         self.visit(&f.test_expr);
         self.visit(&f.then_expr);
         self.visit(&f.else_expr);
+    }
+
+    #[inline]
+    fn visit_let(&mut self, l: &Let) {
+        l.bindings.iter().for_each(|x| self.visit(&x.1));
+        self.visit(&l.body_expr);
     }
 
     #[inline]

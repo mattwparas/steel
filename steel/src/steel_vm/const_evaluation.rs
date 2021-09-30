@@ -621,6 +621,20 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         cc.expr = self.visit(cc.expr)?;
         Ok(ExprKind::CallCC(cc))
     }
+
+    // TODO come back to this
+    fn visit_let(&mut self, mut l: Box<crate::parser::ast::Let>) -> Self::Output {
+        let mut visited_bindings = Vec::new();
+
+        for (binding, expr) in l.bindings {
+            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+        }
+
+        l.bindings = visited_bindings;
+        l.body_expr = self.visit(l.body_expr)?;
+
+        Ok(ExprKind::Let(l))
+    }
 }
 
 struct CollectSet<'a> {
@@ -697,5 +711,10 @@ impl<'a> VisitorMut for CollectSet<'a> {
 
     fn visit_callcc(&mut self, cc: &crate::parser::ast::CallCC) -> Self::Output {
         self.visit(&cc.expr);
+    }
+
+    fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {
+        l.bindings.iter().for_each(|x| self.visit(&x.1));
+        self.visit(&l.body_expr);
     }
 }

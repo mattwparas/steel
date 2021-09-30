@@ -312,6 +312,10 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         cc.expr = self.visit(cc.expr)?;
         Ok(ExprKind::CallCC(cc))
     }
+
+    fn visit_let(&mut self, l: Box<super::ast::Let>) -> Self::Output {
+        todo!()
+    }
 }
 
 pub struct RewriteSpan {
@@ -440,6 +444,10 @@ impl ConsumingVisitor for RewriteSpan {
     fn visit_callcc(&mut self, mut cc: Box<super::ast::CallCC>) -> Self::Output {
         cc.expr = self.visit(cc.expr)?;
         Ok(ExprKind::CallCC(cc))
+    }
+
+    fn visit_let(&mut self, l: Box<super::ast::Let>) -> Self::Output {
+        todo!()
     }
 }
 

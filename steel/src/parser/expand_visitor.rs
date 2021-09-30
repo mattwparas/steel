@@ -147,6 +147,19 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         cc.expr = self.visit(cc.expr)?;
         Ok(ExprKind::CallCC(cc))
     }
+
+    fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
+        let mut visited_bindings = Vec::new();
+
+        for (binding, expr) in l.bindings {
+            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+        }
+
+        l.bindings = visited_bindings;
+        l.body_expr = self.visit(l.body_expr)?;
+
+        Ok(ExprKind::Let(l))
+    }
 }
 
 #[cfg(test)]

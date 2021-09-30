@@ -162,6 +162,10 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
     fn visit_callcc(&mut self, cc: &mut super::ast::CallCC) -> Self::Output {
         self.visit(&mut cc.expr);
     }
+
+    fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
+        todo!()
+    }
 }
 
 #[cfg(test)]

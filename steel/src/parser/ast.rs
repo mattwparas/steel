@@ -20,6 +20,7 @@ use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 pub enum ExprKind {
     Atom(Atom),
     If(Box<If>),
+    Let(Box<Let>),
     Define(Box<Define>),
     LambdaFunction(Box<LambdaFunction>),
     Begin(Begin),
@@ -155,11 +156,8 @@ impl ToDoc for ExprKind {
             ExprKind::LambdaFunction(l) => l.to_doc(),
             ExprKind::Begin(b) => b.to_doc(),
             ExprKind::Return(r) => r.to_doc(),
-            // ExprKind::Apply(a) => a.to_doc(),
-            // ExprKind::Panic(p) => p.to_doc(),
-            // ExprKind::Transduce(t) => t.to_doc(),
+            ExprKind::Let(l) => l.to_doc(),
             ExprKind::Read(r) => r.to_doc(),
-            // ExprKind::Execute(e) => e.to_doc(),
             ExprKind::Quote(q) => q.to_doc(),
             ExprKind::Struct(s) => s.to_doc(),
             ExprKind::Macro(m) => m.to_doc(),
@@ -190,11 +188,8 @@ impl fmt::Display for ExprKind {
             ExprKind::LambdaFunction(l) => write!(f, "{}", l),
             ExprKind::Begin(b) => write!(f, "{}", b),
             ExprKind::Return(r) => write!(f, "{}", r),
-            // ExprKind::Apply(a) => write!(f, "{}", a),
-            // ExprKind::Panic(p) => write!(f, "{}", p),
-            // ExprKind::Transduce(t) => write!(f, "{}", t),
+            ExprKind::Let(l) => write!(f, "{}", l),
             ExprKind::Read(r) => write!(f, "{}", r),
-            // ExprKind::Execute(e) => write!(f, "{}", e),
             ExprKind::Quote(q) => write!(f, "{}", q),
             ExprKind::Struct(s) => write!(f, "{}", s),
             ExprKind::Macro(m) => write!(f, "{}", m),
@@ -269,6 +264,53 @@ impl ToDoc for Atom {
 impl From<Atom> for ExprKind {
     fn from(val: Atom) -> Self {
         ExprKind::Atom(val)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Let {
+    pub bindings: Vec<(ExprKind, ExprKind)>,
+    pub body_expr: ExprKind,
+    pub location: SyntaxObject,
+}
+
+impl Let {
+    pub fn new(
+        bindings: Vec<(ExprKind, ExprKind)>,
+        body_expr: ExprKind,
+        location: SyntaxObject,
+    ) -> Self {
+        Let {
+            bindings,
+            body_expr,
+            location,
+        }
+    }
+}
+
+impl fmt::Display for Let {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "(test-let ({}) {})",
+            self.bindings
+                .iter()
+                .map(|x| format!("({} {})", x.0, x.1))
+                .join(" "),
+            self.body_expr
+        )
+    }
+}
+
+impl ToDoc for Let {
+    fn to_doc(&self) -> RcDoc<()> {
+        todo!()
+    }
+}
+
+impl From<Let> for ExprKind {
+    fn from(val: Let) -> Self {
+        ExprKind::Let(Box::new(val))
     }
 }
 
@@ -1105,6 +1147,83 @@ where
 }
 
 #[inline]
+fn parse_new_let<I>(
+    mut value_iter: I,
+    syn: SyntaxObject,
+) -> std::result::Result<ExprKind, ParseError>
+where
+    I: Iterator<Item = ExprKind>,
+{
+    value_iter.next();
+
+    let let_pairs = if let ExprKind::List(l) = value_iter.next().ok_or_else(|| {
+        ParseError::SyntaxError(
+            "let expected a list of variable bindings pairs in the second position, found none"
+                .to_string(),
+            syn.span,
+            None,
+        )
+    })? {
+        l.args
+    } else {
+        return Err(ParseError::SyntaxError(
+            "let expects a list of variable bindings pairs in the second position".to_string(),
+            syn.span,
+            None,
+        ));
+    };
+
+    let body_exprs: Vec<_> = value_iter.collect();
+
+    if body_exprs.is_empty() {
+        return Err(ParseError::SyntaxError(
+            "let expects an expression, found none".to_string(),
+            syn.span,
+            None,
+        ));
+    }
+
+    let body = if body_exprs.len() == 1 {
+        body_exprs[0].clone()
+    } else {
+        ExprKind::Begin(Begin::new(
+            body_exprs,
+            SyntaxObject::default(TokenType::Begin),
+        ))
+    };
+
+    let mut pairs = Vec::with_capacity(let_pairs.len());
+
+    for pair in let_pairs {
+        if let ExprKind::List(l) = pair {
+            let pair = l.args;
+
+            if pair.len() != 2 {
+                return Err(ParseError::SyntaxError(
+                    format!("let expected a list of variable binding pairs, found a pair with length {}",
+                    pair.len()),
+                    syn.span, None
+                ));
+            }
+
+            let mut iter = pair.into_iter();
+
+            let identifier = iter.next().unwrap();
+            let application_arg = iter.next().unwrap();
+            pairs.push((identifier, application_arg))
+        } else {
+            return Err(ParseError::SyntaxError(
+                "let expected a list of variable binding pairs".to_string(),
+                syn.span,
+                None,
+            ));
+        }
+    }
+
+    Ok(ExprKind::Let(Let::new(pairs, body, syn).into()))
+}
+
+#[inline]
 fn parse_let<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
@@ -1229,6 +1348,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::If => parse_if(value.into_iter(), a.syn.clone()),
                         TokenType::Define => parse_define(value.into_iter(), a.syn.clone()),
                         TokenType::Let => parse_let(value.into_iter(), a.syn.clone()),
+                        TokenType::TestLet => parse_new_let(value.into_iter(), a.syn.clone()),
                         // TokenType::Transduce => parse_transduce(value.into_iter(), a.syn.clone()),
                         TokenType::Quote => parse_single_argument(
                             value.into_iter(),

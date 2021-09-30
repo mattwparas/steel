@@ -108,6 +108,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),
+            TestLet => Ok(SymbolV("test-let".into())),
             // Transduce => Ok(SymbolV("transduce".into())),
             // Execute => Ok(SymbolV("execute".into())),
             Return => Ok(SymbolV("return!".into())),
