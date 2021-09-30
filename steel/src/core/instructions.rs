@@ -299,6 +299,15 @@ impl Instruction {
             constant: false,
         }
     }
+
+    pub fn new_instruction(op_code: OpCode) -> Instruction {
+        Instruction {
+            op_code,
+            payload_size: 0,
+            contents: None,
+            constant: false,
+        }
+    }
 }
 
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {

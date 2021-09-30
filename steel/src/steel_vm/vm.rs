@@ -942,6 +942,17 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 OpCode::JMP => {
                     self.ip = cur_inst.payload_size as usize;
                 }
+                OpCode::BEGINSCOPE => {
+                    // todo!()
+                    self.ip += 1;
+                    // self.stack_index.push(self.stack.len());
+                }
+                OpCode::ENDSCOPE => {
+                    // todo!()
+                    self.ip += 1;
+                    // let last = self.stack_index.pop().unwrap();
+                    // self.stack.truncate(last);
+                }
                 OpCode::POP => {
                     if let Some(r) = self.handle_pop(cur_inst.payload_size, &cur_inst.span) {
                         return r;
@@ -986,6 +997,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
         if self.pop_count == 0 {
             let ret_val = self.stack.try_pop().ok_or_else(|| {
+                crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+
                 SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string()).with_span(*span)
             });
 

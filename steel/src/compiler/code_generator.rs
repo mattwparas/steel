@@ -28,6 +28,7 @@ use std::collections::HashSet;
 struct LocalVariable {
     depth: u32,
     name: String,
+    is_local: bool,
     is_captured: bool,
     struct_offset: usize,
     syntax_object: SyntaxObject,
@@ -38,6 +39,7 @@ impl LocalVariable {
         LocalVariable {
             depth,
             name,
+            is_local: false,
             is_captured: false,
             struct_offset: 0,
             syntax_object,
@@ -53,6 +55,7 @@ impl LocalVariable {
         LocalVariable {
             depth,
             name,
+            is_local: false,
             is_captured: false,
             struct_offset,
             syntax_object,
@@ -100,7 +103,12 @@ impl VariableData {
 
     // Set a local to be captured for later code generation
     fn mark_captured(&mut self, index: usize) {
+        // if self.locals[index].is_local {
+        //     return false;
+        // } else {
         self.locals[index].is_captured = true;
+        //     return true;
+        // }
     }
 
     // Go backwards and attempt to find the index in which a local variable will live on the stack
@@ -442,6 +450,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // if !self.let_context {
             if self.top_level_define || self.let_context {
                 if self.top_level_define {
+                    // println!("Transforming tail call!");
                     transform_tail_call(&mut body_instructions, ctx);
                 }
 
@@ -846,7 +855,78 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
     // Certainly the most complicated case
     fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {
-        todo!()
+        // todo!()
+
+        // Start with beginn scope
+        // self.push(Instruction::new_instruction(OpCode::BEGINSCOPE));
+
+        // let mut locals = Vec::new();
+
+        let (bindings, exprs): (Vec<_>, Vec<_>) = l.bindings.iter().cloned().unzip();
+
+        for symbol in bindings {
+            if let ExprKind::Atom(atom) = symbol {
+                match &atom.syn {
+                    SyntaxObject {
+                        ty: TokenType::Identifier(i),
+                        ..
+                    } => {
+                        self.variable_data.as_ref().map(|x| {
+                            x.borrow_mut().locals.push(LocalVariable::new(
+                                self.depth + 1,
+                                i.clone(),
+                                atom.syn.clone(),
+                            ))
+                        });
+                        // println!("Validating the identifiers in the arguments");
+                        // body_instructions.push(Instruction::new_bind(atom.syn.clone()));
+                    }
+                    SyntaxObject {
+                        ty: _, span: sp, ..
+                    } => {
+                        stop!(Generic => "lambda function requires list of identifiers"; *sp);
+                    }
+                }
+            } else {
+                // stop!(Generic => "lambda function requires list of identifiers"; symbol.span());
+                // TODO come back add the span
+                stop!(Generic => "lambda function requires list of identifiers");
+            }
+        }
+
+        // Visit the args
+        for expr in &exprs {
+            self.visit(&expr)?;
+        }
+
+        // Snatch access to parent information here
+        // That way we can at least have a shot of going backwards
+        // let variable_data = Rc::new(RefCell::new(VariableData::new(
+        //     locals,
+        //     Vec::new(),
+        //     self.variable_data.as_ref().map(Rc::clone),
+        // )));
+
+        // // Use the new one
+        // let prev_variable_data = std::mem::replace(&mut self.variable_data, Some(variable_data));
+
+        // Visit the body now
+        self.visit(&l.body_expr)?;
+
+        // self.variable_data = prev_variable_data;
+
+        // Pop off the locals once we exit this scope
+        for _ in exprs {
+            self.variable_data
+                .as_ref()
+                .map(|x| x.borrow_mut().locals.pop());
+        }
+
+        // self.push(Instruction::new_instruction(OpCode::ENDSCOPE));
+
+        Ok(())
+
+        // todo!()
     }
 }
 
