@@ -156,21 +156,21 @@
           [(struct? obj)
             (make/c 
                 ;; TODO uncomment this and comment below, works
-                (test-let ((struct-list (struct->list obj)))
+                ; (test-let ((struct-list (struct->list obj)))
                 (lambda (input)
-                    ; (test-let ((struct-list (struct->list obj)))
+                    (test-let ((struct-list (struct->list obj)))
                         (if (struct? input)
                             (test-let ((input-list-struct (struct->list input)))
+                                    ;    (struct-list (struct->list obj)))
+
                                 ;; If the structs match the name/type, check the children
                                 (and (equal? (car struct-list) (car input-list-struct))
                                     (test-let ((children (map make-identity-pred (cdr struct-list))))
-                                            ; (displayln children)
-                                            ; (displayln input-list-struct)
                                             (lst-func-loop
                                                 (map make-identity-pred (cdr struct-list))
                                                 (cdr input-list-struct)))))
-                                            
                         #f))) 'struct-contract)]))
+
 
 (struct Applesauce (a b c))
 (struct Bananas (foo bar baz))

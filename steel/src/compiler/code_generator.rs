@@ -35,13 +35,18 @@ struct LocalVariable {
 }
 
 impl LocalVariable {
-    pub fn new(depth: u32, name: String, syntax_object: SyntaxObject) -> Self {
+    pub fn new(
+        depth: u32,
+        name: String,
+        syntax_object: SyntaxObject,
+        struct_offset: usize,
+    ) -> Self {
         LocalVariable {
             depth,
             name,
             is_local: false,
             is_captured: false,
-            struct_offset: 0,
+            struct_offset,
             syntax_object,
         }
     }
@@ -383,6 +388,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                             self.depth + 1,
                             i.clone(),
                             atom.syn.clone(),
+                            0,
                         ));
                         // println!("Validating the identifiers in the arguments");
                         // body_instructions.push(Instruction::new_bind(atom.syn.clone()));
@@ -864,6 +870,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         let (bindings, exprs): (Vec<_>, Vec<_>) = l.bindings.iter().cloned().unzip();
 
+        // If we need to pop the scope off, do it
+        // If we're at the top level, this is going to happen anyway
+        let offset = self
+            .variable_data
+            .as_ref()
+            .map(|x| x.borrow().locals.len() + self.stack_offset);
+
         for symbol in bindings {
             if let ExprKind::Atom(atom) = symbol {
                 match &atom.syn {
@@ -872,14 +885,20 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         ..
                     } => {
                         match &self.variable_data {
-                            Some(variable_data) => variable_data.borrow_mut().locals.push(
-                                LocalVariable::new(self.depth + 1, i.clone(), atom.syn.clone()),
-                            ),
+                            Some(variable_data) => {
+                                variable_data.borrow_mut().locals.push(LocalVariable::new(
+                                    self.depth + 1,
+                                    i.clone(),
+                                    atom.syn.clone(),
+                                    self.stack_offset,
+                                ))
+                            }
                             None => {
                                 let locals = vec![LocalVariable::new(
                                     self.depth + 1,
                                     i.clone(),
                                     atom.syn.clone(),
+                                    self.stack_offset,
                                 )];
 
                                 // Initialize it here?
@@ -936,11 +955,21 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         // self.variable_data = prev_variable_data;
 
+        let mut close_upvalues = Vec::new();
+
         // Pop off the locals once we exit this scope
         for _ in &exprs {
-            self.variable_data
+            if let Some(local) = self
+                .variable_data
                 .as_ref()
-                .map(|x| x.borrow_mut().locals.pop());
+                .map(|x| x.borrow_mut().locals.pop())
+                .flatten()
+            {
+                close_upvalues.push(Instruction::new_close_upvalue(
+                    if local.is_captured { 1 } else { 0 },
+                    local.syntax_object.clone(),
+                ))
+            }
         }
 
         if self
@@ -952,15 +981,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             self.variable_data = None;
         }
 
-        // If we need to pop the scope off, do it
-        // If we're at the top level, this is going to happen anyway
-        let offset = self
-            .variable_data
-            .as_ref()
-            .map(|x| x.borrow().locals.len() + self.stack_offset);
-
         if let Some(offset) = offset {
-            self.push(Instruction::new_end_scope(offset))
+            self.push(Instruction::new_end_scope(offset));
+            self.push(Instruction::new_pass(exprs.len()));
+
+            for instr in close_upvalues {
+                self.push(instr);
+            }
         }
 
         // Pop
@@ -1065,6 +1092,14 @@ fn transform_tail_call(instructions: &mut [Instruction], defining_context: &str)
             match instructions.get(*index - 1) {
                 Some(Instruction {
                     op_code: OpCode::ENDSCOPE,
+                    ..
+                })
+                | Some(Instruction {
+                    op_code: OpCode::PASS,
+                    ..
+                })
+                | Some(Instruction {
+                    op_code: OpCode::CLOSEUPVALUE,
                     ..
                 }) => *index -= 1,
                 _ => break,
@@ -1171,6 +1206,14 @@ fn transform_letrec_tail_call(instructions: &mut [Instruction], defining_context
             match instructions.get(*index - 1) {
                 Some(Instruction {
                     op_code: OpCode::ENDSCOPE,
+                    ..
+                })
+                | Some(Instruction {
+                    op_code: OpCode::PASS,
+                    ..
+                })
+                | Some(Instruction {
+                    op_code: OpCode::CLOSEUPVALUE,
                     ..
                 }) => *index -= 1,
                 _ => break,

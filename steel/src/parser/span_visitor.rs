@@ -116,6 +116,6 @@ impl Visitor for CoalescingSpanVisitor {
     }
 
     fn visit_let(&self, l: &super::ast::Let) -> Self::Output {
-        todo!()
+        Span::merge(l.location.span, self.visit(&l.body_expr))
     }
 }

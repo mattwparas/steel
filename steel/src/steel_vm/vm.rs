@@ -484,18 +484,23 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 .map(|x| x >= last)
                 .unwrap_or(false)
         {
-            println!("Closing upvalue");
+            // println!("Closing upvalue");
             let upvalue = self.upvalue_head.as_ref().unwrap().upgrade().unwrap();
-            println!("Getting the value");
+            // println!("Getting the value");
+
+            let value = upvalue.borrow().get_value(&self.stack);
+
+            println!(">>>>>>>>>>>> setting value to be: {}", value);
+            upvalue.borrow_mut().set_value(value);
 
             // Do this scoping nonsense to avoid the borrow problem
-            let value = { upvalue.borrow().try_get_value(&self.stack) };
+            // let value = { upvalue.borrow().try_get_value(&self.stack) };
 
-            // TODO come back to this
-            if let Some(value) = value {
-                // let value = upvalue.borrow().get_value(&self.stack);
-                upvalue.borrow_mut().set_value(value);
-            }
+            // // TODO come back to this
+            // if let Some(value) = value {
+            //     // let value = upvalue.borrow().get_value(&self.stack);
+            //     upvalue.borrow_mut().set_value(value);
+            // }
 
             self.upvalue_head = upvalue.borrow_mut().next.clone();
         }
@@ -949,18 +954,49 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 }
                 OpCode::ENDSCOPE => {
                     // todo!()
-                    self.ip += 1;
 
                     let beginning_scope = cur_inst.payload_size as usize;
                     let offset = self.stack_index.last().copied().unwrap_or(0);
 
+                    // Move to the pop
+                    self.ip += 1;
+
+                    // See the count of local variables
+                    let value_count_to_close = self.instructions[self.ip].payload_size;
+
+                    // Move past the pop
+                    self.ip += 1;
+
+                    let rollback_index = beginning_scope + offset;
+
+                    for i in 0..value_count_to_close {
+                        let instr = self.instructions[self.ip];
+                        match (instr.op_code, instr.payload_size) {
+                            (OpCode::CLOSEUPVALUE, 1) => {
+                                println!("Closing upvalues in pop");
+                                println!("Stack index: {:?}", self.stack_index);
+                                self.close_upvalues(rollback_index + i as usize);
+                            }
+                            (OpCode::CLOSEUPVALUE, 0) => {
+                                // do nothing explicitly, just a normal pop
+                            }
+                            (op, _) => panic!(
+                                "Closing upvalues failed with instruction: {:?} @ {}",
+                                op, self.ip
+                            ),
+                        }
+                        self.ip += 1;
+                    }
+
                     let last = self.stack.pop().expect("Stack empty at pop");
 
-                    self.stack.truncate(beginning_scope + offset);
-
+                    self.stack.truncate(rollback_index);
                     self.stack.push(last);
 
+                    // self.ip += 1;
+
                     println!("Ending scope, stack here: {:?}", self.stack);
+                    println!("Current instruction: {:?}", self.instructions[self.ip]);
                     // let last = self.stack_index.pop().unwrap();
                     // self.stack.truncate(last);
                 }
@@ -976,7 +1012,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     self.ip += 1;
                 }
                 _ => {
-                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                    crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     panic!("Unhandled opcode: {:?} @ {}", cur_inst.op_code, self.ip);
                 }
             }

@@ -23,7 +23,6 @@
              (+ (f (- x 1)) (f (- x 2))))))))
 
 
-()
 
 ; (display (fac 6))
 ; (newline)
@@ -47,3 +46,8 @@
       (if (= x 1000)
           output2
           (loop (+ x 1)))))
+
+
+(define (test x)
+  (test-let ((y 20))
+    (lambda (z) (+ x y z))))
