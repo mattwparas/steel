@@ -950,6 +950,17 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 OpCode::ENDSCOPE => {
                     // todo!()
                     self.ip += 1;
+
+                    let beginning_scope = cur_inst.payload_size as usize;
+                    let offset = self.stack_index.last().copied().unwrap_or(0);
+
+                    let last = self.stack.pop().expect("Stack empty at pop");
+
+                    self.stack.truncate(beginning_scope + offset);
+
+                    self.stack.push(last);
+
+                    println!("Ending scope, stack here: {:?}", self.stack);
                     // let last = self.stack_index.pop().unwrap();
                     // self.stack.truncate(last);
                 }

@@ -300,10 +300,10 @@ impl Instruction {
         }
     }
 
-    pub fn new_instruction(op_code: OpCode) -> Instruction {
+    pub fn new_end_scope(payload_size: usize) -> Instruction {
         Instruction {
-            op_code,
-            payload_size: 0,
+            op_code: OpCode::ENDSCOPE,
+            payload_size: payload_size,
             contents: None,
             constant: false,
         }

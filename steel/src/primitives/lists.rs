@@ -257,7 +257,7 @@ fn car(args: &[SteelVal]) -> Result<SteelVal> {
         l.car()
             .ok_or_else(throw!(Generic => "first resulted in an error - empty list"))
     } else {
-        stop!(TypeMismatch => "first expects a list")
+        stop!(TypeMismatch => format!("first expects a list, found: {:?}", &args[0]))
     }
 }
 

@@ -871,13 +871,34 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         ty: TokenType::Identifier(i),
                         ..
                     } => {
-                        self.variable_data.as_ref().map(|x| {
-                            x.borrow_mut().locals.push(LocalVariable::new(
-                                self.depth + 1,
-                                i.clone(),
-                                atom.syn.clone(),
-                            ))
-                        });
+                        match &self.variable_data {
+                            Some(variable_data) => variable_data.borrow_mut().locals.push(
+                                LocalVariable::new(self.depth + 1, i.clone(), atom.syn.clone()),
+                            ),
+                            None => {
+                                let locals = vec![LocalVariable::new(
+                                    self.depth + 1,
+                                    i.clone(),
+                                    atom.syn.clone(),
+                                )];
+
+                                // Initialize it here?
+                                self.variable_data =
+                                    Some(Rc::new(RefCell::new(VariableData::new(
+                                        locals,
+                                        Vec::new(),
+                                        self.variable_data.as_ref().map(Rc::clone),
+                                    ))));
+                            }
+                        }
+
+                        // self.variable_data.as_ref().map(|x| {
+                        //     x.borrow_mut().locals.push(LocalVariable::new(
+                        //         self.depth + 1,
+                        //         i.clone(),
+                        //         atom.syn.clone(),
+                        //     ))
+                        // });
                         // println!("Validating the identifiers in the arguments");
                         // body_instructions.push(Instruction::new_bind(atom.syn.clone()));
                     }
@@ -916,11 +937,34 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // self.variable_data = prev_variable_data;
 
         // Pop off the locals once we exit this scope
-        for _ in exprs {
+        for _ in &exprs {
             self.variable_data
                 .as_ref()
                 .map(|x| x.borrow_mut().locals.pop());
         }
+
+        if self
+            .variable_data
+            .as_ref()
+            .map(|x| x.borrow().locals.is_empty())
+            .unwrap_or(false)
+        {
+            self.variable_data = None;
+        }
+
+        // If we need to pop the scope off, do it
+        // If we're at the top level, this is going to happen anyway
+        let offset = self
+            .variable_data
+            .as_ref()
+            .map(|x| x.borrow().locals.len() + self.stack_offset);
+
+        if let Some(offset) = offset {
+            self.push(Instruction::new_end_scope(offset))
+        }
+
+        // Pop
+        // self.push(Instruction::new_end_scope(exprs.len()));
 
         // self.push(Instruction::new_instruction(OpCode::ENDSCOPE));
 
@@ -1013,6 +1057,21 @@ fn transform_tail_call(instructions: &mut [Instruction], defining_context: &str)
         }
     }
 
+    // Clear out any of the end scope stuff
+    // What this does - go through the indices and see if this points to an end scope
+    // if it does, just continue to try to find _something_ else
+    for index in &mut indices {
+        loop {
+            match instructions.get(*index - 1) {
+                Some(Instruction {
+                    op_code: OpCode::ENDSCOPE,
+                    ..
+                }) => *index -= 1,
+                _ => break,
+            }
+        }
+    }
+
     for index in &indices {
         if *index < 2 {
             continue;
@@ -1100,6 +1159,21 @@ fn transform_letrec_tail_call(instructions: &mut [Instruction], defining_context
                         break;
                     }
                 }
+            }
+        }
+    }
+
+    // Clear out any of the end scope stuff
+    // What this does - go through the indices and see if this points to an end scope
+    // if it does, just continue to try to find _something_ else
+    for index in &mut indices {
+        loop {
+            match instructions.get(*index - 1) {
+                Some(Instruction {
+                    op_code: OpCode::ENDSCOPE,
+                    ..
+                }) => *index -= 1,
+                _ => break,
             }
         }
     }

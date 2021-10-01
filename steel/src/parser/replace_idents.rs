@@ -313,8 +313,21 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         Ok(ExprKind::CallCC(cc))
     }
 
-    fn visit_let(&mut self, l: Box<super::ast::Let>) -> Self::Output {
-        todo!()
+    fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
+        let mut visited_bindings = Vec::new();
+
+        let (bindings, exprs): (Vec<_>, Vec<_>) = l.bindings.iter().cloned().unzip();
+
+        let bindings = self.expand_ellipses(bindings)?;
+
+        for (binding, expr) in bindings.into_iter().zip(exprs) {
+            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+        }
+
+        l.bindings = visited_bindings;
+        l.body_expr = self.visit(l.body_expr)?;
+
+        Ok(ExprKind::Let(l))
     }
 }
 
@@ -446,8 +459,17 @@ impl ConsumingVisitor for RewriteSpan {
         Ok(ExprKind::CallCC(cc))
     }
 
-    fn visit_let(&mut self, l: Box<super::ast::Let>) -> Self::Output {
-        todo!()
+    fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
+        let mut visited_bindings = Vec::new();
+
+        for (binding, expr) in l.bindings {
+            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+        }
+
+        l.bindings = visited_bindings;
+        l.body_expr = self.visit(l.body_expr)?;
+
+        Ok(ExprKind::Let(l))
     }
 }
 
