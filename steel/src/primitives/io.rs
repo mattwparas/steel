@@ -40,7 +40,7 @@ impl IoFunctions {
                         "red" | "Red" => print!("{}", s.to_string().red()),
                         _ => print!("{}", s),
                     },
-                    (_, SteelVal::StringV(c)) => match c.as_ref() {
+                    (_, SteelVal::StringV(c)) | (_, SteelVal::SymbolV(c)) => match c.as_ref() {
                         "green" | "Green" => print!("{}", print_val.to_string().bright_green()),
                         "blue" | "Blue" => print!("{}", print_val.to_string().bright_blue()),
                         "red" | "Red" => print!("{}", print_val.to_string().red()),

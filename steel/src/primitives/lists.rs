@@ -274,7 +274,7 @@ fn cdr(args: &mut [SteelVal]) -> Result<SteelVal> {
             None => Ok(SteelVal::ListV(l.clone())),
         }
     } else {
-        stop!(TypeMismatch => "cdr expects a list")
+        stop!(TypeMismatch => format!("cdr expects a list, found: {}", &args[0]))
     }
 }
 

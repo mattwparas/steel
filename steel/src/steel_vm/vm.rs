@@ -65,6 +65,7 @@ pub struct VirtualMachineCore {
     stack: StackFrame,
     function_stack: Vec<Gc<ByteCodeLambda>>,
     stack_index: Stack<usize>,
+    upvalue_head: Option<Weak<RefCell<UpValue>>>,
     // #[cfg(feature = "jit")]
     jit: JIT,
 }
@@ -78,6 +79,7 @@ impl VirtualMachineCore {
             stack: StackFrame::with_capacity(256),
             function_stack: Vec::with_capacity(64),
             stack_index: Stack::with_capacity(64),
+            upvalue_head: None,
             // #[cfg(feature = "jit")]
             jit: JIT::default(),
         }
@@ -172,7 +174,7 @@ impl VirtualMachineCore {
         use_callbacks: U,
         apply_contracts: A,
     ) -> Result<SteelVal> {
-        let result = vm(
+        let mut vm_instance = VmCore::new(
             instructions,
             &mut self.stack,
             &mut self.global_env,
@@ -181,11 +183,16 @@ impl VirtualMachineCore {
             &mut self.global_upvalue_heap,
             &mut self.function_stack,
             &mut self.stack_index,
+            self.upvalue_head.take(),
             use_callbacks,
             apply_contracts,
             // #[cfg(feature = "jit")]
             Some(&mut self.jit),
-        );
+        )?;
+
+        let result = vm_instance.vm();
+
+        self.upvalue_head = vm_instance.upvalue_head;
 
         // Clean up
         self.stack.clear();
@@ -378,6 +385,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         upvalue_heap: &'a mut UpValueHeap,
         function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
         stack_index: &'a mut Stack<usize>,
+        upvalue_head: Option<Weak<RefCell<UpValue>>>,
         use_callbacks: U,
         apply_contracts: A,
         // #[cfg(feature = "jit")]
@@ -397,7 +405,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             constants,
             ip: 0,
             pop_count: 1,
-            upvalue_head: None,
+            upvalue_head,
             upvalue_heap,
             function_stack,
             use_callbacks,
@@ -407,9 +415,17 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         })
     }
 
-    fn capture_upvalue(&mut self, local_idx: usize) -> Weak<RefCell<UpValue>> {
+    // TODO this needs to be a sorted linked list
+    // right now, its not a sorted linked list at all
+    fn capture_upvalue(&mut self, local_idx: usize, offset: usize) -> Weak<RefCell<UpValue>> {
         let mut prev_up_value: Option<Weak<RefCell<UpValue>>> = None;
         let mut upvalue = self.upvalue_head.clone();
+
+        // We've already adjusted for the stack index offset,
+        // we want to make sure we're not duplicating work
+        // let unoffset_index = local_idx - self.stack_index.last().copied().unwrap_or(0);
+
+        let local_idx = local_idx + offset;
 
         while upvalue.is_some()
             && upvalue
@@ -419,9 +435,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 .expect("Upvalue freed too early")
                 .borrow()
                 .index()
-                .map(|x| x > local_idx)
+                .map(|x| {
+                    println!("INDEX: {:?}", x);
+                    x > local_idx
+                })
                 .unwrap_or(false)
         {
+            println!("******* Walking backwards to find already constructed upvalue *****");
+            println!("Upvalue: {:?}", upvalue);
             prev_up_value = upvalue.clone();
             upvalue = upvalue
                 .map(|x| {
@@ -434,6 +455,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 .flatten();
         }
 
+        // println!("Unoffset index: {:?}", unoffset_index);
+
         if upvalue.is_some()
             && upvalue
                 .as_ref()
@@ -445,6 +468,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 .map(|x| x == local_idx)
                 .unwrap_or(false)
         {
+            println!("******* Found already constructed upvalue *******");
+
             return upvalue.unwrap();
         }
 
@@ -459,9 +484,17 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         );
 
         if prev_up_value.is_none() {
+            println!("Setting Head to {:?}", created_up_value.upgrade());
+
             self.upvalue_head = Some(created_up_value.clone());
         } else {
             let prev_up_value = prev_up_value.unwrap().upgrade().unwrap();
+
+            println!(
+                "Setting Node: {:?} to point to {:?}",
+                prev_up_value,
+                created_up_value.upgrade()
+            );
 
             prev_up_value
                 .borrow_mut()
@@ -491,6 +524,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             let value = upvalue.borrow().get_value(&self.stack);
 
             println!(">>>>>>>>>>>> setting value to be: {}", value);
+            println!("Stack index: {:?}", self.stack_index);
             upvalue.borrow_mut().set_value(value);
 
             // Do this scoping nonsense to avoid the borrow problem
@@ -973,7 +1007,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         let instr = self.instructions[self.ip];
                         match (instr.op_code, instr.payload_size) {
                             (OpCode::CLOSEUPVALUE, 1) => {
-                                println!("Closing upvalues in pop");
+                                println!("Closing upvalues in endscope");
                                 println!("Stack index: {:?}", self.stack_index);
                                 self.close_upvalues(rollback_index + i as usize);
                             }
@@ -1049,12 +1083,15 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string()).with_span(*span)
             });
 
+            // self.close_upvalues();
+
             // println!("ROLLING BACK STACK");
             // println!("BEFORE: {:?}", self.stack);
             // println!("index: {:?}", self.stack_index);
 
             // Roll back if needed
             if let Some(rollback_index) = self.stack_index.pop() {
+                self.close_upvalues(rollback_index);
                 self.stack.truncate(rollback_index);
                 // println!("AFTER: {:?}", self.stack);
                 // println!("index: {:?}", self.stack_index);
@@ -1093,7 +1130,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 self.ip += 1;
             }
 
+            // Close remaining values on the stack
+
+            // self.close_upvalues(rollback_index);
+
             self.stack.truncate(rollback_index);
+
             self.stack.push(ret_val);
 
             if !self
@@ -1385,6 +1427,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             let instr = self.instructions[self.ip];
             match (instr.op_code, instr.payload_size) {
                 (OpCode::FILLUPVALUE, n) => {
+                    println!("@@@@@@@@@@@");
+                    println!("Adding an upvalue here");
                     upvalues.push(
                         self.function_stack
                             .last()
@@ -1393,8 +1437,26 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     );
                 }
                 (OpCode::FILLLOCALUPVALUE, n) => {
+                    println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+                    println!("Stack index here: {:?}", self.stack_index);
+                    println!(
+                        "Capturing upvalue at index: {:?}",
+                        self.stack_index.last().unwrap_or(&0) + n as usize
+                    );
+
+                    println!("HEAD HERE: {}", self.upvalue_head.is_some());
+
+                    if let Some(head) = self.upvalue_head.as_ref() {
+                        println!("{:?}", head.upgrade());
+                    }
+
                     upvalues.push(
-                        self.capture_upvalue(self.stack_index.last().unwrap_or(&0) + n as usize),
+                        // self.capture_upvalue(self.stack_index.last().unwrap_or(&0) + n as usize),
+                        self.capture_upvalue(
+                            n as usize,
+                            self.stack_index.last().copied().unwrap_or(0),
+                        ),
+                        // self.capture_upvalue(n as usize),
                     );
                 }
                 (l, _) => {
@@ -1469,7 +1531,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             .rposition(|x| x.op_code == OpCode::POP)
             .expect("function missing pop instruction");
 
-        // crate::core::instructions::pretty_print_dense_instructions(&function.body_exp);
+        crate::core::instructions::pretty_print_dense_instructions(&function.body_exp);
 
         // println!("Last pop index: {}", last_pop);
 
@@ -2172,34 +2234,20 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     }
 }
 
-#[inline(always)]
-pub(crate) fn vm<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
-    instructions: Rc<[DenseInstruction]>,
-    stack: &mut StackFrame,
-    global_env: &mut Env,
-    constants: &CT,
-    callback: &EvaluationProgress,
-    upvalue_heap: &mut UpValueHeap,
-    function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-    stack_index: &mut Stack<usize>,
-    use_callbacks: U,
-    apply_contracts: A,
-    // #[cfg(feature = "jit")]
-    jit: Option<&mut JIT>,
-) -> Result<SteelVal> {
-    VmCore::new(
-        instructions,
-        stack,
-        global_env,
-        constants,
-        callback,
-        upvalue_heap,
-        function_stack,
-        stack_index,
-        use_callbacks,
-        apply_contracts,
-        // #[cfg(feature = "jit")]
-        jit,
-    )?
-    .vm()
-}
+// #[inline(always)]
+// pub(crate) fn vm<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+//     instructions: Rc<[DenseInstruction]>,
+//     stack: &mut StackFrame,
+//     global_env: &mut Env,
+//     constants: &CT,
+//     callback: &EvaluationProgress,
+//     upvalue_heap: &mut UpValueHeap,
+//     function_stack: &mut Vec<Gc<ByteCodeLambda>>,
+//     stack_index: &mut Stack<usize>,
+//     upvalue_head: Option<Weak<RefCell<UpValue>>>,
+//     use_callbacks: U,
+//     apply_contracts: A,
+//     // #[cfg(feature = "jit")]
+//     jit: Option<&mut JIT>,
+// ) -> Result<SteelVal> {
+// }

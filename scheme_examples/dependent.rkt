@@ -147,6 +147,10 @@
 
 
 (define (make-identity-pred obj)
+    ; (newline)
+    ; (display-color "CALLING WITH OBJECT " 'red)
+    ; (display-color obj 'red)
+    ; (newline)
     (cond [(string? obj) string?/c]
           [(symbol? obj) symbol?/c]
           [(integer? obj) integer?/c]
@@ -154,20 +158,32 @@
           ;; If its a struct, get the contracts for all of the children fields as well
           ;; creating an exact copy of the shape of the struct on the way back up
           [(struct? obj)
-            (make/c 
-                ;; TODO uncomment this and comment below, works
-                ; (test-let ((struct-list (struct->list obj)))
+            (make/c
+                ; TODO uncomment this and comment below, works
+                (test-let ((struct-list (struct->list obj)))
+                ; (newline)
+                ; (display-color obj 'green)
+                ; (newline)
                 (lambda (input)
-                    (test-let ((struct-list (struct->list obj)))
+                    ; (newline)
+                    ; (display-color "CAPTURED OBJ: " 'blue)
+                    ; (display-color obj 'blue)
+                    ; (newline)
+                    ; (test-let ((struct-list (struct->list obj)))
                         (if (struct? input)
                             (test-let ((input-list-struct (struct->list input)))
                                     ;    (struct-list (struct->list obj)))
 
                                 ;; If the structs match the name/type, check the children
+                                (display-color "CALLING MAP" 'red)
+                                (newline)
                                 (and (equal? (car struct-list) (car input-list-struct))
+                                    ; (display-color "CALLING MAP" 'red)
+                                    ; (newline)
                                     (test-let ((children (map make-identity-pred (cdr struct-list))))
                                             (lst-func-loop
-                                                (map make-identity-pred (cdr struct-list))
+                                                ; (map make-identity-pred (cdr struct-list))
+                                                children
                                                 (cdr input-list-struct)))))
                         #f))) 'struct-contract)]))
 
@@ -179,9 +195,11 @@
 
 ; (define identity-contract (make-identity-pred (Applesauce (Bananas 1 2 3) 'hello 10)))
 
-(displayln (identity-contract (Applesauce "blagh" 'test (Bananas 3 4 5))))
+; (displayln (identity-contract (Applesauce "blagh" 'test (Bananas 3 4 5))))
 
+(displayln (identity-contract (Applesauce "blagh" 'test (Bananas 1 2 3))))
 
+; (identity-contract (Applesauce "blagh" 'test (Bananas 3 4 5)))
 
 ;; Identity contract
 ;; Get the predicate that satisfies the most limited type information for a given func

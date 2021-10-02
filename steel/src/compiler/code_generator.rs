@@ -74,11 +74,17 @@ struct UpValue {
     index: usize,
     // Whether or not this is a local variable at all
     is_local: bool,
+    // name
+    ident: String,
 }
 
 impl UpValue {
-    pub fn new(index: usize, is_local: bool) -> Self {
-        UpValue { index, is_local }
+    pub fn new(index: usize, is_local: bool, ident: String) -> Self {
+        UpValue {
+            index,
+            is_local,
+            ident,
+        }
     }
 }
 
@@ -144,13 +150,28 @@ impl VariableData {
             .flatten();
 
         if let Some(local) = local {
+            println!("Attempting to mark captured: {:?}", ident);
+
+            let var_offset = {
+                self.enclosing
+                    .as_ref()
+                    .unwrap()
+                    .borrow()
+                    .locals
+                    .iter()
+                    .rev()
+                    .find(|x| &x.name == ident)
+                    .map(|x| x.struct_offset)
+                    .unwrap_or(0)
+            };
+
             self.enclosing
                 .as_ref()
                 .unwrap()
                 .borrow_mut()
-                .mark_captured(local);
+                .mark_captured(local - var_offset);
 
-            return Some(self.add_upvalue(local, true));
+            return Some(self.add_upvalue(local, true, ident.to_string()));
         }
 
         // Check upvalues afterwards
@@ -160,7 +181,7 @@ impl VariableData {
             .map(|x| x.borrow_mut().resolve_upvalue(ident))
             .flatten();
         if let Some(upvalue) = upvalue {
-            return Some(self.add_upvalue(upvalue, false));
+            return Some(self.add_upvalue(upvalue, false, ident.to_string()));
         }
 
         // Otherwise we're a global and we should move on
@@ -168,17 +189,27 @@ impl VariableData {
     }
 
     // Add the upvalue to the upvalue list, returning the index in the list
-    fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
+    fn add_upvalue(&mut self, index: usize, is_local: bool, ident: String) -> usize {
         // If the upvalue has already been captured, don't capture it again
         if let Some(i) = self
             .upvalues
             .iter()
             .position(|x| x.index == index && x.is_local == is_local)
         {
+            println!("Found an upvalue already");
             return i;
         }
 
-        self.upvalues.push(UpValue::new(index, is_local));
+        // println!("Adding new upvalue)
+
+        let upvalue = UpValue::new(index, is_local, ident);
+
+        println!("Adding new upvalue: {:?}", upvalue);
+
+        // self.upvalues.push(UpValue::new(index, is_local, ident));
+        self.upvalues.push(upvalue);
+
+        println!("Upvalues: {:?}", self.upvalues);
         self.upvalues.len() - 1
     }
 }
@@ -439,10 +470,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // TODO
         for upvalue in &variable_data.borrow().upvalues {
             if upvalue.is_local {
-                // println!("Pushing new local upvalue!");
+                println!("Pushing new local upvalue!: {:?}", upvalue);
+                // self.push(Instruction::new_local_upvalue(upvalue.index));
                 self.push(Instruction::new_local_upvalue(upvalue.index));
             } else {
-                // println!("Pushing new upvalue");
+                println!("Pushing new upvalue!: {:?}", upvalue);
                 self.push(Instruction::new_upvalue(upvalue.index));
             }
         }
