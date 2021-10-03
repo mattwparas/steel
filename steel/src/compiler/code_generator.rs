@@ -150,8 +150,6 @@ impl VariableData {
             .flatten();
 
         if let Some(local) = local {
-            println!("Attempting to mark captured: {:?}", ident);
-
             let var_offset = {
                 self.enclosing
                     .as_ref()
@@ -196,20 +194,9 @@ impl VariableData {
             .iter()
             .position(|x| x.index == index && x.is_local == is_local)
         {
-            println!("Found an upvalue already");
             return i;
         }
-
-        // println!("Adding new upvalue)
-
-        let upvalue = UpValue::new(index, is_local, ident);
-
-        println!("Adding new upvalue: {:?}", upvalue);
-
-        // self.upvalues.push(UpValue::new(index, is_local, ident));
-        self.upvalues.push(upvalue);
-
-        println!("Upvalues: {:?}", self.upvalues);
+        self.upvalues.push(UpValue::new(index, is_local, ident));
         self.upvalues.len() - 1
     }
 }
@@ -470,11 +457,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // TODO
         for upvalue in &variable_data.borrow().upvalues {
             if upvalue.is_local {
-                println!("Pushing new local upvalue!: {:?}", upvalue);
+                // println!("Pushing new local upvalue!: {:?}", upvalue);
                 // self.push(Instruction::new_local_upvalue(upvalue.index));
                 self.push(Instruction::new_local_upvalue(upvalue.index));
             } else {
-                println!("Pushing new upvalue!: {:?}", upvalue);
+                // println!("Pushing new upvalue!: {:?}", upvalue);
                 self.push(Instruction::new_upvalue(upvalue.index));
             }
         }

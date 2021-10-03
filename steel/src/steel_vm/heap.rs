@@ -109,8 +109,6 @@ impl UpValueHeap {
         roots: impl Iterator<Item = &'a SteelVal>,
         function_stack: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
     ) -> Weak<RefCell<UpValue>> {
-        println!("<<<<<<<<<< Allocating new upalue at stack index: {}", index);
-
         let upvalue = Rc::new(RefCell::new(UpValue::new(index, next)));
         let weak_ptr = Rc::downgrade(&upvalue);
         self.memory.push(upvalue);

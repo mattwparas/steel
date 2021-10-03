@@ -117,40 +117,7 @@
 ;; Get the contract that uniquely identifies this predicate
 ;; Down to the predicate - we want to match the predicates along the way
 ;; Doesn't need to explicitly match this way - could do it other ways but this way works nicely
-; (define (make-identity-pred obj)
-;     (cond [(string? obj) string?/c]
-;           [(symbol? obj) symbol?/c]
-;           [(integer? obj) integer?/c]
-;           [(float? obj) float?/c]
-;           ;; If its a struct, get the contracts for all of the children fields as well
-;           ;; creating an exact copy of the shape of the struct on the way back up
-;           [(struct? obj)
-;             (make/c 
-;                 (let ((struct-list (struct->list obj)))
-;                 (lambda (input)
-;                     ; (let ((struct-list (struct->list obj)))
-;                         (displayln obj)
-;                         ; (displayln struct-list)
-;                         ; (displayln input)
-;                         (if (struct? input)
-;                             (let ((input-list-struct (struct->list input)))
-;                                 ;; If the structs match the name/type, check the children
-;                                 (and (equal? (car struct-list) (car input-list-struct))
-;                                     (let ((children (map make-identity-pred (cdr struct-list))))
-;                                             ; (displayln children)
-;                                             ; (displayln input-list-struct)
-;                                             (lst-func-loop
-;                                                 (map make-identity-pred (cdr struct-list))
-;                                                 (cdr input-list-struct)))))
-                                            
-;                         #f))) 'struct-contract)]))
-
-
 (define (make-identity-pred obj)
-    ; (newline)
-    ; (display-color "CALLING WITH OBJECT " 'red)
-    ; (display-color obj 'red)
-    ; (newline)
     (cond [(string? obj) string?/c]
           [(symbol? obj) symbol?/c]
           [(integer? obj) integer?/c]
@@ -158,34 +125,67 @@
           ;; If its a struct, get the contracts for all of the children fields as well
           ;; creating an exact copy of the shape of the struct on the way back up
           [(struct? obj)
-            (make/c
-                ; TODO uncomment this and comment below, works
-                (test-let ((struct-list (struct->list obj)))
-                ; (newline)
-                ; (display-color obj 'green)
-                ; (newline)
+            (make/c 
+                (let ((struct-list (struct->list obj)))
                 (lambda (input)
-                    ; (newline)
-                    ; (display-color "CAPTURED OBJ: " 'blue)
-                    ; (display-color obj 'blue)
-                    ; (newline)
-                    ; (test-let ((struct-list (struct->list obj)))
+                    ; (let ((struct-list (struct->list obj)))
+                        ; (displayln obj)
+                        ; (displayln struct-list)
+                        ; (displayln input)
                         (if (struct? input)
-                            (test-let ((input-list-struct (struct->list input)))
-                                    ;    (struct-list (struct->list obj)))
-
+                            (let ((input-list-struct (struct->list input)))
                                 ;; If the structs match the name/type, check the children
-                                (display-color "CALLING MAP" 'red)
-                                (newline)
                                 (and (equal? (car struct-list) (car input-list-struct))
-                                    ; (display-color "CALLING MAP" 'red)
-                                    ; (newline)
-                                    (test-let ((children (map make-identity-pred (cdr struct-list))))
+                                    (let ((children (map make-identity-pred (cdr struct-list))))
+                                            ; (displayln children)
+                                            ; (displayln input-list-struct)
                                             (lst-func-loop
-                                                ; (map make-identity-pred (cdr struct-list))
-                                                children
+                                                (map make-identity-pred (cdr struct-list))
                                                 (cdr input-list-struct)))))
+                                            
                         #f))) 'struct-contract)]))
+
+
+; (define (make-identity-pred obj)
+;     ; (newline)
+;     ; (display-color "CALLING WITH OBJECT " 'red)
+;     ; (display-color obj 'red)
+;     ; (newline)
+;     (cond [(string? obj) string?/c]
+;           [(symbol? obj) symbol?/c]
+;           [(integer? obj) integer?/c]
+;           [(float? obj) float?/c]
+;           ;; If its a struct, get the contracts for all of the children fields as well
+;           ;; creating an exact copy of the shape of the struct on the way back up
+;           [(struct? obj)
+;             (make/c
+;                 ; TODO uncomment this and comment below, works
+;                 ; (test-let ((struct-list (struct->list obj)))
+;                 ; (newline)
+;                 ; (display-color obj 'green)
+;                 ; (newline)
+;                 (lambda (input)
+;                     ; (newline)
+;                     ; (display-color "CAPTURED OBJ: " 'blue)
+;                     ; (display-color obj 'blue)
+;                     ; (newline)
+;                     (test-let ((struct-list (struct->list obj)))
+;                         (if (struct? input)
+;                             (test-let ((input-list-struct (struct->list input)))
+;                                     ;    (struct-list (struct->list obj)))
+
+;                                 ;; If the structs match the name/type, check the children
+;                                 (display-color "CALLING MAP" 'red)
+;                                 (newline)
+;                                 (and (equal? (car struct-list) (car input-list-struct))
+;                                     ; (display-color "CALLING MAP" 'red)
+;                                     ; (newline)
+;                                     (test-let ((children (map make-identity-pred (cdr struct-list))))
+;                                             (lst-func-loop
+;                                                 ; (map make-identity-pred (cdr struct-list))
+;                                                 children
+;                                                 (cdr input-list-struct)))))
+;                         #f))) 'struct-contract)]))
 
 
 (struct Applesauce (a b c))

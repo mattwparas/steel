@@ -435,14 +435,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 .expect("Upvalue freed too early")
                 .borrow()
                 .index()
-                .map(|x| {
-                    println!("INDEX: {:?}", x);
-                    x > local_idx
-                })
+                .map(|x| x > local_idx)
                 .unwrap_or(false)
         {
-            println!("******* Walking backwards to find already constructed upvalue *****");
-            println!("Upvalue: {:?}", upvalue);
             prev_up_value = upvalue.clone();
             upvalue = upvalue
                 .map(|x| {
@@ -468,8 +463,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 .map(|x| x == local_idx)
                 .unwrap_or(false)
         {
-            println!("******* Found already constructed upvalue *******");
-
             return upvalue.unwrap();
         }
 
@@ -484,18 +477,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         );
 
         if prev_up_value.is_none() {
-            println!("Setting Head to {:?}", created_up_value.upgrade());
-
             self.upvalue_head = Some(created_up_value.clone());
         } else {
             let prev_up_value = prev_up_value.unwrap().upgrade().unwrap();
-
-            println!(
-                "Setting Node: {:?} to point to {:?}",
-                prev_up_value,
-                created_up_value.upgrade()
-            );
-
             prev_up_value
                 .borrow_mut()
                 .set_next(created_up_value.clone());
@@ -523,8 +507,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
             let value = upvalue.borrow().get_value(&self.stack);
 
-            println!(">>>>>>>>>>>> setting value to be: {}", value);
-            println!("Stack index: {:?}", self.stack_index);
             upvalue.borrow_mut().set_value(value);
 
             // Do this scoping nonsense to avoid the borrow problem
@@ -577,8 +559,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         &mut self,
         closure: Rc<[DenseInstruction]>,
     ) -> Result<SteelVal> {
-        println!("Stack index before: {:?}", self.stack_index);
-
         let old_ip = self.ip;
         let old_instructions = std::mem::replace(&mut self.instructions, closure);
         let old_pop_count = self.pop_count;
@@ -590,13 +570,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
         let res = self.vm();
 
-        println!("RESETTING STATE IN call_with_instructions_and_reset_State");
-
         self.ip = old_ip;
         self.instructions = old_instructions;
         self.pop_count = old_pop_count;
-
-        println!("Stack index after: {:?}", self.stack_index);
 
         res
     }
@@ -1007,8 +983,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         let instr = self.instructions[self.ip];
                         match (instr.op_code, instr.payload_size) {
                             (OpCode::CLOSEUPVALUE, 1) => {
-                                println!("Closing upvalues in endscope");
-                                println!("Stack index: {:?}", self.stack_index);
                                 self.close_upvalues(rollback_index + i as usize);
                             }
                             (OpCode::CLOSEUPVALUE, 0) => {
@@ -1078,7 +1052,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
         if self.pop_count == 0 {
             let ret_val = self.stack.try_pop().ok_or_else(|| {
-                crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
                 SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string()).with_span(*span)
             });
@@ -1091,7 +1065,32 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
             // Roll back if needed
             if let Some(rollback_index) = self.stack_index.pop() {
-                self.close_upvalues(rollback_index);
+                // TODO check if this is better / correct
+                // self.close_upvalues(rollback_index);
+
+                // Snatch the value to close from the payload size
+                let value_count_to_close = payload;
+
+                // Move forward past the pop
+                self.ip += 1;
+
+                for i in 0..value_count_to_close {
+                    let instr = self.instructions[self.ip];
+                    match (instr.op_code, instr.payload_size) {
+                        (OpCode::CLOSEUPVALUE, 1) => {
+                            self.close_upvalues(rollback_index + i as usize);
+                        }
+                        (OpCode::CLOSEUPVALUE, 0) => {
+                            // do nothing explicitly, just a normal pop
+                        }
+                        (op, _) => panic!(
+                            "Closing upvalues failed with instruction: {:?} @ {}",
+                            op, self.ip
+                        ),
+                    }
+                    self.ip += 1;
+                }
+
                 self.stack.truncate(rollback_index);
                 // println!("AFTER: {:?}", self.stack);
                 // println!("index: {:?}", self.stack_index);
@@ -1115,8 +1114,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 let instr = self.instructions[self.ip];
                 match (instr.op_code, instr.payload_size) {
                     (OpCode::CLOSEUPVALUE, 1) => {
-                        println!("Closing upvalues in pop");
-                        println!("Stack index: {:?}", self.stack_index);
                         self.close_upvalues(rollback_index + i as usize);
                     }
                     (OpCode::CLOSEUPVALUE, 0) => {
@@ -1360,8 +1357,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
     #[inline(always)]
     fn handle_upvalue(&mut self, index: usize) {
-        println!("Stack at upvalue: {:?}", self.stack);
-
         let value = self
             .function_stack
             .last()
@@ -1427,8 +1422,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             let instr = self.instructions[self.ip];
             match (instr.op_code, instr.payload_size) {
                 (OpCode::FILLUPVALUE, n) => {
-                    println!("@@@@@@@@@@@");
-                    println!("Adding an upvalue here");
                     upvalues.push(
                         self.function_stack
                             .last()
@@ -1437,19 +1430,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     );
                 }
                 (OpCode::FILLLOCALUPVALUE, n) => {
-                    println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-                    println!("Stack index here: {:?}", self.stack_index);
-                    println!(
-                        "Capturing upvalue at index: {:?}",
-                        self.stack_index.last().unwrap_or(&0) + n as usize
-                    );
-
-                    println!("HEAD HERE: {}", self.upvalue_head.is_some());
-
-                    if let Some(head) = self.upvalue_head.as_ref() {
-                        println!("{:?}", head.upgrade());
-                    }
-
                     upvalues.push(
                         // self.capture_upvalue(self.stack_index.last().unwrap_or(&0) + n as usize),
                         self.capture_upvalue(
@@ -1531,7 +1511,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             .rposition(|x| x.op_code == OpCode::POP)
             .expect("function missing pop instruction");
 
-        crate::core::instructions::pretty_print_dense_instructions(&function.body_exp);
+        // crate::core::instructions::pretty_print_dense_instructions(&function.body_exp);
 
         // println!("Last pop index: {}", last_pop);
 
@@ -1540,7 +1520,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
             match (instr.op_code, instr.payload_size) {
                 (OpCode::CLOSEUPVALUE, 1) => {
-                    println!("^^^^^^^^^^^Finding upvalues to be closed^^^^^^^^^^^^^^");
+                    // println!("^^^^^^^^^^^Finding upvalues to be closed^^^^^^^^^^^^^^");
                     self.close_upvalues(rollback_index + i as usize);
                     // indices.push(i);
                 }
@@ -1560,7 +1540,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         payload_size: usize,
         span: &Span,
     ) -> Result<()> {
-        println!("##########################################");
+        // println!("##########################################");
         // println!("stack before: {:?}", self.stack);
         // println!("stack index: {:?}", self.stack_index);
         // println!(
