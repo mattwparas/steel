@@ -161,7 +161,7 @@ mod stream_tests {
 
         (assert! 
             (equal? (list 0 1 2 3 4)
-                    (execute (taking 5) (integers 0))))
+                    (transduce (integers 0) (taking 5) (into-list))))
         "#;
         assert_script(script);
     }

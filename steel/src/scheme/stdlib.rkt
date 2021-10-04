@@ -248,7 +248,7 @@
 (define (map func lst)
   (if (null? lst) 
       '() 
-      (execute (mapping func) lst)))
+      (transduce lst (mapping func) (into-list))))
 
 
 (define foldr (lambda (func accum lst)
@@ -294,7 +294,7 @@
 (define (filter pred lst)
   (if (empty? lst) 
       '() 
-      (execute (filtering pred) lst)))
+      (transduce lst (filtering pred) (into-list))))
 
 ; (define (fact n)
 ;   (define factorial-tail (lambda (n acc) 

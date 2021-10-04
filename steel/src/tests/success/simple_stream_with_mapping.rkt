@@ -6,7 +6,9 @@
 
 (assert! 
     (equal? (list 1 2 3 4 5)
-            (execute (compose 
+            (transduce 
+                    (integers 0)
+                    (compose 
                         (mapping (lambda (x) (+ x 1)))
-                        (taking 5)) 
-                        (integers 0))))
+                        (taking 5))
+                    (into-list))))

@@ -70,7 +70,7 @@
 (define r (range 0 1000))
 
 (transducing z r)
-(execute xf r)
+; (execute xf r)
 
 ;; Run through the stack and spit out the result
 ; (define (execute stack input result)

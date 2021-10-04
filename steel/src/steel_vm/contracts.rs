@@ -707,7 +707,7 @@ mod contract_tests {
             (->/c number? number? number?)
             (+ accum elem))
 
-        (define res (transduce (taking 5) + 0 (range 0 10)))
+        (define res (transduce (range 0 10) (taking 5) (into-reducer + 0)))
 
         (assert! (equal? res 10))
         "#;
@@ -731,9 +731,9 @@ mod contract_tests {
 
         (define xyz (compose x y z))
 
-        (define exec-list (execute xyz (range 0 100)))
-        (define exec-vector (execute xyz (range 0 100) 'vector))
-        (define my-sum (transduce xyz + 0 (range 0 100)))
+        (define exec-list (transduce (range 0 100) xyz (into-list)))
+        (define exec-vector (transduce (range 0 100) xyz (into-vector)))
+        (define my-sum (transduce (range 0 100) xyz (into-reducer + 0)))
         
         (assert! (equal? exec-list '(2 4 6 8 10 12 14 16 18 20)))
         (assert! (equal? exec-vector (vector 2 4 6 8 10 12 14 16 18 20)))

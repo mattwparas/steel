@@ -4,5 +4,5 @@
 (define xf (compose x y z))
 (assert! 
     (equal? 
-        (transduce xf + 0 (range 0 100)) ;; => 210
+        (transduce (range 0 100) xf (into-reducer + 0)) ;; => 210
         210))

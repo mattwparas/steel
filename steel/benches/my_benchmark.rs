@@ -52,7 +52,7 @@ fn map(c: &mut Criterion) {
 }
 
 fn transducer_map(c: &mut Criterion) {
-    let script = "(execute a lst)";
+    let script = "(transduce lst a (into-list))";
     let warmup = "(define lst (range 0 10000)) (define a (mapping (lambda (a) (* a 2))))";
     benchmark_template(c, "transducer-map", script, warmup);
 }
@@ -66,12 +66,13 @@ fn filter(c: &mut Criterion) {
 fn multiple_transducers(c: &mut Criterion) {
     let warmup = "(define lst (range 0 50000))";
     let script = r#"
-        (execute (compose
+        (transduce lst (compose
                     (mapping (fn (x) (* x 2)))
                     (filtering even?)
                     (mapping (fn (x) (+ x 25)))
                     (taking 25000)
-                    (taking 25)) lst)
+                    (taking 25))
+                    (into-list))
     "#;
     benchmark_template(c, "multiple-transducers", script, warmup);
 }
