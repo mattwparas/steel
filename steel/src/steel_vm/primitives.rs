@@ -408,6 +408,7 @@ pub(crate) fn register_transducer_functions(engine: &mut Engine) {
         .register_value("filtering", TransducerOperations::filter())
         .register_value("taking", TransducerOperations::take())
         .register_value("dropping", TransducerOperations::dropping())
+        .register_value("extending", TransducerOperations::extending())
         .register_value("into-sum", crate::values::transducers::INTO_SUM)
         .register_value("into-product", crate::values::transducers::INTO_PRODUCT)
         .register_value("into-max", crate::values::transducers::INTO_MAX)

@@ -14,7 +14,7 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     stop,
-    values::transducers::{CollectionType, Reducer, Transducers},
+    values::transducers::{Reducer, Transducers},
 };
 
 use std::rc::Rc;

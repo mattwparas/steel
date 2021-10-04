@@ -342,27 +342,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for Vm
         )
     }
 
-    // fn call_transduce(
-    //     &mut self,
-    //     ops: &[Transducers],
-    //     root: SteelVal,
-    //     initial_value: SteelVal,
-    //     reducer: SteelVal,
-    // ) -> Result<SteelVal> {
-    //     let span = Span::default();
-    //     self.transduce(ops, root, initial_value, reducer, &span)
-    // }
-
-    // fn call_execute(
-    //     &mut self,
-    //     ops: &[Transducers],
-    //     root: SteelVal,
-    //     collection_type: Option<SteelVal>,
-    // ) -> Result<SteelVal> {
-    //     let span = Span::default();
-    //     self.run(ops, root, collection_type, &span)
-    // }
-
     fn call_transduce(
         &mut self,
         ops: &[Transducers],

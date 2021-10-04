@@ -31,12 +31,37 @@ impl TransducerOperations {
             }
 
             match &args[0] {
-                Closure(_) | FuncV(_) | BoxedFunction(_) | ContractedFunction(_) => {
+                Closure(_)
+                | FuncV(_)
+                | BoxedFunction(_)
+                | ContractedFunction(_)
+                | BuiltIn(_)
+                | MutFunc(_) => {
                     let mut transducer = Transducer::new();
                     transducer.push(Transducers::Map(args[0].clone()));
                     Ok(SteelVal::IterV(Gc::new(transducer)))
                 }
                 v => stop!(TypeMismatch => format!("mapping expects a function, found: {:?}", v)),
+            }
+        })
+    }
+
+    pub fn extending() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "extending takes one argument");
+            }
+
+            match &args[0] {
+                VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | StructV(_) | HashSetV(_)
+                | HashMapV(_) => {
+                    let mut transducer = Transducer::new();
+                    transducer.push(Transducers::Extend(args[0].clone()));
+                    Ok(SteelVal::IterV(Gc::new(transducer)))
+                }
+                v => {
+                    stop!(TypeMismatch => format!("extending expects an iterable, found: {:?}", v))
+                }
             }
         })
     }
@@ -48,7 +73,12 @@ impl TransducerOperations {
             }
 
             match &args[0] {
-                Closure(_) | FuncV(_) | BoxedFunction(_) | ContractedFunction(_) => {
+                Closure(_)
+                | FuncV(_)
+                | BoxedFunction(_)
+                | ContractedFunction(_)
+                | BuiltIn(_)
+                | MutFunc(_) => {
                     let mut transducer = Transducer::new();
                     transducer.push(Transducers::FlatMap(args[0].clone()));
                     Ok(SteelVal::IterV(Gc::new(transducer)))
@@ -79,7 +109,12 @@ impl TransducerOperations {
             }
 
             match &args[0] {
-                Closure(_) | FuncV(_) | BoxedFunction(_) | ContractedFunction(_) => {
+                Closure(_)
+                | FuncV(_)
+                | BoxedFunction(_)
+                | ContractedFunction(_)
+                | BuiltIn(_)
+                | MutFunc(_) => {
                     let mut transducer = Transducer::new();
                     transducer.push(Transducers::Filter(args[0].clone()));
                     Ok(SteelVal::IterV(Gc::new(transducer)))
@@ -118,14 +153,6 @@ impl TransducerOperations {
             } else {
                 stop!(TypeMismatch => "dropping expects an integer")
             }
-        })
-    }
-
-    pub fn transducer_construct() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            Ok(SteelVal::VectorV(Gc::new(
-                args.into_iter().cloned().collect(),
-            )))
         })
     }
 }
