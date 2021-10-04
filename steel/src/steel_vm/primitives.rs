@@ -229,7 +229,11 @@ pub(crate) fn register_list_functions(engine: &mut Engine) {
         // TODO move this to somewhere better than here
         .register_value("apply", crate::primitives::lists::TEST_APPLY)
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
-        .register_value("execute", crate::steel_vm::transducers::EXECUTE);
+        .register_value("execute", crate::steel_vm::transducers::EXECUTE)
+        .register_value(
+            "test-transduce",
+            crate::steel_vm::transducers::TEST_TRANSDUCE,
+        );
 }
 
 #[inline(always)]
@@ -406,7 +410,21 @@ pub(crate) fn register_transducer_functions(engine: &mut Engine) {
         .register_value("flat-mapping", TransducerOperations::flat_map())
         .register_value("filtering", TransducerOperations::filter())
         .register_value("taking", TransducerOperations::take())
-        .register_value("dropping", TransducerOperations::dropping());
+        .register_value("dropping", TransducerOperations::dropping())
+        .register_value("into-sum", crate::values::transducers::INTO_SUM)
+        .register_value("into-product", crate::values::transducers::INTO_PRODUCT)
+        .register_value("into-max", crate::values::transducers::INTO_MAX)
+        .register_value("into-min", crate::values::transducers::INTO_MIN)
+        .register_value("into-count", crate::values::transducers::INTO_COUNT)
+        .register_value("into-list", crate::values::transducers::INTO_LIST)
+        .register_value("into-vector", crate::values::transducers::INTO_VECTOR)
+        .register_value("into-hashmap", crate::values::transducers::INTO_HASHMAP)
+        .register_value("into-hashset", crate::values::transducers::INTO_HASHSET)
+        .register_value("into-string", crate::values::transducers::INTO_STRING)
+        .register_value("into-last", crate::values::transducers::INTO_LAST)
+        .register_value("into-for-each", crate::values::transducers::FOR_EACH)
+        .register_value("into-nth", crate::values::transducers::NTH)
+        .register_value("into-reducer", crate::values::transducers::REDUCER);
 }
 
 #[inline(always)]

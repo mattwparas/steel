@@ -12,6 +12,7 @@ use super::{
 use crate::jit::code_gen::JIT;
 // #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
+use crate::values::transducers::Reducer;
 use crate::values::transducers::Transducers;
 // use crate::steel_vm::contracts::FlatContractExt;
 use crate::values::contracts::ContractType;
@@ -287,6 +288,13 @@ pub trait VmContext {
         root: SteelVal,
         collection_type: Option<SteelVal>,
     ) -> Result<SteelVal>;
+
+    fn call_test_transduce(
+        &mut self,
+        ops: &[Transducers],
+        root: SteelVal,
+        reducer: Reducer,
+    ) -> Result<SteelVal>;
 }
 
 // For when we want a reference to the built in context as well -> In the event we want to call something
@@ -353,6 +361,16 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for Vm
     ) -> Result<SteelVal> {
         let span = Span::default();
         self.run(ops, root, collection_type, &span)
+    }
+
+    fn call_test_transduce(
+        &mut self,
+        ops: &[Transducers],
+        root: SteelVal,
+        reducer: Reducer,
+    ) -> Result<SteelVal> {
+        let span = Span::default();
+        self.test_transduce(ops, root, reducer, &span)
     }
 }
 

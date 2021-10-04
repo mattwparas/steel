@@ -1,9 +1,14 @@
-use crate::SteelVal;
+use crate::gc::Gc;
+use crate::rerrs::{ErrorKind, SteelErr};
+use crate::rvals::Result;
+use crate::{steel_vm::vm::VmContext, SteelVal};
 
 pub enum CollectionType {
     List,
     Vector,
 }
+
+use crate::core::utils::{arity_check, declare_const_ref_functions};
 
 // Make a transducer actually contain an option to a rooted value, otherwise
 // it is a source agnostic transformer on the (eventual) input
@@ -45,11 +50,25 @@ pub enum Transducers {
 // This should just describe how a sequence of values can be reduced
 // assert that the function passed in has an arity of 2
 // and the initival
+#[derive(Clone, Debug)]
 pub struct ReducerFunc {
-    initial_value: SteelVal,
-    function: SteelVal,
+    pub(crate) initial_value: SteelVal,
+    pub(crate) function: SteelVal,
 }
 
+impl ReducerFunc {
+    fn new(initial_value: SteelVal, function: SteelVal) -> Self {
+        ReducerFunc {
+            initial_value,
+            function,
+        }
+    }
+}
+
+// Defines how to collect a function
+// defaults to the same input type?
+
+#[derive(Clone, Debug)]
 pub enum Reducer {
     // Sum the sequence
     Sum,
@@ -62,7 +81,7 @@ pub enum Reducer {
     // Count the elements in the sequence
     Count,
     // Give the nth elements
-    Nth,
+    Nth(usize),
     // Collect into a list
     List,
     // Collect into a vector
@@ -81,12 +100,76 @@ pub enum Reducer {
     Generic(ReducerFunc),
 }
 
-// How to collect into a type
-// Have a reducer for every collection - optionally, otherwise it just defaults
-// to the same type
-// for-each is just transducing but without the collection
-// pub enum Reducers {
-//     // Typical function
-//     Generic(SteelVal),
-//     // Specific collection type
-// }
+macro_rules! into_collection {
+    ($($name:tt => $collection:tt),* $(,)? ) => {
+        $ (
+            fn $name(args: &[SteelVal]) -> Result<SteelVal> {
+                arity_check!($name, args, 0);
+                Ok(SteelVal::ReducerV(Gc::new(Reducer::$collection)))
+            }
+        ) *
+    }
+}
+
+declare_const_ref_functions! {
+    INTO_SUM => into_sum,
+    INTO_PRODUCT => into_multiply,
+    INTO_MAX => into_max,
+    INTO_MIN => into_min,
+    INTO_COUNT => into_count,
+    INTO_LIST => into_list,
+    INTO_VECTOR => into_vector,
+    INTO_HASHMAP => into_hashmap,
+    INTO_HASHSET => into_hashset,
+    INTO_STRING => into_string,
+    INTO_LAST => into_last,
+    FOR_EACH => for_each,
+    REDUCER => generic,
+    NTH => nth,
+}
+
+into_collection! {
+    into_sum => Sum,
+    into_multiply => Multiply,
+    into_max => Max,
+    into_min => Min,
+    into_count => Count,
+    into_list => List,
+    into_vector => Vector,
+    into_hashmap => HashMap,
+    into_hashset => HashSet,
+    into_string => String,
+    into_last => Last
+}
+
+fn for_each(args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(for_each, args, 1);
+    let function = args[0].clone();
+    Ok(SteelVal::ReducerV(Gc::new(Reducer::ForEach(function))))
+}
+
+fn generic(args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(reducer, args, 2);
+    let function = args[0].clone();
+    let initial_value = args[1].clone();
+    Ok(SteelVal::ReducerV(Gc::new(Reducer::Generic(
+        ReducerFunc::new(initial_value, function),
+    ))))
+}
+
+fn nth(args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(nth, args, 1);
+
+    let number = args[0].clone();
+
+    if let SteelVal::IntV(n) = number {
+        if n < 0 {
+            stop!(TypeMismatch => format!("nth expected a (postive) integer, found: {}", number));
+        }
+        Ok(SteelVal::ReducerV(Gc::new(Reducer::Nth(n as usize))))
+    } else {
+        stop!(TypeMismatch => format!("nth expected a (postive) integer, found: {}", number))
+    }
+}
+
+// Reducer functions

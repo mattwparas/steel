@@ -8,7 +8,7 @@ use crate::{
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
-        transducers::Transducer,
+        transducers::{Reducer, Transducer},
     },
     values::{structs::SteelStruct, upvalue::UpValue},
 };
@@ -262,6 +262,9 @@ pub enum SteelVal {
     Closure(Gc<ByteCodeLambda>),
     /// Generic iterator wrapper
     IterV(Gc<Transducer>),
+    /// Reducers
+    ReducerV(Gc<Reducer>),
+    // Reducer(Reducer)
     // Generic IntoIter wrapper
     // Promise(Gc<SteelVal>),
     /// Async Function wrapper
@@ -687,6 +690,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         // write!(f, "#<list {:?}>", l),
         MutFunc(_) => write!(f, "#<function>"),
         BuiltIn(_) => write!(f, "#<function>"),
+        ReducerV(_) => write!(f, "#<reducer>"),
     }
 }
 

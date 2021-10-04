@@ -8,16 +8,17 @@ use super::{
 };
 use crate::{
     compiler::constants::ConstantTable,
+    gc::Gc,
     parser::span::Span,
     primitives::VectorOperations,
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     stop,
-    values::transducers::{CollectionType, Transducers},
+    values::transducers::{CollectionType, Reducer, Transducers},
 };
 
-use std::cell::RefCell;
 use std::rc::Rc;
+use std::{cell::RefCell, convert::TryInto};
 
 /// Generates the take transducer - wrapper around the take iterator
 macro_rules! generate_take {
@@ -50,6 +51,8 @@ macro_rules! generate_drop {
 pub(crate) const TRANSDUCE: SteelVal = SteelVal::BuiltIn(transduce);
 pub(crate) const EXECUTE: SteelVal = SteelVal::BuiltIn(execute);
 
+pub(crate) const TEST_TRANSDUCE: SteelVal = SteelVal::BuiltIn(test_transduce);
+
 // Transduce - reducer has intitial value?
 // Change this so -> first value is sequence
 // sequence argument is a transducer or a sequence of transducers
@@ -66,6 +69,41 @@ fn transduce(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
     } else {
         stop!(Generic => format!("transduce must take a transducer, found: {}", transducer));
     }
+}
+
+// figure out if nested transducers works
+fn test_transduce(mut args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
+    let reducer = args
+        .pop()
+        .ok_or_else(throw!(ArityMismatch => "transduce expects 3 arguments, found none"))?;
+    let mut arg_iter = args.into_iter();
+    let collection = arg_iter.next().unwrap();
+
+    // TODO make this way better
+    let transducers: Vec<_> = arg_iter
+        .map(|x| {
+            if let SteelVal::IterV(i) = x {
+                Ok(i)
+            } else {
+                stop!(TypeMismatch => format!("transduce expects a transducer, found: {}", x))
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let transducers = transducers
+        .into_iter()
+        .flat_map(|x| x.ops.clone())
+        .collect::<Vec<_>>();
+
+    if let SteelVal::ReducerV(r) = &reducer {
+        // TODO get rid of this unwrap
+        // just pass a reference instead
+        ctx.call_test_transduce(&transducers, collection, r.unwrap())
+    } else {
+        stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {}", reducer))
+    }
+
+    // todo!()
 }
 
 // Execute and transduce should be able to be merged into one function
@@ -387,7 +425,54 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
                     Box::new(iter.filter_map(switch_statement))
                 }
                 Transducers::FlatMap(stack_func) => {
-                    todo!()
+                    let vm_copy = Rc::clone(&vm);
+
+                    let switch_statement =
+                        move |arg: Result<SteelVal>| -> Box<dyn Iterator<Item = Result<SteelVal>>> {
+                            match arg {
+                                Ok(arg) => {
+                                    let res = vm_copy.borrow_mut().call_func_or_else(
+                                    stack_func,
+                                    arg,
+                                    cur_inst_span,
+                                    throw!(TypeMismatch => "map expected a function"; *cur_inst_span),
+                                );
+
+                                    match res {
+                                        Ok(x) => {
+                                            match x {
+                                                SteelVal::VectorV(v) => {
+                                                    Box::new(v.unwrap().into_iter().map(Ok))
+                                                }
+                                                // TODO this needs to be fixed
+                                                SteelVal::StringV(s) => Box::new(
+                                                    s.chars()
+                                                        .map(|x| Ok(SteelVal::CharV(x)))
+                                                        .collect::<Vec<_>>()
+                                                        .into_iter(),
+                                                ),
+                                                SteelVal::ListV(l) => {
+                                                    Box::new(l.into_iter().map(Ok))
+                                                }
+                                                SteelVal::StructV(s) => {
+                                                    Box::new(s.unwrap().fields.into_iter().map(Ok))
+                                                }
+                                                els => {
+                                                    let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {}", els)).with_span(*cur_inst_span);
+
+                                                    Box::new(std::iter::once(Err(err)))
+                                                }
+                                            }
+                                        }
+                                        err => Box::new(std::iter::once(err)),
+                                    }
+                                }
+
+                                err => Box::new(std::iter::once(err)),
+                            }
+                        };
+
+                    Box::new(iter.flat_map(switch_statement))
                 }
                 Transducers::Flatten => {
                     // TODO figure out how to use strings here
@@ -435,7 +520,31 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
                     todo!()
                 }
                 Transducers::Extend(collection) => {
-                    todo!()
+                    let extender: Box<dyn Iterator<Item = Result<SteelVal>>> = match collection
+                        .clone()
+                    {
+                        SteelVal::VectorV(v) => Box::new(v.unwrap().into_iter().map(Ok)),
+                        // TODO this needs to be fixed
+                        SteelVal::StringV(s) => Box::new(
+                            s.chars()
+                                .map(|x| Ok(SteelVal::CharV(x)))
+                                .collect::<Vec<_>>()
+                                .into_iter(),
+                        ),
+                        SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
+                        SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
+                        els => {
+                            let err = SteelErr::new(
+                                ErrorKind::TypeMismatch,
+                                format!("extending expected a traversable value, found: {}", els),
+                            )
+                            .with_span(*cur_inst_span);
+
+                            Box::new(std::iter::once(Err(err)))
+                        }
+                    };
+
+                    Box::new(iter.chain(extender))
                 }
                 Transducers::Cycle => {
                     todo!()
@@ -458,5 +567,293 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
         };
 
         iter.fold(Ok(initial_value), switch_statement)
+    }
+
+    pub(crate) fn test_transduce(
+        &mut self,
+        ops: &[Transducers],
+        root: SteelVal,
+        reducer: Reducer,
+        cur_inst_span: &Span,
+    ) -> Result<SteelVal> {
+        let vm = Rc::new(RefCell::new(self));
+
+        let mut iter = Self::res_iterator(&root, Rc::clone(&vm), cur_inst_span)?;
+
+        for t in ops {
+            iter = match t {
+                Transducers::Map(stack_func) => {
+                    let vm_copy = Rc::clone(&vm);
+
+                    let switch_statement = move |arg| {
+                        vm_copy.borrow_mut().call_func_or_else(
+                            stack_func,
+                            arg?,
+                            cur_inst_span,
+                            throw!(TypeMismatch => "map expected a function"; *cur_inst_span),
+                        )
+                    };
+
+                    Box::new(iter.map(switch_statement))
+                }
+                Transducers::Filter(stack_func) => {
+                    let vm_copy = Rc::clone(&vm);
+
+                    let switch_statement = move |arg: Result<SteelVal>| match arg {
+                        Ok(arg) => {
+                            let res = vm_copy.borrow_mut().call_func_or_else(
+                                stack_func,
+                                arg.clone(),
+                                cur_inst_span,
+                                throw!(TypeMismatch => "filter expected a function"; *cur_inst_span)
+                            );
+
+                            match res {
+                                Ok(k) => match k {
+                                    SteelVal::BoolV(true) => Some(Ok(arg)),
+                                    SteelVal::BoolV(false) => None,
+                                    _ => None,
+                                },
+                                Err(e) => Some(Err(e)),
+                            }
+                        }
+
+                        _ => Some(arg),
+                    };
+
+                    Box::new(iter.filter_map(switch_statement))
+                }
+                Transducers::FlatMap(stack_func) => {
+                    let vm_copy = Rc::clone(&vm);
+
+                    let switch_statement =
+                        move |arg: Result<SteelVal>| -> Box<dyn Iterator<Item = Result<SteelVal>>> {
+                            match arg {
+                                Ok(arg) => {
+                                    let res = vm_copy.borrow_mut().call_func_or_else(
+                                    stack_func,
+                                    arg,
+                                    cur_inst_span,
+                                    throw!(TypeMismatch => "map expected a function"; *cur_inst_span),
+                                );
+
+                                    match res {
+                                        Ok(x) => {
+                                            match x {
+                                                SteelVal::VectorV(v) => {
+                                                    Box::new(v.unwrap().into_iter().map(Ok))
+                                                }
+                                                // TODO this needs to be fixed
+                                                SteelVal::StringV(s) => Box::new(
+                                                    s.chars()
+                                                        .map(|x| Ok(SteelVal::CharV(x)))
+                                                        .collect::<Vec<_>>()
+                                                        .into_iter(),
+                                                ),
+                                                SteelVal::ListV(l) => {
+                                                    Box::new(l.into_iter().map(Ok))
+                                                }
+                                                SteelVal::StructV(s) => {
+                                                    Box::new(s.unwrap().fields.into_iter().map(Ok))
+                                                }
+                                                els => {
+                                                    let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {}", els)).with_span(*cur_inst_span);
+
+                                                    Box::new(std::iter::once(Err(err)))
+                                                }
+                                            }
+                                        }
+                                        err => Box::new(std::iter::once(err)),
+                                    }
+                                }
+
+                                err => Box::new(std::iter::once(err)),
+                            }
+                        };
+
+                    Box::new(iter.flat_map(switch_statement))
+                }
+                Transducers::Flatten => {
+                    // TODO figure out how to use strings here
+                    let switch_statement =
+                        move |arg: Result<SteelVal>| -> Box<dyn Iterator<Item = Result<SteelVal>>> {
+                            match arg {
+                                Ok(x) => {
+                                    match x {
+                                        SteelVal::VectorV(v) => {
+                                            Box::new(v.unwrap().into_iter().map(Ok))
+                                        }
+                                        // TODO this needs to be fixed
+                                        SteelVal::StringV(s) => Box::new(
+                                            s.chars()
+                                                .map(|x| Ok(SteelVal::CharV(x)))
+                                                .collect::<Vec<_>>()
+                                                .into_iter(),
+                                        ),
+                                        SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
+                                        SteelVal::StructV(s) => {
+                                            Box::new(s.unwrap().fields.into_iter().map(Ok))
+                                        }
+                                        els => {
+                                            let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {}", els)).with_span(*cur_inst_span);
+
+                                            Box::new(std::iter::once(Err(err)))
+                                        }
+                                    }
+                                }
+                                err => Box::new(std::iter::once(err)),
+                            }
+                        };
+
+                    Box::new(iter.flat_map(switch_statement))
+
+                    // todo!()
+                }
+                Transducers::Window(num) => {
+                    todo!()
+                }
+                Transducers::TakeWhile(func) => {
+                    todo!()
+                }
+                Transducers::DropWhile(func) => {
+                    todo!()
+                }
+                Transducers::Extend(collection) => {
+                    let extender: Box<dyn Iterator<Item = Result<SteelVal>>> = match collection
+                        .clone()
+                    {
+                        SteelVal::VectorV(v) => Box::new(v.unwrap().into_iter().map(Ok)),
+                        // TODO this needs to be fixed
+                        SteelVal::StringV(s) => Box::new(
+                            s.chars()
+                                .map(|x| Ok(SteelVal::CharV(x)))
+                                .collect::<Vec<_>>()
+                                .into_iter(),
+                        ),
+                        SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
+                        SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
+                        els => {
+                            let err = SteelErr::new(
+                                ErrorKind::TypeMismatch,
+                                format!("extending expected a traversable value, found: {}", els),
+                            )
+                            .with_span(*cur_inst_span);
+
+                            Box::new(std::iter::once(Err(err)))
+                        }
+                    };
+
+                    Box::new(iter.chain(extender))
+                }
+                Transducers::Cycle => {
+                    todo!()
+                }
+                Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),
+                Transducers::Drop(num) => generate_drop!(iter, num, cur_inst_span),
+            }
+        }
+
+        Self::into_value(vm, reducer, iter, cur_inst_span)
+    }
+
+    fn into_value(
+        vm_ctx: Rc<RefCell<&'global mut Self>>,
+        reducer: Reducer,
+        mut iter: impl Iterator<Item = Result<SteelVal>>,
+        cur_inst_span: &Span,
+    ) -> Result<SteelVal> {
+        match reducer {
+            // TODO this only works with integer values right now
+            Reducer::Sum => {
+                iter.map(|x| match x? {
+                    SteelVal::IntV(v) => {
+                        Ok(v)
+                    }
+                    other => {
+                        stop!(TypeMismatch => "sum expects an integer value, found: {:?}", other)
+                    }
+                })
+                .sum::<Result<isize>>()
+                .map(SteelVal::IntV)
+            },
+            Reducer::Multiply => {
+                iter.map(|x| match x? {
+                    SteelVal::IntV(v) => {
+                        Ok(v)
+                    }
+                    other => {
+                        stop!(TypeMismatch => "sum expects an integer value, found: {:?}", other)
+                    }
+                })
+                .product::<Result<isize>>()
+                .map(SteelVal::IntV)
+            }
+            Reducer::Max => todo!(),
+            Reducer::Min => todo!(),
+            Reducer::Count => {
+                Ok(SteelVal::IntV(iter.count().try_into().unwrap())) // TODO have proper big int
+            },
+            Reducer::Nth(usize) => {
+                iter.nth(usize).unwrap_or_else(|| stop!(Generic => "`nth` - index given is greater than the length of the iterator"))
+            },
+            Reducer::List => iter.collect::<Result<List<_>>>().map(SteelVal::ListV),
+            Reducer::Vector => VectorOperations::vec_construct_iter(iter),
+            Reducer::HashMap => {
+                iter.map(|x| {
+                    match x? {
+                        SteelVal::ListV(l) => {
+                            if l.len() != 2 {
+                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {:?}", l));
+                            } else {
+                                let mut iter = l.into_iter();
+                                Ok((iter.next().unwrap(), iter.next().unwrap()))
+                            }
+                        }
+                        SteelVal::VectorV(l) => {
+                            if l.len() != 2 {
+                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {:?}", l));
+                            } else {
+                                let mut iter = l.iter();
+                                Ok((iter.next().cloned().unwrap(), iter.next().cloned().unwrap()))
+                            }
+                        }
+                        other => {
+                            stop!(TypeMismatch => format!("Unable to convert: {} to pair that can be used to construct a hashmap", other));
+                        }
+                    }
+                }).collect::<Result<im_rc::HashMap<_, _>>>().map(|x| SteelVal::HashMapV(Gc::new(x)))
+            },
+            Reducer::HashSet => iter.collect::<Result<im_rc::HashSet<_>>>().map(|x| SteelVal::HashSetV(Gc::new(x))),
+            Reducer::String => todo!(),
+            Reducer::Last => iter.last().unwrap_or_else(|| stop!(Generic => "`last` found empty list - `last` requires at least one element in the sequence")),
+            Reducer::ForEach(f) => {
+                for value in iter {
+                    vm_ctx.borrow_mut().call_func_or_else(
+                        &f,
+                        value?,
+                        cur_inst_span,
+                        throw!(TypeMismatch => format!("for-each expected a function, found: {}", &f))
+                    )?;
+                }
+
+                Ok(SteelVal::Void)
+            },
+            Reducer::Generic(reducer) => {
+
+                let initial_value = Ok(reducer.initial_value.clone());
+
+                let switch_statement = move |acc, x| {
+                    vm_ctx.borrow_mut().call_func_or_else_two_args(
+                        &reducer.function,
+                        acc?,
+                        x?,
+                        cur_inst_span,
+                        throw!(TypeMismatch => "reduce expected a function"; *cur_inst_span),
+                    )
+                };
+
+                iter.fold(initial_value, switch_statement)
+            }
+        }
     }
 }
