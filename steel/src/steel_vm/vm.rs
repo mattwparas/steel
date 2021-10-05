@@ -1089,8 +1089,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 }
 
                 self.stack.truncate(rollback_index);
-                // println!("AFTER: {:?}", self.stack);
-                // println!("index: {:?}", self.stack_index);
             }
 
             Some(ret_val)
