@@ -232,6 +232,12 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     loop {
         let readline = rl.readline(&prompt);
+
+        // If we panicked from the VM - propagate the panic upwards
+        if let Err(e) = Arc::clone(&INTERRUPT_CHANNEL.1).lock() {
+            panic!("{:?}", e);
+        }
+
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());

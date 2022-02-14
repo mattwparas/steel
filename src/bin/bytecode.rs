@@ -17,14 +17,13 @@ fn main() {
 
     let mut builder = Builder::new();
 
-    builder
-        .filter(Some("pipeline_time"), LevelFilter::Trace)
-        .filter(Some("reader-macros"), LevelFilter::Trace)
-        .init();
-
     // builder
-    //     .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
+    //     .filter(Some("pipeline_time"), LevelFilter::Trace)
     //     .init();
+
+    builder
+        .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
+        .init();
 
     let args = args().collect::<Vec<_>>();
 
@@ -50,10 +49,15 @@ fn main() {
         }
 
         let contents = fs::read_to_string(path).expect("Something went wrong reading the file");
-        let res = vm.parse_and_execute_without_optimizations(&contents);
+        let res = vm.disassemble(&contents);
 
-        if let Err(e) = res {
-            e.emit_result(path, &contents);
+        match res {
+            Ok(s) => {
+                println!("{s}");
+            }
+            Err(e) => {
+                eprintln!("{:?}", e);
+            }
         }
     }
 }

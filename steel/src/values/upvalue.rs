@@ -77,6 +77,7 @@ impl UpValue {
     }
 
     pub(crate) fn set_value(&mut self, val: SteelVal) {
+        println!("Closing value to be: {:?}", val);
         self.location = Location::Closed(val);
     }
 

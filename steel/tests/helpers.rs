@@ -4,8 +4,8 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 // use steel::interpreter::evaluator::Evaluator;
 // use steel::parser::*;
-use steel::steel_vm::engine::Engine;
 use steel::PRELUDE;
+use steel::{steel_vm::engine::Engine, SteelVal};
 
 // use std::collections::HashMap;
 
@@ -28,12 +28,34 @@ pub fn test_lines(input: impl BufRead, output: impl BufRead) {
     }
 }
 
+// TODO -> clean this up
+// the many references are broken
 pub fn test_line(input: &str, output: &[&str], evaluator: &mut Engine) {
     let result = evaluator.parse_and_execute_without_optimizations(input);
     match result {
         Ok(vals) => {
+            println!("Expected values: {:?}", output);
+            println!("Resulting values: {:?}", vals);
+
+            let vals: Vec<_> = vals
+                .into_iter()
+                .filter(|x| x.clone() != SteelVal::Void)
+                .collect();
+
+            let output: Vec<&&str> = output.into_iter().filter(|x| **x != "#<void>").collect();
+
+            println!("post - Expected values: {:?}", output);
+            println!("post - Resulting values: {:?}", vals);
+
+            // TODO -> this shouldn't check this here
+            // voids should be skipped if the outputs don't match
+            // as in -> leading voids can be skipped
             assert_eq!(output.len(), vals.len());
-            for (expr, &expected) in vals.iter().zip(output.iter()) {
+
+            for (expr, &&expected) in vals.iter().zip(output.iter()) {
+                println!("expr to string: {:?}", expr.to_string());
+                println!("expected to string: {:?}", expected);
+
                 assert_eq!(expr.to_string(), expected);
                 // match expr {
                 //     Ok(x) => assert_eq!(x.to_string(), expected),

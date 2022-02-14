@@ -26,17 +26,21 @@ bincode = "1.3.1"
 # ahash = "0.6.3"
 pretty = "0.10.0"
 # Cranelift JIT
-cranelift = "0.75.0"
-cranelift-module = "0.75.0"
-cranelift-jit = "0.75.0"
+cranelift = { version = "0.75.0", optional = true }
+cranelift-module = { version = "0.75.0", optional = true }
+cranelift-jit = { version = "0.75.0", optional = true }
 # typed-arena = "2.0.1"
 # lazy_static = "1.4.0"
 im-lists = "0.1.0"
+quickscope = "0.2.0"
+lasso = { version = "0.6.0", features = ["multi-threaded"] }
+once_cell = "1.9.0"
 
 [dev-dependencies]
 proptest = "0.10.1"
 criterion = "0.3.3"
-steel = { path = ".", features = ["modules", "jit"] }
+# steel = { path = ".", features = ["modules", "jit"] }
+steel = { path = ".", features = ["modules"] }
 
 [features]
 # this effectively enable the feature `no-color` of colored when testing with

@@ -77,10 +77,10 @@ fn apply(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
         if arg1.is_function() {
             ctx.call_function_many_args(&arg1, l)
         } else {
-            stop!(TypeMismatch => "test-map expected a function")
+            stop!(TypeMismatch => "apply expected a function")
         }
     } else {
-        stop!(TypeMismatch => "test-map expects a list")
+        stop!(TypeMismatch => "apply expects a list")
     }
 }
 

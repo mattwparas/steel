@@ -2,7 +2,11 @@ use crate::compiler::{
     code_generator::{convert_call_globals, CodeGenerator},
     constants::{ConstantMap, ConstantTable},
     map::SymbolMap,
-    passes::begin::flatten_begins_and_expand_defines,
+    passes::{
+        begin::flatten_begins_and_expand_defines,
+        lambda_lifting::LambdaLifter,
+        reader::{ExpandMethodCalls, MultipleArityFunctions},
+    },
     program::Program,
 };
 use crate::core::{instructions::Instruction, opcode::OpCode};
@@ -418,7 +422,9 @@ impl Compiler {
         // let expanded_statements =
         //     ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
 
-        Ok(flatten_begins_and_expand_defines(expanded_statements))
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+
+        Ok(LambdaLifter::lift(expanded_statements))
 
         // self.emit_debug_instructions_from_exprs(parsed)
     }
@@ -727,6 +733,16 @@ impl Compiler {
                     .collect::<Vec<_>>()
             );
         }
+
+        // TODO - make sure I want to keep this
+        // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
+
+        // TODO
+        let expanded_statements = LambdaLifter::lift(expanded_statements);
+
+        // TODO - make sure I want to keep this
+        let expanded_statements =
+            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
 
         let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
         let dense_instructions =

@@ -13,7 +13,7 @@ use crate::{
     values::{structs::SteelStruct, upvalue::UpValue},
 };
 
-// #[cfg(feature = "jit")]
+#[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
 
 use std::{
@@ -289,7 +289,7 @@ pub enum SteelVal {
     // Continuation
     ContinuationFunction(Gc<Continuation>),
     // Function Pointer
-    // #[cfg(feature = "jit")]
+    #[cfg(feature = "jit")]
     CompiledFunction(JitFunctionPointer),
     // List
     ListV(List<SteelVal>),
@@ -548,6 +548,7 @@ impl Eq for SteelVal {}
 impl PartialEq for SteelVal {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            (Void, Void) => true,
             (BoolV(l), BoolV(r)) => l == r,
             // (NumV(l), NumV(r)) => l == r,
             (IntV(l), IntV(r)) => l == r,
@@ -666,6 +667,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
         BoxedFunction(_) => write!(f, "#<function>"),
         ContinuationFunction(_) => write!(f, "#<continuation>"),
+        #[cfg(feature = "jit")]
         CompiledFunction(_) => write!(f, "#<compiled-function>"),
         ListV(l) => {
             write!(f, "(")?;

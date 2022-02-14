@@ -51,3 +51,22 @@
 (define (test x)
   (test-let ((y 20))
     (lambda (z) (+ x y z))))
+
+
+(define lambda-lifter-Y1
+  (lambda (x f)
+    (x x)))
+
+
+(define Y
+  (lambda (f)
+    (lambda-lifter-Y1
+       (lambda (x)
+         (f (lambda (y) ((x x) y))))
+       f)))
+
+(define fib
+  (Y
+     (lambda (f)
+       (lambda (x)
+         (if (< x 2) x (+ (f (- x 1)) (f (- x 2))))))))

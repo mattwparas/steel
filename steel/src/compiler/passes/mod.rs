@@ -1,5 +1,7 @@
 pub mod begin;
+pub mod lambda_lifting;
 pub mod manager;
+pub mod reader;
 
 use crate::parser::ast::ExprKind;
 use crate::parser::ast::*;
@@ -89,7 +91,7 @@ pub trait Folder {
 
     #[inline]
     fn visit_quote(&mut self, mut quote: Box<Quote>) -> ExprKind {
-        quote.expr = self.visit(quote.expr);
+        // quote.expr = self.visit(quote.expr);
         ExprKind::Quote(quote)
     }
 

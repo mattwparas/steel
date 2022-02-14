@@ -19,12 +19,45 @@ use crate::rvals::SteelVal::*;
 
 use super::ast;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyntaxObject {
-    pub(crate) ty: TokenType,
+/// A syntax object that can hold anything as the syntax
+/// In this case, we're using the token type emitted by logos
+///
+/// This should open the door to interning our strings to make
+/// parsing (and optimizations later) faster
+pub struct RawSyntaxObject<T> {
+    pub(crate) ty: T,
     pub(crate) span: Span,
     pub(crate) source: Option<Rc<PathBuf>>,
 }
+
+impl<T: Clone> Clone for RawSyntaxObject<T> {
+    fn clone(&self) -> Self {
+        Self {
+            ty: self.ty.clone(),
+            span: self.span.clone(),
+            source: self.source.clone(),
+        }
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawSyntaxObject")
+            .field("ty", &self.ty)
+            .field("span", &self.span)
+            .field("source", &self.source)
+            .finish()
+    }
+}
+
+pub type SyntaxObject = RawSyntaxObject<TokenType>;
+
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+// pub struct SyntaxObject {
+//     pub(crate) ty: TokenType,
+//     pub(crate) span: Span,
+//     pub(crate) source: Option<Rc<PathBuf>>,
+// }
 
 impl PartialEq for SyntaxObject {
     fn eq(&self, other: &Self) -> bool {

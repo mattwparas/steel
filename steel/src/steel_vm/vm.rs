@@ -8,9 +8,9 @@ use super::{
     stack::{Stack, StackFrame},
 };
 
-// #[cfg(feature = "jit")]
+#[cfg(feature = "jit")]
 use crate::jit::code_gen::JIT;
-// #[cfg(feature = "jit")]
+#[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
 use crate::values::transducers::Reducer;
 use crate::values::transducers::Transducers;
@@ -41,7 +41,7 @@ use crate::{
     values::functions::ByteCodeLambda,
     values::structs::SteelStruct,
 };
-use std::env::current_exe;
+// use std::env::current_exe;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -67,7 +67,7 @@ pub struct VirtualMachineCore {
     function_stack: Vec<Gc<ByteCodeLambda>>,
     stack_index: Stack<usize>,
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
-    // #[cfg(feature = "jit")]
+    #[cfg(feature = "jit")]
     jit: JIT,
 }
 
@@ -81,7 +81,7 @@ impl VirtualMachineCore {
             function_stack: Vec::with_capacity(64),
             stack_index: Stack::with_capacity(64),
             upvalue_head: None,
-            // #[cfg(feature = "jit")]
+            #[cfg(feature = "jit")]
             jit: JIT::default(),
         }
     }
@@ -187,7 +187,7 @@ impl VirtualMachineCore {
             self.upvalue_head.take(),
             use_callbacks,
             apply_contracts,
-            // #[cfg(feature = "jit")]
+            #[cfg(feature = "jit")]
             Some(&mut self.jit),
         )?;
 
@@ -368,7 +368,7 @@ pub(crate) struct VmCore<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContrac
     pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
     pub(crate) use_callbacks: U,
     pub(crate) apply_contracts: A,
-    // #[cfg(feature = "jit")]
+    #[cfg(feature = "jit")]
     pub(crate) jit: Option<&'a mut JIT>,
 }
 
@@ -385,8 +385,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         use_callbacks: U,
         apply_contracts: A,
-        // #[cfg(feature = "jit")]
-        jit: Option<&'a mut JIT>,
+        #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> Result<VmCore<'a, CT, U, A>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
@@ -407,7 +406,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             function_stack,
             use_callbacks,
             apply_contracts,
-            // #[cfg(feature = "jit")]
+            #[cfg(feature = "jit")]
             jit,
         })
     }
@@ -473,6 +472,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             self.function_stack.iter(),
         );
 
+        println!(
+            "Creating upvalue: {:?} at index: {:?}",
+            created_up_value, local_idx
+        );
+        println!("Stack: {:?}", self.stack);
+
         if prev_up_value.is_none() {
             self.upvalue_head = Some(created_up_value.clone());
         } else {
@@ -502,6 +507,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             let upvalue = self.upvalue_head.as_ref().unwrap().upgrade().unwrap();
             // println!("Getting the value");
 
+            println!("Closing upvalues with stack: {:?}", self.stack);
+            println!("Upvalue: {:?}", upvalue);
             let value = upvalue.borrow().get_value(&self.stack);
 
             upvalue.borrow_mut().set_value(value);
@@ -983,6 +990,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                                 self.close_upvalues(rollback_index + i as usize);
                             }
                             (OpCode::CLOSEUPVALUE, 0) => {
+                                // TODO -> understand if this is actually what I want to happen
+                                // self.close_upvalues(rollback_index + i as usize);
                                 // do nothing explicitly, just a normal pop
                             }
                             (op, _) => panic!(
@@ -992,6 +1001,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         }
                         self.ip += 1;
                     }
+
+                    println!("Prior to ending scope with rollback index: {rollback_index}");
+                    println!("Stack: {:?}", self.stack);
 
                     let last = self.stack.pop().expect("Stack empty at pop");
 
@@ -1094,6 +1106,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             Some(ret_val)
         } else {
             let ret_val = self.stack.pop().unwrap();
+
+            println!("Stack index: {:?}", self.stack_index);
 
             // TODO fix this
             // let rollback_index = self.stack_index.pop().unwrap_or(0);
@@ -1392,14 +1406,29 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     fn handle_start_closure(&mut self, offset: usize) {
         // println!("Hitting start closure");
 
+        // println!("Instruction: {:?}", self.instructions[self.ip]);
+
+        // if self.instructions[self.ip].payload_size == 1 {
+        //     println!("Found multi arity function");
+        // }
+
+        self.ip += 1;
+
+        let is_multi_arity = self.instructions[self.ip].payload_size == 1;
+
         self.ip += 1;
 
         // Check whether this is a let or a rooted function
         let is_let = self.instructions[self.ip].payload_size == 1;
 
+        // if is_multi_arity {
+        //     println!("Found multi arity function");
+        // }
+
         self.ip += 1;
 
-        let forward_jump = offset - 2;
+        // TODO - used to be offset - 2, now 3 with the multi arity
+        let forward_jump = offset - 3;
 
         // Snag the number of upvalues here
         let ndefs = self.instructions[self.ip].payload_size;
@@ -1444,6 +1473,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             self.ip += 1;
         }
 
+        // TODO -> this is probably quite slow
+        // If extraneous lets are lifted, we probably don't need this
+        // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
+
         // Construct the closure body using the offsets from the payload
         // used to be - 1, now - 2
         let closure_body = self.instructions[self.ip..(self.ip + forward_jump - 1)].to_vec();
@@ -1451,8 +1484,13 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // snag the arity from the eclosure instruction
         let arity = self.instructions[forward_index - 1].payload_size;
 
-        let constructed_lambda =
-            ByteCodeLambda::new(closure_body, arity as usize, upvalues, is_let);
+        let constructed_lambda = ByteCodeLambda::new(
+            closure_body,
+            arity as usize,
+            upvalues,
+            is_let,
+            is_multi_arity,
+        );
 
         self.stack
             .push(SteelVal::Closure(Gc::new(constructed_lambda)));
@@ -1692,6 +1730,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             ContractedFunction(cf) => {
                 self.call_contracted_function_tail_call(cf, payload_size, span)?
             }
+            #[cfg(feature = "jit")]
             CompiledFunction(function) => {
                 self.call_compiled_function(function, payload_size, span)?
             }
@@ -1990,8 +2029,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // println!("Calling function");
         // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
+        // println!("Handling function call for multi arity function");
+
         // Jit profiling
-        closure.increment_call_count();
+
+        #[cfg(feature = "jit")]
+        {
+            closure.increment_call_count();
+        }
 
         // Push on the function stack so we have access to it later
         self.function_stack.push(Gc::clone(closure));
@@ -2030,6 +2075,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         Ok(())
     }
 
+    #[cfg(feature = "jit")]
     #[inline(always)]
     fn call_compiled_function(
         &mut self,
@@ -2063,6 +2109,10 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // Jit profiling
         closure.increment_call_count();
 
+        if closure.is_multi_arity {
+            println!("Calling multi arity function");
+        }
+
         // TODO take this out
 
         #[cfg(feature = "jit")]
@@ -2090,7 +2140,26 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // Push on the function stack so we have access to it later
         self.function_stack.push(Gc::clone(closure));
 
-        if closure.arity() != payload_size {
+        // TODO - this is unclear - need to pop values off of the stack, collect them as a list, then push it back in
+        // If this is a multi arity function
+        // then we should just
+        if closure.is_multi_arity {
+            if payload_size < closure.arity() - 1 {
+                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); *span);
+            }
+
+            // (define (test x . y))
+            // (test 1 2 3 4 5)
+            // in this case, arity = 2 and payload size = 5
+            // pop off the last 4, collect into a list
+            let amount_to_remove = 1 + payload_size - closure.arity();
+
+            let values = self.stack.split_off(self.stack.len() - amount_to_remove);
+
+            let list = SteelVal::ListV(List::from(values));
+
+            self.stack.push(list);
+        } else if closure.arity() != payload_size {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
         }
 
@@ -2102,7 +2171,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             stop!(Generic => "stack overflowed!"; *span);
         }
 
-        self.stack_index.push(self.stack.len() - payload_size);
+        // closure arity here is the number of true arguments
+        self.stack_index.push(self.stack.len() - closure.arity());
 
         // TODO use new heap
         // self.heap
@@ -2144,6 +2214,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             Closure(closure) => {
                 self.handle_function_call_closure_jit(closure, payload_size, span, ast_index)?
             }
+            #[cfg(feature = "jit")]
             CompiledFunction(function) => {
                 self.call_compiled_function(function, payload_size, span)?
             }
@@ -2151,6 +2222,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             BuiltIn(f) => self.call_builtin_func(f, payload_size, span)?,
             _ => {
                 println!("{:?}", stack_func);
+                println!("Stack: {:?}", self.stack);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; *span);
             }
         }
@@ -2190,13 +2262,15 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             ContractedFunction(cf) => self.call_contracted_function(cf, payload_size, span)?,
             ContinuationFunction(cc) => self.call_continuation(cc)?,
             Closure(closure) => self.handle_function_call_closure(closure, payload_size, span)?,
+            #[cfg(feature = "jit")]
             CompiledFunction(function) => {
                 self.call_compiled_function(function, payload_size, span)?
             }
             Contract(c) => self.call_contract(c, payload_size, span)?,
             BuiltIn(f) => self.call_builtin_func(f, payload_size, span)?,
             _ => {
-                // println!("{:?}", stack_func);
+                println!("{:?}", stack_func);
+                println!("stack: {:?}", self.stack);
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); *span);
             }
         }

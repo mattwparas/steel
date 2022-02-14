@@ -53,10 +53,51 @@ impl ExprKind {
         }
     }
 
+    pub fn atom_identifier(&self) -> Option<&str> {
+        match self {
+            Self::Atom(Atom {
+                syn: SyntaxObject { ty: t, .. },
+            }) => match t {
+                TokenType::Identifier(s) => Some(s),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub fn list_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&List, E> {
         match self {
             Self::List(l) => Ok(l),
             _ => Err(err()),
+        }
+    }
+
+    pub fn unwrap_function(self) -> Option<Box<LambdaFunction>> {
+        if let ExprKind::LambdaFunction(l) = self {
+            Some(l)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_list(&self) -> Option<&List> {
+        if let ExprKind::List(l) = self {
+            Some(l)
+        } else {
+            None
+        }
+    }
+
+    pub fn update_string_in_atom(&mut self, ident: String) {
+        if let ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(ref mut s),
+                    ..
+                },
+        }) = self
+        {
+            *s = ident;
         }
     }
 }
@@ -135,6 +176,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
             BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
             ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
+            #[cfg(feature = "jit")]
             CompiledFunction(_) => Err("Can't convert from function to expression!"),
             MutFunc(_) => Err("Can't convert from function to expression!"),
             BuiltIn(_) => Err("Can't convert from function to expression!"),
@@ -248,6 +290,14 @@ impl Atom {
     pub fn new(syn: SyntaxObject) -> Self {
         Atom { syn }
     }
+
+    pub fn ident(&self) -> Option<&str> {
+        if let TokenType::Identifier(ref ident) = self.syn.ty {
+            Some(ident)
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Display for Atom {
@@ -305,7 +355,28 @@ impl fmt::Display for Let {
 
 impl ToDoc for Let {
     fn to_doc(&self) -> RcDoc<()> {
-        todo!()
+        RcDoc::text("(test-let")
+            .append(RcDoc::space())
+            .append(RcDoc::text("("))
+            .append(
+                RcDoc::intersperse(
+                    self.bindings.iter().map(|x| {
+                        RcDoc::text("(")
+                            .append(x.0.to_doc())
+                            .append(RcDoc::space())
+                            .append(x.1.to_doc())
+                            .append(RcDoc::text(")"))
+                    }),
+                    RcDoc::line(),
+                )
+                .nest(2)
+                .group(),
+            )
+            .append(RcDoc::text(")"))
+            .append(RcDoc::line())
+            .append(self.body_expr.to_doc())
+            .append(RcDoc::text(")"))
+            .nest(2)
     }
 }
 
@@ -460,6 +531,7 @@ pub struct LambdaFunction {
     pub args: Vec<ExprKind>,
     pub body: ExprKind,
     pub location: SyntaxObject,
+    pub rest: bool,
 }
 
 impl fmt::Display for LambdaFunction {
@@ -497,6 +569,16 @@ impl LambdaFunction {
             args,
             body,
             location,
+            rest: false,
+        }
+    }
+
+    pub fn new_with_rest_arg(args: Vec<ExprKind>, body: ExprKind, location: SyntaxObject) -> Self {
+        LambdaFunction {
+            args,
+            body,
+            location,
+            rest: true,
         }
     }
 }
@@ -645,6 +727,10 @@ impl List {
         } else {
             None
         }
+    }
+
+    pub fn is_anonymous_function_call(&self) -> bool {
+        matches!(self.args.get(0), Some(ExprKind::LambdaFunction(_)))
     }
 }
 
@@ -1479,42 +1565,71 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             let arguments = value_iter.next();
 
-                            if let Some(ExprKind::List(l)) = arguments {
-                                let args = l.args;
+                            match arguments {
+                                Some(ExprKind::List(l)) => {
+                                    let args = l.args;
 
-                                for arg in &args {
-                                    if let ExprKind::Atom(_) = arg {
-                                        continue;
-                                    } else {
-                                        return Err(ParseError::SyntaxError(
-                                            "lambda function expects a list of identifiers"
-                                                .to_string(),
-                                            syn.span,
-                                            None,
-                                        ));
+                                    for arg in &args {
+                                        if let ExprKind::Atom(_) = arg {
+                                            continue;
+                                        } else {
+                                            return Err(ParseError::SyntaxError(
+                                                "lambda function expects a list of identifiers"
+                                                    .to_string(),
+                                                syn.span,
+                                                None,
+                                            ));
+                                        }
                                     }
+
+                                    let body_exprs: Vec<_> = value_iter.collect();
+
+                                    let body = if body_exprs.len() == 1 {
+                                        body_exprs[0].clone()
+                                    } else {
+                                        ExprKind::Begin(Begin::new(
+                                            body_exprs,
+                                            SyntaxObject::default(TokenType::Begin),
+                                        ))
+                                    };
+
+                                    Ok(ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                                        args, body, syn,
+                                    ))))
                                 }
+                                Some(ExprKind::Atom(a)) => {
+                                    let body_exprs: Vec<_> = value_iter.collect();
 
-                                let body_exprs: Vec<_> = value_iter.collect();
+                                    let body = if body_exprs.len() == 1 {
+                                        body_exprs[0].clone()
+                                    } else {
+                                        ExprKind::Begin(Begin::new(
+                                            body_exprs,
+                                            SyntaxObject::default(TokenType::Begin),
+                                        ))
+                                    };
 
-                                let body = if body_exprs.len() == 1 {
-                                    body_exprs[0].clone()
-                                } else {
-                                    ExprKind::Begin(Begin::new(
-                                        body_exprs,
-                                        SyntaxObject::default(TokenType::Begin),
+                                    // (lambda x ...) => x is a rest arg, becomes a list at run time
+                                    Ok(ExprKind::LambdaFunction(Box::new(
+                                        LambdaFunction::new_with_rest_arg(
+                                            vec![ExprKind::Atom(a)],
+                                            body,
+                                            syn,
+                                        ),
+                                    )))
+                                }
+                                _ => {
+                                    // TODO -> handle case like
+                                    // (lambda x 10) <- where x is immediately bound to be a rest arg
+                                    // This should be fairly trivial in this case since we can just put the
+                                    // first thing into a vec for the lambda node
+                                    Err(ParseError::SyntaxError(
+                                        "lambda function expected a list of identifiers"
+                                            .to_string(),
+                                        syn.span,
+                                        None,
                                     ))
-                                };
-
-                                Ok(ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                                    args, body, syn,
-                                ))))
-                            } else {
-                                Err(ParseError::SyntaxError(
-                                    "lambda function expected a list of identifiers".to_string(),
-                                    syn.span,
-                                    None,
-                                ))
+                                }
                             }
                         }
                         TokenType::DefineSyntax => {

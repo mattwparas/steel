@@ -32,6 +32,7 @@ pub struct ByteCodeLambda {
     call_count: Cell<usize>,
     cant_be_compiled: Cell<bool>,
     pub(crate) is_let: bool,
+    pub(crate) is_multi_arity: bool,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -47,12 +48,16 @@ impl std::hash::Hash for ByteCodeLambda {
     }
 }
 
+// TODO
+// is_let can probably be localized to a specific kind of function
+// is_multi_arity can also be localized to a specific kind of function
 impl ByteCodeLambda {
     pub fn new(
         body_exp: Vec<DenseInstruction>,
         arity: usize,
         upvalues: Vec<Weak<RefCell<UpValue>>>,
         is_let: bool,
+        is_multi_arity: bool,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
@@ -61,6 +66,7 @@ impl ByteCodeLambda {
             call_count: Cell::new(0),
             cant_be_compiled: Cell::new(false),
             is_let,
+            is_multi_arity,
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::parser::tokens::TokenType;
+use crate::parser::{ast::Let, tokens::TokenType};
 use crate::parser::{
     ast::{Atom, Begin, ExprKind, LambdaFunction, List, Set},
     parser::SyntaxObject,
@@ -52,8 +52,8 @@ pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> 
     // println!("###################################################");
     exprs
         .into_iter()
-        .map(|x| FlattenBegin::flatten(x))
-        .map(|x| ConvertDefinesToLets::convert_defines(x))
+        .map(FlattenBegin::flatten)
+        .map(ConvertDefinesToLets::convert_defines)
         .collect()
 }
 
@@ -124,6 +124,18 @@ impl Folder for ConvertDefinesToLets {
                 ExprKind::List(mut l) => {
                     l.args = l.args.into_iter().map(|x| self.visit(x)).collect();
                     ExprKind::List(l)
+                }
+                ExprKind::Let(mut l) => {
+                    let mut visited_bindings = Vec::new();
+
+                    for (binding, expr) in l.bindings {
+                        visited_bindings.push((self.visit(binding), self.visit(expr)));
+                    }
+
+                    l.bindings = visited_bindings;
+                    l.body_expr = self.visit(l.body_expr);
+
+                    ExprKind::Let(l)
                 }
                 _ => panic!("Something went wrong in define conversion"),
             }
@@ -393,14 +405,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         }
     }
 
-    // let mut top_level_dummy_args = vec![
-    //     ExprKind::Atom(Atom::new(SyntaxObject::default(
-    //         TokenType::IntegerLiteral(123)
-    //     )));
-    //     top_level_arguments.len()
-    // ];
-
-    // Append the body instructions to the set!
+    // // Append the body instructions to the set!
     set_expressions.append(&mut body);
 
     let inner_lambda = LambdaFunction::new(
@@ -425,6 +430,41 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
     top_level_dummy_args.insert(0, ExprKind::LambdaFunction(Box::new(outer_lambda)));
 
     ExprKind::List(List::new(top_level_dummy_args))
+
+    // TODO: This is the real transformation that needs to take place once lets are fixed
+    // follow-up - let rec is going to be completely broken
+
+    // let pairs = bound_names
+    //     .into_iter()
+    //     .zip(new_args.into_iter())
+    //     .collect::<Vec<_>>();
+
+    // let inner_let = Let::new(
+    //     pairs,
+    //     ExprKind::Begin(Begin::new(
+    //         set_expressions,
+    //         SyntaxObject::default(TokenType::Begin),
+    //     )),
+    //     SyntaxObject::default(TokenType::Let),
+    // );
+
+    // let outer_pairs = top_level_arguments
+    //     .into_iter()
+    //     .zip(top_level_dummy_args.into_iter())
+    //     .collect::<Vec<_>>();
+
+    // let outer_let = Let::new(
+    //     outer_pairs,
+    //     ExprKind::Let(Box::new(inner_let)),
+    //     SyntaxObject::default(TokenType::Let),
+    // );
+
+    // let output = ExprKind::Let(Box::new(outer_let));
+
+    // println!("-----------------");
+    // println!("{}", output.to_pretty(60));
+
+    // output
 }
 
 #[cfg(test)]

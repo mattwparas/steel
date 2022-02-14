@@ -379,7 +379,16 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let idx = self.len();
         self.push(Instruction::new_sclosure());
 
+        // TODO
+        // Multi arity function...
+        self.push(Instruction::new_pass(if lambda_function.rest {
+            1
+        } else {
+            0
+        }));
+
         // println!("Creating closure at depth: {}", self.depth);
+        // TODO -> figure out lets here to make this not so ugly
         self.push(Instruction::new_pass(if self.let_context && !self.rooted {
             1
         } else {
@@ -395,13 +404,25 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let arity = l.len();
         // let rev_iter = l.iter().rev();
         let rev_iter = l.iter();
+
+        // We want to keep track of the arguments here to see if any of them are duplicate
+        let mut args = HashSet::new();
+
         for symbol in rev_iter {
             if let ExprKind::Atom(atom) = symbol {
                 match &atom.syn {
                     SyntaxObject {
                         ty: TokenType::Identifier(i),
+                        span: sp,
                         ..
                     } => {
+                        // If we've seen this one before, bail out - we don't want duplicates here
+                        if !args.insert(i) {
+                            println!("{}", lambda_function);
+
+                            stop!(BadSyntax => "lambda function cannot have duplicate argument names"; *sp);
+                        }
+
                         locals.push(LocalVariable::new(
                             self.depth + 1,
                             i.clone(),
@@ -414,13 +435,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     SyntaxObject {
                         ty: _, span: sp, ..
                     } => {
-                        stop!(Generic => "lambda function requires list of identifiers"; *sp);
+                        stop!(BadSyntax => "lambda function requires list of identifiers"; *sp);
                     }
                 }
             } else {
                 // stop!(Generic => "lambda function requires list of identifiers"; symbol.span());
                 // TODO come back add the span
-                stop!(Generic => "lambda function requires list of identifiers");
+                stop!(BadSyntax => "lambda function requires list of identifiers");
             }
         }
 
@@ -494,9 +515,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
                 // TODO - this is broken still
 
-                if self.top_level_define {
-                    convert_last_usages(&mut body_instructions);
-                }
+
 
                 // let b = false;
 
@@ -517,18 +536,25 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
-        self.instructions.append(&mut body_instructions);
+
 
         // Go ahead and include the variable information for the popping
         // This needs to be handled accordingly
         // TODO this could be handled better - just put the index that needs to be saved
         // for now, is_captured is just a noop
         for local in variable_data.borrow().locals.iter() {
-            self.push(Instruction::new_close_upvalue(
+            body_instructions.push(Instruction::new_close_upvalue(
                 if local.is_captured { 1 } else { 0 },
                 local.syntax_object.clone(),
             ))
         }
+
+        // Do this here to include the close upvalue information if we need to
+        if self.top_level_define {
+            convert_last_usages(&mut body_instructions);
+        }
+
+        self.instructions.append(&mut body_instructions);
 
         // pop off the local variables from the run time stack, so we don't have them
 
@@ -896,6 +922,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .as_ref()
             .map(|x| x.borrow().locals.len() + self.stack_offset);
 
+        // let mut locals = Vec::new();
+
+        // Just visit the expressions first
+        for expr in &exprs {
+            self.visit(&expr)?;
+        }
+
         for symbol in bindings {
             if let ExprKind::Atom(atom) = symbol {
                 match &atom.syn {
@@ -903,6 +936,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         ty: TokenType::Identifier(i),
                         ..
                     } => {
+                        // locals.push(LocalVariable::new(
+                        //     self.depth + 1,
+                        //     i.clone(),
+                        //     atom.syn.clone(),
+                        //     self.stack_offset,
+                        // ));
+
                         match &self.variable_data {
                             Some(variable_data) => {
                                 variable_data.borrow_mut().locals.push(LocalVariable::new(
@@ -929,16 +969,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                                     ))));
                             }
                         }
-
-                        // self.variable_data.as_ref().map(|x| {
-                        //     x.borrow_mut().locals.push(LocalVariable::new(
-                        //         self.depth + 1,
-                        //         i.clone(),
-                        //         atom.syn.clone(),
-                        //     ))
-                        // });
-                        // println!("Validating the identifiers in the arguments");
-                        // body_instructions.push(Instruction::new_bind(atom.syn.clone()));
                     }
                     SyntaxObject {
                         ty: _, span: sp, ..
@@ -953,10 +983,17 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
+        // let mut variable_data = Some(Rc::new(RefCell::new(VariableData::new(
+        //     locals,
+        //     Vec::new(),
+        //     self.variable_data.as_ref().map(Rc::clone),
+        // ))));
+
+        // std::mem::swap(&mut self.variable_data, &mut variable_data);
+
+        // self.variable_data = Some(variable_data);
+
         // Visit the args
-        for expr in &exprs {
-            self.visit(&expr)?;
-        }
 
         // Snatch access to parent information here
         // That way we can at least have a shot of going backwards
@@ -969,12 +1006,23 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // // Use the new one
         // let prev_variable_data = std::mem::replace(&mut self.variable_data, Some(variable_data));
 
+        // Increment the depth before we visit the body
+        self.depth += 1;
+
         // Visit the body now
         self.visit(&l.body_expr)?;
+
+        // unwind the recursion
+        self.depth -= 1;
 
         // self.variable_data = prev_variable_data;
 
         let mut close_upvalues = Vec::new();
+
+        // info!(
+        //     "Finished compiling a let, with variable information: {:#?}",
+        //     self.variable_data
+        // );
 
         // Pop off the locals once we exit this scope
         for _ in &exprs {
@@ -1008,6 +1056,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 self.push(instr);
             }
         }
+
+        // Update it post recursion
+        // std::mem::swap(&mut self.variable_data, &mut variable_data);
 
         // Pop
         // self.push(Instruction::new_end_scope(exprs.len()));
@@ -1370,7 +1421,9 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
                         ..
                     }),
                 ..
-            } => variables.insert(local.to_string()),
+            } 
+            
+            => variables.insert(local.to_string()),
             _ => continue,
         };
     }
@@ -1426,6 +1479,7 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
                         }),
                     ..
                 }
+                //// TODO -> consider looking into this
                 | Instruction {
                     op_code: OpCode::READUPVALUE,
                     contents:
@@ -1434,12 +1488,36 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
                             ..
                         }),
                     ..
-                } => {
+                } 
+                => {
                     stack.push((right - index - 1, local.to_string()));
                 }
                 _ => continue,
             }
         }
+
+        // TODO -> if variable is closed over
+        // just ignore it entirely
+
+        let mut closed_over_vars_to_ignore = HashSet::new();
+
+        for instruction in instructions.iter() {
+            match instruction {
+                Instruction {
+                    op_code: OpCode::CLOSEUPVALUE,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(local),
+                            ..
+                        }),
+                    ..
+                } => closed_over_vars_to_ignore.insert(local.to_string()),
+                _ => continue,
+            };
+        }
+
+        // println!("closed over: {:?}", closed_over_vars_to_ignore);
+        // println!("Instructions at this point: {:#?}", instructions);
 
         let mut seen = HashSet::new();
         let filtered: Vec<_> = stack
@@ -1448,7 +1526,8 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
             .filter(|pair| {
                 let valid = variables.contains(&pair.1);
                 let var_seen = seen.contains(&pair.1);
-                if valid && !var_seen {
+                let closed_over = closed_over_vars_to_ignore.contains(&pair.1);
+                if valid && !var_seen && !closed_over {
                     seen.insert(&pair.1);
                     true
                 } else {
@@ -1465,7 +1544,7 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
         for (index, _var) in filtered {
             match instructions[*index].op_code {
                 OpCode::READLOCAL => {
-                    // println!("Transforming move read local: {}", _var);
+                    println!("Transforming move read local: {}", _var);
                     instructions[*index].op_code = OpCode::MOVEREADLOCAL;
                 }
                 OpCode::READUPVALUE => {

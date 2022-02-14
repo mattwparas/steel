@@ -129,6 +129,9 @@ impl Instruction {
         }
     }
 
+    // TODO -> this should not be as awful
+    // Marking multi_arity to be whether or not this is a multi arity function
+    // It should work, but its kind of horrendous to deal with and remember
     pub fn new_sclosure() -> Instruction {
         Instruction {
             op_code: OpCode::SCLOSURE,

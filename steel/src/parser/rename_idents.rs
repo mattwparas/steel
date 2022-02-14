@@ -164,7 +164,11 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
     }
 
     fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
-        todo!()
+        for (_, expr) in &mut l.bindings {
+            self.visit(expr);
+        }
+
+        self.visit(&mut l.body_expr);
     }
 }
 

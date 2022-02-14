@@ -232,16 +232,16 @@ macro_rules! stop {
     //     return Err(SteelErr::new(ErrorKind::$type, None));
     // };
     ($type:ident => $fmt:expr, $($arg:tt)+) => {
-        return Err(SteelErr::new(ErrorKind::$type, format!($fmt, $($arg)+)));
+        return Err(SteelErr::new(ErrorKind::$type, format!($fmt, $($arg)+)))
     };
     ($type:ident => $thing:expr) => {
-        return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()));
+        return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()))
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span));
+        return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span))
     };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
-        return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source));
+        return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source))
     };
 }
 

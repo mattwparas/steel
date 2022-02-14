@@ -94,6 +94,9 @@ impl UpValueHeap {
 
         // println!("Freeing heap");
 
+        // TODO -> move destructors to another thread?
+        // That way the main thread is not blocked by the dropping of unreachable objects
+
         // sweep
         self.memory
             .retain(|x| x.borrow().is_reachable() || x.borrow().is_open());
