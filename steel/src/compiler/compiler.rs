@@ -721,10 +721,18 @@ impl Compiler {
             );
         }
 
+        let flatten_begins_and_expand_defines_time = Instant::now();
+
         debug!("About to expand defines");
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
         if log_enabled!(log::Level::Debug) {
+            debug!(
+                target: "pipeline_time",
+                "Flatten begins and expand defines time: {:?}",
+                flatten_begins_and_expand_defines_time.elapsed()
+            );
+
             debug!(
                 "Successfully expanded defines: {:?}",
                 expanded_statements
@@ -737,8 +745,18 @@ impl Compiler {
         // TODO - make sure I want to keep this
         // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
 
+        let lambda_lifting_time = Instant::now();
+
         // TODO
         let expanded_statements = LambdaLifter::lift(expanded_statements);
+
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(
+                target: "pipeline_time",
+                "Lambda Lifting time: {:?}",
+                lambda_lifting_time.elapsed()
+            );
+        }
 
         // TODO - make sure I want to keep this
         let expanded_statements =

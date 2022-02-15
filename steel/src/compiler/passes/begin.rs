@@ -251,7 +251,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         return ExprKind::Begin(begin);
     }
 
-    let exprs = begin.exprs.clone();
+    let mut exprs = begin.exprs.clone();
 
     // let mut last_expression = expression_types.len();
 
@@ -262,9 +262,6 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         .expect("Convert exprs to let in define conversion found no trailing expressions in begin");
 
     let idx = expression_types.len() - 1 - idx;
-
-    // TODO
-    let mut exprs = exprs.clone();
 
     let mut body = exprs.split_off(idx + 1);
 
@@ -477,6 +474,30 @@ mod flatten_begin_test {
     use crate::parser::parser::SyntaxObject;
     use crate::parser::tokens::TokenType;
     use crate::parser::tokens::TokenType::*;
+
+    use crate::parser::parser::Parser;
+
+    #[test]
+    fn defines_translates_to_simple_let() {
+        let expr = r#"
+        (lambda () 
+            (begin 
+                (define x 10)
+                (define y 20)
+                (define z 30)
+                (+ x y z)))"#;
+
+        let expected = r#"
+        (lambda () ((lambda (x y z) ((lambda () (begin (+ x y z))))) 10 20 30))
+        "#;
+
+        let parsed = Parser::parse(expr).unwrap();
+        let expected_parsed = Parser::parse(expected).unwrap();
+
+        let result = flatten_begins_and_expand_defines(parsed);
+
+        assert_eq!(result, expected_parsed);
+    }
 
     #[test]
     fn basic_flatten_one_level() {

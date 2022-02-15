@@ -6,9 +6,11 @@ use crate::parser::{
 
 use super::Folder;
 
-use itertools::Itertools;
-use quickscope::{ScopeMap, ScopeSet};
-use std::collections::HashSet;
+// use itertools::Itertools;
+use quickscope::ScopeMap;
+// use std::collections::HashSet;
+
+const GENSYM_PREFIX: &'static str = "##-##lambda-lifter-";
 
 #[derive(Default)]
 pub struct GenSym {
@@ -20,7 +22,7 @@ impl GenSym {
     // Crappy way to get the new name for a lambda lifted function
     pub fn generate(&mut self) -> String {
         self.counter += 1;
-        "##--##lambda-lifter-".to_string()
+        GENSYM_PREFIX.to_string()
             + self
                 .defining_context
                 .as_ref()

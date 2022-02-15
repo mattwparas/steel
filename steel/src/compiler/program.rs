@@ -36,7 +36,7 @@ impl SerializableProgram {
         Ok(())
     }
 
-    pub fn read_from_file(&self, filename: &str) -> Result<Self> {
+    pub fn read_from_file(filename: &str) -> Result<Self> {
         use std::fs::File;
         use std::io::prelude::*;
 
@@ -44,11 +44,20 @@ impl SerializableProgram {
 
         let mut buffer = Vec::new();
 
-        let _ = file.read(&mut buffer).unwrap();
+        let _ = file.read_to_end(&mut buffer).unwrap();
 
         let program: SerializableProgram = bincode::deserialize(&buffer).unwrap();
 
         Ok(program)
+    }
+
+    pub fn into_program(self) -> Program {
+        let constant_map = ConstantMap::from_bytes(&self.constant_map).unwrap();
+        Program {
+            constant_map,
+            instructions: self.instructions,
+            ast: HashMap::new(),
+        }
     }
 }
 

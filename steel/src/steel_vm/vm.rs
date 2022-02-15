@@ -472,11 +472,11 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             self.function_stack.iter(),
         );
 
-        println!(
-            "Creating upvalue: {:?} at index: {:?}",
-            created_up_value, local_idx
-        );
-        println!("Stack: {:?}", self.stack);
+        // println!(
+        //     "Creating upvalue: {:?} at index: {:?}",
+        //     created_up_value, local_idx
+        // );
+        // println!("Stack: {:?}", self.stack);
 
         if prev_up_value.is_none() {
             self.upvalue_head = Some(created_up_value.clone());
@@ -507,8 +507,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             let upvalue = self.upvalue_head.as_ref().unwrap().upgrade().unwrap();
             // println!("Getting the value");
 
-            println!("Closing upvalues with stack: {:?}", self.stack);
-            println!("Upvalue: {:?}", upvalue);
+            // println!("Closing upvalues with stack: {:?}", self.stack);
+            // println!("Upvalue: {:?}", upvalue);
             let value = upvalue.borrow().get_value(&self.stack);
 
             upvalue.borrow_mut().set_value(value);
@@ -1107,7 +1107,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         } else {
             let ret_val = self.stack.pop().unwrap();
 
-            println!("Stack index: {:?}", self.stack_index);
+            // println!("Stack index: {:?}", self.stack_index);
 
             // TODO fix this
             // let rollback_index = self.stack_index.pop().unwrap_or(0);
@@ -1305,7 +1305,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         let value_to_assign = self.stack.pop().unwrap();
 
         if let SteelVal::Closure(_) = &value_to_assign {
-            println!("Closing upvalue in set");
+            // println!("Closing upvalue in set");
             self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
         }
 
@@ -2109,9 +2109,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // Jit profiling
         closure.increment_call_count();
 
-        if closure.is_multi_arity {
-            println!("Calling multi arity function");
-        }
+        // if closure.is_multi_arity {
+        //     println!("Calling multi arity function");
+        // }
 
         // TODO take this out
 
