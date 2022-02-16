@@ -1,7 +1,7 @@
-use crate::compiler::constants::ConstantMap;
 use crate::core::instructions::DenseInstruction;
 use crate::parser::ast::ExprKind;
 use crate::rvals::Result;
+use crate::{compiler::constants::ConstantMap, core::instructions::Instruction};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -87,5 +87,19 @@ impl Program {
             instructions: self.instructions,
             constant_map: self.constant_map.to_bytes()?,
         })
+    }
+}
+
+// An inspectable program with debug symbols still included on the instructions
+//
+pub struct DebugProgram {
+    instructions: Vec<Vec<Instruction>>,
+}
+
+impl DebugProgram {
+    fn debug_print(&self) {
+        self.instructions
+            .iter()
+            .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)))
     }
 }

@@ -472,6 +472,7 @@ impl Compiler {
             }
         }
 
+        // TODO -> don't densify the results, push directly onto instruction set
         for instruction_set in struct_instructions {
             results.push(densify(instruction_set))
         }
