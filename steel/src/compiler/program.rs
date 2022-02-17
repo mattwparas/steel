@@ -93,6 +93,7 @@ impl Program {
 // An inspectable program with debug symbols still included on the instructions
 //
 pub struct DebugProgram {
+    struct_functions: Vec<String>,
     instructions: Vec<Vec<Instruction>>,
 }
 
