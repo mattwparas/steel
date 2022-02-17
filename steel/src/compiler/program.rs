@@ -1,9 +1,11 @@
-use crate::core::instructions::DenseInstruction;
 use crate::parser::ast::ExprKind;
 use crate::rvals::Result;
 use crate::{compiler::constants::ConstantMap, core::instructions::Instruction};
+use crate::{core::instructions::DenseInstruction, parser::span::Span};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, time::SystemTime};
+
+use super::{compiler::replace_defines_with_debruijn_indices, map::SymbolMap};
 
 pub struct ProgramBuilder(Vec<Vec<DenseInstruction>>);
 
@@ -92,15 +94,33 @@ impl Program {
 
 // An inspectable program with debug symbols still included on the instructions
 //
-pub struct DebugProgram {
+pub struct RawProgramWithSymbols {
     struct_functions: Vec<String>,
     instructions: Vec<Vec<Instruction>>,
 }
 
-impl DebugProgram {
+impl RawProgramWithSymbols {
     fn debug_print(&self) {
         self.instructions
             .iter()
             .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)))
     }
+
+    fn strip_symbols(&mut self, symbol_map: &mut SymbolMap) -> Result<&mut Self> {
+        for expression in &mut self.instructions {
+            replace_defines_with_debruijn_indices(expression, symbol_map)?
+        }
+
+        Ok(self)
+    }
+}
+
+// A program stripped of its debug symbols, but only constructable by running a pass
+// over it with the symbol map to intern all of the symbols in the order they occurred
+pub struct Executable {
+    time_stamp: SystemTime, // TODO -> don't use system time, probably not as portable, prefer date time
+    struct_functions: Vec<String>,
+    instructions: Vec<Vec<DenseInstruction>>,
+    constant_map: ConstantMap,
+    spans: Vec<Span>,
 }
