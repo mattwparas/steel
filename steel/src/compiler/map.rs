@@ -1,10 +1,10 @@
-use crate::rvals::Result;
 use crate::stop;
 use crate::values::structs::StructFuncBuilder;
 use crate::{
     rerrs::{ErrorKind, SteelErr},
     throw,
 };
+use crate::{rvals::Result, values::structs::StructFuncBuilderConcrete};
 use std::collections::HashMap;
 
 // TODO -> use hashmap speed up access
@@ -72,6 +72,31 @@ impl SymbolMap {
             .get(ident)
             .copied()
             .ok_or_else(throw!(FreeIdentifier => ident.to_string()))
+    }
+
+    // TODO -> want to package the metadata up for declaring structs
+    // into a program so that someone can take a binary and load it correctly
+    // probably front load the program with a vector of strings declaring what struct functions will inevitably
+    // be declared
+    pub fn insert_struct_function_names_from_concrete<'a>(
+        &mut self,
+        struct_builder: &'a StructFuncBuilderConcrete,
+    ) -> Vec<usize> {
+        let mut indices = Vec::new();
+
+        // Constructor
+        indices.push(self.get_or_add(&struct_builder.name));
+        // Predicate
+        indices.push(self.get_or_add(format!("{}?", &struct_builder.name).as_str()));
+        for field in &struct_builder.fields {
+            // Getter
+            indices.push(self.get_or_add(format!("{}-{}", &struct_builder.name, field).as_str()));
+            // Setter
+            indices
+                .push(self.get_or_add(format!("set-{}-{}!", &struct_builder.name, field).as_str()));
+        }
+
+        indices
     }
 
     // TODO -> want to package the metadata up for declaring structs

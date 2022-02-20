@@ -78,6 +78,7 @@ test_harness_success! {
     merge_sort,
     read,
     set_local,
+    set_tail_call,
     sieve,
     simple_stream_with_map,
     simple_stream_with_mapping,

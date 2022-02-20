@@ -51,7 +51,7 @@ use once_cell::sync::OnceCell;
 static INTERNER: OnceCell<ThreadedRodeo> = OnceCell::new();
 
 #[test]
-fn test_the_initializaiton() {
+fn test_initialization() {
     INTERNER.get_or_init(|| ThreadedRodeo::new());
     let key = INTERNER.get().unwrap().get_or_intern_static("hello world");
 

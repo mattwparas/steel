@@ -7,7 +7,7 @@ use std::convert::TryInto;
 /// Instruction loaded with lots of information prior to being condensed
 /// Includes the opcode and the payload size, plus some information
 /// used for locating spans and pretty error messages
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Instruction {
     pub op_code: OpCode,
     pub payload_size: usize,

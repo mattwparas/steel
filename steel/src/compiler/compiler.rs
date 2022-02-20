@@ -1,15 +1,21 @@
-use crate::compiler::{
-    code_generator::{convert_call_globals, CodeGenerator},
-    constants::{ConstantMap, ConstantTable},
-    map::SymbolMap,
-    passes::{
-        begin::flatten_begins_and_expand_defines,
-        lambda_lifting::LambdaLifter,
-        reader::{ExpandMethodCalls, MultipleArityFunctions},
+use crate::{
+    compiler::{
+        code_generator::{convert_call_globals, CodeGenerator},
+        constants::{ConstantMap, ConstantTable},
+        map::SymbolMap,
+        passes::{
+            begin::flatten_begins_and_expand_defines,
+            lambda_lifting::LambdaLifter,
+            reader::{ExpandMethodCalls, MultipleArityFunctions},
+        },
+        program::Program,
     },
-    program::Program,
+    values::structs::{StructBuilders, StructFuncBuilderConcrete},
 };
-use crate::core::{instructions::Instruction, opcode::OpCode};
+use crate::{
+    core::{instructions::Instruction, opcode::OpCode},
+    values::structs::StructFuncBuilder,
+};
 
 use std::iter::Iterator;
 use std::{
@@ -37,13 +43,185 @@ use log::{debug, log_enabled};
 
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
-use super::{code_generator::loop_condition_local_const_arity_two, modules::ModuleManager};
+use super::{
+    code_generator::loop_condition_local_const_arity_two, modules::ModuleManager,
+    program::RawProgramWithSymbols,
+};
 
 use im_rc::HashMap as ImmutableHashMap;
 
 use std::time::Instant;
 
 // use itertools::Itertools;
+
+#[derive(Default)]
+pub struct DebruijnIndicesInterner {
+    flat_defines: HashSet<String>,
+    second_pass_defines: HashSet<String>,
+}
+
+impl DebruijnIndicesInterner {
+    pub fn collect_first_pass_defines(
+        &mut self,
+        instructions: &mut [Instruction],
+        symbol_map: &mut SymbolMap,
+    ) -> Result<()> {
+        for i in 2..instructions.len() {
+            match (&instructions[i], &instructions[i - 1], &instructions[i - 2]) {
+                (
+                    Instruction {
+                        op_code: OpCode::BIND,
+                        contents:
+                            Some(SyntaxObject {
+                                ty: TokenType::Identifier(s),
+                                ..
+                            }),
+                        ..
+                    },
+                    Instruction {
+                        op_code: OpCode::EDEF,
+                        ..
+                    },
+                    Instruction {
+                        op_code: OpCode::ECLOSURE,
+                        ..
+                    },
+                ) => {
+                    let idx = symbol_map.get_or_add(s);
+                    self.flat_defines.insert(s.to_owned());
+
+                    if let Some(x) = instructions.get_mut(i) {
+                        x.payload_size = idx;
+                    }
+                }
+                (
+                    Instruction {
+                        op_code: OpCode::BIND,
+                        contents:
+                            Some(SyntaxObject {
+                                ty: TokenType::Identifier(s),
+                                ..
+                            }),
+                        ..
+                    },
+                    ..,
+                ) => {
+                    let idx = symbol_map.get_or_add(s);
+                    self.flat_defines.insert(s.to_owned());
+
+                    if let Some(x) = instructions.get_mut(i) {
+                        x.payload_size = idx;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn collect_second_pass_defines(
+        &mut self,
+        instructions: &mut [Instruction],
+        symbol_map: &mut SymbolMap,
+    ) -> Result<()> {
+        // let mut second_pass_defines: HashSet<String> = HashSet::new();
+
+        let mut depth = 0;
+
+        // name mangle
+        // Replace all identifiers with indices
+        for i in 0..instructions.len() {
+            match &instructions[i] {
+                Instruction {
+                    op_code: OpCode::SCLOSURE,
+                    ..
+                } => {
+                    depth += 1;
+                }
+                Instruction {
+                    op_code: OpCode::ECLOSURE,
+                    ..
+                } => {
+                    depth -= 1;
+                }
+                Instruction {
+                    op_code: OpCode::BIND,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            ..
+                        }),
+                    ..
+                } => {
+                    // Keep track of where the defines actually are in the process
+                    self.second_pass_defines.insert(s.to_owned());
+                }
+                Instruction {
+                    op_code: OpCode::PUSH,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            span,
+                            ..
+                        }),
+                    ..
+                }
+                | Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            span,
+                            ..
+                        }),
+                    ..
+                }
+                | Instruction {
+                    op_code: OpCode::CALLGLOBALTAIL,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            span,
+                            ..
+                        }),
+                    ..
+                }
+                | Instruction {
+                    op_code: OpCode::SET,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            span,
+                            ..
+                        }),
+                    ..
+                } => {
+                    if self.flat_defines.get(s).is_some() {
+                        if self.second_pass_defines.get(s).is_none() && depth == 0 {
+                            let message = format!(
+                                "Cannot reference an identifier before its definition: {}",
+                                s
+                            );
+                            stop!(FreeIdentifier => message; *span);
+                        }
+                    }
+
+                    let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
+
+                    // TODO commenting this for now
+                    if let Some(x) = instructions.get_mut(i) {
+                        x.payload_size = idx;
+                        x.constant = false;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+}
 
 // TODO this needs to take into account if they are functions or not before adding them
 // don't just blindly do all global defines first - need to do them in order correctly
@@ -314,6 +492,33 @@ impl Compiler {
         hm
     }
 
+    pub fn compile_executable(
+        &mut self,
+        expr_str: &str,
+        path: Option<PathBuf>,
+        constants: ImmutableHashMap<String, SteelVal>,
+    ) -> Result<RawProgramWithSymbols> {
+        let mut intern = HashMap::new();
+
+        let now = Instant::now();
+
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
+            Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
+        } else {
+            Parser::new(expr_str, &mut intern).collect()
+        };
+
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+        }
+
+        let parsed = parsed?;
+
+        // TODO fix this hack
+        self.compile_raw_program(parsed, constants)
+    }
+
     pub fn emit_instructions_with_ast(
         &mut self,
         expr_str: &str,
@@ -444,6 +649,8 @@ impl Compiler {
             .expand_expressions(&mut self.macro_env, exprs)
     }
 
+    // TODO - lots of duplicate code here, clean this up as much as possible
+
     // This only works at the top level
     // structs then cannot work inside nested scoped
     pub fn extract_structs(
@@ -455,7 +662,7 @@ impl Compiler {
         let mut struct_instructions = Vec::new();
         for expr in exprs {
             if let ExprKind::Struct(s) = expr {
-                let builder = SteelStruct::generate_from_ast(&s)?;
+                let builder = StructFuncBuilder::generate_from_ast(&s)?;
 
                 // Add the eventual function names to the symbol map
                 let indices = self.symbol_map.insert_struct_function_names(&builder);
@@ -493,7 +700,7 @@ impl Compiler {
         let mut struct_instructions = Vec::new();
         for expr in exprs {
             if let ExprKind::Struct(s) = expr {
-                let builder = SteelStruct::generate_from_ast(&s)?;
+                let builder = StructFuncBuilder::generate_from_ast(&s)?;
 
                 // Add the eventual function names to the symbol map
                 let indices = self.symbol_map.insert_struct_function_names(&builder);
@@ -533,8 +740,7 @@ impl Compiler {
             // println!("{:?}", expr.to_string());
             // let mut instructions: Vec<Instruction> = Vec::new();
 
-            let mut instructions =
-                CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(expr)?;
+            let mut instructions = CodeGenerator::new(&mut self.constant_map).compile(expr)?;
 
             // TODO double check that arity map doesn't exist anymore
             // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
@@ -569,6 +775,33 @@ impl Compiler {
         Ok(results)
     }
 
+    fn generate_instructions_for_executable(
+        &mut self,
+        expanded_statements: Vec<ExprKind>,
+    ) -> Result<Vec<Vec<Instruction>>> {
+        let mut results = Vec::new();
+        let mut instruction_buffer = Vec::new();
+        let mut index_buffer = Vec::new();
+
+        for expr in expanded_statements {
+            // TODO add printing out the expression as its own special function
+
+            let mut instructions = CodeGenerator::new(&mut self.constant_map).compile(&expr)?;
+
+            instructions.push(Instruction::new_pop());
+            inject_heap_save_to_pop(&mut instructions);
+            index_buffer.push(instructions.len());
+            instruction_buffer.append(&mut instructions);
+        }
+
+        for idx in index_buffer {
+            let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
+            results.push(extracted);
+        }
+
+        Ok(results)
+    }
+
     fn generate_debug_instructions(
         &mut self,
         expanded_statements: Vec<ExprKind>,
@@ -581,8 +814,7 @@ impl Compiler {
         for expr in expanded_statements {
             // TODO add printing out the expression as its own special function
 
-            let mut instructions =
-                CodeGenerator::new(&mut self.constant_map, &mut self.symbol_map).compile(&expr)?;
+            let mut instructions = CodeGenerator::new(&mut self.constant_map).compile(&expr)?;
 
             instructions.push(Instruction::new_pop());
             inject_heap_save_to_pop(&mut instructions);
@@ -605,6 +837,71 @@ impl Compiler {
         Ok(results)
     }
 
+    // TODO
+    // figure out how the symbols will work so that a raw program with symbols
+    // can be later pulled in and symbols can be interned correctly
+    fn compile_raw_program(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        constants: ImmutableHashMap<String, SteelVal>,
+    ) -> Result<RawProgramWithSymbols> {
+        let expanded_statements = self.expand_expressions(exprs, None)?;
+
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Generating instructions for the expression: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;
+
+        debug!("About to expand defines");
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Successfully expanded defines: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        // TODO - make sure I want to keep this
+        // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
+
+        // TODO
+        let expanded_statements = LambdaLifter::lift(expanded_statements);
+
+        // TODO - make sure I want to keep this
+        let expanded_statements =
+            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+
+        let mut struct_builders = StructBuilders::new();
+
+        let expanded_statements =
+            struct_builders.extract_structs_for_executable(expanded_statements)?;
+
+        let instructions = self.generate_instructions_for_executable(expanded_statements)?;
+
+        let mut raw_program = RawProgramWithSymbols::new(
+            struct_builders.builders,
+            instructions,
+            self.constant_map.clone(),
+            "0.1.0".to_string(),
+        );
+
+        // Make sure to apply the peephole optimizations
+        raw_program.apply_optimizations();
+
+        Ok(raw_program)
+    }
+
     fn emit_debug_instructions_from_exprs(
         &mut self,
         exprs: Vec<ExprKind>,
@@ -624,26 +921,9 @@ impl Compiler {
             );
         }
 
+        let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;
+
         debug!("About to expand defines");
-
-        let mut expanded_statements = expanded_statements;
-
-        match self.opt_level {
-            OptLevel::Three => loop {
-                let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
-                expanded_statements = manager.run(expanded_statements)?;
-                if !manager.changed {
-                    break;
-                }
-            },
-            OptLevel::Two => {
-                expanded_statements =
-                    ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
-                        .run(expanded_statements)?;
-            }
-            _ => {}
-        }
-
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
         if log_enabled!(log::Level::Debug) {
@@ -655,6 +935,16 @@ impl Compiler {
                     .collect::<Vec<_>>()
             );
         }
+
+        // TODO - make sure I want to keep this
+        // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
+
+        // TODO
+        let expanded_statements = LambdaLifter::lift(expanded_statements);
+
+        // TODO - make sure I want to keep this
+        let expanded_statements =
+            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
 
         let statements_without_structs =
             self.debug_extract_structs(expanded_statements, &mut results)?;
@@ -688,8 +978,45 @@ impl Compiler {
             );
         }
 
-        let mut expanded_statements = expanded_statements;
+        // let mut expanded_statements = expanded_statements;
 
+        let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;
+
+        debug!("About to expand defines");
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Successfully expanded defines: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        // TODO - make sure I want to keep this
+        // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
+
+        // TODO
+        let expanded_statements = LambdaLifter::lift(expanded_statements);
+
+        // TODO - make sure I want to keep this
+        let expanded_statements =
+            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+
+        let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
+        let dense_instructions =
+            self.generate_dense_instructions(&statements_without_structs, results)?;
+
+        Ok((statements_without_structs, dense_instructions))
+    }
+
+    fn apply_const_evaluation(
+        &mut self,
+        constants: ImmutableHashMap<String, SteelVal>,
+        mut expanded_statements: Vec<ExprKind>,
+    ) -> Result<Vec<ExprKind>> {
         let opt_time = Instant::now();
 
         match self.opt_level {
@@ -720,53 +1047,8 @@ impl Compiler {
                 "Const Evaluation Time: {:?}",
                 opt_time.elapsed()
             );
-        }
+        };
 
-        let flatten_begins_and_expand_defines_time = Instant::now();
-
-        debug!("About to expand defines");
-        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
-
-        if log_enabled!(log::Level::Debug) {
-            debug!(
-                target: "pipeline_time",
-                "Flatten begins and expand defines time: {:?}",
-                flatten_begins_and_expand_defines_time.elapsed()
-            );
-
-            debug!(
-                "Successfully expanded defines: {:?}",
-                expanded_statements
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-            );
-        }
-
-        // TODO - make sure I want to keep this
-        // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
-
-        let lambda_lifting_time = Instant::now();
-
-        // TODO
-        let expanded_statements = LambdaLifter::lift(expanded_statements);
-
-        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            debug!(
-                target: "pipeline_time",
-                "Lambda Lifting time: {:?}",
-                lambda_lifting_time.elapsed()
-            );
-        }
-
-        // TODO - make sure I want to keep this
-        let expanded_statements =
-            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
-
-        let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
-        let dense_instructions =
-            self.generate_dense_instructions(&statements_without_structs, results)?;
-
-        Ok((statements_without_structs, dense_instructions))
+        Ok(expanded_statements)
     }
 }

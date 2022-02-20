@@ -1,9 +1,9 @@
-use crate::gc::Gc;
 use crate::primitives::VectorOperations;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
+use crate::{gc::Gc, parser::ast::ExprKind};
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,76 @@ impl SteelStruct {
     }
 }
 
+pub struct StructBuilders {
+    pub builders: Vec<StructFuncBuilderConcrete>,
+}
+
+impl StructBuilders {
+    pub fn new() -> Self {
+        Self {
+            builders: Vec::new(),
+        }
+    }
+
+    pub fn extract_structs_for_executable(
+        &mut self,
+        exprs: Vec<ExprKind>,
+    ) -> Result<Vec<ExprKind>> {
+        let mut non_structs = Vec::new();
+        // let mut struct_instructions = Vec::new();
+        for expr in exprs {
+            if let ExprKind::Struct(s) = expr {
+                let builder = StructFuncBuilder::generate_from_ast(&s)?.into_concrete();
+
+                self.builders.push(builder);
+
+                // // Add the eventual function names to the symbol map
+                // let indices = self.symbol_map.insert_struct_function_names(&builder);
+
+                // // Get the value we're going to add to the constant map for eventual use
+                // // Throw the bindings in as well
+                // let constant_values = builder.to_constant_val(indices);
+                // let idx = self.constant_map.add_or_get(constant_values);
+
+                // struct_instructions
+                //     .push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
+            } else {
+                non_structs.push(expr);
+            }
+        }
+
+        // for instruction_set in struct_instructions {
+        //     results.push(instruction_set)
+        // }
+
+        Ok(non_structs)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StructFuncBuilderConcrete {
+    pub name: String,
+    pub fields: Vec<String>,
+}
+
+impl StructFuncBuilderConcrete {
+    pub fn new(name: String, fields: Vec<String>) -> Self {
+        Self { name, fields }
+    }
+
+    pub fn to_struct_function_names(&self) -> Vec<String> {
+        StructFuncBuilder::new(&self.name, self.fields.iter().map(|x| x.as_str()).collect())
+            .to_struct_function_names()
+    }
+
+    pub fn to_constant_val(&self, indices: Vec<usize>) -> SteelVal {
+        StructFuncBuilder::new(&self.name, self.fields.iter().map(|x| x.as_str()).collect())
+            .to_constant_val(indices)
+    }
+
+    // pub fn
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StructFuncBuilder<'a> {
     pub name: &'a str,
@@ -29,6 +99,27 @@ pub struct StructFuncBuilder<'a> {
 }
 
 impl<'a> StructFuncBuilder<'a> {
+    pub fn generate_from_ast(s: &Struct) -> Result<StructFuncBuilder> {
+        let name = s.name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
+
+        let field_names_as_strs: Vec<&str> = s
+            .fields
+            .iter()
+            .map(|x| {
+                x.atom_identifier_or_else(throw!(TypeMismatch => "struct expected identifiers"))
+            })
+            .collect::<Result<_>>()?;
+
+        Ok(StructFuncBuilder::new(name, field_names_as_strs))
+    }
+
+    pub fn into_concrete(self) -> StructFuncBuilderConcrete {
+        StructFuncBuilderConcrete::new(
+            self.name.to_string(),
+            self.fields.into_iter().map(|x| x.to_string()).collect(),
+        )
+    }
+
     pub fn new(name: &'a str, fields: Vec<&'a str>) -> Self {
         StructFuncBuilder { name, fields }
     }
@@ -105,20 +196,6 @@ impl SteelStruct {
 }
 
 impl SteelStruct {
-    pub fn generate_from_ast(s: &Struct) -> Result<StructFuncBuilder> {
-        let name = s.name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
-
-        let field_names_as_strs: Vec<&str> = s
-            .fields
-            .iter()
-            .map(|x| {
-                x.atom_identifier_or_else(throw!(TypeMismatch => "struct expected identifiers"))
-            })
-            .collect::<Result<_>>()?;
-
-        Ok(StructFuncBuilder::new(name, field_names_as_strs))
-    }
-
     pub fn generate_from_name_fields(
         name: &str,
         field_names_as_strs: &[&str],

@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use crate::gc::Gc;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal::*;
@@ -10,6 +12,15 @@ impl VectorOperations {
     pub fn vec_construct() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             Ok(SteelVal::VectorV(Gc::new(args.iter().cloned().collect())))
+        })
+    }
+
+    // TODO
+    pub fn mut_vec_construct() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            Ok(SteelVal::MutableVector(Gc::new(RefCell::new(
+                args.iter().cloned().collect(),
+            ))))
         })
     }
 

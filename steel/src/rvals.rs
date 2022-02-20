@@ -297,6 +297,8 @@ pub enum SteelVal {
     MutFunc(MutFunctionSignature),
     // Built in functions
     BuiltIn(BuiltInSignature),
+    // Mutable vector
+    MutableVector(Gc<RefCell<Vec<SteelVal>>>),
 }
 
 // TODO come back to this for the constant map
@@ -693,6 +695,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         MutFunc(_) => write!(f, "#<function>"),
         BuiltIn(_) => write!(f, "#<function>"),
         ReducerV(_) => write!(f, "#<reducer>"),
+        MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
     }
 }
 

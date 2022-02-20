@@ -1,9 +1,11 @@
+use log::{debug, log_enabled};
+
 use crate::parser::{ast::Let, tokens::TokenType};
 use crate::parser::{
     ast::{Atom, Begin, ExprKind, LambdaFunction, List, Set},
     parser::SyntaxObject,
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Instant};
 
 use super::{Folder, VisitorMutUnit};
 
@@ -49,12 +51,23 @@ impl Folder for FlattenBegin {
 }
 
 pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> {
-    // println!("###################################################");
-    exprs
+    let flatten_begins_and_expand_defines_time = Instant::now();
+
+    let res = exprs
         .into_iter()
         .map(FlattenBegin::flatten)
         .map(ConvertDefinesToLets::convert_defines)
-        .collect()
+        .collect();
+
+    if log_enabled!(log::Level::Debug) {
+        debug!(
+            target: "pipeline_time",
+            "Flatten begins and expand defines time: {:?}",
+            flatten_begins_and_expand_defines_time.elapsed()
+        );
+    }
+
+    res
 }
 
 struct DefinedVars<'a> {

@@ -7,7 +7,7 @@ use super::{
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::{ast::Atom, parser::SyntaxObject, span_visitor::get_span, tokens::TokenType},
-    values::structs::SteelStruct,
+    values::structs::{SteelStruct, StructFuncBuilder},
 };
 
 use crate::parser::ast::ExprKind;
@@ -205,7 +205,6 @@ pub struct CodeGenerator<'a> {
     instructions: Vec<Instruction>,
     constant_map: &'a mut ConstantMap,
     defining_context: Option<String>,
-    symbol_map: &'a mut SymbolMap,
     depth: u32,
     variable_data: Option<Rc<RefCell<VariableData>>>, // enclosing: Option<&'a mut CodeGenerator<'a>>,
     let_context: bool,
@@ -215,12 +214,11 @@ pub struct CodeGenerator<'a> {
 }
 
 impl<'a> CodeGenerator<'a> {
-    pub fn new(constant_map: &'a mut ConstantMap, symbol_map: &'a mut SymbolMap) -> Self {
+    pub fn new(constant_map: &'a mut ConstantMap) -> Self {
         CodeGenerator {
             instructions: Vec::new(),
             constant_map,
             defining_context: None,
-            symbol_map,
             depth: 0,
             variable_data: None,
             let_context: false,
@@ -233,7 +231,6 @@ impl<'a> CodeGenerator<'a> {
 
     fn new_from_body_instructions(
         constant_map: &'a mut ConstantMap,
-        symbol_map: &'a mut SymbolMap,
         instructions: Vec<Instruction>,
         depth: u32,
         variable_data: Option<Rc<RefCell<VariableData>>>,
@@ -243,7 +240,6 @@ impl<'a> CodeGenerator<'a> {
             instructions,
             constant_map,
             defining_context,
-            symbol_map,
             depth,
             variable_data,
             let_context: false,
@@ -456,7 +452,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // make recursive call with "fresh" vector so that offsets are correct
         body_instructions = CodeGenerator::new_from_body_instructions(
             &mut self.constant_map,
-            &mut self.symbol_map,
             body_instructions,
             self.depth + 1, // pass through the depth
             Some(Rc::clone(&variable_data)),
@@ -610,7 +605,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_struct(&mut self, s: &crate::parser::ast::Struct) -> Self::Output {
-        let builder = SteelStruct::generate_from_ast(&s)?;
+        let builder = StructFuncBuilder::generate_from_ast(&s)?;
 
         // Add the eventual function names to the symbol map
         // let indices = self.symbol_map.insert_struct_function_names(&builder);
@@ -855,7 +850,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             {
                 i
             } else {
-                stop!(BadSyntax => "set! takes an identifier")
+                stop!(BadSyntax => "set! takes an identifier"; s.span)
             };
 
             // Attempt to resolve this as a local variable
@@ -885,7 +880,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 self.push(Instruction::new(OpCode::SET, 0, s.clone(), true));
             }
         } else {
-            stop!(BadSyntax => "set! takes an identifier")
+            stop!(BadSyntax => "set! takes an identifier"; s.location.span)
         }
         Ok(())
     }
@@ -1121,7 +1116,33 @@ fn convert_mutual_recursion_to_tail_call(
     transformed
 }
 
+// TODO - this kind of kills the entirety of the tail call optimization
+// if the set! aliases to another function, then just quit
+// 
+// TODO -> this also doesn't work if the function gets overwritten in name
+fn check_if_defining_context_is_aliased(instructions: &[Instruction], defining_context: &str) -> bool {
+    for instruction in instructions {
+        if instruction.op_code == OpCode::SET || instruction.op_code == OpCode::SETUPVALUE {
+            if let Some(atom) = &instruction.contents {
+                if let TokenType::Identifier(ident) = &atom.ty {
+                    if ident == defining_context {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
 fn transform_tail_call(instructions: &mut [Instruction], defining_context: &str) -> bool {
+
+    // If the defining_context aliases, then we need to quit
+    if check_if_defining_context_is_aliased(instructions, defining_context) {
+        return false;
+    }
+
     let last_idx = instructions.len() - 1;
 
     let mut indices = vec![last_idx];

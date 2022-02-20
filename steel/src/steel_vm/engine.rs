@@ -4,7 +4,11 @@ use super::{
     vm::VirtualMachineCore,
 };
 use crate::{
-    compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
+    compiler::{
+        compiler::Compiler,
+        constants::ConstantMap,
+        program::{Program, RawProgramWithSymbols},
+    },
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser},
@@ -172,6 +176,12 @@ impl Engine {
         self.compiler.compile_program(expr, None, constants)
     }
 
+    pub fn emit_raw_program(&mut self, expr: &str, path: PathBuf) -> Result<RawProgramWithSymbols> {
+        let constants = self.constants();
+        self.compiler
+            .compile_executable(expr, Some(path), constants)
+    }
+
     // Attempts to disassemble the given expression into a series of bytecode dumps
     pub fn disassemble(&mut self, expr: &str) -> Result<String> {
         let constants = self.constants();
@@ -215,6 +225,12 @@ impl Engine {
     pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
         self.virtual_machine
             .execute_program(program, UseCallback, ApplyContract)
+    }
+
+    pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
+        let executable = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)?;
+        self.virtual_machine
+            .run_executable(executable, UseCallback, ApplyContract)
     }
 
     /// Directly emit the expanded ast

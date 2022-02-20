@@ -181,6 +181,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             MutFunc(_) => Err("Can't convert from function to expression!"),
             BuiltIn(_) => Err("Can't convert from function to expression!"),
             ReducerV(_) => Err("Can't convert from reducer to expression!"),
+            MutableVector(_) => Err("Can't convert from vector to expression!"),
         }
     }
 }

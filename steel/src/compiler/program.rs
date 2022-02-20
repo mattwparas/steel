@@ -1,11 +1,23 @@
-use crate::parser::ast::ExprKind;
-use crate::rvals::Result;
-use crate::{compiler::constants::ConstantMap, core::instructions::Instruction};
+use crate::{
+    compiler::constants::ConstantMap, core::instructions::Instruction,
+    values::structs::StructFuncBuilder,
+};
+use crate::{core::instructions::densify, parser::ast::ExprKind};
 use crate::{core::instructions::DenseInstruction, parser::span::Span};
+use crate::{rvals::Result, values::structs::StructFuncBuilderConcrete};
+use log::{debug, log_enabled};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::SystemTime};
+use std::{
+    collections::{HashMap, HashSet},
+    time::{Instant, SystemTime},
+};
 
-use super::{compiler::replace_defines_with_debruijn_indices, map::SymbolMap};
+use super::{
+    code_generator::{convert_call_globals, loop_condition_local_const_arity_two},
+    compiler::{replace_defines_with_debruijn_indices, DebruijnIndicesInterner},
+    constants::ConstantTable,
+    map::SymbolMap,
+};
 
 pub struct ProgramBuilder(Vec<Vec<DenseInstruction>>);
 
@@ -93,34 +105,183 @@ impl Program {
 }
 
 // An inspectable program with debug symbols still included on the instructions
-//
+// ConstantMap needs to get passed in to the run time to execute the program
+// This way, the VM knows where to look up values
 pub struct RawProgramWithSymbols {
-    struct_functions: Vec<String>,
+    struct_functions: Vec<StructFuncBuilderConcrete>,
     instructions: Vec<Vec<Instruction>>,
+    constant_map: ConstantMap,
+    version: String, // TODO -> this should be semver
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SerializableRawProgramWithSymbols {
+    struct_functions: Vec<StructFuncBuilderConcrete>,
+    instructions: Vec<Vec<Instruction>>,
+    constant_map: Vec<u8>,
+    version: String,
+}
+
+impl SerializableRawProgramWithSymbols {
+    pub fn write_to_file(&self, filename: &str) -> Result<()> {
+        use std::fs::File;
+        use std::io::prelude::*;
+
+        let mut file = File::create(format!("{}.txt", filename)).unwrap();
+
+        let buffer = bincode::serialize(self).unwrap();
+
+        file.write_all(&buffer)?;
+        Ok(())
+    }
+
+    pub fn read_from_file(filename: &str) -> Result<Self> {
+        use std::fs::File;
+        use std::io::prelude::*;
+
+        let mut file = File::open(format!("{}.txt", filename)).unwrap();
+        let mut buffer = Vec::new();
+        let _ = file.read_to_end(&mut buffer).unwrap();
+        let program: Self = bincode::deserialize(&buffer).unwrap();
+
+        Ok(program)
+    }
+
+    pub fn into_raw_program(self) -> RawProgramWithSymbols {
+        let constant_map = ConstantMap::from_bytes(&self.constant_map).unwrap();
+        RawProgramWithSymbols {
+            struct_functions: self.struct_functions,
+            instructions: self.instructions,
+            constant_map,
+            version: self.version,
+        }
+    }
 }
 
 impl RawProgramWithSymbols {
-    fn debug_print(&self) {
+    pub fn new(
+        struct_functions: Vec<StructFuncBuilderConcrete>,
+        instructions: Vec<Vec<Instruction>>,
+        constant_map: ConstantMap,
+        version: String,
+    ) -> Self {
+        Self {
+            struct_functions,
+            instructions,
+            constant_map,
+            version,
+        }
+    }
+
+    pub fn into_serializable_program(self) -> Result<SerializableRawProgramWithSymbols> {
+        Ok(SerializableRawProgramWithSymbols {
+            instructions: self.instructions,
+            constant_map: self.constant_map.to_bytes()?,
+            struct_functions: self.struct_functions,
+            version: self.version,
+        })
+    }
+
+    pub fn debug_print(&self) {
         self.instructions
             .iter()
             .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)))
     }
 
-    fn strip_symbols(&mut self, symbol_map: &mut SymbolMap) -> Result<&mut Self> {
-        for expression in &mut self.instructions {
-            replace_defines_with_debruijn_indices(expression, symbol_map)?
+    /// Applies a peephole style optimization to the underlying instruction set
+    pub fn with_optimization<F: Fn(&mut [Instruction]) -> ()>(&mut self, f: F) {
+        for instructions in &mut self.instructions {
+            f(instructions)
+        }
+    }
+
+    // Apply the optimizations to raw bytecode
+    pub(crate) fn apply_optimizations(&mut self) -> &mut Self {
+        // Run down the optimizations here
+        for instructions in &mut self.instructions {
+            convert_call_globals(instructions);
+            loop_condition_local_const_arity_two(instructions);
         }
 
-        Ok(self)
+        self
+    }
+
+    // TODO -> check out the spans part of this
+    // also look into having the constant map be correct mapping
+    // I think the run time will have to swap the constant map in and out
+    pub fn build(mut self, name: String, symbol_map: &mut SymbolMap) -> Result<Executable> {
+        let now = Instant::now();
+
+        let mut struct_instructions = Vec::new();
+
+        for builder in &self.struct_functions {
+            // Add the eventual function names to the symbol map
+            let indices = symbol_map.insert_struct_function_names_from_concrete(builder);
+
+            // Get the value we're going to add to the constant map for eventual use
+            // Throw the bindings in as well
+            let constant_values = builder.to_constant_val(indices);
+            let idx = self.constant_map.add_or_get(constant_values);
+
+            struct_instructions.push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
+        }
+
+        let mut interner = DebruijnIndicesInterner::default();
+
+        for expression in &mut self.instructions {
+            interner.collect_first_pass_defines(expression, symbol_map)?
+        }
+
+        // let mut first_pass_defines = HashSet::new();
+        // let mut second_pass_defines = HashSet::new();
+
+        // TODO -> the instructions need to be combined into a flat array
+        // representing each expression, otherwise this will error out on a free identifier
+        // since the global defines are not all collected in one pass
+        // just split the debruijn index function into 2 passes
+        // and make into a struct to collect the information
+        for expression in &mut self.instructions {
+            interner.collect_second_pass_defines(expression, symbol_map)?
+        }
+
+        // Put the new struct functions at the front
+        struct_instructions.append(&mut self.instructions);
+        self.instructions = struct_instructions;
+
+        let res = Ok(Executable {
+            name,
+            version: self.version,
+            time_stamp: SystemTime::now(),
+            instructions: self.instructions.into_iter().map(|x| densify(x)).collect(),
+            constant_map: self.constant_map,
+            spans: Vec::new(),
+        });
+
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Executable Build Time: {:?}", now.elapsed());
+        }
+
+        res
     }
 }
 
 // A program stripped of its debug symbols, but only constructable by running a pass
 // over it with the symbol map to intern all of the symbols in the order they occurred
 pub struct Executable {
-    time_stamp: SystemTime, // TODO -> don't use system time, probably not as portable, prefer date time
-    struct_functions: Vec<String>,
-    instructions: Vec<Vec<DenseInstruction>>,
-    constant_map: ConstantMap,
-    spans: Vec<Span>,
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) time_stamp: SystemTime, // TODO -> don't use system time, probably not as portable, prefer date time
+    pub(crate) instructions: Vec<Vec<DenseInstruction>>,
+    pub(crate) constant_map: ConstantMap,
+    pub(crate) spans: Vec<Span>,
+}
+
+impl Executable {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn time_stamp(&self) -> &SystemTime {
+        &self.time_stamp
+    }
 }

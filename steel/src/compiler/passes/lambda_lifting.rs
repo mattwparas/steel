@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::parser::{
     ast::{Atom, Define, ExprKind, LambdaFunction, List},
     parser::SyntaxObject,
@@ -6,6 +8,7 @@ use crate::parser::{
 
 use super::Folder;
 
+use log::{debug, log_enabled};
 // use itertools::Itertools;
 use quickscope::ScopeMap;
 // use std::collections::HashSet;
@@ -45,7 +48,19 @@ pub struct LambdaLifter {
 
 impl LambdaLifter {
     pub fn lift(ast: Vec<ExprKind>) -> Vec<ExprKind> {
-        LambdaLifter::default().fold(ast)
+        let lambda_lifting_time = Instant::now();
+
+        let res = LambdaLifter::default().fold(ast);
+
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(
+                target: "pipeline_time",
+                "Lambda Lifting time: {:?}",
+                lambda_lifting_time.elapsed()
+            );
+        }
+
+        res
     }
 }
 

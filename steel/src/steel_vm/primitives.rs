@@ -236,6 +236,9 @@ pub(crate) fn register_list_functions(engine: &mut Engine) {
 #[inline(always)]
 pub(crate) fn register_vector_functions(engine: &mut Engine) {
     engine
+        // Mutable vector operations
+        .register_value("mutable-vector", VectorOperations::mut_vec_construct())
+        // Immutable vector operations
         .register_value("vector", VectorOperations::vec_construct())
         .register_value("push-front", VectorOperations::vec_cons())
         .register_value("pop-front", VectorOperations::vec_car())

@@ -12,8 +12,8 @@ use super::{
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
-use crate::values::transducers::Reducer;
-use crate::values::transducers::Transducers;
+use crate::{compiler::program::Executable, values::transducers::Transducers};
+use crate::{compiler::program::RawProgramWithSymbols, values::transducers::Reducer};
 // use crate::steel_vm::contracts::FlatContractExt;
 use crate::values::contracts::ContractType;
 use crate::values::upvalue::UpValue;
@@ -96,6 +96,40 @@ impl VirtualMachineCore {
 
     pub fn on_progress<FN: Fn(usize) -> bool + 'static>(&mut self, callback: FN) {
         self.callback.with_callback(Box::new(callback));
+    }
+
+    // Run the executable
+    pub fn run_executable<U: UseCallbacks, A: ApplyContracts>(
+        &mut self,
+        program: Executable,
+        use_callbacks: U,
+        apply_contracts: A,
+    ) -> Result<Vec<SteelVal>> {
+        let Executable {
+            instructions,
+            constant_map,
+            // struct_functions,
+            ..
+        } = program;
+
+        let output = instructions
+            .into_iter()
+            .map(|x| {
+                self.execute(
+                    Rc::from(x.into_boxed_slice()),
+                    &constant_map,
+                    use_callbacks,
+                    apply_contracts,
+                )
+            })
+            .collect();
+
+        // TODO
+        // self.global_env.print_diagnostics();
+
+        output
+
+        // todo!("Initialize structs and build the program");
     }
 
     // fn vec_exprs_to_map(&mut self, exprs: Vec<ExprKind>) {}
