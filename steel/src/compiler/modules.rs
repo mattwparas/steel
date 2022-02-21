@@ -113,6 +113,9 @@ pub struct CompiledModule {
     ast: Vec<ExprKind>,
 }
 
+// TODO -> cache the construction of the module ast node, then we don't need to reconstruct it every time
+// also, just push this down to bytecode immediately -> including a module now is a simple as loading the bytecode for
+// the module first, then compiling the instructions for the
 impl CompiledModule {
     // Turn the module into the AST node that represents the macro module in the stdlib
     fn to_module_ast_node(&self) -> ExprKind {

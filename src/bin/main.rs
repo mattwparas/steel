@@ -20,6 +20,7 @@ fn main() {
     builder
         .filter(Some("pipeline_time"), LevelFilter::Trace)
         .filter(Some("reader-macros"), LevelFilter::Trace)
+        .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
         .init();
 
     // builder
