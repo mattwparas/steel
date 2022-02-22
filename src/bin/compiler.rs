@@ -40,6 +40,10 @@ fn main() {
         match res {
             Ok(s) => {
                 println!("Successfully compiled program");
+
+                // Debug print out the instructions to see what we're dealing with
+                s.debug_print();
+
                 s.into_serializable_program()
                     .unwrap()
                     .write_to_file("steel-output")

@@ -7,6 +7,7 @@ use std::convert::TryFrom;
 
 use itertools::Itertools;
 use pretty::RcDoc;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::Deref;
 
@@ -16,7 +17,7 @@ use crate::rvals::SteelVal::*;
 
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ExprKind {
     Atom(Atom),
     If(Box<If>),
@@ -247,7 +248,7 @@ impl fmt::Display for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CallCC {
     pub expr: ExprKind,
     pub location: SyntaxObject,
@@ -282,7 +283,7 @@ impl From<CallCC> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Atom {
     pub syn: SyntaxObject,
 }
@@ -319,7 +320,7 @@ impl From<Atom> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Let {
     pub bindings: Vec<(ExprKind, ExprKind)>,
     pub body_expr: ExprKind,
@@ -387,7 +388,7 @@ impl From<Let> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Set {
     pub variable: ExprKind,
     pub expr: ExprKind,
@@ -429,7 +430,7 @@ impl From<Set> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct If {
     pub test_expr: ExprKind,
     pub then_expr: ExprKind,
@@ -485,7 +486,7 @@ impl From<If> for ExprKind {
 }
 
 // Define normal
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Define {
     // This could either be name + args
     pub name: ExprKind,
@@ -527,7 +528,7 @@ impl From<Define> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LambdaFunction {
     pub args: Vec<ExprKind>,
     pub body: ExprKind,
@@ -590,7 +591,7 @@ impl From<LambdaFunction> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Begin {
     pub exprs: Vec<ExprKind>,
     pub location: SyntaxObject,
@@ -629,7 +630,7 @@ impl From<Begin> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Return {
     pub expr: ExprKind,
     pub location: SyntaxObject,
@@ -663,7 +664,7 @@ impl From<Return> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Require {
     pub modules: Vec<Atom>,
     pub location: SyntaxObject,
@@ -701,7 +702,7 @@ impl From<Require> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct List {
     pub args: Vec<ExprKind>,
 }
@@ -779,7 +780,7 @@ impl IntoIterator for List {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Read {
     pub expr: ExprKind,
     pub location: SyntaxObject,
@@ -813,7 +814,7 @@ impl From<Read> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Struct {
     pub name: ExprKind,
     pub fields: Vec<ExprKind>,
@@ -865,7 +866,7 @@ impl From<Struct> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Quote {
     pub expr: ExprKind,
     pub location: SyntaxObject,
@@ -899,7 +900,7 @@ impl From<Quote> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Eval {
     pub expr: ExprKind,
     pub location: SyntaxObject,
@@ -935,7 +936,7 @@ impl From<Eval> for ExprKind {
 
 // TODO figure out how many fields a macro has
 // put it into here nicely
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Macro {
     pub name: Box<ExprKind>,
     pub syntax_rules: SyntaxRules,
@@ -979,7 +980,7 @@ impl From<Macro> for ExprKind {
 
 // TODO figure out a good mapping immediately to a macro that can be interpreted
 // by the expander
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SyntaxRules {
     pub syntax: Vec<ExprKind>,
     pub patterns: Vec<PatternPair>,
@@ -1035,7 +1036,7 @@ impl From<SyntaxRules> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PatternPair {
     pub pattern: ExprKind,
     pub body: ExprKind,
