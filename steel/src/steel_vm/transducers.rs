@@ -17,7 +17,7 @@ use crate::{
     values::transducers::{Reducer, Transducers},
 };
 
-use std::rc::Rc;
+use std::{cell::Ref, rc::Rc};
 use std::{cell::RefCell, convert::TryInto};
 
 /// Generates the take transducer - wrapper around the take iterator
@@ -109,6 +109,12 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
                     Ok(SteelVal::ListV(im_lists::list![x.0.clone(), x.1.clone()]))
                 })))
             }
+            // SteelVal::MutableVector(v) => {
+            //     Ok(Box::new(
+            //         Ref::map(v.borrow(), |x| &x.iter()).cloned().map(Ok),
+            //     ))
+            //     // Ok(Box::new(ref_borrow))
+            // }
             _ => {
                 stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", value))
             }

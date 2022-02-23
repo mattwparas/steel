@@ -238,6 +238,7 @@ pub(crate) fn register_vector_functions(engine: &mut Engine) {
     engine
         // Mutable vector operations
         .register_value("mutable-vector", VectorOperations::mut_vec_construct())
+        .register_value("vector-push!", VectorOperations::mut_vec_push())
         // Immutable vector operations
         .register_value("vector", VectorOperations::vec_construct())
         .register_value("push-front", VectorOperations::vec_cons())

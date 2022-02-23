@@ -24,6 +24,23 @@ impl VectorOperations {
         })
     }
 
+    pub fn mut_vec_push() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "vector-push! takes two arguments, found: {:?}", args.len())
+            }
+
+            let vec = args[0].clone();
+
+            if let SteelVal::MutableVector(v) = vec {
+                v.borrow_mut().push(args[1].clone());
+                Ok(SteelVal::Void)
+            } else {
+                stop!(TypeMismatch => "vector-push! expects a vector, found: {:?}", vec);
+            }
+        })
+    }
+
     pub fn vec_construct_iter<I: Iterator<Item = Result<SteelVal>>>(arg: I) -> Result<SteelVal> {
         let res: Result<Vector<SteelVal>> = arg.collect();
         Ok(SteelVal::VectorV(Gc::new(res?)))
