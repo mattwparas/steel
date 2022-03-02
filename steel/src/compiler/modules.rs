@@ -1,9 +1,12 @@
-use crate::parser::{
-    ast::{Atom, ExprKind, List},
-    parser::{ParseError, Parser, SyntaxObject},
-    tokens::TokenType,
+use crate::{
+    compiler::passes::mangle::mangle_vars_with_prefix,
+    parser::{
+        ast::{Atom, ExprKind, List},
+        parser::{ParseError, Parser, SyntaxObject},
+        tokens::TokenType,
+    },
 };
-use crate::rvals::Result;
+use crate::{parser::expand_visitor::Expander, rvals::Result};
 
 use crate::rerrs::{ErrorKind, SteelErr};
 
@@ -21,7 +24,7 @@ use std::time::SystemTime;
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
 use itertools::Itertools;
-use log::{debug, log_enabled};
+use log::{debug, info, log_enabled};
 
 const OPTION: &str = include_str!("../scheme/modules/option.rkt");
 const OPTION_NAME: &str = "std::option";
@@ -69,6 +72,11 @@ impl ModuleManager {
         // Wipe the visited set on entry
         self.visited.clear();
 
+        // TODO
+        // This is also explicitly wrong -> we should separate the global macro map from the macros found locally in this module
+        // For instance, (cond) is global, but (define-syntax blagh) might be local to main
+        // if a module then defines a function (blagh) that is used inside its scope, this would expand the macro in that scope
+        // which we do not want
         let non_macro_expressions = extract_macro_defs(exprs, global_macro_map)?;
 
         // This conditionally includes a module which implements WEBP support.
@@ -84,7 +92,84 @@ impl ModuleManager {
 
         let mut module_statements = module_builder.compile()?;
 
-        module_statements.append(&mut module_builder.source_ast);
+        // println!("Compiled modules: {:?}", module_builder.compiled_modules);
+
+        // Expand the ast first with the macros from global/source file
+        let mut ast = module_builder
+            .source_ast
+            .into_iter()
+            .map(|x| expand(x, global_macro_map))
+            .collect::<Result<Vec<_>>>()?;
+
+        let mut mangled_asts = Vec::new();
+
+        for require_for_syntax in &module_builder.requires_for_syntax {
+            let module = self
+                .compiled_modules
+                .get(require_for_syntax)
+                .expect("Module missing!");
+
+            let mut module_ast = module.ast.clone();
+
+            mangle_vars_with_prefix(
+                "##mangler##".to_string() + module.name.to_str().unwrap(),
+                &mut module_ast,
+            );
+
+            mangled_asts.append(&mut module_ast);
+
+            // let provided_macros = module.provides_for
+
+            // let expander = Expander::new(&module.macro_map);
+
+            // TODO
+            // expand expressions one by one
+            // if expansion with _just_ public macros from the required module doesn't do anything, stop
+            // if it _does_ change, do another pass with all of the macros in scope
+            // do this for each of the expressions in the file in this loop
+
+            // TODO -> try not cloning this
+            // TODO -> do this in the module expansion as well
+            let in_scope_macros = module
+                .provides_for_syntax
+                .iter()
+                .filter_map(|x| module.macro_map.get(x).map(|m| (x.to_string(), m.clone()))) // TODO -> fix this unwrap
+                .collect::<HashMap<_, _>>();
+
+            // Check what macros are in scope here
+            debug!(
+                "In scope macros: {:#?}",
+                in_scope_macros.keys().collect::<Vec<_>>()
+            );
+
+            // ast = ast.into_iter().map(|x| )
+
+            ast = ast
+                .into_iter()
+                .map(|x| {
+                    // First expand the in scope macros
+                    // These are macros
+                    let mut expander = Expander::new(&in_scope_macros);
+                    let first_round_expanded = expander.expand(x)?;
+
+                    if expander.changed {
+                        expand(first_round_expanded, &module.macro_map)
+                    } else {
+                        Ok(first_round_expanded)
+                    }
+
+                    // expand(x, &module.macro_map)
+                })
+                .collect::<Result<_>>()?;
+        }
+
+        // Include the mangled asts in the resulting asts returned
+        module_statements.append(&mut mangled_asts);
+
+        // The next two lines here expand _all_ of the source code with the top level macros
+        // This is necessary because of the std library macros, although this should be able to be
+        // solved with scoped imports of the standard library explicitly
+        module_statements.append(&mut ast);
 
         module_statements
             .into_iter()
@@ -106,10 +191,13 @@ impl ModuleManager {
     }
 }
 
+#[derive(Debug)]
 pub struct CompiledModule {
     name: PathBuf,
     provides: Vec<ExprKind>,
     requires: Vec<ExprKind>,
+    provides_for_syntax: Vec<String>,
+    macro_map: HashMap<String, SteelMacro>,
     ast: Vec<ExprKind>,
 }
 
@@ -137,7 +225,14 @@ impl CompiledModule {
         // Put the ast nodes inside the macro
         body.append(&mut self.ast.clone());
 
-        ExprKind::List(List::new(body))
+        // TODO clean this up
+        let res = ExprKind::List(List::new(body));
+
+        if log_enabled!(log::Level::Info) {
+            info!("Module ast node: {}", res.to_string());
+        }
+
+        res
     }
 }
 
@@ -147,8 +242,10 @@ struct ModuleBuilder<'a> {
     source_ast: Vec<ExprKind>,
     macro_map: HashMap<String, SteelMacro>,
     requires: Vec<PathBuf>,
+    requires_for_syntax: Vec<PathBuf>,
     built_ins: Vec<PathBuf>,
     provides: Vec<ExprKind>,
+    provides_for_syntax: Vec<ExprKind>,
     compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
     visited: &'a mut HashSet<PathBuf>,
     file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
@@ -178,8 +275,10 @@ impl<'a> ModuleBuilder<'a> {
             source_ast,
             macro_map: HashMap::new(),
             requires: Vec::new(),
+            requires_for_syntax: Vec::new(),
             built_ins: Vec::new(),
             provides: Vec::new(),
+            provides_for_syntax: Vec::new(),
             compiled_modules,
             visited,
             file_metadata,
@@ -192,6 +291,14 @@ impl<'a> ModuleBuilder<'a> {
         self.collect_requires()?;
         // let contains_provides = self.contains_provides();
         self.collect_provides()?;
+
+        if log_enabled!(log::Level::Info) {
+            info!("Requires: {:#?}", self.requires);
+            info!("Requires for-syntax: {:?}", self.requires_for_syntax);
+
+            info!("Provides: {:#?}", self.provides);
+            info!("Provides for-syntax: {:?}", self.provides_for_syntax);
+        }
 
         if self.provides.is_empty() && !self.main {
             self.visited.insert(self.name.clone());
@@ -360,10 +467,13 @@ impl<'a> ModuleBuilder<'a> {
         // let expanded = ;
 
         // TODO use std::mem::swap or something here
-        let ast = std::mem::replace(&mut self.source_ast, Vec::new());
+        let mut ast = std::mem::replace(&mut self.source_ast, Vec::new());
         let provides = std::mem::replace(&mut self.provides, Vec::new());
 
         let mut requires = Vec::new();
+
+        // TODO -> qualified requires as well
+        // qualified requires should be able to adjust the names of the exported functions
 
         for require in &self.requires {
             let m = self
@@ -374,14 +484,71 @@ impl<'a> ModuleBuilder<'a> {
             requires.push(m);
         }
 
+        info!(
+            "Into compiled module: provides for syntax: {:?}",
+            self.provides_for_syntax
+        );
+        info!(
+            "Into compiled module: requires for syntax: {:?}",
+            self.requires_for_syntax
+        );
+
+        // Expand first with the macros from *this* module
+        ast = ast
+            .into_iter()
+            .map(|x| expand(x, &self.macro_map))
+            .collect::<Result<Vec<_>>>()?;
+
+        let mut mangled_asts = Vec::new();
+
+        // Look for the modules in the requires for syntax
+        for require_for_syntax in &self.requires_for_syntax {
+            // TODO -> better error handling here
+            let module = self
+                .compiled_modules
+                .get(require_for_syntax)
+                .expect("Module missing!");
+
+            let mut module_ast = module.ast.clone();
+
+            // TODO
+            mangle_vars_with_prefix(
+                "##mangler##".to_string() + module.name.to_str().unwrap(),
+                &mut module_ast,
+            );
+
+            mangled_asts.append(&mut module_ast);
+
+            // TODO -> actually expand the ast with macros from the other while respecting visibility rules
+            // Do a first pass expansion with the public macros, then expand witih the mangled macros
+            ast = ast
+                .into_iter()
+                .map(|x| expand(x, &module.macro_map))
+                .collect::<Result<_>>()?;
+        }
+
+        // Put the mangled asts at the top
+        // then include the ast there
+        mangled_asts.append(&mut ast);
+
+        // Take ast, expand with self modules, then expand with each of the require for-syntaxes
+        // Then mangle the require-for-syntax, include the mangled directly in the ast
+
         let module = CompiledModule {
             name: self.name.clone(),
             provides,
             requires,
-            ast: ast
-                .into_iter()
-                .map(|x| expand(x, &self.macro_map))
-                .collect::<Result<Vec<_>>>()?,
+            ast: mangled_asts,
+            provides_for_syntax: self
+                .provides_for_syntax
+                .iter()
+                .map(|x| x.atom_identifier().unwrap().to_string())
+                .collect(),
+            // ast
+            //     .into_iter()
+            //     .map(|x| expand(x, &self.macro_map))
+            //     .collect::<Result<Vec<_>>>()?,
+            macro_map: std::mem::take(&mut self.macro_map),
         };
         let result = module.to_module_ast_node();
         // println!(
@@ -389,7 +556,7 @@ impl<'a> ModuleBuilder<'a> {
         //     self.name
         // );
 
-        debug!("Adding {:?} to the module cache", self.name);
+        // debug!("Adding {:?} to the module cache", self.name);
 
         self.compiled_modules.insert(self.name.clone(), module);
 
@@ -413,28 +580,75 @@ impl<'a> ModuleBuilder<'a> {
         Ok(())
     }
 
+    // Takes out the (for-syntax) forms from the provides
+    fn filter_out_for_syntax_provides(&mut self, exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
+        let mut normal_provides = Vec::new();
+
+        for expr in exprs {
+            match &expr {
+                ExprKind::Atom(_) => {
+                    normal_provides.push(expr);
+                }
+                ExprKind::List(l) => {
+                    if let Some(for_syntax) = l.first_ident() {
+                        match for_syntax {
+                            "for-syntax" => {
+                                if l.args.len() != 2 {
+                                    stop!(ArityMismatch => "provide expects a single identifier in the (for-syntax <ident>)")
+                                }
+
+                                // Collect the for syntax expressions
+                                // TODO -> remove this clone
+                                self.provides_for_syntax.push(l.args[1].clone());
+                            }
+                            "contract/out" => {}
+                            _ => {
+                                stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                            }
+                        }
+                    } else {
+                        stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)")
+                    }
+                }
+                _ => {
+                    stop!(TypeMismatch => "provide expects either a (for-syntax <ident>) or an ident")
+                }
+            }
+        }
+
+        Ok(normal_provides)
+    }
+
+    // TODO -> collect (provide (for-syntax ...))
+    // I think these will already be collected for the macro, however I think for syntax should be found earlier
+    // Otherwise the macro expansion will not be able to understand it
     fn collect_provides(&mut self) -> Result<()> {
         let mut non_provides = Vec::new();
         let exprs = std::mem::replace(&mut self.source_ast, Vec::new());
 
-        for expr in exprs {
-            if let ExprKind::List(l) = &expr {
+        for mut expr in exprs {
+            if let ExprKind::List(l) = &mut expr {
                 if let Some(provide) = l.first_ident() {
                     if provide == "provide" {
                         if l.len() == 1 {
                             stop!(Generic => "provide expects at least one identifier to provide");
                         }
 
-                        self.provides.push(expr)
-                    } else {
-                        non_provides.push(expr)
+                        // Swap out the value inside the list
+                        let args = std::mem::take(&mut l.args);
+
+                        let filtered = self.filter_out_for_syntax_provides(args)?;
+
+                        l.args = filtered;
+
+                        self.provides.push(expr);
+
+                        continue;
                     }
-                } else {
-                    non_provides.push(expr)
                 }
-            } else {
-                non_provides.push(expr)
             }
+
+            non_provides.push(expr)
         }
 
         self.source_ast = non_provides;
@@ -448,38 +662,70 @@ impl<'a> ModuleBuilder<'a> {
         let exprs = std::mem::replace(&mut self.source_ast, Vec::new());
 
         for expr in exprs {
-            if let ExprKind::Require(r) = expr {
-                for atom in &r.modules {
-                    if let Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::StringLiteral(s),
-                                ..
-                            },
-                    } = atom
-                    {
-                        // Try this?
-                        if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == s.as_str()) {
-                            self.built_ins.push(PathBuf::from(lib.0));
-                            continue;
-                        }
+            match &expr {
+                // Include require/for-syntax here
+                // This way we have some understanding of what dependencies a file has
+                ExprKind::Require(r) => {
+                    for atom in &r.modules {
+                        match atom {
+                            ExprKind::Atom(Atom {
+                                syn:
+                                    SyntaxObject {
+                                        ty: TokenType::StringLiteral(s),
+                                        ..
+                                    },
+                            }) => {
+                                // Try this?
+                                if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == s.as_str()) {
+                                    self.built_ins.push(PathBuf::from(lib.0));
+                                    continue;
+                                }
 
-                        let mut current = self.name.clone();
-                        if current.is_file() {
-                            current.pop();
-                        }
-                        current.push(s);
+                                let mut current = self.name.clone();
+                                if current.is_file() {
+                                    current.pop();
+                                }
+                                current.push(s);
 
-                        // Get the absolute path and store that
-                        // current = std::fs::canonicalize(&current)?;
-                        // let new_path = PathBuf::new()
-                        self.requires.push(current)
-                    } else {
-                        stop!(Generic => "require expected a string literal referring to a file/module"; atom.syn.span; atom.syn.source.clone())
+                                // Get the absolute path and store that
+                                // current = std::fs::canonicalize(&current)?;
+                                // let new_path = PathBuf::new()
+                                self.requires.push(current)
+                            }
+
+                            ExprKind::List(l) => {
+                                match l.first_ident() {
+                                    Some("for-syntax") => {
+                                        // We're expecting something like (for-syntax "foo")
+                                        if l.args.len() != 2 {
+                                            stop!(BadSyntax => "for-syntax expects one string literal referring to a file or module"; r.location.span; r.location.source.clone());
+                                        }
+
+                                        if let Some(path) = l.args[1].string_literal() {
+                                            let mut current = self.name.clone();
+                                            if current.is_file() {
+                                                current.pop();
+                                            }
+                                            current.push(path);
+
+                                            self.requires_for_syntax.push(current);
+                                        } else {
+                                            stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; r.location.span; r.location.source.clone());
+                                        }
+                                    }
+                                    _ => {
+                                        stop!(BadSyntax => "require accepts either a string literal or a for-syntax expression"; r.location.span; r.location.source.clone())
+                                    }
+                                }
+                            }
+
+                            _ => {
+                                stop!(Generic => "require expected a string literal referring to a file/module"; r.location.span; r.location.source.clone())
+                            }
+                        }
                     }
                 }
-            } else {
-                exprs_without_requires.push(expr)
+                _ => exprs_without_requires.push(expr),
             }
         }
 
@@ -520,8 +766,10 @@ impl<'a> ModuleBuilder<'a> {
             source_ast: Vec::new(),
             macro_map: HashMap::new(),
             requires: Vec::new(),
+            requires_for_syntax: Vec::new(),
             built_ins: Vec::new(),
             provides: Vec::new(),
+            provides_for_syntax: Vec::new(),
             compiled_modules,
             visited,
             file_metadata,

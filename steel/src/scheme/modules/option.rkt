@@ -1,5 +1,4 @@
 (provide
-    ; (contract/out o-map (->/c (t : predicate?) (Option/c t) (->/c t Option?) Option?))
     Some None
     Some? None? Option?
     (contract/out map-option (->/c Option? (->/c any/c any/c) Option?))

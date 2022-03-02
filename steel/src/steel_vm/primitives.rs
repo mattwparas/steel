@@ -239,6 +239,10 @@ pub(crate) fn register_vector_functions(engine: &mut Engine) {
         // Mutable vector operations
         .register_value("mutable-vector", VectorOperations::mut_vec_construct())
         .register_value("vector-push!", VectorOperations::mut_vec_push())
+        .register_value("mut-vec-len", VectorOperations::mut_vec_length())
+        .register_value("vector-append!", VectorOperations::mut_vec_append())
+        .register_value("mut-vector-ref", VectorOperations::mut_vec_get())
+        .register_value("vector-set!", VectorOperations::mut_vec_set())
         // Immutable vector operations
         .register_value("vector", VectorOperations::vec_construct())
         .register_value("push-front", VectorOperations::vec_cons())

@@ -124,6 +124,7 @@ impl VariableData {
 
     // Go backwards and attempt to find the index in which a local variable will live on the stack
     // returns (actual, stack)
+    // TODO -> come up with a better algorithm for this
     fn resolve_local(&self, ident: &str) -> Option<usize> {
         let idx = self
             .locals

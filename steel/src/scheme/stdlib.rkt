@@ -39,11 +39,15 @@
      (if a void (begin b ...))]))
 
 (define-syntax cond
-  (syntax-rules (else)
+  (syntax-rules (else =>)
     [(cond [else e1 ...])
      (begin e1 ...)]
     [(cond [e1 e2 ...])
      (when e1 e2 ...)]
+    [(cond [e1 => e2 ...] c1 ...)
+     (if e1
+         (begin e2 ...)
+         (cond c1 ...))]
     [(cond [e1 e2 ...] c1 ...)
      (if e1
          (begin e2 ...)

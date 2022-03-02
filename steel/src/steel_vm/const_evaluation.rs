@@ -541,6 +541,9 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
                 debug!("Found no used arguments or non constant arguments, returning the body");
 
+                // Unwind the recursion before we bail out
+                self.bindings = parent;
+
                 self.changed = true;
                 return Ok(output);
             }
@@ -624,6 +627,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
     // TODO come back to this
     fn visit_let(&mut self, mut l: Box<crate::parser::ast::Let>) -> Self::Output {
+        panic!("---------------------------Visiting let!--------------------");
+
         let mut visited_bindings = Vec::new();
 
         for (binding, expr) in l.bindings {

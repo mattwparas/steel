@@ -20,6 +20,8 @@ use crate::{
 use std::{cell::Ref, rc::Rc};
 use std::{cell::RefCell, convert::TryInto};
 
+use std::ops::Deref;
+
 /// Generates the take transducer - wrapper around the take iterator
 macro_rules! generate_take {
     ($iter:expr, $num:expr, $cur_inst_span:expr) => {
@@ -83,6 +85,18 @@ fn transduce(mut args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVa
     }
 }
 
+// struct VecGuard<'a> {
+//     guard: Ref<'a, Vec<SteelVal>>,
+// }
+
+// impl<'b> Deref for VecGuard<'b> {
+//     type Target = Vec<SteelVal>;
+
+//     fn deref(&self) -> &Vec<SteelVal> {
+//         &self.guard
+//     }
+// }
+
 impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
     // With transducers, we also need reducers
     // reducers should define _how_ a value is going to be converted away
@@ -92,6 +106,8 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
         value: &'global SteelVal,
         vm_ctx: Rc<RefCell<&'global mut Self>>,
         cur_inst_span: &'global Span,
+        // The nursery here is for iterating over a vec since its wrapped inside the refcell
+        nursery: &'global mut Option<Vec<SteelVal>>,
     ) -> Result<Box<dyn Iterator<Item = Result<SteelVal>> + 'global>> {
         match value {
             SteelVal::VectorV(v) => Ok(Box::new(v.iter().cloned().map(Ok))),
@@ -101,7 +117,7 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
                 cur_inst_span,
             ))),
             SteelVal::StringV(s) => Ok(Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x))))),
-            SteelVal::ListV(l) => Ok(Box::new(l.iter().cloned().map(Ok))),
+            SteelVal::ListV(l) => Ok(Box::new(l.into_iter().cloned().map(Ok))),
             SteelVal::StructV(s) => Ok(Box::new(s.iter().cloned().map(Ok))),
             SteelVal::HashSetV(hs) => Ok(Box::new(hs.iter().cloned().map(Ok))),
             SteelVal::HashMapV(hm) => {
@@ -109,12 +125,41 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
                     Ok(SteelVal::ListV(im_lists::list![x.0.clone(), x.1.clone()]))
                 })))
             }
-            // SteelVal::MutableVector(v) => {
-            //     Ok(Box::new(
-            //         Ref::map(v.borrow(), |x| &x.iter()).cloned().map(Ok),
-            //     ))
-            //     // Ok(Box::new(ref_borrow))
-            // }
+            SteelVal::MutableVector(v) => {
+                // Ok(Box::new(
+                //     Ref::map(v.borrow(), |x| &x.iter()).cloned().map(Ok),
+                // ))
+
+                // Copy over the mutable vector into the nursery
+                *nursery = Some(v.borrow().clone());
+
+                Ok(Box::new(nursery.as_ref().unwrap().iter().cloned().map(Ok)))
+
+                // todo!()
+
+                // Unsafe Justification:
+                // For the duration of the iterator, the underlying vector will _not_ be mutably borrowed
+                // We simply want an immutable iterator over the contents
+                // UPDATE: this is not safe - later functions could access v in another scope
+                // either -> look into adding a manual flag for the borrowed aspect
+                // match unsafe { v.try_borrow_unguarded() } {
+                //     Ok(v) => Ok(Box::new(v.into_iter().cloned().map(Ok))),
+                //     Err(_) => {
+                //         stop!(Generic => "Unable to iterator over mutable vector as it is already borrowed")
+                //     }
+                // }
+
+                // todo!("Unable to return a mutable reference to the underlying iterator over v due to how RefCell works")
+
+                // Ok(Box::new(v.clone().borrow().iter().cloned().map(Ok)))
+
+                // Ok(Box::new(
+                //     VecGuard { guard: v.borrow() }.iter().cloned().map(Ok),
+                // ))
+
+                // Ok(Box::new(v.borrow().as_slice().iter().cloned().map(Ok)))
+                // Ok(Box::new(ref_borrow))
+            }
             _ => {
                 stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", value))
             }
@@ -130,7 +175,9 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
     ) -> Result<SteelVal> {
         let vm = Rc::new(RefCell::new(self));
 
-        let mut iter = Self::res_iterator(&root, Rc::clone(&vm), cur_inst_span)?;
+        let mut nursery = None;
+
+        let mut iter = Self::res_iterator(&root, Rc::clone(&vm), cur_inst_span, &mut nursery)?;
 
         for t in ops {
             iter = match t {

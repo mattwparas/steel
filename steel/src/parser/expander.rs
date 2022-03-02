@@ -51,7 +51,7 @@ pub struct LocalMacroManager {
 
 impl LocalMacroManager {
     /// Look to see if it exists on disk, otherwise parse from the associated file
-    pub fn initialize(path: PathBuf, force_update: bool) -> Result<Self> {
+    pub fn initialize_from_path(path: PathBuf, force_update: bool) -> Result<Self> {
         let raw_path = update_extension(path.clone(), "rkt");
         let compiled_path = update_extension(path, "macro");
 

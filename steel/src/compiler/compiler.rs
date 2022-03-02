@@ -629,7 +629,10 @@ impl Compiler {
 
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
-        Ok(LambdaLifter::lift(expanded_statements))
+        // TODO -> lambda lifting should be done here
+        Ok(expanded_statements)
+
+        // Ok(LambdaLifter::lift(expanded_statements))
 
         // self.emit_debug_instructions_from_exprs(parsed)
     }

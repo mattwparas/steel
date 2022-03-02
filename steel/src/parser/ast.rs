@@ -66,6 +66,18 @@ impl ExprKind {
         }
     }
 
+    pub fn string_literal(&self) -> Option<&str> {
+        match self {
+            Self::Atom(Atom {
+                syn: SyntaxObject { ty: t, .. },
+            }) => match t {
+                TokenType::StringLiteral(s) => Some(s),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub fn list_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&List, E> {
         match self {
             Self::List(l) => Ok(l),
@@ -666,12 +678,12 @@ impl From<Return> for ExprKind {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Require {
-    pub modules: Vec<Atom>,
+    pub modules: Vec<ExprKind>,
     pub location: SyntaxObject,
 }
 
 impl Require {
-    pub fn new(modules: Vec<Atom>, location: SyntaxObject) -> Self {
+    pub fn new(modules: Vec<ExprKind>, location: SyntaxObject) -> Self {
         Require { modules, location }
     }
 }
@@ -1469,17 +1481,23 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             let mut value_iter = value.into_iter();
                             value_iter.next();
+
                             let expressions = value_iter
                                 .map(|x| {
-                                    if let ExprKind::Atom(a) = x {
-                                        Ok(a)
-                                    } else {
-                                        Err(ParseError::SyntaxError(
+                                    match &x {
+                                        ExprKind::Atom(_) | ExprKind::List(_) => Ok(x),
+                                        _ => Err(ParseError::SyntaxError(
                                             "require expects atoms".to_string(),
                                             syn.span,
                                             a.syn.source.clone(),
-                                        ))
+                                        )),
                                     }
+
+                                    // if let ExprKind::Atom(a) = x {
+                                    //     Ok(a)
+                                    // } else {
+
+                                    // }
                                 })
                                 .collect::<Result<Vec<_>, Self::Error>>()?;
 

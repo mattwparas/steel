@@ -1304,6 +1304,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         Ok(())
     }
 
+    // TODO -> this doesn't have to be an opcode
+    // instead make this a built in function
     #[inline(always)]
     fn handle_read(&mut self, span: &Span) -> Result<()> {
         // this needs to be a string

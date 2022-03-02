@@ -31,11 +31,29 @@ pub fn extract_macro_defs(
 }
 
 pub fn expand(expr: ExprKind, map: &HashMap<String, SteelMacro>) -> Result<ExprKind> {
-    Expander { map }.visit(expr)
+    Expander {
+        map,
+        changed: false,
+    }
+    .visit(expr)
 }
 
 pub struct Expander<'a> {
     map: &'a HashMap<String, SteelMacro>,
+    pub(crate) changed: bool,
+}
+
+impl<'a> Expander<'a> {
+    pub fn new(map: &'a HashMap<String, SteelMacro>) -> Self {
+        Self {
+            map,
+            changed: false,
+        }
+    }
+
+    pub fn expand(&mut self, expr: ExprKind) -> Result<ExprKind> {
+        self.visit(expr)
+    }
 }
 
 impl<'a> ConsumingVisitor for Expander<'a> {
@@ -115,6 +133,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         {
             if let Some(m) = self.map.get(s) {
                 let expanded = m.expand(l.clone(), *sp)?;
+                self.changed = true;
                 return self.visit(expanded);
             }
         }

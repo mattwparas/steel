@@ -107,6 +107,7 @@ impl<'a> ReplaceExpressions<'a> {
                     syn: SyntaxObject { ty, .. },
                 }) = test_expr
                 {
+                    // TODO -> what happens if reserved tokens are in here
                     match ty {
                         TokenType::BooleanLiteral(_)
                         | TokenType::IntegerLiteral(_)
@@ -118,6 +119,8 @@ impl<'a> ReplaceExpressions<'a> {
                                 syn: SyntaxObject { ty, .. },
                             })) = self.bindings.get(s)
                             {
+                                log::debug!("Syntax const if resolved to: {:?}", ty);
+
                                 if matches!(
                                     ty,
                                     TokenType::BooleanLiteral(_)
@@ -191,6 +194,15 @@ impl<'a> ReplaceExpressions<'a> {
     }
 }
 
+fn reserved_token_type_to_ident(token: &mut TokenType) {
+    match token {
+        TokenType::Define => {
+            *token = TokenType::Identifier("define".to_string());
+        }
+        _ => {}
+    }
+}
+
 // TODO replace spans on all of the nodes and atoms
 impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
     type Output = Result<ExprKind>;
@@ -224,6 +236,23 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
             .map(|e| self.visit(e))
             .collect::<Result<Vec<_>>>()?;
         lambda_function.body = self.visit(lambda_function.body)?;
+
+        // TODO: @Matt - 2/28/12 -> clean up this
+        // This mangles the values
+        lambda_function.args.iter_mut().for_each(|x| {
+            if let ExprKind::Atom(Atom {
+                syn: SyntaxObject { ty: t, .. },
+            }) = x
+            {
+                log::debug!("Checking if expression needs to be rewritten: {:?}", t);
+                reserved_token_type_to_ident(t);
+            }
+
+            if let ExprKind::Define(d) = x {
+                log::debug!("Found a define to be rewritten: {:?}", d);
+            }
+        });
+
         Ok(ExprKind::LambdaFunction(lambda_function))
     }
 
