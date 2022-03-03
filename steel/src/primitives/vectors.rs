@@ -88,7 +88,7 @@ impl VectorOperations {
                         stop!(Generic => "mut-vector-ref expects a positive integer, found: {:?}", vec);
                     }
 
-                    if i as usize > v.borrow().len() {
+                    if i as usize >= v.borrow().len() {
                         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, v.borrow().len());
                     }
 

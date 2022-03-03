@@ -295,6 +295,7 @@ pub(crate) fn register_hashmap_functions(engine: &mut Engine) {
 pub(crate) fn register_hashset_functions(engine: &mut Engine) {
     engine
         .register_value("hashset", HashSetOperations::hs_construct())
+        .register_value("hashset-length", HashSetOperations::hs_length())
         .register_value("hashset-contains?", HashSetOperations::hs_contains())
         .register_value("hashset-insert", HashSetOperations::hs_insert())
         .register_value("hashset->list", HashSetOperations::keys_to_list())

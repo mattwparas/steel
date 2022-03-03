@@ -601,7 +601,9 @@ impl<'a> ModuleBuilder<'a> {
                                 // TODO -> remove this clone
                                 self.provides_for_syntax.push(l.args[1].clone());
                             }
-                            "contract/out" => {}
+                            "contract/out" => {
+                                normal_provides.push(expr);
+                            }
                             _ => {
                                 stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
                             }

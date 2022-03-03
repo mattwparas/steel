@@ -40,6 +40,8 @@
 
 (define-syntax cond
   (syntax-rules (else =>)
+    [(cond [else => e1 ...])
+     (begin e1 ...)]
     [(cond [else e1 ...])
      (begin e1 ...)]
     [(cond [e1 e2 ...])

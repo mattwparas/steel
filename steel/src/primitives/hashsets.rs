@@ -26,6 +26,22 @@ impl HashSetOperations {
         })
     }
 
+    pub fn hs_length() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "hs-length takes 1 argument")
+            }
+
+            let hashmap = &args[0];
+
+            if let SteelVal::HashSetV(hm) = hashmap {
+                Ok(SteelVal::IntV(hm.len() as isize))
+            } else {
+                stop!(TypeMismatch => "hs-length takes a hashmap")
+            }
+        })
+    }
+
     pub fn hs_insert() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
