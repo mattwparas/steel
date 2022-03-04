@@ -12,7 +12,7 @@ use crate::parser::ast::Struct;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SteelStruct {
-    name: Rc<str>,
+    pub(crate) name: Rc<str>,
     pub(crate) fields: Vec<SteelVal>,
 }
 

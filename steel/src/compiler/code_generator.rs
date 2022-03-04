@@ -724,6 +724,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     // println!("Setting let context to true");
                     self.let_context = true;
                     self.rooted = true;
+
+                    // TODO -> looks like this is going to get overwritten on each arg
                     defining_context_before = self.defining_context.take();
                 } else {
                     self.let_context = false;

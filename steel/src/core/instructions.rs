@@ -1,8 +1,8 @@
-use crate::core::opcode::OpCode;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::span::Span;
+use crate::{core::opcode::OpCode, values::structs::SteelStruct};
 use serde::{Deserialize, Serialize};
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 
 /// Instruction loaded with lots of information prior to being condensed
 /// Includes the opcode and the payload size, plus some information
@@ -312,6 +312,18 @@ impl Instruction {
         }
     }
 }
+
+// Want to turn a steel struct directly into this struct
+// If we values themselves can be mapped
+// impl TryFrom<SteelStruct> for Instruction {
+//     type Error = crate::SteelErr;
+
+//     fn try_from(value: SteelStruct) -> Result<Self, Self::Error> {
+//         if value.name == "Instruction" {
+
+//         }
+//     }
+// }
 
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
     instructions.into_iter().map(|x| x.into()).collect()

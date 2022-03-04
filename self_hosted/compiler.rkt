@@ -33,7 +33,7 @@
         (if (Some? (Some-value option))
             (Some-value option)
             (None))
-        None))
+        (None)))
 
 ;; Get the inner value of the option - contract checking along the way
 ;; Figure out how to turn off contracts on OptLevel3 regardless - 
@@ -182,9 +182,18 @@
     (define (loop vec idx)
         (cond
             [(= idx vec-length) => (None)]
-            [(func (mut-vector-ref vec idx)) => (Some (mut-vector-ref vec idx))]
+            [(func (mut-vector-ref vec idx)) => (Some idx)]
             [else => (loop vec (+ idx 1))]))
     (loop vec 0))
+
+; (define (position-from-front vec func)
+;     (define vec-length (mut-vec-len vec))
+;     (define (loop vec idx)
+;         (cond
+;             [(= idx vec-length) => (None)]
+;             [(func (mut-vector-ref vec idx)) => (Some (mut-vector-ref vec idx))]
+;             [else => (loop vec (+ idx 1))]))
+;     (loop vec 0))
 
 ;; Get the first value from the back that satisfies the position
 (define (find-from-back vec func)
@@ -206,10 +215,17 @@
 (define (resolve-local self ident)
     (let ((idx (map-option
                     (position-from-back 
-                        (VariableData-locals self) 
-                        (lambda (x) (equal? ident (LocalVariable-name x))))
+                        (VariableData-locals self)
+                        (lambda (x) (equal? (symbol->string ident) (LocalVariable-name x))))
                     (lambda (x) (- (mut-vec-len (VariableData-locals self)) 1 x))))
-          (var (find-from-back (VariableData-locals self))))
+          (var (find-from-back 
+                    (VariableData-locals self) (lambda (x) (equal? (LocalVariable-name x) (symbol->string ident))))))
+
+        ;   (display "Resolving ")
+        ;   (displayln ident)
+        ;   (displayln (VariableData-locals self))
+        ;   (displayln (unwrap-some idx))
+        ;   (displayln (unwrap-some var))
 
           ;; Just bail out if these are Nones
           (when (None? idx) (return! idx))
@@ -236,6 +252,7 @@
 ;; TODO
 ;; this behavior doesn't match yet
 (define (resolve-upvalue self ident)
+
     (when (None? (VariableData-enclosing self))
           (return! (None)))
 
@@ -250,7 +267,7 @@
                                     (VariableData-enclosing) ;; Option<VariableData>
                                     (unwrap-some) ;; VariableData
                                     (VariableData-locals) ;; Vec<LocalVariable>
-                                    (find-from-back (lambda (x) (equal? (LocalVariable-name x) ident))) ;; Option<LocalVariable>
+                                    (find-from-back (lambda (x) (equal? (LocalVariable-name x) (symbol->string ident)))) ;; Option<LocalVariable>
                                     (map-option LocalVariable-struct-offset) ;; Option<Int>
                                     (unwrap-or 0))))
 
@@ -348,7 +365,7 @@
         (apply 
             mutable-vector
             (map 
-                (lambda (x) (LocalVariable (symbol->string x) #false x 0))
+                (lambda (x) (LocalVariable (symbol->string x) #false 0 x))
                 (reverse locals)))))
 
 (define (add-or-get constant-map value)
@@ -361,16 +378,14 @@
                         idx)])))
 
 
-
-
 (define (visit-lambda-function self expr)
     (displayln "Visiting lambda")
 
     (let ((idx (instructions-len self)))
-        (push! self (Instruction 'SCLOSURE 0 ""))
+        (push! self (Instruction 'SCLOSURE 0 (None)))
 
         ;; Detect if this is a multi arity function somehow 
-        (push! self (Instruction 'PASS 0 ""))
+        (push! self (Instruction 'PASS 0 (None)))
 
         ;; If we're a let context and not rooted, insert this instruction
         ;; not sure exactly why its necessary, but we're just matching the existing
@@ -381,7 +396,7 @@
                                     (not (CodeGenerator-rooted self))) 
                                 1 
                                 0)
-                                ""))
+                                (None)))
 
         (let* ((variable-data (VariableData 
                                 (collect-locals-from-function expr) 
@@ -401,7 +416,7 @@
 
             (push! self 
                 (Instruction 'NDEFS 
-                            (mut-vec-len (VariableData-upvalues variable-data)) ""))
+                            (mut-vec-len (VariableData-upvalues variable-data)) (None)))
             
             ;; Fill out the upvalue information
             (transduce (VariableData-upvalues variable-data)
@@ -411,14 +426,14 @@
                                     (push! self 
                                         (Instruction 
                                             'FILLLOCALUPVALUE 
-                                            (UpValue-index upvalue) ""))
+                                            (UpValue-index upvalue) (None)))
 
                                     (push! self
                                         (Instruction
                                             'FILLUPVALUE
-                                            (UpValue-index upvalue) ""))))))
+                                            (UpValue-index upvalue) (None)))))))
 
-            (push! self (Instruction 'POP (mut-vec-len (VariableData-locals variable-data)) ""))
+            (push! self (Instruction 'POP (mut-vec-len (VariableData-locals variable-data)) (None)))
 
             ;; TODO -> defining-context tail call stuff
 
@@ -440,7 +455,7 @@
             (let ((closure-body-size (- (instructions-len self) idx))
                   (arity (length (cadr expr))))
 
-                (push! self (Instruction 'ECLOSURE arity ""))
+                (push! self (Instruction 'ECLOSURE arity (None)))
 
                 ;; Store the body size
                 (update-payload! self idx closure-body-size)))))
@@ -462,7 +477,7 @@
 (define (visit-atom self expr)
     (let ((idx (-> self
                    (CodeGenerator-variable-data)
-                   (resolve-local expr)
+                   (map-option (lambda (x) (resolve-local x expr)))
                    (flatten-option))))
         (cond [(Some? idx) 
                 => 
@@ -470,7 +485,7 @@
               [else =>
                 (let ((idx (-> self
                                (CodeGenerator-variable-data)
-                               (resolve-upvalue)
+                               (map-option (lambda (x) (resolve-upvalue x expr)))
                                (flatten-option))))
                     (cond [(Some? idx)
                             => 
@@ -478,6 +493,34 @@
                           [else 
                             => 
                                 (push! self (Instruction 'PUSH 0 expr))]))])))
+
+;; The core of visiting atoms and sets
+(define (visit-atom-combinator self expr local-op upvalue-op global-op)
+    (let ((idx (-> self
+                   (CodeGenerator-variable-data)
+                   (map-option (lambda (x) (resolve-local x expr)))
+                   (flatten-option))))
+        (cond [(Some? idx) 
+                => 
+                    (push! self (Instruction local-op (unwrap-some idx) expr))]
+              [else =>
+                (let ((idx (-> self
+                               (CodeGenerator-variable-data)
+                               (map-option (lambda (x) (resolve-upvalue x expr)))
+                               (flatten-option))))
+                    (cond [(Some? idx)
+                            => 
+                                (push! self (Instruction upvalue-op (unwrap-some idx) expr))]
+                          [else 
+                            => 
+                                (push! self (Instruction global-op 0 expr))]))])))
+
+(define (visit-atom self expr)
+    (visit-atom-combinator self expr 'READLOCAL 'READUPVALUE 'PUSH))
+
+(define (visit-set self expr)
+    (compile self (cdr expr))
+    (visit-atom-combinator self (cadr expr) 'SETLOCAL 'SETUPVALUE 'SET))
 
 
 (define (visit-define self expr)
@@ -488,7 +531,7 @@
                             (set-CodeGenerator-top-level-define! #true))))
         
         ;; Start the definition
-        (push! self (Instruction 'SDEF 0 ""))
+        (push! self (Instruction 'SDEF 0 (None)))
 
         ;; Update the contents to now point to this new context
         (update-contents! self sidx defining-context)
@@ -497,10 +540,10 @@
         (compile self (caddr expr))
 
         (let ((defn-body-size (- (instructions-len self) sidx)))
-            (push! self (Instruction 'EDEF 0 ""))
+            (push! self (Instruction 'EDEF 0 (None)))
             (update-payload! self sidx defn-body-size)
             (push! self (Instruction 'BIND 0 (cadr expr)))
-            (push! self (Instruction 'VOID 0 "")))))
+            (push! self (Instruction 'VOID 0 (None))))))
 
 (define (visit-if self expr)
     (displayln "Visiting if")
@@ -510,14 +553,14 @@
         ;; Load in the test condition
         (compile self test-expr)
         ;; Push in the if instructions
-        (push! self (Instruction 'IF (+ 2 (instructions-len self)) ""))
+        (push! self (Instruction 'IF (+ 2 (instructions-len self)) (None)))
         ;; save spot of the jump instruction, fill in after
         (let ((idx (instructions-len self)))
             ;; Dummy value
-            (push! self (Instruction 'JMP 0 ""))
+            (push! self (Instruction 'JMP 0 (None)))
             ;; Emit instructions for the then
             (compile self then-expr)
-            (push! self (Instruction 'JMP 0 ""))
+            (push! self (Instruction 'JMP 0 (None)))
             (let ((false-start (instructions-len self)))
                 ;; emit instructions for else expression
                 (compile self else-expr)
@@ -526,7 +569,51 @@
                     (update-payload! self (- false-start 1) j3))))))
 
 (define (visit-list self expr)
-    (displayln "Visiting function application!"))
+
+    (displayln "Visiting function application")
+
+    ;; TODO -> all this stuff about let contexts and tail call offsets
+    ;; and defining_contexts before
+    ;; This can be address later once its cleaned up in the real compiler
+    (let ((pop-len (length (cdr expr))))
+
+        (transduce (cdr expr)
+            (into-for-each (lambda (sub-expr) 
+                                ; (displayln "Compiling argument")
+                                (compile self sub-expr))))
+
+        (compile self (car expr))
+        (push! self (Instruction 'FUNC pop-len (car expr)))))
+        
+        ; (let ((body-begin (instructions-len self)))
+        ;     (compile (self (car expr)))
+        ;     (let ((body-end (instructions-len self)))
+        ;         ;; TODO tail call offset stuff here
+
+        ;         (push! self (Instruction 'FUNC pop-len (car expr)))))))
+
+
+(define (visit-return self expr)
+    (compile self (cdr expr))
+    (push! (Instruction 'POP 0 (None))))
+
+(define (visit-quote self expr)
+    (push! 'PUSHCONST (add-or-get (CodeGenerator-constant-map self) expr) expr))
+
+;; TODO - zip range
+; (define (visit-begin self expr)
+;     (cond [(empty? (cdr expr)) => (push! Instruction 'VOID 0 (None))]
+;           [(else
+;             => 
+;                 (let ((offset (CodeGenerator-stack-offset self)))
+;                     ()
+                
+;                 )
+            
+;             )]
+    
+    
+;     )
 
 ;; (-> CodeGenerator? (listof? expr))
 (define (compile self expr)
@@ -539,6 +626,7 @@
                   ;; ('if test then else)
                   [(equal? sym 'if) => (visit-if self expr)]
                   [(equal? sym 'lambda) => (visit-lambda-function self expr)]
+                  [(equal? sym 'set!) => (visit-set self expr)]
                   [else => (visit-list self expr)]))]
         [else (displayln "Unknown case")]))
 
@@ -547,7 +635,7 @@
 ; (define test-program '(define foo (if #true 10 20)))
 
 (define test-program 
-    '(define foo (lambda (x) (+ x x 10))))
+    '(define foo (lambda (x) (+ (if #t x 20) x (set! x 30)))))
 
 (define *Constant-map* (mutable-vector))
 (define *Compiler* (CodeGenerator::new *Constant-map*))
@@ -569,6 +657,7 @@
 ; (transduce *instructions* (mapping struct->list) (into-for-each displayln))
 
 (pretty-print-instructions)
+(displayln *Constant-map*)
 
 
 ; (displayln (collect-locals-from-function '(lambda (x y z) 10)))
