@@ -48,3 +48,57 @@ pub enum OpCode {
     BEGINSCOPE,
     ENDSCOPE,
 }
+
+impl OpCode {
+    // TODO better error handling here
+    pub fn from_str(s: &str) -> Self {
+        use OpCode::*;
+        match s {
+            "VOID" => VOID,
+            "PUSH" => PUSH,
+            "LOOKUP" => LOOKUP,
+            "IF" => IF,
+            "JMP" => JMP,
+            "FUNC" => FUNC,
+            "SCLOSURE" => SCLOSURE,
+            "ECLOSURE" => ECLOSURE,
+            "STRUCT" => STRUCT,
+            "POP" => POP,
+            "BIND" => BIND,
+            "SDEF" => SDEF,
+            "EDEF" => EDEF,
+            "PASS" => PASS,
+            "PUSHCONST" => PUSHCONST,
+            "NDEFS" => NDEFS,
+            "EVAL" => EVAL,
+            "PANIC" => PANIC,
+            "CLEAR" => CLEAR,
+            "TAILCALL" => TAILCALL,
+            "SET" => SET,
+            "READ" => READ,
+            "METALOOKUP" => METALOOKUP,
+            "CALLCC" => CALLCC,
+            "READLOCAL" => READLOCAL,
+            "SETLOCAL" => SETLOCAL,
+            "READUPVALUE" => READUPVALUE,
+            "SETUPVALUE" => SETUPVALUE,
+            "FILLUPVALUE" => FILLUPVALUE,
+            "FILLLOCALUPVALUE" => FILLLOCALUPVALUE,
+            "CLOSEUPVALUE" => CLOSEUPVALUE, // Should be 1 for close, 0 for not
+            "TCOJMP" => TCOJMP,
+            "CALLGLOBAL" => CALLGLOBAL,
+            "CALLGLOBALTAIL" => CALLGLOBALTAIL,
+            "LOADINT0" => LOADINT0, // Load const 0
+            "LOADINT1" => LOADINT1,
+            "LOADINT2" => LOADINT2,
+            "CGLOCALCONST" => CGLOCALCONST,
+            "INNERSTRUCT" => INNERSTRUCT,
+            "MOVEREADLOCAL" => MOVEREADLOCAL,
+            "MOVEREADUPVALUE" => MOVEREADUPVALUE,
+            "MOVECGLOCALCONST" => MOVECGLOCALCONST,
+            "BEGINSCOPE" => BEGINSCOPE,
+            "ENDSCOPE" => ENDSCOPE,
+            _ => panic!("Unable to map string to opcode"),
+        }
+    }
+}

@@ -39,6 +39,13 @@ pub enum ExprKind {
 }
 
 impl ExprKind {
+    pub fn atom_syntax_object(&self) -> Option<SyntaxObject> {
+        match self {
+            Self::Atom(Atom { syn }) => Some(syn.clone()),
+            _ => None,
+        }
+    }
+
     pub fn atom_identifier_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,

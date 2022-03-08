@@ -79,7 +79,7 @@ fn transduce(mut args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVa
     if let SteelVal::ReducerV(r) = &reducer {
         // TODO get rid of this unwrap
         // just pass a reference instead
-        ctx.call_transduce(&transducers, collection, r.unwrap())
+        ctx.call_transduce(&transducers, collection, r.unwrap(), None)
     } else {
         stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {}", reducer))
     }

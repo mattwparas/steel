@@ -30,6 +30,19 @@ impl Instruction {
         }
     }
 
+    pub fn new_from_parts(
+        op_code: OpCode,
+        payload_size: usize,
+        contents: Option<SyntaxObject>,
+    ) -> Instruction {
+        Instruction {
+            op_code,
+            payload_size,
+            contents,
+            constant: false,
+        }
+    }
+
     pub fn new_panic(span: SyntaxObject) -> Instruction {
         Instruction {
             op_code: OpCode::PANIC,

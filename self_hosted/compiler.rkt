@@ -46,6 +46,15 @@
     (if (Some? option) (Some-value option) other))
 
 
+(define-syntax try! 
+    (syntax-rules ()
+        [(try! expr) 
+            (begin
+                (if (None? expr) 
+                    (return! expr)
+                    (unwrap-some expr)))]))
+
+
 ;; -----------------------------------------------------------
 
 
@@ -357,8 +366,11 @@
 
 ;; TODO - implement collecting locals from the lambda function
 ;; should also verify that there are no duplicate function arguments
+
+;; TODO -> this just default filters out the '. from the arguments list, and it shouldn't do this
+;; really needs to just drain the second from the last argument
 (define (collect-locals-from-function lambda-function)
-    (let ((locals (cadr lambda-function)))
+    (let ((locals (filter (lambda (x) (not (equal? '. x))) (cadr lambda-function))))
         (when (not (equal? (length locals) (hashset-length (list->hashset locals))))
             (error! "Bad Syntax: lambda function cannot have duplicate argument names: " lambda-function))
 
@@ -377,15 +389,28 @@
                         (vector-push! constant-map value)
                         idx)])))
 
+;; Check if anything in the list satisfies the predicate
+(define (list-any? list pred)
+    (cond [(empty? list) => #f]
+          [(pred (car list)) => #t]
+          [else => (list-any? (cdr list) pred)]))
+
+;; TODO -> this is not particularly valid, but it'll work for now
+;; This just checks for the presence of any '.', but it really needs to
+;; make sure its in the correct position
+(define (multi-arity-function? function-expr)
+    (list-any? (cadr function-expr) (lambda (x) (equal? '. x))))
+
+(define (normalize))
 
 (define (visit-lambda-function self expr)
     (displayln "Visiting lambda")
 
     (let ((idx (instructions-len self)))
-        (push! self (Instruction 'SCLOSURE 0 (None)))
+        (push! self (Instruction 'SCLOSURE 0 '()))
 
         ;; Detect if this is a multi arity function somehow 
-        (push! self (Instruction 'PASS 0 (None)))
+        (push! self (Instruction 'PASS (if (multi-arity-function? expr) 1 0) '()))
 
         ;; If we're a let context and not rooted, insert this instruction
         ;; not sure exactly why its necessary, but we're just matching the existing
@@ -396,7 +421,7 @@
                                     (not (CodeGenerator-rooted self))) 
                                 1 
                                 0)
-                                (None)))
+                                '()))
 
         (let* ((variable-data (VariableData 
                                 (collect-locals-from-function expr) 
@@ -416,24 +441,18 @@
 
             (push! self 
                 (Instruction 'NDEFS 
-                            (mut-vec-len (VariableData-upvalues variable-data)) (None)))
+                            (mut-vec-len (VariableData-upvalues variable-data)) '()))
             
             ;; Fill out the upvalue information
             (transduce (VariableData-upvalues variable-data)
                         (into-for-each 
                             (lambda (upvalue)
-                                (if (UpValue-local? upvalue)
-                                    (push! self 
-                                        (Instruction 
-                                            'FILLLOCALUPVALUE 
-                                            (UpValue-index upvalue) (None)))
+                                (push! self 
+                                    (Instruction
+                                        (if (UpValue-local? upvalue) 'FILLLOCALUPVALUE 'FILLUPVALUE))
+                                        (UpValue-index upvalue '())))))
 
-                                    (push! self
-                                        (Instruction
-                                            'FILLUPVALUE
-                                            (UpValue-index upvalue) (None)))))))
-
-            (push! self (Instruction 'POP (mut-vec-len (VariableData-locals variable-data)) (None)))
+            (push! self (Instruction 'POP (mut-vec-len (VariableData-locals variable-data)) '()))
 
             ;; TODO -> defining-context tail call stuff
 
@@ -453,9 +472,9 @@
                     (CodeGenerator-instructions child-generator))
 
             (let ((closure-body-size (- (instructions-len self) idx))
-                  (arity (length (cadr expr))))
+                  (arity (length (filter (lambda (x) (not (equal? '. x))) (cadr expr)))))
 
-                (push! self (Instruction 'ECLOSURE arity (None)))
+                (push! self (Instruction 'ECLOSURE arity '()))
 
                 ;; Store the body size
                 (update-payload! self idx closure-body-size)))))
@@ -531,7 +550,7 @@
                             (set-CodeGenerator-top-level-define! #true))))
         
         ;; Start the definition
-        (push! self (Instruction 'SDEF 0 (None)))
+        (push! self (Instruction 'SDEF 0 '()))
 
         ;; Update the contents to now point to this new context
         (update-contents! self sidx defining-context)
@@ -540,10 +559,10 @@
         (compile self (caddr expr))
 
         (let ((defn-body-size (- (instructions-len self) sidx)))
-            (push! self (Instruction 'EDEF 0 (None)))
+            (push! self (Instruction 'EDEF 0 '()))
             (update-payload! self sidx defn-body-size)
             (push! self (Instruction 'BIND 0 (cadr expr)))
-            (push! self (Instruction 'VOID 0 (None))))))
+            (push! self (Instruction 'VOID 0 '())))))
 
 (define (visit-if self expr)
     (displayln "Visiting if")
@@ -553,14 +572,14 @@
         ;; Load in the test condition
         (compile self test-expr)
         ;; Push in the if instructions
-        (push! self (Instruction 'IF (+ 2 (instructions-len self)) (None)))
+        (push! self (Instruction 'IF (+ 2 (instructions-len self)) '()))
         ;; save spot of the jump instruction, fill in after
         (let ((idx (instructions-len self)))
             ;; Dummy value
-            (push! self (Instruction 'JMP 0 (None)))
+            (push! self (Instruction 'JMP 0 '()))
             ;; Emit instructions for the then
             (compile self then-expr)
-            (push! self (Instruction 'JMP 0 (None)))
+            (push! self (Instruction 'JMP 0 '()))
             (let ((false-start (instructions-len self)))
                 ;; emit instructions for else expression
                 (compile self else-expr)
@@ -595,25 +614,24 @@
 
 (define (visit-return self expr)
     (compile self (cdr expr))
-    (push! (Instruction 'POP 0 (None))))
+    (push! (Instruction 'POP 0 '())))
 
 (define (visit-quote self expr)
     (push! 'PUSHCONST (add-or-get (CodeGenerator-constant-map self) expr) expr))
 
-;; TODO - zip range
-; (define (visit-begin self expr)
-;     (cond [(empty? (cdr expr)) => (push! Instruction 'VOID 0 (None))]
-;           [(else
-;             => 
-;                 (let ((offset (CodeGenerator-stack-offset self)))
-;                     ()
-                
-;                 )
-            
-;             )]
-    
-    
-;     )
+
+;; TODO - zip range instead of doing the set! on each iteration
+;; keep it simple
+(define (visit-begin self expr)
+    (cond [(empty? (cdr expr)) => (push! (Instruction 'VOID 0 '()))]
+          [else
+            => 
+                (let ((offset (CodeGenerator-stack-offset self)))
+                    (transduce (cdr expr)
+                        (into-for-each
+                            (lambda (x) 
+                                (compile (set-CodeGenerator-stack-offset! self offset) x)
+                                (set! offset (+ 1 offset))))))]))
 
 ;; (-> CodeGenerator? (listof? expr))
 (define (compile self expr)
@@ -623,42 +641,99 @@
         [(list? expr)
          (let ((sym (car expr)))
             (cond [(equal? sym 'define) => (visit-define self expr)]
+                  ;; (begin <expr> ...)
+                  [(equal? sym 'begin) => (visit-begin self expr)]
                   ;; ('if test then else)
                   [(equal? sym 'if) => (visit-if self expr)]
+                  ;; (lambda (<ident> ... . <ident>) <expr> ...)
                   [(equal? sym 'lambda) => (visit-lambda-function self expr)]
+                  ;; (set! <ident> <expr>)
                   [(equal? sym 'set!) => (visit-set self expr)]
                   [else => (visit-list self expr)]))]
         [else (displayln "Unknown case")]))
 
 
+(define (inject-heap-save-to-pop self)
+    (let ((len (instructions-len self))
+          (instructions (CodeGenerator-instructions self)))
+        (let ((edef (mut-vector-ref instructions (- len 4)))
+              (bind (mut-vector-ref instructions (- len 3)))
+              (void-instr (mut-vector-ref instructions (- len 2)))
+              (pop (mut-vector-ref instructions (- len 1))))
+            (when (and (equal? (Instruction-op-code edef) 'EDEF)
+                     (equal? (Instruction-op-code bind) 'BIND)
+                     (equal? (Instruction-op-code void-instr) 'VOID)
+                     (equal? (Instruction-op-code pop) 'POP))
+                (update-payload! self (- len 1) 1)))))
+
+
 ;; Write compiler that can compile this to bytecode
 ; (define test-program '(define foo (if #true 10 20)))
 
-(define test-program 
-    '(define foo (lambda (x) (+ (if #t x 20) x (set! x 30)))))
+(define program
+    '(
+        (define test (lambda (x) (+ x 10)))
+        (define applesauce (lambda (y) (+ y (test y))))
+        (define multi-arity (lambda (x . y) y))
+        (multi-arity 1 2 3 4 5)
+    ))
 
 (define *Constant-map* (mutable-vector))
-(define *Compiler* (CodeGenerator::new *Constant-map*))
+; (define *Compiler*)
 
-(compile *Compiler* test-program)
+;; (-> CodeGenerator expr Vec<Instruction>)
+(define (compile-top-level self program)
+    (compile self program)
+    (push! self (Instruction 'POP 0 '()))
+    (inject-heap-save-to-pop self)
+    (CodeGenerator-instructions self))
 
-(define *instructions* 
-    (CodeGenerator-instructions *Compiler*))
+(define (compile-exprs exprs constant-map)
+    (transduce 
+        exprs 
+        (mapping (lambda (x) (compile-top-level (CodeGenerator::new constant-map) x)))
+        (into-list)))
 
-; (displayln *instructions*)
+(define *instructions* (compile-exprs program *Constant-map*))
 
 ;; (-> void)
-(define (pretty-print-instructions)
+(define (pretty-print-instructions instructions)
+    (displayln "------------------------------")
     (transduce 
-        *instructions* 
-        (mapping struct->list) 
+        instructions
+        (mapping struct->list)
         (into-for-each displayln)))
+
+;; Iterator over the generated instructions and print the result
+(transduce *instructions* (into-for-each pretty-print-instructions))
+
+(displayln "---------------Constant Map---------------")
+(displayln *Constant-map*)
 
 ; (transduce *instructions* (mapping struct->list) (into-for-each displayln))
 
-(pretty-print-instructions)
-(displayln *Constant-map*)
+; (pretty-print-instructions)
+; (displayln *Constant-map*)
+
+(define (write-to-file file-name constant-map instructions)
+    (let ((file-handle (open-output-file file-name)))
+        (write-line! file-handle 'ConstantMap)
+        (write-line! file-handle constant-map)
+        (write-line! file-handle 'Instructions)
+        (transduce instructions
+            (into-for-each 
+                (lambda (instruction-set) 
+                    (write-line! file-handle 'Expression)
+                    (transduce 
+                        instruction-set
+                        (mapping struct->list)
+                        (into-for-each 
+                            (lambda (instruction) 
+                                (write-line! file-handle instruction)))))))))
 
 
-; (displayln (collect-locals-from-function '(lambda (x y z) 10)))
-; (displayln (collect-locals-from-function '(lambda (x x x) 10)))
+(write-to-file "test.txt" *Constant-map* *instructions*)
+
+;; Write the instructions down to the file
+
+

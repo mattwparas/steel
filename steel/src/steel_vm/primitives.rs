@@ -470,6 +470,8 @@ pub(crate) fn register_fs_functions(engine: &mut Engine) {
 pub(crate) fn register_port_functions(engine: &mut Engine) {
     engine
         .register_value("open-input-file", PortOperations::open_input_file())
+        .register_value("open-output-file", PortOperations::open_output_file())
+        .register_value("write-line!", PortOperations::write_line())
         .register_value("read-port-to-string", PortOperations::read_port_to_string())
         .register_value("read-line-from-port", PortOperations::read_line_to_string());
 }

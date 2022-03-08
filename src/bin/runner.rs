@@ -28,6 +28,7 @@ fn main() {
 
     builder
         .filter(Some("pipeline_time"), LevelFilter::Trace)
+        .filter(Some("steel::steel_vm::vm"), LevelFilter::Trace)
         .init();
 
     let args = args().collect::<Vec<_>>();
@@ -53,9 +54,13 @@ fn main() {
         //     }
         // }
 
-        let program = SerializableRawProgramWithSymbols::read_from_file(path)
-            .unwrap()
-            .into_raw_program();
+        let program = RawProgramWithSymbols::parse_from_self_hosted_file(path).unwrap();
+
+        println!("Successfully parsed program from file");
+
+        // let program = SerializableRawProgramWithSymbols::read_from_file(path)
+        //     .unwrap()
+        //     .into_raw_program();
 
         // let contents = fs::read_to_string(path).expect("Something went wrong reading the file");
         let res = vm.run_raw_program(program);

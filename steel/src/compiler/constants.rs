@@ -25,6 +25,10 @@ impl ConstantMap {
         ConstantMap(Vec::new())
     }
 
+    pub fn from_vec(vec: Vec<SteelVal>) -> ConstantMap {
+        ConstantMap(vec)
+    }
+
     fn to_constant_expr_map(&self) -> Vec<String> {
         let result: std::result::Result<Vec<_>, _> =
             self.0.iter().map(|x| ExprKind::try_from(x)).collect();

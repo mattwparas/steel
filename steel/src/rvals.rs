@@ -413,6 +413,13 @@ impl SteelVal {
         }
     }
 
+    pub fn int_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<isize, E> {
+        match self {
+            Self::IntV(v) => Ok(*v),
+            _ => Err(err()),
+        }
+    }
+
     pub fn num_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<f64, E> {
         match self {
             Self::NumV(v) => Ok(*v),

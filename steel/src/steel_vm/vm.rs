@@ -328,6 +328,7 @@ pub trait VmContext {
         ops: &[Transducers],
         root: SteelVal,
         reducer: Reducer,
+        span: Option<Span>,
     ) -> Result<SteelVal>;
 }
 
@@ -381,8 +382,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for Vm
         ops: &[Transducers],
         root: SteelVal,
         reducer: Reducer,
+        span: Option<Span>,
     ) -> Result<SteelVal> {
-        let span = Span::default();
+        let span = span.unwrap_or_default();
         self.transduce(ops, root, reducer, &span)
     }
 }
@@ -2077,7 +2079,27 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // Push on the function stack so we have access to it later
         self.function_stack.push(Gc::clone(closure));
 
-        if closure.arity() != payload_size {
+        // if closure.arity() != payload_size {
+        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
+        // }
+
+        if closure.is_multi_arity {
+            if payload_size < closure.arity() - 1 {
+                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); *span);
+            }
+
+            // (define (test x . y))
+            // (test 1 2 3 4 5)
+            // in this case, arity = 2 and payload size = 5
+            // pop off the last 4, collect into a list
+            let amount_to_remove = 1 + payload_size - closure.arity();
+
+            let values = self.stack.split_off(self.stack.len() - amount_to_remove);
+
+            let list = SteelVal::ListV(List::from(values));
+
+            self.stack.push(list);
+        } else if closure.arity() != payload_size {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
         }
 
@@ -2089,7 +2111,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             stop!(Generic => "stack overflowed!"; *span);
         }
 
-        self.stack_index.push(self.stack.len() - payload_size);
+        self.stack_index.push(self.stack.len() - closure.arity());
 
         // TODO use new heap
         // self.heap

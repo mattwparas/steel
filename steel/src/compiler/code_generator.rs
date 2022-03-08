@@ -251,6 +251,12 @@ impl<'a> CodeGenerator<'a> {
         }
     }
 
+    pub fn top_level_compile(mut self, expr: &ExprKind) -> Result<Vec<Instruction>> {
+        self.visit(expr)?;
+        self.instructions.push(Instruction::new_pop());
+        Ok(self.instructions)
+    }
+
     pub fn compile(mut self, expr: &ExprKind) -> Result<Vec<Instruction>> {
         self.visit(expr)?;
         Ok(self.instructions)

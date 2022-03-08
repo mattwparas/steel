@@ -743,12 +743,13 @@ impl Compiler {
             // println!("{:?}", expr.to_string());
             // let mut instructions: Vec<Instruction> = Vec::new();
 
-            let mut instructions = CodeGenerator::new(&mut self.constant_map).compile(expr)?;
+            let mut instructions =
+                CodeGenerator::new(&mut self.constant_map).top_level_compile(expr)?;
 
             // TODO double check that arity map doesn't exist anymore
             // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
 
-            instructions.push(Instruction::new_pop());
+            // instructions.push(Instruction::new_pop());
             inject_heap_save_to_pop(&mut instructions);
             index_buffer.push(instructions.len());
             instruction_buffer.append(&mut instructions);
@@ -789,9 +790,10 @@ impl Compiler {
         for expr in expanded_statements {
             // TODO add printing out the expression as its own special function
 
-            let mut instructions = CodeGenerator::new(&mut self.constant_map).compile(&expr)?;
+            let mut instructions =
+                CodeGenerator::new(&mut self.constant_map).top_level_compile(&expr)?;
 
-            instructions.push(Instruction::new_pop());
+            // instructions.push(Instruction::new_pop());
             inject_heap_save_to_pop(&mut instructions);
             index_buffer.push(instructions.len());
             instruction_buffer.append(&mut instructions);
@@ -817,9 +819,10 @@ impl Compiler {
         for expr in expanded_statements {
             // TODO add printing out the expression as its own special function
 
-            let mut instructions = CodeGenerator::new(&mut self.constant_map).compile(&expr)?;
+            let mut instructions =
+                CodeGenerator::new(&mut self.constant_map).top_level_compile(&expr)?;
 
-            instructions.push(Instruction::new_pop());
+            // instructions.push(Instruction::new_pop());
             inject_heap_save_to_pop(&mut instructions);
             index_buffer.push(instructions.len());
             instruction_buffer.append(&mut instructions);

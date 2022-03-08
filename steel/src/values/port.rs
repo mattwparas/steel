@@ -92,7 +92,7 @@ impl SteelPort {
     }
 
     pub fn new_textual_file_output(path: &str) -> Result<SteelPort> {
-        let file = OpenOptions::new().create_new(true).write(true).open(path)?;
+        let file = OpenOptions::new().truncate(true).write(true).open(path)?;
 
         Ok(SteelPort::FileOutput(
             path.to_string(),
@@ -209,6 +209,24 @@ impl SteelPort {
             ($br: ident) => {{
                 let br = &mut *$br.borrow_mut();
                 write!(br, "{}", string)?;
+                br.flush()?;
+            }};
+        );
+
+        match self {
+            SteelPort::FileOutput(_, br) => write_string!(br),
+            SteelPort::StdOutput(br) => write_string!(br),
+            _x => stop!(Generic => "write-string"),
+        };
+
+        Ok(())
+    }
+
+    pub fn write_string_line(&self, string: &str) -> Result<()> {
+        macro_rules! write_string(
+            ($br: ident) => {{
+                let br = &mut *$br.borrow_mut();
+                write!(br, "{}\n", string)?;
                 br.flush()?;
             }};
         );
