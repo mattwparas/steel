@@ -201,7 +201,7 @@ impl Engine {
         constant_map: &ConstantMap,
     ) -> Result<SteelVal> {
         self.virtual_machine
-            .execute(bytecode, constant_map, UseCallback, ApplyContract)
+            .execute(bytecode, constant_map, &[], UseCallback, ApplyContract)
     }
 
     /// Emit the bytecode directly, with a path provided.

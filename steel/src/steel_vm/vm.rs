@@ -108,6 +108,7 @@ impl VirtualMachineCore {
         let Executable {
             instructions,
             constant_map,
+            spans,
             // struct_functions,
             ..
         } = program;
@@ -118,6 +119,7 @@ impl VirtualMachineCore {
                 self.execute(
                     Rc::from(x.into_boxed_slice()),
                     &constant_map,
+                    &spans,
                     use_callbacks,
                     apply_contracts,
                 )
@@ -171,6 +173,7 @@ impl VirtualMachineCore {
                 self.execute(
                     Rc::from(x.into_boxed_slice()),
                     &constant_map,
+                    &[],
                     use_callbacks,
                     apply_contracts,
                 )
@@ -198,7 +201,7 @@ impl VirtualMachineCore {
 
         instructions
             .into_iter()
-            .map(|code| self.execute(code, &constant_map, UseCallback, ApplyContract))
+            .map(|code| self.execute(code, &constant_map, &[], UseCallback, ApplyContract))
             .collect()
     }
 
@@ -206,6 +209,7 @@ impl VirtualMachineCore {
         &mut self,
         instructions: Rc<[DenseInstruction]>,
         constant_map: &ConstantMap,
+        spans: &[Span],
         use_callbacks: U,
         apply_contracts: A,
     ) -> Result<SteelVal> {
@@ -219,6 +223,7 @@ impl VirtualMachineCore {
             &mut self.function_stack,
             &mut self.stack_index,
             self.upvalue_head.take(),
+            spans,
             use_callbacks,
             apply_contracts,
             #[cfg(feature = "jit")]
@@ -402,6 +407,7 @@ pub(crate) struct VmCore<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContrac
     pub(crate) upvalue_head: Option<Weak<RefCell<UpValue>>>,
     pub(crate) upvalue_heap: &'a mut UpValueHeap,
     pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
+    pub(crate) spans: &'a [Span],
     pub(crate) use_callbacks: U,
     pub(crate) apply_contracts: A,
     #[cfg(feature = "jit")]
@@ -419,6 +425,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
         stack_index: &'a mut Stack<usize>,
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
+        spans: &'a [Span],
         use_callbacks: U,
         apply_contracts: A,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
@@ -440,6 +447,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             upvalue_head,
             upvalue_heap,
             function_stack,
+            spans,
             use_callbacks,
             apply_contracts,
             #[cfg(feature = "jit")]
@@ -772,11 +780,19 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         let mut cur_inst;
 
         while self.ip < self.instructions.len() {
+            // TODO -> don't just copy the value from the instructions
+            // We don't need to do that... Figure out a way to just take a reference to the value
+            // Perhaps if the instructions are guaranteed to be immutable references that cannot be mutated
+            // The cost of moving the instruction out of the vector is not what we want. Perhaps move instructions
+            // into its own local array since we don't recur in this function?
+
             cur_inst = self.instructions[self.ip];
 
-            // println!("inst: {:?}", cur_inst);
-
-            match cur_inst.op_code {
+            // Try to eliminate the current instruction variable
+            // We can elide the reads, and instead opt to just go for values directly on the instructions
+            // Otherwise, we're going to be copying the instruction _every_ time we iterate which is going to slow down the loop
+            // We'd rather just reference the instruction and call it a day
+            match &cur_inst.op_code {
                 OpCode::PANIC => self.handle_panic(cur_inst.span)?,
                 OpCode::EVAL => {
                     let _expr_to_eval = self.stack.pop().unwrap();
@@ -2236,6 +2252,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // self.heap
         //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
         // self.heap.collect_garbage();
+
+        // std::mem::replace(x, y)
 
         self.instruction_stack.push(InstructionPointer::new(
             self.ip + 1,

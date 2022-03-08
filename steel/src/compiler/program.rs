@@ -398,6 +398,24 @@ impl RawProgramWithSymbols {
     }
 }
 
+// TODO -> replace spans on instructions with index into span vector
+// this is kinda nasty but it _should_ work
+fn extract_spans(instructions: &[&[Instruction]]) -> Vec<(usize, Span)> {
+    instructions
+        .iter()
+        .flat_map(|x| {
+            x.iter().map(|x| {
+                if let Some(syn) = &x.contents {
+                    syn.span
+                } else {
+                    Span::new(0, 0)
+                }
+            })
+        })
+        .enumerate()
+        .collect()
+}
+
 // A program stripped of its debug symbols, but only constructable by running a pass
 // over it with the symbol map to intern all of the symbols in the order they occurred
 pub struct Executable {
