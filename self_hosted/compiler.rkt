@@ -130,9 +130,9 @@
 (define (UpValue index local? ident)
     (mutable-vector 'UpValue index local? ident))
 
-(define (UpValue-index self) (mut-vector-ref 1))
-(define (UpValue-local? self) (mut-vector-ref 2))
-(define (Upvalue-ident self) (mut-vector-ref 3))
+(define (UpValue-index self) (mut-vector-ref self 1))
+(define (UpValue-local? self) (mut-vector-ref self 2))
+(define (Upvalue-ident self) (mut-vector-ref self 3))
 
 ;; --------- Variable Data ------------
 
@@ -452,7 +452,8 @@
                                         (if (UpValue-local? upvalue) 'FILLLOCALUPVALUE 'FILLUPVALUE))
                                         (UpValue-index upvalue '())))))
 
-            (push! self (Instruction 'POP (mut-vec-len (VariableData-locals variable-data)) '()))
+            (push! child-generator 
+                (Instruction 'POP (mut-vec-len (VariableData-locals variable-data)) '()))
 
             ;; TODO -> defining-context tail call stuff
 
@@ -656,15 +657,16 @@
 (define (inject-heap-save-to-pop self)
     (let ((len (instructions-len self))
           (instructions (CodeGenerator-instructions self)))
-        (let ((edef (mut-vector-ref instructions (- len 4)))
-              (bind (mut-vector-ref instructions (- len 3)))
-              (void-instr (mut-vector-ref instructions (- len 2)))
-              (pop (mut-vector-ref instructions (- len 1))))
-            (when (and (equal? (Instruction-op-code edef) 'EDEF)
-                     (equal? (Instruction-op-code bind) 'BIND)
-                     (equal? (Instruction-op-code void-instr) 'VOID)
-                     (equal? (Instruction-op-code pop) 'POP))
-                (update-payload! self (- len 1) 1)))))
+        (unless (< len 4)
+            (let ((edef (mut-vector-ref instructions (- len 4)))
+                (bind (mut-vector-ref instructions (- len 3)))
+                (void-instr (mut-vector-ref instructions (- len 2)))
+                (pop (mut-vector-ref instructions (- len 1))))
+                (when (and (equal? (Instruction-op-code edef) 'EDEF)
+                        (equal? (Instruction-op-code bind) 'BIND)
+                        (equal? (Instruction-op-code void-instr) 'VOID)
+                        (equal? (Instruction-op-code pop) 'POP))
+                    (update-payload! self (- len 1) 1))))))
 
 
 ;; Write compiler that can compile this to bytecode
@@ -672,10 +674,13 @@
 
 (define program
     '(
-        (define test (lambda (x) (+ x 10)))
-        (define applesauce (lambda (y) (+ y (test y))))
-        (define multi-arity (lambda (x . y) y))
-        (multi-arity 1 2 3 4 5)
+        ; (define test (lambda (x) (+ x 10)))
+        ; (define applesauce (lambda (y) (+ y (test y))))
+        ; (define multi-arity (lambda (x . y) y))
+        (define hello-world (lambda () (displayln "Hello world!")))
+        ; (multi-arity 1 2 3 4 5)
+
+        (hello-world)
     ))
 
 (define *Constant-map* (mutable-vector))
