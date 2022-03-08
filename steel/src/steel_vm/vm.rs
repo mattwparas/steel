@@ -777,7 +777,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     }
 
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
-        let mut cur_inst;
+        // let mut cur_inst;
 
         while self.ip < self.instructions.len() {
             // TODO -> don't just copy the value from the instructions
@@ -786,40 +786,65 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             // The cost of moving the instruction out of the vector is not what we want. Perhaps move instructions
             // into its own local array since we don't recur in this function?
 
-            cur_inst = self.instructions[self.ip];
+            // cur_inst = self.instructions[self.ip];
 
             // Try to eliminate the current instruction variable
             // We can elide the reads, and instead opt to just go for values directly on the instructions
             // Otherwise, we're going to be copying the instruction _every_ time we iterate which is going to slow down the loop
             // We'd rather just reference the instruction and call it a day
-            match &cur_inst.op_code {
-                OpCode::PANIC => self.handle_panic(cur_inst.span)?,
-                OpCode::EVAL => {
+            match self.instructions[self.ip] {
+                DenseInstruction {
+                    op_code: OpCode::PANIC,
+                    span,
+                    ..
+                } => self.handle_panic(span)?,
+                DenseInstruction {
+                    op_code: OpCode::EVAL,
+                    ..
+                } => {
                     let _expr_to_eval = self.stack.pop().unwrap();
                     panic!("eval not yet supported - internal compiler error");
                 }
-                OpCode::PASS => {
+                DenseInstruction {
+                    op_code: OpCode::PASS,
+                    ..
+                } => {
                     println!("Hitting a pass - this shouldn't happen");
                     self.ip += 1;
                 }
-                OpCode::VOID => {
+                DenseInstruction {
+                    op_code: OpCode::VOID,
+                    ..
+                } => {
                     self.stack.push(SteelVal::Void);
                     self.ip += 1;
                 }
-                OpCode::STRUCT => {
+                DenseInstruction {
+                    op_code: OpCode::STRUCT,
+                    payload_size,
+                    ..
+                } => {
                     // For now, only allow structs at the top level
                     // In the future, allow structs to be also available in a nested scope
-                    self.handle_struct(cur_inst.payload_size as usize)?;
+                    self.handle_struct(payload_size as usize)?;
                     self.stack.push(SteelVal::Void);
                     self.ip += 1;
                     // return Ok(SteelVal::Void);
                 }
-                OpCode::INNERSTRUCT => {
-                    self.handle_inner_struct(cur_inst.payload_size as usize)?;
+                DenseInstruction {
+                    op_code: OpCode::INNERSTRUCT,
+                    payload_size,
+                    ..
+                } => {
+                    self.handle_inner_struct(payload_size as usize)?;
                     self.stack.push(SteelVal::Void);
                     self.ip += 1;
                 }
-                OpCode::CALLCC => {
+                DenseInstruction {
+                    op_code: OpCode::CALLCC,
+                    span,
+                    ..
+                } => {
                     /*
                     - Construct the continuation
                     - Get the function that has been passed in (off the stack)
@@ -828,7 +853,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     */
                     let function = self.stack.pop().unwrap();
 
-                    validate_closure_for_call_cc(&function, cur_inst.span)?;
+                    validate_closure_for_call_cc(&function, span)?;
 
                     let continuation = self.construct_continuation_function();
 
@@ -836,7 +861,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         SteelVal::Closure(closure) => {
                             if self.stack_index.len() == STACK_LIMIT {
                                 println!("stack frame at exit: {:?}", self.stack);
-                                stop!(Generic => "stack overflowed!"; cur_inst.span);
+                                stop!(Generic => "stack overflowed!"; span);
                             }
 
                             if closure.arity() != 1 {
@@ -871,40 +896,92 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         }
                     }
                 }
-                OpCode::READ => self.handle_read(&cur_inst.span)?,
-                OpCode::SET => self.handle_set(cur_inst.payload_size as usize)?,
-                OpCode::PUSHCONST => {
-                    let val = self.constants.get(cur_inst.payload_size as usize);
+                DenseInstruction {
+                    op_code: OpCode::READ,
+                    span,
+                    ..
+                } => self.handle_read(&span)?,
+                DenseInstruction {
+                    op_code: OpCode::SET,
+                    payload_size,
+                    ..
+                } => self.handle_set(payload_size as usize)?,
+                DenseInstruction {
+                    op_code: OpCode::PUSHCONST,
+                    payload_size,
+                    ..
+                } => {
+                    let val = self.constants.get(payload_size as usize);
                     self.stack.push(val);
                     self.ip += 1;
                 }
-                OpCode::PUSH => self.handle_push(cur_inst.payload_size as usize)?,
-                OpCode::READLOCAL => self.handle_local(cur_inst.payload_size as usize)?,
-                OpCode::MOVEREADLOCAL => self.handle_move_local(cur_inst.payload_size as usize)?,
-                OpCode::SETLOCAL => self.handle_set_local(cur_inst.payload_size as usize),
-                OpCode::READUPVALUE => self.handle_upvalue(cur_inst.payload_size as usize),
-                OpCode::MOVEREADUPVALUE => self.handle_move_upvalue(cur_inst.payload_size as usize),
-                OpCode::SETUPVALUE => self.handle_set_upvalue(cur_inst.payload_size as usize),
+                DenseInstruction {
+                    op_code: OpCode::PUSH,
+                    payload_size,
+                    ..
+                } => self.handle_push(payload_size as usize)?,
+                DenseInstruction {
+                    op_code: OpCode::READLOCAL,
+                    payload_size,
+                    ..
+                } => self.handle_local(payload_size as usize)?,
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL,
+                    payload_size,
+                    ..
+                } => self.handle_move_local(payload_size as usize)?,
+                DenseInstruction {
+                    op_code: OpCode::SETLOCAL,
+                    payload_size,
+                    ..
+                } => self.handle_set_local(payload_size as usize),
+                DenseInstruction {
+                    op_code: OpCode::READUPVALUE,
+                    payload_size,
+                    ..
+                } => self.handle_upvalue(payload_size as usize),
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADUPVALUE,
+                    payload_size,
+                    ..
+                } => self.handle_move_upvalue(payload_size as usize),
+                DenseInstruction {
+                    op_code: OpCode::SETUPVALUE,
+                    payload_size,
+                    ..
+                } => self.handle_set_upvalue(payload_size as usize),
                 // OpCode::APPLY => self.handle_apply(cur_inst.span)?,
-                OpCode::CLEAR => {
+                DenseInstruction {
+                    op_code: OpCode::CLEAR,
+                    ..
+                } => {
                     self.ip += 1;
                 }
-                OpCode::LOADINT1 => {
+                DenseInstruction {
+                    op_code: OpCode::LOADINT1,
+                    ..
+                } => {
                     self.stack.push(SteelVal::INT_ONE);
                     self.ip += 1;
                 }
-                OpCode::LOADINT2 => {
+                DenseInstruction {
+                    op_code: OpCode::LOADINT2,
+                    ..
+                } => {
                     self.stack.push(SteelVal::INT_TWO);
                     self.ip += 1;
                 }
-                OpCode::CGLOCALCONST => {
-                    let read_local = self.instructions[self.ip + 1];
-                    let push_const = self.instructions[self.ip + 2];
+                DenseInstruction {
+                    op_code: OpCode::CGLOCALCONST,
+                    payload_size,
+                    span,
+                    ..
+                } => {
+                    let read_local = &self.instructions[self.ip + 1];
+                    let push_const = &self.instructions[self.ip + 2];
 
                     // Snag the function
-                    let func = self
-                        .global_env
-                        .repl_lookup_idx(cur_inst.payload_size as usize)?;
+                    let func = self.global_env.repl_lookup_idx(payload_size as usize)?;
 
                     // get the local
                     let offset = self.stack_index.last().copied().unwrap_or(0);
@@ -913,16 +990,19 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     // get the const
                     let const_val = self.constants.get(push_const.payload_size as usize);
 
-                    self.handle_lazy_function_call(func, local_value, const_val, &cur_inst.span)?;
+                    self.handle_lazy_function_call(func, local_value, const_val, &span)?;
                 }
-                OpCode::MOVECGLOCALCONST => {
-                    let move_read_local = self.instructions[self.ip + 1];
-                    let push_const = self.instructions[self.ip + 2];
+                DenseInstruction {
+                    op_code: OpCode::MOVECGLOCALCONST,
+                    payload_size,
+                    span,
+                    ..
+                } => {
+                    let move_read_local = &self.instructions[self.ip + 1];
+                    let push_const = &self.instructions[self.ip + 2];
 
                     // Snag the function
-                    let func = self
-                        .global_env
-                        .repl_lookup_idx(cur_inst.payload_size as usize)?;
+                    let func = self.global_env.repl_lookup_idx(payload_size as usize)?;
 
                     // get the local by moving its position
                     let offset = self.stack_index.last().copied().unwrap_or(0);
@@ -934,54 +1014,76 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     // get the const
                     let const_val = self.constants.get(push_const.payload_size as usize);
 
-                    self.handle_lazy_function_call(func, local_value, const_val, &cur_inst.span)?;
+                    self.handle_lazy_function_call(func, local_value, const_val, &span)?;
                 }
-                OpCode::CALLGLOBAL => {
+                DenseInstruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    payload_size,
+                    ..
+                } => {
                     let next_inst = self.instructions[self.ip + 1];
                     self.handle_call_global(
-                        cur_inst.payload_size as usize,
+                        payload_size as usize,
                         next_inst.payload_size as usize,
                         &next_inst.span,
                     )?;
                 }
-                OpCode::CALLGLOBALTAIL => {
+                DenseInstruction {
+                    op_code: OpCode::CALLGLOBALTAIL,
+                    payload_size,
+                    ..
+                } => {
                     // println!("calling global tail");
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     let next_inst = self.instructions[self.ip + 1];
                     self.handle_tail_call_global(
-                        cur_inst.payload_size as usize,
+                        payload_size as usize,
                         next_inst.payload_size as usize,
                         &next_inst.span,
                     )?;
                 }
-                OpCode::FUNC => {
+                DenseInstruction {
+                    op_code: OpCode::FUNC,
+                    payload_size,
+                    span,
+                    ..
+                } => {
                     let func = self.stack.pop().unwrap();
-                    self.handle_function_call(
-                        func,
-                        cur_inst.payload_size as usize,
-                        &cur_inst.span,
-                    )?;
+                    self.handle_function_call(func, payload_size as usize, &span)?;
                 }
                 // Tail call basically says "hey this function is exiting"
                 // In the closure case, transfer ownership of the stack to the called function
-                OpCode::TAILCALL => {
+                DenseInstruction {
+                    op_code: OpCode::TAILCALL,
+                    payload_size,
+                    span,
+                    ..
+                } => {
                     let func = self.stack.pop().unwrap();
-                    self.handle_tail_call(func, cur_inst.payload_size as usize, &cur_inst.span)?
+                    self.handle_tail_call(func, payload_size as usize, &span)?
                 }
-                OpCode::IF => {
+                DenseInstruction {
+                    op_code: OpCode::IF,
+                    payload_size,
+                    ..
+                } => {
                     // change to truthy...
                     if self.stack.pop().unwrap().is_truthy() {
-                        self.ip = cur_inst.payload_size as usize;
+                        self.ip = payload_size as usize;
                     } else {
                         self.ip = self.instructions[self.ip + 1].payload_size as usize
                         // self.ip += 1;
                     }
                 }
-                OpCode::TCOJMP => {
+                DenseInstruction {
+                    op_code: OpCode::TCOJMP,
+                    payload_size,
+                    ..
+                } => {
                     // println!("At tco jump");
 
                     let current_arity = self.instructions[self.ip + 1].payload_size as usize;
-                    self.ip = cur_inst.payload_size as usize;
+                    self.ip = payload_size as usize;
 
                     let closure_arity = self.function_stack.last().unwrap().arity();
 
@@ -1010,18 +1112,29 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
                     // println!("stack after truncating: {:?}", self.stack);
                 }
-                OpCode::JMP => {
-                    self.ip = cur_inst.payload_size as usize;
+                DenseInstruction {
+                    op_code: OpCode::JMP,
+                    payload_size,
+                    ..
+                } => {
+                    self.ip = payload_size as usize;
                 }
-                OpCode::BEGINSCOPE => {
+                DenseInstruction {
+                    op_code: OpCode::BEGINSCOPE,
+                    ..
+                } => {
                     // todo!()
                     self.ip += 1;
                     // self.stack_index.push(self.stack.len());
                 }
-                OpCode::ENDSCOPE => {
+                DenseInstruction {
+                    op_code: OpCode::ENDSCOPE,
+                    payload_size,
+                    ..
+                } => {
                     // todo!()
 
-                    let beginning_scope = cur_inst.payload_size as usize;
+                    let beginning_scope = payload_size as usize;
                     let offset = self.stack_index.last().copied().unwrap_or(0);
 
                     // Move to the pop
@@ -1069,20 +1182,42 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     // let last = self.stack_index.pop().unwrap();
                     // self.stack.truncate(last);
                 }
-                OpCode::POP => {
-                    if let Some(r) = self.handle_pop(cur_inst.payload_size, &cur_inst.span) {
+                DenseInstruction {
+                    op_code: OpCode::POP,
+                    payload_size,
+                    span,
+                    ..
+                } => {
+                    if let Some(r) = self.handle_pop(payload_size, &span) {
                         return r;
                     }
                 }
-                OpCode::BIND => self.handle_bind(cur_inst.payload_size as usize),
-                OpCode::SCLOSURE => self.handle_start_closure(cur_inst.payload_size as usize),
-                OpCode::SDEF => self.handle_start_def(),
-                OpCode::EDEF => {
+                DenseInstruction {
+                    op_code: OpCode::BIND,
+                    payload_size,
+                    ..
+                } => self.handle_bind(payload_size as usize),
+                DenseInstruction {
+                    op_code: OpCode::SCLOSURE,
+                    payload_size,
+                    ..
+                } => self.handle_start_closure(payload_size as usize),
+                DenseInstruction {
+                    op_code: OpCode::SDEF,
+                    ..
+                } => self.handle_start_def(),
+                DenseInstruction {
+                    op_code: OpCode::EDEF,
+                    ..
+                } => {
                     self.ip += 1;
                 }
                 _ => {
                     crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                    panic!("Unhandled opcode: {:?} @ {}", cur_inst.op_code, self.ip);
+                    panic!(
+                        "Unhandled opcode: {:?} @ {}",
+                        self.instructions[self.ip], self.ip
+                    );
                 }
             }
 
