@@ -13,7 +13,7 @@ use log::{debug, log_enabled};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     time::{Instant, SystemTime},
 };
 
@@ -381,13 +381,15 @@ impl RawProgramWithSymbols {
         struct_instructions.append(&mut self.instructions);
         self.instructions = struct_instructions;
 
+        let (spans, instructions) = extract_spans(self.instructions);
+
         let res = Ok(Executable {
             name,
             version: self.version,
             time_stamp: SystemTime::now(),
-            instructions: self.instructions.into_iter().map(|x| densify(x)).collect(),
+            instructions,
             constant_map: self.constant_map,
-            spans: Vec::new(),
+            spans,
         });
 
         if log_enabled!(target: "pipeline_time", log::Level::Debug) {
@@ -400,20 +402,41 @@ impl RawProgramWithSymbols {
 
 // TODO -> replace spans on instructions with index into span vector
 // this is kinda nasty but it _should_ work
-fn extract_spans(instructions: &[&[Instruction]]) -> Vec<(usize, Span)> {
-    instructions
-        .iter()
-        .flat_map(|x| {
-            x.iter().map(|x| {
-                if let Some(syn) = &x.contents {
-                    syn.span
-                } else {
-                    Span::new(0, 0)
-                }
-            })
+fn extract_spans(instructions: Vec<Vec<Instruction>>) -> (Vec<Span>, Vec<Vec<DenseInstruction>>) {
+    let mut span_vec = Vec::with_capacity(instructions.iter().map(|x| x.len()).sum());
+
+    for instruction_set in &instructions {
+        for instruction in instruction_set {
+            if let Some(syn) = &instruction.contents {
+                span_vec.push(syn.span)
+            } else {
+                span_vec.push(Span::default())
+            }
+        }
+    }
+
+    let mut count = 0;
+
+    let instructions: Vec<_> = instructions
+        .into_iter()
+        .map(|x| {
+            x.into_iter()
+                .map(|x| {
+                    let res = DenseInstruction::new_with_index(
+                        x.op_code,
+                        x.payload_size.try_into().unwrap(),
+                        count,
+                    );
+
+                    count += 1;
+
+                    res
+                })
+                .collect()
         })
-        .enumerate()
-        .collect()
+        .collect();
+
+    (span_vec, instructions)
 }
 
 // A program stripped of its debug symbols, but only constructable by running a pass

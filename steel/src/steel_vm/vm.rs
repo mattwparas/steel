@@ -795,9 +795,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             match self.instructions[self.ip] {
                 DenseInstruction {
                     op_code: OpCode::PANIC,
-                    span,
+                    span_index,
                     ..
-                } => self.handle_panic(span)?,
+                } => self.handle_panic(self.spans[span_index])?,
                 DenseInstruction {
                     op_code: OpCode::EVAL,
                     ..
@@ -842,7 +842,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 }
                 DenseInstruction {
                     op_code: OpCode::CALLCC,
-                    span,
+                    span_index,
                     ..
                 } => {
                     /*
@@ -853,7 +853,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     */
                     let function = self.stack.pop().unwrap();
 
-                    validate_closure_for_call_cc(&function, span)?;
+                    validate_closure_for_call_cc(&function, self.spans[span_index])?;
 
                     let continuation = self.construct_continuation_function();
 
@@ -861,7 +861,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         SteelVal::Closure(closure) => {
                             if self.stack_index.len() == STACK_LIMIT {
                                 println!("stack frame at exit: {:?}", self.stack);
-                                stop!(Generic => "stack overflowed!"; span);
+                                stop!(Generic => "stack overflowed!"; self.spans[span_index]);
                             }
 
                             if closure.arity() != 1 {
@@ -898,9 +898,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 }
                 DenseInstruction {
                     op_code: OpCode::READ,
-                    span,
+                    span_index,
                     ..
-                } => self.handle_read(&span)?,
+                } => self.handle_read(&self.spans[span_index])?,
                 DenseInstruction {
                     op_code: OpCode::SET,
                     payload_size,

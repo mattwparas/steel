@@ -117,7 +117,10 @@ async fn finish_load_or_interrupt(vm: Arc<Mutex<Engine>>, exprs: String, path: P
     local.spawn_local(async move {
         let file_name = path.to_str().unwrap().to_string();
 
-        let res = vm.lock().unwrap().run_with_path(exprs.as_str(), path);
+        let res = vm
+            .lock()
+            .unwrap()
+            .compile_and_run_raw_program_with_path(exprs.as_str(), path);
 
         match res {
             Ok(r) => r.iter().for_each(|x| match x {
@@ -147,7 +150,7 @@ async fn finish_or_interrupt(vm: Arc<Mutex<Engine>>, line: String, print_time: b
     local.spawn_local(async move {
         let now = Instant::now();
 
-        let res = vm.lock().unwrap().parse_and_execute(&line);
+        let res = vm.lock().unwrap().compile_and_run_raw_program(&line);
 
         match res {
             Ok(r) => r.iter().for_each(|x| match x {
@@ -198,7 +201,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     let current_dir = std::env::current_dir()?;
 
     for core in core_libraries {
-        let res = vm.parse_and_execute_without_optimizations(core);
+        let res = vm.compile_and_run_raw_program(core);
 
         match res {
             Ok(r) => r.iter().for_each(|x| match x {

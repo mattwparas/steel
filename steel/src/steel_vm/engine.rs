@@ -227,6 +227,27 @@ impl Engine {
             .execute_program(program, UseCallback, ApplyContract)
     }
 
+    // TODO -> clean up this API a lot
+    pub fn compile_and_run_raw_program_with_path(
+        &mut self,
+        exprs: &str,
+        path: PathBuf,
+    ) -> Result<Vec<SteelVal>> {
+        let constants = self.constants();
+        let program = self
+            .compiler
+            .compile_executable(exprs, Some(path), constants)?;
+
+        self.run_raw_program(program)
+    }
+
+    pub fn compile_and_run_raw_program(&mut self, exprs: &str) -> Result<Vec<SteelVal>> {
+        let constants = self.constants();
+        let program = self.compiler.compile_executable(exprs, None, constants)?;
+
+        self.run_raw_program(program)
+    }
+
     pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
         let executable = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)?;
         self.virtual_machine
@@ -340,6 +361,8 @@ impl Engine {
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", predicate_name, args.len()));
             }
+
+            assert!(args.len() == 1);
 
             Ok(SteelVal::BoolV(T::from_steelval(args[0].clone()).is_ok()))
         };
