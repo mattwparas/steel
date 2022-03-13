@@ -2,7 +2,7 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use steel::steel_vm::{engine::Engine, register_fn::RegisterAsyncFn};
+use steel::steel_vm::{engine::Engine};
 use steel_repl::repl::repl_base;
 
 use std::fs;

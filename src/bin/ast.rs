@@ -10,12 +10,12 @@ use std::fs;
 use std::process;
 
 use env_logger::Builder;
-use log::LevelFilter;
+
 
 fn main() {
     // env_logger::init();
 
-    let mut builder = Builder::new();
+    let _builder = Builder::new();
 
     // builder
     //     .filter(Some("pipeline_time"), LevelFilter::Trace)

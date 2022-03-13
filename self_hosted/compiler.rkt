@@ -38,8 +38,7 @@
 ;; Get the inner value of the option - contract checking along the way
 ;; Figure out how to turn off contracts on OptLevel3 regardless - 
 ;; this would speed up performance a lot - also figure out how to map this to compile time options in Rust
-(define (unwrap-some option)
-    (Some-value option))
+(define (unwrap-some Some-value))
 
 ;; Unwraps the given option or returns the given other value
 (define (unwrap-or option other)

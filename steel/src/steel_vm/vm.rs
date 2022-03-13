@@ -795,7 +795,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             match self.instructions[self.ip] {
                 DenseInstruction {
                     op_code: OpCode::PANIC,
-                    span_index,
                     ..
                 } => self.handle_panic(self.current_span())?,
                 DenseInstruction {
@@ -842,7 +841,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 }
                 DenseInstruction {
                     op_code: OpCode::CALLCC,
-                    span_index,
                     ..
                 } => {
                     /*
@@ -912,7 +910,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 }
                 DenseInstruction {
                     op_code: OpCode::READ,
-                    span_index,
                     ..
                 } => self.handle_read()?,
                 DenseInstruction {
@@ -1007,7 +1004,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 DenseInstruction {
                     op_code: OpCode::MOVECGLOCALCONST,
                     payload_size,
-                    span_index,
                     ..
                 } => {
                     let move_read_local = &self.instructions[self.ip + 1];
@@ -1055,7 +1051,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 DenseInstruction {
                     op_code: OpCode::FUNC,
                     payload_size,
-                    span_index,
                     ..
                 } => {
                     let func = self.stack.pop().unwrap();
@@ -1066,7 +1061,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 DenseInstruction {
                     op_code: OpCode::TAILCALL,
                     payload_size,
-                    span_index,
                     ..
                 } => {
                     let func = self.stack.pop().unwrap();
