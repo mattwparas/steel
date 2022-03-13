@@ -130,7 +130,7 @@ impl<T: IntoSteelVal> ToNanTaggedValue for T {
 // Since these functions do coercion, this might be expensive and it may be better
 // to move back and forth directly
 pub(crate) fn from_nan_tagged_value<T: FromSteelVal>(ptr: f64) -> T {
-    T::from_steelval(decode(ptr)).expect("Unable to coerce type from steelval")
+    T::from_steelval(&decode(ptr)).expect("Unable to coerce type from steelval")
 }
 
 // pub trait FromSteelVal: Sized {

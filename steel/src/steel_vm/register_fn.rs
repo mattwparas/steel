@@ -1,7 +1,7 @@
 use std::{future::Future, marker::PhantomData, rc::Rc};
 
 use super::engine::Engine;
-use crate::rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal};
+use crate::rvals::{AsRefSteelVal, CustomType, FromSteelVal, IntoSteelVal, Result, SteelVal};
 use crate::stop;
 use crate::{
     rerrs::{ErrorKind, SteelErr},
@@ -61,6 +61,48 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, R
     }
 }
 
+// Try to make the first argument accept a reference to the underlying object
+// even better, try to make this work for anything that can be treated as a reference
+// -> references to objects can be done and should be able to be done, since they just need to be
+// treated the same way
+
+// CustomType should work for values and references - if just the value, we have this for free
+// if its the reference, just try to look at the underlying value, and operate on it accordingly
+
+// impl<RET: IntoSteelVal, CUSTOM: CustomType, FN: Fn(CUSTOM) -> RET + 'static>
+//     RegisterFn<FN, Wrapper<CUSTOM>, RET> for Engine
+// {
+//     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+//         // todo!()
+
+//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+//             if !args.is_empty() {
+//                 stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
+//             }
+
+//             let res = func();
+
+//             res.into_steelval()
+//         };
+
+//         // self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+//     }
+// }
+
+// pub trait Foo {}
+
+// pub trait Bar {}
+
+// pub trait Baz {}
+
+// impl<A: Foo, B: Bar, C: Baz> Foo for (A, B, C) {}
+
+// macro_rules! permutation {
+//     ($ )
+// }
+
+// impl
+
 macro_rules! impl_register_fn {
     ($arg_count:expr => $($param:ident: $idx:expr),*) => {
         impl<
@@ -74,7 +116,7 @@ macro_rules! impl_register_fn {
                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
                     }
 
-                    let res = func($(<$param>::from_steelval(args[$idx].clone())?,)*);
+                    let res = func($(<$param>::from_steelval(&args[$idx])?,)*);
 
                     res.into_steelval()
                 };
@@ -84,6 +126,30 @@ macro_rules! impl_register_fn {
         }
     };
 }
+
+// macro_rules! impl_register_fn_two {
+//     ($arg_count:expr => $($param:ident: $idx:expr),*) => {
+//         impl<
+//             $($param: FromSteelVal + AsRefSteelVal,)*
+//             FN: Fn($($param),*) -> RET + 'static,
+//             RET: IntoSteelVal
+//         > RegisterFn<FN, Wrapper<($($param,)*)>, RET> for Engine {
+//             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+//                 let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+//                     if args.len() != $arg_count {
+//                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
+//                     }
+
+//                     let res = func($(<$param>::from_steelval(&args[$idx])?,)*);
+
+//                     res.into_steelval()
+//                 };
+
+//                 self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+//             }
+//         }
+//     };
+// }
 
 macro_rules! impl_register_async_fn {
     ($arg_count:expr => $($param:ident: $idx:expr),*) => {
@@ -99,7 +165,7 @@ macro_rules! impl_register_async_fn {
                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
                     }
 
-                    let res = func($(<$param>::from_steelval(args[$idx].clone())?,)*);
+                    let res = func($(<$param>::from_steelval(&args[$idx])?,)*);
 
                     Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
                 };
@@ -109,6 +175,8 @@ macro_rules! impl_register_async_fn {
         }
     };
 }
+
+// impl_register_fn_two!(1 => A:0);
 
 impl_register_fn!(1 => A:0);
 impl_register_fn!(2 => A:0, B:1);

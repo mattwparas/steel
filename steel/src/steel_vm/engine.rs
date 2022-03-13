@@ -364,7 +364,7 @@ impl Engine {
 
             assert!(args.len() == 1);
 
-            Ok(SteelVal::BoolV(T::from_steelval(args[0].clone()).is_ok()))
+            Ok(SteelVal::BoolV(T::from_steelval(&args[0]).is_ok()))
         };
 
         self.register_value(predicate_name, SteelVal::BoxedFunction(Rc::new(f)))
@@ -448,7 +448,7 @@ impl Engine {
     /// assert_eq!(vm.extract::<usize>("a").unwrap(), 10);
     /// ```
     pub fn extract<T: FromSteelVal>(&self, name: &str) -> Result<T> {
-        T::from_steelval(self.extract_value(name)?)
+        T::from_steelval(&self.extract_value(name)?)
     }
 
     /// Execute a program given as the `expr`, and computes a `Vec<SteelVal>` corresponding to the output of each expression given.
@@ -528,7 +528,7 @@ impl Engine {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, None, constants)?;
         self.virtual_machine
-            .execute_program(program, UseCallback, ApplyContract)
+            .execute_program(program, DoNotUseCallback, ApplyContract)
     }
 
     pub fn parse_and_execute(&mut self, expr: &str) -> Result<Vec<SteelVal>> {

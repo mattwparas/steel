@@ -27,6 +27,10 @@ impl ExternalStruct {
         self.foo = foo;
         self
     }
+
+    pub fn method_by_reference(&self) -> usize {
+        self.foo
+    }
 }
 
 pub fn main() {
@@ -40,6 +44,7 @@ pub fn main() {
 
     // register_fn can be chained
     vm.register_fn("method-by-value", ExternalStruct::method_by_value)
+        // .register_fn("method-by-reference", ExternalStruct::method_by_reference)
         .register_fn("set-foo", ExternalStruct::set_foo);
 
     let external_struct = ExternalStruct::new(1, "foo".to_string(), 12.4);

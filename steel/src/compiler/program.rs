@@ -333,7 +333,7 @@ impl RawProgramWithSymbols {
         // Run down the optimizations here
         for instructions in &mut self.instructions {
             convert_call_globals(instructions);
-            loop_condition_local_const_arity_two(instructions);
+            // loop_condition_local_const_arity_two(instructions);
         }
 
         self
@@ -375,6 +375,12 @@ impl RawProgramWithSymbols {
         // and make into a struct to collect the information
         for expression in &mut self.instructions {
             interner.collect_second_pass_defines(expression, symbol_map)?
+        }
+
+        // TODO try here - the loop condition local const arity two seems to rely on the
+        // existence of having been already adjusted by the interner
+        for instructions in &mut self.instructions {
+            loop_condition_local_const_arity_two(instructions);
         }
 
         // Put the new struct functions at the front

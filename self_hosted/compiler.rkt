@@ -401,7 +401,7 @@
 (define (multi-arity-function? function-expr)
     (list-any? (cadr function-expr) (lambda (x) (equal? '. x))))
 
-(define (normalize))
+; (define (normalize))
 
 (define (visit-lambda-function self expr)
     (displayln "Visiting lambda")
@@ -521,19 +521,16 @@
                    (map-option (lambda (x) (resolve-local x expr)))
                    (flatten-option))))
         (cond [(Some? idx) 
-                => 
-                    (push! self (Instruction local-op (unwrap-some idx) expr))]
+                => (push! self (Instruction local-op (unwrap-some idx) expr))]
               [else =>
                 (let ((idx (-> self
                                (CodeGenerator-variable-data)
                                (map-option (lambda (x) (resolve-upvalue x expr)))
                                (flatten-option))))
                     (cond [(Some? idx)
-                            => 
-                                (push! self (Instruction upvalue-op (unwrap-some idx) expr))]
+                            => (push! self (Instruction upvalue-op (unwrap-some idx) expr))]
                           [else 
-                            => 
-                                (push! self (Instruction global-op 0 expr))]))])))
+                            => (push! self (Instruction global-op 0 expr))]))])))
 
 (define (visit-atom self expr)
     (visit-atom-combinator self expr 'READLOCAL 'READUPVALUE 'PUSH))

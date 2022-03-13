@@ -22,7 +22,7 @@ impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
 }
 
 impl<T: FromSteelVal> FromSteelVal for Vec<T> {
-    fn from_steelval(val: SteelVal) -> Result<Self> {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
         match val {
             SteelVal::ListV(l) => {
                 let result_vec_vals: Result<Self> = l
@@ -53,10 +53,8 @@ impl<T: FromSteelVal> FromSteelVal for Vec<T> {
             //     }
             // }
             SteelVal::VectorV(v) => {
-                let result_vec_vals: Result<Self> = v
-                    .iter()
-                    .map(|x| FromSteelVal::from_steelval(x.clone()))
-                    .collect();
+                let result_vec_vals: Result<Self> =
+                    v.iter().map(FromSteelVal::from_steelval).collect();
                 match result_vec_vals {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
@@ -85,12 +83,12 @@ impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
 }
 
 impl<K: FromSteelVal + Eq + std::hash::Hash, V: FromSteelVal> FromSteelVal for HashMap<K, V> {
-    fn from_steelval(val: SteelVal) -> Result<Self> {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
         // todo!()
         if let SteelVal::HashMapV(hm) = val {
             let mut h = HashMap::new();
             for (key, value) in hm.unwrap().into_iter() {
-                h.insert(K::from_steelval(key)?, V::from_steelval(value)?);
+                h.insert(K::from_steelval(&key)?, V::from_steelval(&value)?);
             }
             Ok(h)
         } else {
@@ -131,11 +129,11 @@ impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {
 }
 
 impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
-    fn from_steelval(val: SteelVal) -> Result<Self> {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashSetV(hs) = val {
             let mut h = HashSet::new();
             for k in hs.unwrap().into_iter() {
-                h.insert(K::from_steelval(k)?);
+                h.insert(K::from_steelval(&k)?);
             }
             Ok(h)
         } else {
@@ -184,7 +182,7 @@ mod conversion_tests {
         let input_list = SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)]);
 
         let expected = vec![1, 2];
-        let result = <Vec<i32>>::from_steelval(input_list).unwrap();
+        let result = <Vec<i32>>::from_steelval(&input_list).unwrap();
 
         assert_eq!(result, expected)
     }
@@ -195,14 +193,14 @@ mod conversion_tests {
             SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(1), SteelVal::IntV(2)]));
 
         let expected = vec![1, 2];
-        let result = <Vec<i32>>::from_steelval(input_vector).unwrap();
+        let result = <Vec<i32>>::from_steelval(&input_vector).unwrap();
         assert_eq!(result, expected);
     }
 
     #[test]
     fn vec_from_steelval_error() {
         let input = SteelVal::IntV(2);
-        assert!(<Vec<i32>>::from_steelval(input).is_err());
+        assert!(<Vec<i32>>::from_steelval(&input).is_err());
     }
 
     #[test]
@@ -231,7 +229,7 @@ mod conversion_tests {
         expected.insert("foo2".to_string(), "bar2".to_string());
 
         assert_eq!(
-            <HashMap<String, String>>::from_steelval(input).unwrap(),
+            <HashMap<String, String>>::from_steelval(&input).unwrap(),
             expected
         );
     }
@@ -261,6 +259,6 @@ mod conversion_tests {
         expected.insert("foo".to_string());
         expected.insert("bar".to_string());
 
-        assert_eq!(<HashSet<String>>::from_steelval(input).unwrap(), expected);
+        assert_eq!(<HashSet<String>>::from_steelval(&input).unwrap(), expected);
     }
 }

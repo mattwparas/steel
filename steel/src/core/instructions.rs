@@ -407,16 +407,14 @@ pub fn disassemble(instructions: &[Instruction]) -> String {
 pub struct DenseInstruction {
     pub op_code: OpCode,
     pub payload_size: u32,
-    pub span: Span,
     pub span_index: usize,
 }
 
 impl DenseInstruction {
-    pub fn new(op_code: OpCode, payload_size: u32, span: Span) -> DenseInstruction {
+    pub fn new(op_code: OpCode, payload_size: u32) -> DenseInstruction {
         DenseInstruction {
             op_code,
             payload_size,
-            span,
             span_index: 0,
         }
     }
@@ -429,7 +427,6 @@ impl DenseInstruction {
         DenseInstruction {
             op_code,
             payload_size,
-            span: Span::default(),
             span_index,
         }
     }
@@ -440,14 +437,6 @@ impl DenseInstruction {
 // generate an equivalent
 impl From<Instruction> for DenseInstruction {
     fn from(val: Instruction) -> DenseInstruction {
-        DenseInstruction::new(
-            val.op_code,
-            val.payload_size.try_into().unwrap(),
-            if let Some(syn) = val.contents {
-                syn.span
-            } else {
-                Span::new(0, 0)
-            },
-        )
+        DenseInstruction::new(val.op_code, val.payload_size.try_into().unwrap())
     }
 }

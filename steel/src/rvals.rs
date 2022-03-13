@@ -128,16 +128,23 @@ pub(crate) fn poll_future(mut fut: Shared<BoxedFutureResult>) -> Option<Result<S
     }
 }
 
+/// Attempt to cast this custom type down to the underlying type
+pub(crate) fn as_underlying_type<'a, T: 'static>(value: &'a dyn CustomType) -> Option<&'a T> {
+    value.as_any_ref().downcast_ref::<T>()
+}
+
 pub trait Custom {}
 
 pub trait CustomType {
     fn box_clone(&self) -> Box<dyn CustomType>;
     fn as_any(&self) -> Box<dyn Any>;
-    fn name(&self) -> String {
-        (std::any::type_name::<Self>()).to_string()
+    fn as_any_ref(&self) -> &dyn Any;
+    fn name(&self) -> &str {
+        std::any::type_name::<Self>()
     }
     fn new_steel_val(&self) -> SteelVal;
     fn display(&self) -> std::result::Result<String, std::fmt::Error>;
+    // fn as_underlying_type<'a>(&'a self) -> Option<&'a Self>;
 }
 
 impl Clone for Box<dyn CustomType> {
@@ -159,6 +166,9 @@ impl<T: Custom + Clone + 'static + std::fmt::Debug> CustomType for T {
     fn as_any(&self) -> Box<dyn Any> {
         Box::new((*self).clone())
     }
+    fn as_any_ref(&self) -> &dyn Any {
+        self as &dyn Any
+    }
     fn new_steel_val(&self) -> SteelVal {
         SteelVal::Custom(Gc::new(Box::new(self.clone())))
     }
@@ -175,11 +185,34 @@ impl<T: CustomType> IntoSteelVal for T {
     }
 }
 
+// impl<'a, T: CustomType + Clone + ?Sized + 'a> FromSteelVal for &'a T {
+//     fn from_steelval(val: SteelVal) -> Result<Self> {
+//         if let SteelVal::Custom(v) = val {
+//             let left_type = v.as_any();
+//             let left: Option<T> = left_type.downcast_ref::<T>().cloned();
+//             left.ok_or_else(|| {
+//                 let error_message = format!(
+//                     "Type Mismatch: Type of SteelVal did not match the given type: {}",
+//                     std::any::type_name::<Self>()
+//                 );
+//                 SteelErr::new(ErrorKind::ConversionError, error_message)
+//             })
+//         } else {
+//             let error_message = format!(
+//                 "Type Mismatch: Type of SteelVal did not match the given type: {}",
+//                 std::any::type_name::<Self>()
+//             );
+
+//             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+//         }
+//     }
+// }
+
 impl<T: CustomType + Clone + 'static> FromSteelVal for T {
-    fn from_steelval(val: SteelVal) -> Result<Self> {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::Custom(v) = val {
-            let left_type = v.as_any();
-            let left: Option<T> = left_type.downcast_ref::<T>().cloned();
+            let left_type = v.as_any_ref();
+            let left = left_type.downcast_ref::<T>().cloned();
             left.ok_or_else(|| {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal did not match the given type: {}",
@@ -196,6 +229,27 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
         }
     }
+
+    // fn from_steelval_ref<'a>(val: &'a SteelVal) -> Result<&'a Self> {
+    //     if let SteelVal::Custom(v) = val {
+    //         let left_type = v.as_any_ref();
+    //         let left = left_type.downcast_ref::<T>();
+    //         left.ok_or_else(|| {
+    //             let error_message = format!(
+    //                 "Type Mismatch: Type of SteelVal did not match the given type: {}",
+    //                 std::any::type_name::<Self>()
+    //             );
+    //             SteelErr::new(ErrorKind::ConversionError, error_message)
+    //         })
+    //     } else {
+    //         let error_message = format!(
+    //             "Type Mismatch: Type of SteelVal did not match the given type: {}",
+    //             std::any::type_name::<Self>()
+    //         );
+
+    //         Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+    //     }
+    // }
 }
 
 /// The entry point for turning values into SteelVals
@@ -213,8 +267,50 @@ pub trait IntoSteelVal: Sized {
 /// get this implementation for a custom struct by using the custom
 /// steel derive.
 pub trait FromSteelVal: Sized {
-    fn from_steelval(val: SteelVal) -> Result<Self>;
+    fn from_steelval<'a>(val: &'a SteelVal) -> Result<Self>;
+    // fn from_steelval_ref<'a>(val: &'a SteelVal) -> Result<&'a Self> {
+    //     todo!()
+    // }
 }
+
+mod private {
+
+    use std::any::Any;
+
+    pub trait Sealed {}
+
+    impl<T: Any + Clone> Sealed for T {}
+}
+
+// Can you take a steel val and execute operations on it by reference
+pub trait AsRefSteelVal: Sized + private::Sealed {
+    fn from_steelval<'a>(val: &'a SteelVal) -> Option<&'a Self>;
+}
+
+impl AsRefSteelVal for List<SteelVal> {
+    fn from_steelval<'a>(val: &'a SteelVal) -> Option<&'a List<SteelVal>> {
+        if let SteelVal::ListV(list) = val {
+            Some(list)
+        } else {
+            None
+        }
+    }
+}
+
+// impl Custom for Box<dyn Iterator<Item = SteelVal>> {}
+
+// todo
+// impl<T: IntoIterator<Item = SteelVal>> FromSteelVal for T {
+//     fn from_steelval(val: &SteelVal) -> Result<Self> {
+//         todo!()
+//     }
+// }
+
+// struct Blagh;
+
+// impl<'a> FromSteelVal for &'a Blagh {
+//     fn from_steelval(val: &SteelVal) -> Result<
+// }
 
 #[derive(Clone)]
 pub enum SteelVal {

@@ -123,6 +123,7 @@ impl<T: Clone> Drop for Gc<T> {
 }
 
 impl<T: Clone> Clone for Gc<T> {
+    #[inline(always)]
     fn clone(&self) -> Self {
         Gc(Rc::clone(&self.0))
     }

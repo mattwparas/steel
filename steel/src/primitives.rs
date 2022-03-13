@@ -65,7 +65,7 @@ macro_rules! try_from_impl {
             }
 
             impl FromSteelVal for $body {
-                fn from_steelval(value: SteelVal) -> result::Result<Self, SteelErr> {
+                fn from_steelval(value: &SteelVal) -> result::Result<Self, SteelErr> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
                         _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
@@ -126,9 +126,9 @@ impl IntoSteelVal for char {
 }
 
 impl FromSteelVal for char {
-    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
+    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if let SteelVal::CharV(c) = val {
-            Ok(c)
+            Ok(*c)
         } else {
             Err(SteelErr::new(
                 ErrorKind::ConversionError,
@@ -159,7 +159,7 @@ impl<T: IntoSteelVal> IntoSteelVal for Option<T> {
 }
 
 impl<T: FromSteelVal> FromSteelVal for Option<T> {
-    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
+    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if val.is_truthy() {
             Ok(Some(T::from_steelval(val)?))
         } else {
@@ -181,7 +181,7 @@ impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
 }
 
 impl FromSteelVal for () {
-    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
+    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if let SteelVal::Void = val {
             Ok(())
         } else {
@@ -234,7 +234,7 @@ impl From<Gc<SteelVal>> for SteelVal {
 }
 
 impl FromSteelVal for String {
-    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
+    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if let SteelVal::StringV(s) = val {
             Ok(s.unwrap())
         } else {
@@ -314,7 +314,7 @@ mod try_from_tests {
 
     #[test]
     fn from_steelval_char() {
-        assert_eq!(char::from_steelval(SteelVal::CharV('c')).unwrap(), 'c')
+        assert_eq!(char::from_steelval(&SteelVal::CharV('c')).unwrap(), 'c')
     }
 
     #[test]
@@ -324,12 +324,12 @@ mod try_from_tests {
 
     #[test]
     fn from_steelval_usize() {
-        assert_eq!(usize::from_steelval(SteelVal::IntV(10)).unwrap(), 10)
+        assert_eq!(usize::from_steelval(&SteelVal::IntV(10)).unwrap(), 10)
     }
 
     #[test]
     fn from_steelval_i32() {
-        assert_eq!(i32::from_steelval(SteelVal::IntV(32)).unwrap(), 32)
+        assert_eq!(i32::from_steelval(&SteelVal::IntV(32)).unwrap(), 32)
     }
 
     #[test]

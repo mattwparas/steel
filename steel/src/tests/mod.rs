@@ -3,24 +3,19 @@ use crate::steel_vm::engine::Engine;
 
 fn generate_asserting_machine() -> Engine {
     let mut vm = Engine::new();
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-    vm.parse_and_execute_without_optimizations(CONTRACTS)
-        .unwrap();
+    vm.compile_and_run_raw_program(PRELUDE).unwrap();
+    vm.compile_and_run_raw_program(CONTRACTS).unwrap();
     vm
 }
 
 pub(crate) fn assert_script<T: AsRef<str>>(script: T) {
     let mut vm = generate_asserting_machine();
-    assert!(vm
-        .parse_and_execute_without_optimizations(script.as_ref())
-        .is_ok());
+    assert!(vm.compile_and_run_raw_program(script.as_ref()).is_ok());
 }
 
 pub(crate) fn assert_script_error<T: AsRef<str>>(script: T) {
     let mut vm = generate_asserting_machine();
-    assert!(vm
-        .parse_and_execute_without_optimizations(script.as_ref())
-        .is_err());
+    assert!(vm.compile_and_run_raw_program(script.as_ref()).is_err());
 }
 
 macro_rules! test_harness_success {
