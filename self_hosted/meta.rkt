@@ -36,3 +36,9 @@
 ;; Marks primitives with contracts as well...
 ;; Multi arity functions with contracts probably doesn't work very well
 ;; Core macros can be pre processed and cached in the binary
+
+;; Add handle to the current context?
+;; Eval should also be possible... It would need to be compiled down to
+;; Bytecode directly inside the interpreter
+;; Do this by exposing the symbol map and make a new instance of the compiler
+;; This requires re architecting the current implementation
