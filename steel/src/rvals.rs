@@ -502,6 +502,16 @@ impl SteelVal {
 impl SteelVal {
     // pub fn res_iterator
 
+    pub fn list_or_else<E, F: FnOnce() -> E>(
+        &self,
+        err: F,
+    ) -> std::result::Result<&List<SteelVal>, E> {
+        match self {
+            Self::ListV(v) => Ok(v),
+            _ => Err(err()),
+        }
+    }
+
     pub fn bool_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<bool, E> {
         match self {
             Self::BoolV(v) => Ok(*v),

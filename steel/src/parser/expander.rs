@@ -83,7 +83,7 @@ impl LocalMacroManager {
     }
 
     /// Expand the expressions according to the macros in the current scope
-    fn expand(&self, exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
+    pub fn expand(&self, exprs: impl IntoIterator<Item = ExprKind>) -> Result<Vec<ExprKind>> {
         exprs
             .into_iter()
             .map(|expr| crate::parser::expand_visitor::expand(expr, &self.macros))
@@ -114,7 +114,7 @@ impl LocalMacroManager {
 
     /// Initialize the macro manager from a vec of macro expressions
     /// Note: this will fail if passed other expressions
-    fn from_exprs(exprs: Vec<ExprKind>) -> Result<Self> {
+    pub fn from_exprs(exprs: impl IntoIterator<Item = ExprKind>) -> Result<Self> {
         exprs
             .into_iter()
             .map(|x| {

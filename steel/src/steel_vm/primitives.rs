@@ -495,7 +495,9 @@ pub(crate) fn register_meta_functions(engine: &mut Engine) {
         .register_value("join!", MetaOperations::join_futures())
         .register_value("struct-ref", struct_ref())
         .register_value("struct->list", struct_to_list())
-        .register_value("struct->vector", struct_to_vector());
+        .register_value("struct->vector", struct_to_vector())
+        .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
+        .register_value("read!", SteelVal::FuncV(super::meta::read));
 }
 
 #[inline(always)]

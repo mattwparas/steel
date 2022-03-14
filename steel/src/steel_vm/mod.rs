@@ -14,3 +14,4 @@ mod test_util;
 mod tests;
 mod transducers;
 pub(crate) mod vm;
+mod meta;
