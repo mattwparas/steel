@@ -1,5 +1,4 @@
 use crate::gc::Gc;
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use itertools::Itertools;
 use std::collections::HashMap;

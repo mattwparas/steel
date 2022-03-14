@@ -12,6 +12,12 @@ pub struct ExternalStruct {
     baz: f64,
 }
 
+#[derive(Clone, Debug, Steel, PartialEq)]
+pub enum ExternalEnum {
+    Foo,
+    Bar(String),
+}
+
 impl ExternalStruct {
     pub fn new(foo: usize, bar: String, baz: f64) -> Self {
         ExternalStruct { foo, bar, baz }
@@ -38,9 +44,12 @@ pub fn main() {
 
     // Registering a type gives access to a predicate for the type
     vm.register_type::<ExternalStruct>("ExternalStruct?");
+    vm.register_type::<ExternalEnum>("ExternalEnum");
 
     // Structs in steel typically have a constructor that is the name of the struct
     vm.register_fn("ExternalStruct", ExternalStruct::new);
+    vm.register_fn("ExternalEnum::Foo", || ExternalEnum::Foo);
+    vm.register_fn("ExtenalEnum::Bar", ExternalEnum::Bar);
 
     // register_fn can be chained
     vm.register_fn("method-by-value", ExternalStruct::method_by_value)

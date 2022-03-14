@@ -74,11 +74,6 @@ pub fn expand_macros(arguments: &[SteelVal]) -> Result<SteelVal> {
         matches!(x, ExprKind::Macro(_))
     });
 
-    println!("Length of macros: {}", macros.len());
-    println!("Length of non macros: {}", non_macros.len());
-
-    // println!("Non macros: {:?}", non_macros);
-
     let macro_manager = LocalMacroManager::from_exprs(macros)?;
 
     // Expand the macros, convert them back to a consumable expression

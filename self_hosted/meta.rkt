@@ -21,7 +21,7 @@
                 (if e1
                     (begin e2 ...)
                     (cond c1 ...))]))
-
+    
     (define (foo x) 
         (cond [(equal? x 10) => 27]
               [else => 100]))

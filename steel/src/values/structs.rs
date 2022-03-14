@@ -1,5 +1,4 @@
 use crate::primitives::VectorOperations;
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
