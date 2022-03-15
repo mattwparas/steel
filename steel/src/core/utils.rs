@@ -7,7 +7,6 @@
 // }
 // assert!(args.len() == 1);
 
-#[macro_use]
 macro_rules! arity_check_generator {
     ($($arity:tt),*) => {
         macro_rules! arity_check {
@@ -39,7 +38,6 @@ pub(crate) use arity_check;
 //      declare_const_ref_functions! { LENGTH => length }
 // expands into
 //      const LENGTH: SteelVal = SteelVal::FuncV(length)
-#[macro_use]
 macro_rules! declare_const_ref_functions {
     ($($name:tt => $func_name:tt),* $(,)? ) => {
         $ (
@@ -55,7 +53,6 @@ pub(crate) use declare_const_ref_functions;
 //      declare_const_mut_ref_functions! { CONS => cons }
 // expands into
 //      const LENGTH: SteelVal = SteelVal::MutFunc(length)
-#[macro_use]
 macro_rules! declare_const_mut_ref_functions {
     ($($name:tt => $func_name:tt),* $(,)? ) => {
         $ (

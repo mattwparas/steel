@@ -1,6 +1,6 @@
 use log::{debug, log_enabled};
 
-use crate::parser::{ast::Let, tokens::TokenType};
+use crate::parser::tokens::TokenType;
 use crate::parser::{
     ast::{Atom, Begin, ExprKind, LambdaFunction, List, Set},
     parser::SyntaxObject,

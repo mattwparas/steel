@@ -2,18 +2,16 @@ use std::{cell::RefCell, convert::TryFrom, rc::Rc};
 
 use super::{
     constants::{ConstantMap, ConstantTable},
-    map::SymbolMap,
 };
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::{ast::Atom, parser::SyntaxObject, span_visitor::get_span, tokens::TokenType},
-    values::structs::{SteelStruct, StructFuncBuilder},
+    values::structs::{StructFuncBuilder},
 };
 
 use crate::parser::ast::ExprKind;
 use crate::parser::visitors::VisitorMut;
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
@@ -26,9 +24,7 @@ use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
 struct LocalVariable {
-    depth: u32,
     name: String,
-    is_local: bool,
     is_captured: bool,
     struct_offset: usize,
     syntax_object: SyntaxObject,
@@ -36,15 +32,12 @@ struct LocalVariable {
 
 impl LocalVariable {
     pub fn new(
-        depth: u32,
         name: String,
         syntax_object: SyntaxObject,
         struct_offset: usize,
     ) -> Self {
         LocalVariable {
-            depth,
             name,
-            is_local: false,
             is_captured: false,
             struct_offset,
             syntax_object,
@@ -52,15 +45,12 @@ impl LocalVariable {
     }
 
     pub fn new_struct(
-        depth: u32,
         name: String,
         syntax_object: SyntaxObject,
         struct_offset: usize,
     ) -> Self {
         LocalVariable {
-            depth,
             name,
-            is_local: false,
             is_captured: false,
             struct_offset,
             syntax_object,
@@ -427,7 +417,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         }
 
                         locals.push(LocalVariable::new(
-                            self.depth + 1,
                             i.clone(),
                             atom.syn.clone(),
                             0,
@@ -503,7 +492,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 }
 
                 // TODO check this here - reimplement mutual recursion
-                let mut b = check_and_transform_mutual_recursion(&mut body_instructions);
+                let b = check_and_transform_mutual_recursion(&mut body_instructions);
 
                 // if self.top_level_define {
                 //     // If we're already converted the mutual recursion lower, then we check again for a faster TCO jump
@@ -626,7 +615,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         for name in names {
             self.variable_data.as_ref().map(|x| {
                 x.borrow_mut().push_local(LocalVariable::new_struct(
-                    self.depth,
                     name.clone(),
                     SyntaxObject::default(TokenType::Identifier(name)),
                     self.stack_offset,
@@ -950,7 +938,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         match &self.variable_data {
                             Some(variable_data) => {
                                 variable_data.borrow_mut().locals.push(LocalVariable::new(
-                                    self.depth + 1,
                                     i.clone(),
                                     atom.syn.clone(),
                                     self.stack_offset,
@@ -958,7 +945,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                             }
                             None => {
                                 let locals = vec![LocalVariable::new(
-                                    self.depth + 1,
                                     i.clone(),
                                     atom.syn.clone(),
                                     self.stack_offset,
@@ -1075,7 +1061,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 }
 
-fn convert_mutual_recursion_to_tail_call(
+// TODO -> assess if this is worth looking at
+fn _convert_mutual_recursion_to_tail_call(
     instructions: &mut [Instruction],
     defining_context: &str,
 ) -> bool {

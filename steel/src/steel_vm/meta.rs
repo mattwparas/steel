@@ -4,13 +4,9 @@ use std::convert::TryFrom;
 
 use im_lists::list::List;
 
-use super::vm::VmContext;
 use crate::{parser::ast::ExprKind, SteelVal};
 use crate::{parser::expander::LocalMacroManager, rvals::Result};
-use crate::{
-    parser::parser::ParseError,
-    rerrs::{ErrorKind, SteelErr},
-};
+use crate::{parser::parser::ParseError, steel_vm::engine::Engine};
 
 use crate::stop;
 
@@ -83,4 +79,27 @@ pub fn expand_macros(arguments: &[SteelVal]) -> Result<SteelVal> {
         .map(SteelVal::try_from)
         .collect::<Result<List<_>>>()
         .map(SteelVal::ListV)
+}
+
+/// Eval with a completely fresh environment
+pub fn eval(arguments: &[SteelVal]) -> Result<SteelVal> {
+    if arguments.len() != 1 {
+        stop!(ArityMismatch => "eval! expects a list of quoted expressions as its sole argument")
+    }
+
+    assert!(arguments.len() == 1);
+
+    let mut engine = Engine::new();
+
+    let values = arguments[0]
+        .list_or_else(throw!(TypeMismatch =>  "eval! expected a list in the first position"))?
+        .iter()
+        .map(|x| x.to_string())
+        // Here we might need to trim the start of the string representation
+        // In order to be actually parsable - might be worth doing ExprKind::try_from
+        // instead of writing to a string and reparsing directly...
+        .map(|x| engine.compile_and_run_raw_program(x.trim_start_matches('\'')))
+        .collect::<Result<Vec<Vec<SteelVal>>>>();
+
+    Ok(values?.into_iter().flatten().collect::<List<_>>().into())
 }

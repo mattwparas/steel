@@ -3,7 +3,7 @@ use im_lists::list::List;
 use crate::parser::ast::ExprKind;
 use crate::parser::visitors::ConsumingVisitorRef;
 
-use crate::rerrs::{ErrorKind, SteelErr};
+use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 
 use super::ast::Atom;
@@ -156,7 +156,7 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
         ))
     }
 
-    fn visit_let(&self, l: Box<super::ast::Let>) -> Self::Output {
+    fn visit_let(&self, _l: Box<super::ast::Let>) -> Self::Output {
         todo!()
     }
 }

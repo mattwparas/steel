@@ -23,17 +23,13 @@ use std::{
     path::PathBuf,
 };
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 
 use crate::parser::ast::ExprKind;
 use crate::parser::expander::SteelMacro;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::parser::{ParseError, Parser};
-// use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
-
-use crate::values::structs::SteelStruct;
 
 use crate::core::instructions::{densify, DenseInstruction};
 

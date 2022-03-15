@@ -6,7 +6,6 @@ use crate::parser::tokens::TokenType;
 
 use crate::parser::span::Span;
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 use std::{
     collections::HashMap,
@@ -28,7 +27,7 @@ fn update_extension(mut path: PathBuf, extension: &str) -> PathBuf {
 }
 
 // Prepend the given path with the working directory
-fn path_from_working_dir<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf> {
+pub fn path_from_working_dir<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf> {
     let mut working_dir = std::env::current_dir()?;
     working_dir.push(path);
     Ok(working_dir)
@@ -141,7 +140,7 @@ impl FromIterator<SteelMacro> for LocalMacroManager {
 
 // Global macro manager, manages macros across modules
 pub struct GlobalMacroManager {
-    scopes: HashMap<PathBuf, HashMap<String, SteelMacro>>,
+    _scopes: HashMap<PathBuf, HashMap<String, SteelMacro>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

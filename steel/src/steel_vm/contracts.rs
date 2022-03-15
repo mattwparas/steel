@@ -6,7 +6,6 @@ use crate::{
     compiler::constants::ConstantTable,
     gc::Gc,
     parser::span::Span,
-    rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     stop,
     values::contracts::{

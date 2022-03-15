@@ -4,7 +4,6 @@ use crate::parser::{
     tokens::TokenType,
     tryfrom_visitor::TryFromExprKindForSteelVal,
 };
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,

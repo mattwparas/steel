@@ -4,7 +4,6 @@ use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 
 use super::ast::Atom;
@@ -526,11 +525,12 @@ mod replace_expressions_tests {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Ellipses)))
     }
 
-    fn atom_int(n: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            n,
-        ))))
-    }
+    // TODO -> move this to ExprKind
+    // fn atom_int(n: isize) -> ExprKind {
+    //     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
+    //         n,
+    //     ))))
+    // }
 
     // TODO replace this test with something that doesn't use transduce
     // #[test]

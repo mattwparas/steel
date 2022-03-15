@@ -229,28 +229,30 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
         }
     }
-
-    // fn from_steelval_ref<'a>(val: &'a SteelVal) -> Result<&'a Self> {
-    //     if let SteelVal::Custom(v) = val {
-    //         let left_type = v.as_any_ref();
-    //         let left = left_type.downcast_ref::<T>();
-    //         left.ok_or_else(|| {
-    //             let error_message = format!(
-    //                 "Type Mismatch: Type of SteelVal did not match the given type: {}",
-    //                 std::any::type_name::<Self>()
-    //             );
-    //             SteelErr::new(ErrorKind::ConversionError, error_message)
-    //         })
-    //     } else {
-    //         let error_message = format!(
-    //             "Type Mismatch: Type of SteelVal did not match the given type: {}",
-    //             std::any::type_name::<Self>()
-    //         );
-
-    //         Err(SteelErr::new(ErrorKind::ConversionError, error_message))
-    //     }
-    // }
 }
+
+// impl<'a, T: CustomType + Clone> FromSteelVal for &'a T {
+//     fn from_steelval(val: &SteelVal) -> Result<&'a T> {
+//         if let SteelVal::Custom(v) = val {
+//             let left_type = v.as_any_ref();
+//             let left = left_type.downcast_ref::<T>();
+//             left.ok_or_else(|| {
+//                 let error_message = format!(
+//                     "Type Mismatch: Type of SteelVal did not match the given type: {}",
+//                     std::any::type_name::<Self>()
+//                 );
+//                 SteelErr::new(ErrorKind::ConversionError, error_message)
+//             })
+//         } else {
+//             let error_message = format!(
+//                 "Type Mismatch: Type of SteelVal did not match the given type: {}",
+//                 std::any::type_name::<Self>()
+//             );
+
+//             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+//         }
+//     }
+// }
 
 /// The entry point for turning values into SteelVals
 /// The is implemented for most primitives and collections
@@ -283,16 +285,42 @@ mod private {
 }
 
 // Can you take a steel val and execute operations on it by reference
-pub trait AsRefSteelVal: Sized + private::Sealed {
-    fn from_steelval<'a>(val: &'a SteelVal) -> Option<&'a Self>;
+pub trait AsRefSteelVal: Sized {
+    fn as_ref<'a>(val: &'a SteelVal) -> Result<&'a Self>;
+}
+
+impl<T: CustomType + Clone + 'static> AsRefSteelVal for T {
+    fn as_ref<'a>(val: &'a SteelVal) -> Result<&'a Self> {
+        if let SteelVal::Custom(v) = val {
+            let left_type = v.as_any_ref();
+            let left = left_type.downcast_ref::<T>();
+            left.ok_or_else(|| {
+                let error_message = format!(
+                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                    std::any::type_name::<Self>()
+                );
+                SteelErr::new(ErrorKind::ConversionError, error_message)
+            })
+        } else {
+            let error_message = format!(
+                "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                std::any::type_name::<Self>()
+            );
+
+            Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+        }
+    }
 }
 
 impl AsRefSteelVal for List<SteelVal> {
-    fn from_steelval<'a>(val: &'a SteelVal) -> Option<&'a List<SteelVal>> {
+    fn as_ref<'a>(val: &'a SteelVal) -> Result<&'a List<SteelVal>> {
         if let SteelVal::ListV(list) = val {
-            Some(list)
+            Ok(list)
         } else {
-            None
+            Err(SteelErr::new(
+                ErrorKind::ConversionError,
+                "Value unable to be converted to a list".to_string(),
+            ))
         }
     }
 }

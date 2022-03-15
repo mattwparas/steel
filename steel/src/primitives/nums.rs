@@ -1,9 +1,5 @@
-// use crate::env::{FALSE, TRUE};
-use crate::rerrs::{ErrorKind, SteelErr};
-// use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-// use rand::Rng;
 
 pub struct NumOperations {}
 impl NumOperations {

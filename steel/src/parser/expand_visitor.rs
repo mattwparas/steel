@@ -2,9 +2,6 @@ use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
-// use crate::parser::span::Span;
-
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 
 use super::ast::Atom;
@@ -98,7 +95,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::Read(read))
     }
 
-    fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
+    fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
         // quote.expr = self.visit(quote.expr)?;
         Ok(ExprKind::Quote(quote))
     }

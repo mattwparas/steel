@@ -91,7 +91,7 @@ pub trait Folder {
     }
 
     #[inline]
-    fn visit_quote(&mut self, mut quote: Box<Quote>) -> ExprKind {
+    fn visit_quote(&mut self, quote: Box<Quote>) -> ExprKind {
         // quote.expr = self.visit(quote.expr);
         ExprKind::Quote(quote)
     }

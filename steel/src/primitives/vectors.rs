@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 
 use crate::gc::Gc;
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;

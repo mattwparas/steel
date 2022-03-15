@@ -1,6 +1,5 @@
 use colored::Colorize;
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use std::io;

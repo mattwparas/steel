@@ -3,7 +3,6 @@ use super::options::UseCallbacks;
 use super::vm::VmCore;
 use crate::compiler::constants::ConstantTable;
 use crate::parser::span::Span;
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use std::cell::RefCell;
 use std::rc::Rc;

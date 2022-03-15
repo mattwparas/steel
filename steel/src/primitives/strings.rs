@@ -1,6 +1,5 @@
 use im_lists::list::List;
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 

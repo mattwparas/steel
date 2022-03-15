@@ -1,7 +1,7 @@
 use crate::{
     gc::Gc,
     values::{
-        contracts::{ContractType, FunctionContract, FunctionKind},
+        contracts::{ContractType, FunctionKind},
         functions::ByteCodeLambda,
         upvalue::UpValue,
     },
@@ -30,7 +30,7 @@ impl UpValueHeap {
         }
     }
 
-    pub(crate) fn profile_heap(&self) {
+    pub(crate) fn _profile_heap(&self) {
         let mapped = self
             .memory
             .iter()
@@ -163,7 +163,7 @@ fn visit_function_contract(f: &FunctionKind) {
             }
             visit_contract_type(f.post_condition());
         }
-        FunctionKind::Dependent(dc) => {
+        FunctionKind::Dependent(_dc) => {
             unimplemented!()
         }
     }

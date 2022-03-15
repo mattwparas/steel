@@ -212,7 +212,7 @@ impl ParseError {
 #[derive(Debug)]
 pub struct Parser<'a> {
     tokenizer: TokenStream<'a>,
-    intern: &'a mut HashMap<String, Rc<TokenType>>,
+    _intern: &'a mut HashMap<String, Rc<TokenType>>,
     quote_stack: Vec<usize>,
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
@@ -246,7 +246,7 @@ impl<'a> Parser<'a> {
     pub fn new(input: &'a str, intern: &'a mut HashMap<String, Rc<TokenType>>) -> Self {
         Parser {
             tokenizer: TokenStream::new(input, true),
-            intern,
+            _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: None,
@@ -260,7 +260,7 @@ impl<'a> Parser<'a> {
     ) -> Self {
         Parser {
             tokenizer: TokenStream::new(input, true),
-            intern,
+            _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: Some(Rc::from(source_name)),

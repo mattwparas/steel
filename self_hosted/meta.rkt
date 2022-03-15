@@ -25,6 +25,9 @@
     (define (foo x) 
         (cond [(equal? x 10) => 27]
               [else => 100]))
+
+    (foo 10)
+    
 ))
 
 ;; Yoink out the macros, do any reader expansions

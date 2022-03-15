@@ -12,8 +12,8 @@ use super::{
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
+use crate::values::transducers::Reducer;
 use crate::{compiler::program::Executable, values::transducers::Transducers};
-use crate::{compiler::program::RawProgramWithSymbols, values::transducers::Reducer};
 // use crate::steel_vm::contracts::FlatContractExt;
 use crate::values::contracts::ContractType;
 use crate::values::upvalue::UpValue;
@@ -57,7 +57,7 @@ use im_lists::list::List;
 use log::error;
 
 const STACK_LIMIT: usize = 1000;
-const JIT_THRESHOLD: usize = 100;
+const _JIT_THRESHOLD: usize = 100;
 
 pub struct VirtualMachineCore {
     global_env: Env,

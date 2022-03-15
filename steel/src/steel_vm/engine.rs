@@ -12,8 +12,7 @@ use crate::{
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser},
-    rerrs::{ErrorKind, SteelErr},
-    rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
+    rvals::{Custom, FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw,
 };
 use std::{
@@ -31,6 +30,8 @@ pub struct Engine {
     compiler: Compiler,
     constants: Option<ImmutableHashMap<String, SteelVal>>,
 }
+
+impl Custom for Engine {}
 
 impl Engine {
     /// Instantiates a raw engine instance. Includes no primitives or prelude.

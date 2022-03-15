@@ -1,4 +1,3 @@
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{poll_future, Result, SteelVal};
 use crate::stop;
 use crate::{

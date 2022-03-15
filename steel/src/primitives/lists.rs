@@ -1,4 +1,3 @@
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::steel_vm::vm::VmContext;
 use crate::{stop, throw};
@@ -174,7 +173,7 @@ fn reverse(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-fn last(args: &[SteelVal]) -> Result<SteelVal> {
+pub fn last(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(last, args, 1);
 
     if let SteelVal::ListV(l) = &args[0] {
@@ -241,7 +240,7 @@ fn rest(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
 }
 
-fn take(args: &[SteelVal]) -> Result<SteelVal> {
+pub fn take(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(take, args, 2);
 
     if let (SteelVal::ListV(l), SteelVal::IntV(n)) = (&args[0], &args[1]) {
@@ -266,7 +265,7 @@ fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
 }
 
-fn list_ref(args: &[SteelVal]) -> Result<SteelVal> {
+pub fn list_ref(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(list_ref, args, 2);
 
     // todo!()

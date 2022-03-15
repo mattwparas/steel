@@ -17,10 +17,8 @@ use crate::{
     values::transducers::{Reducer, Transducers},
 };
 
-use std::{cell::Ref, rc::Rc};
+use std::rc::Rc;
 use std::{cell::RefCell, convert::TryInto};
-
-use std::ops::Deref;
 
 /// Generates the take transducer - wrapper around the take iterator
 macro_rules! generate_take {

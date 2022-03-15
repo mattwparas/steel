@@ -1,12 +1,5 @@
-use lasso::{Key, Rodeo};
-
-use core::{
-    cell::RefCell,
-    fmt::{Debug, Display},
-};
-use lasso::{Capacity, Spur};
-use std::rc::Rc;
-
+use lasso::Key;
+use lasso::Spur;
 use std::fmt;
 
 /// An interned string
