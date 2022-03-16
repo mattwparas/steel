@@ -1,5 +1,7 @@
-use steel::steel_vm::engine::Engine;
 use steel::steel_vm::register_fn::RegisterFn;
+use steel::steel_vm::register_fn::RegisterSelfFn;
+use steel::steel_vm::register_fn::RegisterSelfMutFn;
+use steel::{steel_vm::engine::Engine, SteelVal};
 
 use steel_derive::Steel;
 
@@ -37,6 +39,14 @@ impl ExternalStruct {
     pub fn method_by_reference(&self) -> usize {
         self.foo
     }
+
+    pub fn method_by_reference_mut(&mut self) -> usize {
+        self.foo
+    }
+
+    pub fn dummy_method(&self) -> bool {
+        true
+    }
 }
 
 pub fn main() {
@@ -51,9 +61,19 @@ pub fn main() {
     vm.register_fn("ExternalEnum::Foo", || ExternalEnum::Foo);
     vm.register_fn("ExtenalEnum::Bar", ExternalEnum::Bar);
 
+    vm.register_method_fn("dummy-method", ExternalStruct::dummy_method);
+
+    // TODO -> this won't work because Custom is not implemented for option
+    // since it has a specialized implementation
+    // vm.register_method_fn("is_some", SteelValOption::is_some);
+
     // register_fn can be chained
     vm.register_fn("method-by-value", ExternalStruct::method_by_value)
-        // .register_fn("method-by-reference", ExternalStruct::method_by_reference)
+        .register_method_fn("method-by-reference", ExternalStruct::method_by_reference)
+        .register_method_mut_fn(
+            "method-by-reference-mut",
+            ExternalStruct::method_by_reference_mut,
+        )
         .register_fn("set-foo", ExternalStruct::set_foo);
 
     let external_struct = ExternalStruct::new(1, "foo".to_string(), 12.4);

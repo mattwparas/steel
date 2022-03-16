@@ -18,7 +18,7 @@ use crate::jit::sig::JitFunctionPointer;
 
 use std::{
     any::Any,
-    cell::RefCell,
+    cell::{Ref, RefCell, RefMut},
     cmp::Ordering,
     fmt,
     fmt::Write,
@@ -139,6 +139,7 @@ pub trait CustomType {
     fn box_clone(&self) -> Box<dyn CustomType>;
     fn as_any(&self) -> Box<dyn Any>;
     fn as_any_ref(&self) -> &dyn Any;
+    fn as_any_ref_mut(&mut self) -> &mut dyn Any;
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
@@ -169,8 +170,11 @@ impl<T: Custom + Clone + 'static + std::fmt::Debug> CustomType for T {
     fn as_any_ref(&self) -> &dyn Any {
         self as &dyn Any
     }
+    fn as_any_ref_mut(&mut self) -> &mut dyn Any {
+        self as &mut dyn Any
+    }
     fn new_steel_val(&self) -> SteelVal {
-        SteelVal::Custom(Gc::new(Box::new(self.clone())))
+        SteelVal::Custom(Gc::new(RefCell::new(Box::new(self.clone()))))
     }
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
         let mut buf = String::new();
@@ -211,8 +215,8 @@ impl<T: CustomType> IntoSteelVal for T {
 impl<T: CustomType + Clone + 'static> FromSteelVal for T {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::Custom(v) = val {
-            let left_type = v.as_any_ref();
-            let left = left_type.downcast_ref::<T>().cloned();
+            // let left_type = v.borrow().as_any_ref();
+            let left = v.borrow().as_any_ref().downcast_ref::<T>().cloned();
             left.ok_or_else(|| {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal did not match the given type: {}",
@@ -270,9 +274,6 @@ pub trait IntoSteelVal: Sized {
 /// steel derive.
 pub trait FromSteelVal: Sized {
     fn from_steelval<'a>(val: &'a SteelVal) -> Result<Self>;
-    // fn from_steelval_ref<'a>(val: &'a SteelVal) -> Result<&'a Self> {
-    //     todo!()
-    // }
 }
 
 mod private {
@@ -284,23 +285,45 @@ mod private {
     impl<T: Any + Clone> Sealed for T {}
 }
 
+// pub trait DowncastSteelval: private::Sealed {
+//     type Output;
+//     fn downcast(&self) -> Result<&Self::Output>;
+// }
+
+// impl DowncastSteelval for SteelVal {
+//     type Output = Box<dyn CustomType>;
+
+//     fn downcast(&self) -> Result<&Self::Output> {
+//         todo!()
+//     }
+// }
+
 // Can you take a steel val and execute operations on it by reference
-pub trait AsRefSteelVal: Sized {
-    fn as_ref<'a>(val: &'a SteelVal) -> Result<&'a Self>;
+pub trait AsRefSteelVal: Sized + private::Sealed {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<Ref<'b, Self>>;
+}
+
+pub trait AsRefMutSteelVal: Sized + private::Sealed {
+    fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<RefMut<'b, Self>>;
 }
 
 impl<T: CustomType + Clone + 'static> AsRefSteelVal for T {
-    fn as_ref<'a>(val: &'a SteelVal) -> Result<&'a Self> {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<Ref<'b, Self>> {
+        // todo!()
+
         if let SteelVal::Custom(v) = val {
-            let left_type = v.as_any_ref();
-            let left = left_type.downcast_ref::<T>();
-            left.ok_or_else(|| {
+            let res = Ref::map(v.borrow(), |x| x.as_any_ref());
+
+            if res.is::<T>() {
+                Ok(Ref::map(res, |x| x.downcast_ref::<T>().unwrap()))
+            } else {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal did not match the given type: {}",
                     std::any::type_name::<Self>()
                 );
-                SteelErr::new(ErrorKind::ConversionError, error_message)
-            })
+                Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+            }
+            // res
         } else {
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal did not match the given type: {}",
@@ -312,18 +335,48 @@ impl<T: CustomType + Clone + 'static> AsRefSteelVal for T {
     }
 }
 
-impl AsRefSteelVal for List<SteelVal> {
-    fn as_ref<'a>(val: &'a SteelVal) -> Result<&'a List<SteelVal>> {
-        if let SteelVal::ListV(list) = val {
-            Ok(list)
+impl<T: CustomType + Clone + 'static> AsRefMutSteelVal for T {
+    fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<RefMut<'b, Self>> {
+        // todo!()
+
+        if let SteelVal::Custom(v) = val {
+            let res = RefMut::map(v.borrow_mut(), |x| x.as_any_ref_mut());
+
+            if res.is::<T>() {
+                Ok(RefMut::map(res, |x| x.downcast_mut::<T>().unwrap()))
+            } else {
+                let error_message = format!(
+                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                    std::any::type_name::<Self>()
+                );
+                Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+            }
+            // res
         } else {
-            Err(SteelErr::new(
-                ErrorKind::ConversionError,
-                "Value unable to be converted to a list".to_string(),
-            ))
+            let error_message = format!(
+                "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                std::any::type_name::<Self>()
+            );
+
+            Err(SteelErr::new(ErrorKind::ConversionError, error_message))
         }
     }
 }
+
+// impl AsRefSteelVal for List<SteelVal> {
+//     fn as_ref<'a>(val: &'a SteelVal) -> Result<Ref<'a, List<SteelVal>>> {
+//         todo!()
+
+//         // if let SteelVal::ListV(list) = val {
+//         //     Ok(list)
+//         // } else {
+//         //     Err(SteelErr::new(
+//         //         ErrorKind::ConversionError,
+//         //         "Value unable to be converted to a list".to_string(),
+//         //     ))
+//         // }
+//     }
+// }
 
 // impl Custom for Box<dyn Iterator<Item = SteelVal>> {}
 
@@ -370,7 +423,7 @@ pub enum SteelVal {
     /// Represents a symbol, internally represented as `String`s
     SymbolV(Gc<String>),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
-    Custom(Gc<Box<dyn CustomType>>),
+    Custom(Gc<RefCell<Box<dyn CustomType>>>),
     // Embedded HashMap
     HashMapV(Gc<HashMap<SteelVal, SteelVal>>), // TODO wrap in GC
     // Embedded HashSet
@@ -650,15 +703,15 @@ impl SteelVal {
         }
     }
 
-    pub fn custom_or_else<E, F: FnOnce() -> E>(
-        &self,
-        err: F,
-    ) -> std::result::Result<&Box<dyn CustomType>, E> {
-        match self {
-            Self::Custom(v) => Ok(&v),
-            _ => Err(err()),
-        }
-    }
+    // pub fn custom_or_else<E, F: FnOnce() -> E>(
+    //     &self,
+    //     err: F,
+    // ) -> std::result::Result<&Box<dyn CustomType>, E> {
+    //     match self {
+    //         Self::Custom(v) => Ok(&v),
+    //         _ => Err(err()),
+    //     }
+    // }
 
     pub fn struct_or_else<E, F: FnOnce() -> E>(
         &self,
@@ -789,7 +842,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             }
             write!(f, ")")
         }
-        Custom(x) => write!(f, "#<{}>", x.display()?),
+        Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
         // Pair(_) => {
         //     let v = collect_pair_into_vector(val);
         //     display_helper(&v, f)

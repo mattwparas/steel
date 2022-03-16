@@ -1,8 +1,8 @@
 use std::{future::Future, marker::PhantomData, rc::Rc};
 
 use super::engine::Engine;
-use crate::rvals::FutureResult;
-use crate::rvals::{AsRefSteelVal, CustomType, FromSteelVal, IntoSteelVal, Result, SteelVal};
+use crate::rvals::{AsRefMutSteelVal, FutureResult};
+use crate::rvals::{AsRefSteelVal, FromSteelVal, IntoSteelVal, Result, SteelVal};
 use crate::stop;
 use futures::FutureExt;
 
@@ -10,6 +10,14 @@ use futures::FutureExt;
 /// This allows for clean embedding of function pointers as well as closures that capture immutable environments
 pub trait RegisterFn<FN, ARGS, RET> {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self;
+}
+
+pub trait RegisterSelfFn<FN, ARGS, RET> {
+    fn register_method_fn(&mut self, name: &'static str, func: FN) -> &mut Self;
+}
+
+pub trait RegisterSelfMutFn<FN, ARGS, RET> {
+    fn register_method_mut_fn(&mut self, name: &'static str, func: FN) -> &mut Self;
 }
 
 pub trait RegisterAsyncFn<FN, ARGS, RET> {
@@ -50,6 +58,50 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, R
             }
 
             let res = func();
+
+            res.into_steelval()
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
+
+impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + 'static>
+    RegisterSelfFn<FN, Wrapper<SELF>, RET> for Engine
+{
+    fn register_method_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            }
+
+            let input = <SELF>::as_ref(&args[0])?;
+
+            let res = func(&input);
+
+            res.into_steelval()
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
+
+impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'static>
+    RegisterSelfMutFn<FN, Wrapper<SELF>, RET> for Engine
+{
+    fn register_method_mut_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            }
+
+            let mut input = <SELF>::as_mut_ref(&args[0])?;
+
+            let res = func(&mut input);
 
             res.into_steelval()
         };
@@ -124,30 +176,32 @@ macro_rules! impl_register_fn {
     };
 }
 
-// macro_rules! impl_register_fn_self {
-//     ($arg_count:expr => $($param:ident: $idx:expr),*) => {
-//         impl<
-//             SELF: AsRefSteelVal,
-//             $($param: FromSteelVal,)*
-//             FN: Fn(&SELF, $($param),*) -> RET + 'static,
-//             RET: IntoSteelVal
-//         > RegisterFn<FN, Wrapper<(SELF, $($param,)*)>, RET> for Engine {
-//             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-//                 let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//                     if args.len() != $arg_count {
-//                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
-//                     }
+macro_rules! impl_register_fn_self {
+    ($arg_count:expr => $($param:ident: $idx:expr),*) => {
+        impl<
+            SELF: AsRefSteelVal,
+            $($param: FromSteelVal,)*
+            FN: Fn(&SELF, $($param),*) -> RET + 'static,
+            RET: IntoSteelVal
+        > RegisterSelfFn<FN, Wrapper<(SELF, $($param,)*)>, RET> for Engine {
+            fn register_method_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+                let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+                    if args.len() != $arg_count {
+                        stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
+                    }
 
-//                     let res = func(<SELF>::as_ref(&args[0]), $(<$param>::from_steelval(&args[$idx])?,)*);
+                    let input = <SELF>::as_ref(&args[0])?;
 
-//                     res.into_steelval()
-//                 };
+                    let res = func(&input, $(<$param>::from_steelval(&args[$idx])?,)*);
 
-//                 self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-//             }
-//         }
-//     };
-// }
+                    res.into_steelval()
+                };
+
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+            }
+        }
+    };
+}
 
 // macro_rules! impl_register_fn_two {
 //     ($arg_count:expr => $($param:ident: $idx:expr),*) => {
@@ -234,18 +288,18 @@ impl_register_async_fn!(14 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, 
 impl_register_async_fn!(15 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14);
 impl_register_async_fn!(16 => A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 14, O: 14, P: 15);
 
-// impl_register_fn_self!(2 => B:1);
-// impl_register_fn_self!(3 => B:1, C:2);
-// impl_register_fn_self!(4 => B:1, C:2, D:3);
-// impl_register_fn_self!(5 => B:1, C:2, D:3, E:4);
-// impl_register_fn_self!(6 => B:1, C:2, D:3, E:4, F:5);
-// impl_register_fn_self!(7 => B:1, C:2, D:3, E:4, F:5, G:6);
-// impl_register_fn_self!(8 => B:1, C:2, D:3, E:4, F:5, G:6, H:7);
-// impl_register_fn_self!(9 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8);
-// impl_register_fn_self!(10 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9);
-// impl_register_fn_self!(11 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10);
-// impl_register_fn_self!(12 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11);
-// impl_register_fn_self!(13 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12);
-// impl_register_fn_self!(14 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13);
-// impl_register_fn_self!(15 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14);
-// impl_register_fn_self!(16 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 14, O: 14, P: 15);
+impl_register_fn_self!(2 => B:1);
+impl_register_fn_self!(3 => B:1, C:2);
+impl_register_fn_self!(4 => B:1, C:2, D:3);
+impl_register_fn_self!(5 => B:1, C:2, D:3, E:4);
+impl_register_fn_self!(6 => B:1, C:2, D:3, E:4, F:5);
+impl_register_fn_self!(7 => B:1, C:2, D:3, E:4, F:5, G:6);
+impl_register_fn_self!(8 => B:1, C:2, D:3, E:4, F:5, G:6, H:7);
+impl_register_fn_self!(9 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8);
+impl_register_fn_self!(10 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9);
+impl_register_fn_self!(11 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10);
+impl_register_fn_self!(12 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11);
+impl_register_fn_self!(13 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12);
+impl_register_fn_self!(14 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13);
+impl_register_fn_self!(15 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14);
+impl_register_fn_self!(16 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 14, O: 14, P: 15);

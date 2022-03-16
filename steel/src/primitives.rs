@@ -168,6 +168,12 @@ impl<T: FromSteelVal> FromSteelVal for Option<T> {
     }
 }
 
+impl FromSteelVal for SteelVal {
+    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
+        Ok(val.clone())
+    }
+}
+
 // TODO make intosteelval return a result type
 // This allows errors to propagate
 
