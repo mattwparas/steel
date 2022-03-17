@@ -1,4 +1,4 @@
-use super::engine::Engine;
+use super::{engine::Engine, register_fn::RegisterSelfFn};
 use crate::primitives::{
     ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
     IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations, StringOperations,
@@ -234,6 +234,7 @@ pub(crate) fn register_list_functions(engine: &mut Engine) {
         // .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         // .register_value("execute", crate::steel_vm::transducers::EXECUTE)
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE);
+    // .register_method_fn("special-custom-list-len", im_lists::list::List::len);
 }
 
 #[inline(always)]

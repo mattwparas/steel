@@ -24,6 +24,7 @@ use std::{
     fmt::Write,
     future::Future,
     hash::{Hash, Hasher},
+    ops::Deref,
     pin::Pin,
     rc::Rc,
     result,
@@ -298,24 +299,53 @@ mod private {
 //     }
 // }
 
+pub enum SRef<'b, T: ?Sized + 'b> {
+    Temporary(&'b T),
+    Owned(Ref<'b, T>),
+}
+
+impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
+    type Target = T;
+
+    #[inline]
+    fn deref(&self) -> &T {
+        match self {
+            SRef::Temporary(inner) => inner,
+            SRef::Owned(inner) => inner,
+        }
+    }
+}
+
 // Can you take a steel val and execute operations on it by reference
 pub trait AsRefSteelVal: Sized + private::Sealed {
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<Ref<'b, Self>>;
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>>;
 }
 
 pub trait AsRefMutSteelVal: Sized + private::Sealed {
     fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<RefMut<'b, Self>>;
 }
 
+impl AsRefSteelVal for List<SteelVal> {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
+        if let SteelVal::ListV(l) = val {
+            Ok(SRef::Temporary(l))
+        } else {
+            stop!(TypeMismatch => "Value cannot be referenced as a list")
+        }
+    }
+}
+
 impl<T: CustomType + Clone + 'static> AsRefSteelVal for T {
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<Ref<'b, Self>> {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         // todo!()
 
         if let SteelVal::Custom(v) = val {
             let res = Ref::map(v.borrow(), |x| x.as_any_ref());
 
             if res.is::<T>() {
-                Ok(Ref::map(res, |x| x.downcast_ref::<T>().unwrap()))
+                Ok(SRef::Owned(Ref::map(res, |x| {
+                    x.downcast_ref::<T>().unwrap()
+                })))
             } else {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal did not match the given type: {}",
