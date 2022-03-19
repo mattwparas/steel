@@ -35,6 +35,44 @@
 (expand! program) ;; => '((define foo (lambda (x) ...)))
 
 
+;; If functions are pure, run those and save their results
+;; Have a way to determine _if_ the function is pure
+
+(define (list-any? list pred)
+    (cond [(empty? list) => #f]
+          [(pred (car list)) => #t]
+          [else => (list-any? (cdr list) pred)]))
+
+;; Walk the tree -> does it contain a function from the given set?
+;; If so, bail out and return true as soon as its discovered
+(define (contains-set? expr)
+    (function-call-checker (lambda (x) (equal? x 'set!)) expr))
+
+(define (function-call-checker pred expr)
+    (displayln expr)
+    (cond
+        [(list? expr)
+         (let ((sym (car expr)))
+            (cond ;; (set! <ident> <expr>)
+                  [(pred sym) => #t]
+                  [else => (list-any? expr contains-set?)]))]
+        [else #f]))
+
+; (run! *my-engine* other-program)
+
+
+(define test-program
+    '(define function-with-set 
+        (lambda (x) 
+            (let ((z 100) (y 200))
+                (set! z x)
+                (+ x y z)))))
+
+(contains-set?  test-program)
+
+
+
+
 ;; TODO: add reader macros passes to this as well
 ;; Marks primitives with contracts as well...
 ;; Multi arity functions with contracts probably doesn't work very well

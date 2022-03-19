@@ -25,6 +25,10 @@ impl ExternalStruct {
         ExternalStruct { foo, bar, baz }
     }
 
+    pub fn dumb() -> Self {
+        ExternalStruct::new(10, "hello-world".to_string(), 10.0)
+    }
+
     // Embedding functions that take self must take by value
     pub fn method_by_value(self) -> usize {
         self.foo
@@ -60,6 +64,7 @@ pub fn main() {
     vm.register_fn("ExternalStruct", ExternalStruct::new);
     vm.register_fn("ExternalEnum::Foo", || ExternalEnum::Foo);
     vm.register_fn("ExtenalEnum::Bar", ExternalEnum::Bar);
+    vm.register_fn("dumy", ExternalStruct::dumb);
 
     vm.register_method_fn("dummy-method", ExternalStruct::dummy_method);
 

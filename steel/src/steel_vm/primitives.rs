@@ -1,4 +1,7 @@
-use super::{engine::Engine, register_fn::RegisterSelfFn};
+use super::{
+    engine::Engine,
+    register_fn::{RegisterFn, RegisterSelfFn, RegisterSelfMutFn},
+};
 use crate::primitives::{
     ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
     IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations, StringOperations,
@@ -499,7 +502,10 @@ pub(crate) fn register_meta_functions(engine: &mut Engine) {
         .register_value("struct->vector", struct_to_vector())
         .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
         .register_value("read!", SteelVal::FuncV(super::meta::read))
-        .register_value("eval!", SteelVal::FuncV(super::meta::eval));
+        .register_value("eval!", SteelVal::FuncV(super::meta::eval))
+        .register_fn("Engine::new", super::meta::EngineWrapper::new)
+        .register_fn("run!", super::meta::EngineWrapper::call)
+        .register_fn("get-value", super::meta::EngineWrapper::get_value);
 }
 
 #[inline(always)]

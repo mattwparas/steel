@@ -1,15 +1,68 @@
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
-use std::convert::TryFrom;
+use std::{cell::RefCell, convert::TryFrom, rc::Rc};
 
 use im_lists::list::List;
 
-use crate::{parser::ast::ExprKind, SteelVal};
+use crate::{parser::ast::ExprKind, rvals::Custom, SteelVal};
 use crate::{parser::expander::LocalMacroManager, rvals::Result};
 use crate::{parser::parser::ParseError, steel_vm::engine::Engine};
 
 use crate::stop;
 
+#[derive(Clone)]
+pub(crate) struct EngineWrapper(Rc<RefCell<Engine>>);
+
+impl EngineWrapper {
+    pub(crate) fn new() -> Self {
+        EngineWrapper(Rc::new(RefCell::new(Engine::new())))
+    }
+
+    pub(crate) fn call(self, expr: SteelVal) -> Result<List<SteelVal>> {
+        match expr {
+            SteelVal::StringV(expr) => self
+                .0
+                .borrow_mut()
+                .compile_and_run_raw_program(expr.as_str())
+                .map(|x| x.into()),
+            SteelVal::ListV(list) => {
+                let values = list
+                    .iter()
+                    .map(|x| x.to_string())
+                    .map(|x| {
+                        self.0
+                            .borrow_mut()
+                            .compile_and_run_raw_program(x.trim_start_matches('\''))
+                    })
+                    .collect::<Result<Vec<Vec<SteelVal>>>>();
+
+                Ok(values?.into_iter().flatten().collect::<List<_>>().into())
+            }
+            _ => {
+                stop!(TypeMismatch => "run! expects either a list of expressions, or a string")
+            }
+        }
+    }
+
+    pub(crate) fn get_value(self, expr: String) -> Result<SteelVal> {
+        match self.0.borrow().extract_value(expr.as_str())? {
+            SteelVal::Closure(_) => {
+                stop!(Generic => "a closure cannot be used outside of its defining environment")
+            }
+            other => Ok(other),
+        }
+    }
+}
+
+impl Custom for EngineWrapper {}
+
+impl std::fmt::Debug for EngineWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "#<SteelEngine>")
+    }
+}
+
+// TODO: move this to an iterator utils class
 pub fn separate_by<T, F: Fn(&T) -> bool>(
     iter: impl IntoIterator<Item = T>,
     pred: F,

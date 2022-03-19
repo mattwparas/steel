@@ -1,3 +1,5 @@
+use im_lists::list::List;
+
 use crate::{
     gc::Gc,
     rerrs::ErrorKind,
@@ -5,6 +7,21 @@ use crate::{
     SteelErr, SteelVal,
 };
 use std::collections::{HashMap, HashSet};
+
+impl IntoSteelVal for SteelVal {
+    fn into_steelval(self) -> Result<SteelVal> {
+        Ok(self)
+    }
+}
+
+impl<T: IntoSteelVal + Clone> IntoSteelVal for List<T> {
+    fn into_steelval(self) -> Result<SteelVal> {
+        self.into_iter()
+            .map(|x| x.into_steelval())
+            .collect::<Result<List<_>>>()
+            .map(SteelVal::ListV)
+    }
+}
 
 // Vectors
 impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {

@@ -31,8 +31,6 @@ pub struct Engine {
     constants: Option<ImmutableHashMap<String, SteelVal>>,
 }
 
-impl Custom for Engine {}
-
 impl Engine {
     /// Instantiates a raw engine instance. Includes no primitives or prelude.
     ///

@@ -317,11 +317,11 @@ impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
 }
 
 // Can you take a steel val and execute operations on it by reference
-pub trait AsRefSteelVal: Sized + private::Sealed {
+pub trait AsRefSteelVal: Sized {
     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>>;
 }
 
-pub trait AsRefMutSteelVal: Sized + private::Sealed {
+pub trait AsRefMutSteelVal: Sized {
     fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<RefMut<'b, Self>>;
 }
 
