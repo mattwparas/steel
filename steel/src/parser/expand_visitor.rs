@@ -90,11 +90,6 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_read(&mut self, mut read: Box<super::ast::Read>) -> Self::Output {
-        read.expr = self.visit(read.expr)?;
-        Ok(ExprKind::Read(read))
-    }
-
     fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
         // quote.expr = self.visit(quote.expr)?;
         Ok(ExprKind::Quote(quote))
@@ -106,11 +101,6 @@ impl<'a> ConsumingVisitor for Expander<'a> {
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
         stop!(Generic => "unexpected macro definition"; m.location.span)
-    }
-
-    fn visit_eval(&mut self, mut e: Box<super::ast::Eval>) -> Self::Output {
-        e.expr = self.visit(e.expr)?;
-        Ok(ExprKind::Eval(e))
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {

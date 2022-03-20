@@ -56,6 +56,7 @@ impl<T> Stack<T> {
         self.0.append(other)
     }
 
+    #[inline(always)]
     pub fn set_idx(&mut self, idx: usize, value: T) {
         self.0[idx] = value;
     }

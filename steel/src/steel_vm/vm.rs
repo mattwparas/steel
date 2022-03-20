@@ -798,13 +798,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     ..
                 } => self.handle_panic(self.current_span())?,
                 DenseInstruction {
-                    op_code: OpCode::EVAL,
-                    ..
-                } => {
-                    let _expr_to_eval = self.stack.pop().unwrap();
-                    panic!("eval not yet supported - internal compiler error");
-                }
-                DenseInstruction {
                     op_code: OpCode::PASS,
                     ..
                 } => {
@@ -839,6 +832,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     self.stack.push(SteelVal::Void);
                     self.ip += 1;
                 }
+                // TODO -> this can be moved entirely to a function that modifies the vm state
                 DenseInstruction {
                     op_code: OpCode::CALLCC,
                     ..
@@ -908,10 +902,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                         }
                     }
                 }
-                DenseInstruction {
-                    op_code: OpCode::READ,
-                    ..
-                } => self.handle_read()?,
                 DenseInstruction {
                     op_code: OpCode::SET,
                     payload_size,
@@ -990,7 +980,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     let push_const = &self.instructions[self.ip + 2];
 
                     // Snag the function
-                    let func = self.global_env.repl_lookup_idx(payload_size as usize)?;
+                    let func = self.global_env.repl_lookup_idx(payload_size as usize);
 
                     // get the local
                     let offset = self.stack_index.last().copied().unwrap_or(0);
@@ -1010,7 +1000,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     let push_const = &self.instructions[self.ip + 2];
 
                     // Snag the function
-                    let func = self.global_env.repl_lookup_idx(payload_size as usize)?;
+                    let func = self.global_env.repl_lookup_idx(payload_size as usize);
 
                     // get the local by moving its position
                     let offset = self.stack_index.last().copied().unwrap_or(0);
@@ -1029,7 +1019,8 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     payload_size,
                     ..
                 } => {
-                    let next_inst = self.instructions[self.ip + 1];
+                    self.ip += 1;
+                    let next_inst = self.instructions[self.ip];
                     self.handle_call_global(
                         payload_size as usize,
                         next_inst.payload_size as usize,
@@ -1476,34 +1467,34 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     // TODO -> this doesn't have to be an opcode
     // instead make this a built in function
     // #[inline(always)]
-    fn handle_read(&mut self) -> Result<()> {
-        // this needs to be a string
-        let expression_to_parse = self.stack.pop().unwrap();
+    // fn handle_read(&mut self) -> Result<()> {
+    //     // this needs to be a string
+    //     let expression_to_parse = self.stack.pop().unwrap();
 
-        if let SteelVal::StringV(expr) = expression_to_parse {
-            // dummy interning hashmap because the parser is bad
-            // please don't judge I'm working on fixing it
-            // TODO
-            let mut intern = HashMap::new();
+    //     if let SteelVal::StringV(expr) = expression_to_parse {
+    //         // dummy interning hashmap because the parser is bad
+    //         // please don't judge I'm working on fixing it
+    //         // TODO
+    //         let mut intern = HashMap::new();
 
-            let parsed: result::Result<Vec<ExprKind>, ParseError> =
-                Parser::new(expr.as_str(), &mut intern).collect();
+    //         let parsed: result::Result<Vec<ExprKind>, ParseError> =
+    //             Parser::new(expr.as_str(), &mut intern).collect();
 
-            match parsed {
-                Ok(v) => {
-                    let converted: Result<List<SteelVal>> =
-                        v.into_iter().map(SteelVal::try_from).collect();
+    //         match parsed {
+    //             Ok(v) => {
+    //                 let converted: Result<List<SteelVal>> =
+    //                     v.into_iter().map(SteelVal::try_from).collect();
 
-                    self.stack.push(SteelVal::ListV(converted?));
-                    self.ip += 1;
-                }
-                Err(e) => stop!(Generic => format!("{}", e); self.current_span()),
-            }
-        } else {
-            stop!(TypeMismatch => "read expects a string"; self.current_span())
-        }
-        Ok(())
-    }
+    //                 self.stack.push(SteelVal::ListV(converted?));
+    //                 self.ip += 1;
+    //             }
+    //             Err(e) => stop!(Generic => format!("{}", e); self.current_span()),
+    //         }
+    //     } else {
+    //         stop!(TypeMismatch => "read expects a string"; self.current_span())
+    //     }
+    //     Ok(())
+    // }
 
     // #[inline(always)]
     fn handle_set(&mut self, index: usize) -> Result<()> {
@@ -1523,8 +1514,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
     // #[inline(always)]
     fn handle_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-        let func = self.global_env.repl_lookup_idx(index)?;
-        self.ip += 1;
+        let func = self.global_env.repl_lookup_idx(index);
         // TODO - handle this a bit more elegantly
         // self.handle_function_call(func, payload_size, span)
         self.handle_global_function_call(func, payload_size, index)
@@ -1532,14 +1522,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
     // #[inline(always)]
     fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-        let func = self.global_env.repl_lookup_idx(index)?;
+        let func = self.global_env.repl_lookup_idx(index);
         self.ip += 1;
         self.handle_tail_call(func, payload_size)
     }
 
     // #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
-        let value = self.global_env.repl_lookup_idx(index)?;
+        let value = self.global_env.repl_lookup_idx(index);
         self.stack.push(value);
         self.ip += 1;
         Ok(())
@@ -1710,10 +1700,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     fn handle_set_local(&mut self, index: usize) {
         let value_to_set = self.stack.pop().unwrap();
         let offset = self.stack_index.last().copied().unwrap_or(0);
-        let old_value = self.stack[index + offset].clone();
+
+        let old_index = index + offset;
+        let old_value = self.stack[old_index].clone();
 
         // Modify the stack and change the value to the new one
-        self.stack.set_idx(index + offset, value_to_set);
+        self.stack.set_idx(old_index, value_to_set);
 
         self.stack.push(old_value);
         self.ip += 1;
@@ -1941,10 +1933,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         func: &Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>,
         payload_size: usize,
     ) -> Result<()> {
-        let result = func(self.stack.peek_range(self.stack.len() - payload_size..))
+        let last_index = self.stack.len() - payload_size;
+
+        let result = func(self.stack.peek_range(last_index..))
             .map_err(|x| x.set_span(self.current_span()))?;
 
-        self.stack.truncate(self.stack.len() - payload_size);
+        self.stack.truncate(last_index);
 
         self.stack.push(result);
         self.ip += 1;
@@ -1969,14 +1963,17 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     ) -> Result<()> {
         // println!("Stack: {:?}", self.stack);
 
-        let result = f(self.stack.peek_range_mut(self.stack.len() - payload_size..))
+        let last_index = self.stack.len() - payload_size;
+
+        let result = f(self.stack.peek_range_mut(last_index..))
             .map_err(|x| x.set_span(self.current_span()))?;
 
-        self.stack.truncate(self.stack.len() - payload_size);
-
+        // TODO -> this can actually just be something like:
+        // self.stack.truncate(self.stack.len() - payload_size + 1)
+        // self.stack[self.stack.len() - 1] = result
+        self.stack.truncate(last_index);
         self.stack.push(result);
 
-        // println!("Stack after: {:?}", self.stack);
         self.ip += 1;
         Ok(())
     }
@@ -1990,14 +1987,21 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // let result = f(self.stack.peek_range(self.stack.len() - payload_size..))
         //     .map_err(|x| x.set_span(self.current_span()))?;
 
-        let result = match f(self.stack.peek_range(self.stack.len() - payload_size..)) {
+        let last_index = self.stack.len() - payload_size;
+
+        let result = match f(self.stack.peek_range(last_index..)) {
             Ok(value) => value,
             Err(e) => return Err(e.set_span(self.current_span())),
         };
 
-        self.stack.truncate(self.stack.len() - payload_size);
-
+        // This is the old way... lets see if the below way improves the speed
+        self.stack.truncate(last_index);
         self.stack.push(result);
+
+        // self.stack.truncate(self.stack.len() - payload_size + 1);
+        // // Set the last to be the new updated value
+        // self.stack.set_idx(self.stack.len() - 1, result);
+
         self.ip += 1;
         Ok(())
     }
@@ -2058,11 +2062,11 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         f: &Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>,
         payload_size: usize,
     ) -> Result<()> {
-        let result = SteelVal::FutureV(Gc::new(f(self
-            .stack
-            .peek_range(self.stack.len() - payload_size..))?));
+        let last_index = self.stack.len() - payload_size;
 
-        self.stack.truncate(self.stack.len() - payload_size);
+        let result = SteelVal::FutureV(Gc::new(f(self.stack.peek_range(last_index..))?));
+
+        self.stack.truncate(last_index);
         self.stack.push(result);
         self.ip += 1;
         Ok(())

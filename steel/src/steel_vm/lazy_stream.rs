@@ -66,10 +66,10 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> Iterato
 
 #[cfg(test)]
 mod stream_tests {
-    use super::*;
-    use crate::compiler::constants::ConstantMap;
-    use crate::steel_vm::options::ApplyContract;
-    use crate::steel_vm::options::UseCallback;
+    // use super::*;
+    // use crate::compiler::constants::ConstantMap;
+    // use crate::steel_vm::options::ApplyContract;
+    // use crate::steel_vm::options::UseCallback;
     use crate::steel_vm::test_util::assert_script;
 
     // #[test]

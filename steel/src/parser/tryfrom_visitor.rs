@@ -81,13 +81,6 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
         ))
     }
 
-    fn visit_read(&self, read: Box<super::ast::Read>) -> Self::Output {
-        let expr = [SteelVal::try_from(read.location)?, self.visit(read.expr)?];
-        Ok(SteelVal::ListV(
-            std::array::IntoIter::new(expr).into_iter().collect(),
-        ))
-    }
-
     fn visit_quote(&self, quote: Box<super::ast::Quote>) -> Self::Output {
         self.visit(quote.expr)
     }
@@ -113,13 +106,6 @@ impl ConsumingVisitorRef for TryFromExprKindForSteelVal {
     fn visit_macro(&self, _m: super::ast::Macro) -> Self::Output {
         // TODO
         stop!(Generic => "internal compiler error - could not translate macro to steel value")
-    }
-
-    fn visit_eval(&self, e: Box<super::ast::Eval>) -> Self::Output {
-        let expr = [SteelVal::try_from(e.location)?, self.visit(e.expr)?];
-        Ok(SteelVal::ListV(
-            std::array::IntoIter::new(expr).into_iter().collect(),
-        ))
     }
 
     fn visit_atom(&self, a: Atom) -> Self::Output {

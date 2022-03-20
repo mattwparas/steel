@@ -26,12 +26,10 @@ pub enum ExprKind {
     LambdaFunction(Box<LambdaFunction>),
     Begin(Begin),
     Return(Box<Return>),
-    Read(Box<Read>),
     Quote(Box<Quote>),
     Struct(Box<Struct>),
     Macro(Macro),
     SyntaxRules(SyntaxRules),
-    Eval(Box<Eval>),
     List(List),
     Set(Box<Set>),
     Require(Require),
@@ -221,12 +219,10 @@ impl ToDoc for ExprKind {
             ExprKind::Begin(b) => b.to_doc(),
             ExprKind::Return(r) => r.to_doc(),
             ExprKind::Let(l) => l.to_doc(),
-            ExprKind::Read(r) => r.to_doc(),
             ExprKind::Quote(q) => q.to_doc(),
             ExprKind::Struct(s) => s.to_doc(),
             ExprKind::Macro(m) => m.to_doc(),
             ExprKind::SyntaxRules(s) => s.to_doc(),
-            ExprKind::Eval(e) => e.to_doc(),
             ExprKind::List(l) => l.to_doc(),
             ExprKind::Set(s) => s.to_doc(),
             ExprKind::Require(r) => r.to_doc(),
@@ -253,12 +249,10 @@ impl fmt::Display for ExprKind {
             ExprKind::Begin(b) => write!(f, "{}", b),
             ExprKind::Return(r) => write!(f, "{}", r),
             ExprKind::Let(l) => write!(f, "{}", l),
-            ExprKind::Read(r) => write!(f, "{}", r),
             ExprKind::Quote(q) => write!(f, "{}", q),
             ExprKind::Struct(s) => write!(f, "{}", s),
             ExprKind::Macro(m) => write!(f, "{}", m),
             ExprKind::SyntaxRules(s) => write!(f, "{}", s),
-            ExprKind::Eval(e) => write!(f, "{}", e),
             ExprKind::List(l) => write!(f, "{}", l),
             ExprKind::Set(s) => write!(f, "{}", s),
             ExprKind::Require(r) => write!(f, "{}", r),
@@ -800,40 +794,6 @@ impl IntoIterator for List {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Read {
-    pub expr: ExprKind,
-    pub location: SyntaxObject,
-}
-
-impl fmt::Display for Read {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(read {})", self.expr)
-    }
-}
-
-impl ToDoc for Read {
-    fn to_doc(&self) -> RcDoc<()> {
-        RcDoc::text("(read")
-            .append(RcDoc::line())
-            .append(self.expr.to_doc())
-            .append(RcDoc::text(")"))
-            .nest(2)
-    }
-}
-
-impl Read {
-    pub fn new(expr: ExprKind, location: SyntaxObject) -> Self {
-        Read { expr, location }
-    }
-}
-
-impl From<Read> for ExprKind {
-    fn from(val: Read) -> Self {
-        ExprKind::Read(Box::new(val))
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Struct {
     pub name: ExprKind,
     pub fields: Vec<ExprKind>,
@@ -916,40 +876,6 @@ impl fmt::Display for Quote {
 impl From<Quote> for ExprKind {
     fn from(val: Quote) -> Self {
         ExprKind::Quote(Box::new(val))
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Eval {
-    pub expr: ExprKind,
-    pub location: SyntaxObject,
-}
-
-impl fmt::Display for Eval {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(eval {})", self.expr)
-    }
-}
-
-impl ToDoc for Eval {
-    fn to_doc(&self) -> RcDoc<()> {
-        RcDoc::text("(eval")
-            .append(RcDoc::line())
-            .append(self.expr.to_doc())
-            .append(RcDoc::text(")"))
-            .nest(2)
-    }
-}
-
-impl Eval {
-    pub fn new(expr: ExprKind, location: SyntaxObject) -> Self {
-        Eval { expr, location }
-    }
-}
-
-impl From<Eval> for ExprKind {
-    fn from(val: Eval) -> Self {
-        ExprKind::Eval(Box::new(val))
     }
 }
 
@@ -1510,18 +1436,6 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                             Ok(ExprKind::Require(Require::new(expressions, syn)))
                         }
-                        TokenType::Eval => parse_single_argument(
-                            value.into_iter(),
-                            a.syn.clone(),
-                            "eval",
-                            |expr, syn| Eval::new(expr, syn).into(),
-                        ),
-                        TokenType::Read => parse_single_argument(
-                            value.into_iter(),
-                            a.syn.clone(),
-                            "read",
-                            |expr, syn| Read::new(expr, syn).into(),
-                        ),
                         TokenType::Set => {
                             let syn = a.syn.clone();
                             if value.len() != 3 {

@@ -586,12 +586,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    fn visit_read(&mut self, read: &crate::parser::ast::Read) -> Self::Output {
-        self.visit(&read.expr)?;
-        self.push(Instruction::new_read());
-        Ok(())
-    }
-
     fn visit_quote(&mut self, quote: &crate::parser::ast::Quote) -> Self::Output {
         let converted = SteelVal::try_from(quote.expr.clone())?;
         let idx = self.constant_map.add_or_get(converted);
@@ -637,11 +631,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         stop!(BadSyntax => "unexpected macro definition"; m.location.span)
     }
 
-    fn visit_eval(&mut self, e: &crate::parser::ast::Eval) -> Self::Output {
-        self.visit(&e.expr)?;
-        self.push(Instruction::new_eval());
-        Ok(())
-    }
 
     fn visit_atom(&mut self, a: &crate::parser::ast::Atom) -> Self::Output {
         let ident = if let SyntaxObject {

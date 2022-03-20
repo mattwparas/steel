@@ -97,10 +97,6 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
         self.visit(&mut r.expr)
     }
 
-    fn visit_read(&mut self, read: &mut super::ast::Read) -> Self::Output {
-        self.visit(&mut read.expr);
-    }
-
     fn visit_quote(&mut self, quote: &mut super::ast::Quote) -> Self::Output {
         self.visit(&mut quote.expr);
     }
@@ -111,10 +107,6 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
 
     fn visit_macro(&mut self, _m: &mut super::ast::Macro) -> Self::Output {
         todo!()
-    }
-
-    fn visit_eval(&mut self, e: &mut super::ast::Eval) -> Self::Output {
-        self.visit(&mut e.expr);
     }
 
     fn visit_atom(&mut self, a: &mut super::ast::Atom) -> Self::Output {

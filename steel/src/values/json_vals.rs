@@ -1,6 +1,6 @@
 use crate::{
     gc::Gc,
-    rerrs::{ErrorKind, SteelErr},
+    rerrs::SteelErr,
     rvals::{Result, SteelVal},
     throw,
 };

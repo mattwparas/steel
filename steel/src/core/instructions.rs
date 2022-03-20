@@ -70,15 +70,6 @@ impl Instruction {
         }
     }
 
-    pub fn new_eval() -> Instruction {
-        Instruction {
-            op_code: OpCode::EVAL,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
     pub fn new_ndef(payload_size: usize) -> Instruction {
         Instruction {
             op_code: OpCode::NDEFS,
@@ -211,15 +202,6 @@ impl Instruction {
     pub fn new_set() -> Instruction {
         Instruction {
             op_code: OpCode::SET,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_read() -> Instruction {
-        Instruction {
-            op_code: OpCode::READ,
             payload_size: 0,
             contents: None,
             constant: false,

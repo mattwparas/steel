@@ -43,7 +43,7 @@ impl Env {
         }
     }
 
-    pub(crate) fn print_diagnostics(&self) {
+    pub(crate) fn _print_diagnostics(&self) {
         for (idx, value) in self.bindings_vec.iter().enumerate() {
             if let SteelVal::Closure(b) = value {
                 let count = b.call_count();
@@ -61,7 +61,7 @@ impl Env {
         }
     }
 
-    pub(crate) fn get_expr(&mut self, idx: usize) -> Option<&ExprKind> {
+    pub(crate) fn _get_expr(&mut self, idx: usize) -> Option<&ExprKind> {
         self.ast_map.get(&idx)
     }
 
@@ -72,8 +72,13 @@ impl Env {
     ///
     /// Otherwise, error with `FreeIdentifier`
     // #[inline]
-    pub fn repl_lookup_idx(&self, idx: usize) -> Result<SteelVal> {
-        Ok(self.bindings_vec[idx].clone())
+    pub fn repl_lookup_idx(&self, idx: usize) -> SteelVal {
+        self.bindings_vec[idx].clone()
+    }
+
+    /// Get the value located at that index
+    pub fn repl_get_idx(&self, idx: usize) -> &SteelVal {
+        &self.bindings_vec[idx]
     }
 
     #[inline]

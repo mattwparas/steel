@@ -373,11 +373,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_read(&mut self, mut read: Box<crate::parser::ast::Read>) -> Self::Output {
-        read.expr = self.visit(read.expr)?;
-        Ok(ExprKind::Read(read))
-    }
-
     fn visit_quote(&mut self, quote: Box<crate::parser::ast::Quote>) -> Self::Output {
         Ok(ExprKind::Quote(quote))
     }
@@ -388,11 +383,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
     fn visit_macro(&mut self, _m: crate::parser::ast::Macro) -> Self::Output {
         stop!(Generic => "unexpected macro found in const evaluator");
-    }
-
-    fn visit_eval(&mut self, mut e: Box<crate::parser::ast::Eval>) -> Self::Output {
-        e.expr = self.visit(e.expr)?;
-        Ok(ExprKind::Eval(e))
     }
 
     fn visit_atom(&mut self, a: crate::parser::ast::Atom) -> Self::Output {
@@ -679,19 +669,11 @@ impl<'a> VisitorMut for CollectSet<'a> {
         self.visit(&r.expr);
     }
 
-    fn visit_read(&mut self, read: &crate::parser::ast::Read) -> Self::Output {
-        self.visit(&read.expr);
-    }
-
     fn visit_quote(&mut self, _quote: &Quote) -> Self::Output {}
 
     fn visit_struct(&mut self, _s: &crate::parser::ast::Struct) -> Self::Output {}
 
     fn visit_macro(&mut self, _m: &crate::parser::ast::Macro) -> Self::Output {}
-
-    fn visit_eval(&mut self, e: &crate::parser::ast::Eval) -> Self::Output {
-        self.visit(&e.expr);
-    }
 
     fn visit_atom(&mut self, _a: &Atom) -> Self::Output {}
 

@@ -157,8 +157,6 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Struct => Ok(SymbolV("struct".into())),
             // Apply => Ok(SymbolV("apply".into())),
             Set => Ok(SymbolV("set!".into())),
-            Read => Ok(SymbolV("read".into())),
-            Eval => Ok(SymbolV("eval".into())),
             Require => Ok(SymbolV("require".into())),
             CallCC => Ok(SymbolV("call/cc".into())),
         }
@@ -738,18 +736,6 @@ mod parser_tests {
     #[test]
     fn quote_multiple_args_should_err() {
         assert_parse_is_err("(quote a b c)");
-    }
-
-    #[test]
-    fn test_eval_should_err() {
-        assert_parse_is_err("(eval)");
-        assert_parse_is_err("(eval 1 2)");
-    }
-
-    #[test]
-    fn test_read_should_err() {
-        assert_parse_is_err("(read)");
-        assert_parse_is_err("(read 1 2)");
     }
 
     #[test]

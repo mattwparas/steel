@@ -178,10 +178,6 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
     //     None
     // }
 
-    fn visit_read(&mut self, _read: &ast::Read) -> Self::Output {
-        None
-    }
-
     // fn visit_execute(&mut self, _execute: &ast::Execute) -> Self::Output {
     //     None
     // }
@@ -195,10 +191,6 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
     }
 
     fn visit_macro(&mut self, _m: &ast::Macro) -> Self::Output {
-        None
-    }
-
-    fn visit_eval(&mut self, _e: &ast::Eval) -> Self::Output {
         None
     }
 

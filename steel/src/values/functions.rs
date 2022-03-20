@@ -5,9 +5,9 @@ use std::{
 };
 
 use crate::{
-    core::{instructions::DenseInstruction, opcode::OpCode},
+    core::instructions::DenseInstruction,
     gc::Gc,
-    rvals::{BoxedFunctionSignature, FunctionSignature, MutFunctionSignature, SteelVal::*},
+    rvals::{BoxedFunctionSignature, FunctionSignature, MutFunctionSignature},
     steel_vm::vm::BuiltInSignature,
     values::contracts::ContractedFunction,
 };

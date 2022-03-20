@@ -45,35 +45,6 @@ impl Visitor for CoalescingSpanVisitor {
         Span::merge(r.location.span, self.visit(&r.expr))
     }
 
-    // fn visit_apply(&self, apply: &super::ast::Apply) -> Self::Output {
-    //     Span::merge(
-    //         apply.location.span,
-    //         Span::merge(self.visit(&apply.func), self.visit(&apply.list)),
-    //     )
-    // }
-
-    // fn visit_panic(&self, p: &super::ast::Panic) -> Self::Output {
-    //     Span::merge(p.location.span, self.visit(&p.message))
-    // }
-
-    // fn visit_transduce(&self, transduce: &super::ast::Transduce) -> Self::Output {
-    //     Span::merge(transduce.location.span, self.visit(&transduce.iterable))
-    // }
-
-    fn visit_read(&self, read: &super::ast::Read) -> Self::Output {
-        Span::merge(read.location.span, self.visit(&read.expr))
-    }
-
-    // fn visit_execute(&self, execute: &super::ast::Execute) -> Self::Output {
-    //     let last = if let Some(output_type) = &execute.output_type {
-    //         self.visit(output_type)
-    //     } else {
-    //         self.visit(&execute.collection)
-    //     };
-
-    //     Span::merge(execute.location.span, last)
-    // }
-
     fn visit_quote(&self, quote: &super::ast::Quote) -> Self::Output {
         self.visit(&quote.expr)
     }
@@ -84,10 +55,6 @@ impl Visitor for CoalescingSpanVisitor {
 
     fn visit_macro(&self, _m: &super::ast::Macro) -> Self::Output {
         panic!("Unexpected macro found in span visitor");
-    }
-
-    fn visit_eval(&self, e: &super::ast::Eval) -> Self::Output {
-        Span::merge(e.location.span, self.visit(&e.expr))
     }
 
     fn visit_atom(&self, a: &Atom) -> Self::Output {

@@ -12,7 +12,7 @@ use crate::{
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser},
-    rvals::{Custom, FromSteelVal, IntoSteelVal, Result, SteelVal},
+    rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw,
 };
 use std::{

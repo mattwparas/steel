@@ -1,27 +1,24 @@
-use super::{
-    engine::Engine,
-    register_fn::{RegisterFn, RegisterSelfFn, RegisterSelfMutFn},
-};
+use super::{engine::Engine, register_fn::RegisterFn};
 use crate::primitives::{
     ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
     IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations, StringOperations,
     SymbolOperations, TransducerOperations, VectorOperations,
 };
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::values::structs::{struct_ref, struct_to_list, struct_to_vector};
+
+use itertools::Itertools;
 
 #[macro_use]
 macro_rules! ensure_tonicity {
     ($check_fn:expr) => {{
         |args: &[SteelVal]| -> Result<SteelVal> {
             let mut args_iter = args.iter();
-            let first = args_iter.next().ok_or_else(|| {
-                SteelErr::new(
-                    ErrorKind::ArityMismatch,
-                    "expected at least one argument".to_string(),
-                )
-            })?;
+            let first = if let Some(first) = args_iter.next() {
+                first
+            } else {
+                stop!(ArityMismatch => "expected at least one argument");
+            };
 
             fn f<'a>(prev: &SteelVal, mut xs: impl Iterator<Item = &'a SteelVal>) -> bool {
                 match xs.next() {
@@ -31,6 +28,42 @@ macro_rules! ensure_tonicity {
             }
             let res = f(&first, args_iter);
             Ok(SteelVal::BoolV(res))
+        }
+    }};
+}
+
+#[macro_use]
+macro_rules! ensure_tonicity_two {
+    ($check_fn:expr) => {{
+        |args: &[SteelVal]| -> Result<SteelVal> {
+
+            if args.len() == 0 {
+                stop!(ArityMismatch => "expected at least one argument");
+            }
+
+            for (left, right) in args.iter().tuple_windows() {
+                if !$check_fn(left, right) {
+                    return Ok(SteelVal::BoolV(false))
+                }
+            }
+
+            Ok(SteelVal::BoolV(true))
+
+            // let mut args_iter = args.iter();
+            // let first = if let Some(first) = args_iter.next() {
+            //     first
+            // } else {
+            //     stop!(ArityMismatch => "expected at least one argument");
+            // };
+
+            // fn f<'a>(prev: &SteelVal, mut xs: impl Iterator<Item = &'a SteelVal>) -> bool {
+            //     match xs.next() {
+            //         Some(x) => $check_fn(prev, x) && f(x, xs),
+            //         None => true,
+            //     }
+            // }
+            // let res = f(&first, args_iter);
+            // Ok(SteelVal::BoolV(res))
         }
     }};
 }
@@ -401,17 +434,20 @@ pub(crate) fn register_number_functions(engine: &mut Engine) {
 #[inline(always)]
 pub(crate) fn register_equality_functions(engine: &mut Engine) {
     engine
-        .register_value("equal?", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b)))
-        .register_value("=", SteelVal::FuncV(ensure_tonicity!(|a, b| a == b)));
+        .register_value(
+            "equal?",
+            SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)),
+        )
+        .register_value("=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)));
 }
 
 #[inline(always)]
 pub(crate) fn register_ord_functions(engine: &mut Engine) {
     engine
-        .register_value(">", SteelVal::FuncV(ensure_tonicity!(|a, b| a > b)))
-        .register_value(">=", SteelVal::FuncV(ensure_tonicity!(|a, b| a >= b)))
-        .register_value("<", SteelVal::FuncV(ensure_tonicity!(|a, b| a < b)))
-        .register_value("<=", SteelVal::FuncV(ensure_tonicity!(|a, b| a <= b)));
+        .register_value(">", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a > b)))
+        .register_value(">=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a >= b)))
+        .register_value("<", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a < b)))
+        .register_value("<=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a <= b)));
 }
 
 #[inline(always)]

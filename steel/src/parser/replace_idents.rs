@@ -270,11 +270,6 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_read(&mut self, mut read: Box<super::ast::Read>) -> Self::Output {
-        read.expr = self.visit(read.expr)?;
-        Ok(ExprKind::Read(read))
-    }
-
     fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
         quote.expr = self.visit(quote.expr)?;
         Ok(ExprKind::Quote(quote))
@@ -292,12 +287,6 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
         stop!(Generic => "unexpected macro definition"; m.location.span)
-    }
-
-    fn visit_eval(&mut self, mut e: Box<super::ast::Eval>) -> Self::Output {
-        // todo!()
-        e.expr = self.visit(e.expr)?;
-        Ok(ExprKind::Eval(e))
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
@@ -418,12 +407,6 @@ impl ConsumingVisitor for RewriteSpan {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_read(&mut self, mut read: Box<super::ast::Read>) -> Self::Output {
-        read.expr = self.visit(read.expr)?;
-        read.location.set_span(self.span);
-        Ok(ExprKind::Read(read))
-    }
-
     fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
         quote.expr = self.visit(quote.expr)?;
         quote.location.set_span(self.span);
@@ -443,13 +426,6 @@ impl ConsumingVisitor for RewriteSpan {
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
         stop!(Generic => "unexpected macro definition"; m.location.span)
-    }
-
-    fn visit_eval(&mut self, mut e: Box<super::ast::Eval>) -> Self::Output {
-        // todo!()
-        e.expr = self.visit(e.expr)?;
-        e.location.set_span(self.span);
-        Ok(ExprKind::Eval(e))
     }
 
     fn visit_atom(&mut self, mut a: Atom) -> Self::Output {

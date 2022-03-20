@@ -174,12 +174,6 @@ pub enum TokenType {
     #[token("set!")]
     Set,
 
-    #[token("read")]
-    Read,
-
-    #[token("eval")]
-    Eval,
-
     #[token("require")]
     Require,
 
@@ -280,21 +274,15 @@ impl fmt::Display for TokenType {
             Define => write!(f, "define"),
             Let => write!(f, "let"),
             TestLet => write!(f, "test-let"),
-            // Transduce => write!(f, "transduce"),
-            // Execute => write!(f, "execute"),
             Return => write!(f, "return!"),
             Begin => write!(f, "begin"),
-            // Panic => write!(f, "panic!"),
             Lambda => write!(f, "lambda"),
-            // Apply => write!(f, "apply"),
             Quote => write!(f, "quote"),
             DefineSyntax => write!(f, "define-syntax"),
             SyntaxRules => write!(f, "syntax-rules"),
             Ellipses => write!(f, "..."),
             Struct => write!(f, "struct"),
             Set => write!(f, "set!"),
-            Read => write!(f, "read"),
-            Eval => write!(f, "eval"),
             Require => write!(f, "require"),
             CallCC => write!(f, "call/cc"),
         }

@@ -86,10 +86,10 @@ impl<T: Clone> Gc<T> {
         drop(this);
         Rc::try_unwrap(inner)
             .map_err(|_| SteelErr::new(ErrorKind::Generic, "value still has reference".to_string()))
-            .map(|x| {
-                OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
-                x
-            })
+        // .map(|x| {
+        //     OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
+        //     x
+        // })
     }
 
     pub fn check_memory() -> Result<usize, SteelErr> {

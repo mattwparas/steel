@@ -12,12 +12,9 @@ pub trait VisitorMut {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Read(r) => self.visit_read(r),
-            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
@@ -32,15 +29,9 @@ pub trait VisitorMut {
     fn visit_lambda_function(&mut self, lambda_function: &LambdaFunction) -> Self::Output;
     fn visit_begin(&mut self, begin: &Begin) -> Self::Output;
     fn visit_return(&mut self, r: &Return) -> Self::Output;
-    // fn visit_apply(&mut self, apply: &Apply) -> Self::Output;
-    // fn visit_panic(&mut self, p: &Panic) -> Self::Output;
-    // fn visit_transduce(&mut self, transduce: &Transduce) -> Self::Output;
-    fn visit_read(&mut self, read: &Read) -> Self::Output;
-    // fn visit_execute(&mut self, execute: &Execute) -> Self::Output;
     fn visit_quote(&mut self, quote: &Quote) -> Self::Output;
     fn visit_struct(&mut self, s: &Struct) -> Self::Output;
     fn visit_macro(&mut self, m: &Macro) -> Self::Output;
-    fn visit_eval(&mut self, e: &Eval) -> Self::Output;
     fn visit_atom(&mut self, a: &Atom) -> Self::Output;
     fn visit_list(&mut self, l: &List) -> Self::Output;
     fn visit_syntax_rules(&mut self, l: &SyntaxRules) -> Self::Output;
@@ -62,11 +53,9 @@ pub trait VisitorMutResult {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Read(r) => self.visit_read(r),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
@@ -81,11 +70,9 @@ pub trait VisitorMutResult {
     fn visit_lambda_function(&mut self, lambda_function: &LambdaFunction) -> Result<Self::Output>;
     fn visit_begin(&mut self, begin: &Begin) -> Result<Self::Output>;
     fn visit_return(&mut self, r: &Return) -> Result<Self::Output>;
-    fn visit_read(&mut self, read: &Read) -> Result<Self::Output>;
     fn visit_quote(&mut self, quote: &Quote) -> Result<Self::Output>;
     fn visit_struct(&mut self, s: &Struct) -> Result<Self::Output>;
     fn visit_macro(&mut self, m: &Macro) -> Result<Self::Output>;
-    fn visit_eval(&mut self, e: &Eval) -> Result<Self::Output>;
     fn visit_atom(&mut self, e: &Atom) -> Result<Self::Output>;
     fn visit_list(&mut self, l: &List) -> Result<Self::Output>;
     fn visit_syntax_rules(&mut self, l: &SyntaxRules) -> Result<Self::Output>;
@@ -106,11 +93,9 @@ pub trait Visitor {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Read(r) => self.visit_read(r),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
@@ -125,11 +110,9 @@ pub trait Visitor {
     fn visit_lambda_function(&self, lambda_function: &LambdaFunction) -> Self::Output;
     fn visit_begin(&self, begin: &Begin) -> Self::Output;
     fn visit_return(&self, r: &Return) -> Self::Output;
-    fn visit_read(&self, read: &Read) -> Self::Output;
     fn visit_quote(&self, quote: &Quote) -> Self::Output;
     fn visit_struct(&self, s: &Struct) -> Self::Output;
     fn visit_macro(&self, m: &Macro) -> Self::Output;
-    fn visit_eval(&self, e: &Eval) -> Self::Output;
     fn visit_atom(&self, a: &Atom) -> Self::Output;
     fn visit_list(&self, l: &List) -> Self::Output;
     fn visit_syntax_rules(&self, l: &SyntaxRules) -> Self::Output;
@@ -149,11 +132,9 @@ pub trait ConsumingVisitor {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Read(r) => self.visit_read(r),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
@@ -168,11 +149,9 @@ pub trait ConsumingVisitor {
     fn visit_lambda_function(&mut self, lambda_function: Box<LambdaFunction>) -> Self::Output;
     fn visit_begin(&mut self, begin: Begin) -> Self::Output;
     fn visit_return(&mut self, r: Box<Return>) -> Self::Output;
-    fn visit_read(&mut self, read: Box<Read>) -> Self::Output;
     fn visit_quote(&mut self, quote: Box<Quote>) -> Self::Output;
     fn visit_struct(&mut self, s: Box<Struct>) -> Self::Output;
     fn visit_macro(&mut self, m: Macro) -> Self::Output;
-    fn visit_eval(&mut self, e: Box<Eval>) -> Self::Output;
     fn visit_atom(&mut self, a: Atom) -> Self::Output;
     fn visit_list(&mut self, l: List) -> Self::Output;
     fn visit_syntax_rules(&mut self, l: SyntaxRules) -> Self::Output;
@@ -192,11 +171,9 @@ pub trait ConsumingVisitorRef {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Read(r) => self.visit_read(r),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
@@ -211,11 +188,9 @@ pub trait ConsumingVisitorRef {
     fn visit_lambda_function(&self, lambda_function: Box<LambdaFunction>) -> Self::Output;
     fn visit_begin(&self, begin: Begin) -> Self::Output;
     fn visit_return(&self, r: Box<Return>) -> Self::Output;
-    fn visit_read(&self, read: Box<Read>) -> Self::Output;
     fn visit_quote(&self, quote: Box<Quote>) -> Self::Output;
     fn visit_struct(&self, s: Box<Struct>) -> Self::Output;
     fn visit_macro(&self, m: Macro) -> Self::Output;
-    fn visit_eval(&self, e: Box<Eval>) -> Self::Output;
     fn visit_atom(&self, a: Atom) -> Self::Output;
     fn visit_list(&self, l: List) -> Self::Output;
     fn visit_syntax_rules(&self, l: SyntaxRules) -> Self::Output;
@@ -236,11 +211,9 @@ pub trait VisitorMutRef {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
-            ExprKind::Read(r) => self.visit_read(r),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
@@ -255,11 +228,9 @@ pub trait VisitorMutRef {
     fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) -> Self::Output;
     fn visit_begin(&mut self, begin: &mut Begin) -> Self::Output;
     fn visit_return(&mut self, r: &mut Return) -> Self::Output;
-    fn visit_read(&mut self, read: &mut Read) -> Self::Output;
     fn visit_quote(&mut self, quote: &mut Quote) -> Self::Output;
     fn visit_struct(&mut self, s: &mut Struct) -> Self::Output;
     fn visit_macro(&mut self, m: &mut Macro) -> Self::Output;
-    fn visit_eval(&mut self, e: &mut Eval) -> Self::Output;
     fn visit_atom(&mut self, a: &mut Atom) -> Self::Output;
     fn visit_list(&mut self, l: &mut List) -> Self::Output;
     fn visit_syntax_rules(&mut self, l: &mut SyntaxRules) -> Self::Output;

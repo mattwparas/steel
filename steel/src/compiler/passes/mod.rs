@@ -23,11 +23,9 @@ pub trait Folder {
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Read(r) => self.visit_read(r),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
@@ -85,12 +83,6 @@ pub trait Folder {
     }
 
     #[inline]
-    fn visit_read(&mut self, mut read: Box<Read>) -> ExprKind {
-        read.expr = self.visit(read.expr);
-        ExprKind::Read(read)
-    }
-
-    #[inline]
     fn visit_quote(&mut self, quote: Box<Quote>) -> ExprKind {
         // quote.expr = self.visit(quote.expr);
         ExprKind::Quote(quote)
@@ -104,12 +96,6 @@ pub trait Folder {
     #[inline]
     fn visit_macro(&mut self, m: Macro) -> ExprKind {
         ExprKind::Macro(m)
-    }
-
-    #[inline]
-    fn visit_eval(&mut self, mut e: Box<Eval>) -> ExprKind {
-        e.expr = self.visit(e.expr);
-        ExprKind::Eval(e)
     }
 
     #[inline]
@@ -155,15 +141,9 @@ pub trait VisitorMutUnit {
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
-            // ExprKind::Apply(a) => self.visit_apply(a),
-            // ExprKind::Panic(p) => self.visit_panic(p),
-            // ExprKind::Transduce(t) => self.visit_transduce(t),
-            ExprKind::Read(r) => self.visit_read(r),
-            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
@@ -210,11 +190,6 @@ pub trait VisitorMutUnit {
     }
 
     #[inline]
-    fn visit_read(&mut self, read: &Read) {
-        self.visit(&read.expr);
-    }
-
-    #[inline]
     fn visit_quote(&mut self, quote: &Quote) {
         self.visit(&quote.expr);
     }
@@ -224,11 +199,6 @@ pub trait VisitorMutUnit {
 
     #[inline]
     fn visit_macro(&mut self, _m: &Macro) {}
-
-    #[inline]
-    fn visit_eval(&mut self, e: &Eval) {
-        self.visit(&e.expr);
-    }
 
     #[inline]
     fn visit_atom(&mut self, _a: &Atom) {}
@@ -266,15 +236,9 @@ pub trait VisitorMutRefUnit {
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
-            // ExprKind::Apply(a) => self.visit_apply(a),
-            // ExprKind::Panic(p) => self.visit_panic(p),
-            // ExprKind::Transduce(t) => self.visit_transduce(t),
-            ExprKind::Read(r) => self.visit_read(r),
-            // ExprKind::Execute(e) => self.visit_execute(e),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Eval(e) => self.visit_eval(e),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
@@ -325,11 +289,6 @@ pub trait VisitorMutRefUnit {
     }
 
     #[inline]
-    fn visit_read(&mut self, read: &mut Read) {
-        self.visit(&mut read.expr);
-    }
-
-    #[inline]
     fn visit_quote(&mut self, quote: &mut Quote) {
         self.visit(&mut quote.expr);
     }
@@ -339,11 +298,6 @@ pub trait VisitorMutRefUnit {
 
     #[inline]
     fn visit_macro(&mut self, _m: &mut Macro) {}
-
-    #[inline]
-    fn visit_eval(&mut self, e: &mut Eval) {
-        self.visit(&mut e.expr);
-    }
 
     #[inline]
     fn visit_atom(&mut self, _a: &mut Atom) {}

@@ -4,13 +4,13 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
+    values::structs::SteelStruct,
     values::{
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
         transducers::{Reducer, Transducer},
     },
-    values::{structs::SteelStruct, upvalue::UpValue},
 };
 
 #[cfg(feature = "jit")]
@@ -130,7 +130,7 @@ pub(crate) fn poll_future(mut fut: Shared<BoxedFutureResult>) -> Option<Result<S
 }
 
 /// Attempt to cast this custom type down to the underlying type
-pub(crate) fn as_underlying_type<'a, T: 'static>(value: &'a dyn CustomType) -> Option<&'a T> {
+pub(crate) fn _as_underlying_type<'a, T: 'static>(value: &'a dyn CustomType) -> Option<&'a T> {
     value.as_any_ref().downcast_ref::<T>()
 }
 
