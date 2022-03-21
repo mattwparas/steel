@@ -9,6 +9,29 @@ use serde::{Deserialize, Serialize};
 
 use crate::parser::ast::Struct;
 
+/*
+A vtable would need to be consulted to understand how to go from struct instance -> interface invocation
+
+That could easily live in the VM state -> consulting the VM context for class information would be like:
+
+(define-interface
+    (define method1)
+    (define method2)
+    (define method3))
+
+(implement interface for StructName
+    (define method1 ...)
+    (define method2 ...)
+    (define method3 ...))
+
+Register struct/class definition with the runtime, consult the vtable to map the method name + struct -> method call
+
+functions for structs should be registered separately -> function name + struct together
+*/
+
+/// An instance of an immutable struct in Steel
+/// In order to override the display of this struct, the struct definition would need to have
+/// a generic marker on it to call with the value
 #[derive(Clone, Debug, PartialEq)]
 pub struct SteelStruct {
     pub(crate) name: Rc<str>,
@@ -151,9 +174,6 @@ impl<'a> StructFuncBuilder<'a> {
             .collect();
 
         let mut name = vec![
-            // crate::primitives::ListOperations::built_in_list_normal_iter_non_result(
-            //     indices.into_iter(),
-            // ),
             SteelVal::ListV(indices.into_iter().collect()),
             SteelVal::StringV(self.name.into()),
         ];
@@ -168,20 +188,12 @@ impl<'a> StructFuncBuilder<'a> {
 
         // TODO who knows if this actually works
         SteelVal::ListV(name.into())
-        // crate::primitives::ListOperations::built_in_list_normal_iter_non_result(name.into_iter())
     }
 
     pub fn to_func_vec(&self) -> Result<Vec<(String, SteelVal)>> {
         SteelStruct::generate_from_name_fields(self.name, &self.fields)
     }
 }
-
-// // Housekeeping (just in case there are cyclical references)
-// impl Drop for SteelStruct {
-//     fn drop(&mut self) {
-//         self.fields.clear();
-//     }
-// }
 
 impl SteelStruct {
     pub fn new(name: Rc<str>, fields: Vec<SteelVal>) -> Self {
@@ -258,16 +270,10 @@ fn predicate(name: Rc<str>) -> SteelVal {
             let error_message = format!("{}? expected one argument, found {}", name, args.len());
             stop!(ArityMismatch => error_message);
         }
-        match &args[0] {
-            SteelVal::StructV(my_struct) => {
-                if my_struct.name.as_ref() == name.as_ref() {
-                    Ok(SteelVal::BoolV(true))
-                } else {
-                    Ok(SteelVal::BoolV(false))
-                }
-            }
-            _ => Ok(SteelVal::BoolV(false)),
-        }
+        Ok(SteelVal::BoolV(match &args[0] {
+            SteelVal::StructV(my_struct) if my_struct.name.as_ref() == name.as_ref() => true,
+            _ => false,
+        }))
     };
 
     SteelVal::BoxedFunction(Rc::new(f))
@@ -377,10 +383,6 @@ pub fn struct_to_list() -> SteelVal {
                     .chain(s.fields.iter().cloned())
                     .collect(),
             ))
-
-            // Ok(ListOperations::built_in_list_normal_iter_non_result(
-            //     vec![name].into_iter().chain(s.fields.iter().cloned()),
-            // ))
         } else {
             let e = format!("struct->list expected a struct, found: {}", steel_struct);
             stop!(TypeMismatch => e);

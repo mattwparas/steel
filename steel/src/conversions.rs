@@ -23,6 +23,15 @@ impl<T: IntoSteelVal + Clone> IntoSteelVal for List<T> {
     }
 }
 
+impl<T: IntoSteelVal + Clone> IntoSteelVal for &[T] {
+    fn into_steelval(self) -> Result<SteelVal> {
+        self.into_iter()
+            .map(|x| x.clone().into_steelval())
+            .collect::<Result<List<_>>>()
+            .map(SteelVal::ListV)
+    }
+}
+
 // Vectors
 impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
     fn into_steelval(self) -> Result<SteelVal> {

@@ -192,7 +192,7 @@ impl Folder for LambdaLifter {
             .map(|x| x.0.atom_identifier().unwrap())
             .collect::<Vec<_>>();
 
-        // Go through and mark these as
+        // Go through and mark these as bound
         for arg in &let_level_bindings {
             self.scope.define(arg.to_string(), false);
         }
