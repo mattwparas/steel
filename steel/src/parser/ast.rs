@@ -1526,7 +1526,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     let body_exprs: Vec<_> = value_iter.collect();
 
                                     let body = if body_exprs.len() == 1 {
-                                        body_exprs[0].clone()
+                                        body_exprs.into_iter().next().unwrap()
                                     } else {
                                         ExprKind::Begin(Begin::new(
                                             body_exprs,
@@ -1542,7 +1542,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     let body_exprs: Vec<_> = value_iter.collect();
 
                                     let body = if body_exprs.len() == 1 {
-                                        body_exprs[0].clone()
+                                        body_exprs.into_iter().next().unwrap()
                                     } else {
                                         ExprKind::Begin(Begin::new(
                                             body_exprs,
