@@ -1,6 +1,9 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
-use crate::{compiler::passes::VisitorMutUnit, parser::visitors::VisitorMut};
+use crate::{
+    compiler::passes::{VisitorMutUnit, VisitorMutUnitRef},
+    parser::visitors::VisitorMut,
+};
 use crate::{parser::ast::ExprKind, rvals::Result};
 
 /*
@@ -14,6 +17,21 @@ use crate::{parser::ast::ExprKind, rvals::Result};
         (lambda (x y z) (begin (+ x y z)))
     applesauce))
 */
+
+#[derive(Debug)]
+pub struct BindContract<'a> {
+    make_function: &'a ExprKind,
+    body: &'a ExprKind,
+}
+
+impl<'a> BindContract<'a> {
+    pub fn new(make_function: &'a ExprKind, body: &'a ExprKind) -> Self {
+        BindContract {
+            make_function,
+            body,
+        }
+    }
+}
 
 // Is this expression referring to a contract (is this a bind/c instance)
 fn is_contract(expr: &ExprKind) -> bool {
@@ -29,27 +47,43 @@ fn is_contract(expr: &ExprKind) -> bool {
 }
 
 // Is this bind/c instance referring to a make-function/c instance
-fn function_contract(expr: &ExprKind) -> Option<&ExprKind> {
+fn function_contract<'a>(expr: &'a ExprKind) -> Option<BindContract<'a>> {
     let body = expr.list()?;
 
     if body.first_ident()? == "bind/c" {
         let make_function = body.get(1)?;
 
         if make_function.list()?.first_ident()? == "make-function/c" {
-            return Some(make_function);
+            // This just deconstructs the (bind/c into a individual struct for access)
+            return Some(BindContract::new(make_function, body.get(2)?));
         }
     }
 
     None
 }
 
-pub struct ContractCollector {
-    contracts: HashSet<String>,
+#[derive(Default, Debug)]
+pub struct GlobalContractCollector<'a> {
+    contracts: HashMap<String, BindContract<'a>>,
 }
 
-impl VisitorMutUnit for ContractCollector {
-    fn visit_define(&mut self, define: &crate::parser::ast::Define) {
-        todo!()
+impl<'a> GlobalContractCollector<'a> {
+    pub fn collect_contracts(exprs: &'a [ExprKind]) -> Self {
+        let mut collector = Self::default();
+
+        exprs.iter().for_each(|x| collector.visit(x));
+
+        collector
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for GlobalContractCollector<'a> {
+    fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
+        if let Some(contract) = function_contract(&define.body) {
+            // If we try to collect contracts on something thats not expanded, we'll have problems anyway
+            self.contracts
+                .insert(define.name.atom_identifier().unwrap().to_string(), contract);
+        }
     }
 }
 

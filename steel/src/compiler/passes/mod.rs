@@ -228,6 +228,101 @@ pub trait VisitorMutUnit {
     }
 }
 
+pub trait VisitorMutUnitRef<'a> {
+    fn visit(&mut self, expr: &'a ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Struct(s) => self.visit_struct(s),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::CallCC(cc) => self.visit_callcc(cc),
+            ExprKind::Let(l) => self.visit_let(l),
+        }
+    }
+
+    #[inline]
+    fn visit_if(&mut self, f: &'a If) {
+        self.visit(&f.test_expr);
+        self.visit(&f.then_expr);
+        self.visit(&f.else_expr);
+    }
+
+    #[inline]
+    fn visit_let(&mut self, l: &'a Let) {
+        l.bindings.iter().for_each(|x| self.visit(&x.1));
+        self.visit(&l.body_expr);
+    }
+
+    #[inline]
+    fn visit_define(&mut self, define: &'a Define) {
+        self.visit(&define.body);
+    }
+
+    #[inline]
+    fn visit_lambda_function(&mut self, lambda_function: &'a LambdaFunction) {
+        self.visit(&lambda_function.body);
+    }
+
+    #[inline]
+    fn visit_begin(&mut self, begin: &'a Begin) {
+        for expr in &begin.exprs {
+            self.visit(expr);
+        }
+    }
+
+    #[inline]
+    fn visit_return(&mut self, r: &'a Return) {
+        self.visit(&r.expr);
+    }
+
+    #[inline]
+    fn visit_quote(&mut self, quote: &'a Quote) {
+        self.visit(&quote.expr);
+    }
+
+    #[inline]
+    fn visit_struct(&mut self, _s: &'a Struct) {}
+
+    #[inline]
+    fn visit_macro(&mut self, _m: &'a Macro) {}
+
+    #[inline]
+    fn visit_atom(&mut self, _a: &'a Atom) {}
+
+    #[inline]
+    fn visit_list(&mut self, l: &'a List) {
+        for expr in &l.args {
+            self.visit(expr);
+        }
+    }
+
+    #[inline]
+    fn visit_syntax_rules(&mut self, _l: &'a SyntaxRules) {}
+
+    #[inline]
+    fn visit_set(&mut self, s: &'a Set) {
+        self.visit(&s.variable);
+        self.visit(&s.expr);
+    }
+
+    #[inline]
+    fn visit_require(&mut self, _s: &'a Require) {}
+
+    #[inline]
+    fn visit_callcc(&mut self, cc: &'a CallCC) {
+        self.visit(&cc.expr);
+    }
+}
+
 pub trait VisitorMutRefUnit {
     fn visit(&mut self, expr: &mut ExprKind) {
         match expr {
