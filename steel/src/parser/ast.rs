@@ -83,6 +83,14 @@ impl ExprKind {
         }
     }
 
+    pub fn list(&self) -> Option<&List> {
+        if let ExprKind::List(l) = self {
+            Some(l)
+        } else {
+            None
+        }
+    }
+
     pub fn list_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&List, E> {
         match self {
             Self::List(l) => Ok(l),
@@ -1374,6 +1382,8 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
     type Error = ParseError;
     fn try_from(value: Vec<ExprKind>) -> std::result::Result<Self, Self::Error> {
         // let mut value = value.into_iter().peekable();
+
+        // TODO -> get rid of this clone on the first value
         if let Some(f) = value.first().map(|x| x.clone()) {
             match f {
                 ExprKind::Atom(a) => {

@@ -50,6 +50,10 @@
         (->/c int? int? int? int?)
         (+ x y z))
 
+    (define/contract (dummy foo bar)
+      (->/c string? integer? (listof? string))
+      (list (integer->string bar) foo))
+
     ; (define/contract (bananas x y)
     ;     (->/c string? int? int?)
     ;     (displayln x)

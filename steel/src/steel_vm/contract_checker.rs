@@ -1,7 +1,47 @@
 use std::collections::HashSet;
 
-use crate::rvals::Result;
 use crate::{compiler::passes::VisitorMutUnit, parser::visitors::VisitorMut};
+use crate::{parser::ast::ExprKind, rvals::Result};
+
+/*
+(define applesauce
+    (bind/c
+        (make-function/c
+            (make/c int? 'int?)
+            (make/c int? 'int?)
+            (make/c int? 'int?)
+            (make/c int? 'int?))
+        (lambda (x y z) (begin (+ x y z)))
+    applesauce))
+*/
+
+// Is this expression referring to a contract (is this a bind/c instance)
+fn is_contract(expr: &ExprKind) -> bool {
+    fn is_contract_option(expr: &ExprKind) -> Option<bool> {
+        expr.list()?.first_ident().map(|x| x == "bind/c")
+    }
+
+    if let Some(inner) = is_contract_option(expr) {
+        inner
+    } else {
+        false
+    }
+}
+
+// Is this bind/c instance referring to a make-function/c instance
+fn function_contract(expr: &ExprKind) -> Option<&ExprKind> {
+    let body = expr.list()?;
+
+    if body.first_ident()? == "bind/c" {
+        let make_function = body.get(1)?;
+
+        if make_function.list()?.first_ident()? == "make-function/c" {
+            return Some(make_function);
+        }
+    }
+
+    None
+}
 
 pub struct ContractCollector {
     contracts: HashSet<String>,
