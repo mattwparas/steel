@@ -18,17 +18,63 @@ use crate::{parser::ast::ExprKind, rvals::Result};
     applesauce))
 */
 
+// TODO -> this won't work with anything that isn't a trivial singular contract type
+// How will I be able to support nested contracts?
+
 #[derive(Debug)]
 pub struct BindContract<'a> {
     make_function: &'a ExprKind,
     body: &'a ExprKind,
+    args: Vec<&'a str>,
+    arg_contracts: Vec<&'a str>,
+    return_value_contract: &'a str,
+    arg_to_contract_map: HashMap<&'a str, &'a str>,
 }
 
 impl<'a> BindContract<'a> {
+    // TODO make this resiliant to syntax errors
     pub fn new(make_function: &'a ExprKind, body: &'a ExprKind) -> Self {
+        let mut args = Vec::new();
+        let mut contracts = Vec::new();
+
+        for make_c in make_function.list().unwrap().iter() {
+            match make_c {
+                // matches a (make/c ...)
+                ExprKind::List(l) => contracts.push(l.get(0).unwrap().atom_identifier().unwrap()),
+                // matches a contract directly
+                ExprKind::Atom(a) => contracts.push(a.ident().unwrap()),
+                _ => {}
+            }
+        }
+
+        // The last value is the return value of the function
+        let return_value_contract = contracts.pop().unwrap();
+
+        // Pull out the args as well
+        for expr in &body.lambda_function().unwrap().args {
+            args.push(expr.atom_identifier().unwrap());
+        }
+
+        assert_eq!(
+            contracts.len(),
+            args.len(),
+            "The arguments and contracts must be of matching lengths"
+        );
+
+        // Give me the trivial mapping from argument to the associated contract on demand
+        let arg_to_contract_map = args
+            .iter()
+            .map(|x| *x)
+            .zip(contracts.iter().map(|x| *x))
+            .collect::<HashMap<_, _>>();
+
         BindContract {
             make_function,
             body,
+            args,
+            arg_contracts: contracts,
+            return_value_contract,
+            arg_to_contract_map,
         }
     }
 }
@@ -68,12 +114,18 @@ pub struct GlobalContractCollector<'a> {
 }
 
 impl<'a> GlobalContractCollector<'a> {
-    pub fn collect_contracts(exprs: &'a [ExprKind]) -> Self {
+    pub fn collect_contracts(exprs: impl IntoIterator<Item = &'a ExprKind>) -> Self {
         let mut collector = Self::default();
-
-        exprs.iter().for_each(|x| collector.visit(x));
-
+        exprs.into_iter().for_each(|x| collector.visit(x));
         collector
+    }
+
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.contracts.keys().map(|x| x.as_str())
+    }
+
+    pub fn get(&self, name: &str) -> Option<&BindContract> {
+        self.contracts.get(name)
     }
 }
 

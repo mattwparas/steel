@@ -10,6 +10,7 @@ use crate::{
         },
         program::Program,
     },
+    steel_vm::contract_checker::GlobalContractCollector,
     values::structs::{StructBuilders, StructFuncBuilderConcrete},
 };
 use crate::{
@@ -888,6 +889,16 @@ impl Compiler {
 
         let expanded_statements =
             struct_builders.extract_structs_for_executable(expanded_statements)?;
+
+        println!("---------------------------------------");
+
+        let collector = GlobalContractCollector::collect_contracts(&expanded_statements);
+
+        // println!("{:?}", collector);
+
+        println!("{:?}", collector.names().collect::<Vec<_>>());
+
+        println!("---------------------------------------");
 
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
 

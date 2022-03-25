@@ -44,6 +44,13 @@ impl ExprKind {
         }
     }
 
+    pub fn lambda_function(&self) -> Option<&LambdaFunction> {
+        match self {
+            Self::LambdaFunction(l) => Some(l),
+            _ => None,
+        }
+    }
+
     pub fn atom_identifier_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
