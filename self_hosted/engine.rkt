@@ -51,7 +51,7 @@
         (+ x y z))
 
     (define/contract (dummy foo bar)
-      (->/c string? integer? (listof string?))
+      (->/c string? integer? (->/c string? string?))
       (list (int->string bar) foo))
 
     ; (define/contract (bananas x y)

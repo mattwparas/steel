@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     compiler::passes::{VisitorMutUnit, VisitorMutUnitRef},
-    parser::visitors::VisitorMut,
+    parser::{span::Span, visitors::VisitorMut},
 };
 use crate::{parser::ast::ExprKind, rvals::Result};
 
@@ -21,6 +21,57 @@ use crate::{parser::ast::ExprKind, rvals::Result};
 // TODO -> this won't work with anything that isn't a trivial singular contract type
 // How will I be able to support nested contracts?
 
+pub enum StaticContract<'a> {
+    Atom {
+        name: &'a str,
+        location: Span,
+    },
+    ListOf {
+        contract: Box<StaticContract<'a>>,
+    },
+    Function {
+        pre_conditions: Vec<StaticContract<'a>>,
+        post_condition: Box<StaticContract<'a>>,
+        location: Span,
+    },
+    // // For now, this allows us to handle the case of
+    // MultiArity {
+    //     pre_conditions: Box<StaticContract<'a>>,
+
+    // }
+}
+
+impl<'a> StaticContract<'a> {
+    fn from_exprkind(expr: &'a ExprKind) -> Result<StaticContract<'a>> {
+        match expr {
+            ExprKind::Atom(a) => {
+                let name = a.ident().unwrap(); // TODO -> clean up this error handling
+                let location = a.syn.span.clone();
+
+                Ok(StaticContract::Atom { name, location })
+            }
+            ExprKind::List(l) => match l.first_ident() {
+                Some("listof") => {
+                    let body = l.get(1).unwrap();
+
+                    Ok(StaticContract::ListOf {
+                        contract: Box::new(Self::from_exprkind(body)?),
+                    })
+                }
+                Some("->/c") => {
+                    todo!("Have not yet implemented function contracts")
+                }
+                _ => {
+                    stop!(Generic => "Unexpected contract combinator")
+                }
+            },
+            _ => {
+                stop!(BadSyntax => "contracts can either be atoms or lists")
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct BindContract<'a> {
     make_function: &'a ExprKind,
@@ -37,10 +88,11 @@ impl<'a> BindContract<'a> {
         let mut args = Vec::new();
         let mut contracts = Vec::new();
 
-        for make_c in make_function.list().unwrap().iter() {
+        // Get the rest, excluding the make-function/c
+        for make_c in make_function.list().unwrap()[1..].iter() {
             match make_c {
                 // matches a (make/c ...)
-                ExprKind::List(l) => contracts.push(l.get(0).unwrap().atom_identifier().unwrap()),
+                ExprKind::List(l) => contracts.push(l.get(1).unwrap().atom_identifier().unwrap()),
                 // matches a contract directly
                 ExprKind::Atom(a) => contracts.push(a.ident().unwrap()),
                 _ => {}

@@ -894,7 +894,7 @@ impl Compiler {
 
         let collector = GlobalContractCollector::collect_contracts(&expanded_statements);
 
-        // println!("{:?}", collector);
+        println!("{:#?}", collector);
 
         println!("{:?}", collector.names().collect::<Vec<_>>());
 

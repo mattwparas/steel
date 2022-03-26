@@ -52,6 +52,14 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
     }
 }
 
+// Implementing hash here just on the token type - we dont want the span included
+// For determining the hash here
+impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.ty.hash(state);
+    }
+}
+
 pub type SyntaxObject = RawSyntaxObject<TokenType>;
 
 // #[derive(Debug, Clone, Serialize, Deserialize)]
