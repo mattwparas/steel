@@ -16,11 +16,29 @@ use crate::{parser::ast::ExprKind, rvals::Result};
             (make/c int? 'int?))
         (lambda (x y z) (begin (+ x y z)))
     applesauce))
+
+(define dummy
+    (bind/c
+        (make-function/c
+            (make/c string? string?)
+            (make/c integer? integer?)
+            (make/c
+                (make-function/c
+                    (make/c string? string?)
+                    (make/c string? string?))
+            (make-function/c
+                (make/c string? string?)
+                (make/c string? string?))))
+    (lambda (foo bar)
+        (begin (list (int->string bar) foo))) dummy))
+
+
 */
 
 // TODO -> this won't work with anything that isn't a trivial singular contract type
 // How will I be able to support nested contracts?
 
+#[derive(Debug, PartialEq)]
 pub enum StaticContract<'a> {
     Atom {
         name: &'a str,
@@ -32,7 +50,6 @@ pub enum StaticContract<'a> {
     Function {
         pre_conditions: Vec<StaticContract<'a>>,
         post_condition: Box<StaticContract<'a>>,
-        location: Span,
     },
     // // For now, this allows us to handle the case of
     // MultiArity {
@@ -58,10 +75,30 @@ impl<'a> StaticContract<'a> {
                         contract: Box::new(Self::from_exprkind(body)?),
                     })
                 }
-                Some("->/c") => {
-                    todo!("Have not yet implemented function contracts")
+                Some("make/c") => {
+                    // Just recur on the actual contract here
+                    Self::from_exprkind(l.get(1).unwrap())
+                }
+                Some("make-function/c") => {
+                    // Pre conditions of the function contract
+                    let pre_conditions = &l.args[1..l.args.len() - 1];
+                    // Post condition of the function contract
+                    let post_condition = &l.args[l.args.len() - 1];
+
+                    let pre_condition_contracts = pre_conditions
+                        .iter()
+                        .map(Self::from_exprkind)
+                        .collect::<Result<Vec<_>>>()?;
+
+                    let post_condition_contract = Self::from_exprkind(post_condition)?;
+
+                    Ok(StaticContract::Function {
+                        pre_conditions: pre_condition_contracts,
+                        post_condition: Box::new(post_condition_contract),
+                    })
                 }
                 _ => {
+                    println!("{}", expr);
                     stop!(Generic => "Unexpected contract combinator")
                 }
             },
@@ -72,62 +109,30 @@ impl<'a> StaticContract<'a> {
     }
 }
 
+// This is a contract bound to the body expression
 #[derive(Debug)]
-pub struct BindContract<'a> {
-    make_function: &'a ExprKind,
+pub struct BoundContract<'a> {
     body: &'a ExprKind,
-    args: Vec<&'a str>,
-    arg_contracts: Vec<&'a str>,
-    return_value_contract: &'a str,
-    arg_to_contract_map: HashMap<&'a str, &'a str>,
+    contract: StaticContract<'a>,
 }
 
-impl<'a> BindContract<'a> {
+impl<'a> BoundContract<'a> {
     // TODO make this resiliant to syntax errors
-    pub fn new(make_function: &'a ExprKind, body: &'a ExprKind) -> Self {
-        let mut args = Vec::new();
-        let mut contracts = Vec::new();
+    pub fn new(contract: StaticContract<'a>, body: &'a ExprKind) -> Self {
+        // if body.lambda_function().unwrap().args
 
-        // Get the rest, excluding the make-function/c
-        for make_c in make_function.list().unwrap()[1..].iter() {
-            match make_c {
-                // matches a (make/c ...)
-                ExprKind::List(l) => contracts.push(l.get(1).unwrap().atom_identifier().unwrap()),
-                // matches a contract directly
-                ExprKind::Atom(a) => contracts.push(a.ident().unwrap()),
-                _ => {}
+        match &contract {
+            StaticContract::Function { pre_conditions, .. } => {
+                assert_eq!(
+                    body.lambda_function().unwrap().args.len(),
+                    pre_conditions.len(),
+                    "The arguments and contracts must be of matching lengths"
+                );
             }
+            _ => {}
         }
 
-        // The last value is the return value of the function
-        let return_value_contract = contracts.pop().unwrap();
-
-        // Pull out the args as well
-        for expr in &body.lambda_function().unwrap().args {
-            args.push(expr.atom_identifier().unwrap());
-        }
-
-        assert_eq!(
-            contracts.len(),
-            args.len(),
-            "The arguments and contracts must be of matching lengths"
-        );
-
-        // Give me the trivial mapping from argument to the associated contract on demand
-        let arg_to_contract_map = args
-            .iter()
-            .map(|x| *x)
-            .zip(contracts.iter().map(|x| *x))
-            .collect::<HashMap<_, _>>();
-
-        BindContract {
-            make_function,
-            body,
-            args,
-            arg_contracts: contracts,
-            return_value_contract,
-            arg_to_contract_map,
-        }
+        BoundContract { body, contract }
     }
 }
 
@@ -145,7 +150,7 @@ fn is_contract(expr: &ExprKind) -> bool {
 }
 
 // Is this bind/c instance referring to a make-function/c instance
-fn function_contract<'a>(expr: &'a ExprKind) -> Option<BindContract<'a>> {
+fn function_contract<'a>(expr: &'a ExprKind) -> Option<Result<StaticContract<'a>>> {
     let body = expr.list()?;
 
     if body.first_ident()? == "bind/c" {
@@ -153,7 +158,9 @@ fn function_contract<'a>(expr: &'a ExprKind) -> Option<BindContract<'a>> {
 
         if make_function.list()?.first_ident()? == "make-function/c" {
             // This just deconstructs the (bind/c into a individual struct for access)
-            return Some(BindContract::new(make_function, body.get(2)?));
+            // return Some(BindContract::new(make_function, body.get(2)?));
+
+            return Some(StaticContract::from_exprkind(make_function));
         }
     }
 
@@ -162,7 +169,7 @@ fn function_contract<'a>(expr: &'a ExprKind) -> Option<BindContract<'a>> {
 
 #[derive(Default, Debug)]
 pub struct GlobalContractCollector<'a> {
-    contracts: HashMap<String, BindContract<'a>>,
+    contracts: HashMap<String, StaticContract<'a>>,
 }
 
 impl<'a> GlobalContractCollector<'a> {
@@ -172,21 +179,23 @@ impl<'a> GlobalContractCollector<'a> {
         collector
     }
 
-    pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.contracts.keys().map(|x| x.as_str())
-    }
+    // pub fn names(&self) -> impl Iterator<Item = &str> {
+    //     self.contracts.keys().map(|x| x.as_str())
+    // }
 
-    pub fn get(&self, name: &str) -> Option<&BindContract> {
-        self.contracts.get(name)
-    }
+    // pub fn get(&self, name: &str) -> Option<&BindContract> {
+    //     self.contracts.get(name)
+    // }
 }
 
 impl<'a> VisitorMutUnitRef<'a> for GlobalContractCollector<'a> {
     fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
         if let Some(contract) = function_contract(&define.body) {
             // If we try to collect contracts on something thats not expanded, we'll have problems anyway
-            self.contracts
-                .insert(define.name.atom_identifier().unwrap().to_string(), contract);
+            self.contracts.insert(
+                define.name.atom_identifier().unwrap().to_string(),
+                contract.unwrap(),
+            );
         }
     }
 }

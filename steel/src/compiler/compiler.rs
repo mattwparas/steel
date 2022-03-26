@@ -896,7 +896,7 @@ impl Compiler {
 
         println!("{:#?}", collector);
 
-        println!("{:?}", collector.names().collect::<Vec<_>>());
+        // println!("{:?}", collector.names().collect::<Vec<_>>());
 
         println!("---------------------------------------");
 
