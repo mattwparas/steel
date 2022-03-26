@@ -35,8 +35,33 @@ use crate::{parser::ast::ExprKind, rvals::Result};
 
 */
 
-// TODO -> this won't work with anything that isn't a trivial singular contract type
-// How will I be able to support nested contracts?
+// Corresponds to a concrete type, referenced by a contract
+// For instance, this should be coerced from the contract type given the inference
+// integer? -> Int
+// string? -> String
+// UnknownStruct? -> Other("UnknownStruct?")
+pub enum BaseTypeKind<'a> {
+    Int,
+    String,
+    Other(&'a str),
+}
+
+// Concrete, inferred type
+#[derive(Debug)]
+enum Type {
+    Int,
+    Bool,
+    List(Box<Type>),
+    Func(Vec<Type>, Box<Type>),
+}
+
+pub enum BuiltInFunctionContract {
+    // Things that have a fixed arity
+    FixedArity(Vec<BaseTypeKind<'static>>, BaseTypeKind<'static>),
+    // Things that match any number of arity in the precondition but all match
+    // For instance, addition accepts all numbers in the precondition
+    AnyArity(BaseTypeKind<'static>, BaseTypeKind<'static>),
+}
 
 #[derive(Debug, PartialEq)]
 pub enum StaticContract<'a> {
@@ -51,11 +76,6 @@ pub enum StaticContract<'a> {
         pre_conditions: Vec<StaticContract<'a>>,
         post_condition: Box<StaticContract<'a>>,
     },
-    // // For now, this allows us to handle the case of
-    // MultiArity {
-    //     pre_conditions: Box<StaticContract<'a>>,
-
-    // }
 }
 
 impl<'a> StaticContract<'a> {
@@ -108,6 +128,8 @@ impl<'a> StaticContract<'a> {
         }
     }
 }
+
+pub type TypeId = usize;
 
 // This is a contract bound to the body expression
 #[derive(Debug)]
@@ -178,14 +200,6 @@ impl<'a> GlobalContractCollector<'a> {
         exprs.into_iter().for_each(|x| collector.visit(x));
         collector
     }
-
-    // pub fn names(&self) -> impl Iterator<Item = &str> {
-    //     self.contracts.keys().map(|x| x.as_str())
-    // }
-
-    // pub fn get(&self, name: &str) -> Option<&BindContract> {
-    //     self.contracts.get(name)
-    // }
 }
 
 impl<'a> VisitorMutUnitRef<'a> for GlobalContractCollector<'a> {
