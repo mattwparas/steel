@@ -18,7 +18,12 @@ fn main() {
     let mut builder = Builder::new();
 
     builder
-        .filter(Some("pipeline_time"), LevelFilter::Trace)
+        // .filter(Some("pipeline_time"), LevelFilter::Trace)
+        .filter(Some("steel::compiler::compiler"), LevelFilter::Error)
+        .filter(
+            Some("steel::steel_vm::contract_checker"),
+            LevelFilter::Trace,
+        )
         // .filter(Some("reader-macros"), LevelFilter::Trace)
         // .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
         // .filter(Some("steel::parser::replace_idents"), LevelFilter::Trace)

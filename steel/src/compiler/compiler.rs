@@ -10,7 +10,7 @@ use crate::{
         },
         program::Program,
     },
-    steel_vm::contract_checker::GlobalContractCollector,
+    steel_vm::contract_checker::{ContractChecker, GlobalContractCollector},
     values::structs::{StructBuilders, StructFuncBuilderConcrete},
 };
 use crate::{
@@ -894,7 +894,11 @@ impl Compiler {
 
         let collector = GlobalContractCollector::collect_contracts(&expanded_statements);
 
-        println!("{:#?}", collector);
+        let mut checker = ContractChecker::new(collector);
+
+        if let Err(e) = checker.check(&expanded_statements) {
+            log::error!("{:?}", e);
+        }
 
         // println!("{:?}", collector.names().collect::<Vec<_>>());
 

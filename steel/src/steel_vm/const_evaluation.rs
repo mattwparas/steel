@@ -691,6 +691,8 @@ impl<'a> VisitorMut for CollectSet<'a> {
         ) {
             self.set_idents.insert(identifier.to_string());
         }
+
+        self.visit(&s.expr);
     }
 
     fn visit_require(&mut self, _s: &crate::parser::ast::Require) -> Self::Output {}
