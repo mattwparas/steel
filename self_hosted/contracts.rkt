@@ -6,4 +6,7 @@
     (->/c string? integer? (->/c string? string?))
     (list (int->string bar) foo))
 
-(applesauce 10 20 30)
+
+(lambda (x y z) (+ x y z)) ;; Function( (int, int, int) -> int )
+
+(applesauce 10 20 "hello world") ;; Type Error => "hello world" is a string, expected int

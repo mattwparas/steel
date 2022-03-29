@@ -1,8 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
+
+use quickscope::ScopeMap;
 
 use crate::{
     compiler::passes::{VisitorMutUnit, VisitorMutUnitRef},
-    parser::{span::Span, visitors::VisitorMut},
+    parser::{span::Span, tokens::TokenType, visitors::VisitorMut},
 };
 use crate::{parser::ast::ExprKind, rvals::Result};
 
@@ -45,10 +47,29 @@ use crate::{parser::ast::ExprKind, rvals::Result};
 pub enum BaseTypeKind<'a> {
     Int,
     String,
+    Float,
+    Boolean,
+    Character,
+    Symbol,
+    Void,
     Other(&'a str),
 }
 
 impl<'a> BaseTypeKind<'a> {
+    // TODO -> don't have this just refer directly to unknown
+    fn to_type_info(&self) -> TypeInfo {
+        match self {
+            BaseTypeKind::Int => TypeInfo::Int,
+            BaseTypeKind::String => TypeInfo::String,
+            BaseTypeKind::Float => TypeInfo::Float,
+            BaseTypeKind::Boolean => TypeInfo::Boolean,
+            BaseTypeKind::Character => TypeInfo::Char,
+            BaseTypeKind::Void => TypeInfo::Void,
+            BaseTypeKind::Symbol => TypeInfo::Symbol,
+            BaseTypeKind::Other(_) => TypeInfo::Unknown,
+        }
+    }
+
     fn from_str(input: &'a str) -> BaseTypeKind<'a> {
         match input {
             "int?" | "integer?" => BaseTypeKind::Int,
@@ -94,6 +115,13 @@ pub fn built_in_contract_map() -> HashMap<&'static str, StaticContract<'static>>
             Box::new(Atom(BaseTypeKind::Int)),
         ),
     );
+    map.insert(
+        "int->string",
+        Function(
+            vec![Atom(BaseTypeKind::Int)],
+            Box::new(Atom(BaseTypeKind::String)),
+        ),
+    );
 
     map
 }
@@ -108,6 +136,21 @@ pub enum StaticContract<'a> {
 }
 
 impl<'a> StaticContract<'a> {
+    fn to_type_info(&self) -> TypeInfo {
+        match self {
+            StaticContract::Atom(a) => a.to_type_info(),
+            StaticContract::ListOf(l) => TypeInfo::ListOf(Box::new(l.to_type_info())),
+            StaticContract::Function(pre, post) => TypeInfo::FixedArityFunction(
+                pre.into_iter().map(|x| x.to_type_info()).collect(),
+                Box::new(post.to_type_info()),
+            ),
+            StaticContract::AnyArityFunction(pre, post) => TypeInfo::AnyArityFunction(
+                Box::new(pre.to_type_info()),
+                Box::new(post.to_type_info()),
+            ),
+        }
+    }
+
     fn from_exprkind(expr: &'a ExprKind) -> Result<StaticContract<'a>> {
         match expr {
             ExprKind::Atom(a) => {
@@ -251,28 +294,86 @@ impl<'a> VisitorMutUnitRef<'a> for GlobalContractCollector<'a> {
     }
 }
 
-#[derive(Debug)]
 pub struct ContractChecker<'a> {
     global_contract_info: GlobalContractCollector<'a>,
+    scope_map: ScopeMap<String, TypeInfo>,
+    inferred_globals: HashMap<String, TypeInfo>,
+}
+
+impl<'a> std::fmt::Debug for ContractChecker<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContractChecker")
+            .field("global_contract_info", &self.global_contract_info)
+            .field(
+                "scope_map",
+                &self.scope_map.iter_top().collect::<HashMap<_, _>>(),
+            )
+            .finish()
+    }
 }
 
 impl<'a> ContractChecker<'a> {
     pub fn new(global_contract_info: GlobalContractCollector<'a>) -> Self {
         ContractChecker {
             global_contract_info,
+            scope_map: ScopeMap::default(),
+            inferred_globals: HashMap::default(),
         }
     }
 
     pub fn check(&mut self, exprs: impl IntoIterator<Item = &'a ExprKind>) -> Result<()> {
         for expr in exprs {
-            self.visit(expr)?;
+            let type_checked = self.visit(expr)?;
+            println!("{:#?}", type_checked);
         }
         Ok(())
+    }
+
+    pub fn get_ident(&self, ident: &str) -> Option<TypeInfo> {
+        self.scope_map.get(ident).cloned().or_else(|| {
+            self.global_contract_info
+                .get(ident)
+                .map(|x| x.to_type_info())
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub enum TypeInfo {
+    // We don't have enough information to say what this type is
+    // Either, the function has come externally or it was unable to be inferred for some reason
+    Unknown,
+    Void,
+    Int,
+    Float,
+    Boolean,
+    Char,
+    String,
+    Symbol,
+    ListOf(Box<TypeInfo>),
+    // Basic function usage, this has some fixed number of arguments with contracts attached
+    FixedArityFunction(Vec<TypeInfo>, Box<TypeInfo>),
+    // This is something like addition, which has a contract with any arity in the preconditions
+    AnyArityFunction(Box<TypeInfo>, Box<TypeInfo>),
+    // If a function can return multiple things, or the return value can satisfy multiple contracts (or/c)
+    UnionOf(BTreeSet<TypeInfo>),
+    // If the return value of a function must satisfy multiple contracts (and/c)
+    IntersectionOf(BTreeSet<TypeInfo>),
+}
+
+impl TypeInfo {
+    // TODO -> this is almost assuredly wrong
+    pub fn is_compatible_with(&self, other: &TypeInfo) -> bool {
+        match (self, other) {
+            (value, TypeInfo::UnionOf(set)) => set.contains(value),
+            (TypeInfo::UnionOf(set), value) => set.contains(value),
+            (left, right) => left == right,
+        }
     }
 }
 
 impl<'a> VisitorMut for ContractChecker<'a> {
-    type Output = Result<()>;
+    type Output = Result<TypeInfo>;
 
     fn visit_if(&mut self, f: &crate::parser::ast::If) -> Self::Output {
         self.visit(&f.test_expr)?;
@@ -289,22 +390,70 @@ impl<'a> VisitorMut for ContractChecker<'a> {
         &mut self,
         lambda_function: &crate::parser::ast::LambdaFunction,
     ) -> Self::Output {
-        self.visit(&lambda_function.body)
+        self.scope_map.push_layer();
+
+        for arg in lambda_function
+            .args
+            .iter()
+            .map(|x| x.atom_identifier().unwrap())
+        {
+            self.scope_map.define(arg.to_string(), TypeInfo::Unknown);
+        }
+
+        let return_value = self.visit(&lambda_function.body)?;
+
+        // Ideally, by the time we get back to this position in the type checking, we've propagated information upwards given what we know about
+        // the usage of the arguments. If these conflict with the type given to the function, this can be
+        let args = lambda_function
+            .args
+            .iter()
+            .map(|x| self.get_ident(x.atom_identifier().unwrap()).unwrap())
+            .collect::<Vec<_>>();
+
+        // We've exited the scope, we're done
+        self.scope_map.pop_layer();
+
+        Ok(TypeInfo::FixedArityFunction(args, Box::new(return_value)))
     }
 
     fn visit_begin(&mut self, begin: &crate::parser::ast::Begin) -> Self::Output {
+        let mut last = TypeInfo::Void;
         for expr in &begin.exprs {
-            self.visit(&expr)?;
+            last = self.visit(&expr)?;
         }
-        Ok(())
+        Ok(last)
     }
 
     fn visit_return(&mut self, r: &crate::parser::ast::Return) -> Self::Output {
         self.visit(&r.expr)
     }
 
-    fn visit_quote(&mut self, _quote: &crate::parser::ast::Quote) -> Self::Output {
-        Ok(())
+    // TODO -> eval quote to get value
+    fn visit_quote(&mut self, quote: &crate::parser::ast::Quote) -> Self::Output {
+        match &quote.expr {
+            ExprKind::Atom(a) => match a.syn.ty {
+                TokenType::StringLiteral(_) => Ok(TypeInfo::String),
+                TokenType::IntegerLiteral(_) => Ok(TypeInfo::Int),
+                TokenType::NumberLiteral(_) => Ok(TypeInfo::Float),
+                TokenType::CharacterLiteral(_) => Ok(TypeInfo::Char),
+                TokenType::BooleanLiteral(_) => Ok(TypeInfo::Boolean),
+                TokenType::Identifier(_) => Ok(TypeInfo::Symbol),
+                _ => todo!("Not sure what to do here"),
+            },
+            // If we get back a generic quoted list, it can be any valid program
+            // which is effectively the union of all constants
+            ExprKind::List(_) => Ok(TypeInfo::ListOf(Box::new(TypeInfo::UnionOf({
+                let mut hs = BTreeSet::new();
+                hs.insert(TypeInfo::String);
+                hs.insert(TypeInfo::Int);
+                hs.insert(TypeInfo::Float);
+                hs.insert(TypeInfo::Char);
+                hs.insert(TypeInfo::Boolean);
+                hs.insert(TypeInfo::Symbol);
+                hs
+            })))),
+            _ => stop!(TypeMismatch => "this shouldn't work"),
+        }
     }
 
     fn visit_struct(&mut self, _s: &crate::parser::ast::Struct) -> Self::Output {
@@ -315,32 +464,120 @@ impl<'a> VisitorMut for ContractChecker<'a> {
         panic!("Unexpected macro")
     }
 
+    // TODO - resolve identifiers with a scope map
     fn visit_atom(&mut self, a: &crate::parser::ast::Atom) -> Self::Output {
-        Ok(())
+        match &a.syn.ty {
+            TokenType::Identifier(a) => Ok(self.get_ident(a.as_str()).unwrap_or(TypeInfo::Unknown)),
+            TokenType::StringLiteral(_) => Ok(TypeInfo::String),
+            TokenType::IntegerLiteral(_) => Ok(TypeInfo::Int),
+            TokenType::NumberLiteral(_) => Ok(TypeInfo::Float),
+            TokenType::CharacterLiteral(_) => Ok(TypeInfo::Char),
+            TokenType::BooleanLiteral(_) => Ok(TypeInfo::Boolean),
+            _ => stop!(TypeMismatch => "Unexpected token type"),
+        }
     }
 
     fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
-        // Visit the children in order
-        for expr in &l.args[1..] {
-            self.visit(expr)?;
+        let function_type = self.visit(&l.args[0])?;
+        let expected_arity = l.args.len() - 1;
+
+        println!("Type checking this expression: {}", l);
+        println!("Function type: {:?}", function_type);
+
+        match &function_type {
+            TypeInfo::AnyArityFunction(_, post) => {
+                if l.args.len() == 1 {
+                    return Ok(*(post.clone()));
+                }
+            }
+            TypeInfo::FixedArityFunction(f, post) => {
+                let found_arity = f.len();
+                if expected_arity != found_arity {
+                    stop!(ArityMismatch => format!("Function application mismatched with expected - function expected {} arguments but found {}", found_arity, expected_arity))
+                }
+
+                if l.args.len() == 1 {
+                    return Ok(*(post.clone()));
+                }
+            }
+            TypeInfo::Unknown => {
+                // If we're in this situation we don't know what this function is
+                // Just propagate the unknown
+                return Ok(TypeInfo::Unknown);
+            }
+            _ => {
+                stop!(TypeMismatch => format!("Function application not a procedure, expected a function, found: {:?}", function_type))
+            }
         }
 
-        // Get the function that is being called
-        let function = l.args.get(0).unwrap();
+        match &function_type {
+            TypeInfo::AnyArityFunction(pre, post) => {
+                // Visit the children in order
+                for expr in &l.args[1..] {
+                    let mut found = self.visit(expr)?;
 
-        if let ExprKind::Atom(a) = function {
-            let ident = a.ident().unwrap();
-            log::debug!("Calling function: {}", ident);
+                    // If we've found an unknown, we don't necessarily have enough information
+                    // to say what this type is. We attempt to resolve it by the inferring that the type
+                    // is the type expected by the function call. Later, this will be rejected if there is a
+                    // a mismatch.
+                    if matches!(found, TypeInfo::Unknown) {
+                        if let Some(ident) = expr.atom_identifier() {
+                            if let Some(local) = self.scope_map.get_mut(ident) {
+                                *local = *(pre.clone());
+                            } else {
+                                log::warn!("Unable to resolve reference to variable: {}", ident);
+                            }
+                            found = *(pre.clone());
+                        }
+                    }
 
-            let contract_info = self.global_contract_info.get(ident);
+                    if !pre.is_compatible_with(&found) {
+                        stop!(ContractViolation => format!("type mismatch: expected {:?}, found {:?}", pre, found))
+                    }
+                }
 
-            log::debug!("{:#?}", contract_info);
+                return Ok(*(post.clone()));
+            }
+            TypeInfo::FixedArityFunction(pre, post) => {
+                let visited = l.args[1..]
+                    .iter()
+                    .map(|x| self.visit(x))
+                    .collect::<Result<Vec<_>>>()?;
+
+                for ((expected, mut found), unvisited) in
+                    pre.into_iter().zip(visited).zip(l.args[1..].iter())
+                {
+                    println!("Found argument type: {:?}", found);
+
+                    // If we've found an unknown, we don't necessarily have enough information
+                    // to say what this type is. We attempt to resolve it by the inferring that the type
+                    // is the type expected by the function call. Later, this will be rejected if there is a
+                    // a mismatch.
+                    if matches!(found, TypeInfo::Unknown) {
+                        if let Some(ident) = unvisited.atom_identifier() {
+                            if let Some(local) = self.scope_map.get_mut(ident) {
+                                *local = expected.clone();
+                            } else {
+                                log::warn!("Unable to resolve reference to variable: {}", ident);
+                            }
+                            found = expected.clone();
+                        }
+                    }
+
+                    if !expected.is_compatible_with(&found) {
+                        stop!(ContractViolation => format!("type mismatch: expected {:?}, found {:?}", expected, found))
+                    }
+                }
+
+                return Ok(*(post.clone()));
+            }
+            _ => {
+                unreachable!("Based on the above, we shouldn't reach this point")
+            }
         }
-
-        Ok(())
     }
 
-    fn visit_syntax_rules(&mut self, l: &crate::parser::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, _l: &crate::parser::ast::SyntaxRules) -> Self::Output {
         panic!("Unexpected syntax rules")
     }
 
@@ -348,7 +585,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
         self.visit(&s.expr)
     }
 
-    fn visit_require(&mut self, s: &crate::parser::ast::Require) -> Self::Output {
+    fn visit_require(&mut self, _s: &crate::parser::ast::Require) -> Self::Output {
         panic!("Unexpected require")
     }
 
