@@ -43,7 +43,7 @@ use crate::{parser::ast::ExprKind, rvals::Result};
 // string? -> String
 // UnknownStruct? -> Other("UnknownStruct?")
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum BaseTypeKind<'a> {
     Any,
     Int,
@@ -106,8 +106,14 @@ pub fn built_in_contract_map() -> HashMap<&'static str, StaticContract<'static>>
     map.insert(
         "+",
         AnyArityFunction(
-            Box::new(Atom(BaseTypeKind::Int)),
-            Box::new(Atom(BaseTypeKind::Int)),
+            Box::new(StaticContract::UnionOf(vec![
+                Atom(BaseTypeKind::Int),
+                Atom(BaseTypeKind::Float),
+            ])),
+            Box::new(StaticContract::UnionOf(vec![
+                Atom(BaseTypeKind::Int),
+                Atom(BaseTypeKind::Float),
+            ])),
         ),
     );
     map.insert(
@@ -128,10 +134,12 @@ pub fn built_in_contract_map() -> HashMap<&'static str, StaticContract<'static>>
     map
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum StaticContract<'a> {
     Atom(BaseTypeKind<'a>),
     ListOf(Box<StaticContract<'a>>),
+    UnionOf(Vec<StaticContract<'a>>),
+    IntersectionOf(Vec<StaticContract<'a>>),
     Function(Vec<StaticContract<'a>>, Box<StaticContract<'a>>),
     // For now just unify the internal representation of built ins vs not
     AnyArityFunction(Box<StaticContract<'static>>, Box<StaticContract<'static>>),
@@ -150,6 +158,12 @@ impl<'a> StaticContract<'a> {
                 Box::new(pre.to_type_info()),
                 Box::new(post.to_type_info()),
             ),
+            StaticContract::UnionOf(u) => {
+                TypeInfo::UnionOf(u.into_iter().map(|x| x.to_type_info()).collect())
+            }
+            StaticContract::IntersectionOf(u) => {
+                TypeInfo::IntersectionOf(u.into_iter().map(|x| x.to_type_info()).collect())
+            }
         }
     }
 
@@ -368,6 +382,9 @@ impl TypeInfo {
     // TODO -> this is almost assuredly wrong
     pub fn is_compatible_with(&self, other: &TypeInfo) -> bool {
         match (self, other) {
+            (TypeInfo::Any, _) | (_, TypeInfo::Any) => true,
+            // TODO -> there might be a better way of doing this
+            (TypeInfo::UnionOf(l), TypeInfo::UnionOf(r)) => l == r,
             (value, TypeInfo::UnionOf(set)) => set.contains(value),
             (TypeInfo::UnionOf(set), value) => set.contains(value),
             (TypeInfo::Unknown, _) | (_, TypeInfo::Unknown) => true,
@@ -387,7 +404,8 @@ impl<'a> VisitorMut for ContractChecker<'a> {
     }
 
     fn visit_define(&mut self, define: &crate::parser::ast::Define) -> Self::Output {
-        self.visit(&define.name)?;
+        // self.visit(&define.name)?;
+
         self.visit(&define.body)
     }
 
