@@ -32,7 +32,7 @@ impl<T: IntoSteelVal + Clone> IntoSteelVal for &[T] {
     }
 }
 
-// Vectors
+// Vectors should translate into vectors in rust
 impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
     fn into_steelval(self) -> Result<SteelVal> {
         let vec_vals: Result<Vec<SteelVal>> = self.into_iter().map(|x| x.into_steelval()).collect();

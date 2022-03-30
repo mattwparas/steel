@@ -384,7 +384,11 @@ impl TypeInfo {
         match (self, other) {
             (TypeInfo::Any, _) | (_, TypeInfo::Any) => true,
             // TODO -> there might be a better way of doing this
-            (TypeInfo::UnionOf(l), TypeInfo::UnionOf(r)) => l == r,
+            (TypeInfo::UnionOf(l), TypeInfo::UnionOf(r)) => {
+                l.is_subset(r) || (l.contains(&TypeInfo::Any) && r.contains(&TypeInfo::Any))
+
+                // l == r
+            }
             (value, TypeInfo::UnionOf(set)) => set.contains(value),
             (TypeInfo::UnionOf(set), value) => set.contains(value),
             (TypeInfo::Unknown, _) | (_, TypeInfo::Unknown) => true,
@@ -394,13 +398,41 @@ impl TypeInfo {
     }
 }
 
+#[test]
+fn test_list_composition() {
+    let left = TypeInfo::ListOf(Box::new(TypeInfo::UnionOf(
+        vec![TypeInfo::Any].into_iter().collect(),
+    )));
+
+    let right = TypeInfo::ListOf(Box::new(TypeInfo::UnionOf(
+        vec![TypeInfo::Any, TypeInfo::String].into_iter().collect(),
+    )));
+
+    println!("{}", left.is_compatible_with(&right));
+
+    let left = TypeInfo::ListOf(Box::new(TypeInfo::String));
+
+    let right = TypeInfo::ListOf(Box::new(TypeInfo::UnionOf(
+        vec![TypeInfo::Any, TypeInfo::String].into_iter().collect(),
+    )));
+
+    println!("{}", left.is_compatible_with(&right));
+}
+
 impl<'a> VisitorMut for ContractChecker<'a> {
     type Output = Result<TypeInfo>;
 
     fn visit_if(&mut self, f: &crate::parser::ast::If) -> Self::Output {
         self.visit(&f.test_expr)?;
-        self.visit(&f.then_expr)?;
-        self.visit(&f.else_expr)
+
+        let then_expr = self.visit(&f.then_expr)?;
+        let else_expr = self.visit(&f.else_expr)?;
+
+        if then_expr == else_expr {
+            Ok(else_expr)
+        } else {
+            Ok(TypeInfo::UnionOf([then_expr, else_expr].into()))
+        }
     }
 
     fn visit_define(&mut self, define: &crate::parser::ast::Define) -> Self::Output {
@@ -447,6 +479,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
         Ok(last)
     }
 
+    // TODO -> return should mark the return value
     fn visit_return(&mut self, r: &crate::parser::ast::Return) -> Self::Output {
         self.visit(&r.expr)
     }
