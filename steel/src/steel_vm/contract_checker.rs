@@ -45,6 +45,7 @@ use crate::{parser::ast::ExprKind, rvals::Result};
 
 #[derive(Debug, PartialEq)]
 pub enum BaseTypeKind<'a> {
+    Any,
     Int,
     String,
     Float,
@@ -59,6 +60,7 @@ impl<'a> BaseTypeKind<'a> {
     // TODO -> don't have this just refer directly to unknown
     fn to_type_info(&self) -> TypeInfo {
         match self {
+            BaseTypeKind::Any => TypeInfo::Any,
             BaseTypeKind::Int => TypeInfo::Int,
             BaseTypeKind::String => TypeInfo::String,
             BaseTypeKind::Float => TypeInfo::Float,
@@ -343,6 +345,7 @@ pub enum TypeInfo {
     // We don't have enough information to say what this type is
     // Either, the function has come externally or it was unable to be inferred for some reason
     Unknown,
+    Any,
     Void,
     Int,
     Float,
@@ -367,6 +370,8 @@ impl TypeInfo {
         match (self, other) {
             (value, TypeInfo::UnionOf(set)) => set.contains(value),
             (TypeInfo::UnionOf(set), value) => set.contains(value),
+            (TypeInfo::Unknown, _) | (_, TypeInfo::Unknown) => true,
+            (TypeInfo::ListOf(l), TypeInfo::ListOf(r)) => l.is_compatible_with(r),
             (left, right) => left == right,
         }
     }
@@ -442,6 +447,8 @@ impl<'a> VisitorMut for ContractChecker<'a> {
             },
             // If we get back a generic quoted list, it can be any valid program
             // which is effectively the union of all constants
+            // TODO -> this can also accept the list of any constants, which then
+            // makes the type definition recursive...
             ExprKind::List(_) => Ok(TypeInfo::ListOf(Box::new(TypeInfo::UnionOf({
                 let mut hs = BTreeSet::new();
                 hs.insert(TypeInfo::String);
@@ -450,6 +457,9 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                 hs.insert(TypeInfo::Char);
                 hs.insert(TypeInfo::Boolean);
                 hs.insert(TypeInfo::Symbol);
+                // This _should_ be a recursive case on the list of self
+                // but I don't currently have a way to resolve recursive type references
+                hs.insert(TypeInfo::ListOf(Box::new(TypeInfo::Any)));
                 hs
             })))),
             _ => stop!(TypeMismatch => "this shouldn't work"),
