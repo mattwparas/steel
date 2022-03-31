@@ -99,46 +99,39 @@ pub enum BuiltInFunctionContract {
 }
 
 // Generate the bindings for the built in functions
-pub fn built_in_contract_map() -> HashMap<&'static str, StaticContract<'static>> {
-    use StaticContract::*;
+pub fn built_in_contract_map() -> HashMap<&'static str, TypeInfo> {
+    use TypeInfo::*;
     let mut map = HashMap::new();
 
     map.insert(
         "+",
         AnyArityFunction(
-            Box::new(StaticContract::UnionOf(vec![
-                Atom(BaseTypeKind::Int),
-                Atom(BaseTypeKind::Float),
-            ])),
-            Box::new(StaticContract::UnionOf(vec![
-                Atom(BaseTypeKind::Int),
-                Atom(BaseTypeKind::Float),
-            ])),
+            Box::new(UnionOf(
+                vec![TypeInfo::Int, TypeInfo::Float].into_iter().collect(),
+            )),
+            Box::new(UnionOf(
+                vec![TypeInfo::Int, TypeInfo::Float].into_iter().collect(),
+            )),
         ),
     );
     map.insert(
         "-",
-        AnyArityFunction(
-            Box::new(Atom(BaseTypeKind::Int)),
-            Box::new(Atom(BaseTypeKind::Int)),
-        ),
+        AnyArityFunction(Box::new(TypeInfo::Int), Box::new(TypeInfo::Int)),
     );
     map.insert(
         "int->string",
-        Function(
-            vec![Atom(BaseTypeKind::Int)],
-            Box::new(Atom(BaseTypeKind::String)),
-        ),
+        FixedArityFunction(vec![TypeInfo::Int], Box::new(TypeInfo::String)),
     );
 
     map.insert(
         "list",
-        AnyArityFunction(
-            Box::new(StaticContract::UnionOf(vec![Atom(BaseTypeKind::Any)])),
-            Box::new(StaticContract::ListOf(Box::new(StaticContract::UnionOf(
-                vec![Atom(BaseTypeKind::Any)],
-            )))),
-        ),
+        DependentFunction(|args: Vec<TypeInfo>| {
+            TypeInfo::UnionOf(
+                args.into_iter()
+                    .chain(std::iter::once(TypeInfo::Any))
+                    .collect(),
+            )
+        }),
     );
 
     map
@@ -287,7 +280,7 @@ fn function_contract<'a>(expr: &'a ExprKind) -> Option<Result<StaticContract<'a>
 #[derive(Default, Debug)]
 pub struct GlobalContractCollector<'a> {
     contracts: HashMap<String, StaticContract<'a>>,
-    built_ins: HashMap<&'static str, StaticContract<'static>>,
+    built_ins: HashMap<&'static str, TypeInfo>,
 }
 
 impl<'a> GlobalContractCollector<'a> {
@@ -301,10 +294,11 @@ impl<'a> GlobalContractCollector<'a> {
         collector
     }
 
-    pub fn get(&self, ident: &str) -> Option<&StaticContract<'a>> {
+    pub fn get(&self, ident: &str) -> Option<TypeInfo> {
         self.contracts
             .get(ident)
-            .or_else(|| self.built_ins.get(ident))
+            .map(|x| x.to_type_info())
+            .or_else(|| self.built_ins.get(ident).cloned())
     }
 }
 
@@ -355,12 +349,18 @@ impl<'a> ContractChecker<'a> {
         Ok(())
     }
 
+    // TODO -> have a way to make sure that inferred globals can be refined in some capacity if
+    // more information can be applied to them
     pub fn get_ident(&self, ident: &str) -> Option<TypeInfo> {
-        self.scope_map.get(ident).cloned().or_else(|| {
-            self.global_contract_info
-                .get(ident)
-                .map(|x| x.to_type_info())
-        })
+        self.scope_map
+            .get(ident)
+            .cloned()
+            .or_else(|| self.global_contract_info.get(ident))
+            .or_else(|| self.inferred_globals.get(ident).cloned())
+    }
+
+    pub fn local_ident_exists(&self, ident: &str) -> bool {
+        self.scope_map.get(ident).is_some()
     }
 }
 
@@ -593,21 +593,6 @@ impl<'a> VisitorMut for ContractChecker<'a> {
         println!("Function type: {:?}", function_type);
 
         match &function_type {
-            TypeInfo::AnyArityFunction(_, post) => {
-                if l.args.len() == 1 {
-                    return Ok(*(post.clone()));
-                }
-            }
-            TypeInfo::FixedArityFunction(f, post) => {
-                let found_arity = f.len();
-                if expected_arity != found_arity {
-                    stop!(ArityMismatch => format!("Function application mismatched with expected - function expected {} arguments but found {}", found_arity, expected_arity))
-                }
-
-                if l.args.len() == 1 {
-                    return Ok(*(post.clone()));
-                }
-            }
             TypeInfo::Unknown => {
                 // If we're in this situation we don't know what this function is
                 // we can attempt to infer what the corresponding type is based on the types of the argument
@@ -620,18 +605,54 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                 // to try to continue inference
                 let return_type = TypeInfo::Unknown;
 
-                return Ok(TypeInfo::FixedArityFunction(
-                    argument_types,
-                    Box::new(return_type),
-                ));
-            }
-            _ => {
-                stop!(TypeMismatch => format!("Function application not a procedure, expected a function, found: {:?}", function_type))
-            }
-        }
+                // Inferred function type at this node
+                // TODO -> this should be registered into the inferred globals if necessary
+                let inferred_type =
+                    TypeInfo::FixedArityFunction(argument_types, Box::new(return_type.clone()));
 
-        match &function_type {
+                if let Some(ident) = &l.args[0].atom_identifier() {
+                    if let Some(local) = self.scope_map.get_mut(*ident) {
+                        log::debug!(
+                            "Inferring local var: {} with type {:?} - old type: {:?}",
+                            ident,
+                            inferred_type,
+                            local
+                        );
+
+                        *local = inferred_type;
+                    } else {
+                        log::debug!(
+                            "Inferring global var: {} with type {:?}",
+                            ident,
+                            inferred_type
+                        );
+
+                        // TODO ->
+
+                        // self.inferred_globals
+                        //     .insert(ident.to_string(), inferred_type);
+                    }
+                }
+
+                return Ok(return_type);
+            }
+
+            TypeInfo::DependentFunction(func) => {
+                let argument_types = l.args[1..]
+                    .iter()
+                    .map(|x| self.visit(x))
+                    .collect::<Result<Vec<_>>>()?;
+
+                let return_type = func(argument_types);
+
+                return Ok(return_type);
+            }
+
             TypeInfo::AnyArityFunction(pre, post) => {
+                if l.args.len() == 1 {
+                    return Ok(*(post.clone()));
+                }
+
                 // Visit the children in order
                 for expr in &l.args[1..] {
                     let mut found = self.visit(expr)?;
@@ -659,6 +680,15 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                 return Ok(*(post.clone()));
             }
             TypeInfo::FixedArityFunction(pre, post) => {
+                let found_arity = pre.len();
+                if expected_arity != found_arity {
+                    stop!(ArityMismatch => format!("Function application mismatched with expected - function expected {} arguments but found {}", found_arity, expected_arity))
+                }
+
+                if l.args.len() == 1 {
+                    return Ok(*(post.clone()));
+                }
+
                 let visited = l.args[1..]
                     .iter()
                     .map(|x| self.visit(x))
@@ -692,7 +722,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                 return Ok(*(post.clone()));
             }
             _ => {
-                unreachable!("Based on the above, we shouldn't reach this point")
+                stop!(TypeMismatch => format!("Function application not a procedure, expected a function, found: {:?}", function_type))
             }
         }
     }
