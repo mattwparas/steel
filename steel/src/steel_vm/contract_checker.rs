@@ -563,8 +563,20 @@ impl<'a> VisitorMut for ContractChecker<'a> {
             }
             TypeInfo::Unknown => {
                 // If we're in this situation we don't know what this function is
-                // Just propagate the unknown
-                return Ok(TypeInfo::Unknown);
+                // we can attempt to infer what the corresponding type is based on the types of the argument
+                let argument_types = l.args[1..]
+                    .iter()
+                    .map(|x| self.visit(x))
+                    .collect::<Result<Vec<_>>>()?;
+
+                // In the case where we are calling a function with an unknown return type, propagate an unknown
+                // to try to continue inference
+                let return_type = TypeInfo::Unknown;
+
+                return Ok(TypeInfo::FixedArityFunction(
+                    argument_types,
+                    Box::new(return_type),
+                ));
             }
             _ => {
                 stop!(TypeMismatch => format!("Function application not a procedure, expected a function, found: {:?}", function_type))
