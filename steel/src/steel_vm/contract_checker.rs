@@ -131,6 +131,16 @@ pub fn built_in_contract_map() -> HashMap<&'static str, StaticContract<'static>>
         ),
     );
 
+    map.insert(
+        "list",
+        AnyArityFunction(
+            Box::new(StaticContract::UnionOf(vec![Atom(BaseTypeKind::Any)])),
+            Box::new(StaticContract::ListOf(Box::new(StaticContract::UnionOf(
+                vec![Atom(BaseTypeKind::Any)],
+            )))),
+        ),
+    );
+
     map
 }
 
@@ -354,7 +364,7 @@ impl<'a> ContractChecker<'a> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum TypeInfo {
     // We don't have enough information to say what this type is
     // Either, the function has come externally or it was unable to be inferred for some reason
@@ -372,10 +382,47 @@ pub enum TypeInfo {
     FixedArityFunction(Vec<TypeInfo>, Box<TypeInfo>),
     // This is something like addition, which has a contract with any arity in the preconditions
     AnyArityFunction(Box<TypeInfo>, Box<TypeInfo>),
+
+    // Function where the input type directly creates the output type in some fashion
+    DependentFunction(fn(Vec<TypeInfo>) -> TypeInfo),
+
     // If a function can return multiple things, or the return value can satisfy multiple contracts (or/c)
     UnionOf(BTreeSet<TypeInfo>),
     // If the return value of a function must satisfy multiple contracts (and/c)
     IntersectionOf(BTreeSet<TypeInfo>),
+}
+
+impl std::fmt::Debug for TypeInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unknown => write!(f, "Unknown"),
+            Self::Any => write!(f, "Any"),
+            Self::Void => write!(f, "Void"),
+            Self::Int => write!(f, "Int"),
+            Self::Float => write!(f, "Float"),
+            Self::Boolean => write!(f, "Boolean"),
+            Self::Char => write!(f, "Char"),
+            Self::String => write!(f, "String"),
+            Self::Symbol => write!(f, "Symbol"),
+            Self::ListOf(arg0) => f.debug_tuple("ListOf").field(arg0).finish(),
+            Self::FixedArityFunction(arg0, arg1) => f
+                .debug_tuple("FixedArityFunction")
+                .field(arg0)
+                .field(arg1)
+                .finish(),
+            Self::AnyArityFunction(arg0, arg1) => f
+                .debug_tuple("AnyArityFunction")
+                .field(arg0)
+                .field(arg1)
+                .finish(),
+            Self::DependentFunction(_) => f
+                .debug_tuple("DependentFunction")
+                .field(&"<#function>".to_string())
+                .finish(),
+            Self::UnionOf(arg0) => f.debug_tuple("UnionOf").field(arg0).finish(),
+            Self::IntersectionOf(arg0) => f.debug_tuple("IntersectionOf").field(arg0).finish(),
+        }
+    }
 }
 
 impl TypeInfo {
@@ -385,12 +432,12 @@ impl TypeInfo {
             (TypeInfo::Any, _) | (_, TypeInfo::Any) => true,
             // TODO -> there might be a better way of doing this
             (TypeInfo::UnionOf(l), TypeInfo::UnionOf(r)) => {
-                l.is_subset(r) || (l.contains(&TypeInfo::Any) && r.contains(&TypeInfo::Any))
+                l.is_subset(r) || l.contains(&TypeInfo::Any) || r.contains(&TypeInfo::Any)
 
                 // l == r
             }
-            (value, TypeInfo::UnionOf(set)) => set.contains(value),
-            (TypeInfo::UnionOf(set), value) => set.contains(value),
+            (value, TypeInfo::UnionOf(set)) => set.contains(value) || set.contains(&TypeInfo::Any),
+            (TypeInfo::UnionOf(set), value) => set.contains(value) || set.contains(&TypeInfo::Any),
             (TypeInfo::Unknown, _) | (_, TypeInfo::Unknown) => true,
             (TypeInfo::ListOf(l), TypeInfo::ListOf(r)) => l.is_compatible_with(r),
             (left, right) => left == right,
