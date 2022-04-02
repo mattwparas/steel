@@ -738,6 +738,9 @@ impl<'a> VisitorMut for ContractChecker<'a> {
         let var_type = self.visit(&s.variable)?;
         let assignment_type = self.visit(&s.expr)?;
 
+        // In the case of (set! x 10)
+        // x might have been defined to be any other type
+        //
         if !assignment_type.is_compatible_with(&var_type) {
             stop!(TypeMismatch => "set! expression is incompatible with type");
         }
