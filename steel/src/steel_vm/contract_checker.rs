@@ -610,6 +610,9 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                 let inferred_type =
                     TypeInfo::FixedArityFunction(argument_types, Box::new(return_type.clone()));
 
+                // TODO: this won't work given out set! works...
+                // might have to come up with some sort of scheme to allow set! type checking if theres a way to
+                // unify the usage with a dummy type var
                 if let Some(ident) = &l.args[0].atom_identifier() {
                     if let Some(local) = self.scope_map.get_mut(*ident) {
                         log::debug!(
@@ -732,7 +735,14 @@ impl<'a> VisitorMut for ContractChecker<'a> {
     }
 
     fn visit_set(&mut self, s: &crate::parser::ast::Set) -> Self::Output {
-        self.visit(&s.expr)
+        let var_type = self.visit(&s.variable)?;
+        let assignment_type = self.visit(&s.expr)?;
+
+        if !assignment_type.is_compatible_with(&var_type) {
+            stop!(TypeMismatch => "set! expression is incompatible with type");
+        }
+
+        return Ok(assignment_type);
     }
 
     fn visit_require(&mut self, _s: &crate::parser::ast::Require) -> Self::Output {
