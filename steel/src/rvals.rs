@@ -508,6 +508,55 @@ pub enum SteelVal {
     MutableVector(Gc<RefCell<Vec<SteelVal>>>),
 }
 
+impl SteelVal {
+    pub(crate) fn other_contains_self(&self, other: &SteelVal) -> bool {
+        println!("Checking self: {} with other: {}", self, other);
+        match other {
+            // In this trivial case, these are atomic and therefore we are not concerned with cyclic
+            // reference
+            BoolV(_)
+            | NumV(_)
+            | IntV(_)
+            | CharV(_)
+            | Void
+            | StringV(_)
+            | PortV(_)
+            | SymbolV(_)
+            | SteelVal::Custom(_)
+            | FuncV(_)
+            | MutFunc(_)
+            | BuiltIn(_) => false,
+            VectorV(v) => v.iter().any(|x| self.other_contains_self(x)),
+            HashMapV(hm) => hm
+                .iter()
+                .any(|x| self.other_contains_self(x.0) || self.other_contains_self(x.1)),
+            HashSetV(hs) => hs.iter().any(|x| self.other_contains_self(x)),
+            StructV(s) => s.iter().any(|x| self.other_contains_self(x)),
+            Closure(_) => todo!(),
+            IterV(_) => todo!(),
+            ReducerV(_) => todo!(),
+            FutureFunc(_) => todo!(),
+            FutureV(_) => todo!(),
+            StreamV(_) => todo!(),
+            BoxV(_) => todo!(),
+            Contract(_) => todo!(),
+            SteelVal::ContractedFunction(_) => todo!(),
+            BoxedFunction(_) => todo!(),
+            ContinuationFunction(_) => todo!(),
+            ListV(l) => l.iter().any(|x| self.other_contains_self(x)),
+            MutableVector(v) => {
+                if let SteelVal::MutableVector(s) = self {
+                    Gc::ptr_eq(v, s)
+                } else {
+                    v.borrow().iter().any(|x| self.other_contains_self(x))
+                }
+            }
+            #[cfg(feature = "jit")]
+            CompiledFunction(_) => todo!(),
+        }
+    }
+}
+
 // TODO come back to this for the constant map
 
 // impl Serialize for SteelVal {
@@ -845,6 +894,8 @@ impl fmt::Debug for SteelVal {
     }
 }
 
+// TODO: self referential values blow up the stack
+// A couple approaches here - just limit the printing depth, or refer to self as a "self"
 /// this function recursively prints lists without prepending the `'`
 /// at the beginning
 fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
@@ -931,7 +982,6 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
 mod or_else_tests {
 
     use super::*;
-    use crate::rerrs::ErrorKind;
     use im_rc::vector;
 
     #[test]

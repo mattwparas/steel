@@ -59,6 +59,8 @@ impl VectorOperations {
                         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, v.borrow().len());
                     }
 
+                    // TODO: disallow cyclical references on construction
+
                     // Update the vector position
                     v.borrow_mut()[i as usize] = args[2].clone();
 
@@ -108,9 +110,15 @@ impl VectorOperations {
                 stop!(ArityMismatch => "vector-push! takes two arguments, found: {:?}", args.len())
             }
 
-            let vec = args[0].clone();
+            let vec = &args[0];
 
             if let SteelVal::MutableVector(v) = vec {
+                // TODO -> make sure this is the correct thing
+                // if vec.other_contains_self(&args[1]) {
+                //     stop!(Generic => "vector push would create a cyclical reference, which would cause a memory leak")
+                // }
+
+                // TODO: disallow cyclical references on construction
                 v.borrow_mut().push(args[1].clone());
                 Ok(SteelVal::Void)
             } else {

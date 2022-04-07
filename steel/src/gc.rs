@@ -1,13 +1,19 @@
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
 use crate::stop;
-use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{ffi::OsStr, fmt};
+use std::{ops::Deref, rc::Weak};
 
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
+
+/// Used for automatic detection of ref cycle
+pub enum MaybeWeak<T: Clone> {
+    StrongRef(Gc<T>),
+    WeakRef(Gc<T>),
+}
 
 /// This is simply a newtype around the `Rc` type
 /// When enabled, this allows for complete sandboxing of data types
@@ -15,6 +21,10 @@ pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 /// but it does allow for some
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct Gc<T: Clone>(Rc<T>);
+
+/// Newtype around the `Weak` type.
+/// Enables the detection of reference cycles in mutable memory locations
+pub struct WeakGc<T: Clone>(Weak<T>);
 
 impl fmt::Display for Gc<SteelVal> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -53,6 +63,10 @@ impl<T: Clone> Gc<T> {
             stop!(Generic => "allocation would exceed maximum allowed memory")
         }
         Ok(())
+    }
+
+    pub fn downgrade(this: &Self) -> Weak<T> {
+        Rc::downgrade(&this.0)
     }
 
     pub fn get_mut(&mut self) -> Option<&mut T> {
@@ -116,6 +130,8 @@ impl<T: Clone> Deref for Gc<T> {
 
 impl<T: Clone> Drop for Gc<T> {
     fn drop(&mut self) {
+        println!("Strong count: {}", Rc::strong_count(&self.0));
+
         // if Rc::strong_count(&self.0) == 1 {
         //     OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
         // }
