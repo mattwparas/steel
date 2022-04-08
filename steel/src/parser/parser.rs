@@ -147,7 +147,6 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Comment => Err(
                 SteelErr::new(ErrorKind::UnexpectedToken, "comment".to_string()).with_span(span),
             ),
-            Hash => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#".to_string()).with_span(span)),
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),
@@ -333,16 +332,6 @@ impl<'a> Parser<'a> {
         ExprKind::List(List::new(vec![q, val]))
     }
 
-    // Reader macro for #
-    fn construct_lambda_shorthand(&mut self, val: ExprKind, span: Span) -> ExprKind {
-        let q = {
-            let rc_val = TokenType::Identifier("lambda-hash".to_string());
-            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
-        };
-
-        ExprKind::List(List::new(vec![q, val]))
-    }
-
     fn read_from_tokens(&mut self) -> Result<ExprKind> {
         let mut stack: Vec<Vec<ExprKind>> = Vec::new();
         let mut current_frame: Vec<ExprKind> = Vec::new();
@@ -386,13 +375,6 @@ impl<'a> Parser<'a> {
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_unquote_splicing(x, token.span));
-                            current_frame.push(quote_inner?);
-                        }
-                        TokenType::Hash => {
-                            let quote_inner = self
-                                .next()
-                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                                .map(|x| self.construct_lambda_shorthand(x, token.span));
                             current_frame.push(quote_inner?);
                         }
                         TokenType::OpenParen => {
@@ -576,10 +558,6 @@ impl<'a> Iterator for Parser<'a> {
                 .next()
                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                 .map(|x| self.construct_quasiquote(x, res.span)),
-            TokenType::Hash => self
-                .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                .map(|x| self.construct_lambda_shorthand(x, res.span)),
             TokenType::OpenParen => self.read_from_tokens(),
             TokenType::CloseParen => Err(ParseError::Unexpected(
                 TokenType::CloseParen,

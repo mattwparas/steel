@@ -27,6 +27,16 @@ That could easily live in the VM state -> consulting the VM context for class in
 Register struct/class definition with the runtime, consult the vtable to map the method name + struct -> method call
 
 functions for structs should be registered separately -> function name + struct together
+
+TODO: structs should actually just be implemented as vectors in Steel
+Make a defmacro style macro that expands into the necessary code to do so
+
+Also attempt to create wrapper object that obfuscates the type of an object, so that vector
+operations don't work explicitly on structs
+
+i.e. Implement a tagged pointer to delineate the type of the object for the struct
+its important that structs are treated differently than vectors on their own
+
 */
 
 /// An instance of an immutable struct in Steel

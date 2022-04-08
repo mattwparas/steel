@@ -130,7 +130,7 @@ impl<T: Clone> Deref for Gc<T> {
 
 impl<T: Clone> Drop for Gc<T> {
     fn drop(&mut self) {
-        println!("Strong count: {}", Rc::strong_count(&self.0));
+        // println!("Strong count: {}", Rc::strong_count(&self.0));
 
         // if Rc::strong_count(&self.0) == 1 {
         //     OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);

@@ -133,8 +133,6 @@ pub enum TokenType {
     Unquote,
     #[token(",@")]
     UnquoteSplice,
-    #[token("#")]
-    Hash,
 
     #[token("if")]
     If,
@@ -269,7 +267,6 @@ impl fmt::Display for TokenType {
             UnquoteSplice => write!(f, ",@"),
             Error => write!(f, "error"),
             Comment => write!(f, ""),
-            Hash => write!(f, "#"),
             If => write!(f, "if"),
             Define => write!(f, "define"),
             Let => write!(f, "let"),

@@ -8,11 +8,6 @@
     ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
     ((quasiquote x)                           'x)))
 
-(define-syntax lambda-hash
-  (syntax-rules ()
-    [(lambda-hash (x ...)) (lambda (v) (x ... v))]))
-
-
 (define-syntax or
   (syntax-rules ()
     [(or) #f]
