@@ -24,6 +24,12 @@
   (->/c symbol? (listof class-object?) (listof symbol?) hash? class-object?)
   (mutable-vector 'ClassObject name parents fields methods))
 
+
+;; Collect the fields
+(define (collect-fields list-of-class-objects)
+  (append (map Class-fields list-of-class-objects)
+          (map (lambda (c) (collect-fields (Class-parents c))))))
+
 ;; Set up some accessors for the class object.
 ;; These all require having an instance of a class object
 (define/contract (Class-name self)
@@ -39,7 +45,7 @@
   (mut-vector-ref self 3))
 
 (define/contract (Class-methods self)
-  (->/c class-object hash?)
+  (->/c class-object? hash?)
   (mut-vector-ref self 4))
 
 ;; -----------------------------------------------------------------------------------------------------
@@ -80,7 +86,7 @@
       [(= idx list-length) => (error! "Value not a member of the vector")]
       [(equal? value (list-ref lst idx)) => idx]
       [else => (loop lst (+ idx 1))]))
-  (loop vec 0))
+  (loop lst 0))
 
 ;; Map the given field name to an index in the class' slot
 (define/contract (%get-slot-idx class-object field-name)
