@@ -616,7 +616,10 @@ impl Hash for SteelVal {
             HashMapV(hm) => hm.hash(state),
             IterV(_) => unimplemented!(),
             HashSetV(hs) => hs.hash(state),
-            _ => unimplemented!(),
+            _ => {
+                println!("Trying to hash: {:?}", self);
+                unimplemented!()
+            }
             // Promise(_) => unimplemented!(),
         }
     }

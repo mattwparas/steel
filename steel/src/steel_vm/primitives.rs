@@ -356,6 +356,8 @@ pub(crate) fn register_identity_predicates(engine: &mut Engine) {
         .register_value("vector?", gen_pred!(VectorV))
         .register_value("struct?", gen_pred!(StructV))
         .register_value("list?", gen_pred!(ListV))
+        .register_value("hash?", gen_pred!(HashMapV))
+        .register_value("mutable-vector?", gen_pred!(MutableVector))
         // .register_value("pair?", gen_pred!(ListV))
         .register_value("integer?", gen_pred!(IntV))
         .register_value("boolean?", gen_pred!(BoolV))
