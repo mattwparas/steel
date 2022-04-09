@@ -10,7 +10,7 @@
 
 ;; immutable-vec['__instance__ class-object? mutable-vector]
 (define (class-instance? object)
-  (and (mutable-vector? object) (equal? '__instance__ (vector-ref object 0))))
+  (and (vector? object) (equal? '__instance__ (vector-ref object 0))))
 
 ;; Classes contain:
 ;; A name, which is required to be a symbol (string should also work, but for now a symbol simplifies this)
@@ -22,13 +22,39 @@
 ;; function when adding the methods.
 (define/contract (Class name parents fields methods)
   (->/c symbol? (listof class-object?) (listof symbol?) hash? class-object?)
-  (mutable-vector 'ClassObject name parents fields methods))
+  (mutable-vector 'ClassObject
+                  name
+                  parents
+                  ;; Explicitly go collect the fields to flatten into this class given the
+                  ;; class hierarchy
+                  (combine-local-and-parent-fields fields parents)
+                  methods))
 
+(define (contains-duplicates? lst)
+  (not
+   (equal? (hashset-length (apply hashset lst))
+            (length lst))))
 
-;; Collect the fields
+;; Flatten the incoming list
+(define (flatten lst) (transduce lst (flattening) (into-list)))
+
+;; Collect the fields of all of the parents of the object
 (define (collect-fields list-of-class-objects)
-  (append (map Class-fields list-of-class-objects)
-          (map (lambda (c) (collect-fields (Class-parents c))))))
+  (let ((parent-fields (flatten
+                        (append (map Class-fields list-of-class-objects)
+                                (map (lambda (c) (collect-fields (Class-parents c))) list-of-class-objects)))))
+    (if (contains-duplicates? parent-fields)
+        (error! "Class field is unresolvable")
+        parent-fields)))
+
+(define (combine-local-and-parent-fields local-fields list-of-class-objects)
+  (let ((appended (append
+                   local-fields
+                   (collect-fields list-of-class-objects))))
+    (if (contains-duplicates? appended)
+        (error! "Class field is unresolvable")
+        appended)))
+
 
 ;; Set up some accessors for the class object.
 ;; These all require having an instance of a class object
@@ -129,8 +155,14 @@
 ;; and call it given the arguments here
 ;; TODO: figure out contracts for multi arity functions
 (define (call class-instance method-name . args)
-  (apply (get-method (vector-ref class-instance 1) method-name) args))
+  (apply (get-method (vector-ref class-instance 1) method-name)
+         ;; The instance is always an implicit first argument, and as such gets
+         ;; cons onto the first of the arguments to call the function
+         (cons class-instance args)))
 
+(define (class-instance-name class-instance)
+  (Class-name
+   (vector-ref class-instance 1)))
 
 ;; ------------------- Examples --------------------------
 
@@ -144,11 +176,26 @@
 (define Object (Class 'Object
                       '()
                       '()
-                      (hash 'println (lambda (self) (displayln "<#Object>")))))
+                      (hash 'println
+                            (lambda (self)
+                              (displayln (-> "<#"
+                                             (string-append
+                                              (symbol->string (class-instance-name self)))
+                                             (string-append ">")))))))
 
 ;; Define the class object for Animal
 ;; Is a child of the Object base class
 (define Animal (Class 'Animal
                       (list Object)
                       '(name color weight)
-                      (hash 'println (lambda (self) (displayln "<#Animal>")))))
+                      (hash)))
+
+;; Dog inherits from Animal, adds on the 'good-boy? field
+(define Dog (Class 'Dog
+                   (list Animal)
+                   '(good-boy?)
+                   (hash)))
+
+
+(define sherman (%allocate-instance Dog))
+(call sherman 'println)
