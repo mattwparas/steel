@@ -1,7 +1,7 @@
+use steel::steel_vm::engine::Engine;
 use steel::steel_vm::register_fn::RegisterFn;
 use steel::steel_vm::register_fn::RegisterSelfFn;
 use steel::steel_vm::register_fn::RegisterSelfMutFn;
-use steel::{steel_vm::engine::Engine, SteelVal};
 
 use steel_derive::Steel;
 
