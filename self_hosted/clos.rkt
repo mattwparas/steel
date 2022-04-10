@@ -85,6 +85,12 @@
   (let ((methods (Class-methods class-object)))
     (vector-set! class-object 4 (hash-insert methods name method))))
 
+(define (resolve-parent-method class-object name)
+  (let ((possible-methods (map (lambda (x) (get-method x name)) (Class-parents class-object))))
+    (if (equal? 1 (length possible-methods))
+        (car possible-methods)
+        (error! "Unable to resolve the method on the class instance"))))
+
 ;; Attempt to resolve the method on the class object via the class hierarchy
 ;; This checks the current class object, and then attempt to resolve the method upwards, returning the first
 ;; one that it finds. If there are multiple candidates, we bail and error out since we can't determine
@@ -100,16 +106,19 @@
         local-method
         ;; Otherwise, attempt to resolve the method on the parents
         ;; For now, methods are just a hashmap from name -> method
-        (let ((possible-methods (map (lambda (x) (get-method x name)) (Class-parents class-object))))
-          (if (equal? 1 (length possible-methods))
-              (car possible-methods)
-              (error! "Unable to resolve the method on the class instance"))))))
+        (resolve-parent-method class-object name))))
 
-(define (position? lst value)
+;; Attempt to resolve the method on the parent class to this class objects
+(define/contract (get-super-method class-object name)
+  (->/c class-object? symbol? function?)
+  (resolve-parent-method class-object name))
+
+(define/contract (position? lst value)
+  (->/c list? any/c integer?)
   (define list-length (length lst))
   (define (loop lst idx)
     (cond
-      [(= idx list-length) => (error! "Value not a member of the vector")]
+      [(= idx list-length) => (error! "Value not a member of the list")]
       [(equal? value (list-ref lst idx)) => idx]
       [else => (loop lst (+ idx 1))]))
   (loop lst 0))
@@ -125,8 +134,8 @@
 ;; This _could_ be any value. TODO: find a way to bind a contract to a slot
 (define/contract (get-slot class-instance field-name)
   (->/c class-instance? symbol? any/c)
-  (list-ref (vector-ref class-instance 2)
-            (%get-slot-idx (vector-ref class-instance 1) field-name)))
+  (mut-vector-ref (vector-ref class-instance 2)
+                  (%get-slot-idx (vector-ref class-instance 1) field-name)))
 
 ;; Sets the slot in the class instance found a `field-name` to `value`
 ;; TODO: make the contract be dependent to have the result match the value's contract
@@ -160,9 +169,14 @@
          ;; cons onto the first of the arguments to call the function
          (cons class-instance args)))
 
-(define (class-instance-name class-instance)
-  (Class-name
-   (vector-ref class-instance 1)))
+;; Same as above, calls the method on the nearest parent object
+(define (call-super class-instance method-name . args)
+  (apply (get-super-method (vector-ref class-instance 1) method-name)
+         (cons class-instance args)))
+
+(define/contract (class-instance-name class-instance)
+  (->/c class-instance? symbol?)
+  (Class-name (vector-ref class-instance 1)))
 
 ;; ------------------- Examples --------------------------
 
@@ -182,7 +196,8 @@
 (define Animal (Class 'Animal
                       (list Object)
                       '(name color weight)
-                      (hash)))
+                      (hash
+                       'get-weight (lambda (self) (get-slot self 'weight)))))
 
 ;; Dog inherits from Animal, adds on the 'good-boy? field
 (define Dog (Class 'Dog
@@ -192,8 +207,18 @@
 
 ;; Allocates a new instance of a dog - here all of the fields are default to #<void>
 (define sherman (%allocate-instance Dog))
+;; Set the weight to be 25 -> this is set in the instance, and all fields are flattened on construction
+(set-slot! sherman 'weight 25)
+;; This will traverse upwards on the methods to find the method
 (call sherman 'println)
+;; This should find the method on the parent class
+(call sherman 'get-weight)
+;; Explicitly call the method on the super
+(call-super sherman 'get-weight)
 (set-slot! sherman 'good-boy? #true)
+
+
+
 
 
 ;; (class Animal extends Object )

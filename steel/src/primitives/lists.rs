@@ -278,7 +278,7 @@ pub fn list_ref(args: &[SteelVal]) -> Result<SteelVal> {
                 .ok_or_else(throw!(Generic => format!("out of bounds index in list-ref - list length: {}, index: {}", lst.len(), n)))
         }
     } else {
-        stop!(TypeMismatch => "list expects a list and an integer")
+        stop!(TypeMismatch => format!("list-ref expects a list and an integer, found {} and {}", &args[0], &args[1]))
     }
 }
 
