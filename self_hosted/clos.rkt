@@ -166,19 +166,13 @@
 
 ;; ------------------- Examples --------------------------
 
-;; TODO: have fields also be inherited like methods. Right now fields are only resolved locally to the scope
-;; They should also be resolved via the class hierarchy, and stored locally.
-;; Traverse the class hierarchy upwards, collect the fields as a set - error out if there are duplicates
-;; Once the fields are found, flatten the fields into a vector, store them locally in the instance,
-;; and resolve names as before using the name -> slot mapping.
-
 ;; Base object for everything in the class hierarchy
 (define Object (Class 'Object
                       '()
                       '()
                       (hash 'println
                             (lambda (self)
-                              (displayln (-> "<#"
+                              (displayln (-> "#<"
                                              (string-append
                                               (symbol->string (class-instance-name self)))
                                              (string-append ">")))))))
@@ -196,6 +190,10 @@
                    '(good-boy?)
                    (hash)))
 
-
+;; Allocates a new instance of a dog - here all of the fields are default to #<void>
 (define sherman (%allocate-instance Dog))
 (call sherman 'println)
+(set-slot! sherman 'good-boy? #true)
+
+
+;; (class Animal extends Object )
