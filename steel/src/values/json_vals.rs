@@ -135,11 +135,11 @@ impl TryFrom<SteelVal> for Value {
                     .collect::<Result<Vec<_>>>()?,
             )),
             SteelVal::Void => stop!(Generic => "void not serializable"),
-            SteelVal::StringV(s) => Ok(Value::String(s.unwrap())),
+            SteelVal::StringV(s) => Ok(Value::String(s.to_string())),
             SteelVal::FuncV(_) => stop!(Generic => "function not serializable"),
             // SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
             // SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
-            SteelVal::SymbolV(s) => Ok(Value::String(s.unwrap())),
+            SteelVal::SymbolV(s) => Ok(Value::String(s.to_string())),
             SteelVal::Custom(_) => stop!(Generic => "generic struct not serializable"),
             SteelVal::HashMapV(hm) => {
                 let mut map: Map<String, Value> = Map::new();

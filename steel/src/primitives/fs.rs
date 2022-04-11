@@ -9,7 +9,7 @@ impl FsFunctions {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::BoolV(Path::new(s).exists()))
+                    Ok(SteelVal::BoolV(Path::new(s.as_ref()).exists()))
                 } else {
                     stop!(TypeMismatch => "path-exists? expects a string")
                 }
@@ -25,7 +25,7 @@ impl FsFunctions {
                 // let path =
 
                 if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::BoolV(Path::new(s).is_file()))
+                    Ok(SteelVal::BoolV(Path::new(s.as_ref()).is_file()))
                 } else {
                     stop!(TypeMismatch => "is-file? expects a string")
                 }
@@ -41,7 +41,7 @@ impl FsFunctions {
                 // let path =
 
                 if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::BoolV(Path::new(s).is_dir()))
+                    Ok(SteelVal::BoolV(Path::new(&s.to_string()).is_dir()))
                 } else {
                     stop!(TypeMismatch => "is-dir? expects a string")
                 }
@@ -56,7 +56,7 @@ impl FsFunctions {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
                     Ok(SteelVal::StringV(
-                        Path::new(s)
+                        Path::new(s.as_ref())
                             .file_name()
                             .map(|x| x.to_str())
                             .flatten()
@@ -78,7 +78,7 @@ impl FsFunctions {
                 // let path =
 
                 if let SteelVal::StringV(s) = &args[0] {
-                    let p = Path::new(s);
+                    let p = Path::new(s.as_ref());
                     if p.is_dir() {
                         let iter = p.read_dir();
                         match iter {

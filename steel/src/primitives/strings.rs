@@ -15,7 +15,7 @@ impl StringOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 2 {
                 if let (SteelVal::StringV(l), SteelVal::StringV(r)) = (&args[0], &args[1]) {
-                    let new_string: String = l.as_str().to_string() + r.as_str();
+                    let new_string: String = l.to_string() + r;
                     ok_string!(new_string)
                 // Ok(Gc::new(SteelVal::StringV(new_string)))
                 } else {
@@ -31,7 +31,7 @@ impl StringOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::SymbolV(crate::gc::Gc::clone(s)))
+                    Ok(SteelVal::SymbolV(std::rc::Rc::clone(s)))
                 } else {
                     stop!(TypeMismatch => "string->int expected a string")
                 }
@@ -206,7 +206,7 @@ impl StringOperations {
             if args.len() == 2 {
                 match (&args[0], &args[1]) {
                     (SteelVal::StringV(s), SteelVal::StringV(p)) => {
-                        Ok(SteelVal::BoolV(s.starts_with(&p.as_str())))
+                        Ok(SteelVal::BoolV(s.starts_with(p.as_ref())))
                     }
                     _ => {
                         stop!(ArityMismatch => "starts-with? takes two arguments")
@@ -223,7 +223,7 @@ impl StringOperations {
             if args.len() == 2 {
                 match (&args[0], &args[1]) {
                     (SteelVal::StringV(s), SteelVal::StringV(p)) => {
-                        Ok(SteelVal::BoolV(s.ends_with(&p.as_str())))
+                        Ok(SteelVal::BoolV(s.ends_with(p.as_ref())))
                     }
                     _ => {
                         stop!(ArityMismatch => "ends-with? takes two arguments")

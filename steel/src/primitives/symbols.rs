@@ -26,7 +26,7 @@ impl SymbolOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::SymbolV(quoted_value) = &args[0] {
-                    return Ok(SteelVal::StringV(Gc::clone(&quoted_value)));
+                    return Ok(SteelVal::StringV(std::rc::Rc::clone(&quoted_value)));
                 } else {
                     let error_message =
                         format!("symbol->string expected a symbol, found {}", &args[0]);

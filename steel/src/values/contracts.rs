@@ -433,7 +433,7 @@ impl ContractedFunction {
         name: Option<SteelVal>,
     ) -> Result<SteelVal> {
         let name = match name {
-            Some(SteelVal::SymbolV(s)) => Some(s.unwrap()),
+            Some(SteelVal::SymbolV(s)) => Some(s.to_string()),
             Some(_) => stop!(TypeMismatch => "bind/c expected a symbol in the first position"),
             None => None,
         };

@@ -23,7 +23,7 @@ impl EngineWrapper {
             SteelVal::StringV(expr) => self
                 .0
                 .borrow_mut()
-                .compile_and_run_raw_program(expr.as_str())
+                .compile_and_run_raw_program(expr.as_ref())
                 .map(|x| x.into()),
             SteelVal::ListV(list) => {
                 let values = list

@@ -1385,7 +1385,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         };
 
         // The fields of the structs
-        let fields: Vec<Gc<String>> = iter
+        let fields: Vec<Rc<str>> = iter
             .map(|x| {
                 if let SteelVal::StringV(s) = x {
                     Ok(s)
@@ -1396,7 +1396,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             .collect::<Result<Vec<_>>>()?;
 
         // Get them as &str for now
-        let other_fields: Vec<&str> = fields.iter().map(|x| x.as_str()).collect();
+        let other_fields: Vec<&str> = fields.iter().map(|x| x.as_ref()).collect();
 
         // Generate the functions, but they immediately override them with the names
         // Store them with the indices
@@ -1441,7 +1441,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         };
 
         // The fields of the structs
-        let fields: Vec<Gc<String>> = iter
+        let fields: Vec<Rc<str>> = iter
             .map(|x| {
                 if let SteelVal::StringV(s) = x {
                     Ok(s)
@@ -1452,7 +1452,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             .collect::<Result<Vec<_>>>()?;
 
         // Get them as &str for now
-        let other_fields: Vec<&str> = fields.iter().map(|x| x.as_str()).collect();
+        let other_fields: Vec<&str> = fields.iter().map(|x| x.as_ref()).collect();
 
         // Generate the functions, but they immediately override them with the names
         // Store them with the indices

@@ -342,6 +342,7 @@ pub(crate) fn register_hashset_functions(engine: &mut Engine) {
         .register_value("hashset->list", HashSetOperations::keys_to_list())
         .register_value("hashset->vector", HashSetOperations::keys_to_vector())
         .register_value("hashset-clear", HashSetOperations::clear())
+        .register_value("hashset-subset?", HashSetOperations::is_subset())
         .register_value("list->hashset", HashSetOperations::list_to_hashset());
 }
 

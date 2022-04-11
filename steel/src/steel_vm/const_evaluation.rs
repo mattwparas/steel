@@ -164,7 +164,7 @@ fn steelval_to_atom(value: &SteelVal) -> Option<TokenType> {
         SteelVal::NumV(n) => Some(TokenType::NumberLiteral(*n)),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
         SteelVal::IntV(i) => Some(TokenType::IntegerLiteral(*i)),
-        SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.unwrap())),
+        SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_string())),
         _ => None,
     }
 }

@@ -209,16 +209,14 @@ mod value_tests {
     use super::*;
     use crate::gc::Gc;
     use crate::SteelVal;
+    use std::rc::Rc;
 
     #[test]
     fn test_pointer_converstion() {
-        let value = Gc::new(SteelVal::StringV(Gc::new("hello world".to_string())));
+        let value = Gc::new(SteelVal::StringV(Rc::from("hello world")));
         let coerced = to_encoded_double(&value);
         let result = unsafe { get_ref_from_double(coerced) };
-        assert_eq!(
-            result,
-            SteelVal::StringV(Gc::new("hello world".to_string()))
-        );
+        assert_eq!(result, SteelVal::StringV(Rc::from("hello world")));
     }
 
     #[test]

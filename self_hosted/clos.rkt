@@ -12,6 +12,31 @@
 (define (class-instance? object)
   (and (vector? object) (equal? '__instance__ (vector-ref object 0))))
 
+;; listof('__interface__ symbol)
+(define (interface? object)
+  (and (list? object) (equal? (car object) '__interface__)))
+
+;; Interfaces contain:
+;; A name, which is required to be a symbol
+;; A list of method names in which the child class _must_ implement.
+;; TODO: Here is where contracts might be an excellent thing to add
+;; something like the contracts are attached to the methods on the class
+(define/contract (Interface name required-methods)
+  (->/c symbol? (listof symbol?) interface?)
+  (list '__interface__ name required-methods))
+
+(define/contract (Interface-name interface)
+  (->/c interface? symbol?)
+  (list-ref interface 1))
+
+(define/contract (Interface-methods interface)
+  (->/c interface? (listof symbol?))
+  (list-ref interface 2))
+
+(define (list-subset? left right)
+  (hashset-subset? (list->hashset left)
+                (list->hashset right)))
+
 ;; Classes contain:
 ;; A name, which is required to be a symbol (string should also work, but for now a symbol simplifies this)
 ;; The parents are a list of class objects -> we don't want classes pointing to arbitrary objects
@@ -20,11 +45,22 @@
 ;;
 ;; Here we don't restrict the hash map of symbol -> function, but rather will restrict it on the
 ;; function when adding the methods.
-(define/contract (Class name parents fields methods)
-  (->/c symbol? (listof class-object?) (listof symbol?) hash? class-object?)
+(define/contract (Class name parents interfaces fields methods)
+  (->/c symbol? (listof class-object?) (listof interface?) (listof symbol?) hash? class-object?)
+
+  (unless (list-subset?
+           ;; Collect the list of required methods for the given interfaces
+           (transduce interfaces
+                      (flat-mapping Interface-methods)
+                      (into-list))
+           ;; Extract the methods that have been defined concretely on this class at construction
+           (hash-keys->list methods))
+    (error! "Not all required methods are implemented for the given interfaces"))
+
   (mutable-vector 'ClassObject
                   name
                   parents
+                  interfaces
                   ;; Explicitly go collect the fields to flatten into this class given the
                   ;; class hierarchy
                   (combine-local-and-parent-fields fields parents)
@@ -38,14 +74,10 @@
 ;; Flatten the incoming list
 (define (flatten lst) (transduce lst (flattening) (into-list)))
 
-;; Collect the fields of all of the parents of the object
 (define (collect-fields list-of-class-objects)
-  (let ((parent-fields (flatten
-                        (append (map Class-fields list-of-class-objects)
-                                (map (lambda (c) (collect-fields (Class-parents c))) list-of-class-objects)))))
-    (if (contains-duplicates? parent-fields)
-        (error! "Class field is unresolvable")
-        parent-fields)))
+  (transduce list-of-class-objects
+             (flat-mapping Class-fields)
+             (into-list)))
 
 (define (combine-local-and-parent-fields local-fields list-of-class-objects)
   (let ((appended (append
@@ -66,13 +98,21 @@
   (->/c class-object? list?)
   (mut-vector-ref self 2))
 
+(define/contract (Class-interfaces self)
+  (->/c class-object? (listof interface?))
+  (mut-vector-ref self 3))
+
 (define/contract (Class-fields self)
   (->/c class-object? list?)
-  (mut-vector-ref self 3))
+  (mut-vector-ref self 4))
 
 (define/contract (Class-methods self)
   (->/c class-object? hash?)
-  (mut-vector-ref self 4))
+  (mut-vector-ref self 5))
+
+;; Macro to just expand and get the index without having to update all usages
+(define-syntax CLASS_METHODS (syntax-rules () [(CLASS_METHODS) 5]))
+
 
 ;; -----------------------------------------------------------------------------------------------------
 
@@ -83,7 +123,7 @@
 (define/contract (define-method class-object name method)
   (->/c class-object? symbol? function? any/c)
   (let ((methods (Class-methods class-object)))
-    (vector-set! class-object 4 (hash-insert methods name method))))
+    (vector-set! class-object (CLASS_METHODS) (hash-insert methods name method))))
 
 (define (resolve-parent-method class-object name)
   (let ((possible-methods (map (lambda (x) (get-method x name)) (Class-parents class-object))))
@@ -184,6 +224,7 @@
 (define Object (Class 'Object
                       '()
                       '()
+                      '()
                       (hash 'println
                             (lambda (self)
                               (displayln (-> "#<"
@@ -195,6 +236,7 @@
 ;; Is a child of the Object base class
 (define Animal (Class 'Animal
                       (list Object)
+                      '()
                       '(name color weight)
                       (hash
                        'get-weight (lambda (self) (get-slot self 'weight)))))
@@ -202,6 +244,7 @@
 ;; Dog inherits from Animal, adds on the 'good-boy? field
 (define Dog (Class 'Dog
                    (list Animal)
+                   '()
                    '(good-boy?)
                    (hash)))
 
@@ -215,10 +258,15 @@
 (call sherman 'get-weight)
 ;; Explicitly call the method on the super
 (call-super sherman 'get-weight)
+;; Setting a slot since the default allocation of the instance sets everything to void
 (set-slot! sherman 'good-boy? #true)
 
+(define Stinky (Interface 'Stinky '(smelly icky)))
 
-
-
-
-;; (class Animal extends Object )
+(define Worm (Class 'Worm
+                    (list Dog)
+                    (list Stinky)
+                    '()
+                    (hash
+                     'smelly (lambda (self) "Smelly!")
+                     'icky (lambda (self) "Icky!"))))

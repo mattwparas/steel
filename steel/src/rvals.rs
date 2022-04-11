@@ -443,7 +443,8 @@ pub enum SteelVal {
     /// Void return value
     Void,
     /// Represents strings
-    StringV(Gc<String>),
+    // TODO: make this Rc<str> directly instead of Rc<String>
+    StringV(Rc<str>),
     /// Represents built in rust functions
     FuncV(FunctionSignature),
     /// Represents Steel Lambda functions or closures defined inside the environment
@@ -451,7 +452,7 @@ pub enum SteelVal {
     /// Represents built in macros,
     // MacroV(SteelMacro),
     /// Represents a symbol, internally represented as `String`s
-    SymbolV(Gc<String>),
+    SymbolV(Rc<str>),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Gc<RefCell<Box<dyn CustomType>>>),
     // Embedded HashMap
@@ -619,8 +620,7 @@ impl Hash for SteelVal {
             _ => {
                 println!("Trying to hash: {:?}", self);
                 unimplemented!()
-            }
-            // Promise(_) => unimplemented!(),
+            } // Promise(_) => unimplemented!(),
         }
     }
 }
@@ -780,7 +780,7 @@ impl SteelVal {
         err: F,
     ) -> std::result::Result<String, E> {
         match self {
-            Self::SymbolV(v) => Ok(v.unwrap()),
+            Self::SymbolV(v) => Ok(v.to_string()),
             _ => Err(err()),
         }
     }

@@ -217,8 +217,8 @@ impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
     fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
         match value {
-            SteelVal::StringV(ref x) => Ok(x.unwrap()),
-            SteelVal::SymbolV(ref x) => Ok(x.unwrap()),
+            SteelVal::StringV(ref x) => Ok(x.to_string()),
+            SteelVal::SymbolV(ref x) => Ok(x.to_string()),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
                 "Expected string".to_string(),
@@ -242,7 +242,7 @@ impl From<Gc<SteelVal>> for SteelVal {
 impl FromSteelVal for String {
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if let SteelVal::StringV(s) = val {
-            Ok(s.unwrap())
+            Ok(s.to_string())
         } else {
             Err(SteelErr::new(
                 ErrorKind::ConversionError,
@@ -256,8 +256,8 @@ impl TryFrom<&SteelVal> for String {
     type Error = SteelErr;
     fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
         match value {
-            SteelVal::StringV(x) => Ok(x.unwrap()),
-            SteelVal::SymbolV(x) => Ok(x.unwrap()),
+            SteelVal::StringV(x) => Ok(x.to_string()),
+            SteelVal::SymbolV(x) => Ok(x.to_string()),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
                 "Expected string".to_string(),
@@ -274,7 +274,7 @@ impl From<String> for SteelVal {
 
 impl IntoSteelVal for String {
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-        Ok(SteelVal::StringV(Gc::new(self)))
+        Ok(SteelVal::StringV(self.into()))
     }
 }
 

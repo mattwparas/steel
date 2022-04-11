@@ -75,16 +75,33 @@ impl HashSetOperations {
 
             if let SteelVal::HashSetV(hm) = hashset {
                 if key.is_hashable() {
-                    if hm.contains(key) {
-                        Ok(SteelVal::BoolV(true))
-                    } else {
-                        Ok(SteelVal::BoolV(false))
-                    }
+                    Ok(SteelVal::BoolV(hm.contains(key)))
                 } else {
                     stop!(TypeMismatch => "hash key not hashable!");
                 }
             } else {
                 stop!(TypeMismatch => "set-contains? takes a hashmap")
+            }
+        })
+    }
+
+    pub fn is_subset() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "hash-subset? takes 2 arguments")
+            }
+
+            let left = &args[0];
+            let right = &args[1];
+
+            if let SteelVal::HashSetV(left) = left {
+                if let SteelVal::HashSetV(right) = right {
+                    Ok(SteelVal::BoolV(left.is_subset(right.as_ref())))
+                } else {
+                    stop!(TypeMismatch => "hash-subset? takes a hashset")
+                }
+            } else {
+                stop!(TypeMismatch => "hash-subset? takes a hashset")
             }
         })
     }
@@ -161,6 +178,7 @@ impl HashSetOperations {
 mod hashset_tests {
     use super::*;
     use crate::throw;
+    use std::rc::Rc;
     // use im_rc::hashset;
 
     fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
@@ -291,11 +309,11 @@ mod hashset_tests {
         // pull out the vectors and sort them
         // let unwrapped_expected: SteelVal = (*expected).clone();
 
-        let mut res_vec_string: Vec<Gc<String>> = if let SteelVal::VectorV(v) = res.unwrap() {
+        let mut res_vec_string: Vec<Rc<str>> = if let SteelVal::VectorV(v) = res.unwrap() {
             v.iter()
                 .map(|x| {
                     if let SteelVal::StringV(ref s) = x {
-                        s.clone()
+                        std::rc::Rc::clone(s)
                     } else {
                         panic!("test failed")
                     }
@@ -305,11 +323,11 @@ mod hashset_tests {
             panic!("test failed")
         };
 
-        let mut expected_vec_string: Vec<Gc<String>> = if let SteelVal::VectorV(v) = expected {
+        let mut expected_vec_string: Vec<Rc<str>> = if let SteelVal::VectorV(v) = expected {
             v.iter()
                 .map(|x| {
                     if let SteelVal::StringV(ref s) = x {
-                        s.clone()
+                        std::rc::Rc::clone(s)
                     } else {
                         panic!("test failed")
                     }
