@@ -218,6 +218,10 @@
   (->/c class-instance? symbol?)
   (Class-name (vector-ref class-instance 1)))
 
+;; TODO -> check if object implements interface
+;; (define/contract (class-implements-interface? interface class-instance)
+;;
+
 ;; ------------------- Examples --------------------------
 
 ;; Base object for everything in the class hierarchy
@@ -247,6 +251,14 @@
                    '()
                    '(good-boy?)
                    (hash)))
+
+;; TODO: Once keyword arguments are a thing, classes could be defined like so:
+;; (define Dog (Class #:name 'Dog
+;;                    #:parents (list Animal)
+;;                    #:interfaces '()
+;;                    #:fields '(good-boy?)
+;;                    #:methods (hash)))
+
 
 ;; Allocates a new instance of a dog - here all of the fields are default to #<void>
 (define sherman (%allocate-instance Dog))
