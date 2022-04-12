@@ -219,7 +219,9 @@
   (Class-name (vector-ref class-instance 1)))
 
 ;; TODO -> check if object implements interface
-;; (define/contract (class-implements-interface? interface class-instance)
+;; (define/contract (class-implements-interface? class-instance interface)
+;;   (->/c class-object? interface? boolean?)
+;;   (member? interface
 ;;
 
 ;; ------------------- Examples --------------------------
