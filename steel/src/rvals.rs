@@ -423,6 +423,11 @@ impl<T: CustomType + Clone + 'static> AsRefMutSteelVal for T {
 //     fn from_steelval(val: &SteelVal) -> Result<
 // }
 
+pub struct TaggedValue {
+    tag: Rc<str>,
+    value: SteelVal,
+}
+
 #[derive(Clone)]
 pub enum SteelVal {
     /// Represents a boolean value
@@ -439,7 +444,7 @@ pub enum SteelVal {
     // Pair(Gc<ConsCell>),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
-    VectorV(Gc<Vector<SteelVal>>), // TODO wrap in GC
+    VectorV(Gc<Vector<SteelVal>>),
     /// Void return value
     Void,
     /// Represents strings
@@ -447,18 +452,14 @@ pub enum SteelVal {
     StringV(Rc<str>),
     /// Represents built in rust functions
     FuncV(FunctionSignature),
-    /// Represents Steel Lambda functions or closures defined inside the environment
-    // LambdaV(SteelLambda),
-    /// Represents built in macros,
-    // MacroV(SteelMacro),
     /// Represents a symbol, internally represented as `String`s
     SymbolV(Rc<str>),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Gc<RefCell<Box<dyn CustomType>>>),
     // Embedded HashMap
-    HashMapV(Gc<HashMap<SteelVal, SteelVal>>), // TODO wrap in GC
+    HashMapV(Gc<HashMap<SteelVal, SteelVal>>),
     // Embedded HashSet
-    HashSetV(Gc<HashSet<SteelVal>>), // TODO wrap in GC
+    HashSetV(Gc<HashSet<SteelVal>>),
     /// Represents a scheme-only struct
     StructV(Gc<SteelStruct>),
     // Represents a special rust closure
@@ -507,9 +508,44 @@ pub enum SteelVal {
     BuiltIn(BuiltInSignature),
     // Mutable vector
     MutableVector(Gc<RefCell<Vec<SteelVal>>>),
+    // Fixed size vector
+    // FixedSizeVector(Rc<RefCell<[SteelVal]>>),
 }
 
 impl SteelVal {
+    pub(crate) fn ptr_eq(&self, other: &SteelVal) -> bool {
+        match (self, other) {
+            (BoolV(l), BoolV(r)) => l == r,
+            (VectorV(l), VectorV(r)) => Gc::ptr_eq(l, r),
+            (Void, Void) => true,
+            (StringV(l), StringV(r)) => Rc::ptr_eq(l, r),
+            (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
+            (SymbolV(l), SymbolV(r)) => Rc::ptr_eq(l, r),
+            (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
+            (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(l, r),
+            (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(l, r),
+            (StructV(l), StructV(r)) => Gc::ptr_eq(l, r),
+            (PortV(l), PortV(r)) => Gc::ptr_eq(l, r),
+            (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
+            (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
+            (ReducerV(l), ReducerV(r)) => Gc::ptr_eq(l, r),
+            (FutureFunc(l), FutureFunc(r)) => Rc::ptr_eq(l, r),
+            (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
+            (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
+            (BoxV(l), BoxV(r)) => Gc::ptr_eq(l, r),
+            (Contract(l), Contract(r)) => Gc::ptr_eq(l, r),
+            (SteelVal::ContractedFunction(l), SteelVal::ContractedFunction(r)) => Gc::ptr_eq(l, r),
+            (BoxedFunction(l), BoxedFunction(r)) => Rc::ptr_eq(l, r),
+            (ContinuationFunction(l), ContinuationFunction(r)) => Gc::ptr_eq(l, r),
+            // (CompiledFunction(_), CompiledFunction(_)) => todo!(),
+            (ListV(l), ListV(r)) => l.ptr_eq(r),
+            (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
+            (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
+            (MutableVector(l), MutableVector(r)) => Gc::ptr_eq(l, r),
+            (_, _) => false,
+        }
+    }
+
     pub(crate) fn other_contains_self(&self, other: &SteelVal) -> bool {
         println!("Checking self: {} with other: {}", self, other);
         match other {

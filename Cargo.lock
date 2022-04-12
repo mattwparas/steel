@@ -645,9 +645,9 @@ checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "im-lists"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0ae0606afecbb73b7fdb32b14e2c55cf5b5baedc01551621df7316ad52f00c9"
+checksum = "4c5a802ec35c9c27d0b192e53413af9f65fb5e4cf95de3efac449b1a45e6296a"
 dependencies = [
  "itertools",
 ]

@@ -442,6 +442,12 @@ pub(crate) fn register_equality_functions(engine: &mut Engine) {
             "equal?",
             SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)),
         )
+        .register_value(
+            "eq?",
+            SteelVal::FuncV(ensure_tonicity_two!(
+                |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
+            )),
+        )
         .register_value("=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)));
 }
 
