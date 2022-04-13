@@ -205,6 +205,39 @@ impl VirtualMachineCore {
             .collect()
     }
 
+    pub(crate) fn call_function<U: UseCallbacks, A: ApplyContracts>(
+        &mut self,
+        constant_map: &ConstantMap,
+        use_callbacks: U,
+        apply_contracts: A,
+        function: SteelVal,
+        args: Vec<SteelVal>,
+    ) -> Result<SteelVal> {
+        let mut vm_instance = VmCore::new_unchecked(
+            Rc::new([]),
+            &mut self.stack,
+            &mut self.global_env,
+            constant_map,
+            &self.callback,
+            &mut self.global_upvalue_heap,
+            &mut self.function_stack,
+            &mut self.stack_index,
+            self.upvalue_head.take(),
+            &[],
+            use_callbacks,
+            apply_contracts,
+            #[cfg(feature = "jit")]
+            Some(&mut self.jit),
+        );
+
+        vm_instance.call_func_or_else_many_args(
+            &function,
+            args,
+            &Span::default(),
+            throw!(TypeMismatch => format!("application not a procedure: {}", function)),
+        )
+    }
+
     pub fn execute<U: UseCallbacks, A: ApplyContracts>(
         &mut self,
         instructions: Rc<[DenseInstruction]>,
@@ -415,6 +448,42 @@ pub(crate) struct VmCore<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContrac
 }
 
 impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
+    fn new_unchecked(
+        instructions: Rc<[DenseInstruction]>,
+        stack: &'a mut StackFrame,
+        global_env: &'a mut Env,
+        constants: &'a CT,
+        callback: &'a EvaluationProgress,
+        upvalue_heap: &'a mut UpValueHeap,
+        function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
+        stack_index: &'a mut Stack<usize>,
+        upvalue_head: Option<Weak<RefCell<UpValue>>>,
+        spans: &'a [Span],
+        use_callbacks: U,
+        apply_contracts: A,
+        #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
+    ) -> VmCore<'a, CT, U, A> {
+        VmCore {
+            instructions: Rc::clone(&instructions),
+            stack,
+            global_env,
+            instruction_stack: Stack::new(),
+            stack_index,
+            callback,
+            constants,
+            ip: 0,
+            pop_count: 1,
+            upvalue_head,
+            upvalue_heap,
+            function_stack,
+            spans,
+            use_callbacks,
+            apply_contracts,
+            #[cfg(feature = "jit")]
+            jit,
+        }
+    }
+
     fn new(
         instructions: Rc<[DenseInstruction]>,
         stack: &'a mut StackFrame,

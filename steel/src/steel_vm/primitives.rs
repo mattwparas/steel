@@ -551,7 +551,10 @@ pub(crate) fn register_meta_functions(engine: &mut Engine) {
         .register_value("eval!", SteelVal::FuncV(super::meta::eval))
         .register_fn("Engine::new", super::meta::EngineWrapper::new)
         .register_fn("run!", super::meta::EngineWrapper::call)
-        .register_fn("get-value", super::meta::EngineWrapper::get_value);
+        .register_fn("get-value", super::meta::EngineWrapper::get_value)
+        // TODO: Warning, here be dragons
+        // This should really be moved out of the global scope and into something else
+        .register_fn("call-function-in-env", super::meta::EngineWrapper::call_fn);
 }
 
 #[inline(always)]

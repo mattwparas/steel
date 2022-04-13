@@ -18,6 +18,28 @@ impl EngineWrapper {
         EngineWrapper(Rc::new(RefCell::new(Engine::new())))
     }
 
+    // TODO: Warning, here be dragons
+    pub(crate) fn call_fn(self, function_name: SteelVal, args: SteelVal) -> Result<SteelVal> {
+        let function = match function_name {
+            SteelVal::SymbolV(expr) | SteelVal::StringV(expr) => {
+                self.0.borrow().extract_value(expr.as_ref())?
+            }
+            _ => {
+                stop!(TypeMismatch => "get-value expected either a string or a symbol, found: {}", function_name)
+            }
+        };
+
+        if let SteelVal::ListV(list) = args {
+            let arguments = list.into_iter().collect();
+
+            self.0
+                .borrow_mut()
+                .call_function_with_args(function, arguments)
+        } else {
+            stop!(TypeMismatch => "call-function-in-env expects a list for the arguments")
+        }
+    }
+
     pub(crate) fn call(self, expr: SteelVal) -> Result<List<SteelVal>> {
         match expr {
             SteelVal::StringV(expr) => self
@@ -44,12 +66,20 @@ impl EngineWrapper {
         }
     }
 
-    pub(crate) fn get_value(self, expr: String) -> Result<SteelVal> {
-        match self.0.borrow().extract_value(expr.as_str())? {
-            SteelVal::Closure(_) => {
-                stop!(Generic => "a closure cannot be used outside of its defining environment")
+    // TODO: Warning, here be dragons
+    pub(crate) fn get_value(self, expr: SteelVal) -> Result<SteelVal> {
+        match expr {
+            SteelVal::SymbolV(expr) | SteelVal::StringV(expr) => {
+                match self.0.borrow().extract_value(expr.as_ref())? {
+                    // SteelVal::Closure(_) => {
+                    //     stop!(Generic => "a closure cannot be used outside of its defining environment")
+                    // }
+                    other => Ok(other),
+                }
             }
-            other => Ok(other),
+            _ => {
+                stop!(TypeMismatch => "get-value expected either a string or a symbol, found: {}", expr)
+            }
         }
     }
 }

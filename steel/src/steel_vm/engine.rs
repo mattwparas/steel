@@ -84,6 +84,20 @@ impl Engine {
         vm
     }
 
+    pub(crate) fn call_function_with_args(
+        &mut self,
+        function: SteelVal,
+        arguments: Vec<SteelVal>,
+    ) -> Result<SteelVal> {
+        self.virtual_machine.call_function(
+            &self.compiler.constant_map,
+            UseCallback,
+            ApplyContract,
+            function,
+            arguments,
+        )
+    }
+
     /// Instantiates a new engine instance with all the primitive functions enabled.
     /// This is the most general engine entry point, and includes both the contract and
     /// prelude files in the root.

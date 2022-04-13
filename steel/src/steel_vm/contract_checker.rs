@@ -541,7 +541,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                 TokenType::CharacterLiteral(_) => Ok(TypeInfo::Char),
                 TokenType::BooleanLiteral(_) => Ok(TypeInfo::Boolean),
                 TokenType::Identifier(_) => Ok(TypeInfo::Symbol),
-                _ => todo!("Not sure what to do here"),
+                _ => stop!(Generic => format!("ICE: Not sure what to do here: {}", a.syn.ty)),
             },
             // If we get back a generic quoted list, it can be any valid program
             // which is effectively the union of all constants
