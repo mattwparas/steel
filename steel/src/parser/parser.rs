@@ -418,6 +418,8 @@ impl<'a> Parser<'a> {
                                     Some(_) if self.quote_stack.len() == 1 => {
                                         // self.quote_stack.pop();
 
+                                        // println!("Inside here");
+
                                         match current_frame.first() {
                                             Some(ExprKind::Atom(Atom {
                                                 syn:
@@ -426,6 +428,8 @@ impl<'a> Parser<'a> {
                                                         ..
                                                     },
                                             })) => {
+                                                self.quote_stack.pop();
+
                                                 prev_frame.push(
                                                     ExprKind::try_from(current_frame).map_err(
                                                         |x| x.set_source(self.source_name.clone()),
@@ -576,6 +580,11 @@ mod parser_tests {
     use crate::parser::ast::ExprKind;
     use crate::parser::ast::{Begin, Define, If, LambdaFunction, Quote, Return};
 
+    #[test]
+    fn check_quote_parsing() {
+        println!("{:?}", Parser::parse("'(a b 'c)"));
+    }
+
     fn parses(s: &str) {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
         let a: Result<Vec<_>> = Parser::new(s, &mut cache).collect();
@@ -599,6 +608,11 @@ mod parser_tests {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache).collect();
         assert!(a.is_err());
+    }
+
+    #[test]
+    fn parses_make_struct() {
+        parses("(define make-struct (lambda (struct-name fields) (map (lambda (field) (list (quote define) (concat-symbols struct-name field) (quote (lambda (this) (vector-ref this 0))))) fields)))")
     }
 
     #[test]

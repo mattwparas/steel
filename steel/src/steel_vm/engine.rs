@@ -254,6 +254,17 @@ impl Engine {
         self.run_raw_program(program)
     }
 
+    pub(crate) fn run_raw_program_from_exprs(
+        &mut self,
+        exprs: Vec<ExprKind>,
+    ) -> Result<Vec<SteelVal>> {
+        let constants = self.constants();
+        let program = self
+            .compiler
+            .compile_executable_from_expressions(exprs, constants)?;
+        self.run_raw_program(program)
+    }
+
     pub fn compile_and_run_raw_program(&mut self, exprs: &str) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
         let program = self.compiler.compile_executable(exprs, None, constants)?;

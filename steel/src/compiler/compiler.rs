@@ -489,6 +489,14 @@ impl Compiler {
         hm
     }
 
+    pub fn compile_executable_from_expressions(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        constants: ImmutableHashMap<String, SteelVal>,
+    ) -> Result<RawProgramWithSymbols> {
+        self.compile_raw_program(exprs, constants)
+    }
+
     pub fn compile_executable(
         &mut self,
         expr_str: &str,
@@ -890,19 +898,20 @@ impl Compiler {
         let expanded_statements =
             struct_builders.extract_structs_for_executable(expanded_statements)?;
 
-        println!("---------------------------------------");
+        // TODO: Contract/Type Checking goes here
+        // println!("---------------------------------------");
 
-        let collector = GlobalContractCollector::collect_contracts(&expanded_statements);
+        // let collector = GlobalContractCollector::collect_contracts(&expanded_statements);
 
-        let mut checker = ContractChecker::new(collector);
+        // let mut checker = ContractChecker::new(collector);
 
-        if let Err(e) = checker.check(&expanded_statements) {
-            log::error!("{:?}", e);
-        }
+        // if let Err(e) = checker.check(&expanded_statements) {
+        //     log::error!("{:?}", e);
+        // }
 
         // println!("{:?}", collector.names().collect::<Vec<_>>());
 
-        println!("---------------------------------------");
+        // println!("---------------------------------------");
 
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
 

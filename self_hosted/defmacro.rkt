@@ -30,16 +30,38 @@
 
 (define program '((defmacro identity (lambda (x) x))
                   (defmacro other-identity (lambda (x) x))
-
                   (defmacro repeat-to-list (lambda (x) (list x x x x x x)))
+                  (defmacro make-struct (lambda (struct-name fields)
+                                          (cons 'begin
+                                                (map (lambda (field)
+                                                       (list 'define
+                                                             (concat-symbols struct-name '- (car field))
+                                                             (list 'lambda
+                                                                   '(this)
+                                                                   (list 'vector-ref 'this (car (cdr field))))))
+                                               (enumerate 0 '() fields)))))
 
                   (identity 10)
                   (identity 20)
                   (other-identity 30)
                   (define (identity-function x) x)))
 
+(define helpers '(
+                   (define (enumerate start accum lst)
+                    (if (empty? lst)
+                        (reverse accum)
+                        (enumerate (+ start 1)
+                                   (cons (list (car lst) start)
+                                         accum)
+                                   (cdr lst))))
+
+                   ))
+
+
 ;; This is going to be our engine
 (define *engine* (Engine::new))
+(run! *engine* helpers)
+
 
 (define partitioned-program (partition-list program defmacro?))
 
@@ -68,14 +90,14 @@
         [(empty? expression) => expression]
         [(list? expression) =>
                             (if (hashset-contains? macro-set (car expression))
-                                (expand-macros
-                                 (call-function-in-env engine (car expression) (cdr expression))
-                                 macro-set
-                                 engine)
+                                (begin
+                                  (displayln (cdr expression))
+                                  (expand-macros
+                                   (call-function-in-env engine (car expression) (cdr expression))
+                                   macro-set
+                                   engine))
                                 (map (lambda (expr) (expand-macros expr macro-set engine)) expression))]
         [else => expression]))
 
-(expand-macros '(repeat-to-list x) defmacro-name-set *engine*)
 
-
-;; (define expand-program )
+;; (expand-macros '(make-struct Applesauce (a b c)) defmacro-name-set *engine*)

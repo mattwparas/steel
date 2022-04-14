@@ -4,7 +4,7 @@ use std::{cell::RefCell, convert::TryFrom, rc::Rc};
 
 use im_lists::list::List;
 
-use crate::{parser::ast::ExprKind, rvals::Custom, SteelVal};
+use crate::{parser::ast::ExprKind, rerrs::ErrorKind, rvals::Custom, SteelErr, SteelVal};
 use crate::{parser::expander::LocalMacroManager, rvals::Result};
 use crate::{parser::parser::ParseError, steel_vm::engine::Engine};
 
@@ -32,6 +32,8 @@ impl EngineWrapper {
         if let SteelVal::ListV(list) = args {
             let arguments = list.into_iter().collect();
 
+            println!("Calling with arguments: {:?}", arguments);
+
             self.0
                 .borrow_mut()
                 .call_function_with_args(function, arguments)
@@ -48,10 +50,33 @@ impl EngineWrapper {
                 .compile_and_run_raw_program(expr.as_ref())
                 .map(|x| x.into()),
             SteelVal::ListV(list) => {
+                // let values = list
+                //     .iter()
+                //     .map(|x| {
+                //         ExprKind::try_from(x)
+                //             .map_err(|x| SteelErr::new(ErrorKind::ConversionError, x.to_string()))
+                //     })
+                //     .collect::<Result<Vec<ExprKind>>>()?;
+
+                // println!(
+                //     "Expressions: {:#?}",
+                //     values // values.iter().map(|x| x.to_string()).collect::<Vec<_>>()
+                // );
+
+                // Ok(self
+                //     .0
+                //     .borrow_mut()
+                //     .run_raw_program_from_exprs(values)?
+                //     .into_iter()
+                //     .collect::<List<_>>()
+                //     .into())
+
                 let values = list
                     .iter()
                     .map(|x| x.to_string())
                     .map(|x| {
+                        println!("Evaluating: {:?}", x.trim_start_matches('\''));
+
                         self.0
                             .borrow_mut()
                             .compile_and_run_raw_program(x.trim_start_matches('\''))

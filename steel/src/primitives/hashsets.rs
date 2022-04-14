@@ -77,7 +77,7 @@ impl HashSetOperations {
                 if key.is_hashable() {
                     Ok(SteelVal::BoolV(hm.contains(key)))
                 } else {
-                    stop!(TypeMismatch => "hash key not hashable!");
+                    stop!(TypeMismatch => "hash key not hashable!: {}", key);
                 }
             } else {
                 stop!(TypeMismatch => "set-contains? takes a hashmap")

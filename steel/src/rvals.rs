@@ -45,7 +45,7 @@ macro_rules! list {
     }};
 
     ( $($x:expr ,)* ) => {{
-        $crate::rvals::SteeVal::ListV(im_lists::list![$(
+        $crate::rvals::SteelVal::ListV(im_lists::list![$(
             $crate::rvals::IntoSteelVal::into_steelval($x).unwrap()
         )*])
     }};

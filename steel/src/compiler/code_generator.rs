@@ -587,7 +587,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_quote(&mut self, quote: &crate::parser::ast::Quote) -> Self::Output {
-        let converted = SteelVal::try_from(quote.expr.clone())?;
+        // let converted = SteelVal::try_from(quote.expr.clone())?;
+        let converted = SteelVal::try_from(crate::parser::ast::ExprKind::Quote(Box::new(quote.clone())))?;
+
         let idx = self.constant_map.add_or_get(converted);
         self.push(Instruction::new_push_const(idx));
 
@@ -1969,7 +1971,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
         what => {
-            // println!("getting here in the eval_atom");
+            println!("getting here in the eval_atom");
             stop!(UnexpectedToken => what; t.span)
         }
     }
