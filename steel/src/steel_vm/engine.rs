@@ -32,6 +32,13 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// Function to access a kernel level execution environment
+    /// Has access to primitives and syntax rules, but will not defer to a child
+    /// kernel in the compiler
+    pub(crate) fn new_kernel() -> Self {
+        Engine::new()
+    }
+
     /// Instantiates a raw engine instance. Includes no primitives or prelude.
     ///
     /// # Examples

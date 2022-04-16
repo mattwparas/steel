@@ -10,6 +10,7 @@ use crate::{
         },
         program::Program,
     },
+    parser::kernel::Kernel,
     steel_vm::contract_checker::{ContractChecker, GlobalContractCollector},
     values::structs::{StructBuilders, StructFuncBuilderConcrete},
 };
@@ -414,6 +415,7 @@ pub struct Compiler {
     pub(crate) macro_env: HashMap<String, SteelMacro>,
     module_manager: ModuleManager,
     opt_level: OptLevel,
+    kernel: Option<Kernel>,
 }
 
 impl Compiler {
@@ -429,6 +431,24 @@ impl Compiler {
             macro_env,
             module_manager,
             opt_level: OptLevel::Three,
+            kernel: None,
+        }
+    }
+
+    fn new_with_kernel(
+        symbol_map: SymbolMap,
+        constant_map: ConstantMap,
+        macro_env: HashMap<String, SteelMacro>,
+        module_manager: ModuleManager,
+        kernel: Kernel,
+    ) -> Compiler {
+        Compiler {
+            symbol_map,
+            constant_map,
+            macro_env,
+            module_manager,
+            opt_level: OptLevel::Three,
+            kernel: Some(kernel),
         }
     }
 

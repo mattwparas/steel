@@ -2,8 +2,7 @@
 ;; Evaluate them in a closed world vm - emit back the code that they generate. Run this step in the compilation process.
 
 ;; Accepts a defmacro expression and emits a define expression
-(define/contract (rewrite-defmacro define-expr)
-  (->/c list? list?)
+(define (rewrite-defmacro define-expr)
   (cons 'define (cdr define-expr)))
 
 ;; Check if the given value is in fact a def macro expression
@@ -14,19 +13,15 @@
 (define (extract-macro-name defmacro)
   (car (cdr defmacro)))
 
+(define (accumulate lst left right predicate)
+  (cond [(empty? lst) => (list (reverse left) (reverse right))]
+        [(predicate (car lst)) => (accumulate (cdr lst) (cons (car lst) left) right predicate)]
+        [else => (accumulate (cdr lst) left (cons (car lst) right) predicate)]))
 
 ;; Split a list into two distinct versions based on the predicate
 ;; The left list contains all true values
 (define (partition-list lst predicate)
-  (->/c list? (listof list?))
-  (define (accumulate lst left right predicate)
-    (cond [(empty? lst) => (list (reverse left) (reverse right))]
-          [(predicate (car lst)) => (accumulate (cdr lst) (cons (car lst) left) right predicate)]
-          [else => (accumulate (cdr lst) left (cons (car lst) right) predicate)]))
     (accumulate lst '() '() predicate))
-
-
-(displayln (rewrite-defmacro '(defmacro identity (lambda (x) x))))
 
 (define program '((defmacro identity (lambda (x) x))
                   (defmacro other-identity (lambda (x) x))
@@ -79,10 +74,10 @@
 (run! *engine* defmacro-list)
 
 
-;; Goes into the environment, and calls the given symbol with the arguments passed in as a list
-;; This is a bit spooky, but this effectively gives us an evaluation environment for macros
-(call-function-in-env *engine* 'identity (list
-                                          '(define x 10)))
+; ;; Goes into the environment, and calls the given symbol with the arguments passed in as a list
+; ;; This is a bit spooky, but this effectively gives us an evaluation environment for macros
+; (call-function-in-env *engine* 'identity (list
+;                                           '(define x 10)))
 
 
 (define (expand-macros expression macro-set engine)
