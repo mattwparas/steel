@@ -2,6 +2,7 @@ use crate::{
     compiler::passes::mangle::mangle_vars_with_prefix,
     parser::{
         ast::{Atom, ExprKind, List},
+        kernel::Kernel,
         parser::{ParseError, Parser, SyntaxObject},
         tokens::TokenType,
     },
@@ -66,6 +67,7 @@ impl ModuleManager {
     pub(crate) fn compile_main(
         &mut self,
         global_macro_map: &mut HashMap<String, SteelMacro>,
+        kernel: &mut Option<Kernel>,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
@@ -78,9 +80,6 @@ impl ModuleManager {
         // if a module then defines a function (blagh) that is used inside its scope, this would expand the macro in that scope
         // which we do not want
         let non_macro_expressions = extract_macro_defs(exprs, global_macro_map)?;
-
-        // This conditionally includes a module which implements WEBP support.
-        // #[cfg(feature = "modules")]
 
         let mut module_builder = ModuleBuilder::main(
             path,

@@ -423,6 +423,10 @@ impl<T: CustomType + Clone + 'static> AsRefMutSteelVal for T {
 //     fn from_steelval(val: &SteelVal) -> Result<
 // }
 
+thread_local! {
+    pub static MAGIC_STRUCT_SYMBOL: SteelVal = SteelVal::ListV(im_lists::list![SteelVal::SymbolV(Rc::from("StructMarker"))]);
+}
+
 pub struct TaggedValue {
     tag: Rc<str>,
     value: SteelVal,

@@ -4,7 +4,7 @@ use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
 use crate::rvals::Result;
 
-use super::ast::Atom;
+use super::{ast::Atom, kernel::Kernel};
 
 use std::collections::HashMap;
 
@@ -120,6 +120,147 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         {
             if let Some(m) = self.map.get(s) {
                 let expanded = m.expand(l.clone(), *sp)?;
+                self.changed = true;
+                return self.visit(expanded);
+            }
+        }
+
+        l.args = l
+            .args
+            .into_iter()
+            .map(|e| self.visit(e))
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(ExprKind::List(l))
+    }
+
+    fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+        stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
+    }
+
+    fn visit_set(&mut self, mut s: Box<super::ast::Set>) -> Self::Output {
+        s.variable = self.visit(s.variable)?;
+        s.expr = self.visit(s.expr)?;
+        Ok(ExprKind::Set(s))
+    }
+
+    fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
+        Ok(ExprKind::Require(s))
+        // stop!(Generic => "unexpected require statement during expansion"; s.location.span)
+    }
+
+    fn visit_callcc(&mut self, mut cc: Box<super::ast::CallCC>) -> Self::Output {
+        cc.expr = self.visit(cc.expr)?;
+        Ok(ExprKind::CallCC(cc))
+    }
+
+    fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
+        let mut visited_bindings = Vec::new();
+
+        for (binding, expr) in l.bindings {
+            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+        }
+
+        l.bindings = visited_bindings;
+        l.body_expr = self.visit(l.body_expr)?;
+
+        Ok(ExprKind::Let(l))
+    }
+}
+
+pub fn expand_kernel(expr: ExprKind, kernel: &mut Kernel) -> Result<ExprKind> {
+    KernelExpander {
+        map: kernel,
+        changed: false,
+    }
+    .visit(expr)
+}
+
+pub struct KernelExpander<'a> {
+    map: &'a mut Kernel,
+    pub(crate) changed: bool,
+}
+
+impl<'a> KernelExpander<'a> {
+    pub fn new(map: &'a mut Kernel) -> Self {
+        Self {
+            map,
+            changed: false,
+        }
+    }
+
+    pub fn expand(&mut self, expr: ExprKind) -> Result<ExprKind> {
+        self.visit(expr)
+    }
+}
+
+impl<'a> ConsumingVisitor for KernelExpander<'a> {
+    type Output = Result<ExprKind>;
+
+    fn visit_if(&mut self, mut f: Box<super::ast::If>) -> Self::Output {
+        f.test_expr = self.visit(f.test_expr)?;
+        f.then_expr = self.visit(f.then_expr)?;
+        f.else_expr = self.visit(f.else_expr)?;
+        Ok(ExprKind::If(f))
+    }
+
+    fn visit_define(&mut self, mut define: Box<super::ast::Define>) -> Self::Output {
+        define.body = self.visit(define.body)?;
+        Ok(ExprKind::Define(define))
+    }
+
+    fn visit_lambda_function(
+        &mut self,
+        mut lambda_function: Box<super::ast::LambdaFunction>,
+    ) -> Self::Output {
+        lambda_function.body = self.visit(lambda_function.body)?;
+        Ok(ExprKind::LambdaFunction(lambda_function))
+    }
+
+    fn visit_begin(&mut self, mut begin: super::ast::Begin) -> Self::Output {
+        begin.exprs = begin
+            .exprs
+            .into_iter()
+            .map(|e| self.visit(e))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(ExprKind::Begin(begin))
+    }
+
+    fn visit_return(&mut self, mut r: Box<super::ast::Return>) -> Self::Output {
+        r.expr = self.visit(r.expr)?;
+        Ok(ExprKind::Return(r))
+    }
+
+    fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
+        // quote.expr = self.visit(quote.expr)?;
+        Ok(ExprKind::Quote(quote))
+    }
+
+    fn visit_struct(&mut self, s: Box<super::ast::Struct>) -> Self::Output {
+        Ok(ExprKind::Struct(s))
+    }
+
+    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
+        stop!(Generic => "unexpected macro definition"; m.location.span)
+    }
+
+    fn visit_atom(&mut self, a: Atom) -> Self::Output {
+        Ok(ExprKind::Atom(a))
+    }
+
+    // TODO: This is not the best way of doing things, but for now we can accept it for the sake of progress
+    fn visit_list(&mut self, mut l: super::ast::List) -> Self::Output {
+        // todo!()
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(s),
+                    ..
+                },
+        })) = l.first()
+        {
+            if self.map.contains_macro(s) {
+                let expanded = self.map.expand(s, ExprKind::List(l.clone()))?;
                 self.changed = true;
                 return self.visit(expanded);
             }

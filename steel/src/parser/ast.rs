@@ -17,6 +17,16 @@ use crate::rvals::SteelVal::*;
 
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 
+pub(crate) trait AstTools {
+    fn pretty_print(&self);
+}
+
+impl AstTools for Vec<ExprKind> {
+    fn pretty_print(&self) {
+        println!("{:?}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ExprKind {
     Atom(Atom),
@@ -140,6 +150,15 @@ impl TryFrom<ExprKind> for SteelVal {
 
     fn try_from(e: ExprKind) -> std::result::Result<Self, Self::Error> {
         TryFromExprKindForSteelVal::try_from_expr_kind(e)
+    }
+}
+
+/// Sometimes you want a typed representation of the AST
+pub(crate) fn from_list_repr_to_ast(expr: ExprKind) -> Result<ExprKind, ParseError> {
+    if let ExprKind::List(l) = expr {
+        ExprKind::try_from(l.args)
+    } else {
+        Ok(expr)
     }
 }
 

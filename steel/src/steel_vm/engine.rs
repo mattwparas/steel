@@ -36,7 +36,21 @@ impl Engine {
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
     pub(crate) fn new_kernel() -> Self {
-        Engine::new()
+        let mut vm = Engine {
+            virtual_machine: VirtualMachineCore::new(),
+            compiler: Compiler::default(),
+            constants: None,
+        };
+
+        embed_primitives_without_io(&mut vm);
+
+        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+
+        for core in std::array::IntoIter::new(core_libraries) {
+            vm.parse_and_execute_without_optimizations(core).unwrap();
+        }
+
+        vm
     }
 
     /// Instantiates a raw engine instance. Includes no primitives or prelude.
@@ -52,7 +66,7 @@ impl Engine {
     pub fn new_raw() -> Self {
         Engine {
             virtual_machine: VirtualMachineCore::new(),
-            compiler: Compiler::default(),
+            compiler: Compiler::default_with_kernel(),
             constants: None,
         }
     }

@@ -10,7 +10,7 @@ use crate::{
         },
         program::Program,
     },
-    parser::kernel::Kernel,
+    parser::{expand_visitor::expand_kernel, kernel::Kernel},
     steel_vm::contract_checker::{ContractChecker, GlobalContractCollector},
     values::structs::{StructBuilders, StructFuncBuilderConcrete},
 };
@@ -452,6 +452,16 @@ impl Compiler {
         }
     }
 
+    pub fn default_with_kernel() -> Compiler {
+        Compiler::new_with_kernel(
+            SymbolMap::new(),
+            ConstantMap::new(),
+            HashMap::new(),
+            ModuleManager::default(),
+            Kernel::new(),
+        )
+    }
+
     pub fn default() -> Self {
         Compiler::new(
             SymbolMap::new(),
@@ -668,9 +678,12 @@ impl Compiler {
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
         #[cfg(feature = "modules")]
-        return self
-            .module_manager
-            .compile_main(&mut self.macro_env, exprs, path);
+        return self.module_manager.compile_main(
+            &mut self.macro_env,
+            &mut self.kernel,
+            exprs,
+            path,
+        );
 
         #[cfg(not(feature = "modules"))]
         self.module_manager
@@ -876,7 +889,7 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<RawProgramWithSymbols> {
-        let expanded_statements = self.expand_expressions(exprs, None)?;
+        let mut expanded_statements = self.expand_expressions(exprs, None)?;
 
         if log_enabled!(log::Level::Debug) {
             debug!(
@@ -886,6 +899,19 @@ impl Compiler {
                     .map(|x| x.to_string())
                     .collect::<Vec<_>>()
             );
+        }
+
+        // TODO: This needs to be moved into the expansion
+        // In order for this to make sense, the defmacro expansion needs to happen at the same phase as
+        // syntax rules expansion.
+        // Also, macro expansion needs to be cleaned up in general - right now lines are a little blurry, and they probably
+        // should happen strictly before the other kinds
+        if let Some(kernel) = &mut self.kernel {
+            // Crawl for the kernel level expansions
+            expanded_statements = expanded_statements
+                .into_iter()
+                .map(|x| expand_kernel(x, kernel))
+                .collect::<Result<Vec<_>>>()?;
         }
 
         let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;

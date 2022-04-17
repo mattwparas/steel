@@ -261,7 +261,7 @@ fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
         l.append_mut(r);
         Ok(SteelVal::ListV(l.clone()))
     } else {
-        stop!(TypeMismatch => "append expects two lists");
+        stop!(TypeMismatch => "append expects two lists, found: {:?} and {:?}", &args[0], &args[1]);
     }
 }
 
