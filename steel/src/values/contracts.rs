@@ -297,7 +297,7 @@ impl FunctionContract {
         let post_condition = if let SteelVal::Contract(c) = post_condition {
             c
         } else {
-            stop!(TypeMismatch => "function contract range expected a contract")
+            stop!(TypeMismatch => "function contract range expected a contract, found: {}", post_condition)
         };
 
         Ok(FunctionContract::new(pre_conditions, post_condition, None, None).into())
