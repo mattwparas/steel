@@ -6,11 +6,20 @@
                        accum)
                  (cdr lst))))
 
+
 ;; make-struct is a macro here
 (define make-struct (lambda (struct-name fields)
+                      (if (not (list? fields))
+                          (error! "make-struct expects a list of field names, found " fields)
+                          void)
+                      (if (not (symbol? struct-name))
+                          (error! "make-struct expects an identifier as the first argument, found " struct-name)
+                          void)
+
                       (cons 'begin
                             (append
                              (cons
+                              ;; `(define ,struct-name (lambda ,fields (vector __magic_struct_symbol__ (quote ,struct-name) ,@fields)))
                               ;; Constructor
                               ;; Can also add the contract here, requires having the predicate as well
                               (list 'define struct-name (list 'lambda fields
@@ -26,9 +35,12 @@
                                            '(make-function/c
                                              (make/c any/c 'any/c)
                                              (make/c boolean? 'boolean?))
-                                           '(lambda (this)
-                                              (if (vector? this)
-                                                  (eq? (vector-ref this 0) ___magic_struct_symbol___)
+                                           (list 'lambda '(this)
+                                              (list 'if '(vector? this)
+                                                  (list 'if 
+                                                      '(eq? (vector-ref this 0) ___magic_struct_symbol___)
+                                                      (list 'equal? '(vector-ref this 1) (list 'quote struct-name))
+                                                      #f)
                                                   #f))
                                            (list 'quote (concat-symbols struct-name '?))))
 

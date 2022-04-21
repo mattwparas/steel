@@ -90,8 +90,8 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
-        // quote.expr = self.visit(quote.expr)?;
+    fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
+        quote.expr = self.visit(quote.expr)?;
         Ok(ExprKind::Quote(quote))
     }
 
@@ -231,7 +231,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
+    fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
         // quote.expr = self.visit(quote.expr)?;
         Ok(ExprKind::Quote(quote))
     }
