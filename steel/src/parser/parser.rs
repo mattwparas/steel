@@ -223,6 +223,13 @@ pub struct Parser<'a> {
     source_name: Option<Rc<PathBuf>>,
 }
 
+enum ParsingContext {
+    Quote,
+    Unquote,
+    Quasiquote,
+    UnquoteSplicing,
+}
+
 impl<'a> Parser<'a> {
     // #[cfg(test)]
     pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {

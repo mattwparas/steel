@@ -25,3 +25,5 @@
 
 ;; TODO: Go _back_ to an implementation that just uses S-Expressions and thats it for internal
 ;; representation. Don't have special AST implementation other than in the core.
+;; Another solution that will get me part of the way there, is treating quasiquote like quote in the
+;; parser
