@@ -221,13 +221,23 @@ pub struct Parser<'a> {
     quote_stack: Vec<usize>,
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
+    context: Vec<ParsingContext>,
 }
 
+#[derive(Debug)]
 enum ParsingContext {
-    Quote,
-    Unquote,
-    Quasiquote,
-    UnquoteSplicing,
+    // Inside of a quote. Expressions should be parsed without being coerced into a typed variant of the AST
+    Quote(usize),
+    // Shortened version of a quote
+    QuoteTick(usize),
+    // Shorted version of quasiquote
+    QuasiquoteTick(usize),
+    // Inside of an unquote - expressions should actually be parsed as usual
+    Unquote(usize),
+    // Treat this like a normal quote
+    Quasiquote(usize),
+    // expressions should parsed as normal
+    UnquoteSplicing(usize),
 }
 
 impl<'a> Parser<'a> {
@@ -262,6 +272,7 @@ impl<'a> Parser<'a> {
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: None,
+            context: Vec::new(),
         }
     }
 
@@ -276,6 +287,7 @@ impl<'a> Parser<'a> {
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: Some(Rc::from(source_name)),
+            context: Vec::new(),
         }
     }
 
@@ -298,6 +310,8 @@ impl<'a> Parser<'a> {
     }
 
     fn construct_quote_vec(&mut self, val: ExprKind, span: Span) -> Vec<ExprKind> {
+        println!("Inside construct quote vec with: {:?}", val);
+
         let q = {
             let rc_val = TokenType::Quote;
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
@@ -354,6 +368,12 @@ impl<'a> Parser<'a> {
                             // quote_count += 1;
                             // self.quote_stack.push(current_frame.len());
                             self.shorthand_quote_stack.push(current_frame.len());
+
+                            // println!("Entering context: Quote Tick in read from tokens");
+
+                            self.context
+                                .push(ParsingContext::QuoteTick(current_frame.len()));
+
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
@@ -361,27 +381,58 @@ impl<'a> Parser<'a> {
                             // self.quote_stack.pop();
                             self.shorthand_quote_stack.pop();
 
+                            // println!(
+                            //     "Exiting Context: {:?} in read from tokens",
+                            //     self.context.pop()
+                            // );
+
+                            self.context.pop();
+
                             current_frame.push(quote_inner?);
                         }
                         TokenType::Unquote => {
+                            // println!("Entering context: Unquote");
+
+                            self.context
+                                .push(ParsingContext::Unquote(current_frame.len()));
+
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_unquote(x, token.span));
+
+                            self.context.pop();
+                            // println!("Exiting Context: {:?}", self.context.pop());
                             current_frame.push(quote_inner?);
                         }
                         TokenType::QuasiQuote => {
+                            // println!("Entering context: Quasiquote");
+
+                            self.context
+                                .push(ParsingContext::QuasiquoteTick(current_frame.len()));
+
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_quasiquote(x, token.span));
+
+                            self.context.pop();
+                            // println!("Exiting Context: {:?}", self.context.pop());
                             current_frame.push(quote_inner?);
                         }
                         TokenType::UnquoteSplice => {
+                            // println!("Entering context: UnquoteSplicing");
+
+                            self.context
+                                .push(ParsingContext::UnquoteSplicing(current_frame.len()));
+
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_unquote_splicing(x, token.span));
+
+                            self.context.pop();
+                            // println!("Exiting Context: {:?}", self.context.pop());
                             current_frame.push(quote_inner?);
                         }
                         TokenType::OpenParen => {
@@ -389,6 +440,188 @@ impl<'a> Parser<'a> {
                             current_frame = Vec::new();
                         }
                         TokenType::CloseParen => {
+                            // This is the match that we'll want to move inside the below stack.pop() match statement
+                            // As we close the current context, we check what our current state is -
+
+                            if let Some(mut prev_frame) = stack.pop() {
+                                match self.context.last() {
+                                    // TODO: Change this -> This should really be just Some(ParsingContext::Quote)
+                                    // If we have _anything_ then we should check if we need to parse it differently. If we're at the last_quote_index,
+                                    // then we can pop it off inside there.
+                                    Some(ParsingContext::Quote(last_quote_index))
+                                    | Some(ParsingContext::Quasiquote(last_quote_index)) => {
+                                        // println!(
+                                        //     "Q/QQ: Stack length: {:?}, last_quote_index: {:?}",
+                                        //     stack.len(),
+                                        //     last_quote_index
+                                        // );
+
+                                        // let last_quote_index = *last_quote_index;
+
+                                        if stack.len() <= *last_quote_index {
+                                            self.context.pop();
+                                            // println!("Exiting Context: {:?}", self.context.pop());
+                                        }
+
+                                        // println!("Inside here!");
+                                        // println!("Frame: {:?}", current_frame);
+
+                                        match current_frame.first() {
+                                            Some(ExprKind::Atom(Atom {
+                                                syn:
+                                                    SyntaxObject {
+                                                        ty: TokenType::Quote,
+                                                        ..
+                                                    },
+                                            })) => {
+                                                match self.context.last() {
+                                                    Some(
+                                                        ParsingContext::Quasiquote(_)
+                                                        | ParsingContext::QuasiquoteTick(_)
+                                                        | ParsingContext::Quote(_)
+                                                        | ParsingContext::QuoteTick(_),
+                                                    ) => prev_frame.push(ExprKind::List(
+                                                        List::new(current_frame),
+                                                    )),
+                                                    _ => {
+                                                        prev_frame.push(
+                                                            ExprKind::try_from(current_frame)
+                                                                .map_err(|x| {
+                                                                    x.set_source(
+                                                                        self.source_name.clone(),
+                                                                    )
+                                                                })?,
+                                                        );
+                                                    }
+                                                }
+
+                                                // if  {
+                                                //     // println!("Exiting Context: {:?}", self.context.pop());
+
+                                                //     println!("Converting to quote");
+
+                                                //     prev_frame.push(
+                                                //         ExprKind::try_from(current_frame).map_err(
+                                                //             |x| {
+                                                //                 x.set_source(
+                                                //                     self.source_name.clone(),
+                                                //                 )
+                                                //             },
+                                                //         )?,
+                                                //     );
+                                                // } else {
+                                                //     println!("Not converting to quote");
+
+                                                //     prev_frame.push(ExprKind::List(List::new(
+                                                //         current_frame,
+                                                //     )))
+                                                // }
+                                            }
+                                            _ => {
+                                                // println!("Converting to list");
+                                                // println!("Context here: {:?}", self.context);
+                                                prev_frame
+                                                    .push(ExprKind::List(List::new(current_frame)))
+                                            }
+                                        }
+                                    }
+
+                                    Some(ParsingContext::QuoteTick(last_quote_index))
+                                    | Some(ParsingContext::QuasiquoteTick(last_quote_index)) => {
+                                        if stack.len() == *last_quote_index && *last_quote_index > 1
+                                        {
+                                            self.context.pop();
+                                            // println!("Exiting Context: {:?}", self.context.pop());
+                                        }
+
+                                        // println!("QuoteTick: Inside here!");
+                                        // println!("QuoteTick: Frame: {:?}", current_frame);
+
+                                        match current_frame.first() {
+                                            Some(ExprKind::Atom(Atom {
+                                                syn:
+                                                    SyntaxObject {
+                                                        ty: TokenType::Quote,
+                                                        ..
+                                                    },
+                                            })) => {
+                                                // println!("Converting to quote inside quote tick");
+                                                prev_frame.push(
+                                                    ExprKind::try_from(current_frame).map_err(
+                                                        |x| x.set_source(self.source_name.clone()),
+                                                    )?,
+                                                );
+                                            }
+                                            _ => {
+                                                // println!("Converting to list inside quote tick");
+                                                prev_frame
+                                                    .push(ExprKind::List(List::new(current_frame)))
+                                            }
+                                        }
+                                    }
+
+                                    Some(ParsingContext::Unquote(last_quote_index))
+                                    | Some(ParsingContext::UnquoteSplicing(last_quote_index)) => {
+                                        // println!(
+                                        //     "UQ/UQS: Stack length: {:?}, last_quote_index: {:?}",
+                                        //     stack.len(),
+                                        //     last_quote_index
+                                        // );
+
+                                        if stack.len() <= *last_quote_index {
+                                            // println!("Exiting Context: {:?}", self.context.pop());
+                                            self.context.pop();
+                                        }
+
+                                        prev_frame.push(
+                                            ExprKind::try_from(current_frame).map_err(|x| {
+                                                x.set_source(self.source_name.clone())
+                                            })?,
+                                        );
+                                    }
+
+                                    // Else case, just go ahead and assume it is a normal frame
+                                    _ => prev_frame.push(
+                                        ExprKind::try_from(current_frame)
+                                            .map_err(|x| x.set_source(self.source_name.clone()))?,
+                                    ),
+                                }
+
+                                // Reinitialize current frame here
+                                current_frame = prev_frame;
+                            } else {
+                                // println!("Else case: {:?}", current_frame);
+                                // println!("Context: {:?}", self.context);
+
+                                match self.context.last() {
+                                    Some(ParsingContext::QuoteTick(_))
+                                    | Some(ParsingContext::QuasiquoteTick(_)) => {
+                                        return Ok(ExprKind::List(List::new(current_frame)));
+                                    }
+                                    _ => {
+                                        return ExprKind::try_from(current_frame)
+                                            .map_err(|x| x.set_source(self.source_name.clone()))
+                                    }
+                                }
+
+                                // if self.context.last().is_some() {
+                                //     println!(
+                                //         "Context at this point before dumping to list: {:?}",
+                                //         self.context
+                                //     );
+                                //     return Ok(ExprKind::List(List::new(current_frame)));
+                                // } else {
+                                //     println!(
+                                //         "Context at this point before turning into typed ast: {:?}",
+                                //         self.context
+                                //     );
+                                //     return ExprKind::try_from(current_frame)
+                                //         .map_err(|x| x.set_source(self.source_name.clone()));
+                                // }
+                            }
+
+                            /*
+
                             if let Some(mut prev_frame) = stack.pop() {
                                 match self.quote_stack.last() {
                                     Some(last_quote_index)
@@ -506,12 +739,41 @@ impl<'a> Parser<'a> {
                                     }
                                 }
                             }
+
+                            */
                         }
 
                         _ => {
                             if let TokenType::Quote = &token.ty {
                                 // self.quote_stack.push(current_frame.len());
                                 self.quote_stack.push(stack.len());
+                            }
+
+                            // Mark what context we're inside with the context stack:
+                            // This only works when its the first argument - check the function call in open paren?
+                            if current_frame.is_empty() {
+                                match &token.ty {
+                                    TokenType::Quote => {
+                                        self.context.push(ParsingContext::Quote(stack.len()))
+                                    }
+                                    TokenType::Identifier(ident) if ident.as_str() == "unquote" => {
+                                        self.context.push(ParsingContext::Unquote(stack.len()))
+                                    }
+                                    TokenType::Identifier(ident)
+                                        if ident.as_str() == "quasiquote" =>
+                                    {
+                                        self.context.push(ParsingContext::Quasiquote(stack.len()))
+                                    }
+                                    TokenType::Identifier(ident)
+                                        if ident.as_str() == "unquote-splicing" =>
+                                    {
+                                        self.context
+                                            .push(ParsingContext::UnquoteSplicing(stack.len()))
+                                    }
+                                    _ => {}
+                                }
+
+                                // println!("Context on application: {:?}", self.context);
                             }
 
                             // println!("{}", token);
@@ -535,6 +797,7 @@ impl<'a> Parser<'a> {
 impl<'a> Iterator for Parser<'a> {
     type Item = Result<ExprKind>;
 
+    // TODO -> put the
     fn next(&mut self) -> Option<Self::Item> {
         // self.shorthand_quote_stack = Vec::new();
         // self.quote_stack = Vec::new();
@@ -545,6 +808,9 @@ impl<'a> Iterator for Parser<'a> {
                 // See if this does the job
                 self.shorthand_quote_stack.push(0);
 
+                // println!("Entering Context: Quote Tick");
+                self.context.push(ParsingContext::QuoteTick(0));
+
                 let value = self
                     .next()
                     .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
@@ -552,27 +818,64 @@ impl<'a> Iterator for Parser<'a> {
 
                 self.shorthand_quote_stack.pop();
 
+                self.context.pop();
+
+                // println!("Exiting context: {:?}", self.context.pop());
+                // println!("Result: {:?}", value);
+
                 match value {
                     Ok(v) => ExprKind::try_from(v),
                     Err(e) => Err(e),
                 }
             }
-            TokenType::Unquote => self
-                .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                .map(|x| self.construct_unquote(x, res.span)),
-            TokenType::UnquoteSplice => self
-                .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                .map(|x| self.construct_unquote_splicing(x, res.span)),
-            TokenType::QuasiQuote => self
-                .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                .map(|x| self.construct_quasiquote(x, res.span)),
+            TokenType::Unquote => {
+                // println!("Entering Context: Unquote");
+                self.context.push(ParsingContext::Unquote(0));
+
+                let value = self
+                    .next()
+                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                    .map(|x| self.construct_unquote(x, res.span));
+
+                self.context.pop();
+                // println!("Exiting context: {:?}", self.context.pop());
+
+                value
+            }
+            TokenType::UnquoteSplice => {
+                // println!("Entering Context: Unquotesplicing");
+                self.context.push(ParsingContext::UnquoteSplicing(0));
+
+                let value = self
+                    .next()
+                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                    .map(|x| self.construct_unquote_splicing(x, res.span));
+
+                self.context.pop();
+                // println!("Exiting context: {:?}", self.context.pop());
+
+                value
+            }
+            TokenType::QuasiQuote => {
+                // println!("Entering Context: Quasiquote");
+                self.context.push(ParsingContext::QuasiquoteTick(0));
+
+                let value = self
+                    .next()
+                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                    .map(|x| self.construct_quasiquote(x, res.span));
+
+                // println!("{:?}", self.context.pop());
+
+                self.context.pop();
+                // println!("Exiting context: {:?}", self.context.pop());
+
+                value
+            }
             TokenType::OpenParen => self.read_from_tokens(),
             TokenType::CloseParen => Err(ParseError::Unexpected(
                 TokenType::CloseParen,
-                self.source_name.clone().clone(),
+                self.source_name.clone(),
             )),
             TokenType::Error => Err(tokentype_error_to_parse_error(&res)),
             _ => Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res)))),
@@ -620,6 +923,44 @@ mod parser_tests {
     #[test]
     fn parses_make_struct() {
         parses("(define make-struct (lambda (struct-name fields) (map (lambda (field) (list (quote define) (concat-symbols struct-name field) (quote (lambda (this) (vector-ref this 0))))) fields)))")
+    }
+
+    #[test]
+    fn parses_quasiquote() {
+        parses(r#"(quasiquote ((unquote x) xs ...)) "#);
+    }
+
+    #[test]
+    fn parse_syntax_rules() {
+        parses(
+            r#"
+            (syntax-rules (unquote unquote-splicing)
+              ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+              ((quasiquote ((unquote-splicing x)))        (append (list x) '()))
+              ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
+              ((quasiquote (unquote x))                 x)
+              ((quasiquote (x))                          '(x))
+              ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
+              ((quasiquote x)                           'x))
+            "#,
+        );
+    }
+
+    #[test]
+    fn parse_define_syntax() {
+        parses(
+            r#"
+        (define-syntax quasiquote
+            (syntax-rules (unquote unquote-splicing)
+              ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+              ((quasiquote ((unquote-splicing x)))        (append (list x) '()))
+              ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
+              ((quasiquote (unquote x))                 x)
+              ((quasiquote (x))                          '(x))
+              ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
+              ((quasiquote x)                           'x)))
+        "#,
+        );
     }
 
     #[test]

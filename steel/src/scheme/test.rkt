@@ -1,11 +1,16 @@
+; #lang racket
+
 (define-syntax quasiquote
   (syntax-rules (unquote unquote-splicing)
+    ; ((quasiquote (quote (unquote x)))                 (quote (quasiquote (unquote x))))
+    ((quasiquote (unquote x))                         x)
+    ; ((quasiquote ((unquote x) xs))              (cons x (quasiquote xs)))
     ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
-    ((quasiquote ((unquote-splicing x)))        (append (list x) '()))
+    ((quasiquote ((unquote-splicing x)))        (append x '()))
     ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
-    ((quasiquote (unquote x))                 x)
-    ((quasiquote (x))                          '(x))
+    ; ((quasiquote (x))                          '(x))
     ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
+    ; ((quasiquote (quote (unquote x)))          (quote x))
     ((quasiquote x)                           'x)))
 
 

@@ -73,7 +73,10 @@ impl FlatContractExt for FlatContract {
                 func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => ctx.call_with_one_arg(closure, arg.clone()),
-            _ => stop!(TypeMismatch => "contract expected a function"; *cur_inst_span),
+            SteelVal::ContractedFunction(c) => c.apply(vec![arg.clone()], cur_inst_span, ctx),
+            _ => {
+                stop!(TypeMismatch => format!("contract expected a function, found: {:?}", self.predicate()); *cur_inst_span)
+            }
         }?;
 
         if output.is_truthy() {

@@ -19,15 +19,15 @@
                       (cons 'begin
                             (append
                              (cons
-                              ;; `(define ,struct-name (lambda ,fields (vector __magic_struct_symbol__ (quote ,struct-name) ,@fields)))
+                              `(define ,struct-name (lambda ,fields (vector ___magic_struct_symbol___ (quote ,struct-name) ,@fields)))
                               ;; Constructor
                               ;; Can also add the contract here, requires having the predicate as well
-                              (list 'define struct-name (list 'lambda fields
-                                                              (append (list
-                                                                       'vector
-                                                                       ;; This is the magic tag that we use to check if this is an actual vector or not
-                                                                       '___magic_struct_symbol___
-                                                                       (list 'quote struct-name)) fields)))
+                              ; (list 'define struct-name (list 'lambda fields
+                              ;                                 (append (list
+                              ;                                          'vector
+                              ;                                          ;; This is the magic tag that we use to check if this is an actual vector or not
+                              ;                                          '___magic_struct_symbol___
+                              ;                                          (list 'quote struct-name)) fields)))
                               ;; TODO: predicate goes here
                               (cons
                                (list 'define (concat-symbols struct-name '?)
@@ -70,5 +70,5 @@
                                                   '(make/c any/c 'any/c))
                                                 (list 'lambda '(this) (list 'vector-ref 'this (car (cdr field))))
                                                 (list 'quote (concat-symbols struct-name '- (car field))))))
-                                    (enumerate 1 '() fields)))
+                                    (enumerate 2 '() fields)))
                             )))
