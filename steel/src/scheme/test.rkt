@@ -62,3 +62,23 @@
 ;; representation. Don't have special AST implementation other than in the core.
 ;; Another solution that will get me part of the way there, is treating quasiquote like quote in the
 ;; parser
+
+(define (enumerate start accum lst)
+  (if (empty? lst)
+      (reverse accum)
+      (enumerate (+ start 1)
+                 (cons (list (car lst) start)
+                       accum)
+                 (cdr lst))))
+
+(map (lambda (field)
+                (let ((function-name (concat-symbols 'set- struct-name '- (car fields) '!))
+                      (pred-name (concat-symbols struct-name '?)))
+                  `(define ,function-name
+                     (bind/c (make-function/c
+                              (make/c ,pred-name (quote ,pred-name))
+                              (make/c any/c 'any/c)
+                              (make/c any/c 'any/c))
+                             (lambda (this value) (vector-set! this ,(car (cdr field)) value))
+                             (quote ,function-name)))))
+              (enumerate 2 '() fields))

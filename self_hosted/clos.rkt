@@ -1,37 +1,9 @@
-;; '__object__ => refers to the class definition
-;; '__instance__ => refers to an instance of the class
-
 ;; ---------------------------- Class Object definitions --------------------------------------------
 
-;; Class objects are defined as vectors with the following form:
-;; mut-vec['ClassObject symbol? (listof class-object?) (listof symbol) (listof functions)]
-(define (class-object? object)
-  (and (mutable-vector? object) (equal? 'ClassObject (mut-vector-ref object 0))))
+(make-struct Class-Object (name parents interfaces fields methods))
+(make-struct Interface (name methods))
+(make-struct Class-Instance (class-object fields))
 
-;; immutable-vec['__instance__ class-object? mutable-vector]
-(define (class-instance? object)
-  (and (vector? object) (equal? '__instance__ (vector-ref object 0))))
-
-;; listof('__interface__ symbol)
-(define (interface? object)
-  (and (list? object) (equal? (car object) '__interface__)))
-
-;; Interfaces contain:
-;; A name, which is required to be a symbol
-;; A list of method names in which the child class _must_ implement.
-;; TODO: Here is where contracts might be an excellent thing to add
-;; something like the contracts are attached to the methods on the class
-(define/contract (Interface name required-methods)
-  (->/c symbol? (listof symbol?) interface?)
-  (list '__interface__ name required-methods))
-
-(define/contract (Interface-name interface)
-  (->/c interface? symbol?)
-  (list-ref interface 1))
-
-(define/contract (Interface-methods interface)
-  (->/c interface? (listof symbol?))
-  (list-ref interface 2))
 
 (define (list-subset? left right)
   (hashset-subset? (list->hashset left)
@@ -46,7 +18,7 @@
 ;; Here we don't restrict the hash map of symbol -> function, but rather will restrict it on the
 ;; function when adding the methods.
 (define/contract (Class name parents interfaces fields methods)
-  (->/c symbol? (listof class-object?) (listof interface?) (listof symbol?) hash? class-object?)
+  (->/c symbol? (listof Class-Object?) (listof Interface?) (listof symbol?) hash? Class-Object?)
 
   (unless (list-subset?
            ;; Collect the list of required methods for the given interfaces
@@ -57,14 +29,14 @@
            (hash-keys->list methods))
     (error! "Not all required methods are implemented for the given interfaces"))
 
-  (mutable-vector 'ClassObject
-                  name
-                  parents
-                  interfaces
-                  ;; Explicitly go collect the fields to flatten into this class given the
-                  ;; class hierarchy
-                  (combine-local-and-parent-fields fields parents)
-                  methods))
+  (Class-Object
+   name
+   parents
+   interfaces
+   ;; Explicitly go collect the fields to flatten into this class given the
+   ;; class hierarchy
+   (combine-local-and-parent-fields fields parents)
+   methods))
 
 (define (contains-duplicates? lst)
   (not
@@ -76,7 +48,7 @@
 
 (define (collect-fields list-of-class-objects)
   (transduce list-of-class-objects
-             (flat-mapping Class-fields)
+             (flat-mapping Class-Object-fields)
              (into-list)))
 
 (define (combine-local-and-parent-fields local-fields list-of-class-objects)
@@ -88,31 +60,6 @@
         appended)))
 
 
-;; Set up some accessors for the class object.
-;; These all require having an instance of a class object
-(define/contract (Class-name self)
-  (->/c class-object? symbol?)
-  (mut-vector-ref self 1))
-
-(define/contract (Class-parents self)
-  (->/c class-object? list?)
-  (mut-vector-ref self 2))
-
-(define/contract (Class-interfaces self)
-  (->/c class-object? (listof interface?))
-  (mut-vector-ref self 3))
-
-(define/contract (Class-fields self)
-  (->/c class-object? list?)
-  (mut-vector-ref self 4))
-
-(define/contract (Class-methods self)
-  (->/c class-object? hash?)
-  (mut-vector-ref self 5))
-
-;; Macro to just expand and get the index without having to update all usages
-(define-syntax CLASS_METHODS (syntax-rules () [(CLASS_METHODS) 5]))
-
 
 ;; -----------------------------------------------------------------------------------------------------
 
@@ -121,12 +68,12 @@
 ;; This can also occur in the root definition of the object in the hash, but the contract
 ;; won't be checked there at the moment TODO
 (define/contract (define-method class-object name method)
-  (->/c class-object? symbol? function? any/c)
-  (let ((methods (Class-methods class-object)))
-    (vector-set! class-object (CLASS_METHODS) (hash-insert methods name method))))
+  (->/c Class-Object? symbol? function? any/c)
+  (let ((methods (Class-Object-methods class-object)))
+    (set-Class-Object-methods! class-object (hash-insert methods name method))))
 
 (define (resolve-parent-method class-object name)
-  (let ((possible-methods (map (lambda (x) (get-method x name)) (Class-parents class-object))))
+  (let ((possible-methods (map (lambda (x) (get-method x name)) (Class-Object-parents class-object))))
     (if (equal? 1 (length possible-methods))
         (car possible-methods)
         (error! "Unable to resolve the method on the class instance"))))
@@ -136,9 +83,9 @@
 ;; one that it finds. If there are multiple candidates, we bail and error out since we can't determine
 ;; which method we intended to call.
 (define/contract (get-method class-object name)
-  (->/c class-object? symbol? function?)
+  (->/c Class-Object? symbol? function?)
   (let ((local-method (-> class-object
-                          (Class-methods)
+                          (Class-Object-methods)
                           (hash-try-get name))))
     ;; If _this_ class object contains the method, then we return this method
     ;; This way we always select the correct method in the class hierarchy
@@ -150,7 +97,7 @@
 
 ;; Attempt to resolve the method on the parent class to this class objects
 (define/contract (get-super-method class-object name)
-  (->/c class-object? symbol? function?)
+  (->/c Class-Object? symbol? function?)
   (resolve-parent-method class-object name))
 
 (define/contract (position? lst value)
@@ -165,62 +112,62 @@
 
 ;; Map the given field name to an index in the class' slot
 (define/contract (%get-slot-idx class-object field-name)
-  (->/c class-object? symbol? integer?)
+  (->/c Class-Object? symbol? integer?)
   (-> class-object
-      (Class-fields)
+      (Class-Object-fields)
       (position? field-name)))
 
 ;; This returns whatever value is found in the slot
 ;; This _could_ be any value. TODO: find a way to bind a contract to a slot
 (define/contract (get-slot class-instance field-name)
-  (->/c class-instance? symbol? any/c)
-  (mut-vector-ref (vector-ref class-instance 2)
-                  (%get-slot-idx (vector-ref class-instance 1) field-name)))
+  (->/c Class-Instance? symbol? any/c)
+  (mut-vector-ref (Class-Instance-fields class-instance)
+                  (%get-slot-idx (Class-Instance-class-object class-instance) field-name)))
 
 ;; Sets the slot in the class instance found a `field-name` to `value`
 ;; TODO: make the contract be dependent to have the result match the value's contract
 (define/contract (set-slot! class-instance field-name value)
-  (->/c class-instance? symbol? any/c any/c)
+  (->/c Class-Instance? symbol? any/c any/c)
   (vector-set!
-   (vector-ref class-instance 2)
+   (Class-Instance-fields class-instance)
    ;; Get the slot index -> maps the field name to the index in the vector
-   (%get-slot-idx (vector-ref class-instance 1) field-name)
+   (%get-slot-idx (Class-Instance-class-object class-instance) field-name)
    value))
 
 ;; Instances should be represented in memory (for now) just as tagged vectors
 ;; Each of the fields will be zero'd out
 (define/contract (%allocate-instance class-object)
-  (->/c class-object? class-instance?)
+  (->/c Class-Object? Class-Instance?)
   ;; We can just use a normal vector here, not a mutable vector
-  (vector '__instance__
+  (Class-Instance
           ;; Reference to the class object here
           class-object
           ;; Fields as a mutable vector
           ;; Name resolution should be done via %get-slot method
           (apply mutable-vector (map (lambda (x) void)
-                                     (Class-fields class-object)))))
+                                     (Class-Object-fields class-object)))))
 
 ;; Get the method on the class object denoted by the method name
 ;; and call it given the arguments here
 ;; TODO: figure out contracts for multi arity functions
 (define (call class-instance method-name . args)
-  (apply (get-method (vector-ref class-instance 1) method-name)
+  (apply (get-method (Class-Instance-class-object class-instance) method-name)
          ;; The instance is always an implicit first argument, and as such gets
          ;; cons onto the first of the arguments to call the function
          (cons class-instance args)))
 
 ;; Same as above, calls the method on the nearest parent object
 (define (call-super class-instance method-name . args)
-  (apply (get-super-method (vector-ref class-instance 1) method-name)
+  (apply (get-super-method (Class-Instance-class-object class-instance) method-name)
          (cons class-instance args)))
 
 (define/contract (class-instance-name class-instance)
-  (->/c class-instance? symbol?)
-  (Class-name (vector-ref class-instance 1)))
+  (->/c Class-Instance? symbol?)
+  (Class-Object-name (Class-Instance-class-object class-instance)))
 
 ;; TODO -> check if object implements interface
-;; (define/contract (class-implements-interface? class-instance interface)
-;;   (->/c class-object? interface? boolean?)
+;; (define/contract (class-implements-Interface? class-instance interface)
+;;   (->/c Class-Object? Interface? boolean?)
 ;;   (member? interface
 ;;
 
