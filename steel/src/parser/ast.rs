@@ -1551,8 +1551,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                             continue;
                                         } else {
                                             return Err(ParseError::SyntaxError(
-                                                "lambda function expects a list of identifiers"
-                                                    .to_string(),
+                                                format!("lambda function expects a list of identifiers, found: {}", List::new(args)),
                                                 syn.span,
                                                 None,
                                             ));
@@ -1601,8 +1600,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     // This should be fairly trivial in this case since we can just put the
                                     // first thing into a vec for the lambda node
                                     Err(ParseError::SyntaxError(
-                                        "lambda function expected a list of identifiers"
-                                            .to_string(),
+                                        format!("lambda function expected a list of identifiers, found: {:?}", arguments),
                                         syn.span,
                                         None,
                                     ))

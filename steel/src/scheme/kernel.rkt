@@ -21,7 +21,6 @@
                              (cons
                               `(define ,struct-name (lambda ,fields (vector ___magic_struct_symbol___ (quote ,struct-name) ,@fields)))
                               ;; Constructor
-                              ;; Can also add the contract here, requires having the predicate as well
                               ; (list 'define struct-name (list 'lambda fields
                               ;                                 (append (list
                               ;                                          'vector
@@ -30,19 +29,27 @@
                               ;                                          (list 'quote struct-name)) fields)))
                               ;; TODO: predicate goes here
                               (cons
-                               (list 'define (concat-symbols struct-name '?)
-                                     (list 'bind/c
-                                           '(make-function/c
-                                             (make/c any/c 'any/c)
-                                             (make/c boolean? 'boolean?))
-                                           (list 'lambda '(this)
-                                              (list 'if '(vector? this)
-                                                  (list 'if 
-                                                      '(eq? (vector-ref this 0) ___magic_struct_symbol___)
-                                                      (list 'equal? '(vector-ref this 1) (list 'quote struct-name))
-                                                      #f)
-                                                  #f))
-                                           (list 'quote (concat-symbols struct-name '?))))
+                               `(define ,(concat-symbols struct-name '?) 
+                                    (bind/c (make-function/c (make/c any/c 'any/c) (make/c boolean? 'boolean?))
+                                      (lambda (this) (if (vector? this)
+                                                         (if (eq? (vector-ref this 0) ___magic_struct_symbol___)
+                                                             (equal? (vector-ref this 1) (quote ,struct-name))
+                                                             #f)
+                                                        #f))
+                                      (quote ,(concat-symbols struct-name '?))))
+                              ;  (list 'define (concat-symbols struct-name '?)
+                              ;        (list 'bind/c
+                              ;              '(make-function/c
+                              ;                (make/c any/c 'any/c)
+                              ;                (make/c boolean? 'boolean?))
+                              ;              (list 'lambda '(this)
+                              ;                 (list 'if '(vector? this)
+                              ;                     (list 'if 
+                              ;                         '(eq? (vector-ref this 0) ___magic_struct_symbol___)
+                              ;                         (list 'equal? '(vector-ref this 1) (list 'quote struct-name))
+                              ;                         #f)
+                              ;                     #f))
+                              ;              (list 'quote (concat-symbols struct-name '?))))
 
                                (list)
 
@@ -59,16 +66,39 @@
 
                               )
 
+                             ;; Getters here
+                             (map (lambda (field)
+                                    (let ((function-name (concat-symbols struct-name '- (car field)))
+                                          (pred-name (concat-symbols struct-name '?)))
+                                      `(define ,function-name
+                                         (bind/c (make-function/c
+                                                  (make/c ,pred-name (quote ,pred-name))
+                                                  (make/c any/c 'any/c))
+                                                 (lambda (this) (vector-ref this ,(car (cdr field))))
+                                                 (quote ,function-name)))))
+                                  (enumerate 2 '() fields)))
+
+
+
+
+                                   ;; `(define ,(concat-symbols struct-name '- (car field))
+                                  ;;     (bind/c (make-function/c
+                                  ;;              (make/c ,(concat-symbols struct-name '?) (quote ,(concat-symbols struct-name '?)))
+                                  ;;              (make/c any/c 'any/c))
+                                  ;;             (lambda (this) (vector-ref this ,(car (cdr field))))
+                                  ;;             (quote ,(concat-symbols struct-name '- (car field))))))
+                                  ;; (enumerate 2 '() fields)))
+
 
                              ;; Getters go here
-                             (map (lambda (field)
-                                    (list 'define
-                                          (concat-symbols struct-name '- (car field))
-                                          (list 'bind/c
-                                                (list 'make-function/c
-                                                  (list 'make/c (concat-symbols struct-name '?) (list 'quote (concat-symbols struct-name '?)))
-                                                  '(make/c any/c 'any/c))
-                                                (list 'lambda '(this) (list 'vector-ref 'this (car (cdr field))))
-                                                (list 'quote (concat-symbols struct-name '- (car field))))))
-                                    (enumerate 2 '() fields)))
+                             ;; (map (lambda (field)
+                             ;;        (list 'define
+                             ;;              (concat-symbols struct-name '- (car field))
+                             ;;              (list 'bind/c
+                             ;;                    (list 'make-function/c
+                             ;;                      (list 'make/c (concat-symbols struct-name '?) (list 'quote (concat-symbols struct-name '?)))
+                             ;;                      '(make/c any/c 'any/c))
+                             ;;                    (list 'lambda '(this) (list 'vector-ref 'this (car (cdr field))))
+                             ;;                    (list 'quote (concat-symbols struct-name '- (car field))))))
+                             ;;        (enumerate 2 '() fields)))
                             )))

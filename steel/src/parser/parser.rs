@@ -230,14 +230,18 @@ enum ParsingContext {
     Quote(usize),
     // Shortened version of a quote
     QuoteTick(usize),
-    // Shorted version of quasiquote
-    QuasiquoteTick(usize),
     // Inside of an unquote - expressions should actually be parsed as usual
     Unquote(usize),
+    // Shortened version of unquote
+    UnquoteTick(usize),
     // Treat this like a normal quote
     Quasiquote(usize),
+    // Shortened version of quasiquote
+    QuasiquoteTick(usize),
     // expressions should parsed as normal
     UnquoteSplicing(usize),
+    // Shorted version of Unquote Splicing
+    UnquoteSplicingTick(usize),
 }
 
 impl<'a> Parser<'a> {
@@ -310,7 +314,7 @@ impl<'a> Parser<'a> {
     }
 
     fn construct_quote_vec(&mut self, val: ExprKind, span: Span) -> Vec<ExprKind> {
-        println!("Inside construct quote vec with: {:?}", val);
+        // println!("Inside construct quote vec with: {:?}", val);
 
         let q = {
             let rc_val = TokenType::Quote;
@@ -386,7 +390,13 @@ impl<'a> Parser<'a> {
                             //     self.context.pop()
                             // );
 
-                            self.context.pop();
+                            // self.context.pop();
+
+                            let popped_value = self.context.pop();
+
+                            if let Some(popped) = popped_value {
+                                debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
+                            }
 
                             current_frame.push(quote_inner?);
                         }
@@ -394,14 +404,18 @@ impl<'a> Parser<'a> {
                             // println!("Entering context: Unquote");
 
                             self.context
-                                .push(ParsingContext::Unquote(current_frame.len()));
+                                .push(ParsingContext::UnquoteTick(current_frame.len()));
 
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_unquote(x, token.span));
 
-                            self.context.pop();
+                            let popped_value = self.context.pop();
+
+                            if let Some(popped) = popped_value {
+                                debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
+                            }
                             // println!("Exiting Context: {:?}", self.context.pop());
                             current_frame.push(quote_inner?);
                         }
@@ -416,22 +430,42 @@ impl<'a> Parser<'a> {
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_quasiquote(x, token.span));
 
-                            self.context.pop();
-                            // println!("Exiting Context: {:?}", self.context.pop());
+                            // self.context.pop();
+                            // println!(
+                            //     ">>>>>>>>>>>>>>>>>>> Exiting Context: {:?}",
+                            //     self.context.pop()
+                            // );
+
+                            let popped_value = self.context.pop();
+
+                            if let Some(popped) = popped_value {
+                                debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
+                            }
+
                             current_frame.push(quote_inner?);
                         }
                         TokenType::UnquoteSplice => {
                             // println!("Entering context: UnquoteSplicing");
 
                             self.context
-                                .push(ParsingContext::UnquoteSplicing(current_frame.len()));
+                                .push(ParsingContext::UnquoteSplicingTick(current_frame.len()));
 
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_unquote_splicing(x, token.span));
 
-                            self.context.pop();
+                            // self.context.pop();
+
+                            let popped_value = self.context.pop();
+
+                            if let Some(popped) = popped_value {
+                                debug_assert!(matches!(
+                                    popped,
+                                    ParsingContext::UnquoteSplicingTick(_)
+                                ))
+                            }
+
                             // println!("Exiting Context: {:?}", self.context.pop());
                             current_frame.push(quote_inner?);
                         }
@@ -526,13 +560,16 @@ impl<'a> Parser<'a> {
                                         }
                                     }
 
-                                    Some(ParsingContext::QuoteTick(last_quote_index))
-                                    | Some(ParsingContext::QuasiquoteTick(last_quote_index)) => {
-                                        if stack.len() == *last_quote_index && *last_quote_index > 1
-                                        {
-                                            self.context.pop();
-                                            // println!("Exiting Context: {:?}", self.context.pop());
-                                        }
+                                    Some(ParsingContext::QuoteTick(_))
+                                    | Some(ParsingContext::QuasiquoteTick(_)) => {
+                                        // if stack.len() == *last_quote_index && *last_quote_index > 1
+                                        // {
+                                        //     self.context.pop();
+                                        // }
+
+                                        // if stack.len() <= *last_quote_index {
+                                        //     self.context.pop();
+                                        // }
 
                                         // println!("QuoteTick: Inside here!");
                                         // println!("QuoteTick: Frame: {:?}", current_frame);
@@ -558,6 +595,28 @@ impl<'a> Parser<'a> {
                                                     .push(ExprKind::List(List::new(current_frame)))
                                             }
                                         }
+                                    }
+
+                                    // If we're in the short hand reader world, just ignore popping off the stack
+                                    // but still treat it as a normal expression
+                                    Some(ParsingContext::UnquoteTick(_))
+                                    | Some(ParsingContext::UnquoteSplicingTick(_)) => {
+                                        // println!(
+                                        //     "UQ/UQS: Stack length: {:?}, last_quote_index: {:?}",
+                                        //     stack.len(),
+                                        //     last_quote_index
+                                        // );
+
+                                        // if stack.len() <= *last_quote_index {
+                                        //     // println!("Exiting Context: {:?}", self.context.pop());
+                                        //     self.context.pop();
+                                        // }
+
+                                        prev_frame.push(
+                                            ExprKind::try_from(current_frame).map_err(|x| {
+                                                x.set_source(self.source_name.clone())
+                                            })?,
+                                        );
                                     }
 
                                     Some(ParsingContext::Unquote(last_quote_index))
@@ -818,7 +877,11 @@ impl<'a> Iterator for Parser<'a> {
 
                 self.shorthand_quote_stack.pop();
 
-                self.context.pop();
+                let popped_value = self.context.pop();
+
+                if let Some(popped) = popped_value {
+                    debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
+                }
 
                 // println!("Exiting context: {:?}", self.context.pop());
                 // println!("Result: {:?}", value);
@@ -830,28 +893,37 @@ impl<'a> Iterator for Parser<'a> {
             }
             TokenType::Unquote => {
                 // println!("Entering Context: Unquote");
-                self.context.push(ParsingContext::Unquote(0));
+                self.context.push(ParsingContext::UnquoteTick(0));
 
                 let value = self
                     .next()
                     .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                     .map(|x| self.construct_unquote(x, res.span));
 
-                self.context.pop();
+                let popped_value = self.context.pop();
+
+                if let Some(popped) = popped_value {
+                    debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
+                }
                 // println!("Exiting context: {:?}", self.context.pop());
 
                 value
             }
             TokenType::UnquoteSplice => {
                 // println!("Entering Context: Unquotesplicing");
-                self.context.push(ParsingContext::UnquoteSplicing(0));
+                self.context.push(ParsingContext::UnquoteSplicingTick(0));
 
                 let value = self
                     .next()
                     .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                     .map(|x| self.construct_unquote_splicing(x, res.span));
 
-                self.context.pop();
+                let popped_value = self.context.pop();
+
+                if let Some(popped) = popped_value {
+                    debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
+                }
+
                 // println!("Exiting context: {:?}", self.context.pop());
 
                 value
@@ -867,7 +939,14 @@ impl<'a> Iterator for Parser<'a> {
 
                 // println!("{:?}", self.context.pop());
 
-                self.context.pop();
+                // println!("Top level Context: {:?}", self.context);
+
+                let popped_value = self.context.pop();
+
+                if let Some(popped) = popped_value {
+                    debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
+                }
+
                 // println!("Exiting context: {:?}", self.context.pop());
 
                 value

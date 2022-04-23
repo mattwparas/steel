@@ -27,6 +27,36 @@
                      (quote (unquote struct-name))
                      (unquote-splicing fields)))))
 
+(define field '(getter 2))
+
+;; TODO: this parses the define incorrectly - it should go to an untyped AST and not a typed one
+`(define ,(concat-symbols struct-name '- (car field))
+                                      (bind/c (make-function/c
+                                               (make/c (concat-symbols struct-name '?) (quote ,(concat-symbols struct-name '?)))
+                                               (make/c any/c 'any/c))
+                                              (lambda (this) (vector-ref this ,(car (cdr field))))
+                                              (quote ,(concat-symbols struct-name '- (car field)))))
+
+
+`(define ,(concat-symbols struct-name '?) 
+                                    (bind/c (make-function/c (make/c any/c 'any/c) (make/c boolean? 'boolean?))
+                                      (lambda (this) (if (vector? this)
+                                                         (if (eq? (vector-ref this 0) ___magic_struct_symbol___)
+                                                             (equal? (vector-ref this 1) (quote ,struct-name))
+                                                             #f)
+                                                        #f))
+                                      (quote ,(concat-symbols struct-name '?))))
+
+
+(let ((function-name (concat-symbols struct-name '- (car fields)))
+                                          (pred-name (concat-symbols struct-name '?)))
+                                      `(define ,function-name
+                                         (bind/c (make-function/c
+                                                  (make/c ,pred-name (quote ,pred-name))
+                                                  (make/c any/c 'any/c))
+                                                 (lambda (this) (vector-ref this ,(car (cdr fields))))
+                                                 (quote ,function-name))))
+
 
 ;; TODO: Go _back_ to an implementation that just uses S-Expressions and thats it for internal
 ;; representation. Don't have special AST implementation other than in the core.
