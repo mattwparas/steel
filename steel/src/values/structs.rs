@@ -1,8 +1,8 @@
-use crate::primitives::VectorOperations;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
 use crate::{gc::Gc, parser::ast::ExprKind};
+use crate::{primitives::VectorOperations, rvals::MAGIC_STRUCT_SYMBOL};
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -419,6 +419,67 @@ pub fn struct_to_vector() -> SteelVal {
         }
     })
 }
+
+pub(crate) fn is_custom_struct() -> SteelVal {
+    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+        if args.len() != 1 {
+            stop!(ArityMismatch => "struct? expected one argument");
+        }
+
+        let steel_struct = &args[0].clone();
+
+        if let SteelVal::MutableVector(v) = &steel_struct {
+            if let Some(magic_value) = v.borrow().get(0) {
+                Ok(SteelVal::BoolV(
+                    magic_value.ptr_eq(&MAGIC_STRUCT_SYMBOL.with(|x| x.clone())),
+                ))
+            } else {
+                Ok(SteelVal::BoolV(false))
+            }
+        } else {
+            Ok(SteelVal::BoolV(false))
+        }
+    })
+}
+
+#[inline(always)]
+fn is_struct(value: &SteelVal) -> bool {
+    match value {
+        // Structs are just represented as 
+        SteelVal::MutableVector(v)
+            if v.borrow()
+                .get(0)
+                .map(|x| x.ptr_eq(&MAGIC_STRUCT_SYMBOL.with(|x| x.clone())))
+                .unwrap_or(false) =>
+        {
+            true
+        }
+        _ => false,
+    }
+}
+
+// pub(crate) fn get_struct_name() -> SteelVal {
+//     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+//         if args.len() != 1 {
+//             stop!(ArityMismatch => "get-struct-name? expected one argument");
+//         }
+
+//         let steel_struct = &args[0].clone();
+
+//         if let SteelVal::MutableVector(v) = &steel_struct {
+//             if let Some(magic_value) = v.borrow().get(0) {
+//                 Ok(SteelVal::BoolV(
+//                     magic_value.ptr_eq(&MAGIC_STRUCT_SYMBOL.with(|x| x.clone())),
+//                 ))
+//             } else {
+//                 Ok(SteelVal::BoolV(false))
+//             }
+//         } else {
+//             let e = format!("struct? expected a struct, found: {}", steel_struct);
+//             stop!(TypeMismatch => e);
+//         }
+//     })
+// }
 
 #[cfg(test)]
 mod struct_tests {

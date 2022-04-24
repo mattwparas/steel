@@ -1,11 +1,14 @@
 use super::{engine::Engine, register_fn::RegisterFn};
-use crate::primitives::{
-    ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
-    IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations, StringOperations,
-    SymbolOperations, TransducerOperations, VectorOperations,
-};
 use crate::rvals::{Result, SteelVal};
 use crate::values::structs::{struct_ref, struct_to_list, struct_to_vector};
+use crate::{
+    primitives::{
+        ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
+        IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations,
+        StringOperations, SymbolOperations, TransducerOperations, VectorOperations,
+    },
+    values::structs::is_custom_struct,
+};
 
 use itertools::Itertools;
 
@@ -556,6 +559,7 @@ pub(crate) fn register_meta_functions(engine: &mut Engine) {
             "___magic_struct_symbol___",
             crate::rvals::MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
         )
+        .register_value("custom-struct?", is_custom_struct())
         // TODO: Warning, here be dragons
         // This should really be moved out of the global scope and into something else
         .register_fn("call-function-in-env", super::meta::EngineWrapper::call_fn);
