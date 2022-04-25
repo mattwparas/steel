@@ -2,47 +2,12 @@
 
 ; (require "match.rkt" (for-syntax "match.rkt"))
 
-; (require "std::option")
+(require "std::option")
 
 ;; ---------------- Vendored std::option ----------------
 ;; -- TODO -> fix bug with importing option
 ;; Looks like theres an issue where None gets bound to void for some reason
 ;; Most likely having to do with declaring nested structs
-
-(struct Some (value))
-(struct None ())
-
-;; Contracts for option
-(define (Option/c pred)
-  (make/c (fn (x)
-            (cond [(Some? x) (pred (Some-value x))]
-                  [(None? x) #t]
-                  [else #f]))
-          'Option/c))
-
-(define (Option? value)
-  (or (Some? value) (None? value)))
-
-;; Map - explore dynamic dispatch with contracts?
-(define (map-option option func)
-  (cond [(Some? option) (Some (func (Some-value option)))]
-        [(None? option) (None)]))
-
-(define (flatten-option option)
-  (if (Some? option)
-      (if (Some? (Some-value option))
-          (Some-value option)
-          (None))
-      (None)))
-
-;; Get the inner value of the option - contract checking along the way
-;; Figure out how to turn off contracts on OptLevel3 regardless - 
-;; this would speed up performance a lot - also figure out how to map this to compile time options in Rust
-(define unwrap-some Some-value)
-
-;; Unwraps the given option or returns the given other value
-(define (unwrap-or option other)
-  (if (Some? option) (Some-value option) other))
 
 
 (define-syntax try! 
@@ -53,63 +18,11 @@
            (return! expr)
            (unwrap-some expr)))]))
 
-
 ;; -----------------------------------------------------------
 
 
 ;; Add support for mutable structs
 (struct Instruction (op-code payload-size contents))
-
-;; Add support for mutable vectors
-(define *op-codes*
-  '(
-    VOID
-    PUSH
-    LOOKUP
-    IF
-    JMP
-    FUNC
-    SCLOSURE
-    ECLOSURE
-    STRUCT
-    POP
-    BIND
-    SDEF
-    EDEF
-    PASS
-    PUSHCONST
-    NDEFS
-    EVAL
-    PANIC
-    CLEAR
-    TAILCALL
-    SET
-    READ
-    METALOOKUP
-    CALLCC
-    READLOCAL
-    SETLOCAL
-    READUPVALUE
-    SETUPVALUE
-    FILLUPVALUE
-    FILLLOCALUPVALUE
-    CLOSEUPVALUE ;; Should be 1 for close, 0 for not
-    TCOJMP
-    CALLGLOBAL
-    CALLGLOBALTAIL
-    LOADINT0 ;; Load const 0
-    LOADINT1
-    LOADINT2
-    CGLOCALCONST
-    INNERSTRUCT
-    MOVEREADLOCAL
-    MOVEREADUPVALUE
-    MOVECGLOCALCONST
-    BEGINSCOPE
-    ENDSCOPE
-    ))
-
-(define *op-code-set* (apply hashset *op-codes*))
 
 ;; --------- Local Variable -----------
 
@@ -156,7 +69,8 @@
   (mut-vector-ref self 2))
 
 ;; Pointer to the enclosing variable
-(define (VariableData-enclosing self)
+(define/contract (VariableData-enclosing self)
+  (->/c mutable-vector? Option?)
   (mut-vector-ref self 3))
 
 ;; push a local to the VariableData struct
@@ -324,7 +238,7 @@
    constant-map
    void
    0
-   void
+   (None)
    #false
    0
    #false

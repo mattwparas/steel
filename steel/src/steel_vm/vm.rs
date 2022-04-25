@@ -2019,7 +2019,15 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     // #[inline(always)]
     fn call_builtin_func(&mut self, func: &BuiltInSignature, payload_size: usize) -> Result<()> {
         let args = self.stack.split_off(self.stack.len() - payload_size);
-        let result = func(args, self).map_err(|x| x.set_span(self.current_span()))?;
+        let result = func(args, self).map_err(|x| {
+            // TODO: @Matt 4/24/2022 -> combine this into one function probably
+            if x.has_span() {
+                x
+            } else {
+                x.set_span(self.current_span())
+            }
+            // x.set_span(self.current_span())
+        })?;
 
         self.stack.push(result);
         self.ip += 1;

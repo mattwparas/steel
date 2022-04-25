@@ -163,6 +163,10 @@ impl SteelErr {
         }
     }
 
+    pub fn has_span(&self) -> bool {
+        self.repr.span.is_some()
+    }
+
     pub fn set_span(mut self, span: Span) -> Self {
         self.repr.set_span(span);
         self
