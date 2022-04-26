@@ -524,7 +524,7 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<RawProgramWithSymbols> {
-        self.compile_raw_program(exprs, constants)
+        self.compile_raw_program(exprs, constants, None)
     }
 
     pub fn compile_executable(
@@ -551,7 +551,7 @@ impl Compiler {
         let parsed = parsed?;
 
         // TODO fix this hack
-        self.compile_raw_program(parsed, constants)
+        self.compile_raw_program(parsed, constants, path)
     }
 
     pub fn emit_instructions_with_ast(
@@ -888,8 +888,9 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         constants: ImmutableHashMap<String, SteelVal>,
+        path: Option<PathBuf>,
     ) -> Result<RawProgramWithSymbols> {
-        let mut expanded_statements = self.expand_expressions(exprs, None)?;
+        let mut expanded_statements = self.expand_expressions(exprs, path)?;
 
         if log_enabled!(log::Level::Debug) {
             debug!(
