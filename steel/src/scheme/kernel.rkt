@@ -27,6 +27,9 @@
              (quote ,(concat-symbols struct-name '?)))))
 
 ;; Defines the constructor with the form `struct-name`
+;; There is room here for a lot more custom fields to increase the functionality
+;; of structs. The first one would be the custom printing method. This should be added via a keyword,
+;; but at the moment there are no keywords in Steel, so struct
 (define (make-constructor struct-name fields)
   `(define ,struct-name (lambda ,fields (mutable-vector ___magic_struct_symbol___ (quote ,struct-name) ,@fields))))
 

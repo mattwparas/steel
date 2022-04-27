@@ -105,6 +105,11 @@ impl Engine {
         vm
     }
 
+    pub fn call_printing_method_in_context(&mut self, argument: SteelVal) -> Result<SteelVal> {
+        let function = self.extract_value("println")?;
+        self.call_function_with_args(function, vec![argument])
+    }
+
     pub(crate) fn call_function_with_args(
         &mut self,
         function: SteelVal,

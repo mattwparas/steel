@@ -596,6 +596,22 @@ impl SteelVal {
             CompiledFunction(_) => todo!(),
         }
     }
+
+    #[inline(always)]
+    pub fn is_struct(&self) -> bool {
+        match self {
+            // Structs are just represented as
+            SteelVal::MutableVector(v)
+                if v.borrow()
+                    .get(0)
+                    .map(|x| x.ptr_eq(&MAGIC_STRUCT_SYMBOL.with(|x| x.clone())))
+                    .unwrap_or(false) =>
+            {
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 // TODO come back to this for the constant map

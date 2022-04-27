@@ -7,23 +7,22 @@
   (mut-vector-ref s 1))
 
 
-(define (displayln x . rest)
-  (display x)
-  (transduce rest
-             (into-for-each (lambda (x) (display " ")
-                              (display x))))
-  (newline))
+; (define (displayln . rest)
+;   (transduce rest
+;              (into-for-each (lambda (x) (display " "))))
+;   (newline))
 
-(displayln "hello" "world" "this" "is" "multiple" "values")
+; (displayln "hello" "world" "this" "is" "multiple" "values")
 
 
 (define (println x)
-  (if (custom-struct? x)
-      (string-append "<"
+  (displayln 
+    (if (custom-struct? x)
+      (string-append "#<"
                      (string-append
                       (symbol->string (struct-name x))
                      ">"))
-      (displayln x)))
+      x)))
 
 
 (make-struct Applesauce (a b c))

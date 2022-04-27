@@ -125,6 +125,15 @@ async fn finish_load_or_interrupt(vm: Arc<Mutex<Engine>>, exprs: String, path: P
         match res {
             Ok(r) => r.iter().for_each(|x| match x {
                 SteelVal::Void => {}
+                x if x.is_struct() => {
+                    print!("{} ", "=>".bright_blue().bold());
+                    vm.lock()
+                        .unwrap()
+                        .call_printing_method_in_context(x.clone())
+                        .expect(
+                            "Failed to convert this value to a string representation to display",
+                        );
+                }
                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
             }),
             Err(e) => {
@@ -155,6 +164,15 @@ async fn finish_or_interrupt(vm: Arc<Mutex<Engine>>, line: String, print_time: b
         match res {
             Ok(r) => r.iter().for_each(|x| match x {
                 SteelVal::Void => {}
+                x if x.is_struct() => {
+                    print!("{} ", "=>".bright_blue().bold());
+                    vm.lock()
+                        .unwrap()
+                        .call_printing_method_in_context(x.clone())
+                        .expect(
+                            "Failed to convert this value to a string representation to display",
+                        );
+                }
                 _ => println!("{} {}", "=>".bright_blue().bold(), x),
             }),
             Err(e) => {
