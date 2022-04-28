@@ -908,6 +908,8 @@ impl Compiler {
         // Also, macro expansion needs to be cleaned up in general - right now lines are a little blurry, and they probably
         // should happen strictly before the other kinds
         if let Some(kernel) = &mut self.kernel {
+            // println!("Here with kernel: {:?}", kernel.)
+
             // Crawl for the kernel level expansions
             expanded_statements = expanded_statements
                 .into_iter()

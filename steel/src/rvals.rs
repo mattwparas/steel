@@ -687,6 +687,7 @@ impl SteelVal {
             SteelVal::BoolV(false) => false,
             SteelVal::Void => false,
             SteelVal::VectorV(v) => !v.is_empty(),
+            SteelVal::ListV(v) => !v.is_empty(),
             _ => true,
         }
     }

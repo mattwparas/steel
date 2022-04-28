@@ -264,6 +264,7 @@ pub(crate) fn register_list_functions(engine: &mut Engine) {
         .register_value(APPEND, crate::primitives::lists::APPEND)
         .register_value(REVERSE, crate::primitives::lists::REVERSE)
         .register_value("list-ref", crate::primitives::lists::LIST_REF)
+        .register_value("try-list-ref", crate::primitives::lists::TRY_LIST_REF)
         .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
         .register_value("pair?", crate::primitives::lists::PAIR)

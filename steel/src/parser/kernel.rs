@@ -1,4 +1,7 @@
-use std::{collections::HashSet, convert::TryFrom};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryFrom,
+};
 
 use crate::{parser::ast::from_list_repr_to_ast, rvals::Result};
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
@@ -25,6 +28,10 @@ impl Kernel {
 
         let mut macros = HashSet::new();
         macros.insert("make-struct".to_string());
+        macros.insert("%lambda%".to_string());
+
+        // let mut aliases = HashMap::new();
+        // aliases.insert("lambda".to_string(), "%lambda%".to_string());
 
         Kernel {
             macros,
@@ -48,9 +55,13 @@ impl Kernel {
 
             let arguments = iter.collect();
 
-            println!("Expanding: {:?} with arguments: {:?}", ident, arguments);
+            // println!("Expanding: {:?} with arguments: {:?}", ident, arguments);
 
             let result = self.engine.call_function_with_args(function, arguments)?;
+
+            // let expr = ExprKind::try_from(&result);
+
+            // println!("Expanded to: {:#?}", expr);
 
             // TODO: try to understand what is actually happening here
             // let ast_version = ExprKind::try_from(&result)
@@ -58,13 +69,9 @@ impl Kernel {
             //     .unwrap()
             //     .unwrap();
 
-            // println!("Expanded to: {:#?}", ast_version);
+            // println!("Expanded to: {}", ast_version);
 
             // Ok(ast_version)
-
-            // println!("Expanded to: {:?}", result);
-
-            // todo!()
 
             Ok(
                 crate::parser::parser::Parser::parse(result.to_string().trim_start_matches('\''))?

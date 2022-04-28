@@ -210,10 +210,33 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         Ok(ExprKind::Define(define))
     }
 
+    // TODO: Kernel expander should have the liberty to parse everything
+    // As a normal expression in order to match behavior
     fn visit_lambda_function(
         &mut self,
         mut lambda_function: Box<super::ast::LambdaFunction>,
     ) -> Self::Output {
+        // TODO: Unfortunately this would wipe out the span
+
+        // println!("Function: {}", lambda_function);
+        // if self.map.contains_macro("%lambda%") {
+        //     lambda_function.body = self.visit(lambda_function.body)?;
+
+        //     let arguments = ExprKind::List(super::ast::List::new(vec![
+        //         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Lambda))),
+        //         ExprKind::List(super::ast::List::new(lambda_function.args)),
+        //         lambda_function.body,
+        //     ]));
+
+        //     let expanded = self.map.expand("%lambda%", arguments)?;
+        //     self.changed = true;
+        //     if let ExprKind::LambdaFunction(_) = &expanded {
+        //         return Ok(expanded);
+        //     } else {
+        //         unreachable!("The expansion above should always return a lambda")
+        //     }
+        // }
+
         lambda_function.body = self.visit(lambda_function.body)?;
         Ok(ExprKind::LambdaFunction(lambda_function))
     }

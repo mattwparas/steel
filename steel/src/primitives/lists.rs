@@ -15,6 +15,7 @@ declare_const_ref_functions! {
     LAST => last,
     TAKE => take,
     LIST_REF => list_ref,
+    TRY_LIST_REF => try_list_ref,
     RANGE => range,
     IS_EMPTY => is_empty,
     CAR => car,
@@ -103,7 +104,7 @@ fn pair(args: &[SteelVal]) -> Result<SteelVal> {
     if let SteelVal::ListV(l) = &args[0] {
         Ok(l.iter().next().is_some().into())
     } else {
-        stop!(TypeMismatch => format!("pair expects a list, found: {}", &args[0]))
+        Ok(SteelVal::BoolV(false))
     }
 }
 
@@ -262,6 +263,25 @@ fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
         Ok(SteelVal::ListV(l.clone()))
     } else {
         stop!(TypeMismatch => "append expects two lists, found: {:?} and {:?}", &args[0], &args[1]);
+    }
+}
+
+pub fn try_list_ref(args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(try_list_ref, args, 2);
+
+    // todo!()
+    if let (SteelVal::ListV(lst), SteelVal::IntV(n)) = (&args[0], &args[1]) {
+        if *n < 0 {
+            stop!(Generic => "list-ref expects a positive integer")
+        } else {
+            if let Some(l) = lst.get(*n as usize) {
+                Ok(l.clone())
+            } else {
+                Ok(SteelVal::BoolV(false))
+            }
+        }
+    } else {
+        stop!(TypeMismatch => format!("try-list-ref expects a list and an integer, found {} and {}", &args[0], &args[1]))
     }
 }
 

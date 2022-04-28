@@ -153,10 +153,16 @@ impl TryFrom<ExprKind> for SteelVal {
     }
 }
 
-/// Sometimes you want a typed representation of the AST
+/// Convert this ExprKind into a typed version of the AST
+/// TODO: Matt -> actually do a full visitor on the AST
 pub(crate) fn from_list_repr_to_ast(expr: ExprKind) -> Result<ExprKind, ParseError> {
     if let ExprKind::List(l) = expr {
-        ExprKind::try_from(l.args)
+        ExprKind::try_from(
+            l.args
+                .into_iter()
+                .map(from_list_repr_to_ast)
+                .collect::<Result<Vec<_>, ParseError>>()?,
+        )
     } else {
         Ok(expr)
     }
@@ -1415,83 +1421,74 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                 ExprKind::Atom(a) => {
                     // let value = value.into_iter();
                     match &a.syn.ty {
+                        // Have this also match on the first argument being a TokenType::Identifier("if")
+                        // Do the same for the rest of the arguments
                         TokenType::If => parse_if(value.into_iter(), a.syn.clone()),
+                        TokenType::Identifier(expr) if expr == "if" => {
+                            parse_if(value.into_iter(), a.syn.clone())
+                        }
+
                         TokenType::Define => parse_define(value.into_iter(), a.syn.clone()),
+                        TokenType::Identifier(expr) if expr == "define" => {
+                            parse_define(value.into_iter(), a.syn.clone())
+                        }
+
                         TokenType::Let => parse_let(value.into_iter(), a.syn.clone()),
+                        TokenType::Identifier(expr) if expr == "let" => {
+                            parse_let(value.into_iter(), a.syn.clone())
+                        }
+
+                        // TODO: Deprecate
                         TokenType::TestLet => parse_new_let(value.into_iter(), a.syn.clone()),
-                        // TokenType::Transduce => parse_transduce(value.into_iter(), a.syn.clone()),
+
                         TokenType::Quote => parse_single_argument(
                             value.into_iter(),
                             a.syn.clone(),
                             "quote",
                             |expr, syn| Quote::new(expr, syn).into(),
                         ),
+                        TokenType::Identifier(expr) if expr == "quote" => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "quote",
+                            |expr, syn| Quote::new(expr, syn).into(),
+                        ),
+
                         TokenType::Return => parse_single_argument(
                             value.into_iter(),
                             a.syn.clone(),
-                            "return",
+                            "return!",
                             |expr, syn| Return::new(expr, syn).into(),
                         ),
+                        TokenType::Identifier(expr) if expr == "return!" => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "return!",
+                            |expr, syn| Return::new(expr, syn).into(),
+                        ),
+
                         TokenType::CallCC => parse_single_argument(
                             value.into_iter(),
                             a.syn.clone(),
                             "call/cc",
                             |expr, syn| CallCC::new(expr, syn).into(),
                         ),
-                        TokenType::Require => {
-                            let syn = a.syn.clone();
-                            if value.len() < 2 {
-                                return Err(ParseError::ArityMismatch(
-                                    "require expects at least one identifier or string".to_string(),
-                                    syn.span,
-                                    a.syn.source,
-                                ));
-                            }
+                        TokenType::Identifier(expr) if expr == "call/cc" => parse_single_argument(
+                            value.into_iter(),
+                            a.syn.clone(),
+                            "call/cc",
+                            |expr, syn| CallCC::new(expr, syn).into(),
+                        ),
 
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-
-                            let expressions = value_iter
-                                .map(|x| {
-                                    match &x {
-                                        ExprKind::Atom(_) | ExprKind::List(_) => Ok(x),
-                                        _ => Err(ParseError::SyntaxError(
-                                            "require expects atoms".to_string(),
-                                            syn.span,
-                                            a.syn.source.clone(),
-                                        )),
-                                    }
-
-                                    // if let ExprKind::Atom(a) = x {
-                                    //     Ok(a)
-                                    // } else {
-
-                                    // }
-                                })
-                                .collect::<Result<Vec<_>, Self::Error>>()?;
-
-                            Ok(ExprKind::Require(Require::new(expressions, syn)))
-                        }
-                        TokenType::Set => {
-                            let syn = a.syn.clone();
-                            if value.len() != 3 {
-                                return Err(ParseError::ArityMismatch(
-                                    "set! expects an identifier and an expression".to_string(),
-                                    syn.span,
-                                    None,
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            let identifier = value_iter.next().unwrap();
-                            let expression = value_iter.next().unwrap();
-
-                            Ok(ExprKind::Set(Box::new(Set::new(
-                                identifier, expression, syn,
-                            ))))
+                        TokenType::Require => parse_require(&a, value),
+                        TokenType::Identifier(expr) if expr == "require" => {
+                            parse_require(&a, value)
                         }
 
+                        TokenType::Set => parse_set(&a, value),
+                        TokenType::Identifier(expr) if expr == "set!" => parse_set(&a, value),
+
+                        // TODO: Deprecate
                         TokenType::Struct => {
                             let syn = a.syn.clone();
 
@@ -1518,95 +1515,17 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 ))
                             }
                         }
-                        TokenType::Begin => {
-                            let syn = a.syn.clone();
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            Ok(ExprKind::Begin(Begin::new(value_iter.collect(), syn)))
+
+                        TokenType::Begin => parse_begin(&a, value),
+                        TokenType::Identifier(expr) if expr == "begin" => parse_begin(&a, value),
+
+                        TokenType::Lambda => parse_lambda(&a, value),
+                        TokenType::Identifier(expr)
+                            if expr == "lambda" || expr == "fn" || expr == "λ" =>
+                        {
+                            parse_lambda(&a, value)
                         }
-                        TokenType::Lambda => {
-                            let syn = a.syn.clone();
 
-                            if value.len() < 3 {
-                                return Err(ParseError::SyntaxError(
-                                    format!(
-                                        "lambda expected at least 2 arguments - the bindings list and one or more expressions, found {} instead",
-                                        value.len()
-                                    ),
-                                    syn.span, None
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-
-                            let arguments = value_iter.next();
-
-                            match arguments {
-                                Some(ExprKind::List(l)) => {
-                                    let args = l.args;
-
-                                    for arg in &args {
-                                        if let ExprKind::Atom(_) = arg {
-                                            continue;
-                                        } else {
-                                            return Err(ParseError::SyntaxError(
-                                                format!("lambda function expects a list of identifiers, found: {}", List::new(args)),
-                                                syn.span,
-                                                None,
-                                            ));
-                                        }
-                                    }
-
-                                    let body_exprs: Vec<_> = value_iter.collect();
-
-                                    let body = if body_exprs.len() == 1 {
-                                        body_exprs.into_iter().next().unwrap()
-                                    } else {
-                                        ExprKind::Begin(Begin::new(
-                                            body_exprs,
-                                            SyntaxObject::default(TokenType::Begin),
-                                        ))
-                                    };
-
-                                    Ok(ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                                        args, body, syn,
-                                    ))))
-                                }
-                                Some(ExprKind::Atom(a)) => {
-                                    let body_exprs: Vec<_> = value_iter.collect();
-
-                                    let body = if body_exprs.len() == 1 {
-                                        body_exprs.into_iter().next().unwrap()
-                                    } else {
-                                        ExprKind::Begin(Begin::new(
-                                            body_exprs,
-                                            SyntaxObject::default(TokenType::Begin),
-                                        ))
-                                    };
-
-                                    // (lambda x ...) => x is a rest arg, becomes a list at run time
-                                    Ok(ExprKind::LambdaFunction(Box::new(
-                                        LambdaFunction::new_with_rest_arg(
-                                            vec![ExprKind::Atom(a)],
-                                            body,
-                                            syn,
-                                        ),
-                                    )))
-                                }
-                                _ => {
-                                    // TODO -> handle case like
-                                    // (lambda x 10) <- where x is immediately bound to be a rest arg
-                                    // This should be fairly trivial in this case since we can just put the
-                                    // first thing into a vec for the lambda node
-                                    Err(ParseError::SyntaxError(
-                                        format!("lambda function expected a list of identifiers, found: {:?}", arguments),
-                                        syn.span,
-                                        None,
-                                    ))
-                                }
-                            }
-                        }
                         TokenType::DefineSyntax => {
                             let syn = a.syn.clone();
 
@@ -1698,6 +1617,145 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
             Ok(ExprKind::List(List::new(vec![])))
         }
     }
+}
+
+fn parse_lambda(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+    let syn = a.syn.clone();
+    if value.len() < 3 {
+        return Err(ParseError::SyntaxError(
+            format!(
+                "lambda expected at least 2 arguments - the bindings list and one or more expressions, found {} instead",
+                value.len()
+            ),
+            syn.span, None
+        ));
+    }
+    let mut value_iter = value.into_iter();
+    value_iter.next();
+    let arguments = value_iter.next();
+    match arguments {
+        Some(ExprKind::List(l)) => {
+            let args = l.args;
+
+            for arg in &args {
+                if let ExprKind::Atom(_) = arg {
+                    continue;
+                } else {
+                    return Err(ParseError::SyntaxError(
+                        format!(
+                            "lambda function expects a list of identifiers, found: {}",
+                            List::new(args)
+                        ),
+                        syn.span,
+                        None,
+                    ));
+                }
+            }
+
+            let body_exprs: Vec<_> = value_iter.collect();
+
+            let body = if body_exprs.len() == 1 {
+                body_exprs.into_iter().next().unwrap()
+            } else {
+                ExprKind::Begin(Begin::new(
+                    body_exprs,
+                    SyntaxObject::default(TokenType::Begin),
+                ))
+            };
+
+            Ok(ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                args, body, syn,
+            ))))
+        }
+        Some(ExprKind::Atom(a)) => {
+            let body_exprs: Vec<_> = value_iter.collect();
+
+            let body = if body_exprs.len() == 1 {
+                body_exprs.into_iter().next().unwrap()
+            } else {
+                ExprKind::Begin(Begin::new(
+                    body_exprs,
+                    SyntaxObject::default(TokenType::Begin),
+                ))
+            };
+
+            // (lambda x ...) => x is a rest arg, becomes a list at run time
+            Ok(ExprKind::LambdaFunction(Box::new(
+                LambdaFunction::new_with_rest_arg(vec![ExprKind::Atom(a)], body, syn),
+            )))
+        }
+        _ => {
+            // TODO -> handle case like
+            // (lambda x 10) <- where x is immediately bound to be a rest arg
+            // This should be fairly trivial in this case since we can just put the
+            // first thing into a vec for the lambda node
+            Err(ParseError::SyntaxError(
+                format!(
+                    "lambda function expected a list of identifiers, found: {:?}",
+                    arguments
+                ),
+                syn.span,
+                None,
+            ))
+        }
+    }
+}
+
+fn parse_set(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+    let syn = a.syn.clone();
+    if value.len() != 3 {
+        return Err(ParseError::ArityMismatch(
+            "set! expects an identifier and an expression".to_string(),
+            syn.span,
+            None,
+        ));
+    }
+    let mut value_iter = value.into_iter();
+    value_iter.next();
+    let identifier = value_iter.next().unwrap();
+    let expression = value_iter.next().unwrap();
+    Ok(ExprKind::Set(Box::new(Set::new(
+        identifier, expression, syn,
+    ))))
+}
+
+fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+    let syn = a.syn.clone();
+    if value.len() < 2 {
+        return Err(ParseError::ArityMismatch(
+            "require expects at least one identifier or string".to_string(),
+            syn.span,
+            a.syn.source.clone(),
+        ));
+    }
+    let mut value_iter = value.into_iter();
+    value_iter.next();
+    let expressions = value_iter
+        .map(|x| {
+            match &x {
+                ExprKind::Atom(_) | ExprKind::List(_) => Ok(x),
+                _ => Err(ParseError::SyntaxError(
+                    "require expects atoms".to_string(),
+                    syn.span,
+                    a.syn.source.clone(),
+                )),
+            }
+
+            // if let ExprKind::Atom(a) = x {
+            //     Ok(a)
+            // } else {
+
+            // }
+        })
+        .collect::<Result<Vec<_>, ParseError>>()?;
+    Ok(ExprKind::Require(Require::new(expressions, syn)))
+}
+
+fn parse_begin(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+    let syn = a.syn.clone();
+    let mut value_iter = value.into_iter();
+    value_iter.next();
+    Ok(ExprKind::Begin(Begin::new(value_iter.collect(), syn)))
 }
 
 #[cfg(test)]

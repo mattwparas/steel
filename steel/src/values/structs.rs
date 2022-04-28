@@ -442,22 +442,6 @@ pub(crate) fn is_custom_struct() -> SteelVal {
     })
 }
 
-#[inline(always)]
-fn is_struct(value: &SteelVal) -> bool {
-    match value {
-        // Structs are just represented as 
-        SteelVal::MutableVector(v)
-            if v.borrow()
-                .get(0)
-                .map(|x| x.ptr_eq(&MAGIC_STRUCT_SYMBOL.with(|x| x.clone())))
-                .unwrap_or(false) =>
-        {
-            true
-        }
-        _ => false,
-    }
-}
-
 // pub(crate) fn get_struct_name() -> SteelVal {
 //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
 //         if args.len() != 1 {
