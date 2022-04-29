@@ -42,7 +42,7 @@ impl Engine {
             constants: None,
         };
 
-        embed_primitives_without_io(&mut vm);
+        embed_primitives(&mut vm);
 
         let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
 

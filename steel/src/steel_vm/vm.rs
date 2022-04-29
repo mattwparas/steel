@@ -805,9 +805,35 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     ) -> Result<SteelVal> {
         let prev_length = self.stack.len();
         self.stack_index.push(prev_length);
+
+        let mut argument_count = 0;
         for arg in args {
             self.stack.push(arg);
+            argument_count += 1;
         }
+
+        // TODO: abstract the multi arity code into its own function
+        // This is duplicated across like 3 different places
+        if closure.is_multi_arity {
+            if argument_count < closure.arity() - 1 {
+                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), argument_count); self.current_span());
+            }
+
+            // (define (test x . y))
+            // (test 1 2 3 4 5)
+            // in this case, arity = 2 and payload size = 5
+            // pop off the last 4, collect into a list
+            let amount_to_remove = 1 + argument_count - closure.arity();
+
+            let values = self.stack.split_off(self.stack.len() - amount_to_remove);
+
+            let list = SteelVal::ListV(List::from(values));
+
+            self.stack.push(list);
+        } else if closure.arity() != argument_count {
+            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), argument_count); self.current_span());
+        }
+
         self.function_stack.push(Gc::clone(closure));
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
@@ -1306,9 +1332,17 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     }
 
     // #[inline(always)]
+    // TODO: This is definitely an issue - if the instruction stack is empty,
+    // We will probably end up grabbing a garbage span
     fn current_span(&self) -> Span {
         self.spans
-            .get(self.instructions[self.ip].span_index)
+            .get(
+                self.instructions
+                    .get(self.ip)
+                    .map(|x| x.span_index)
+                    .unwrap_or_default(),
+            )
+            // .flatten()
             .copied()
             .unwrap_or_default()
     }
@@ -1925,7 +1959,27 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             stop!(Generic => "stack overflowed!"; self.current_span());
         }
 
-        if closure.arity() != payload_size {
+        // if closure.arity() != payload_size {
+        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
+        // }
+
+        if closure.is_multi_arity {
+            if payload_size < closure.arity() - 1 {
+                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
+            }
+
+            // (define (test x . y))
+            // (test 1 2 3 4 5)
+            // in this case, arity = 2 and payload size = 5
+            // pop off the last 4, collect into a list
+            let amount_to_remove = 1 + payload_size - closure.arity();
+
+            let values = self.stack.split_off(self.stack.len() - amount_to_remove);
+
+            let list = SteelVal::ListV(List::from(values));
+
+            self.stack.push(list);
+        } else if closure.arity() != payload_size {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
         }
 
@@ -2300,7 +2354,6 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     ) -> Result<()> {
         // println!("!!!!!!!!!!!!!!!!!");
 
-        // println!("Calling function");
         // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
         // println!("Handling function call for multi arity function");
@@ -2404,6 +2457,12 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // if closure.is_multi_arity {
         //     println!("Calling multi arity function");
         // }
+
+        // println!(
+        //     "Calling function with arity: {:?}, payload size: {:?}",
+        //     closure.arity(),
+        //     payload_size
+        // );
 
         // TODO take this out
 

@@ -2,7 +2,10 @@ use crate::{
     core::instructions::DenseInstruction,
     gc::Gc,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{BuiltInSignature, Continuation},
+    steel_vm::{
+        contract_checker::BuiltInFunctionContract,
+        vm::{BuiltInSignature, Continuation},
+    },
     values::port::SteelPort,
     values::structs::SteelStruct,
     values::{

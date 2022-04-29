@@ -6,7 +6,7 @@ use std::{
 use crate::{parser::ast::from_list_repr_to_ast, rvals::Result};
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
-use super::ast::ExprKind;
+use super::{ast::ExprKind, span_visitor::get_span};
 
 /// The Kernel is an engine context used to evaluate defmacro style macros
 /// It lives inside the compiler, so in theory there could be tiers of kernels
@@ -44,6 +44,8 @@ impl Kernel {
     }
 
     pub fn expand(&mut self, ident: &str, expr: ExprKind) -> Result<ExprKind> {
+        let span = get_span(&expr);
+
         let args = SteelVal::try_from(expr)?;
 
         let function = self.engine.extract_value(ident)?;
@@ -57,7 +59,10 @@ impl Kernel {
 
             // println!("Expanding: {:?} with arguments: {:?}", ident, arguments);
 
-            let result = self.engine.call_function_with_args(function, arguments)?;
+            let result = self
+                .engine
+                .call_function_with_args(function, arguments)
+                .map_err(|x| x.set_span(span))?;
 
             // let expr = ExprKind::try_from(&result);
 
