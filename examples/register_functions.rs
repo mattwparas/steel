@@ -1,5 +1,5 @@
-use steel::steel_vm::engine::Engine;
-use steel::steel_vm::register_fn::RegisterFn;
+use steel::{rvals::IntoSteelVal, steel_vm::register_fn::RegisterFn};
+use steel::{steel_vm::engine::Engine, SteelVal};
 
 use steel::steel_vm::register_fn::RegisterAsyncFn;
 
@@ -42,11 +42,17 @@ pub fn main() {
     // You can even register async finctions
     vm.register_async_fn("test", test_function);
 
+    // vm.register_fn(
+    //     "unwrap-or",
+    //     std::result::Result::<String, String>::unwrap_or,
+    // );
+
     vm.run(
         r#"
         (define foo (external-function 10 25))
         (define bar (option-function "applesauce"))
         (define baz (result-function "bananas"))
+        ;; (define res (unwrap-or baz "default"))
     "#,
     )
     .unwrap();
@@ -61,6 +67,9 @@ pub fn main() {
     assert_eq!("applesauce".to_string(), bar);
 
     let baz: Result<String, String> = vm.extract("baz").unwrap();
-    println!("baz: {}", baz.clone().unwrap());
+    println!("baz: {:?}", baz.clone());
     assert_eq!("bananas".to_string(), baz.unwrap());
+
+    // let res: SteelVal = vm.extract("res").unwrap();
+    // println!("res: {}", res);
 }

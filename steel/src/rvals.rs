@@ -224,14 +224,16 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
             let left = v.borrow().as_any_ref().downcast_ref::<T>().cloned();
             left.ok_or_else(|| {
                 let error_message = format!(
-                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                    "Type Mismatch: Type of SteelVal: {:?}, did not match the given type: {}",
+                    val,
                     std::any::type_name::<Self>()
                 );
                 SteelErr::new(ErrorKind::ConversionError, error_message)
             })
         } else {
             let error_message = format!(
-                "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                "Type Mismatch: Type of SteelVal: {:?} did not match the given type: {}",
+                val,
                 std::any::type_name::<Self>()
             );
 
@@ -426,6 +428,14 @@ impl<T: CustomType + 'static> AsRefMutSteelVal for T {
 // impl<'a> FromSteelVal for &'a Blagh {
 //     fn from_steelval(val: &SteelVal) -> Result<
 // }
+
+pub(crate) fn create_result_ok_struct(ok: SteelVal) -> SteelVal {
+    SteelVal::MutableVector(Gc::new(RefCell::new(vec![
+        MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
+        SteelVal::SymbolV(Rc::from("Ok")),
+        ok,
+    ])))
+}
 
 thread_local! {
     pub static MAGIC_STRUCT_SYMBOL: SteelVal = SteelVal::ListV(im_lists::list![SteelVal::SymbolV(Rc::from("StructMarker"))]);
