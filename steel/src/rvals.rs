@@ -140,46 +140,46 @@ pub(crate) fn _as_underlying_type<'a, T: 'static>(value: &'a dyn CustomType) -> 
 pub trait Custom {}
 
 pub trait CustomType {
-    fn box_clone(&self) -> Box<dyn CustomType>;
-    fn as_any(&self) -> Box<dyn Any>;
+    // fn box_clone(&self) -> Box<dyn CustomType>;
+    // fn as_any(&self) -> Box<dyn Any>;
     fn as_any_ref(&self) -> &dyn Any;
     fn as_any_ref_mut(&mut self) -> &mut dyn Any;
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
-    fn new_steel_val(&self) -> SteelVal;
+    // fn new_steel_val(&self) -> SteelVal;
     fn display(&self) -> std::result::Result<String, std::fmt::Error>;
     // fn as_underlying_type<'a>(&'a self) -> Option<&'a Self>;
 }
 
-impl Clone for Box<dyn CustomType> {
-    fn clone(&self) -> Box<dyn CustomType> {
-        self.box_clone()
-    }
-}
+// impl Clone for Box<dyn CustomType> {
+//     fn clone(&self) -> Box<dyn CustomType> {
+//         self.box_clone()
+//     }
+// }
 
-impl From<Box<dyn CustomType>> for SteelVal {
-    fn from(val: Box<dyn CustomType>) -> SteelVal {
-        val.new_steel_val()
-    }
-}
+// impl From<Box<dyn CustomType>> for SteelVal {
+//     fn from(val: Box<dyn CustomType>) -> SteelVal {
+//         val.new_steel_val()
+//     }
+// }
 
-impl<T: Custom + Clone + 'static + std::fmt::Debug> CustomType for T {
-    fn box_clone(&self) -> Box<dyn CustomType> {
-        Box::new((*self).clone())
-    }
-    fn as_any(&self) -> Box<dyn Any> {
-        Box::new((*self).clone())
-    }
+impl<T: Custom + 'static + std::fmt::Debug> CustomType for T {
+    // fn box_clone(&self) -> Box<dyn CustomType> {
+    //     Box::new((*self).clone())
+    // }
+    // fn as_any(&self) -> Box<dyn Any> {
+    //     Box::new((*self).clone())
+    // }
     fn as_any_ref(&self) -> &dyn Any {
         self as &dyn Any
     }
     fn as_any_ref_mut(&mut self) -> &mut dyn Any {
         self as &mut dyn Any
     }
-    fn new_steel_val(&self) -> SteelVal {
-        SteelVal::Custom(Gc::new(RefCell::new(Box::new(self.clone()))))
-    }
+    // fn new_steel_val(&self) -> SteelVal {
+    //     SteelVal::Custom(Gc::new(RefCell::new(Box::new(self.clone()))))
+    // }
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
         let mut buf = String::new();
         write!(buf, "{:?}", &self)?;
@@ -187,9 +187,10 @@ impl<T: Custom + Clone + 'static + std::fmt::Debug> CustomType for T {
     }
 }
 
-impl<T: CustomType> IntoSteelVal for T {
+impl<T: CustomType + 'static> IntoSteelVal for T {
     fn into_steelval(self) -> Result<SteelVal> {
-        Ok(self.new_steel_val())
+        // Ok(self.new_steel_val())
+        Ok(SteelVal::Custom(Gc::new(RefCell::new(Box::new(self)))))
     }
 }
 
@@ -338,7 +339,7 @@ impl AsRefSteelVal for List<SteelVal> {
     }
 }
 
-impl<T: CustomType + Clone + 'static> AsRefSteelVal for T {
+impl<T: CustomType + 'static> AsRefSteelVal for T {
     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         // todo!()
 
@@ -368,7 +369,7 @@ impl<T: CustomType + Clone + 'static> AsRefSteelVal for T {
     }
 }
 
-impl<T: CustomType + Clone + 'static> AsRefMutSteelVal for T {
+impl<T: CustomType + 'static> AsRefMutSteelVal for T {
     fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<RefMut<'b, Self>> {
         // todo!()
 
@@ -430,11 +431,6 @@ thread_local! {
     pub static MAGIC_STRUCT_SYMBOL: SteelVal = SteelVal::ListV(im_lists::list![SteelVal::SymbolV(Rc::from("StructMarker"))]);
 }
 
-pub struct TaggedValue {
-    tag: Rc<str>,
-    value: SteelVal,
-}
-
 #[derive(Clone)]
 pub enum SteelVal {
     /// Represents a boolean value
@@ -445,10 +441,6 @@ pub enum SteelVal {
     IntV(isize),
     /// Represents a character type
     CharV(char),
-    /// Represents a cons cell
-    /// cons, cdr, optional parent pointer
-    // Pair(Gc<SteelVal>, Option<Gc<SteelVal>>),
-    // Pair(Gc<ConsCell>),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
     VectorV(Gc<Vector<SteelVal>>),
@@ -603,7 +595,7 @@ impl SteelVal {
     #[inline(always)]
     pub fn is_struct(&self) -> bool {
         match self {
-            // Structs are just represented as
+            // Structs are just represented as vectors. These vectors should be
             SteelVal::MutableVector(v)
                 if v.borrow()
                     .get(0)

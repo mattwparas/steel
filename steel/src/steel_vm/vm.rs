@@ -1877,7 +1877,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         //     self.function_stack.len()
         // );
 
-        closure.increment_call_count();
+        // closure.increment_call_count();
 
         // while let Some(current_executing) = self.function_stack.pop() {
         //     if !current_executing.is_let {}
@@ -2452,7 +2452,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         ast_index: usize,
     ) -> Result<()> {
         // Jit profiling
-        closure.increment_call_count();
+        // closure.increment_call_count();
 
         // if closure.is_multi_arity {
         //     println!("Calling multi arity function");

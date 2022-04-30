@@ -200,6 +200,29 @@ macro_rules! impl_register_fn_self {
                 self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
             }
         }
+
+        impl<
+            SELF: AsRefMutSteelVal,
+            $($param: FromSteelVal,)*
+            FN: Fn(&SELF, $($param),*) -> RET + 'static,
+            RET: IntoSteelVal
+        > RegisterSelfMutFn<FN, Wrapper<(SELF, $($param,)*)>, RET> for Engine {
+            fn register_method_mut_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+                let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+                    if args.len() != $arg_count {
+                        stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
+                    }
+
+                    let input = <SELF>::as_mut_ref(&args[0])?;
+
+                    let res = func(&input, $(<$param>::from_steelval(&args[$idx])?,)*);
+
+                    res.into_steelval()
+                };
+
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+            }
+        }
     };
 }
 

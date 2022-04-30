@@ -60,7 +60,7 @@ pub fn main() {
     println!("bar: {}", bar);
     assert_eq!("applesauce".to_string(), bar);
 
-    let baz: String = vm.extract("baz").unwrap();
-    println!("baz: {}", baz);
-    assert_eq!("bananas".to_string(), baz);
+    let baz: Result<String, String> = vm.extract("baz").unwrap();
+    println!("baz: {}", baz.clone().unwrap());
+    assert_eq!("bananas".to_string(), baz.unwrap());
 }

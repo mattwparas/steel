@@ -30,8 +30,11 @@ pub use symbols::SymbolOperations;
 pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{FunctionSignature, SteelVal};
+use crate::{
+    rerrs::{ErrorKind, SteelErr},
+    rvals::Custom,
+};
 use im_rc::Vector;
 
 use std::convert::TryFrom;
@@ -176,15 +179,24 @@ impl FromSteelVal for SteelVal {
 
 // TODO make intosteelval return a result type
 // This allows errors to propagate
+// @Matt - TODO: 4/29/22 -> Decide how natively Result and Option types should be integrated
+// Directly into Steel. At the moment we _could_ bail out and just rely entirely on Rust
+// types, but then we may have to more carefully integrate with functions in the std library
+// in order to interact. We also could convert directly into a Steel representation, i.e.
+// (make-struct Ok (x))
+// (make-struct Err (x))
+// This could make it easier to integrate natively, but also opaquely wrapping it allows for
+// perhaps better performance
+impl<T: IntoSteelVal, E: IntoSteelVal> Custom for Result<T, E> {}
 
-impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
-    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-        match self {
-            Ok(s) => s.into_steelval(),
-            Err(e) => crate::stop!(Generic => format!("{:?}", e)),
-        }
-    }
-}
+// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
+//     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+//         match self {
+//             Ok(s) => s.into_steelval(),
+//             Err(e) => crate::stop!(Generic => format!("{:?}", e)),
+//         }
+//     }
+// }
 
 impl FromSteelVal for () {
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
@@ -246,7 +258,7 @@ impl FromSteelVal for String {
         } else {
             Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Expected string".to_string(),
+                format!("Expected string, found: {}", val),
             ))
         }
     }
