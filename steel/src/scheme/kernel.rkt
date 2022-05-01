@@ -30,8 +30,13 @@
 ;; There is room here for a lot more custom fields to increase the functionality
 ;; of structs. The first one would be the custom printing method. This should be added via a keyword,
 ;; but at the moment there are no keywords in Steel, so struct
-(define (make-constructor struct-name fields)
-  `(define ,struct-name (lambda ,fields (mutable-vector ___magic_struct_symbol___ (quote ,struct-name) ,@fields))))
+(define (make-constructor struct-name fields options-list options-map)
+  `(define ,struct-name
+     (lambda ,fields (mutable-vector
+                      ___magic_struct_symbol___
+                      (quote ,struct-name)
+                      (hash ,@(hash->list options-map))
+                      ,@fields))))
 
 ;; Defines the getters for each index. Maps at compile time the getter to the index in the vector
 ;; that contains the value. Take this for example:
@@ -54,7 +59,7 @@
                        (make/c any/c 'any/c))
                       (lambda (this) (mut-vector-ref this ,(car (cdr field))))
                       (quote ,function-name)))))
-       (enumerate 2 '() fields)))
+       (enumerate 3 '() fields)))
 
 ;; Pretty much the same as the above, just now accepts a value to update
 ;; in the underlying struct.
@@ -69,66 +74,88 @@
                        (make/c any/c 'any/c))
                       (lambda (this value) (vector-set! this ,(car (cdr field)) value))
                       (quote ,function-name)))))
-       (enumerate 2 '() fields)))
+       (enumerate 4 '() fields)))
 
-;; make-struct is a macro here
-(define (make-struct struct-name fields)
-  (if (not (list? fields))
-      (error! "make-struct expects a list of field names, found " fields)
-      void)
-  (if (not (symbol? struct-name))
-      (error! "make-struct expects an identifier as the first argument, found " struct-name)
-      void)
+(define (hash->list hm)
+  (transduce (transduce hm (into-list))
+             (mapping (lambda (pair)
+                        ;; If we have a symbol as a key, that means we need to quote it before
+                        ;; we put it back into the map
+                        (if (symbol? (car pair))
+                            ;; TODO: @Matt - this causes a parser error
+                            ;; (cons `(quote ,(car x)) (cdr x))
+                            (cons (list 'quote (car pair)) (cdr pair))
+                            pair)))
+             (flattening)
+             (into-list)))
 
-  `(begin
-     ;; Constructor
-     ,(make-constructor struct-name fields)
-     ;; Predicate
-     ,(make-predicate struct-name fields)
-     ;; Getters here
-     ,@(make-getters struct-name fields)
-     ;; Setters
-     ,@(make-setters struct-name fields)))
+;; Valid options on make-struct at the moment are:
+;; :transparent, default #false
+;; :printer, default doesn't exist
+;; These will just be stored in a hash map at the back of the struct.
+(define (make-struct struct-name fields . options)
+  (when (not (list? fields))
+    (error! "make-struct expects a list of field names, found " fields)
+    void)
+
+  (when (not (symbol? struct-name))
+    (error! "make-struct expects an identifier as the first argument, found " struct-name))
+
+  (when (odd? (length options))
+    (error! "make-struct options are malformed - each option requires a value"))
+
+  (let ((options-map (apply hash options)))
+    (displayln options-map)
+    (displayln (hash->list options-map))
+    `(begin
+       ;; Constructor
+       ,(make-constructor struct-name fields options options-map)
+       ;; Predicate
+       ,(make-predicate struct-name fields)
+       ;; Getters here
+       ,@(make-getters struct-name fields)
+       ;; Setters
+       ,@(make-setters struct-name fields))))
 
 ;; TODO: This is going to fail simply because when re-reading in the body of expanded functions
 ;; The parser is unable to parse already made un-parseable items. In this case, we should not
 ;; Re-parse the items, but rather convert the s-expression BACK into a typed ast instead.
 (define (%lambda% args body)
-    (let (
-          (non-default-bindings (filter (lambda (x) (not (pair? x))) args))
-          (bindings
-            (transduce
-                ;; Now we have attached the index of the list
-                ;; To the iteration
-                (enumerate 0 '() args)
-                ;; extract out the arguments that have a default associated
-                ;; So from the argument list like so:
-                ;; (a b [c <expr>] [d <expr>])
-                ;; We will get out ([c <expr>] [d <expr>])
-                (filtering (lambda (x) (pair? (car x))))
-                ;; Map to the let form of (binding expr)
-                (mapping (lambda (x)
-                    ;; ( (x, expr), index )
-                    ;; TODO: clean this up
-                    (let ((var-name (car (car x)))
-                          (expr (car (cdr (car x))))
-                          (index (car (cdr x))))
-                          `(,var-name (let ((,var-name (try-list-ref !!dummy-rest-arg!! ,index)))
-                                            (if ,var-name ,var-name ,expr))))))
-                (into-list))))
+  (let (
+        (non-default-bindings (filter (lambda (x) (not (pair? x))) args))
+        (bindings
+         (transduce
+          ;; Now we have attached the index of the list
+          ;; To the iteration
+          (enumerate 0 '() args)
+          ;; extract out the arguments that have a default associated
+          ;; So from the argument list like so:
+          ;; (a b [c <expr>] [d <expr>])
+          ;; We will get out ([c <expr>] [d <expr>])
+          (filtering (lambda (x) (pair? (car x))))
+          ;; Map to the let form of (binding expr)
+          (mapping (lambda (x)
+                     ;; ( (x, expr), index )
+                     ;; TODO: clean this up
+                     (let ((var-name (car (car x)))
+                           (expr (car (cdr (car x))))
+                           (index (car (cdr x))))
+                       `(,var-name (let ((,var-name (try-list-ref !!dummy-rest-arg!! ,index)))
+                                     (if ,var-name ,var-name ,expr))))))
+          (into-list))))
 
-        ;; TODO: Yes I understand this violates the macro writers bill of rights
-        ;; that being said I'm only doing this as a proof of concept anyway so it can be rewritten
-        ;; to be simpler and put the weight on the compiler later
-        (if (equal? (length args) (length non-default-bindings))
-            `(lambda ,args ,body)
-            ; (displayln "hello world")
-            `(lambda (,@non-default-bindings . !!dummy-rest-arg!!)
-                (let (,@bindings) ,body))
-            ;     ,(if bindings
-            ;         `(let (,@bindings) ,body)
-            ;         body))
-                    
-                    
-                    
-                    )))
+    ;; TODO: Yes I understand this violates the macro writers bill of rights
+    ;; that being said I'm only doing this as a proof of concept anyway so it can be rewritten
+    ;; to be simpler and put the weight on the compiler later
+    (if (equal? (length args) (length non-default-bindings))
+        `(lambda ,args ,body)
+        ; (displayln "hello world")
+        `(lambda (,@non-default-bindings . !!dummy-rest-arg!!)
+           (let (,@bindings) ,body))
+        ;     ,(if bindings
+        ;         `(let (,@bindings) ,body)
+        ;         body))
+
+
+
+        )))

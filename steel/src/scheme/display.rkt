@@ -14,6 +14,7 @@
 
 ; (displayln "hello" "world" "this" "is" "multiple" "values")
 
+; (make-struct Applesauce (a b c))
 
 (define (println x)
   (displayln 

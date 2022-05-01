@@ -44,7 +44,11 @@ impl Engine {
 
         embed_primitives(&mut vm);
 
-        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+        let core_libraries = [
+            crate::stdlib::PRELUDE,
+            crate::stdlib::CONTRACTS,
+            crate::stdlib::DISPLAY,
+        ];
 
         for core in std::array::IntoIter::new(core_libraries) {
             vm.parse_and_execute_without_optimizations(core).unwrap();

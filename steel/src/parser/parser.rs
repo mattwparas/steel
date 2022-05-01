@@ -439,6 +439,7 @@ impl<'a> Parser<'a> {
                             let popped_value = self.context.pop();
 
                             if let Some(popped) = popped_value {
+                                // println!("Popped: {:?}", popped);
                                 debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
                             }
 
