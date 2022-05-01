@@ -1,5 +1,8 @@
 
-
+(provide
+ struct-name
+ struct-transparent?
+ struct-printer)
 
 (define/contract (struct-name s)
   (->/c custom-struct? symbol?)
@@ -12,3 +15,5 @@
 (define/contract (struct-printer s)
   (->/c custom-struct? (or/c function? boolean?))
   (hash-try-get (mut-vector-ref s 2) ':printer))
+
+;; Get documentation for a function on demand - query for a contract

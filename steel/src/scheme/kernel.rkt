@@ -7,6 +7,20 @@
                        accum)
                  (cdr lst))))
 
+(define (hash->list hm)
+  (transduce (transduce hm (into-list))
+             (mapping (lambda (pair)
+                        ;; If we have a symbol as a key, that means we need to quote it before
+                        ;; we put it back into the map
+                        (if (symbol? (car pair))
+                            ;; TODO: @Matt - this causes a parser error
+                            ;; (cons `(quote ,(car x)) (cdr x))
+                            (cons (list 'quote (car pair)) (cdr pair))
+                            pair)))
+             (flattening)
+             (into-list)))
+
+
 ;; ------------ Structs ---------------
 ;; Mutable structs in Steel are just implemented as fixed-size vectors, but with a little bit of magic.
 ;; The model is as follows:
@@ -75,19 +89,6 @@
                       (lambda (this value) (vector-set! this ,(car (cdr field)) value))
                       (quote ,function-name)))))
        (enumerate 4 '() fields)))
-
-(define (hash->list hm)
-  (transduce (transduce hm (into-list))
-             (mapping (lambda (pair)
-                        ;; If we have a symbol as a key, that means we need to quote it before
-                        ;; we put it back into the map
-                        (if (symbol? (car pair))
-                            ;; TODO: @Matt - this causes a parser error
-                            ;; (cons `(quote ,(car x)) (cdr x))
-                            (cons (list 'quote (car pair)) (cdr pair))
-                            pair)))
-             (flattening)
-             (into-list)))
 
 ;; Valid options on make-struct at the moment are:
 ;; :transparent, default #false
