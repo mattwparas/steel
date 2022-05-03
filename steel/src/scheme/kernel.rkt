@@ -42,9 +42,13 @@
 
 ;; Defines the constructor with the form `struct-name`
 ;; There is room here for a lot more custom fields to increase the functionality
-;; of structs. The first one would be the custom printing method. This should be added via a keyword,
-;; but at the moment there are no keywords in Steel, so struct
-(define (make-constructor struct-name fields options-list options-map)
+;; of structs. The first one would be the custom printing method.
+;; 
+;; TODO: lift options out of the struct itself into a singleton. Every constructor doesn't need
+;; to have to reconstruct the options map on each instance. Probably some sort of
+;; internal vtable would be a good place to store it, or just make some sort of namespaced
+;; options that the later instances can reference.
+(define (make-constructor struct-name fields options-map)
   `(define ,struct-name
      (lambda ,fields (mutable-vector
                       ___magic_struct_symbol___
@@ -106,11 +110,9 @@
     (error! "make-struct options are malformed - each option requires a value"))
 
   (let ((options-map (apply hash options)))
-    (displayln options-map)
-    (displayln (hash->list options-map))
     `(begin
        ;; Constructor
-       ,(make-constructor struct-name fields options options-map)
+       ,(make-constructor struct-name fields options-map)
        ;; Predicate
        ,(make-predicate struct-name fields)
        ;; Getters here
@@ -121,42 +123,42 @@
 ;; TODO: This is going to fail simply because when re-reading in the body of expanded functions
 ;; The parser is unable to parse already made un-parseable items. In this case, we should not
 ;; Re-parse the items, but rather convert the s-expression BACK into a typed ast instead.
-(define (%lambda% args body)
-  (let (
-        (non-default-bindings (filter (lambda (x) (not (pair? x))) args))
-        (bindings
-         (transduce
-          ;; Now we have attached the index of the list
-          ;; To the iteration
-          (enumerate 0 '() args)
-          ;; extract out the arguments that have a default associated
-          ;; So from the argument list like so:
-          ;; (a b [c <expr>] [d <expr>])
-          ;; We will get out ([c <expr>] [d <expr>])
-          (filtering (lambda (x) (pair? (car x))))
-          ;; Map to the let form of (binding expr)
-          (mapping (lambda (x)
-                     ;; ( (x, expr), index )
-                     ;; TODO: clean this up
-                     (let ((var-name (car (car x)))
-                           (expr (car (cdr (car x))))
-                           (index (car (cdr x))))
-                       `(,var-name (let ((,var-name (try-list-ref !!dummy-rest-arg!! ,index)))
-                                     (if ,var-name ,var-name ,expr))))))
-          (into-list))))
+; (define (%lambda% args body)
+;   (let (
+;         (non-default-bindings (filter (lambda (x) (not (pair? x))) args))
+;         (bindings
+;          (transduce
+;           ;; Now we have attached the index of the list
+;           ;; To the iteration
+;           (enumerate 0 '() args)
+;           ;; extract out the arguments that have a default associated
+;           ;; So from the argument list like so:
+;           ;; (a b [c <expr>] [d <expr>])
+;           ;; We will get out ([c <expr>] [d <expr>])
+;           (filtering (lambda (x) (pair? (car x))))
+;           ;; Map to the let form of (binding expr)
+;           (mapping (lambda (x)
+;                      ;; ( (x, expr), index )
+;                      ;; TODO: clean this up
+;                      (let ((var-name (car (car x)))
+;                            (expr (car (cdr (car x))))
+;                            (index (car (cdr x))))
+;                        `(,var-name (let ((,var-name (try-list-ref !!dummy-rest-arg!! ,index)))
+;                                      (if ,var-name ,var-name ,expr))))))
+;           (into-list))))
 
-    ;; TODO: Yes I understand this violates the macro writers bill of rights
-    ;; that being said I'm only doing this as a proof of concept anyway so it can be rewritten
-    ;; to be simpler and put the weight on the compiler later
-    (if (equal? (length args) (length non-default-bindings))
-        `(lambda ,args ,body)
-        ; (displayln "hello world")
-        `(lambda (,@non-default-bindings . !!dummy-rest-arg!!)
-           (let (,@bindings) ,body))
-        ;     ,(if bindings
-        ;         `(let (,@bindings) ,body)
-        ;         body))
+;     ;; TODO: Yes I understand this violates the macro writers bill of rights
+;     ;; that being said I'm only doing this as a proof of concept anyway so it can be rewritten
+;     ;; to be simpler and put the weight on the compiler later
+;     (if (equal? (length args) (length non-default-bindings))
+;         `(lambda ,args ,body)
+;         ; (displayln "hello world")
+;         `(lambda (,@non-default-bindings . !!dummy-rest-arg!!)
+;            (let (,@bindings) ,body))
+;         ;     ,(if bindings
+;         ;         `(let (,@bindings) ,body)
+;         ;         body))
 
 
 
-        )))
+;         )))

@@ -123,6 +123,8 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
                     Ok(SteelVal::ListV(im_lists::list![x.0.clone(), x.1.clone()]))
                 })))
             }
+            // This explicitly skips the first 3 values since those are what are used
+            // For the mutable vector
             SteelVal::MutableVector(v) if value.is_struct() => {
                 *nursery = Some(v.borrow().clone());
 
