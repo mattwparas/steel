@@ -123,40 +123,18 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
                     Ok(SteelVal::ListV(im_lists::list![x.0.clone(), x.1.clone()]))
                 })))
             }
-            SteelVal::MutableVector(v) => {
-                // Ok(Box::new(
-                //     Ref::map(v.borrow(), |x| &x.iter()).cloned().map(Ok),
-                // ))
+            SteelVal::MutableVector(v) if value.is_struct() => {
+                *nursery = Some(v.borrow().clone());
 
+                Ok(Box::new(
+                    nursery.as_ref().unwrap().iter().skip(3).cloned().map(Ok),
+                ))
+            }
+            SteelVal::MutableVector(v) => {
                 // Copy over the mutable vector into the nursery
                 *nursery = Some(v.borrow().clone());
 
                 Ok(Box::new(nursery.as_ref().unwrap().iter().cloned().map(Ok)))
-
-                // todo!()
-
-                // Unsafe Justification:
-                // For the duration of the iterator, the underlying vector will _not_ be mutably borrowed
-                // We simply want an immutable iterator over the contents
-                // UPDATE: this is not safe - later functions could access v in another scope
-                // either -> look into adding a manual flag for the borrowed aspect
-                // match unsafe { v.try_borrow_unguarded() } {
-                //     Ok(v) => Ok(Box::new(v.into_iter().cloned().map(Ok))),
-                //     Err(_) => {
-                //         stop!(Generic => "Unable to iterator over mutable vector as it is already borrowed")
-                //     }
-                // }
-
-                // todo!("Unable to return a mutable reference to the underlying iterator over v due to how RefCell works")
-
-                // Ok(Box::new(v.clone().borrow().iter().cloned().map(Ok)))
-
-                // Ok(Box::new(
-                //     VecGuard { guard: v.borrow() }.iter().cloned().map(Ok),
-                // ))
-
-                // Ok(Box::new(v.borrow().as_slice().iter().cloned().map(Ok)))
-                // Ok(Box::new(ref_borrow))
             }
             _ => {
                 stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", value))
