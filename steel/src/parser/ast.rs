@@ -23,7 +23,7 @@ pub(crate) trait AstTools {
 
 impl AstTools for Vec<ExprKind> {
     fn pretty_print(&self) {
-        println!("{:?}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
+        println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
 }
 

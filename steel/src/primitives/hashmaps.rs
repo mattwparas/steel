@@ -75,7 +75,7 @@ impl HashMapOperations {
                     None => stop!(Generic => "hash map key not found!"),
                 }
             } else {
-                stop!(TypeMismatch => "hm-insert takes a hashmap")
+                stop!(TypeMismatch => "hm-get takes a hashmap")
             }
         })
     }
@@ -95,7 +95,7 @@ impl HashMapOperations {
                     None => Ok(SteelVal::BoolV(false)),
                 }
             } else {
-                stop!(TypeMismatch => "hm-insert takes a hashmap")
+                stop!(TypeMismatch => "hm-try-get takes a hashmap")
             }
         })
     }

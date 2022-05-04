@@ -66,6 +66,8 @@ impl Kernel {
 
             // let expr = ExprKind::try_from(&result);
 
+            // println!("Expanded to: {:?}", result.to_string());
+
             // println!("Expanded to: {:#?}", expr);
 
             // TODO: try to understand what is actually happening here

@@ -10,7 +10,7 @@ use crate::{
         },
         program::Program,
     },
-    parser::{expand_visitor::expand_kernel, kernel::Kernel},
+    parser::{ast::AstTools, expand_visitor::expand_kernel, kernel::Kernel},
     steel_vm::contract_checker::{ContractChecker, GlobalContractCollector},
     values::structs::{StructBuilders, StructFuncBuilderConcrete},
 };
@@ -946,6 +946,9 @@ impl Compiler {
 
         let expanded_statements =
             struct_builders.extract_structs_for_executable(expanded_statements)?;
+
+        // Pretty print the expressions to see what we're working with here
+        // expanded_statements.pretty_print();
 
         // TODO: Contract/Type Checking goes here
         // println!("---------------------------------------");

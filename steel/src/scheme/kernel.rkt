@@ -49,12 +49,18 @@
 ;; internal vtable would be a good place to store it, or just make some sort of namespaced
 ;; options that the later instances can reference.
 (define (make-constructor struct-name fields options-map)
-  `(define ,struct-name
-     (lambda ,fields (mutable-vector
-                      ___magic_struct_symbol___
-                      (quote ,struct-name)
-                      (hash ,@(hash->list options-map))
-                      ,@fields))))
+  (let ((options-name (concat-symbols '___ struct-name '-options___)))
+    (list
+      `(define ,options-name (hash ,@(hash->list options-map)))
+      `(define ,struct-name
+        (let ((options ,options-name))
+          (lambda ,fields (mutable-vector
+                    ___magic_struct_symbol___
+                    (quote ,struct-name)
+                    options
+                    ,@fields)))))))
+
+
 
 ;; Defines the getters for each index. Maps at compile time the getter to the index in the vector
 ;; that contains the value. Take this for example:
@@ -112,7 +118,7 @@
   (let ((options-map (apply hash options)))
     `(begin
        ;; Constructor
-       ,(make-constructor struct-name fields options-map)
+       ,@(make-constructor struct-name fields options-map)
        ;; Predicate
        ,(make-predicate struct-name fields)
        ;; Getters here
