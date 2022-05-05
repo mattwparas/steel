@@ -47,6 +47,12 @@ pub enum ExprKind {
 }
 
 impl ExprKind {
+    pub fn atom(name: String) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+            name,
+        ))))
+    }
+
     pub fn atom_syntax_object(&self) -> Option<SyntaxObject> {
         match self {
             Self::Atom(Atom { syn }) => Some(syn.clone()),

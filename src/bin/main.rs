@@ -87,6 +87,9 @@ async fn test_async_function() -> usize {
 
 pub fn configure_engine() -> Engine {
     let mut vm = Engine::new_base();
-    vm.register_async_fn("test", test_async_function);
     vm
+
+    // let mut vm = Engine::new_base();
+    // vm.register_async_fn("test", test_async_function);
+    // vm
 }
