@@ -1,14 +1,16 @@
-use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
 use crate::rvals::Result;
+use crate::{parser::ast::ExprKind, steel_vm::builtin::BuiltInModule};
 
 use super::{ast::Atom, kernel::Kernel};
 
 use std::collections::HashMap;
 
 use crate::parser::expander::SteelMacro;
+
+pub const REQUIRE_BUILTIN: &str = "require-builtin";
 
 pub fn extract_macro_defs(
     exprs: Vec<ExprKind>,
@@ -169,10 +171,15 @@ impl<'a> ConsumingVisitor for Expander<'a> {
     }
 }
 
-pub fn expand_kernel(expr: ExprKind, kernel: &mut Kernel) -> Result<ExprKind> {
+pub fn expand_kernel(
+    expr: ExprKind,
+    kernel: &mut Kernel,
+    builtin_modules: im_rc::HashMap<String, BuiltInModule>,
+) -> Result<ExprKind> {
     KernelExpander {
         map: kernel,
         changed: false,
+        builtin_modules,
     }
     .visit(expr)
 }
@@ -180,13 +187,18 @@ pub fn expand_kernel(expr: ExprKind, kernel: &mut Kernel) -> Result<ExprKind> {
 pub struct KernelExpander<'a> {
     map: &'a mut Kernel,
     pub(crate) changed: bool,
+    builtin_modules: im_rc::HashMap<String, BuiltInModule>,
 }
 
 impl<'a> KernelExpander<'a> {
-    pub fn new(map: &'a mut Kernel) -> Self {
+    pub fn new(
+        map: &'a mut Kernel,
+        builtin_modules: im_rc::HashMap<String, BuiltInModule>,
+    ) -> Self {
         Self {
             map,
             changed: false,
+            builtin_modules,
         }
     }
 
@@ -287,6 +299,31 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                 let expanded = self.map.expand(s, ExprKind::List(l.clone()))?;
                 self.changed = true;
                 return self.visit(expanded);
+            }
+
+            if s == REQUIRE_BUILTIN {
+                if l.args.len() != 2 {
+                    stop!(ArityMismatch => "require-builtin expects one argument - the name of the module to include")
+                }
+
+                match &l.args[1] {
+                    ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::StringLiteral(s),
+                                ..
+                            },
+                    }) => {
+                        if let Some(module) = self.builtin_modules.get(s) {
+                            return Ok(module.to_syntax());
+                        } else {
+                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                        }
+                    }
+                    other => {
+                        stop!(TypeMismatch => format!("require-builtin expects a string referring to the name of the module, found: {}", other))
+                    }
+                }
             }
         }
 

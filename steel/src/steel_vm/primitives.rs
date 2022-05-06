@@ -1,4 +1,8 @@
-use super::{engine::Engine, register_fn::RegisterFn};
+use super::{
+    builtin::BuiltInModule,
+    engine::Engine,
+    register_fn::{RegisterFn, RegisterSelfFn},
+};
 use crate::rvals::{Result, SteelVal};
 use crate::values::structs::{struct_ref, struct_to_list, struct_to_vector};
 use crate::{
@@ -607,6 +611,8 @@ pub(crate) fn embed_primitives(engine: &mut Engine) {
     register_json_functions(engine);
 
     engine.register_value("error!", ControlOperations::error());
+
+    engine.register_method_fn("##__module-get", BuiltInModule::get);
 }
 
 #[inline(always)]

@@ -1,4 +1,5 @@
 use super::{
+    builtin::BuiltInModule,
     options::{ApplyContract, DoNotApplyContracts, DoNotUseCallback, UseCallback},
     primitives::{embed_primitives, embed_primitives_without_io, CONSTANTS},
     vm::VirtualMachineCore,
@@ -29,6 +30,7 @@ pub struct Engine {
     virtual_machine: VirtualMachineCore,
     compiler: Compiler,
     constants: Option<ImmutableHashMap<String, SteelVal>>,
+    modules: ImmutableHashMap<String, BuiltInModule>,
 }
 
 impl Engine {
@@ -40,6 +42,7 @@ impl Engine {
             virtual_machine: VirtualMachineCore::new(),
             compiler: Compiler::default(),
             constants: None,
+            modules: ImmutableHashMap::new(),
         };
 
         embed_primitives(&mut vm);
@@ -72,6 +75,7 @@ impl Engine {
             virtual_machine: VirtualMachineCore::new(),
             compiler: Compiler::default_with_kernel(),
             constants: None,
+            modules: ImmutableHashMap::new(),
         }
     }
 
@@ -207,6 +211,19 @@ impl Engine {
         Ok(self)
     }
 
+    // Registers the given module into the virtual machine
+    pub fn register_module(&mut self, module: BuiltInModule) -> &mut Self {
+        // Add the module to the map
+        self.modules.insert(module.name.to_string(), module.clone());
+        // Register the actual module itself as a value to make the virtual machine capable of reading from it
+        self.register_value(
+            module.unreadable_name().as_str(),
+            module.into_steelval().unwrap(),
+        );
+
+        self
+    }
+
     /// Emits a program with path information embedded for error messaging.
     pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
         let constants = self.constants();
@@ -222,7 +239,7 @@ impl Engine {
     pub fn emit_raw_program(&mut self, expr: &str, path: PathBuf) -> Result<RawProgramWithSymbols> {
         let constants = self.constants();
         self.compiler
-            .compile_executable(expr, Some(path), constants)
+            .compile_executable(expr, Some(path), constants, self.modules.clone())
     }
 
     // Attempts to disassemble the given expression into a series of bytecode dumps
@@ -277,9 +294,9 @@ impl Engine {
         path: PathBuf,
     ) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
-        let program = self
-            .compiler
-            .compile_executable(exprs, Some(path), constants)?;
+        let program =
+            self.compiler
+                .compile_executable(exprs, Some(path), constants, self.modules.clone())?;
 
         self.run_raw_program(program)
     }
@@ -289,15 +306,19 @@ impl Engine {
         exprs: Vec<ExprKind>,
     ) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
-        let program = self
-            .compiler
-            .compile_executable_from_expressions(exprs, constants)?;
+        let program = self.compiler.compile_executable_from_expressions(
+            exprs,
+            self.modules.clone(),
+            constants,
+        )?;
         self.run_raw_program(program)
     }
 
     pub fn compile_and_run_raw_program(&mut self, exprs: &str) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
-        let program = self.compiler.compile_executable(exprs, None, constants)?;
+        let program =
+            self.compiler
+                .compile_executable(exprs, None, constants, self.modules.clone())?;
 
         self.run_raw_program(program)
     }

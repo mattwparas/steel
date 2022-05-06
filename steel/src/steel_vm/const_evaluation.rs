@@ -606,7 +606,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     fn visit_require(&mut self, _s: crate::parser::ast::Require) -> Self::Output {
-        stop!(Generic => "unexpected require in const evaluator");
+        stop!(Generic => "unexpected require - require is only allowed at the top level");
     }
 
     fn visit_callcc(&mut self, mut cc: Box<crate::parser::ast::CallCC>) -> Self::Output {

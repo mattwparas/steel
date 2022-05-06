@@ -11,7 +11,10 @@ use crate::{
         program::Program,
     },
     parser::{ast::AstTools, expand_visitor::expand_kernel, kernel::Kernel},
-    steel_vm::contract_checker::{ContractChecker, GlobalContractCollector},
+    steel_vm::{
+        builtin::BuiltInModule,
+        contract_checker::{ContractChecker, GlobalContractCollector},
+    },
     values::structs::{StructBuilders, StructFuncBuilderConcrete},
 };
 use crate::{
@@ -522,9 +525,10 @@ impl Compiler {
     pub fn compile_executable_from_expressions(
         &mut self,
         exprs: Vec<ExprKind>,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
         constants: ImmutableHashMap<String, SteelVal>,
     ) -> Result<RawProgramWithSymbols> {
-        self.compile_raw_program(exprs, constants, None)
+        self.compile_raw_program(exprs, constants, builtin_modules, None)
     }
 
     pub fn compile_executable(
@@ -532,6 +536,7 @@ impl Compiler {
         expr_str: &str,
         path: Option<PathBuf>,
         constants: ImmutableHashMap<String, SteelVal>,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
     ) -> Result<RawProgramWithSymbols> {
         let mut intern = HashMap::new();
 
@@ -551,7 +556,7 @@ impl Compiler {
         let parsed = parsed?;
 
         // TODO fix this hack
-        self.compile_raw_program(parsed, constants, path)
+        self.compile_raw_program(parsed, constants, builtin_modules, path)
     }
 
     pub fn emit_instructions_with_ast(
@@ -888,6 +893,7 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         constants: ImmutableHashMap<String, SteelVal>,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
         path: Option<PathBuf>,
     ) -> Result<RawProgramWithSymbols> {
         let mut expanded_statements = self.expand_expressions(exprs, path)?;
@@ -913,7 +919,7 @@ impl Compiler {
             // Crawl for the kernel level expansions
             expanded_statements = expanded_statements
                 .into_iter()
-                .map(|x| expand_kernel(x, kernel))
+                .map(|x| expand_kernel(x, kernel, builtin_modules.clone()))
                 .collect::<Result<Vec<_>>>()?;
         }
 

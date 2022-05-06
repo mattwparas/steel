@@ -2,7 +2,10 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use steel::steel_vm::{engine::Engine, register_fn::RegisterAsyncFn};
+use steel::{
+    steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterAsyncFn},
+    SteelVal,
+};
 use steel_repl::repl::repl_base;
 
 use std::env::args;
@@ -87,6 +90,17 @@ async fn test_async_function() -> usize {
 
 pub fn configure_engine() -> Engine {
     let mut vm = Engine::new_base();
+
+    let mut module = BuiltInModule::new("applesauce".to_string());
+
+    module.register_value("bananas".to_string(), SteelVal::IntV(100));
+    module.register_value(
+        "foobar".to_string(),
+        SteelVal::StringV(std::rc::Rc::from("hello world!")),
+    );
+
+    vm.register_module(module);
+
     vm
 
     // let mut vm = Engine::new_base();

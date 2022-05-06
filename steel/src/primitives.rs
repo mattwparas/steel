@@ -30,10 +30,13 @@ pub use symbols::SymbolOperations;
 pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
 
-use crate::{rvals::{create_result_ok_struct, FunctionSignature, SteelVal}, stop};
 use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::Custom,
+};
+use crate::{
+    rvals::{create_result_ok_struct, FunctionSignature, SteelVal},
+    stop,
 };
 use im_rc::Vector;
 
@@ -281,13 +284,12 @@ impl From<Gc<SteelVal>> for SteelVal {
 
 impl FromSteelVal for String {
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
-        if let SteelVal::StringV(s) = val {
-            Ok(s.to_string())
-        } else {
-            Err(SteelErr::new(
+        match val {
+            SteelVal::StringV(s) | SteelVal::SymbolV(s) => Ok(s.to_string()),
+            _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
                 format!("Expected string, found: {}", val),
-            ))
+            )),
         }
     }
 }
