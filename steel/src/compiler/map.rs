@@ -1,9 +1,6 @@
 use crate::stop;
+use crate::throw;
 use crate::values::structs::StructFuncBuilder;
-use crate::{
-    rerrs::{ErrorKind, SteelErr},
-    throw,
-};
 use crate::{rvals::Result, values::structs::StructFuncBuilderConcrete};
 use std::collections::HashMap;
 

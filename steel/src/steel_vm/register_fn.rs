@@ -3,6 +3,7 @@ use std::{future::Future, marker::PhantomData, rc::Rc};
 use super::engine::Engine;
 use crate::rvals::{AsRefMutSteelVal, FutureResult};
 use crate::rvals::{AsRefSteelVal, FromSteelVal, IntoSteelVal, Result, SteelVal};
+use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
 use futures::FutureExt;
 
@@ -110,47 +111,88 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'stat
     }
 }
 
-// Try to make the first argument accept a reference to the underlying object
-// even better, try to make this work for anything that can be treated as a reference
-// -> references to objects can be done and should be able to be done, since they just need to be
-// treated the same way
+impl<
+        FUT: Future<Output = RET> + 'static,
+        RET: IntoSteelVal + 'static,
+        FN: Fn() -> FUT + 'static,
+    > RegisterAsyncFn<FN, Wrapper<()>, RET> for BuiltInModule
+{
+    fn register_async_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<FutureResult> {
+            if !args.is_empty() {
+                stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
+            }
 
-// CustomType should work for values and references - if just the value, we have this for free
-// if its the reference, just try to look at the underlying value, and operate on it accordingly
+            let res = func();
 
-// impl<RET: IntoSteelVal, CUSTOM: CustomType, FN: Fn(CUSTOM) -> RET + 'static>
-//     RegisterFn<FN, Wrapper<CUSTOM>, RET> for Engine
-// {
-//     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-//         // todo!()
+            Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
+        };
 
-//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//             if !args.is_empty() {
-//                 stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
-//             }
+        self.register_value(name, SteelVal::FutureFunc(Rc::new(f)))
+    }
+}
 
-//             let res = func();
+impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, RET>
+    for BuiltInModule
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if !args.is_empty() {
+                stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
+            }
 
-//             res.into_steelval()
-//         };
+            let res = func();
 
-//         // self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-//     }
-// }
+            res.into_steelval()
+        };
 
-// pub trait Foo {}
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
 
-// pub trait Bar {}
+impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + 'static>
+    RegisterSelfFn<FN, Wrapper<SELF>, RET> for BuiltInModule
+{
+    fn register_method_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        // use std::Borrow();
 
-// pub trait Baz {}
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            }
 
-// impl<A: Foo, B: Bar, C: Baz> Foo for (A, B, C) {}
+            let input = <SELF>::as_ref(&args[0])?;
 
-// macro_rules! permutation {
-//     ($ )
-// }
+            let res = func(&input);
 
-// impl
+            res.into_steelval()
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
+
+impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'static>
+    RegisterSelfMutFn<FN, Wrapper<SELF>, RET> for BuiltInModule
+{
+    fn register_method_mut_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            }
+
+            let mut input = <SELF>::as_mut_ref(&args[0])?;
+
+            let res = func(&mut input);
+
+            res.into_steelval()
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
 
 macro_rules! impl_register_fn {
     ($arg_count:expr => $($param:ident: $idx:expr),*) => {
@@ -159,6 +201,26 @@ macro_rules! impl_register_fn {
             FN: Fn($($param),*) -> RET + 'static,
             RET: IntoSteelVal
         > RegisterFn<FN, Wrapper<($($param,)*)>, RET> for Engine {
+            fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+                let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+                    if args.len() != $arg_count {
+                        stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
+                    }
+
+                    let res = func($(<$param>::from_steelval(&args[$idx])?,)*);
+
+                    res.into_steelval()
+                };
+
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+            }
+        }
+
+        impl<
+            $($param: FromSteelVal,)*
+            FN: Fn($($param),*) -> RET + 'static,
+            RET: IntoSteelVal
+        > RegisterFn<FN, Wrapper<($($param,)*)>, RET> for BuiltInModule {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
                 let f = move |args: &[SteelVal]| -> Result<SteelVal> {
                     if args.len() != $arg_count {
@@ -223,32 +285,54 @@ macro_rules! impl_register_fn_self {
                 self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
             }
         }
+
+        impl<
+            SELF: AsRefSteelVal,
+            $($param: FromSteelVal,)*
+            FN: Fn(&SELF, $($param),*) -> RET + 'static,
+            RET: IntoSteelVal
+        > RegisterSelfFn<FN, Wrapper<(SELF, $($param,)*)>, RET> for BuiltInModule {
+            fn register_method_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+                let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+                    if args.len() != $arg_count {
+                        stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
+                    }
+
+                    let input = <SELF>::as_ref(&args[0])?;
+
+                    let res = func(&input, $(<$param>::from_steelval(&args[$idx])?,)*);
+
+                    res.into_steelval()
+                };
+
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+            }
+        }
+
+        impl<
+            SELF: AsRefMutSteelVal,
+            $($param: FromSteelVal,)*
+            FN: Fn(&SELF, $($param),*) -> RET + 'static,
+            RET: IntoSteelVal
+        > RegisterSelfMutFn<FN, Wrapper<(SELF, $($param,)*)>, RET> for BuiltInModule {
+            fn register_method_mut_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+                let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+                    if args.len() != $arg_count {
+                        stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
+                    }
+
+                    let input = <SELF>::as_mut_ref(&args[0])?;
+
+                    let res = func(&input, $(<$param>::from_steelval(&args[$idx])?,)*);
+
+                    res.into_steelval()
+                };
+
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+            }
+        }
     };
 }
-
-// macro_rules! impl_register_fn_two {
-//     ($arg_count:expr => $($param:ident: $idx:expr),*) => {
-//         impl<
-//             $($param: FromSteelVal + AsRefSteelVal,)*
-//             FN: Fn($($param),*) -> RET + 'static,
-//             RET: IntoSteelVal
-//         > RegisterFn<FN, Wrapper<($($param,)*)>, RET> for Engine {
-//             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-//                 let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//                     if args.len() != $arg_count {
-//                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
-//                     }
-
-//                     let res = func($(<$param>::from_steelval(&args[$idx])?,)*);
-
-//                     res.into_steelval()
-//                 };
-
-//                 self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
-//             }
-//         }
-//     };
-// }
 
 macro_rules! impl_register_async_fn {
     ($arg_count:expr => $($param:ident: $idx:expr),*) => {
@@ -258,6 +342,27 @@ macro_rules! impl_register_async_fn {
             FN: Fn($($param),*) -> FUT + 'static,
             RET: IntoSteelVal
         > RegisterAsyncFn<FN, Wrapper<($($param,)*)>, RET> for Engine {
+            fn register_async_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+                let f = move |args: &[SteelVal]| -> Result<FutureResult> {
+                    if args.len() != $arg_count {
+                        stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
+                    }
+
+                    let res = func($(<$param>::from_steelval(&args[$idx])?,)*);
+
+                    Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
+                };
+
+                self.register_value(name, SteelVal::FutureFunc(Rc::new(f)))
+            }
+        }
+
+        impl<
+            FUT: Future<Output = RET> + 'static,
+            $($param: FromSteelVal,)*
+            FN: Fn($($param),*) -> FUT + 'static,
+            RET: IntoSteelVal
+        > RegisterAsyncFn<FN, Wrapper<($($param,)*)>, RET> for BuiltInModule {
             fn register_async_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
                 let f = move |args: &[SteelVal]| -> Result<FutureResult> {
                     if args.len() != $arg_count {

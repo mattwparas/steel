@@ -11,15 +11,18 @@ use im_rc::HashMap;
 /// to refresh the primitives that are being used. For instance, the VM should have support
 /// for a primitive like so, where "kernel" has functions like `list`, `cons`, `car`, and `cdr`:
 ///
+/// ```scheme
 /// (require-builtin "kernel")
+/// ```
 ///
 /// This would then expand into a series of function calls like so:
+/// ```scheme
 /// (begin
 ///     (define list (hash-get *--unreadable-module-name--kernel*))
 ///     (define cons (hash-get *--unreadable-module-name--kernel*))
 ///     (define car (hash-get *--unreadable-module-name--kernel*))
 ///     (define cdr (hash-get *--unreadable-module-name--kernel*)))
-///
+/// ```
 /// So for now, its just a hashmap that will get embedded smartly, accompanied with a macro that will assist
 /// with reserving the proper slots in the interner
 ///
@@ -47,8 +50,8 @@ impl BuiltInModule {
 
     /// Add a value to the module namespace. This value can be any legal SteelVal, or if you're explicitly attempting
     /// to compile an program for later use and don't currently have access to the functions in memory, use `SteelVal::Void`
-    pub fn register_value(&mut self, name: String, value: SteelVal) -> &mut Self {
-        self.values.insert(name, value);
+    pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
+        self.values.insert(name.to_string(), value);
         self
     }
 

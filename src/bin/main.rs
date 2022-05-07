@@ -93,9 +93,9 @@ pub fn configure_engine() -> Engine {
 
     let mut module = BuiltInModule::new("applesauce".to_string());
 
-    module.register_value("bananas".to_string(), SteelVal::IntV(100));
+    module.register_value("bananas", SteelVal::IntV(100));
     module.register_value(
-        "foobar".to_string(),
+        "foobar",
         SteelVal::StringV(std::rc::Rc::from("hello world!")),
     );
 

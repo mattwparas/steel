@@ -9,8 +9,6 @@ use crate::{
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
-use crate::rerrs::{ErrorKind, SteelErr};
-
 use std::{
     collections::{HashMap, HashSet},
     io::Read,
