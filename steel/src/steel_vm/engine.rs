@@ -1,7 +1,10 @@
 use super::{
     builtin::BuiltInModule,
     options::{ApplyContract, DoNotApplyContracts, DoNotUseCallback, UseCallback},
-    primitives::{embed_primitives, embed_primitives_without_io, CONSTANTS},
+    primitives::{
+        embed_primitives, embed_primitives_without_io, register_builtin_modules, CONSTANTS,
+    },
+    register_fn::RegisterSelfFn,
     vm::VirtualMachineCore,
 };
 use crate::{
@@ -45,7 +48,14 @@ impl Engine {
             modules: ImmutableHashMap::new(),
         };
 
-        embed_primitives(&mut vm);
+        register_builtin_modules(&mut vm);
+
+        vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
+            .unwrap();
+
+        println!("Registered modules!");
+
+        // embed_primitives(&mut vm);
 
         let core_libraries = [
             crate::stdlib::PRELUDE,

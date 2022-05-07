@@ -913,15 +913,21 @@ impl Compiler {
         // syntax rules expansion.
         // Also, macro expansion needs to be cleaned up in general - right now lines are a little blurry, and they probably
         // should happen strictly before the other kinds
-        if let Some(kernel) = &mut self.kernel {
-            // println!("Here with kernel: {:?}", kernel.)
 
-            // Crawl for the kernel level expansions
-            expanded_statements = expanded_statements
-                .into_iter()
-                .map(|x| expand_kernel(x, kernel, builtin_modules.clone()))
-                .collect::<Result<Vec<_>>>()?;
-        }
+        expanded_statements = expanded_statements
+            .into_iter()
+            .map(|x| expand_kernel(x, self.kernel.as_mut(), builtin_modules.clone()))
+            .collect::<Result<Vec<_>>>()?;
+
+        // if let Some(kernel) = &mut self.kernel {
+        //     // println!("Here with kernel: {:?}", kernel.)
+
+        //     // Crawl for the kernel level expansions
+        //     expanded_statements = expanded_statements
+        //         .into_iter()
+        //         .map(|x| expand_kernel(x, kernel, builtin_modules.clone()))
+        //         .collect::<Result<Vec<_>>>()?;
+        // }
 
         let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;
 

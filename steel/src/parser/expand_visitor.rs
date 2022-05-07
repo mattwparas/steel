@@ -173,7 +173,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
 
 pub fn expand_kernel(
     expr: ExprKind,
-    kernel: &mut Kernel,
+    kernel: Option<&mut Kernel>,
     builtin_modules: im_rc::HashMap<String, BuiltInModule>,
 ) -> Result<ExprKind> {
     KernelExpander {
@@ -185,14 +185,14 @@ pub fn expand_kernel(
 }
 
 pub struct KernelExpander<'a> {
-    map: &'a mut Kernel,
+    map: Option<&'a mut Kernel>,
     pub(crate) changed: bool,
     builtin_modules: im_rc::HashMap<String, BuiltInModule>,
 }
 
 impl<'a> KernelExpander<'a> {
     pub fn new(
-        map: &'a mut Kernel,
+        map: Option<&'a mut Kernel>,
         builtin_modules: im_rc::HashMap<String, BuiltInModule>,
     ) -> Self {
         Self {
@@ -295,10 +295,12 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                 },
         })) = l.first()
         {
-            if self.map.contains_macro(s) {
-                let expanded = self.map.expand(s, ExprKind::List(l.clone()))?;
-                self.changed = true;
-                return self.visit(expanded);
+            if let Some(map) = &mut self.map {
+                if map.contains_macro(s) {
+                    let expanded = map.expand(s, ExprKind::List(l.clone()))?;
+                    self.changed = true;
+                    return self.visit(expanded);
+                }
             }
 
             if s == REQUIRE_BUILTIN {

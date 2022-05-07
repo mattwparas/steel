@@ -8,7 +8,7 @@ mod heap;
 mod lazy_stream;
 mod meta;
 pub mod options;
-mod primitives;
+pub mod primitives;
 pub mod register_fn;
 pub mod stack;
 #[cfg(test)]

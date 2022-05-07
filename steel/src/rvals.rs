@@ -217,6 +217,8 @@ impl<T: CustomType + 'static> IntoSteelVal for T {
 //     }
 // }
 
+// TODO: Marshalling out of the type could also try to yoink from a native steel struct.
+// If possible, we can try to line the constructor up with the fields
 impl<T: CustomType + Clone + 'static> FromSteelVal for T {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::Custom(v) = val {

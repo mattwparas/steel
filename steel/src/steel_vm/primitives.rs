@@ -275,7 +275,56 @@ thread_local! {
     pub static PORT_MODULE: BuiltInModule = port_module();
     pub static META_MODULE: BuiltInModule = meta_module();
     pub static JSON_MODULE: BuiltInModule = json_module();
+    pub static CONSTANTS_MODULE: BuiltInModule = constants_module();
 }
+
+pub fn register_builtin_modules(engine: &mut Engine) {
+    engine.register_method_fn("##__module-get", BuiltInModule::get);
+    engine.register_value("error!", ControlOperations::error());
+
+    engine
+        .register_module(MAP_MODULE.with(|x| x.clone()))
+        .register_module(SET_MODULE.with(|x| x.clone()))
+        .register_module(LIST_MODULE.with(|x| x.clone()))
+        .register_module(STRING_MODULE.with(|x| x.clone()))
+        .register_module(VECTOR_MODULE.with(|x| x.clone()))
+        .register_module(STREAM_MODULE.with(|x| x.clone()))
+        .register_module(CONTRACT_MODULE.with(|x| x.clone()))
+        .register_module(IDENTITY_MODULE.with(|x| x.clone()))
+        .register_module(NUMBER_MODULE.with(|x| x.clone()))
+        .register_module(EQUALITY_MODULE.with(|x| x.clone()))
+        .register_module(ORD_MODULE.with(|x| x.clone()))
+        .register_module(TRANSDUCER_MODULE.with(|x| x.clone()))
+        .register_module(SYMBOL_MODULE.with(|x| x.clone()))
+        .register_module(IO_MODULE.with(|x| x.clone()))
+        .register_module(FS_MODULE.with(|x| x.clone()))
+        .register_module(PORT_MODULE.with(|x| x.clone()))
+        .register_module(META_MODULE.with(|x| x.clone()))
+        .register_module(JSON_MODULE.with(|x| x.clone()))
+        .register_module(CONSTANTS_MODULE.with(|x| x.clone()));
+}
+
+pub static ALL_MODULES: &str = r#"
+    (require-builtin "hash")
+    (require-builtin "sets")
+    (require-builtin "lists")
+    (require-builtin "strings")
+    (require-builtin "symbols")
+    (require-builtin "vectors")
+    (require-builtin "streams")
+    (require-builtin "contracts")
+    (require-builtin "identity")
+    (require-builtin "numbers")
+    (require-builtin "equality")
+    (require-builtin "ord")
+    (require-builtin "transducers")
+    (require-builtin "io")
+    (require-builtin "filesystem")
+    (require-builtin "ports")
+    (require-builtin "meta")
+    (require-builtin "json")
+    (require-builtin "constants")
+"#;
 
 // static MAP_MODULE: Lazy<BuiltInModule> = Lazy::new(hashmap);
 // static SET_MODULE: Lazy<BuiltInModule> = Lazy::new(hashset);
@@ -886,7 +935,7 @@ fn meta_module() -> BuiltInModule {
         .register_value("read!", SteelVal::FuncV(super::meta::read))
         .register_value("eval!", SteelVal::FuncV(super::meta::eval))
         // TODO: @Matt -> implement the traits for modules as well
-        // .register_fn("Engine::new", super::meta::EngineWrapper::new)
+        .register_fn("Engine::new", super::meta::EngineWrapper::new)
         // .register_fn("run!", super::meta::EngineWrapper::call)
         // .register_fn("get-value", super::meta::EngineWrapper::get_value)
         .register_value(

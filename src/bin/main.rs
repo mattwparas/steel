@@ -3,7 +3,10 @@ extern crate steel_derive;
 extern crate steel_repl;
 
 use steel::{
-    steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterAsyncFn},
+    steel_vm::{
+        builtin::BuiltInModule, engine::Engine, primitives::register_builtin_modules,
+        register_fn::RegisterAsyncFn,
+    },
     SteelVal,
 };
 use steel_repl::repl::repl_base;
@@ -89,7 +92,13 @@ async fn test_async_function() -> usize {
 }
 
 pub fn configure_engine() -> Engine {
-    let mut vm = Engine::new_base();
+    // let mut vm = Engine::new_base();
+    let mut vm = Engine::new_raw();
+
+    register_builtin_modules(&mut vm);
+
+    vm.compile_and_run_raw_program(crate::steel::steel_vm::primitives::ALL_MODULES)
+        .unwrap();
 
     let mut module = BuiltInModule::new("applesauce".to_string());
 
