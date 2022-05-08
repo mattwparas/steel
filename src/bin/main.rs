@@ -18,8 +18,34 @@ use std::process;
 use env_logger::Builder;
 use log::LevelFilter;
 
+use clap::Parser;
+
+/// Simple program to greet a person
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    /// The existence of this argument indicates whether we want to run the repl, or interpret this file
+    default_file: Option<String>,
+    /// File to run
+    #[clap(short, long)]
+    file: Option<String>,
+    /// Emit bytecode
+    #[clap(short, long)]
+    bytecode: bool,
+    /// Emit AST
+    #[clap(short, long)]
+    ast: bool,
+    /// Enter the repl
+    #[clap(short, long)]
+    it: bool,
+}
+
 fn main() {
     // env_logger::init();
+
+    let clap_args = Args::parse();
+
+    println!("{:?}", clap_args);
 
     let mut builder = Builder::new();
 

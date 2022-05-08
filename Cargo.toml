@@ -15,6 +15,7 @@ steel_derive = { path = "./steel_derive"}
 steel_repl = { path = "./steel_repl" }
 env_logger = "0.9"
 log = "0.4.14"
+clap = { version = "3.1.17", features = ["derive"] }
 
 # [[bin]]
 # name = "main"
