@@ -136,24 +136,21 @@ pub enum TokenType {
 
     #[token("if")]
     If,
-    #[regex("(define)|(defn)")]
+    #[regex("(define)|(defn)|(#%define)")]
     Define,
     #[token("let")]
     Let,
 
     #[token("test-let")]
     TestLet,
-    // #[token("transduce")]
-    // Transduce,
-    // #[token("execute")]
-    // Execute,
+
     #[token("return!")]
     Return,
     #[token("begin")]
     Begin,
     // #[token("panic!")]
     // Panic,
-    #[regex("(lambda)|(fn)|(λ)")]
+    #[regex("(lambda)|(fn)|(λ)|(#%plain-lambda)")]
     Lambda,
     #[token("quote")]
     Quote,

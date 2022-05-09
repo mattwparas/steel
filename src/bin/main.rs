@@ -65,15 +65,9 @@ fn main() {
     //     .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
     //     .init();
 
-    let args = args().collect::<Vec<_>>();
-
     let mut vm = configure_engine();
 
-    if args.len() == 1 {
-        finish(repl_base(vm));
-    } else if args.len() == 2 {
-        let path = &args[1];
-
+    if let Some(path) = &clap_args.default_file {
         let core_libraries = &[
             steel::stdlib::PRELUDE,
             steel::stdlib::DISPLAY,
@@ -94,6 +88,8 @@ fn main() {
         if let Err(e) = res {
             e.emit_result(path, &contents);
         }
+    } else {
+        finish(repl_base(vm));
     }
 }
 
