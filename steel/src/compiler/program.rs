@@ -438,6 +438,63 @@ impl RawProgramWithSymbols {
         self
     }
 
+    pub fn debug_build(mut self, name: String, symbol_map: &mut SymbolMap) -> Result<()> {
+        let now = Instant::now();
+
+        let mut struct_instructions = Vec::new();
+
+        for builder in &self.struct_functions {
+            // Add the eventual function names to the symbol map
+            let indices = symbol_map.insert_struct_function_names_from_concrete(builder);
+
+            // Get the value we're going to add to the constant map for eventual use
+            // Throw the bindings in as well
+            let constant_values = builder.to_constant_val(indices);
+            let idx = self.constant_map.add_or_get(constant_values);
+
+            struct_instructions.push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
+        }
+
+        let mut interner = DebruijnIndicesInterner::default();
+
+        for expression in &mut self.instructions {
+            interner.collect_first_pass_defines(expression, symbol_map)?
+        }
+
+        // let mut first_pass_defines = HashSet::new();
+        // let mut second_pass_defines = HashSet::new();
+
+        // TODO -> the instructions need to be combined into a flat array
+        // representing each expression, otherwise this will error out on a free identifier
+        // since the global defines are not all collected in one pass
+        // just split the debruijn index function into 2 passes
+        // and make into a struct to collect the information
+        for expression in &mut self.instructions {
+            interner.collect_second_pass_defines(expression, symbol_map)?
+        }
+
+        // TODO try here - the loop condition local const arity two seems to rely on the
+        // existence of having been already adjusted by the interner
+        for instructions in &mut self.instructions {
+            loop_condition_local_const_arity_two(instructions);
+            specialize_constants(instructions)?;
+        }
+
+        // Put the new struct functions at the front
+        struct_instructions.append(&mut self.instructions);
+        self.instructions = struct_instructions;
+
+        self.instructions
+            .iter()
+            .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)));
+
+        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            debug!(target: "pipeline_time", "Executable Build Time: {:?}", now.elapsed());
+        }
+
+        Ok(())
+    }
+
     // TODO -> check out the spans part of this
     // also look into having the constant map be correct mapping
     // I think the run time will have to swap the constant map in and out

@@ -11,9 +11,9 @@ use steel::{
 };
 use steel_repl::repl::repl_base;
 
-use std::env::args;
 use std::fs;
 use std::process;
+use std::{env::args, path::PathBuf};
 
 use env_logger::Builder;
 use log::LevelFilter;
@@ -43,25 +43,25 @@ enum EmitAction {
 }
 
 fn main() {
-    // env_logger::init();
+    env_logger::init();
 
     let clap_args = Args::parse();
 
-    println!("{:?}", clap_args);
+    // println!("{:?}", clap_args);
 
-    let mut builder = Builder::new();
+    // let mut builder = Builder::new();
 
-    builder
-        .filter(Some("pipeline_time"), LevelFilter::Trace)
-        .filter(Some("steel::compiler::compiler"), LevelFilter::Error)
-        .filter(
-            Some("steel::steel_vm::contract_checker"),
-            LevelFilter::Trace,
-        )
-        // .filter(Some("reader-macros"), LevelFilter::Trace)
-        // .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
-        // .filter(Some("steel::parser::replace_idents"), LevelFilter::Trace)
-        .init();
+    // builder
+    //     .filter(Some("pipeline_time"), LevelFilter::Trace)
+    //     .filter(Some("steel::compiler::compiler"), LevelFilter::Error)
+    //     .filter(
+    //         Some("steel::steel_vm::contract_checker"),
+    //         LevelFilter::Trace,
+    //     )
+    //     // .filter(Some("reader-macros"), LevelFilter::Trace)
+    //     // .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
+    //     // .filter(Some("steel::parser::replace_idents"), LevelFilter::Trace)
+    //     .init();
 
     // builder
     //     .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
@@ -69,29 +69,138 @@ fn main() {
 
     let mut vm = configure_engine();
 
-    if let Some(path) = &clap_args.default_file {
-        let core_libraries = &[
-            steel::stdlib::PRELUDE,
-            steel::stdlib::DISPLAY,
-            steel::stdlib::CONTRACTS,
-        ];
+    // if clap_args.default_file.is_none() {
+    //     finish(repl_base(vm));
+    // }
 
-        for core in core_libraries {
-            let res = vm.parse_and_execute_without_optimizations(core);
-            if let Err(e) = res {
-                eprintln!("{}", e);
-                return;
+    match clap_args {
+        Args {
+            default_file: None,
+            action: None,
+        } => finish(repl_base(vm)),
+
+        Args {
+            default_file: Some(path),
+            action,
+        } => match action {
+            None => {
+                let core_libraries = &[
+                    steel::stdlib::PRELUDE,
+                    steel::stdlib::DISPLAY,
+                    steel::stdlib::CONTRACTS,
+                ];
+
+                for core in core_libraries {
+                    let res = vm.parse_and_execute_without_optimizations(core);
+                    if let Err(e) = res {
+                        eprintln!("{}", e);
+                        return;
+                    }
+                }
+
+                let contents =
+                    fs::read_to_string(&path).expect("Something went wrong reading the file");
+                let res = vm
+                    .compile_and_run_raw_program_with_path(&contents, PathBuf::from(path.clone()));
+
+                if let Err(e) = res {
+                    e.emit_result(&path, &contents);
+                }
             }
-        }
+            Some(EmitAction::Bytecode) => {
+                let core_libraries = &[
+                    steel::stdlib::PRELUDE,
+                    steel::stdlib::DISPLAY,
+                    steel::stdlib::CONTRACTS,
+                ];
 
-        let contents = fs::read_to_string(path).expect("Something went wrong reading the file");
-        let res = vm.parse_and_execute_without_optimizations(&contents);
+                for core in core_libraries {
+                    let res = vm.parse_and_execute_without_optimizations(core);
+                    if let Err(e) = res {
+                        eprintln!("{}", e);
+                        return;
+                    }
+                }
 
-        if let Err(e) = res {
-            e.emit_result(path, &contents);
-        }
-    } else {
-        finish(repl_base(vm));
+                let contents =
+                    fs::read_to_string(&path).expect("Something went wrong reading the file");
+
+                let program = vm.emit_raw_program(&contents, path.clone().into());
+
+                match program {
+                    Ok(program) => {
+                        vm.debug_print_build(path.clone(), program).unwrap();
+                    }
+                    Err(e) => e.emit_result(&path, &contents),
+                }
+            }
+            Some(EmitAction::Ast) => {
+                let core_libraries = &[
+                    steel::stdlib::PRELUDE,
+                    steel::stdlib::DISPLAY,
+                    steel::stdlib::CONTRACTS,
+                ];
+
+                for core in core_libraries {
+                    let res = vm.parse_and_execute_without_optimizations(core);
+                    if let Err(e) = res {
+                        eprintln!("{}", e);
+                        return;
+                    }
+                }
+
+                let contents = fs::read_to_string(path.clone())
+                    .expect("Something went wrong reading the file");
+
+                let res = vm.emit_fully_expanded_ast_to_string(&contents);
+
+                match res {
+                    Ok(ast) => println!("{ast}"),
+                    Err(e) => e.emit_result(&path, &contents),
+                }
+            }
+            Some(EmitAction::Interactive) => {
+                let core_libraries = &[
+                    steel::stdlib::PRELUDE,
+                    steel::stdlib::DISPLAY,
+                    steel::stdlib::CONTRACTS,
+                ];
+
+                for core in core_libraries {
+                    let res = vm.parse_and_execute_without_optimizations(core);
+                    if let Err(e) = res {
+                        eprintln!("{}", e);
+                        return;
+                    }
+                }
+
+                let core_libraries = &[
+                    steel::stdlib::PRELUDE,
+                    steel::stdlib::DISPLAY,
+                    steel::stdlib::CONTRACTS,
+                ];
+
+                for core in core_libraries {
+                    let res = vm.parse_and_execute_without_optimizations(core);
+                    if let Err(e) = res {
+                        eprintln!("{}", e);
+                        return;
+                    }
+                }
+
+                let contents =
+                    fs::read_to_string(&path).expect("Something went wrong reading the file");
+                let res = vm
+                    .compile_and_run_raw_program_with_path(&contents, PathBuf::from(path.clone()));
+
+                if let Err(e) = res {
+                    e.emit_result(&path, &contents);
+                }
+
+                finish(repl_base(vm))
+            }
+        },
+        _ => finish(repl_base(vm)),
     }
 }
 

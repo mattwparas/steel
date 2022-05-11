@@ -41,6 +41,8 @@ impl Engine {
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
     pub(crate) fn new_kernel() -> Self {
+        log::info!(target:"kernel", "Instantiating a new kernel");
+
         let mut vm = Engine {
             virtual_machine: VirtualMachineCore::new(),
             compiler: Compiler::default(),
@@ -53,7 +55,7 @@ impl Engine {
         vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
             .unwrap();
 
-        println!("Registered modules!");
+        log::info!(target:"kernel", "Registered modules in the kernel!");
 
         // embed_primitives(&mut vm);
 
@@ -256,6 +258,14 @@ impl Engine {
         let constants = self.constants();
         self.compiler
             .compile_executable(expr, Some(path), constants, self.modules.clone())
+    }
+
+    pub fn debug_print_build(
+        &mut self,
+        name: String,
+        program: RawProgramWithSymbols,
+    ) -> Result<()> {
+        program.debug_build(name, &mut self.compiler.symbol_map)
     }
 
     // Attempts to disassemble the given expression into a series of bytecode dumps
