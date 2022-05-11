@@ -2,17 +2,11 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use steel::{
-    compiler::program::{
-        RawProgramWithSymbols,
-    },
-    steel_vm::{engine::Engine},
-};
+use steel::{compiler::program::RawProgramWithSymbols, steel_vm::engine::Engine};
 use steel_repl::repl::repl_base;
 
-
+use std::env::args;
 use std::process;
-use std::{env::args};
 
 use env_logger::Builder;
 use log::LevelFilter;

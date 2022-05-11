@@ -11,7 +11,7 @@ use crate::{
     compiler::{
         compiler::Compiler,
         constants::ConstantMap,
-        program::{Program, RawProgramWithSymbols},
+        program::{Executable, Program, RawProgramWithSymbols},
     },
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
@@ -246,6 +246,12 @@ impl Engine {
         self.compiler.compile_program(expr, None, constants)
     }
 
+    pub fn emit_raw_program_no_path(&mut self, expr: &str) -> Result<RawProgramWithSymbols> {
+        let constants = self.constants();
+        self.compiler
+            .compile_executable(expr, None, constants, self.modules.clone())
+    }
+
     pub fn emit_raw_program(&mut self, expr: &str, path: PathBuf) -> Result<RawProgramWithSymbols> {
         let constants = self.constants();
         self.compiler
@@ -308,6 +314,8 @@ impl Engine {
             self.compiler
                 .compile_executable(exprs, Some(path), constants, self.modules.clone())?;
 
+        // program.profile_instructions();
+
         self.run_raw_program(program)
     }
 
@@ -330,13 +338,27 @@ impl Engine {
             self.compiler
                 .compile_executable(exprs, None, constants, self.modules.clone())?;
 
+        // program.profile_instructions();
+
         self.run_raw_program(program)
+    }
+
+    pub fn raw_program_to_executable(
+        &mut self,
+        program: RawProgramWithSymbols,
+    ) -> Result<Executable> {
+        program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)
     }
 
     pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
         let executable = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)?;
         self.virtual_machine
             .run_executable(executable, UseCallback, ApplyContract)
+    }
+
+    pub fn run_executable(&mut self, executable: Executable) -> Result<Vec<SteelVal>> {
+        self.virtual_machine
+            .run_executable(executable, DoNotUseCallback, ApplyContract)
     }
 
     /// Directly emit the expanded ast

@@ -1,12 +1,10 @@
 use std::{cell::RefCell, convert::TryFrom, rc::Rc};
 
-use super::{
-    constants::{ConstantMap, ConstantTable},
-};
+use super::constants::{ConstantMap, ConstantTable};
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::{ast::Atom, parser::SyntaxObject, span_visitor::get_span, tokens::TokenType},
-    values::structs::{StructFuncBuilder},
+    values::structs::StructFuncBuilder,
 };
 
 use crate::parser::ast::ExprKind;
@@ -31,11 +29,7 @@ struct LocalVariable {
 }
 
 impl LocalVariable {
-    pub fn new(
-        name: String,
-        syntax_object: SyntaxObject,
-        struct_offset: usize,
-    ) -> Self {
+    pub fn new(name: String, syntax_object: SyntaxObject, struct_offset: usize) -> Self {
         LocalVariable {
             name,
             is_captured: false,
@@ -44,11 +38,7 @@ impl LocalVariable {
         }
     }
 
-    pub fn new_struct(
-        name: String,
-        syntax_object: SyntaxObject,
-        struct_offset: usize,
-    ) -> Self {
+    pub fn new_struct(name: String, syntax_object: SyntaxObject, struct_offset: usize) -> Self {
         LocalVariable {
             name,
             is_captured: false,
@@ -283,11 +273,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     fn visit_if(&mut self, f: &crate::parser::ast::If) -> Self::Output {
         // load in the test condition
         self.visit(&f.test_expr)?;
+        // Get the if index
+        let if_idx = self.instructions.len();
         // push in if
         self.push(Instruction::new_if(self.instructions.len() + 2));
         // save spot of jump instruction, fill in after
-        let idx = self.len();
-        self.push(Instruction::new_jmp(0)); // dummy value
+        // let idx = self.len();
+        // self.push(Instruction::new_jmp(0)); // dummy value
 
         // emit instructions for then
         self.visit(&f.then_expr)?;
@@ -298,15 +290,27 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         self.visit(&f.else_expr)?;
         let j3 = self.len(); // first instruction after else
 
-        // set index of jump instruction
-        if let Some(elem) = self.instructions.get_mut(idx) {
-            (*elem).payload_size = false_start;
+
+        // println!("false_start: {:?}", false_start);
+        // println!("j3: {:?}", j3);
+
+        // // set index of jump instruction
+        // if let Some(elem) = self.instructions.get_mut(idx) {
+        //     (*elem).payload_size = false_start;
+        // } else {
+        //     stop!(Generic => "out of bounds jump");
+        // }
+
+        if let Some(elem) = self.instructions.get_mut(false_start - 1) {
+            (*elem).payload_size = j3;
+            // (*elem).payload_size = false_start;
         } else {
             stop!(Generic => "out of bounds jump");
         }
 
-        if let Some(elem) = self.instructions.get_mut(false_start - 1) {
-            (*elem).payload_size = j3;
+        if let Some(elem) = self.instructions.get_mut(if_idx) {
+            (*elem).payload_size = false_start;
+            // (*elem).payload_size = false_start;
         } else {
             stop!(Generic => "out of bounds jump");
         }
@@ -416,11 +420,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                             stop!(BadSyntax => "lambda function cannot have duplicate argument names"; *sp);
                         }
 
-                        locals.push(LocalVariable::new(
-                            i.clone(),
-                            atom.syn.clone(),
-                            0,
-                        ));
+                        locals.push(LocalVariable::new(i.clone(), atom.syn.clone(), 0));
                         // println!("Validating the identifiers in the arguments");
                         // body_instructions.push(Instruction::new_bind(atom.syn.clone()));
                     }
@@ -506,8 +506,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
                 // TODO - this is broken still
 
-
-
                 // let b = false;
 
                 if b {
@@ -526,8 +524,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 // println!("Transformed mutual recursion inside local context");
             }
         }
-
-
 
         // Go ahead and include the variable information for the popping
         // This needs to be handled accordingly
@@ -588,7 +584,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
     fn visit_quote(&mut self, quote: &crate::parser::ast::Quote) -> Self::Output {
         // let converted = SteelVal::try_from(quote.expr.clone())?;
-        let converted = SteelVal::try_from(crate::parser::ast::ExprKind::Quote(Box::new(quote.clone())))?;
+        let converted =
+            SteelVal::try_from(crate::parser::ast::ExprKind::Quote(Box::new(quote.clone())))?;
 
         let idx = self.constant_map.add_or_get(converted);
         self.push(Instruction::new_push_const(idx));
@@ -632,7 +629,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     fn visit_macro(&mut self, m: &crate::parser::ast::Macro) -> Self::Output {
         stop!(BadSyntax => "unexpected macro definition"; m.location.span)
     }
-
 
     fn visit_atom(&mut self, a: &crate::parser::ast::Atom) -> Self::Output {
         let ident = if let SyntaxObject {
@@ -927,13 +923,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         // ));
 
                         match &self.variable_data {
-                            Some(variable_data) => {
-                                variable_data.borrow_mut().locals.push(LocalVariable::new(
-                                    i.clone(),
-                                    atom.syn.clone(),
-                                    self.stack_offset,
-                                ))
-                            }
+                            Some(variable_data) => variable_data.borrow_mut().locals.push(
+                                LocalVariable::new(i.clone(), atom.syn.clone(), self.stack_offset),
+                            ),
                             None => {
                                 let locals = vec![LocalVariable::new(
                                     i.clone(),
@@ -1105,9 +1097,12 @@ fn _convert_mutual_recursion_to_tail_call(
 
 // TODO - this kind of kills the entirety of the tail call optimization
 // if the set! aliases to another function, then just quit
-// 
+//
 // TODO -> this also doesn't work if the function gets overwritten in name
-fn check_if_defining_context_is_aliased(instructions: &[Instruction], defining_context: &str) -> bool {
+fn check_if_defining_context_is_aliased(
+    instructions: &[Instruction],
+    defining_context: &str,
+) -> bool {
     for instruction in instructions {
         if instruction.op_code == OpCode::SET || instruction.op_code == OpCode::SETUPVALUE {
             if let Some(atom) = &instruction.contents {
@@ -1124,7 +1119,6 @@ fn check_if_defining_context_is_aliased(instructions: &[Instruction], defining_c
 }
 
 fn transform_tail_call(instructions: &mut [Instruction], defining_context: &str) -> bool {
-
     // If the defining_context aliases, then we need to quit
     if check_if_defining_context_is_aliased(instructions, defining_context) {
         return false;
@@ -1429,9 +1423,7 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
                         ..
                     }),
                 ..
-            } 
-            
-            => variables.insert(local.to_string()),
+            } => variables.insert(local.to_string()),
             _ => continue,
         };
     }
@@ -1655,6 +1647,65 @@ pub fn convert_last_usages(instructions: &mut [Instruction]) {
 //         _ => continue,
 //     }
 // }
+// }
+
+pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
+    if instructions.is_empty() {
+        return Ok(());
+    }
+
+    for i in 0..instructions.len() {
+
+        match instructions.get(i) {
+            Some(Instruction {
+                op_code: OpCode::PUSHCONST,
+                contents:
+                    Some(
+                        SyntaxObject {
+                            ty: TokenType::Identifier(_),
+                            ..
+                        },
+                    ),
+                ..
+            }) => continue,
+            Some(Instruction {
+                op_code: OpCode::PUSHCONST,
+                contents:
+                    Some(
+                        syn
+                    ),
+                ..
+            }) => {
+                let value = eval_atom(syn)?;
+    
+                let opcode = match &value {
+                    SteelVal::IntV(0) => OpCode::LOADINT0,
+                    SteelVal::IntV(1) => OpCode::LOADINT1,
+                    SteelVal::IntV(2) => OpCode::LOADINT2,
+                    _ => continue,
+                };
+    
+                (*instructions.get_mut(i).unwrap()).op_code = opcode;
+            }
+            _ => continue,
+        }
+    }
+
+    Ok(())
+}
+
+// fn specialize_constant(&mut self, syn: &SyntaxObject) -> Result<()> {
+//     let value = eval_atom(syn)?;
+
+//     let opcode = match &value {
+//         // SteelVal::IntV(1) => OpCode::LOADINT1,
+//         // SteelVal::IntV(2) => OpCode::LOADINT2,
+//         _ => OpCode::PUSHCONST,
+//     };
+
+//     let idx = self.constant_map.add_or_get(value);
+//     self.push(Instruction::new(opcode, idx, syn.clone(), true));
+//     Ok(())
 // }
 
 // Use this to flatten calls to globals such that its just one instruction instead of two

@@ -69,3 +69,7 @@ impl EnableJit for DoNotUseJit {
         false
     }
 }
+
+pub trait EnableProfiling {
+    fn enable_profiling();
+}

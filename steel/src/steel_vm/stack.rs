@@ -44,8 +44,16 @@ impl<T> Stack<T> {
         &self.0[range]
     }
 
+    pub fn peek_range_double(&self, range: std::ops::Range<usize>) -> &[T] {
+        &self.0[range]
+    }
+
     pub fn truncate(&mut self, idx: usize) {
         self.0.truncate(idx)
+    }
+
+    pub fn drain_range(&mut self, range: std::ops::Range<usize>) {
+        self.0.drain(range);
     }
 
     pub fn clear(&mut self) {
@@ -54,6 +62,11 @@ impl<T> Stack<T> {
 
     pub fn append_vec(&mut self, other: &mut Vec<T>) {
         self.0.append(other)
+    }
+
+    #[inline(always)]
+    pub fn last_mut(&mut self) -> Option<&mut T> {
+        self.0.last_mut()
     }
 
     #[inline(always)]

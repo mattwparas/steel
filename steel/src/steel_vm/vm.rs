@@ -12,8 +12,8 @@ use super::{
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
-use crate::values::transducers::Reducer;
 use crate::{compiler::program::Executable, values::transducers::Transducers};
+use crate::{compiler::program::OpCodeOccurenceProfiler, values::transducers::Reducer};
 // use crate::steel_vm::contracts::FlatContractExt;
 use crate::values::contracts::ContractType;
 use crate::values::upvalue::UpValue;
@@ -49,6 +49,7 @@ use std::{
     iter::Iterator,
     rc::{Rc, Weak},
     result,
+    time::Instant,
 };
 
 use super::evaluation_progress::EvaluationProgress;
@@ -67,6 +68,7 @@ pub struct VirtualMachineCore {
     function_stack: Vec<Gc<ByteCodeLambda>>,
     stack_index: Stack<usize>,
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
+    profiler: OpCodeOccurenceProfiler,
     #[cfg(feature = "jit")]
     jit: JIT,
 }
@@ -81,6 +83,7 @@ impl VirtualMachineCore {
             function_stack: Vec::with_capacity(64),
             stack_index: Stack::with_capacity(64),
             upvalue_head: None,
+            profiler: OpCodeOccurenceProfiler::new(),
             #[cfg(feature = "jit")]
             jit: JIT::default(),
         }
@@ -226,6 +229,7 @@ impl VirtualMachineCore {
             &[],
             use_callbacks,
             apply_contracts,
+            &mut self.profiler,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
         );
@@ -246,6 +250,8 @@ impl VirtualMachineCore {
         use_callbacks: U,
         apply_contracts: A,
     ) -> Result<SteelVal> {
+        self.profiler.reset();
+
         let mut vm_instance = VmCore::new(
             instructions,
             &mut self.stack,
@@ -259,13 +265,24 @@ impl VirtualMachineCore {
             spans,
             use_callbacks,
             apply_contracts,
+            &mut self.profiler,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
         )?;
 
-        let result = vm_instance.vm();
+        // TODO: @Matt -> move the profiler out into the vm core type parameter and an argument
+        // that way theres 0 cost to including a profiler vs not including a profiler
 
-        self.upvalue_head = vm_instance.upvalue_head;
+        let result = {
+            let result = vm_instance.vm();
+            self.upvalue_head = vm_instance.upvalue_head;
+            result
+        };
+
+        // self.profiler.report();
+        // self.profiler.report_time_spend();
+
+        // self.upvalue_head = vm_instance.upvalue_head;
 
         // Clean up
         self.stack.clear();
@@ -443,6 +460,7 @@ pub(crate) struct VmCore<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContrac
     pub(crate) spans: &'a [Span],
     pub(crate) use_callbacks: U,
     pub(crate) apply_contracts: A,
+    pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
     #[cfg(feature = "jit")]
     pub(crate) jit: Option<&'a mut JIT>,
 }
@@ -461,6 +479,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         spans: &'a [Span],
         use_callbacks: U,
         apply_contracts: A,
+        profiler: &'a mut OpCodeOccurenceProfiler,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> VmCore<'a, CT, U, A> {
         VmCore {
@@ -479,6 +498,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             spans,
             use_callbacks,
             apply_contracts,
+            profiler,
             #[cfg(feature = "jit")]
             jit,
         }
@@ -497,6 +517,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         spans: &'a [Span],
         use_callbacks: U,
         apply_contracts: A,
+        profiler: &'a mut OpCodeOccurenceProfiler,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> Result<VmCore<'a, CT, U, A>> {
         if instructions.is_empty() {
@@ -519,6 +540,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             spans,
             use_callbacks,
             apply_contracts,
+            profiler,
             #[cfg(feature = "jit")]
             jit,
         })
@@ -944,6 +966,14 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         // let mut cur_inst;
 
         while self.ip < self.instructions.len() {
+            // Process the op code
+            // self.profiler.process_opcode(
+            //     &self.instructions[self.ip].op_code,
+            //     self.instructions[self.ip].payload_size as usize,
+            // );
+
+            // let now = Instant::now();
+
             // TODO -> don't just copy the value from the instructions
             // We don't need to do that... Figure out a way to just take a reference to the value
             // Perhaps if the instructions are guaranteed to be immutable references that cannot be mutated
@@ -1057,6 +1087,13 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     self.ip += 1;
                 }
                 DenseInstruction {
+                    op_code: OpCode::LOADINT0,
+                    ..
+                } => {
+                    self.stack.push(SteelVal::INT_ZERO);
+                    self.ip += 1;
+                }
+                DenseInstruction {
                     op_code: OpCode::LOADINT1,
                     ..
                 } => {
@@ -1143,6 +1180,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     payload_size,
                     ..
                 } => {
+                    // TODO: @Matt -> don't pop the function off of the stack, just read it from there directly.
                     let func = self.stack.pop().unwrap();
                     self.handle_function_call(func, payload_size as usize)?;
                 }
@@ -1161,11 +1199,21 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     payload_size,
                     ..
                 } => {
+                    // println!("If payload: {}", payload_size);
+                    // println!(
+                    //     "Jump payload: {}",
+                    //     self.instructions[self.ip + 1].payload_size
+                    // );
+
                     // change to truthy...
                     if self.stack.pop().unwrap().is_truthy() {
-                        self.ip = payload_size as usize;
+                        // TODO: Come back here
+                        // println!("Current ip: {} - jump ip: {}", self.ip, payload_size);
+                        // self.ip = payload_size as usize;
+                        self.ip += 1;
                     } else {
-                        self.ip = self.instructions[self.ip + 1].payload_size as usize
+                        self.ip = payload_size as usize;
+                        // self.ip = self.instructions[self.ip + 1].payload_size as usize
                         // self.ip += 1;
                     }
                 }
@@ -1194,12 +1242,16 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
                     // We should have arity at this point, drop the stack up to this point
                     // take the last arity off the stack, go back and replace those in order
+                    // [... arg1 arg2 arg3]
+                    //      ^^^ <- back = this index
+                    // offset = the start of the stack frame
+                    // Copy the arg1 arg2 arg3 values to
+                    // [... frame-start ... arg1 arg2 arg3]
+                    //      ^^^^^^~~~~~~~~
                     let back = self.stack.len() - current_arity;
                     for i in 0..current_arity {
                         self.stack.set_idx(offset + i, self.stack[back + i].clone());
                     }
-
-                    // println!("stack before truncating: {:?}", self.stack);
 
                     // self.stack.truncate(offset + current_arity);
                     self.stack.truncate(offset + current_arity);
@@ -1314,6 +1366,13 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 }
             }
 
+            // Process the op code
+            // self.profiler.add_time(
+            //     &self.instructions[self.ip].op_code,
+            //     self.instructions[self.ip].payload_size as usize,
+            //     now.elapsed(),
+            // );
+
             // Put callbacks behind generic
             if self.use_callbacks.use_callbacks() {
                 match self.callback.call_and_increment() {
@@ -1408,10 +1467,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         } else {
             let ret_val = self.stack.pop().unwrap();
 
-            // println!("Stack index: {:?}", self.stack_index);
-
             // TODO fix this
-            // let rollback_index = self.stack_index.pop().unwrap_or(0);
             let rollback_index = self.stack_index.pop().unwrap();
 
             // Snatch the value to close from the payload size
@@ -1439,11 +1495,13 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
 
             // Close remaining values on the stack
 
-            // self.close_upvalues(rollback_index);
-
             self.stack.truncate(rollback_index);
-
             self.stack.push(ret_val);
+
+            // self.stack.drain_range(rollback_index..self.stack.len() - 1);
+
+            // self.stack.truncate(rollback_index + 1);
+            // *self.stack.last_mut().unwrap() = ret_val;
 
             // if !self
             //     .instruction_stack
@@ -2070,6 +2128,71 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         Ok(())
     }
 
+    // NOTE: Here, the last element on the stack _is_ the function we're referring to. In this case, just avoid
+    // touching the last element and move on.
+    fn call_boxed_func_on_stack(
+        &mut self,
+        func: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>,
+        payload_size: usize,
+    ) -> Result<()> {
+        // stack is [args ... function]
+        let len = self.stack.len();
+        // This is the start of the arguments
+        let last_index = len - payload_size - 1;
+
+        // Peek the range for the [args ... function]
+        //                        ~~~~~~~~~~
+        // let result = func(self.stack.peek_range_double(last_index..len))
+        //     .map_err(|x| x.set_span(self.current_span()))?;
+
+        let result = match func(self.stack.peek_range_double(last_index..len)) {
+            Ok(value) => value,
+            Err(e) => return Err(e.set_span(self.current_span())),
+        };
+
+        // This is the old way, but now given that the function is included on the stack, this should work...
+        // self.stack.truncate(last_index);
+        // self.stack.push(result);
+
+        self.stack.truncate(last_index + 1);
+        *self.stack.last_mut().unwrap() = result;
+
+        self.ip += 1;
+        Ok(())
+    }
+
+    // #[inline(always)]
+    fn call_primitive_func_on_stack(
+        &mut self,
+        func: fn(&[SteelVal]) -> Result<SteelVal>,
+        payload_size: usize,
+    ) -> Result<()> {
+        // stack is [args ... function]
+        let len = self.stack.len();
+        // This is the start of the arguments
+        let last_index = len - payload_size - 1;
+
+        // Peek the range for the [args ... function]
+        //                        ~~~~~~~~~~
+        // let result = func(self.stack.peek_range_double(last_index..len))
+        //     .map_err(|x| x.set_span(self.current_span()))?;
+
+        let result = match func(self.stack.peek_range_double(last_index..len)) {
+            Ok(value) => value,
+            Err(e) => return Err(e.set_span(self.current_span())),
+        };
+
+        // This is the old way, but now given that the function is included on the stack, this should work...
+        // self.stack.truncate(last_index);
+        // self.stack.push(result);
+
+        self.stack.truncate(last_index + 1);
+        *self.stack.last_mut().unwrap() = result;
+
+        self.ip += 1;
+        Ok(())
+    }
+
     // #[inline(always)]
     fn call_builtin_func(&mut self, func: &BuiltInSignature, payload_size: usize) -> Result<()> {
         let args = self.stack.split_off(self.stack.len() - payload_size);
@@ -2127,13 +2250,32 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             Err(e) => return Err(e.set_span(self.current_span())),
         };
 
+        // println!("Length to truncate to: {:?}", last_index);
+        // println!("Stack at this point: {:?}", self.stack);
+
+        // TODO: @Matt - This is a neat little optimization, although it only works for function calls > 1 argument
+        // Function calls without args, this quits on.
+        // Specialize function calls without arguments - this should be a fairly easy, free, speed up.
+
+        // let truncate_len = last_index + 1;
+        // if truncate_len > self.stack.len() {
+        //     self.stack.truncate(last_index);
+        //     self.stack.push(result);
+        // } else {
+        //     self.stack.truncate(truncate_len);
+        //     *self.stack.last_mut().unwrap() = result;
+        // }
+
+        // if last_index + 1 > self.stack.len() {
+        //     println!("Length to truncate to: {:?}", last_index);
+        //     println!("Stack length at this point: {:?}", self.stack.len());
+        //     println!("Stack at this point: {:?}", self.stack);
+        //     panic!("Something is up here");
+        // }
+
         // This is the old way... lets see if the below way improves the speed
         self.stack.truncate(last_index);
         self.stack.push(result);
-
-        // self.stack.truncate(self.stack.len() - payload_size + 1);
-        // // Set the last to be the new updated value
-        // self.stack.set_idx(self.stack.len() - 1, result);
 
         self.ip += 1;
         Ok(())
@@ -2187,6 +2329,37 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         } else {
             self.handle_tail_call(cf.function.clone(), payload_size)
         }
+    }
+
+    fn call_future_func_on_stack(
+        &mut self,
+        func: Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>,
+        payload_size: usize,
+    ) -> Result<()> {
+        // stack is [args ... function]
+        let len = self.stack.len();
+        // This is the start of the arguments
+        let last_index = len - payload_size - 1;
+
+        // Peek the range for the [args ... function]
+        //                        ~~~~~~~~~~
+        // let result = func(self.stack.peek_range_double(last_index..len))
+        //     .map_err(|x| x.set_span(self.current_span()))?;
+
+        let result = match func(self.stack.peek_range_double(last_index..len)) {
+            Ok(value) => value,
+            Err(e) => return Err(e.set_span(self.current_span())),
+        };
+
+        // This is the old way, but now given that the function is included on the stack, this should work...
+        // self.stack.truncate(last_index);
+        // self.stack.push(result);
+
+        self.stack.truncate(last_index + 1);
+        *self.stack.last_mut().unwrap() = SteelVal::FutureV(Gc::new(result));
+
+        self.ip += 1;
+        Ok(())
     }
 
     // #[inline(always)]
@@ -2589,6 +2762,30 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         }
     }
 
+    fn handle_function_call_on_stack(&mut self, payload_size: usize) -> Result<()> {
+        use SteelVal::*;
+        match self.stack.last().unwrap().clone() {
+            BoxedFunction(f) => self.call_boxed_func_on_stack(f, payload_size)?,
+            FuncV(f) => self.call_primitive_func_on_stack(f, payload_size)?,
+            FutureFunc(f) => self.call_future_func_on_stack(f, payload_size)?,
+            // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
+            // ContinuationFunction(cc) => self.call_continuation(&cc)?,
+            // Closure(closure) => self.handle_function_call_closure(&closure, payload_size)?,
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(function) => self.call_compiled_function(&function, payload_size)?,
+            // Contract(c) => self.call_contract(&c, payload_size)?,
+            // BuiltIn(f) => self.call_builtin_func(&f, payload_size)?,
+            _ => {
+                todo!("Function application not a procedure");
+                // println!("{:?}", stack_func);
+                // println!("stack: {:?}", self.stack);
+                // stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
+            }
+        }
+
+        Ok(())
+    }
+
     // #[inline(always)]
     fn handle_function_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
@@ -2618,21 +2815,3 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         self.ip += 1;
     }
 }
-
-// // #[inline(always)]
-// pub(crate) fn vm<CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
-//     instructions: Rc<[DenseInstruction]>,
-//     stack: &mut StackFrame,
-//     global_env: &mut Env,
-//     constants: &CT,
-//     callback: &EvaluationProgress,
-//     upvalue_heap: &mut UpValueHeap,
-//     function_stack: &mut Vec<Gc<ByteCodeLambda>>,
-//     stack_index: &mut Stack<usize>,
-//     upvalue_head: Option<Weak<RefCell<UpValue>>>,
-//     use_callbacks: U,
-//     apply_contracts: A,
-//     // #[cfg(feature = "jit")]
-//     jit: Option<&mut JIT>,
-// ) -> Result<SteelVal> {
-// }

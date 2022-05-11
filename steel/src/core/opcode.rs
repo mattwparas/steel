@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize, Eq)]
 pub enum OpCode {
     VOID = 0,
     PUSH = 1,
@@ -45,6 +45,7 @@ pub enum OpCode {
     MOVECGLOCALCONST,
     BEGINSCOPE,
     ENDSCOPE,
+    FUNC0,
 }
 
 impl OpCode {
@@ -94,6 +95,7 @@ impl OpCode {
             "MOVECGLOCALCONST" => MOVECGLOCALCONST,
             "BEGINSCOPE" => BEGINSCOPE,
             "ENDSCOPE" => ENDSCOPE,
+            "FUNC0" => FUNC0,
             _ => panic!("Unable to map string to opcode"),
         }
     }

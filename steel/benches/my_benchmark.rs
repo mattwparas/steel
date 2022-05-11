@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use std::rc::Rc;
+use std::{path::PathBuf, rc::Rc};
 use steel::stdlib::PRELUDE;
 use steel::steel_vm::{engine::Engine, register_fn::RegisterFn};
 
@@ -16,6 +16,25 @@ fn benchmark_template(c: &mut Criterion, name: &str, script: &str, warmup: &str)
 
     c.bench_function(name, |b| {
         b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
+    });
+}
+
+fn new_benchmark_template(c: &mut Criterion, name: &str, script: &str, warmup: &str) {
+    let mut vm = Engine::new();
+    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
+    vm.parse_and_execute_without_optimizations(black_box(warmup))
+        .unwrap();
+
+    let program = vm.emit_raw_program_no_path(&script).unwrap();
+    let executable = vm.raw_program_to_executable(program).unwrap();
+
+    // let program = vm.emit_program(&script).unwrap();
+    // let constant_map = program.constant_map;
+    // let bytecode = Rc::from(program.instructions[0].clone().into_boxed_slice());
+
+    c.bench_function(name, |b| {
+        b.iter(|| vm.run_executable(executable.clone()))
+        // b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
     });
 }
 
@@ -80,11 +99,11 @@ fn multiple_transducers(c: &mut Criterion) {
 fn ackermann(c: &mut Criterion) {
     let warmup = r#"
     (define (ackermann m n)
-        (cond [(zero? m) (add1 n)]
-              [(zero? n) (ackermann (sub1 m) 1)]
-              [else (ackermann (sub1 m) (ackermann m (sub1 n)))]))"#;
+        (cond [(equal? m 0) (+ n 1)]
+            [(equal? n 0) (ackermann (- m 1) 1)]
+            [else (ackermann (- m 1) (ackermann m (- n 1)))]))"#;
     let script = r#"(ackermann 3 3)"#;
-    benchmark_template(c, "ackermann-3-3", script, warmup);
+    new_benchmark_template(c, "ackermann-3-3", script, warmup);
 }
 
 fn ten_thousand_iterations(c: &mut Criterion) {

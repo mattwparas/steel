@@ -21,7 +21,9 @@ use crate::rerrs::ErrorKind;
 use crate::SteelErr;
 
 use super::{
-    code_generator::{convert_call_globals, loop_condition_local_const_arity_two},
+    code_generator::{
+        convert_call_globals, loop_condition_local_const_arity_two, specialize_constants,
+    },
     compiler::{replace_defines_with_debruijn_indices, DebruijnIndicesInterner},
     constants::ConstantTable,
     map::SymbolMap,
@@ -180,6 +182,79 @@ where
     Ok(io::BufReader::new(file).lines())
 }
 
+// trait Profiler {
+//     #[inline(always)]
+//     fn process() -> bool;
+
+//     fn report(&self);
+// }
+
+pub struct OpCodeOccurenceProfiler {
+    occurrences: HashMap<(OpCode, usize), usize>,
+    time: HashMap<(OpCode, usize), std::time::Duration>,
+}
+
+impl OpCodeOccurenceProfiler {
+    pub fn new() -> Self {
+        OpCodeOccurenceProfiler {
+            occurrences: HashMap::new(),
+            time: HashMap::new(),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.occurrences.clear();
+        self.time.clear();
+    }
+
+    pub fn process_opcode(&mut self, opcode: &OpCode, payload: usize) {
+        *self.occurrences.entry((*opcode, payload)).or_default() += 1;
+    }
+
+    pub fn add_time(&mut self, opcode: &OpCode, payload: usize, time: std::time::Duration) {
+        *self.time.entry((*opcode, payload)).or_default() += time;
+    }
+
+    pub fn report_time_spend(&self) {
+        let total_time: u128 = self.time.values().map(|x| x.as_micros()).sum();
+
+        let mut counts = self
+            .time
+            .iter()
+            .map(|x| (x.0, (x.1.as_micros() as f64 / total_time as f64) * 100.0))
+            .filter(|x| !f64::is_nan(x.1))
+            .collect::<Vec<(&(OpCode, usize), f64)>>();
+
+        counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
+
+        println!("------- Time Spent: Profiling Report -------");
+        for row in counts {
+            println!("{:?} => {:.2}%", row.0, row.1);
+        }
+        println!("--------------------------------------------")
+    }
+
+    pub fn report(&self) {
+        let total: usize = self.occurrences.values().sum();
+
+        let mut counts = self
+            .occurrences
+            .iter()
+            .map(|x| (x.0, (*x.1 as f64 / total as f64) * 100.0))
+            .collect::<Vec<(&(OpCode, usize), f64)>>();
+
+        counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
+
+        println!("------- Profiling Report -------");
+        for row in counts {
+            println!("{:?} => {:.2}%", row.0, row.1);
+        }
+        println!("--------------------------------")
+
+        // println!("{:#?}", counts);
+    }
+}
+
 impl RawProgramWithSymbols {
     pub fn new(
         struct_functions: Vec<StructFuncBuilderConcrete>,
@@ -193,6 +268,30 @@ impl RawProgramWithSymbols {
             constant_map,
             version,
         }
+    }
+
+    pub fn profile_instructions(&self) {
+        let iter = self
+            .instructions
+            .iter()
+            .flat_map(|x| x.iter())
+            .filter(|x| !matches!(x.op_code, OpCode::PASS));
+
+        let mut occurrences = HashMap::new();
+        for instr in iter {
+            *occurrences.entry(instr.op_code).or_default() += 1;
+        }
+
+        let total: usize = occurrences.values().sum();
+
+        let mut counts = occurrences
+            .into_iter()
+            .map(|x| (x.0, (x.1 as f64 / total as f64) * 100.0))
+            .collect::<Vec<(OpCode, f64)>>();
+
+        counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
+
+        println!("{:#?}", counts);
     }
 
     // Definitely can be improved
@@ -381,6 +480,7 @@ impl RawProgramWithSymbols {
         // existence of having been already adjusted by the interner
         for instructions in &mut self.instructions {
             loop_condition_local_const_arity_two(instructions);
+            specialize_constants(instructions)?;
         }
 
         // Put the new struct functions at the front
@@ -447,6 +547,7 @@ fn extract_spans(instructions: Vec<Vec<Instruction>>) -> (Vec<Span>, Vec<Vec<Den
 
 // A program stripped of its debug symbols, but only constructable by running a pass
 // over it with the symbol map to intern all of the symbols in the order they occurred
+#[derive(Clone)]
 pub struct Executable {
     pub(crate) name: String,
     pub(crate) version: String,

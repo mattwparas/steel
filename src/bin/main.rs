@@ -26,18 +26,20 @@ use clap::Parser;
 struct Args {
     /// The existence of this argument indicates whether we want to run the repl, or interpret this file
     default_file: Option<String>,
-    /// File to run
-    #[clap(short, long)]
-    file: Option<String>,
-    /// Emit bytecode
-    #[clap(short, long)]
-    bytecode: bool,
-    /// Emit AST
-    #[clap(short, long)]
-    ast: bool,
-    /// Enter the repl
-    #[clap(short, long)]
-    it: bool,
+    /// What action to perform on this file, the absence of a subcommand indicates that the given file (if any)
+    /// will be run as the entrypoint
+    #[clap(subcommand)]
+    action: Option<EmitAction>,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum EmitAction {
+    /// Output a debug display of the fully transformed bytecode
+    Bytecode,
+    /// Print a debug display of the fully expanded AST
+    Ast,
+    /// Enter the repl with the given file loaded
+    Interactive,
 }
 
 fn main() {
@@ -50,7 +52,7 @@ fn main() {
     let mut builder = Builder::new();
 
     builder
-        // .filter(Some("pipeline_time"), LevelFilter::Trace)
+        .filter(Some("pipeline_time"), LevelFilter::Trace)
         .filter(Some("steel::compiler::compiler"), LevelFilter::Error)
         .filter(
             Some("steel::steel_vm::contract_checker"),
