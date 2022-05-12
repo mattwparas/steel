@@ -223,7 +223,7 @@ pub enum TokenType {
 
     // #[regex(r#"b?"(\\.|[^\\"])*""#, parse_str)] // "
     // #[regex(r#"(?:[^"]|\\")*", parse_str)] // "
-    #[regex(r#""([^"\\]|\\t|\\u|\\n|\\")*""#, parse_str)]
+    #[regex(r#""([^"\\]|\\t|\\u|\\n|\\a|\\")*""#, parse_str)]
     StringLiteral(String),
 
     #[error]
