@@ -1,3 +1,4 @@
+use crate::parser::ast::ExprKind;
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::Instruction, opcode::OpCode},
@@ -6,25 +7,21 @@ use crate::{
     values::structs::StructFuncBuilder,
     SteelVal,
 };
-use crate::{core::instructions::densify, parser::ast::ExprKind};
 use crate::{core::instructions::DenseInstruction, parser::span::Span};
 use crate::{rvals::Result, values::structs::StructFuncBuilderConcrete};
 use log::{debug, log_enabled};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     convert::{TryFrom, TryInto},
     time::{Instant, SystemTime},
 };
-
-use crate::rerrs::ErrorKind;
-use crate::SteelErr;
 
 use super::{
     code_generator::{
         convert_call_globals, loop_condition_local_const_arity_two, specialize_constants,
     },
-    compiler::{replace_defines_with_debruijn_indices, DebruijnIndicesInterner},
+    compiler::DebruijnIndicesInterner,
     constants::ConstantTable,
     map::SymbolMap,
 };
@@ -49,7 +46,6 @@ pub struct SerializableProgram {
 
 impl SerializableProgram {
     pub fn write_to_file(&self, filename: &str) -> Result<()> {
-        use std::fs::File;
         use std::io::prelude::*;
 
         let mut file = File::create(format!("{}.txt", filename)).unwrap();
@@ -61,7 +57,6 @@ impl SerializableProgram {
     }
 
     pub fn read_from_file(filename: &str) -> Result<Self> {
-        use std::fs::File;
         use std::io::prelude::*;
 
         let mut file = File::open(format!("{}.txt", filename)).unwrap();

@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use std::{path::PathBuf, rc::Rc};
+use std::{rc::Rc};
 use steel::stdlib::PRELUDE;
 use steel::steel_vm::{engine::Engine, register_fn::RegisterFn};
 
