@@ -44,7 +44,6 @@ fn is_void() -> SteelVal {
     })
 }
 
-#[macro_use]
 macro_rules! gen_pred {
     ($variant:ident) => {{
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
