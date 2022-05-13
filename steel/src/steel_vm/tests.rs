@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod call_cc_tests {
     use crate::steel_vm::engine::Engine;
-    use crate::steel_vm::register_fn::RegisterAsyncFn;
+    use crate::steel_vm::register_fn::RegisterFn;
 
     #[test]
     fn test_async() {
@@ -16,7 +16,7 @@ mod call_cc_tests {
         let mut vm = Engine::new();
 
         // You can even register async finctions
-        vm.register_async_fn("test", test_function);
+        vm.register_fn("test", test_function);
 
         let contents = r#"
         ; *thread-queue* : list[continuation]

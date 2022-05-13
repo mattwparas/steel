@@ -1,10 +1,6 @@
 use std::cell::RefCell;
 
-use super::{
-    builtin::BuiltInModule,
-    engine::Engine,
-    register_fn::{RegisterFn, RegisterSelfFn},
-};
+use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
 use crate::rvals::{Result, SteelVal};
 use crate::values::structs::{struct_ref, struct_to_list, struct_to_vector};
 use crate::{
@@ -279,7 +275,7 @@ thread_local! {
 }
 
 pub fn register_builtin_modules(engine: &mut Engine) {
-    engine.register_method_fn("##__module-get", BuiltInModule::get);
+    engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_value("error!", ControlOperations::error());
 
     engine
@@ -1035,7 +1031,7 @@ pub(crate) fn embed_primitives(engine: &mut Engine) {
 
     engine.register_value("error!", ControlOperations::error());
 
-    engine.register_method_fn("##__module-get", BuiltInModule::get);
+    engine.register_fn("##__module-get", BuiltInModule::get);
 
     engine.register_module(hashmap_module());
     engine.register_module(hashset_module());

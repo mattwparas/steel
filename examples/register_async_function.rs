@@ -1,5 +1,5 @@
 use steel::steel_vm::engine::Engine;
-use steel::steel_vm::register_fn::RegisterAsyncFn;
+use steel::steel_vm::register_fn::RegisterFn;
 
 use env_logger::Builder;
 use log::LevelFilter;
@@ -26,7 +26,7 @@ pub fn main() {
     // Using these in a script requires invoking them from an async context
     // Or, explicitly poll them yourself in a non async context if you would
     // like to not invoke it from an async context
-    vm.register_async_fn("test", test_function);
+    vm.register_fn("test", test_function);
 
     let contents = include_str!("scripts/async.rkt");
 

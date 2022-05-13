@@ -1,7 +1,5 @@
 use steel::steel_vm::engine::Engine;
 use steel::steel_vm::register_fn::RegisterFn;
-use steel::steel_vm::register_fn::RegisterSelfFn;
-use steel::steel_vm::register_fn::RegisterSelfMutFn;
 
 use steel_derive::Steel;
 
@@ -76,7 +74,7 @@ pub fn main() {
 
     vm.register_fn("dummy_test", ExternalStruct::dummy_test);
 
-    vm.register_method_fn("dummy-method", ExternalStruct::dummy_method);
+    vm.register_fn("dummy-method", ExternalStruct::dummy_method);
 
     // TODO -> this won't work because Custom is not implemented for option
     // since it has a specialized implementation
@@ -84,8 +82,8 @@ pub fn main() {
 
     // register_fn can be chained
     vm.register_fn("method-by-value", ExternalStruct::method_by_value)
-        .register_method_fn("method-by-reference", ExternalStruct::method_by_reference)
-        .register_method_mut_fn(
+        .register_fn("method-by-reference", ExternalStruct::method_by_reference)
+        .register_fn(
             "method-by-reference-mut",
             ExternalStruct::method_by_reference_mut,
         )

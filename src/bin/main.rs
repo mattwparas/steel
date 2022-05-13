@@ -3,20 +3,14 @@ extern crate steel_derive;
 extern crate steel_repl;
 
 use steel::{
-    steel_vm::{
-        builtin::BuiltInModule, engine::Engine, primitives::register_builtin_modules,
-        register_fn::RegisterAsyncFn,
-    },
+    steel_vm::{builtin::BuiltInModule, engine::Engine, primitives::register_builtin_modules},
     SteelVal,
 };
 use steel_repl::repl::repl_base;
 
 use std::fs;
+use std::path::PathBuf;
 use std::process;
-use std::{env::args, path::PathBuf};
-
-use env_logger::Builder;
-use log::LevelFilter;
 
 use clap::Parser;
 

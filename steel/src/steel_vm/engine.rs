@@ -4,7 +4,6 @@ use super::{
     primitives::{
         embed_primitives, embed_primitives_without_io, register_builtin_modules, CONSTANTS,
     },
-    register_fn::RegisterSelfFn,
     vm::VirtualMachineCore,
 };
 use crate::{

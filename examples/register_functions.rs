@@ -1,8 +1,6 @@
 use steel::{rvals::IntoSteelVal, steel_vm::register_fn::RegisterFn};
 use steel::{steel_vm::engine::Engine, SteelVal};
 
-use steel::steel_vm::register_fn::RegisterAsyncFn;
-
 fn external_function(arg1: usize, arg2: usize) -> usize {
     arg1 + arg2
 }
@@ -40,7 +38,7 @@ pub fn main() {
     vm.register_fn("result-function", result_function);
 
     // You can even register async finctions
-    vm.register_async_fn("test", test_function);
+    vm.register_fn("test", test_function);
 
     // vm.register_fn(
     //     "unwrap-or",
