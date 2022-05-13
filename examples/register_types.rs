@@ -51,6 +51,14 @@ impl ExternalStruct {
     pub fn dummy_method(&self) -> bool {
         true
     }
+
+    pub fn dummy_test(&self, other: &ExternalStruct) -> usize {
+        10
+    }
+}
+
+fn test_registration(foo: usize, other: &ExternalStruct) -> usize {
+    10
 }
 
 pub fn main() {
@@ -65,6 +73,8 @@ pub fn main() {
     vm.register_fn("ExternalEnum::Foo", || ExternalEnum::Foo);
     vm.register_fn("ExtenalEnum::Bar", ExternalEnum::Bar);
     vm.register_fn("dumy", ExternalStruct::dumb);
+
+    vm.register_fn("dummy_test", ExternalStruct::dummy_test);
 
     vm.register_method_fn("dummy-method", ExternalStruct::dummy_method);
 

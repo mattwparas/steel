@@ -154,8 +154,6 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + 'static>
     RegisterSelfFn<FN, Wrapper<SELF>, RET> for BuiltInModule
 {
     fn register_method_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-        // use std::Borrow();
-
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
@@ -186,6 +184,94 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'stat
             let mut input = <SELF>::as_mut_ref(&args[0])?;
 
             let res = func(&mut input);
+
+            res.into_steelval()
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
+
+#[test]
+fn test_combinations() {
+    // use itertools::Itertools;
+
+    // let combos = std::iter::repeat(0)
+    //     .take(4)
+    //     .cartesian_product(std::iter::repeat(1).take(4))
+    //     .collect::<Vec<_>>();
+
+    let combos = (0..512)
+        .map(|x| format!("{:08b}", x))
+        .map(|x| {
+            x.chars()
+                .map(|x| if x == '1' { 1 } else { 0 })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    println!("{:?}", combos);
+}
+
+// pub struct Marker {}
+
+pub struct MarkerWrapper1<ARGS>(PhantomData<ARGS>);
+pub struct MarkerWrapper2<ARGS>(PhantomData<ARGS>);
+pub struct MarkerWrapper3<ARGS>(PhantomData<ARGS>);
+
+impl<A: AsRefSteelVal, B: AsRefSteelVal, FN: Fn(&A, &B) -> RET + 'static, RET: IntoSteelVal>
+    RegisterFn<FN, MarkerWrapper1<(A, B)>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
+            }
+
+            let one = A::as_ref(&args[1])?;
+            let two = B::as_ref(&args[1])?;
+
+            let res = func(&one, &two);
+
+            res.into_steelval()
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
+
+impl<A: FromSteelVal, B: AsRefSteelVal, FN: Fn(A, &B) -> RET + 'static, RET: IntoSteelVal>
+    RegisterFn<FN, MarkerWrapper2<(A, B)>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
+            }
+
+            let input = B::as_ref(&args[1])?;
+
+            let res = func(A::from_steelval(&args[0])?, &input);
+
+            res.into_steelval()
+        };
+
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
+    }
+}
+
+impl<A: AsRefSteelVal, B: FromSteelVal, FN: Fn(&A, B) -> RET + 'static, RET: IntoSteelVal>
+    RegisterFn<FN, MarkerWrapper3<(A, B)>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
+            }
+
+            let a = A::as_ref(&args[0])?;
+
+            let res = func(&a, B::from_steelval(&args[1])?);
 
             res.into_steelval()
         };
@@ -266,7 +352,7 @@ macro_rules! impl_register_fn_self {
         impl<
             SELF: AsRefMutSteelVal,
             $($param: FromSteelVal,)*
-            FN: Fn(&SELF, $($param),*) -> RET + 'static,
+            FN: Fn(&mut SELF, $($param),*) -> RET + 'static,
             RET: IntoSteelVal
         > RegisterSelfMutFn<FN, Wrapper<(SELF, $($param,)*)>, RET> for Engine {
             fn register_method_mut_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -275,9 +361,9 @@ macro_rules! impl_register_fn_self {
                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
                     }
 
-                    let input = <SELF>::as_mut_ref(&args[0])?;
+                    let mut input = <SELF>::as_mut_ref(&args[0])?;
 
-                    let res = func(&input, $(<$param>::from_steelval(&args[$idx])?,)*);
+                    let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
 
                     res.into_steelval()
                 };
@@ -312,7 +398,7 @@ macro_rules! impl_register_fn_self {
         impl<
             SELF: AsRefMutSteelVal,
             $($param: FromSteelVal,)*
-            FN: Fn(&SELF, $($param),*) -> RET + 'static,
+            FN: Fn(&mut SELF, $($param),*) -> RET + 'static,
             RET: IntoSteelVal
         > RegisterSelfMutFn<FN, Wrapper<(SELF, $($param,)*)>, RET> for BuiltInModule {
             fn register_method_mut_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -321,9 +407,9 @@ macro_rules! impl_register_fn_self {
                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
                     }
 
-                    let input = <SELF>::as_mut_ref(&args[0])?;
+                    let mut input = <SELF>::as_mut_ref(&args[0])?;
 
-                    let res = func(&input, $(<$param>::from_steelval(&args[$idx])?,)*);
+                    let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
 
                     res.into_steelval()
                 };
