@@ -30,11 +30,7 @@ use crate::{
 use crate::{
     env::Env,
     gc::Gc,
-    parser::{
-        ast::ExprKind,
-        parser::{ParseError, Parser},
-        span::Span,
-    },
+    parser::span::Span,
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     stop,
@@ -44,12 +40,8 @@ use crate::{
 // use std::env::current_exe;
 use std::{
     cell::RefCell,
-    collections::HashMap,
-    convert::TryFrom,
     iter::Iterator,
     rc::{Rc, Weak},
-    result,
-    time::Instant,
 };
 
 use super::evaluation_progress::EvaluationProgress;
@@ -328,22 +320,22 @@ pub struct Continuation {
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
 }
 
-// #[inline(always)]
-fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
-    match function {
-        SteelVal::Closure(c) => {
-            if c.arity() != 1 {
-                stop!(Generic => "function arity in call/cc must be 1"; span)
-            }
-        }
-        SteelVal::ContinuationFunction(_) => {}
-        _ => {
-            stop!(Generic => "call/cc expects a function"; span)
-        }
-    }
+// // #[inline(always)]
+// fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
+//     match function {
+//         SteelVal::Closure(c) => {
+//             if c.arity() != 1 {
+//                 stop!(Generic => "function arity in call/cc must be 1"; span)
+//             }
+//         }
+//         SteelVal::ContinuationFunction(_) => {}
+//         _ => {
+//             stop!(Generic => "call/cc expects a function"; span)
+//         }
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 pub trait VmContext {
     // This allows for some funky self calling business

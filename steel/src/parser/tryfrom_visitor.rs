@@ -33,9 +33,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
             self.visit(f.then_expr)?,
             self.visit(f.else_expr)?,
         ];
-        Ok(SteelVal::ListV(
-            std::array::IntoIter::new(expr).into_iter().collect(),
-        ))
+        Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
     fn visit_define(&mut self, define: Box<super::ast::Define>) -> Self::Output {
@@ -44,9 +42,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
             self.visit(define.name)?,
             self.visit(define.body)?,
         ];
-        Ok(SteelVal::ListV(
-            std::array::IntoIter::new(expr).into_iter().collect(),
-        ))
+        Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
     fn visit_lambda_function(
@@ -65,9 +61,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
             self.visit(lambda_function.body)?,
         ];
 
-        Ok(SteelVal::ListV(
-            std::array::IntoIter::new(expr).into_iter().collect(),
-        ))
+        Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
     fn visit_begin(&mut self, begin: super::ast::Begin) -> Self::Output {
@@ -76,14 +70,11 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
             exprs.push(self.visit(expr)?);
         }
         Ok(SteelVal::ListV(exprs.into()))
-        // ListOperations::built_in_list_func_flat(&exprs)
     }
 
     fn visit_return(&mut self, r: Box<super::ast::Return>) -> Self::Output {
         let expr = [SteelVal::try_from(r.location)?, self.visit(r.expr)?];
-        Ok(SteelVal::ListV(
-            std::array::IntoIter::new(expr).into_iter().collect(),
-        ))
+        Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
     // TODO: quotes are handled incorrectly here
@@ -147,9 +138,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
 
     fn visit_set(&mut self, s: Box<super::ast::Set>) -> Self::Output {
         let expr = [SteelVal::try_from(s.location)?, self.visit(s.expr)?];
-        Ok(SteelVal::ListV(
-            std::array::IntoIter::new(expr).into_iter().collect(),
-        ))
+        Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
     fn visit_require(&mut self, _s: super::ast::Require) -> Self::Output {

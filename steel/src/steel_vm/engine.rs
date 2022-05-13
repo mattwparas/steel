@@ -1,9 +1,7 @@
 use super::{
     builtin::BuiltInModule,
     options::{ApplyContract, DoNotApplyContracts, DoNotUseCallback, UseCallback},
-    primitives::{
-        embed_primitives, embed_primitives_without_io, register_builtin_modules, CONSTANTS,
-    },
+    primitives::{register_builtin_modules, CONSTANTS},
     vm::VirtualMachineCore,
 };
 use crate::{
@@ -64,7 +62,7 @@ impl Engine {
             crate::stdlib::DISPLAY,
         ];
 
-        for core in std::array::IntoIter::new(core_libraries) {
+        for core in core_libraries.into_iter() {
             vm.parse_and_execute_without_optimizations(core).unwrap();
         }
 
@@ -106,18 +104,29 @@ impl Engine {
     pub fn new_base() -> Self {
         let mut vm = Engine::new_raw();
         // Embed any primitives that we want to use
-        embed_primitives(&mut vm);
+
+        register_builtin_modules(&mut vm);
+
+        vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
+            .unwrap();
+
         vm
     }
 
     #[inline]
     pub fn new_sandboxed() -> Self {
         let mut vm = Engine::new_raw();
-        embed_primitives_without_io(&mut vm);
+
+        // TODO: Deprecate this
+        // embed_primitives_without_io(&mut vm);
+        register_builtin_modules(&mut vm);
+
+        vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
+            .unwrap();
 
         let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
 
-        for core in std::array::IntoIter::new(core_libraries) {
+        for core in core_libraries.into_iter() {
             vm.parse_and_execute_without_optimizations(core).unwrap();
         }
 
@@ -164,7 +173,7 @@ impl Engine {
             crate::stdlib::CONTRACTS,
         ];
 
-        for core in std::array::IntoIter::new(core_libraries) {
+        for core in core_libraries.into_iter() {
             vm.parse_and_execute_without_optimizations(core).unwrap();
         }
 

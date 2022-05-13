@@ -1,12 +1,6 @@
 use crate::gc::Gc;
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
-use crate::{steel_vm::vm::VmContext, SteelVal};
-
-pub enum CollectionType {
-    List,
-    Vector,
-}
+use crate::SteelVal;
 
 use crate::core::utils::{arity_check, declare_const_ref_functions};
 

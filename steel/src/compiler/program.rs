@@ -129,7 +129,6 @@ pub struct SerializableRawProgramWithSymbols {
 
 impl SerializableRawProgramWithSymbols {
     pub fn write_to_file(&self, filename: &str) -> Result<()> {
-        use std::fs::File;
         use std::io::prelude::*;
 
         let mut file = File::create(format!("{}.txt", filename)).unwrap();
@@ -141,7 +140,6 @@ impl SerializableRawProgramWithSymbols {
     }
 
     pub fn read_from_file(filename: &str) -> Result<Self> {
-        use std::fs::File;
         use std::io::prelude::*;
 
         let mut file = File::open(format!("{}.txt", filename)).unwrap();

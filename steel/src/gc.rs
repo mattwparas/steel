@@ -1,4 +1,4 @@
-use crate::rerrs::{ErrorKind, SteelErr};
+use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::stop;
 use std::rc::Rc;

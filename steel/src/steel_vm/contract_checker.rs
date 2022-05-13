@@ -1,10 +1,10 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 use quickscope::ScopeMap;
 
 use crate::{
-    compiler::passes::{VisitorMutUnit, VisitorMutUnitRef},
-    parser::{span::Span, tokens::TokenType, visitors::VisitorMut},
+    compiler::passes::VisitorMutUnitRef,
+    parser::{tokens::TokenType, visitors::VisitorMut},
 };
 use crate::{parser::ast::ExprKind, rvals::Result};
 
