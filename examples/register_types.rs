@@ -50,12 +50,12 @@ impl ExternalStruct {
         true
     }
 
-    pub fn dummy_test(&self, other: &ExternalStruct) -> usize {
+    pub fn dummy_test(&self, _other: &ExternalStruct) -> usize {
         10
     }
 }
 
-fn test_registration(foo: usize, other: &ExternalStruct) -> usize {
+fn test_registration(_foo: usize, _other: &ExternalStruct) -> usize {
     10
 }
 

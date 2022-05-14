@@ -1,5 +1,5 @@
-use steel::{rvals::IntoSteelVal, steel_vm::register_fn::RegisterFn};
-use steel::{steel_vm::engine::Engine, SteelVal};
+use steel::{steel_vm::register_fn::RegisterFn};
+use steel::{steel_vm::engine::Engine};
 
 fn external_function(arg1: usize, arg2: usize) -> usize {
     arg1 + arg2
