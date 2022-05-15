@@ -6,7 +6,7 @@ use crate::core::utils::{arity_check, declare_const_ref_functions};
 
 // Make a transducer actually contain an option to a rooted value, otherwise
 // it is a source agnostic transformer on the (eventual) input
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Hash)]
 pub struct Transducer {
     // root: Gc<SteelVal>,
     pub ops: Vec<Transducers>,
@@ -26,7 +26,7 @@ impl Transducer {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Hash)]
 pub enum Transducers {
     Map(SteelVal),       // function
     Filter(SteelVal),    // function

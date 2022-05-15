@@ -1,8 +1,7 @@
+use crate::core::opcode::OpCode;
 use crate::parser::parser::SyntaxObject;
-use crate::parser::span::Span;
-use crate::{core::opcode::OpCode, values::structs::SteelStruct};
 use serde::{Deserialize, Serialize};
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryInto;
 
 /// Instruction loaded with lots of information prior to being condensed
 /// Includes the opcode and the payload size, plus some information

@@ -1,10 +1,7 @@
 use crate::{
     gc::Gc,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::{
-        contract_checker::BuiltInFunctionContract,
-        vm::{BuiltInSignature, Continuation},
-    },
+    steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
     values::structs::SteelStruct,
     values::{
@@ -659,11 +656,9 @@ impl Hash for SteelVal {
             //     cell.hash(state);
             // }
             VectorV(v) => v.hash(state),
-            Void => {
-                unimplemented!();
-            }
+            v @ Void => v.hash(state),
             StringV(s) => s.hash(state),
-            FuncV(_) => unimplemented!(),
+            FuncV(s) => (s as *const FunctionSignature).hash(state),
             // LambdaV(_) => unimplemented!(),
             // MacroV(_) => unimplemented!(),
             SymbolV(sym) => {
@@ -677,7 +672,7 @@ impl Hash for SteelVal {
             PortV(_) => unimplemented!(),
             Closure(b) => b.hash(state),
             HashMapV(hm) => hm.hash(state),
-            IterV(_) => unimplemented!(),
+            IterV(s) => s.hash(state),
             HashSetV(hs) => hs.hash(state),
             _ => {
                 println!("Trying to hash: {:?}", self);

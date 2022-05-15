@@ -30,10 +30,7 @@ pub use symbols::SymbolOperations;
 pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
 
-use crate::{
-    rerrs::{ErrorKind, SteelErr},
-    rvals::Custom,
-};
+use crate::rerrs::{ErrorKind, SteelErr};
 use crate::{
     rvals::{create_result_ok_struct, FunctionSignature, SteelVal},
     stop,
