@@ -327,6 +327,14 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<
                 }
                 Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),
                 Transducers::Drop(num) => generate_drop!(iter, num, cur_inst_span),
+                Transducers::Enumerating => Box::new(iter.enumerate().map(|x| {
+                    Ok(SteelVal::ListV(im_lists::list!(
+                        SteelVal::IntV(x.0 as isize),
+                        x.1?
+                    )))
+                })),
+                Transducers::Zipping(_) => todo!(),
+                Transducers::Interleaving(_) => todo!(),
             }
         }
 

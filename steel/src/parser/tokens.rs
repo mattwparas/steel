@@ -136,14 +136,17 @@ pub enum TokenType {
 
     #[token("if")]
     If,
-    #[regex("(define)|(defn)|(#%define)")]
+    #[regex("(define)|(defn)")]
     Define,
     #[token("let")]
     Let,
 
     #[token("test-let")]
     TestLet,
-
+    // #[token("transduce")]
+    // Transduce,
+    // #[token("execute")]
+    // Execute,
     #[token("return!")]
     Return,
     #[token("begin")]
@@ -223,7 +226,7 @@ pub enum TokenType {
 
     // #[regex(r#"b?"(\\.|[^\\"])*""#, parse_str)] // "
     // #[regex(r#"(?:[^"]|\\")*", parse_str)] // "
-    #[regex(r#""([^"\\]|\\t|\\u|\\n|\\a|\\")*""#, parse_str)]
+    #[regex(r#""([^"\\]|\\t|\\u|\\n|\\")*""#, parse_str)]
     StringLiteral(String),
 
     #[error]

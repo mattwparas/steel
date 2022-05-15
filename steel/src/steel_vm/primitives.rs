@@ -208,6 +208,7 @@ thread_local! {
     pub static META_MODULE: BuiltInModule = meta_module();
     pub static JSON_MODULE: BuiltInModule = json_module();
     pub static CONSTANTS_MODULE: BuiltInModule = constants_module();
+    pub static SYNTAX_MODULE: BuiltInModule = syntax_module();
 }
 
 pub fn register_builtin_modules(engine: &mut Engine) {
@@ -233,7 +234,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(PORT_MODULE.with(|x| x.clone()))
         .register_module(META_MODULE.with(|x| x.clone()))
         .register_module(JSON_MODULE.with(|x| x.clone()))
-        .register_module(CONSTANTS_MODULE.with(|x| x.clone()));
+        .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
+        .register_module(SYNTAX_MODULE.with(|x| x.clone()));
 }
 
 pub static ALL_MODULES: &str = r#"
@@ -256,6 +258,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin "meta")
     (require-builtin "json")
     (require-builtin "constants")
+    (require-builtin "syntax")
 "#;
 
 // static MAP_MODULE: Lazy<BuiltInModule> = Lazy::new(hashmap);
@@ -498,6 +501,7 @@ pub fn transducer_module() -> BuiltInModule {
         .register_value("taking", TransducerOperations::take())
         .register_value("dropping", TransducerOperations::dropping())
         .register_value("extending", TransducerOperations::extending())
+        .register_value("enumerating", TransducerOperations::enumerating())
         .register_value("into-sum", crate::values::transducers::INTO_SUM)
         .register_value("into-product", crate::values::transducers::INTO_PRODUCT)
         .register_value("into-max", crate::values::transducers::INTO_MAX)
@@ -605,5 +609,14 @@ fn json_module() -> BuiltInModule {
             "value->jsexpr-string",
             crate::values::json_vals::serialize_val_to_string(),
         );
+    module
+}
+
+fn syntax_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("syntax".to_string());
+    module
+        .register_fn("syntax->datum", crate::rvals::Syntax::syntax_datum)
+        .register_fn("syntax-loc", crate::rvals::Syntax::syntax_loc)
+        .register_fn("syntax/loc", crate::rvals::Syntax::new);
     module
 }

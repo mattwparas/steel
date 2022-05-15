@@ -2,10 +2,37 @@ use core::ops::Range;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+use crate::{list, rvals::FromSteelVal, rvals::IntoSteelVal};
+
+use crate::rvals::SteelVal;
+
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 pub struct Span {
     start: usize,
     end: usize,
+}
+
+impl IntoSteelVal for Span {
+    fn into_steelval(self) -> crate::rvals::Result<crate::SteelVal> {
+        Ok(list![self.start, self.end])
+    }
+}
+
+impl FromSteelVal for Span {
+    fn from_steelval<'a>(val: &'a crate::SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::ListV(l) = val {
+            if l.len() != 2 {
+                stop!(ConversionError => "cannot convert to a span object: {}", val);
+            }
+
+            Ok(Span {
+                start: usize::from_steelval(l.get(0).unwrap())?,
+                end: usize::from_steelval(l.get(1).unwrap())?,
+            })
+        } else {
+            stop!(ConversionError => "cannot convert to a span object: {}", val)
+        }
+    }
 }
 
 impl Span {

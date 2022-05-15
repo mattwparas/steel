@@ -23,6 +23,18 @@ impl TransducerOperations {
         })
     }
 
+    pub fn enumerating() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 0 {
+                stop!(ArityMismatch => "enumerating takes no arguments");
+            }
+
+            let mut transducer = Transducer::new();
+            transducer.push(Transducers::Enumerating);
+            Ok(SteelVal::IterV(Gc::new(transducer)))
+        })
+    }
+
     pub fn map() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {

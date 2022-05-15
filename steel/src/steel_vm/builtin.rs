@@ -1,9 +1,8 @@
 use std::rc::Rc;
 
 use crate::{
-    gc::Gc,
     parser::{ast::ExprKind, parser::SyntaxObject, tokens::TokenType},
-    rvals::{Custom, IntoSteelVal, SteelVal},
+    rvals::{Custom, SteelVal},
 };
 use im_rc::HashMap;
 

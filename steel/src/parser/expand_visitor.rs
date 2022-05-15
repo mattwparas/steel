@@ -228,28 +228,31 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         &mut self,
         mut lambda_function: Box<super::ast::LambdaFunction>,
     ) -> Self::Output {
-        // TODO: Unfortunately this would wipe out the span
+        // TODO: Unfortunately this wipes out the span
+        // There needs to be
 
-        // println!("Function: {}", lambda_function);
-        // if self.map.contains_macro("%lambda%") {
-        //     lambda_function.body = self.visit(lambda_function.body)?;
+        lambda_function.body = self.visit(lambda_function.body)?;
 
-        //     let arguments = ExprKind::List(super::ast::List::new(vec![
-        //         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Lambda))),
-        //         ExprKind::List(super::ast::List::new(lambda_function.args)),
-        //         lambda_function.body,
-        //     ]));
+        // if let Some(map) = &mut self.map {
+        //     // println!("Function: {}", lambda_function);
+        //     if map.contains_macro("%lambda%") {
+        //         let arguments = ExprKind::List(super::ast::List::new(vec![
+        //             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Lambda))),
+        //             ExprKind::List(super::ast::List::new(lambda_function.args)),
+        //             lambda_function.body,
+        //         ]));
 
-        //     let expanded = self.map.expand("%lambda%", arguments)?;
-        //     self.changed = true;
-        //     if let ExprKind::LambdaFunction(_) = &expanded {
-        //         return Ok(expanded);
-        //     } else {
-        //         unreachable!("The expansion above should always return a lambda")
+        //         let expanded = map.expand("%lambda%", arguments)?;
+        //         self.changed = true;
+        //         if let ExprKind::LambdaFunction(_) = &expanded {
+        //             return Ok(expanded);
+        //         } else {
+        //             unreachable!("The expansion above should always return a lambda")
+        //         }
         //     }
         // }
 
-        lambda_function.body = self.visit(lambda_function.body)?;
+        // lambda_function.body = self.visit(lambda_function.body)?;
         Ok(ExprKind::LambdaFunction(lambda_function))
     }
 

@@ -1,5 +1,6 @@
 use crate::{
     gc::Gc,
+    parser::span::Span,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
@@ -439,6 +440,48 @@ thread_local! {
     pub static MAGIC_STRUCT_SYMBOL: SteelVal = SteelVal::ListV(im_lists::list![SteelVal::SymbolV(Rc::from("StructMarker"))]);
 }
 
+#[derive(Debug, Clone)]
+pub struct Syntax {
+    syntax: SteelVal,
+    span: Span,
+}
+
+impl Syntax {
+    pub fn new(syntax: SteelVal, span: Span) -> Syntax {
+        Self { syntax, span }
+    }
+
+    pub fn syntax_loc(&self) -> Span {
+        self.span
+    }
+
+    pub fn syntax_datum(&self) -> SteelVal {
+        self.syntax.clone()
+    }
+}
+
+impl IntoSteelVal for Syntax {
+    fn into_steelval(self) -> Result<SteelVal> {
+        Ok(SteelVal::SyntaxObject(Gc::new(self)))
+    }
+}
+
+impl AsRefSteelVal for Syntax {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
+        if let SteelVal::SyntaxObject(s) = val {
+            Ok(SRef::Temporary(s))
+        } else {
+            stop!(TypeMismatch => "Value cannot be referenced as a syntax object")
+        }
+    }
+}
+
+impl From<Syntax> for SteelVal {
+    fn from(val: Syntax) -> Self {
+        SteelVal::SyntaxObject(Gc::new(val))
+    }
+}
+
 #[derive(Clone)]
 pub enum SteelVal {
     /// Represents a boolean value
@@ -515,8 +558,9 @@ pub enum SteelVal {
     BuiltIn(BuiltInSignature),
     // Mutable vector
     MutableVector(Gc<RefCell<Vec<SteelVal>>>),
-    // Fixed size vector
-    // FixedSizeVector(Rc<RefCell<[SteelVal]>>),
+
+    SyntaxObject(Gc<Syntax>), // Fixed size vector
+                              // FixedSizeVector(Rc<RefCell<[SteelVal]>>)
 }
 
 impl SteelVal {
@@ -597,6 +641,7 @@ impl SteelVal {
             }
             #[cfg(feature = "jit")]
             CompiledFunction(_) => todo!(),
+            SyntaxObject(_) => todo!(),
         }
     }
 
@@ -1032,6 +1077,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         BuiltIn(_) => write!(f, "#<function>"),
         ReducerV(_) => write!(f, "#<reducer>"),
         MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
+        SyntaxObject(s) => write!(f, "<syntax: {:?}>", s),
     }
 }
 

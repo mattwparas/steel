@@ -11,6 +11,7 @@ mod ports;
 mod streams;
 mod strings;
 mod symbols;
+mod syntax;
 mod transducers;
 mod utils;
 mod vectors;

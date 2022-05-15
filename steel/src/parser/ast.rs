@@ -204,7 +204,12 @@ impl TryFrom<&SteelVal> for ExprKind {
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 Identifier(x.to_string()),
             )))),
-            Custom(_) => Err("Can't convert from Custom Type to expression!"),
+            SyntaxObject(_) => todo!("Implement conversion"),
+            Custom(_) => {
+                // TODO: if the returned object is a custom type, check
+                // to see if its a Syntax struct to replace the span with
+                Err("Can't convert from Custom Type to expression!")
+            }
             // Pair(_, _) => Err("Can't convert from pair"), // TODO
             // Pair(_) => {
             //     if let VectorV(ref lst) = collect_pair_into_vector(r) {

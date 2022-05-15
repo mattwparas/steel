@@ -6,7 +6,12 @@ use std::{
 use crate::{parser::ast::from_list_repr_to_ast, rvals::Result};
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
-use super::{ast::ExprKind, span_visitor::get_span};
+use super::{ast::ExprKind, span::Span, span_visitor::get_span};
+
+struct Syntax {
+    expr: SteelVal,
+    location: Span,
+}
 
 /// The Kernel is an engine context used to evaluate defmacro style macros
 /// It lives inside the compiler, so in theory there could be tiers of kernels
@@ -71,21 +76,22 @@ impl Kernel {
             // println!("Expanded to: {:#?}", expr);
 
             // TODO: try to understand what is actually happening here
-            // let ast_version = ExprKind::try_from(&result)
-            //     .map(from_list_repr_to_ast)
-            //     .unwrap()
-            //     .unwrap();
+            let ast_version = ExprKind::try_from(&result)
+                .map(from_list_repr_to_ast)
+                .unwrap()
+                .unwrap();
 
-            // println!("Expanded to: {}", ast_version);
+            // println!("{}")
+            println!("{}", ast_version.to_pretty(60));
 
-            // Ok(ast_version)
+            Ok(ast_version)
 
-            Ok(
-                crate::parser::parser::Parser::parse(result.to_string().trim_start_matches('\''))?
-                    .into_iter()
-                    .next()
-                    .unwrap(),
-            )
+            // Ok(
+            //     crate::parser::parser::Parser::parse(result.to_string().trim_start_matches('\''))?
+            //         .into_iter()
+            //         .next()
+            //         .unwrap(),
+            // )
         } else {
             stop!(TypeMismatch => "call-function-in-env expects a list for the arguments")
         }

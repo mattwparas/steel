@@ -28,17 +28,20 @@ impl Transducer {
 
 #[derive(Clone, PartialEq, Hash)]
 pub enum Transducers {
-    Map(SteelVal),       // function
-    Filter(SteelVal),    // function
-    Take(SteelVal),      // integer
-    Drop(SteelVal),      // integer
-    FlatMap(SteelVal),   // function
-    Flatten,             // Takes nothing
-    Window(SteelVal),    // integer
-    TakeWhile(SteelVal), // function
-    DropWhile(SteelVal), // function
-    Extend(SteelVal),    // Collection
-    Cycle,
+    Map(SteelVal),          // function
+    Filter(SteelVal),       // function
+    Take(SteelVal),         // integer
+    Drop(SteelVal),         // integer
+    FlatMap(SteelVal),      // function
+    Flatten,                // Takes nothing
+    Window(SteelVal),       // integer
+    TakeWhile(SteelVal),    // function
+    DropWhile(SteelVal),    // function
+    Extend(SteelVal),       // Collection
+    Cycle,                  // Continue forever
+    Enumerating,            // turns (a b c) into ((0 a) (1 b) (2 c))
+    Zipping(SteelVal),      // Combine with another iterator, either a Collection or a Transducer
+    Interleaving(SteelVal), // Interleave with another interator, either a Collection or a Transducer
 }
 
 // This should just describe how a sequence of values can be reduced
