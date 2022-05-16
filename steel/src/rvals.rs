@@ -1,6 +1,6 @@
 use crate::{
     gc::Gc,
-    parser::span::Span,
+    parser::{ast::ExprKind, span::Span},
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
@@ -473,6 +473,12 @@ impl Syntax {
 
     pub fn syntax_datum(&self) -> SteelVal {
         self.syntax.clone()
+    }
+
+    // TODO: match on self.syntax. If its itself a syntax object, then just recur on that until we bottom out
+    // Otherwise, reconstruct the ExprKind and replace the span and source information into the representation
+    pub fn to_exprkind(&self) -> Result<ExprKind> {
+        todo!()
     }
 }
 
@@ -1093,7 +1099,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         BuiltIn(_) => write!(f, "#<function>"),
         ReducerV(_) => write!(f, "#<reducer>"),
         MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
-        SyntaxObject(s) => write!(f, "<syntax: {:?}>", s),
+        SyntaxObject(s) => write!(f, "#<syntax:{:?}:{:?} {:?}>", s.source, s.span, s.syntax),
     }
 }
 

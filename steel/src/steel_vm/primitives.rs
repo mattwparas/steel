@@ -502,6 +502,8 @@ pub fn transducer_module() -> BuiltInModule {
         .register_value("dropping", TransducerOperations::dropping())
         .register_value("extending", TransducerOperations::extending())
         .register_value("enumerating", TransducerOperations::enumerating())
+        .register_value("zipping", TransducerOperations::zipping())
+        .register_value("interleaving", TransducerOperations::interleaving())
         .register_value("into-sum", crate::values::transducers::INTO_SUM)
         .register_value("into-product", crate::values::transducers::INTO_PRODUCT)
         .register_value("into-max", crate::values::transducers::INTO_MAX)

@@ -35,6 +35,46 @@ impl TransducerOperations {
         })
     }
 
+    pub fn zipping() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "zipping takes one argument");
+            }
+
+            match &args[0] {
+                VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | StructV(_) | HashSetV(_)
+                | HashMapV(_) => {
+                    let mut transducer = Transducer::new();
+                    transducer.push(Transducers::Zipping(args[0].clone()));
+                    Ok(SteelVal::IterV(Gc::new(transducer)))
+                }
+                v => {
+                    stop!(TypeMismatch => format!("zipping expects an iterable, found: {:?}", v))
+                }
+            }
+        })
+    }
+
+    pub fn interleaving() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "interleaving takes one argument");
+            }
+
+            match &args[0] {
+                VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | StructV(_) | HashSetV(_)
+                | HashMapV(_) => {
+                    let mut transducer = Transducer::new();
+                    transducer.push(Transducers::Interleaving(args[0].clone()));
+                    Ok(SteelVal::IterV(Gc::new(transducer)))
+                }
+                v => {
+                    stop!(TypeMismatch => format!("interleaving expects an iterable, found: {:?}", v))
+                }
+            }
+        })
+    }
+
     pub fn map() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
