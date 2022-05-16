@@ -25,6 +25,7 @@ use std::{
     future::Future,
     hash::{Hash, Hasher},
     ops::Deref,
+    path::PathBuf,
     pin::Pin,
     rc::Rc,
     result,
@@ -440,15 +441,30 @@ thread_local! {
     pub static MAGIC_STRUCT_SYMBOL: SteelVal = SteelVal::ListV(im_lists::list![SteelVal::SymbolV(Rc::from("StructMarker"))]);
 }
 
+// TODO: Replace this with RawSyntaxObject<SteelVal>
+
 #[derive(Debug, Clone)]
 pub struct Syntax {
     syntax: SteelVal,
     span: Span,
+    source: Option<Rc<PathBuf>>,
 }
 
 impl Syntax {
     pub fn new(syntax: SteelVal, span: Span) -> Syntax {
-        Self { syntax, span }
+        Self {
+            syntax,
+            span,
+            source: None,
+        }
+    }
+
+    pub fn new_with_source(syntax: SteelVal, span: Span, source: Option<Rc<PathBuf>>) -> Syntax {
+        Self {
+            syntax,
+            span,
+            source,
+        }
     }
 
     pub fn syntax_loc(&self) -> Span {

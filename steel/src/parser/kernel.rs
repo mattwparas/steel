@@ -3,15 +3,13 @@ use std::{
     convert::TryFrom,
 };
 
-use crate::{parser::ast::from_list_repr_to_ast, rvals::Result};
+use crate::{
+    parser::{ast::from_list_repr_to_ast, tryfrom_visitor::SyntaxObjectFromExprKind},
+    rvals::Result,
+};
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
 use super::{ast::ExprKind, span::Span, span_visitor::get_span};
-
-struct Syntax {
-    expr: SteelVal,
-    location: Span,
-}
 
 /// The Kernel is an engine context used to evaluate defmacro style macros
 /// It lives inside the compiler, so in theory there could be tiers of kernels
@@ -50,6 +48,10 @@ impl Kernel {
 
     pub fn expand(&mut self, ident: &str, expr: ExprKind) -> Result<ExprKind> {
         let span = get_span(&expr);
+
+        let syntax_objects = SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
+
+        println!("{:?}", syntax_objects);
 
         let args = SteelVal::try_from(expr)?;
 
