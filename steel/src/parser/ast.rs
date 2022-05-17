@@ -17,6 +17,8 @@ use crate::rvals::SteelVal::*;
 
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 
+use super::span::Span;
+
 pub(crate) trait AstTools {
     fn pretty_print(&self);
 }
@@ -47,6 +49,13 @@ pub enum ExprKind {
 }
 
 impl ExprKind {
+    pub fn integer_literal(value: isize, span: Span) -> ExprKind {
+        ExprKind::Atom(crate::parser::ast::Atom::new(SyntaxObject::new(
+            TokenType::IntegerLiteral(value),
+            span,
+        )))
+    }
+
     pub fn atom(name: String) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
             name,
@@ -210,16 +219,6 @@ impl TryFrom<&SteelVal> for ExprKind {
                 // to see if its a Syntax struct to replace the span with
                 Err("Can't convert from Custom Type to expression!")
             }
-            // Pair(_, _) => Err("Can't convert from pair"), // TODO
-            // Pair(_) => {
-            //     if let VectorV(ref lst) = collect_pair_into_vector(r) {
-            //         let items: std::result::Result<Vec<Self>, Self::Error> =
-            //             lst.iter().map(|x| Self::try_from(x)).collect();
-            //         Ok(ExprKind::List(List::new(items?)))
-            //     } else {
-            //         Err("Couldn't convert from list to expression")
-            //     }
-            // }
             ListV(l) => {
                 let items: std::result::Result<Vec<Self>, Self::Error> =
                     l.iter().map(|x| Self::try_from(x)).collect();

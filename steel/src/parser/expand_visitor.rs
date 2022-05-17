@@ -207,6 +207,66 @@ impl<'a> KernelExpander<'a> {
     }
 }
 
+fn expand_default_arguments(
+    mut lambda_function: Box<super::ast::LambdaFunction>,
+) -> Result<Box<super::ast::LambdaFunction>> {
+    // todo!()
+
+    let args_len = lambda_function.args.len();
+
+    let mut found_pair = false;
+    for argument in &lambda_function.args {
+        if let ExprKind::List(_) = argument {
+            found_pair = true;
+        } else {
+            if found_pair {
+                stop!(BadSyntax => "Non defualt argument aoccurs after a default argument"; lambda_function.location.span)
+            }
+        }
+    }
+
+    let non_default_bindings = lambda_function
+        .args
+        .iter()
+        .filter(|x| !matches!(x, ExprKind::List(_)))
+        .collect::<Vec<_>>();
+
+    // let bindings = lambda_function
+    //     .args
+    //     .iter()
+    //     .enumerate()
+    //     .filter(|x| matches!(x.1, ExprKind::List(_)))
+    //     .map(|x| {
+    //         if let ExprKind::List(l) = x.1 {
+    //             let var_name = l
+    //                 .get(0)
+    //                 .ok_or_else(throw!(BadSyntax => "empty default argument"))?;
+    //             let expr = l.get(1).ok_or_else(
+    //                 throw!(BadSyntax => "default argument missing default expression"),
+    //             )?;
+
+    //             let index = ExprKind::integer_literal(x.0 as isize, lambda_function.location.span);
+
+    //             let body = vec![
+
+    //             ]
+
+    //             todo!()
+    //         } else {
+    //             unreachable!()
+    //         }
+    //     })
+    //     .collect::<Result<Vec<_>>>();
+
+    todo!()
+}
+
+fn expand_keyword_arguments(
+    mut lambda_function: Box<super::ast::LambdaFunction>,
+) -> Result<Box<super::ast::LambdaFunction>> {
+    todo!()
+}
+
 impl<'a> ConsumingVisitor for KernelExpander<'a> {
     type Output = Result<ExprKind>;
 
@@ -233,9 +293,11 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
 
         lambda_function.body = self.visit(lambda_function.body)?;
 
+        // Expand default arguments here
+
         // if let Some(map) = &mut self.map {
         //     // println!("Function: {}", lambda_function);
-        //     if map.contains_macro("%lambda%") {
+        //     if map.contains_macro("%test-lambda%") {
         //         let arguments = ExprKind::List(super::ast::List::new(vec![
         //             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Lambda))),
         //             ExprKind::List(super::ast::List::new(lambda_function.args)),

@@ -84,6 +84,10 @@ impl SyntaxObject {
         }
     }
 
+    pub fn new_with_source(ty: TokenType, span: Span, source: Option<Rc<PathBuf>>) -> Self {
+        SyntaxObject { ty, span, source }
+    }
+
     pub fn default(ty: TokenType) -> Self {
         SyntaxObject {
             ty,

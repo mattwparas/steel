@@ -129,42 +129,60 @@
 ;; TODO: This is going to fail simply because when re-reading in the body of expanded functions
 ;; The parser is unable to parse already made un-parseable items. In this case, we should not
 ;; Re-parse the items, but rather convert the s-expression BACK into a typed ast instead.
-; (define (%lambda% args body)
-;   (let (
-;         (non-default-bindings (filter (lambda (x) (not (pair? x))) args))
-;         (bindings
-;          (transduce
-;           ;; Now we have attached the index of the list
-;           ;; To the iteration
-;           (enumerate 0 '() args)
-;           ;; extract out the arguments that have a default associated
-;           ;; So from the argument list like so:
-;           ;; (a b [c <expr>] [d <expr>])
-;           ;; We will get out ([c <expr>] [d <expr>])
-;           (filtering (lambda (x) (pair? (car x))))
-;           ;; Map to the let form of (binding expr)
-;           (mapping (lambda (x)
-;                      ;; ( (x, expr), index )
-;                      ;; TODO: clean this up
-;                      (let ((var-name (car (car x)))
-;                            (expr (car (cdr (car x))))
-;                            (index (car (cdr x))))
-;                        `(,var-name (let ((,var-name (try-list-ref !!dummy-rest-arg!! ,index)))
-;                                      (if ,var-name ,var-name ,expr))))))
-;           (into-list))))
 
-;     ;; TODO: Yes I understand this violates the macro writers bill of rights
-;     ;; that being said I'm only doing this as a proof of concept anyway so it can be rewritten
-;     ;; to be simpler and put the weight on the compiler later
-;     (if (equal? (length args) (length non-default-bindings))
-;         `(lambda ,args ,body)
-;         ; (displayln "hello world")
-;         `(lambda (,@non-default-bindings . !!dummy-rest-arg!!)
-;            (let (,@bindings) ,body))
-;         ;     ,(if bindings
-;         ;         `(let (,@bindings) ,body)
-;         ;         body))
+(define (default-loop args found-pair)
+    (cond [(empty? args) #f]
+          [(pair? (car args)) (default-loop (cdr args) #t)]
+          [else
+            (if found-pair
+                #t
+                (default-loop (cdr args) #f))]))
 
 
+(define (non-default-after-default? args)
+    (default-loop args #f))
 
-;         )))
+
+(define (%test-lambda% args body)
+;   (->/c non-default-after-default? any/c any/c)
+  (when (non-default-after-default? args) 
+    (error! "Non default argument occurs after a default argument"))
+  (let (
+        (args-len (length args))
+        (non-default-bindings (filter (lambda (x) (not (pair? x))) args))
+        (bindings
+         (transduce
+          ;; Now we have attached the index of the list to the iteration
+          args
+          ;; extract out the arguments that have a default associated
+          ;; So from the argument list like so:
+          ;; (a b [c <expr>] [d <expr>])
+          ;; We will get out ([c <expr>] [d <expr>])
+          (filtering (lambda (x) (pair? x)))
+          (enumerating)
+          ;; Map to the let form of (binding expr)
+          (mapping (lambda (x)
+                     ;; ( (x, expr), index )
+                     ;; TODO: clean this up
+                     (let ((var-name (car (list-ref x 1)))
+                           (expr (car (cdr (list-ref x 1))))
+                           (index (car x)))
+                       `(,var-name (let ((,var-name (try-list-ref !!dummy-rest-arg!! ,index)))
+                                     (if ,var-name ,var-name ,expr))))))
+          (into-list))))
+
+    ; (displayln bindings)
+
+    ;; TODO: Yes I understand this violates the macro writers bill of rights
+    ;; that being said I'm only doing this as a proof of concept anyway so it can be rewritten
+    ;; to be simpler and put the weight on the compiler later
+    (if (equal? args-len (length non-default-bindings))
+        `(lambda ,args ,body)
+        ; (displayln "hello world")
+        `(lambda (,@non-default-bindings . !!dummy-rest-arg!!)
+           (displayln !!dummy-rest-arg!!)
+           (if (> (+ ,(length non-default-bindings) (length !!dummy-rest-arg!!))
+                              ,args-len)
+               (error! "Arity mismatch - function expected " ,args-len)
+               void)
+           (let (,@bindings) ,body)))))

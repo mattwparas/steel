@@ -160,7 +160,7 @@ fn length(args: &[SteelVal]) -> Result<SteelVal> {
     if let SteelVal::ListV(l) = &args[0] {
         Ok(l.len().into())
     } else {
-        stop!(TypeMismatch => "length expects a list")
+        stop!(TypeMismatch => "length expects a list, found: {:?}", &args[0])
     }
 }
 
