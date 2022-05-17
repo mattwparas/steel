@@ -41,7 +41,7 @@
 
 ; (member )
 
-(define (%test-keyword args body)
+(define (%lambda-keyword% args body)
     ;; TODO: Using define here causes a bug with the internal define expansion
     ; (define keyword-args (drop-while (lambda (x) (not (keyword? x))) args))
 
@@ -60,15 +60,25 @@
             (let ((bindings 
                     (transduce keyword-map
                        (mapping (lambda (x)
-                            (let ((keyword (list-ref x 0))
-                                  (var-name (list-ref x 1)))
+                            (let* ((keyword (list-ref x 0))
+                                  (original-var-name (list-ref x 1)))
+                                  (expr (if (pair? var-name) (list-ref var-name 1) original-var-name))
+                                  (var-name (if (pair? var-name) (list-ref var-name 0) original-var-name)))
+
+                                (displayln keyword)
+                                (displayln var-name)
+                                (displayln expr)
+
                                 `(,var-name (let ((,var-name (hash-try-get !!dummy-rest-arg!! (quote ,keyword))))
-                                              (if ,var-name 
-                                                  ,var-name 
-                                                  (error! "Function application missing required keyword argument: " (quote ,keyword))))))))
+                                              (if ,var-name
+                                                  ,var-name
+                                                  (if 
+                                                    ,(pair? original-var-name) ,expr 
+                                                    (error! "Function application missing required keyword argument: " (quote ,keyword))))))))
                        (into-list))))
                 `(lambda (,@non-keyword-args . !!dummy-rest-arg!!)
-                    (let (,@bindings) ,body))))))
+                    (let ((!!dummy-rest-arg!! (apply hash !!dummy-rest-arg!!)))
+                        (let (,@bindings) ,body)))))))
 
 
 

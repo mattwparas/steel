@@ -210,6 +210,9 @@ pub enum TokenType {
     // "
     Identifier(String),
 
+    #[regex(r#"#:[_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#, callback = |lex| lex.slice().parse())]
+    Keyword(String),
+
     // #[token("inf")]
     // #[token("NaN")]
     #[regex(r#"[+-]?[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?"#, |lex| lex.slice().parse())] // "
@@ -261,6 +264,7 @@ impl fmt::Display for TokenType {
             NumberLiteral(x) => write!(f, "{:?}", x),
             IntegerLiteral(x) => write!(f, "{}", x),
             StringLiteral(x) => write!(f, "\"{}\"", x),
+            Keyword(x) => write!(f, "#:{}", x),
             QuoteTick => write!(f, "'"),
             Unquote => write!(f, ","),
             QuasiQuote => write!(f, "`"),

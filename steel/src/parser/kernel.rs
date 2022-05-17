@@ -31,7 +31,8 @@ impl Kernel {
 
         let mut macros = HashSet::new();
         macros.insert("make-struct".to_string());
-        macros.insert("%test-lambda%".to_string());
+        macros.insert("%better-lambda%".to_string());
+        // macros.insert("%lam%".to_string());
 
         // let mut aliases = HashMap::new();
         // aliases.insert("lambda".to_string(), "%lambda%".to_string());
