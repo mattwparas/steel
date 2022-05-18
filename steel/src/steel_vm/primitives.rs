@@ -619,6 +619,7 @@ fn syntax_module() -> BuiltInModule {
     module
         .register_fn("syntax->datum", crate::rvals::Syntax::syntax_datum)
         .register_fn("syntax-loc", crate::rvals::Syntax::syntax_loc)
-        .register_fn("syntax/loc", crate::rvals::Syntax::new);
+        .register_fn("syntax/loc", crate::rvals::Syntax::new)
+        .register_value("syntax?", gen_pred!(SyntaxObject));
     module
 }
