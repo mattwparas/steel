@@ -20,6 +20,22 @@ pub struct Wrapper<ARGS>(PhantomData<ARGS>);
 
 pub struct AsyncWrapper<ARGS>(PhantomData<ARGS>);
 
+/// TODO: This can actually be used to do const stuff
+// const fn test_move(
+//     name: &'static str,
+//     func: impl Fn() -> usize,
+// ) -> impl Fn(&[SteelVal]) -> Result<SteelVal> {
+//     move |args: &[SteelVal]| -> Result<SteelVal> {
+//         if !args.is_empty() {
+//             stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
+//         }
+
+//         let res = func();
+
+//         res.into_steelval()
+//     }
+// }
+
 impl<
         FUT: Future<Output = RET> + 'static,
         RET: IntoSteelVal + 'static,

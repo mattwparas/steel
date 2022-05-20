@@ -237,17 +237,16 @@
     ;; TODO: Using define here causes a bug with the internal define expansion
     ; (define keyword-args (drop-while (lambda (x) (not (keyword? x))) args))
 
-    (let ((keyword-args (drop-while (lambda (x) (not (keyword? x))) args))
-          (non-keyword-args (take-while (lambda (x) (not (keyword? x))) args)))
-        (when (odd? (length keyword-args))
-            (error! "keyword arguments malformed - each option requires a value"))
+    (define keyword-args (drop-while (lambda (x) (not (keyword? x))) args))
+    (when (odd? (length keyword-args))
+          (error! "keyword arguments malformed - each option requires a value"))
 
-        (let ((keyword-map (apply hash keyword-args)))
-            (when (not (all keyword? (hash-keys->list keyword-map)))
-                (error! "Non keyword arguments found after the first keyword argument"))
-                
-            (let ((bindings 
-                    (transduce 
+    (define non-keyword-args (take-while (lambda (x) (not (keyword? x))) args))
+    (define keyword-map (apply hash keyword-args))
+    (when (not (all keyword? (hash-keys->list keyword-map)))
+      (error! "Non keyword arguments found after the first keyword argument"))
+
+    (define bindings (transduce 
                       keyword-map
                        (mapping (lambda (x)
                             (let* ((keyword (list-ref x 0))
@@ -262,10 +261,42 @@
                                                     ,(pair? original-var-name) 
                                                     ,expr 
                                                     (error! "Function application missing required keyword argument: " (quote ,keyword)))))))))
-                       (into-list))))
-                `(lambda (,@non-keyword-args . !!dummy-rest-arg!!)
+                       (into-list)))
+
+    `(lambda (,@non-keyword-args . !!dummy-rest-arg!!)
                     (let ((!!dummy-rest-arg!! (apply hash !!dummy-rest-arg!!)))
-                        (let (,@bindings) ,body)))))))
+                        (let (,@bindings) ,body))))
+    
+
+    ; (let ((keyword-args (drop-while (lambda (x) (not (keyword? x))) args))
+    ;       (non-keyword-args (take-while (lambda (x) (not (keyword? x))) args)))
+    ;     (when (odd? (length keyword-args))
+    ;         (error! "keyword arguments malformed - each option requires a value"))
+
+    ;     (let ((keyword-map (apply hash keyword-args)))
+    ;         (when (not (all keyword? (hash-keys->list keyword-map)))
+    ;             (error! "Non keyword arguments found after the first keyword argument"))
+                
+    ;         (let ((bindings 
+    ;                 (transduce 
+    ;                   keyword-map
+    ;                    (mapping (lambda (x)
+    ;                         (let* ((keyword (list-ref x 0))
+    ;                                (original-var-name (list-ref x 1))
+    ;                                (expr (if (pair? original-var-name) (list-ref original-var-name 1) original-var-name))
+    ;                                (var-name (if (pair? original-var-name) (list-ref original-var-name 0) original-var-name)))
+
+    ;                             `(,var-name (let ((,var-name (hash-try-get !!dummy-rest-arg!! (quote ,keyword))))
+    ;                                           (if (hash-contains? !!dummy-rest-arg!! (quote ,keyword))
+    ;                                               ,var-name
+    ;                                               (if 
+    ;                                                 ,(pair? original-var-name) 
+    ;                                                 ,expr 
+    ;                                                 (error! "Function application missing required keyword argument: " (quote ,keyword)))))))))
+    ;                    (into-list))))
+    ;             `(lambda (,@non-keyword-args . !!dummy-rest-arg!!)
+    ;                 (let ((!!dummy-rest-arg!! (apply hash !!dummy-rest-arg!!)))
+    ;                     (let (,@bindings) ,body)))))))
 
 
 ; (define test (%lambda-keyword% (a b #:transparent [transparent #t]) (if transparent (begin (displayln "hello world") (+ a b)) (+ a b 10))))

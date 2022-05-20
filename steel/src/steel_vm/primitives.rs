@@ -289,7 +289,9 @@ fn list_module() -> BuiltInModule {
         .register_value("apply", crate::primitives::lists::TEST_APPLY)
         // .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         // .register_value("execute", crate::steel_vm::transducers::EXECUTE)
-        .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE);
+        .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
+        .register_fn("second", crate::primitives::lists::second)
+        .register_fn("third", crate::primitives::lists::third);
     module
 }
 

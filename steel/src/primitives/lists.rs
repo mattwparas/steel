@@ -1,4 +1,4 @@
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::steel_vm::vm::VmContext;
 use crate::{stop, throw};
 use im_lists::{list, list::List};
@@ -39,6 +39,35 @@ pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
 // TODO replace all usages with const
 // const LENGTH: SteelVal = SteelVal::FuncV(length);
 // const NEW: SteelVal = SteelVal::FuncV(new);
+
+pub(crate) struct UnRecoverableResult(Result<SteelVal>);
+
+impl IntoSteelVal for UnRecoverableResult {
+    #[inline(always)]
+    fn into_steelval(self) -> Result<SteelVal> {
+        self.into()
+    }
+}
+
+impl From<UnRecoverableResult> for Result<SteelVal> {
+    fn from(value: UnRecoverableResult) -> Self {
+        value.0
+    }
+}
+
+impl From<Result<SteelVal>> for UnRecoverableResult {
+    fn from(value: Result<SteelVal>) -> Self {
+        UnRecoverableResult(value)
+    }
+}
+
+pub(crate) fn second(list: &List<SteelVal>) -> UnRecoverableResult {
+    list.get(1).cloned().ok_or_else(throw!(Generic => "second: index out of bounds - list did not have an element in the second position: {:?}", list)).into()
+}
+
+pub(crate) fn third(list: &List<SteelVal>) -> UnRecoverableResult {
+    list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list)).into()
+}
 
 fn test_map(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
     arity_check!(test_map, args, 2);

@@ -197,6 +197,7 @@
          (begin (define (datum->syntax name) (hash-get mod 'name))
             (module gen-defines mod rest ...))]))
 
+;; TODO: Replace some of these with just list ref to abuse the underlying implementation
 (define caar (lambda (pair) (car (car pair))))
 (define cadr (lambda (pair) (car (cdr pair))))
 (define cdar (lambda (pair) (cdr (car pair))))

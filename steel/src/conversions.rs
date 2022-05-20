@@ -14,6 +14,12 @@ impl IntoSteelVal for SteelVal {
     }
 }
 
+// impl IntoSteelVal for Result<SteelVal> {
+//     fn into_steelval(self) -> Result<SteelVal> {
+//         self
+//     }
+// }
+
 impl<T: IntoSteelVal + Clone> IntoSteelVal for List<T> {
     fn into_steelval(self) -> Result<SteelVal> {
         self.into_iter()

@@ -369,28 +369,74 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
             }
 
             if s == REQUIRE_BUILTIN {
-                if l.args.len() != 2 {
-                    stop!(ArityMismatch => "require-builtin expects one argument - the name of the module to include")
-                }
-
-                match &l.args[1] {
-                    ExprKind::Atom(Atom {
+                match &l.args[1..] {
+                    [ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
                                 ty: TokenType::StringLiteral(s),
                                 ..
                             },
-                    }) => {
+                    })] => {
                         if let Some(module) = self.builtin_modules.get(s) {
-                            return Ok(module.to_syntax());
+                            return Ok(module.to_syntax(None));
                         } else {
                             stop!(BadSyntax => "require-builtin: module not found: {}", s);
                         }
                     }
-                    other => {
-                        stop!(TypeMismatch => format!("require-builtin expects a string referring to the name of the module, found: {}", other))
+
+                    [ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::StringLiteral(s),
+                                ..
+                            },
+                    }), ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(az),
+                                ..
+                            },
+                    }), ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(prefix),
+                                ..
+                            },
+                    })] if az == "as" => {
+                        if let Some(module) = self.builtin_modules.get(s) {
+                            return Ok(module.to_syntax(Some(prefix.as_str())));
+                        } else {
+                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                        }
+                    }
+
+                    _ => {
+                        stop!(ArityMismatch => "require-builtin malformed - follows the pattern (require-builtin \"<module>\") or (require-builtin \"<module>\" as <prefix>")
                     }
                 }
+
+                // if l.args.len() != 2 {
+                //     stop!(ArityMismatch => "require-builtin expects one argument - the name of the module to include")
+                // }
+
+                // match &l.args[1] {
+                //     ExprKind::Atom(Atom {
+                //         syn:
+                //             SyntaxObject {
+                //                 ty: TokenType::StringLiteral(s),
+                //                 ..
+                //             },
+                //     }) => {
+                //         if let Some(module) = self.builtin_modules.get(s) {
+                //             return Ok(module.to_syntax());
+                //         } else {
+                //             stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                //         }
+                //     }
+                //     other => {
+                //         stop!(TypeMismatch => format!("require-builtin expects a string referring to the name of the module, found: {}", other))
+                //     }
+                // }
             }
         }
 

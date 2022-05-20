@@ -74,15 +74,24 @@ impl BuiltInModule {
     /// and bundles of functions from third parties don't get included immediately into the global namespace.
     /// Scripts can choose to include these modules directly, or opt to not, and are not as risk of clobbering their
     /// global namespace.
-    pub fn to_syntax(&self) -> ExprKind {
+    pub fn to_syntax(&self, prefix: Option<&str>) -> ExprKind {
         let module_name = self.unreadable_name();
 
         let defines = self
             .values
             .keys()
             .map(|x| {
+                // TODO: Consider a custom delimeter as well
+                // If we have a prefix, put the prefix at the front and append x
+                // Otherwise, just default to using the provided name
+                let name = prefix
+                    .map(|pre| pre.to_string() + x)
+                    .unwrap_or(x.to_owned());
+
                 ExprKind::Define(Box::new(crate::parser::ast::Define::new(
-                    ExprKind::atom(x.to_string()),
+                    // TODO: Add the custom prefix here
+                    // Handling a more complex case of qualifying imports
+                    ExprKind::atom(name),
                     ExprKind::List(crate::parser::ast::List::new(vec![
                         ExprKind::atom("##__module-get".to_string()),
                         ExprKind::atom(module_name.clone()),
