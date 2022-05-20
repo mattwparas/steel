@@ -189,11 +189,14 @@
 
 
 
+; (define (keyword? symbol)
+;     (unless (symbol? symbol) (return! #false))
+;     (let ((symbol-as-list (-> symbol (symbol->string) (string->list))))
+;       (and (equal? (list-ref symbol-as-list 0) #\#)
+;            (equal? (list-ref symbol-as-list 1) #\:))))
+
 (define (keyword? symbol)
-    (unless (symbol? symbol) (return! #false))
-    (let ((symbol-as-list (-> symbol (symbol->string) (string->list))))
-      (and (equal? (list-ref symbol-as-list 0) #\#)
-           (equal? (list-ref symbol-as-list 1) #\:))))
+    (and (symbol? symbol) (-> symbol (symbol->string) (starts-with? "#:"))))
 
 (define (drop-while pred? lst)
     (cond [(empty? lst) lst]

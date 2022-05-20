@@ -52,12 +52,12 @@ impl Kernel {
 
         let syntax_objects = SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
 
-        println!("{:?}", syntax_objects);
+        // println!("{:?}", syntax_objects);
 
-        println!(
-            "{:?}",
-            crate::rvals::Syntax::steelval_to_exprkind(&syntax_objects).map(from_list_repr_to_ast)
-        );
+        // println!(
+        //     "{:?}",
+        //     crate::rvals::Syntax::steelval_to_exprkind(&syntax_objects).map(from_list_repr_to_ast)
+        // );
 
         let args = SteelVal::try_from(expr)?;
 
@@ -90,7 +90,7 @@ impl Kernel {
                 .unwrap();
 
             // println!("{}")
-            println!("{}", ast_version.to_pretty(60));
+            // println!("{}", ast_version.to_pretty(60));
 
             Ok(ast_version)
 

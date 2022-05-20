@@ -373,7 +373,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     [ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
-                                ty: TokenType::StringLiteral(s),
+                                ty: TokenType::StringLiteral(s) | TokenType::Identifier(s),
                                 ..
                             },
                     })] => {
@@ -387,7 +387,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     [ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
-                                ty: TokenType::StringLiteral(s),
+                                ty: TokenType::StringLiteral(s) | TokenType::Identifier(s),
                                 ..
                             },
                     }), ExprKind::Atom(Atom {

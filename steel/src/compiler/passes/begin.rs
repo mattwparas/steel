@@ -262,7 +262,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
     let expression_types = ExpressionType::generate_expression_types(&begin.exprs);
 
-    // Go ahead and quit if there are
+    // Go ahead and quit if there are only expressions here
     if expression_types.iter().all(|x| x.is_expression()) {
         return ExprKind::Begin(begin);
     }
@@ -271,7 +271,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         .iter()
         .any(|x| matches!(x, ExpressionType::DefineFunction(_)))
     {
-        println!("IN HERE");
+        // println!("IN HERE");
         // println!("Expression_types")
 
         return begin
@@ -279,7 +279,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
             .into_iter()
             .rev()
             .reduce(|accum, expr| {
-                println!("Accum: {:?}, Expr: {:?}", accum, expr);
+                // println!("Accum: {:?}, Expr: {:?}", accum, expr);
 
                 match expr {
                     ExprKind::Define(d) => {
@@ -367,7 +367,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
     let mut new_args = Vec::new();
 
-    println!("{:#?}", expression_types);
+    // println!("{:#?}", expression_types);
 
     // TODO:
     // If there are functions at all, go through this weird path
@@ -497,7 +497,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
     let result = ExprKind::List(List::new(top_level_dummy_args));
 
-    println!("{}", result.to_pretty(60));
+    // println!("{}", result.to_pretty(60));
 
     result
 
