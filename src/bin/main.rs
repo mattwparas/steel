@@ -146,7 +146,8 @@ fn main() {
                 let contents = fs::read_to_string(path.clone())
                     .expect("Something went wrong reading the file");
 
-                let res = vm.emit_fully_expanded_ast_to_string(&contents);
+                let res =
+                    vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone().into()));
 
                 match res {
                     Ok(ast) => println!("{ast}"),

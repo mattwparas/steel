@@ -380,9 +380,13 @@ impl Engine {
     }
 
     /// Directly emit the expanded ast
-    pub fn emit_expanded_ast(&mut self, expr: &str) -> Result<Vec<ExprKind>> {
+    pub fn emit_expanded_ast(
+        &mut self,
+        expr: &str,
+        path: Option<PathBuf>,
+    ) -> Result<Vec<ExprKind>> {
         let constants = self.constants();
-        self.compiler.emit_expanded_ast(expr, constants)
+        self.compiler.emit_expanded_ast(expr, constants, path)
     }
 
     /// Emit the unexpanded AST
@@ -395,11 +399,15 @@ impl Engine {
     }
 
     /// Emit the fully expanded AST
-    pub fn emit_fully_expanded_ast_to_string(&mut self, expr: &str) -> Result<String> {
+    pub fn emit_fully_expanded_ast_to_string(
+        &mut self,
+        expr: &str,
+        path: Option<PathBuf>,
+    ) -> Result<String> {
         let constants = self.constants();
         Ok(self
             .compiler
-            .emit_expanded_ast(expr, constants)?
+            .emit_expanded_ast(expr, constants, path)?
             .into_iter()
             .map(|x| x.to_pretty(60))
             .join("\n\n"))

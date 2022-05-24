@@ -635,6 +635,7 @@ impl Compiler {
         &mut self,
         expr_str: &str,
         constants: ImmutableHashMap<String, SteelVal>,
+        path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
         let mut intern = HashMap::new();
 
@@ -644,7 +645,7 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        let expanded_statements = self.expand_expressions(parsed, None)?;
+        let expanded_statements = self.expand_expressions(parsed, path)?;
 
         let mut expanded_statements = expanded_statements;
 
