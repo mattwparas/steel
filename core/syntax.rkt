@@ -1,3 +1,28 @@
+(define-syntax steel/base
+  (syntax-rules ()
+    [(steel/base) 
+      (begin
+          (require-builtin steel/hash)
+          (require-builtin steel/sets)
+          (require-builtin steel/lists)
+          (require-builtin steel/strings)
+          (require-builtin steel/symbols)
+          (require-builtin steel/vectors)
+          (require-builtin steel/streams)
+          (require-builtin steel/contracts)
+          (require-builtin steel/identity)
+          (require-builtin steel/numbers)
+          (require-builtin steel/equality)
+          (require-builtin steel/ord)
+          (require-builtin steel/transducers)
+          (require-builtin steel/io)
+          (require-builtin steel/filesystem)
+          (require-builtin steel/ports)
+          (require-builtin steel/meta)
+          (require-builtin steel/json)
+          (require-builtin steel/constants)
+          (require-builtin steel/syntax))]))
+
 (define-syntax quasiquote
   (syntax-rules (unquote unquote-splicing)
     ((quasiquote (unquote x))                         x)

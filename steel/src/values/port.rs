@@ -28,7 +28,7 @@ pub enum SteelPort {
     FileOutput(String, RcRefCell<BufWriter<File>>),
     StdInput(RcRefCell<Stdin>),
     StdOutput(RcRefCell<Stdout>),
-    // StringInput(String, RcRefCell<BufReader<&[u8]>>),
+    // StringInput(RcRefCell<BufReader<&[u8]>>),
     // StringOutput(String, RcRefCell<BufWriter<&[u8]>>),
     Closed,
 }

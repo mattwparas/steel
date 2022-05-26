@@ -685,6 +685,7 @@ pub enum SteelVal {
 
     SyntaxObject(Gc<Syntax>), // Fixed size vector
                               // FixedSizeVector(Rc<RefCell<[SteelVal]>>)
+                              // BoxedIterator(Gc<RefCell<Box<dyn Iterator<Item = SteelVal>>>>),
 }
 
 impl SteelVal {
@@ -766,6 +767,7 @@ impl SteelVal {
             #[cfg(feature = "jit")]
             CompiledFunction(_) => todo!(),
             SyntaxObject(_) => todo!(),
+            // BoxedIterator(_) => todo!(),
         }
     }
 
@@ -1202,6 +1204,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         ReducerV(_) => write!(f, "#<reducer>"),
         MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
         SyntaxObject(s) => write!(f, "#<syntax:{:?}:{:?} {:?}>", s.source, s.span, s.syntax),
+        // BoxedIterator(_) => write!(f, "#<boxed-iterator>"),
     }
 }
 

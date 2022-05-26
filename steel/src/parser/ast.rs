@@ -250,6 +250,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             BuiltIn(_) => Err("Can't convert from function to expression!"),
             ReducerV(_) => Err("Can't convert from reducer to expression!"),
             MutableVector(_) => Err("Can't convert from vector to expression!"),
+            // BoxedIterator(_) => Err("Can't convert from boxed iterator to expression!"),
         }
     }
 }
