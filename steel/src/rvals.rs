@@ -1164,7 +1164,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         // StructClosureV(_) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
-        HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm),
+        HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
         IterV(_) => write!(f, "#<iterator>"),
         HashSetV(hs) => write!(f, "#<hashset {:?}>", hs),
         FutureFunc(_) => write!(f, "#<future-func>"),
