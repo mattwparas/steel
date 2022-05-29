@@ -169,20 +169,6 @@ fn main() {
                     }
                 }
 
-                let core_libraries = &[
-                    steel::stdlib::PRELUDE,
-                    steel::stdlib::DISPLAY,
-                    steel::stdlib::CONTRACTS,
-                ];
-
-                for core in core_libraries {
-                    let res = vm.parse_and_execute_without_optimizations(core);
-                    if let Err(e) = res {
-                        eprintln!("{}", e);
-                        return;
-                    }
-                }
-
                 let contents =
                     fs::read_to_string(&path).expect("Something went wrong reading the file");
                 let res = vm

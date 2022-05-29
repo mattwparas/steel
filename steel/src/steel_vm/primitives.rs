@@ -1,13 +1,20 @@
 use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
-use crate::rvals::{Result, SteelVal};
-use crate::values::structs::{struct_ref, struct_to_list, struct_to_vector};
 use crate::{
     primitives::{
         ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
         IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations,
         StringOperations, SymbolOperations, TransducerOperations, VectorOperations,
     },
+    rerrs::ErrorKind,
     values::structs::is_custom_struct,
+};
+use crate::{
+    rvals::IntoSteelVal,
+    values::structs::{struct_ref, struct_to_list, struct_to_vector},
+};
+use crate::{
+    rvals::{Result, SteelVal},
+    SteelErr,
 };
 
 use itertools::Itertools;
@@ -209,6 +216,35 @@ thread_local! {
     pub static JSON_MODULE: BuiltInModule = json_module();
     pub static CONSTANTS_MODULE: BuiltInModule = constants_module();
     pub static SYNTAX_MODULE: BuiltInModule = syntax_module();
+    pub static SANDBOXED_META_MODULE: BuiltInModule = sandboxed_meta_module();
+    pub static SANDBOXED_IO_MODULE: BuiltInModule = sandboxed_io_module();
+}
+
+pub fn register_builtin_modules_without_io(engine: &mut Engine) {
+    engine.register_fn("##__module-get", BuiltInModule::get);
+    engine.register_value("error!", ControlOperations::error());
+
+    engine
+        .register_module(MAP_MODULE.with(|x| x.clone()))
+        .register_module(SET_MODULE.with(|x| x.clone()))
+        .register_module(LIST_MODULE.with(|x| x.clone()))
+        .register_module(STRING_MODULE.with(|x| x.clone()))
+        .register_module(VECTOR_MODULE.with(|x| x.clone()))
+        .register_module(STREAM_MODULE.with(|x| x.clone()))
+        .register_module(CONTRACT_MODULE.with(|x| x.clone()))
+        .register_module(IDENTITY_MODULE.with(|x| x.clone()))
+        .register_module(NUMBER_MODULE.with(|x| x.clone()))
+        .register_module(EQUALITY_MODULE.with(|x| x.clone()))
+        .register_module(ORD_MODULE.with(|x| x.clone()))
+        .register_module(TRANSDUCER_MODULE.with(|x| x.clone()))
+        .register_module(SYMBOL_MODULE.with(|x| x.clone()))
+        .register_module(SANDBOXED_IO_MODULE.with(|x| x.clone()))
+        // .register_module(FS_MODULE.with(|x| x.clone()))
+        // .register_module(PORT_MODULE.with(|x| x.clone()))
+        .register_module(SANDBOXED_META_MODULE.with(|x| x.clone()))
+        .register_module(JSON_MODULE.with(|x| x.clone()))
+        .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
+        .register_module(SYNTAX_MODULE.with(|x| x.clone()));
 }
 
 pub fn register_builtin_modules(engine: &mut Engine) {
@@ -255,6 +291,27 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/io)
     (require-builtin steel/filesystem)
     (require-builtin steel/ports)
+    (require-builtin steel/meta)
+    (require-builtin steel/json)
+    (require-builtin steel/constants)
+    (require-builtin steel/syntax)
+"#;
+
+pub static SANDBOXED_MODULES: &str = r#"
+    (require-builtin steel/hash)
+    (require-builtin steel/sets)
+    (require-builtin steel/lists)
+    (require-builtin steel/strings)
+    (require-builtin steel/symbols)
+    (require-builtin steel/vectors)
+    (require-builtin steel/streams)
+    (require-builtin steel/contracts)
+    (require-builtin steel/identity)
+    (require-builtin steel/numbers)
+    (require-builtin steel/equality)
+    (require-builtin steel/ord)
+    (require-builtin steel/transducers)
+    (require-builtin steel/io)
     (require-builtin steel/meta)
     (require-builtin steel/json)
     (require-builtin steel/constants)
@@ -541,6 +598,16 @@ fn io_module() -> BuiltInModule {
     module
 }
 
+fn sandboxed_io_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/io".to_string());
+    module
+        .register_value("display", IoFunctions::sandboxed_display())
+        // .register_value("display-color", IoFunctions::display_color())
+        .register_value("newline", IoFunctions::sandboxed_newline());
+    // .register_value("read-to-string", IoFunctions::read_to_string());
+    module
+}
+
 fn constants_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/constants".to_string());
     module.register_value("void", SteelVal::Void);
@@ -570,6 +637,47 @@ fn port_module() -> BuiltInModule {
     module
 }
 
+fn get_environment_variable(var: String) -> Result<SteelVal> {
+    std::env::var(var)
+        .map(|x| x.into_steelval().unwrap())
+        .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
+}
+
+fn sandboxed_meta_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/meta".to_string());
+    module
+        // .register_value("assert!", MetaOperations::assert_truthy())
+        .register_value("box", MetaOperations::new_box())
+        .register_value("unbox", MetaOperations::unbox())
+        .register_value("set-box!", MetaOperations::set_box())
+        .register_value("active-object-count", MetaOperations::active_objects())
+        .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
+        // .register_value("memory-address", MetaOperations::memory_address())
+        // .register_value("async-exec", MetaOperations::exec_async())
+        // .register_value("poll!", MetaOperations::poll_value())
+        // .register_value("block-on", MetaOperations::block_on())
+        // .register_value("join!", MetaOperations::join_futures())
+        .register_value("struct-ref", struct_ref())
+        .register_value("struct->list", struct_to_list())
+        .register_value("struct->vector", struct_to_vector())
+        .register_fn("value->string", super::meta::value_to_string)
+        // .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
+        // .register_value("read!", SteelVal::FuncV(super::meta::read))
+        // .register_value("eval!", SteelVal::FuncV(super::meta::eval))
+        // TODO: @Matt -> implement the traits for modules as well
+        // .register_fn("Engine::new", super::meta::EngineWrapper::new)
+        .register_fn("eval!", super::meta::eval)
+        // .register_fn("run!", super::meta::EngineWrapper::call)
+        // .register_fn("get-value", super::meta::EngineWrapper::get_value)
+        .register_value(
+            "___magic_struct_symbol___",
+            crate::rvals::MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
+        )
+        .register_value("custom-struct?", is_custom_struct());
+    // .register_fn("env-var", get_environment_variable);
+    module
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta".to_string());
     module
@@ -589,7 +697,8 @@ fn meta_module() -> BuiltInModule {
         .register_value("struct->vector", struct_to_vector())
         .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
         .register_value("read!", SteelVal::FuncV(super::meta::read))
-        .register_value("eval!", SteelVal::FuncV(super::meta::eval))
+        .register_fn("eval!", super::meta::eval)
+        .register_fn("value->string", super::meta::value_to_string)
         // TODO: @Matt -> implement the traits for modules as well
         .register_fn("Engine::new", super::meta::EngineWrapper::new)
         // .register_fn("run!", super::meta::EngineWrapper::call)
@@ -598,7 +707,8 @@ fn meta_module() -> BuiltInModule {
             "___magic_struct_symbol___",
             crate::rvals::MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
         )
-        .register_value("custom-struct?", is_custom_struct());
+        .register_value("custom-struct?", is_custom_struct())
+        .register_fn("env-var", get_environment_variable);
     module
 }
 

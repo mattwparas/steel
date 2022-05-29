@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     parser::{ast::ExprKind, parser::SyntaxObject, tokens::TokenType},
-    rvals::{Custom, SteelVal},
+    rvals::{Custom, FromSteelVal, IntoSteelVal, Result, SteelVal},
 };
 use im_rc::HashMap;
 
@@ -41,6 +41,23 @@ impl BuiltInModule {
             name: name.into(),
             values: HashMap::new(),
         }
+    }
+
+    pub fn register_type<T: FromSteelVal + IntoSteelVal>(
+        &mut self,
+        predicate_name: &'static str,
+    ) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected 1 argument, got {}", predicate_name, args.len()));
+            }
+
+            assert!(args.len() == 1);
+
+            Ok(SteelVal::BoolV(T::from_steelval(&args[0]).is_ok()))
+        };
+
+        self.register_value(predicate_name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 
     pub(crate) fn unreadable_name(&self) -> String {

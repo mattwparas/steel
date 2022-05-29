@@ -1,7 +1,7 @@
 use super::{
     builtin::BuiltInModule,
     options::{ApplyContract, DoNotApplyContracts, DoNotUseCallback, UseCallback},
-    primitives::{register_builtin_modules, CONSTANTS},
+    primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::VirtualMachineCore,
 };
 use crate::{
@@ -117,17 +117,19 @@ impl Engine {
     pub fn new_sandboxed() -> Self {
         let mut vm = Engine::new_raw();
 
-        // TODO: Deprecate this
-        // embed_primitives_without_io(&mut vm);
-        register_builtin_modules(&mut vm);
+        register_builtin_modules_without_io(&mut vm);
 
-        vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
+        vm.compile_and_run_raw_program(crate::steel_vm::primitives::SANDBOXED_MODULES)
             .unwrap();
 
-        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+        let core_libraries = [
+            crate::stdlib::PRELUDE,
+            crate::stdlib::CONTRACTS,
+            crate::stdlib::DISPLAY,
+        ];
 
         for core in core_libraries.into_iter() {
-            vm.parse_and_execute_without_optimizations(core).unwrap();
+            vm.compile_and_run_raw_program(core).unwrap();
         }
 
         vm

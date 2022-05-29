@@ -1,10 +1,16 @@
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
-use std::{cell::RefCell, convert::TryFrom, rc::Rc};
+use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};
 
 use im_lists::list::List;
 
-use crate::{parser::ast::ExprKind, rerrs::ErrorKind, rvals::Custom, SteelErr, SteelVal};
+use crate::{
+    parser::ast::ExprKind,
+    rerrs::ErrorKind,
+    rvals::Custom,
+    values::port::{SteelPort, CAPTURED_OUTPUT_PORT, DEFAULT_OUTPUT_PORT},
+    SteelErr, SteelVal,
+};
 use crate::{parser::expander::LocalMacroManager, rvals::Result};
 use crate::{parser::parser::ParseError, steel_vm::engine::Engine};
 
@@ -189,25 +195,95 @@ pub fn expand_macros(arguments: &[SteelVal]) -> Result<SteelVal> {
         .map(SteelVal::ListV)
 }
 
+fn drain_custom_output_port() -> String {
+    CAPTURED_OUTPUT_PORT.with(|x| {
+        // Flush the buffer
+        {
+            x.borrow_mut()
+                .flush()
+                .expect("Unable to flush the captured output port");
+        }
+
+        std::str::from_utf8(&x.borrow_mut().get_mut().drain(0..).collect::<Vec<u8>>())
+            .unwrap_or("Unable to capture std out")
+            .to_string()
+    })
+}
+
+pub fn value_to_string(value: SteelVal) -> String {
+    format!("{:?}", value)
+}
+
 /// Eval with a completely fresh environment
-pub fn eval(arguments: &[SteelVal]) -> Result<SteelVal> {
-    if arguments.len() != 1 {
-        stop!(ArityMismatch => "eval! expects a list of quoted expressions as its sole argument")
+/// Returns:
+/// (list
+///     <results list>
+///     <captured std out as a string>
+///     <error as a string if any>)
+pub fn eval(program: String) -> List<SteelVal> {
+    // if arguments.len() != 1 {
+    //     stop!(ArityMismatch => "eval! expects a list of quoted expressions as its sole argument")
+    // }
+
+    // assert!(arguments.len() == 1);
+
+    let mut engine = Engine::new_sandboxed();
+
+    // let existing_output_port = DEFAULT_OUTPUT_PORT.with(|x| x.clone());
+
+    // Override the default output port to capture things getting written to standard out
+    DEFAULT_OUTPUT_PORT.with(|x| {
+        *x.borrow_mut() = SteelPort::StringOutput(CAPTURED_OUTPUT_PORT.with(|x| x.clone()))
+    });
+
+    // let value = arguments[0]
+    //     .string_or_else(throw!(TypeMismatch =>  "eval! expected a list in the first position"))?;
+    // Here we might need to trim the start of the string representation
+    // In order to be actually parsable - might be worth doing ExprKind::try_from
+    // instead of writing to a string and reparsing directly...
+
+    let res = engine.compile_and_run_raw_program(&program);
+
+    // Set it back to be the usual output port, which in this case is usually just standard out
+    // This way after the evaluation is done, the output port is back to being
+    // This is not great, TODO: @Matt 5/28/2022 take a look at this later
+    // In the event we're stacking up multiple built up output buffers, this could do a whole
+    // lot of cloning. In the common case, its just cloning the handle to std out which seems
+    // fine
+    // DEFAULT_OUTPUT_PORT.with(|x| *x.borrow_mut() = existing_output_port.borrow().clone());
+    DEFAULT_OUTPUT_PORT.with(|x| *x.borrow_mut() = SteelPort::default_current_output_port());
+
+    match res {
+        Ok(v) => im_lists::list![
+            SteelVal::ListV(v.into()),
+            SteelVal::StringV(Rc::from(drain_custom_output_port())),
+            SteelVal::StringV(Rc::from(""))
+        ],
+        Err(e) => {
+            let report = e.emit_result_to_string("input.stl", &program);
+
+            im_lists::list![
+                SteelVal::ListV(List::new()),
+                SteelVal::StringV(Rc::from(drain_custom_output_port())),
+                SteelVal::StringV(Rc::from(report))
+            ]
+
+            // Err(e)
+        }
     }
 
-    assert!(arguments.len() == 1);
+    // todo!()
+    // .collect::<Result<Vec<Vec<SteelVal>>>>();
 
-    let mut engine = Engine::new();
+    // let values = arguments[0]
+    //     .list_or_else(throw!(TypeMismatch =>  "eval! expected a list in the first position"))?
+    //     .iter()
+    //     .map(|x| x.to_string())
+    //     // Here we might need to trim the start of the string representation
+    //     // In order to be actually parsable - might be worth doing ExprKind::try_from
+    //     // instead of writing to a string and reparsing directly...
+    //     .map(|x| engine.compile_and_run_raw_program(x.trim_start_matches('\'')))
+    //     .collect::<Result<Vec<Vec<SteelVal>>>>();
 
-    let values = arguments[0]
-        .list_or_else(throw!(TypeMismatch =>  "eval! expected a list in the first position"))?
-        .iter()
-        .map(|x| x.to_string())
-        // Here we might need to trim the start of the string representation
-        // In order to be actually parsable - might be worth doing ExprKind::try_from
-        // instead of writing to a string and reparsing directly...
-        .map(|x| engine.compile_and_run_raw_program(x.trim_start_matches('\'')))
-        .collect::<Result<Vec<Vec<SteelVal>>>>();
-
-    Ok(values?.into_iter().flatten().collect::<List<_>>().into())
+    // Ok(values?.into_iter().flatten().collect::<List<_>>().into())
 }

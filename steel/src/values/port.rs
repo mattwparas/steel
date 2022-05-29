@@ -22,6 +22,15 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
     Rc::new(RefCell::new(x))
 }
 
+thread_local! {
+    // TODO: This needs to be per engine, not global, and functions should accept the port they use
+    // Probably by boxing up the port that gets used
+    pub static DEFAULT_OUTPUT_PORT: RcRefCell<SteelPort> = new_rc_ref_cell(SteelPort::StdOutput(new_rc_ref_cell(io::stdout())));
+    pub static CAPTURED_OUTPUT_PORT: RcRefCell<BufWriter<Vec<u8>>> = new_rc_ref_cell(BufWriter::new(Vec::new()));
+
+    // pub static STANDARD_OUT: SteelPort = SteelPort::StringOutput(Rc::new(RefCell::new(BufWriter::new(Vec::new()))));
+}
+
 #[derive(Debug, Clone)]
 pub enum SteelPort {
     FileInput(String, RcRefCell<BufReader<File>>),
@@ -29,7 +38,7 @@ pub enum SteelPort {
     StdInput(RcRefCell<Stdin>),
     StdOutput(RcRefCell<Stdout>),
     // StringInput(RcRefCell<BufReader<&[u8]>>),
-    // StringOutput(String, RcRefCell<BufWriter<&[u8]>>),
+    StringOutput(RcRefCell<BufWriter<Vec<u8>>>),
     Closed,
 }
 
@@ -97,6 +106,10 @@ impl SteelPort {
             path.to_string(),
             new_rc_ref_cell(BufWriter::new(file)),
         ))
+    }
+
+    pub fn new_output_port() -> SteelPort {
+        SteelPort::StringOutput(Rc::new(RefCell::new(BufWriter::new(Vec::new()))))
     }
 
     // pub fn new_binary_file_input(path: &str) -> Result<SteelPort> {

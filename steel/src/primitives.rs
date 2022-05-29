@@ -204,8 +204,12 @@ impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for Result<T, E> {
         if val.is_struct() {
             if let SteelVal::MutableVector(v) = val {
                 let lock = v.borrow();
+                // 0 -> magic symbol
+                // 1 -> name
+                // 2 -> options
+                // 3 -> data
                 let name = lock.get(1);
-                let inner = lock.get(2);
+                let inner = lock.get(3);
 
                 if let Some(SteelVal::SymbolV(name)) = name {
                     match name.as_ref() {

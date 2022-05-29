@@ -20,6 +20,16 @@ impl IntoSteelVal for SteelVal {
 //     }
 // }
 
+impl<T: FromSteelVal + Clone> FromSteelVal for List<T> {
+    fn from_steelval<'a>(val: &'a SteelVal) -> Result<Self> {
+        if let SteelVal::ListV(l) = val {
+            l.iter().map(T::from_steelval).collect()
+        } else {
+            stop!(TypeMismatch => "Unable to convert SteelVal to List, found: {}", val);
+        }
+    }
+}
+
 impl<T: IntoSteelVal + Clone> IntoSteelVal for List<T> {
     fn into_steelval(self) -> Result<SteelVal> {
         self.into_iter()

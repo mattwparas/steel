@@ -146,7 +146,9 @@ pub trait CustomType {
         std::any::type_name::<Self>()
     }
     // fn new_steel_val(&self) -> SteelVal;
-    fn display(&self) -> std::result::Result<String, std::fmt::Error>;
+    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        Ok(self.name().to_string())
+    }
     // fn as_underlying_type<'a>(&'a self) -> Option<&'a Self>;
 }
 
@@ -163,21 +165,12 @@ pub trait CustomType {
 // }
 
 impl<T: Custom + 'static + std::fmt::Debug> CustomType for T {
-    // fn box_clone(&self) -> Box<dyn CustomType> {
-    //     Box::new((*self).clone())
-    // }
-    // fn as_any(&self) -> Box<dyn Any> {
-    //     Box::new((*self).clone())
-    // }
     fn as_any_ref(&self) -> &dyn Any {
         self as &dyn Any
     }
     fn as_any_ref_mut(&mut self) -> &mut dyn Any {
         self as &mut dyn Any
     }
-    // fn new_steel_val(&self) -> SteelVal {
-    //     SteelVal::Custom(Gc::new(RefCell::new(Box::new(self.clone()))))
-    // }
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
         let mut buf = String::new();
         write!(buf, "{:?}", &self)?;
@@ -429,10 +422,22 @@ impl<T: CustomType + 'static> AsRefMutSteelVal for T {
 //     fn from_steelval(val: &SteelVal) -> Result<
 // }
 
+// TODO: Make a struct builder instead of the ugly function below
+// struct StructBuilder {
+// }
+
 pub(crate) fn create_result_ok_struct(ok: SteelVal) -> SteelVal {
     SteelVal::MutableVector(Gc::new(RefCell::new(vec![
         MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
         SteelVal::SymbolV(Rc::from("Ok")),
+        SteelVal::HashMapV(Gc::new({
+            let mut hm = im_rc::HashMap::new();
+            hm.insert(
+                SteelVal::SymbolV("#:transparent".into()),
+                SteelVal::BoolV(true),
+            );
+            hm
+        })),
         ok,
     ])))
 }
