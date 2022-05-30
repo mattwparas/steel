@@ -1183,6 +1183,14 @@ where
 
             let body_exprs: Vec<_> = value_iter.collect();
 
+            if body_exprs.is_empty() {
+                return Err(ParseError::SyntaxError(
+                    "Function body cannot be empty".to_string(),
+                    syn.span,
+                    syn.source,
+                ));
+            }
+
             let body = if body_exprs.len() == 1 {
                 body_exprs[0].clone()
             } else {
