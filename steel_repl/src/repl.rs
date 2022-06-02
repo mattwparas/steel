@@ -1,7 +1,7 @@
 extern crate rustyline;
 use colored::*;
 
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::channel;
 
 use rustyline::error::ReadlineError;
 use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
@@ -11,10 +11,7 @@ use rustyline::validate::{
 use rustyline::Editor;
 use rustyline::{hint::Hinter, CompletionType, Context};
 use rustyline_derive::Helper;
-use std::{
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-};
+use std::path::{Path, PathBuf};
 use steel::rvals::SteelVal;
 
 use rustyline::completion::Completer;
@@ -27,14 +24,7 @@ use steel::steel_vm::engine::Engine;
 use std::io::Read;
 use steel::stdlib::{CONTRACTS, DISPLAY, PRELUDE};
 
-use once_cell::sync::Lazy;
 use std::time::Instant;
-
-pub(crate) static INTERRUPT_CHANNEL: Lazy<(Arc<Mutex<Sender<()>>>, Arc<Mutex<Receiver<()>>>)> =
-    Lazy::new(|| {
-        let (sender, receiver) = channel::<()>();
-        (Arc::new(Mutex::new(sender)), Arc::new(Mutex::new(receiver)))
-    });
 
 impl Completer for RustylineHelper {
     type Candidate = Pair;
@@ -104,88 +94,51 @@ fn display_help() {
     );
 }
 
-async fn finish_load_or_interrupt(vm: Arc<Mutex<Engine>>, exprs: String, path: PathBuf) {
-    tokio::spawn(async move {
-        tokio::signal::ctrl_c()
-            .await
-            .unwrap_or_else(|err| panic!("Error installing signal handler: {}", err));
+fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
+    let file_name = path.to_str().unwrap().to_string();
 
-        let _ = Arc::clone(&INTERRUPT_CHANNEL.0).lock().unwrap().send(());
-    });
+    let res = vm.compile_and_run_raw_program_with_path(exprs.as_str(), path);
 
-    let local = tokio::task::LocalSet::new();
-    local.spawn_local(async move {
-        let file_name = path.to_str().unwrap().to_string();
-
-        let res = vm
-            .lock()
-            .unwrap()
-            .compile_and_run_raw_program_with_path(exprs.as_str(), path);
-
-        match res {
-            Ok(r) => r.iter().for_each(|x| match x {
-                SteelVal::Void => {}
-                x if x.is_struct() => {
-                    print!("{} ", "=>".bright_blue().bold());
-                    vm.lock()
-                        .unwrap()
-                        .call_printing_method_in_context(x.clone())
-                        .expect(
-                            "Failed to convert this value to a string representation to display",
-                        );
-                }
-                _ => println!("{} {}", "=>".bright_blue().bold(), x),
-            }),
-            Err(e) => {
-                e.emit_result(file_name.as_str(), exprs.as_str());
-                eprintln!("{}", e.to_string().bright_red());
+    match res {
+        Ok(r) => r.iter().for_each(|x| match x {
+            SteelVal::Void => {}
+            x if x.is_struct() => {
+                print!("{} ", "=>".bright_blue().bold());
+                vm.call_printing_method_in_context(x.clone())
+                    .expect("Failed to convert this value to a string representation to display");
             }
+            _ => println!("{} {}", "=>".bright_blue().bold(), x),
+        }),
+        Err(e) => {
+            e.emit_result(file_name.as_str(), exprs.as_str());
+            eprintln!("{}", e.to_string().bright_red());
         }
-    });
-
-    local.await;
+    }
 }
 
-async fn finish_or_interrupt(vm: Arc<Mutex<Engine>>, line: String, print_time: bool) {
-    tokio::spawn(async move {
-        tokio::signal::ctrl_c()
-            .await
-            .unwrap_or_else(|err| panic!("Error installing signal handler: {}", err));
+fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
+    let now = Instant::now();
 
-        let _ = Arc::clone(&INTERRUPT_CHANNEL.0).lock().unwrap().send(());
-    });
+    let res = vm.compile_and_run_raw_program(&line);
 
-    let local = tokio::task::LocalSet::new();
-    local.spawn_local(async move {
-        let now = Instant::now();
-
-        let res = vm.lock().unwrap().compile_and_run_raw_program(&line);
-
-        match res {
-            Ok(r) => r.iter().for_each(|x| match x {
-                SteelVal::Void => {}
-                x if x.is_struct() => {
-                    print!("{} ", "=>".bright_blue().bold());
-                    vm.lock()
-                        .unwrap()
-                        .call_printing_method_in_context(x.clone())
-                        .expect(
-                            "Failed to convert this value to a string representation to display",
-                        );
-                }
-                _ => println!("{} {}", "=>".bright_blue().bold(), x),
-            }),
-            Err(e) => {
-                e.emit_result("repl.stl", line.as_str());
+    match res {
+        Ok(r) => r.iter().for_each(|x| match x {
+            SteelVal::Void => {}
+            x if x.is_struct() => {
+                print!("{} ", "=>".bright_blue().bold());
+                vm.call_printing_method_in_context(x.clone())
+                    .expect("Failed to convert this value to a string representation to display");
             }
+            _ => println!("{} {}", "=>".bright_blue().bold(), x),
+        }),
+        Err(e) => {
+            e.emit_result("repl.stl", line.as_str());
         }
+    }
 
-        if print_time {
-            println!("Time taken: {:?}", now.elapsed());
-        }
-    });
-
-    local.await;
+    if print_time {
+        println!("Time taken: {:?}", now.elapsed());
+    }
 }
 
 /// Entire point for the repl
@@ -235,13 +188,14 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     let mut print_time = false;
 
-    // Create the runtime
-    // We really only need this for interrupts
-    let rt = tokio::runtime::Runtime::new()?;
+    let (tx, rx) = channel();
 
-    vm.on_progress(|x| {
+    ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
+        .expect("Error setting Ctrl-C handler");
+
+    vm.on_progress(move |x| {
         if x % 1000 == 0 {
-            match Arc::clone(&INTERRUPT_CHANNEL.1).lock().unwrap().try_recv() {
+            match rx.try_recv() {
                 Ok(_) => return false,
                 _ => {}
             }
@@ -249,15 +203,8 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         true
     });
 
-    let vm = Arc::new(Mutex::new(vm));
-
     loop {
         let readline = rl.readline(&prompt);
-
-        // If we panicked from the VM - propagate the panic upwards
-        if let Err(e) = Arc::clone(&INTERRUPT_CHANNEL.1).lock() {
-            panic!("{:?}", e);
-        }
 
         match readline {
             Ok(line) => {
@@ -292,16 +239,11 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         let mut exprs = String::new();
                         file.read_to_string(&mut exprs)?;
 
-                        let action =
-                            finish_load_or_interrupt(Arc::clone(&vm), exprs, path.to_path_buf());
-
-                        rt.block_on(action)
+                        finish_load_or_interrupt(&mut vm, exprs, path.to_path_buf());
                     }
                     _ => {
                         // TODO also include this for loading files
-                        let action = finish_or_interrupt(Arc::clone(&vm), line, print_time);
-
-                        rt.block_on(action)
+                        finish_or_interrupt(&mut vm, line, print_time);
                     }
                 }
             }
