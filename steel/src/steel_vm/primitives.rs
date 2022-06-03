@@ -18,7 +18,6 @@ use crate::{
 };
 
 use itertools::Itertools;
-use once_cell::unsync::Lazy;
 
 macro_rules! ensure_tonicity_two {
     ($check_fn:expr) => {{
@@ -688,7 +687,7 @@ fn meta_module() -> BuiltInModule {
         .register_value("active-object-count", MetaOperations::active_objects())
         .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
         .register_value("memory-address", MetaOperations::memory_address())
-        .register_value("async-exec", MetaOperations::exec_async())
+        // .register_value("async-exec", MetaOperations::exec_async())
         .register_value("poll!", MetaOperations::poll_value())
         .register_value("block-on", MetaOperations::block_on())
         .register_value("join!", MetaOperations::join_futures())
