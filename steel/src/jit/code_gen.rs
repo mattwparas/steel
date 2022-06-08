@@ -230,7 +230,7 @@ fn register_primitives(builder: &mut JITBuilder) {
 
 impl Default for JIT {
     fn default() -> Self {
-        let mut builder = JITBuilder::new(cranelift_module::default_libcall_names());
+        let mut builder = JITBuilder::new(cranelift_module::default_libcall_names()).unwrap();
 
         register_primitives(&mut builder);
 
@@ -342,12 +342,7 @@ impl JIT {
         // defined. For this toy demo for now, we'll just finalize the
         // function below.
         self.module
-            .define_function(
-                id,
-                &mut self.ctx,
-                &mut codegen::binemit::NullTrapSink {},
-                &mut codegen::binemit::NullStackMapSink {},
-            )
+            .define_function(id, &mut self.ctx)
             .map_err(|e| {
                 println!("{:?}", e);
                 e.to_string()

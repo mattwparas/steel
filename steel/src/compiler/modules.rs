@@ -202,6 +202,24 @@ pub struct CompiledModule {
 // also, just push this down to bytecode immediately -> including a module now is a simple as loading the bytecode for
 // the module first, then compiling the instructions for the
 impl CompiledModule {
+    pub fn new(
+        name: PathBuf,
+        provides: Vec<ExprKind>,
+        requires: Vec<ExprKind>,
+        provides_for_syntax: Vec<String>,
+        macro_map: HashMap<String, SteelMacro>,
+        ast: Vec<ExprKind>,
+    ) -> Self {
+        Self {
+            name,
+            provides,
+            requires,
+            provides_for_syntax,
+            macro_map,
+            ast,
+        }
+    }
+
     // Turn the module into the AST node that represents the macro module in the stdlib
     fn to_module_ast_node(&self) -> ExprKind {
         let mut body = vec![
@@ -225,8 +243,8 @@ impl CompiledModule {
         // TODO clean this up
         let res = ExprKind::List(List::new(body));
 
-        if log_enabled!(log::Level::Info) {
-            info!("Module ast node: {}", res.to_string());
+        if log_enabled!(target: "requires", log::Level::Info) {
+            info!(target: "requires", "Module ast node: {}", res.to_string());
         }
 
         res
@@ -283,7 +301,7 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
-        debug!("Visiting: {:?}", self.name);
+        debug!(target: "requires", "Visiting: {:?}", self.name);
 
         self.collect_requires()?;
         // let contains_provides = self.contains_provides();
@@ -531,22 +549,35 @@ impl<'a> ModuleBuilder<'a> {
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
 
-        let module = CompiledModule {
-            name: self.name.clone(),
+        // let module = CompiledModule {
+        //     name: self.name.clone(),
+        //     provides,
+        //     requires,
+        //     ast: mangled_asts,
+        //     provides_for_syntax: self
+        //         .provides_for_syntax
+        //         .iter()
+        //         .map(|x| x.atom_identifier().unwrap().to_string())
+        //         .collect(),
+        //     // ast
+        //     //     .into_iter()
+        //     //     .map(|x| expand(x, &self.macro_map))
+        //     //     .collect::<Result<Vec<_>>>()?,
+        //     macro_map: std::mem::take(&mut self.macro_map),
+        // };
+
+        let module = CompiledModule::new(
+            self.name.clone(),
             provides,
             requires,
-            ast: mangled_asts,
-            provides_for_syntax: self
-                .provides_for_syntax
+            self.provides_for_syntax
                 .iter()
                 .map(|x| x.atom_identifier().unwrap().to_string())
                 .collect(),
-            // ast
-            //     .into_iter()
-            //     .map(|x| expand(x, &self.macro_map))
-            //     .collect::<Result<Vec<_>>>()?,
-            macro_map: std::mem::take(&mut self.macro_map),
-        };
+            std::mem::take(&mut self.macro_map),
+            mangled_asts,
+        );
+
         let result = module.to_module_ast_node();
         // println!(
         //     "Into compiled module inserted into the cache: {:?}",

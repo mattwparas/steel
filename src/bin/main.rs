@@ -14,6 +14,9 @@ use std::process;
 
 use clap::Parser;
 
+use env_logger::Builder;
+use log::LevelFilter;
+
 /// Steel Interpreter Client
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -37,7 +40,18 @@ enum EmitAction {
 }
 
 fn main() {
-    env_logger::init();
+    // env_logger::init();
+
+    let mut builder = Builder::new();
+
+    // builder
+    //     .filter(Some("pipeline_time"), LevelFilter::Trace)
+    //     .init();
+
+    builder
+        .filter(Some("requires"), LevelFilter::Trace)
+        // .filter(Some("steel::steel_vm::vm"), LevelFilter::Trace)
+        .init();
 
     let clap_args = Args::parse();
 
