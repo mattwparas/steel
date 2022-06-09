@@ -30,6 +30,7 @@ pub struct RawSyntaxObject<T> {
     pub(crate) ty: T,
     pub(crate) span: Span,
     pub(crate) source: Option<Rc<PathBuf>>,
+    pub(crate) metadata: Option<IdentifierMetadata>,
 }
 
 impl<T: Clone> Clone for RawSyntaxObject<T> {
@@ -38,8 +39,25 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
             ty: self.ty.clone(),
             span: self.span.clone(),
             source: self.source.clone(),
+            metadata: self.metadata.clone(),
         }
     }
+}
+
+/// Denotes what kind of identifier we actually have
+#[derive(Clone, Serialize, Deserialize)]
+pub enum IdentifierType {
+    Free,
+    Global,
+    Local,
+    Macro,
+    Module,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IdentifierMetadata {
+    kind: IdentifierType,
+    built_in: bool,
 }
 
 impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
@@ -57,6 +75,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
 impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.ty.hash(state);
+        // self.span.hash(state);
     }
 }
 
@@ -81,11 +100,17 @@ impl SyntaxObject {
             ty,
             span,
             source: None,
+            metadata: None,
         }
     }
 
     pub fn new_with_source(ty: TokenType, span: Span, source: Option<Rc<PathBuf>>) -> Self {
-        SyntaxObject { ty, span, source }
+        SyntaxObject {
+            ty,
+            span,
+            source,
+            metadata: None,
+        }
     }
 
     pub fn default(ty: TokenType) -> Self {
@@ -93,6 +118,7 @@ impl SyntaxObject {
             ty,
             span: Span::new(0, 0),
             source: None,
+            metadata: None,
         }
     }
 
@@ -105,6 +131,7 @@ impl SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
             source: source.as_ref().map(Rc::clone),
+            metadata: None,
         }
     }
 }
