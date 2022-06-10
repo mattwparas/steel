@@ -54,10 +54,11 @@ pub enum IdentifierType {
     Module,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Hash, Eq, PartialOrd, Ord, PartialEq, Default)]
 pub struct IdentifierMetadata {
-    kind: IdentifierType,
-    built_in: bool,
+    // kind: IdentifierType,
+    // built_in: bool,
+    pub(crate) depth: usize,
 }
 
 impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
@@ -75,7 +76,8 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
 impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.ty.hash(state);
-        // self.span.hash(state);
+        self.span.hash(state);
+        self.metadata.hash(state);
     }
 }
 
