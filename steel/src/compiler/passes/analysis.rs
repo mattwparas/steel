@@ -130,7 +130,11 @@ impl<'a> VisitorMutRefUnit for AnalysisPass<'a> {
 
         self.scope.pop_layer();
 
+        println!("Captured vars: {:?}", captured_vars);
+        println!("Let level bindings: {:?}", let_level_bindings);
+
         for var in &lambda_function.args {
+            println!("Var: {:?}", var);
             let kind = if captured_vars.contains(var.atom_identifier().unwrap()) {
                 IdentifierStatus::Captured
             } else {
@@ -263,6 +267,20 @@ impl<'a> VisitorMutUnitRef<'a> for Analysis {
             a.syn.ty,
             self.get(&a.syn)
         );
+    }
+
+    fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
+        for arg in &lambda_function.args {
+            if let Some(arg) = arg.atom_syntax_object() {
+                println!(
+                    "Atom in function argument: {:?}, Lexical Information: {:?}",
+                    arg.ty,
+                    self.get(&arg)
+                );
+            }
+        }
+
+        self.visit(&lambda_function.body);
     }
 }
 
