@@ -1,28 +1,49 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use quickscope::ScopeMap;
 
 use crate::parser::{
+    ast::ExprKind,
     parser::{IdentifierMetadata, SyntaxObject},
     visitors::VisitorMutRef,
 };
 
-use super::VisitorMutRefUnit;
+use super::{VisitorMutRefUnit, VisitorMutUnitRef};
 
+#[derive(Debug)]
 enum IdentifierStatus {
     Global,
     Local,
     Captured,
 }
 
+#[derive(Debug)]
 pub struct LexicalInformation {
     kind: IdentifierStatus,
     set_bang: bool,
 }
 
 // Populate the metadata about individual
+#[derive(Default, Debug)]
 pub struct Analysis {
-    info: HashMap<SyntaxObject, LexicalInformation>,
+    info: HashMap<usize, LexicalInformation>,
+}
+
+impl Analysis {
+    pub fn run(&mut self, exprs: &mut [ExprKind]) {
+        for expr in exprs {
+            let mut pass = AnalysisPass::new(self);
+            pass.visit(expr);
+        }
+    }
+
+    pub fn insert(&mut self, object: &SyntaxObject, metadata: LexicalInformation) {
+        self.info.insert(object.syntax_object_id, metadata);
+    }
+
+    pub fn get(&self, object: &SyntaxObject) -> Option<&LexicalInformation> {
+        self.info.get(&object.syntax_object_id)
+    }
 }
 
 #[derive(Default)]
@@ -31,22 +52,11 @@ pub struct MetaDataPopulator {
 }
 
 impl VisitorMutRefUnit for MetaDataPopulator {
-    fn visit_if(&mut self, f: &mut crate::parser::ast::If) {
-        self.visit(&mut f.test_expr);
-        self.visit(&mut f.then_expr);
-        self.visit(&mut f.else_expr);
-    }
-
     fn visit_let(&mut self, l: &mut crate::parser::ast::Let) {
         self.depth += 1;
         l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
         self.depth -= 1;
         self.visit(&mut l.body_expr);
-    }
-
-    fn visit_define(&mut self, define: &mut crate::parser::ast::Define) {
-        self.visit(&mut define.name);
-        self.visit(&mut define.body);
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &mut crate::parser::ast::LambdaFunction) {
@@ -58,24 +68,6 @@ impl VisitorMutRefUnit for MetaDataPopulator {
         self.depth -= 1;
     }
 
-    fn visit_begin(&mut self, begin: &mut crate::parser::ast::Begin) {
-        for expr in &mut begin.exprs {
-            self.visit(expr);
-        }
-    }
-
-    fn visit_return(&mut self, r: &mut crate::parser::ast::Return) {
-        self.visit(&mut r.expr);
-    }
-
-    fn visit_quote(&mut self, quote: &mut crate::parser::ast::Quote) {
-        self.visit(&mut quote.expr);
-    }
-
-    fn visit_struct(&mut self, _s: &mut crate::parser::ast::Struct) {}
-
-    fn visit_macro(&mut self, _m: &mut crate::parser::ast::Macro) {}
-
     fn visit_atom(&mut self, a: &mut crate::parser::ast::Atom) {
         // Populate metadata on the identifier if its not there
         match &mut a.syn.metadata {
@@ -83,71 +75,79 @@ impl VisitorMutRefUnit for MetaDataPopulator {
             m @ None => *m = Some(IdentifierMetadata { depth: self.depth }),
         }
     }
-
-    fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
-        for expr in &mut l.args {
-            self.visit(expr);
-        }
-    }
-
-    fn visit_syntax_rules(&mut self, _l: &mut crate::parser::ast::SyntaxRules) {}
-
-    fn visit_set(&mut self, s: &mut crate::parser::ast::Set) {
-        self.visit(&mut s.variable);
-        self.visit(&mut s.expr);
-    }
-
-    fn visit_require(&mut self, _s: &mut crate::parser::ast::Require) {}
-
-    fn visit_callcc(&mut self, cc: &mut crate::parser::ast::CallCC) {
-        self.visit(&mut cc.expr);
-    }
 }
 
 struct AnalysisPass<'a> {
-    info: &'a mut LexicalInformation,
+    info: &'a mut Analysis,
     scope: ScopeMap<String, bool>,
 }
 
-impl<'a> VisitorMutRef for AnalysisPass<'a> {
-    type Output = ();
+impl<'a> AnalysisPass<'a> {
+    pub fn new(info: &'a mut Analysis) -> Self {
+        AnalysisPass {
+            info,
+            scope: ScopeMap::new(),
+        }
+    }
+}
 
-    fn visit_if(&mut self, f: &mut crate::parser::ast::If) -> Self::Output {
-        todo!()
+impl<'a> VisitorMutRefUnit for AnalysisPass<'a> {
+    fn visit_define(&mut self, define: &mut crate::parser::ast::Define) {
+        self.visit(&mut define.name);
+        self.visit(&mut define.body);
     }
 
-    fn visit_define(&mut self, define: &mut crate::parser::ast::Define) -> Self::Output {
-        todo!()
+    fn visit_lambda_function(&mut self, lambda_function: &mut crate::parser::ast::LambdaFunction) {
+        // We're entering a new scope since we've entered a lambda function
+        self.scope.push_layer();
+
+        let let_level_bindings = lambda_function
+            .args
+            .iter()
+            .map(|x| x.atom_identifier().unwrap())
+            .collect::<Vec<_>>();
+
+        for arg in lambda_function
+            .args
+            .iter()
+            .map(|x| x.atom_identifier().unwrap())
+        {
+            self.scope.define(arg.to_string(), false);
+        }
+
+        self.visit(&mut lambda_function.body);
+
+        // We've exited the scope, we're done
+        // self.scope.pop_layer();
+
+        let captured_vars = self
+            .scope
+            .iter()
+            .filter(|x| *x.1)
+            .filter(|x| !let_level_bindings.contains(&x.0.as_str()))
+            .map(|x| x.0.to_string())
+            .collect::<HashSet<_>>();
+
+        self.scope.pop_layer();
+
+        for var in &lambda_function.args {
+            let kind = if captured_vars.contains(var.atom_identifier().unwrap()) {
+                IdentifierStatus::Captured
+            } else {
+                IdentifierStatus::Local
+            };
+
+            self.info.insert(
+                &var.atom_syntax_object().unwrap(),
+                LexicalInformation {
+                    kind,
+                    set_bang: false,
+                },
+            );
+        }
     }
 
-    fn visit_lambda_function(
-        &mut self,
-        lambda_function: &mut crate::parser::ast::LambdaFunction,
-    ) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_begin(&mut self, begin: &mut crate::parser::ast::Begin) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_return(&mut self, r: &mut crate::parser::ast::Return) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_quote(&mut self, quote: &mut crate::parser::ast::Quote) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_struct(&mut self, s: &mut crate::parser::ast::Struct) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_macro(&mut self, m: &mut crate::parser::ast::Macro) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_atom(&mut self, a: &mut crate::parser::ast::Atom) -> Self::Output {
+    fn visit_atom(&mut self, a: &mut crate::parser::ast::Atom) {
         let name = a.ident();
 
         if let Some(ident) = name {
@@ -155,38 +155,137 @@ impl<'a> VisitorMutRef for AnalysisPass<'a> {
             if self.scope.contains_key_at_top(ident) {
                 // Set it to not be captured if its contained at the top level
                 *(self.scope.get_mut(ident).unwrap()) = false;
+                self.info.insert(
+                    &a.syn,
+                    LexicalInformation {
+                        kind: IdentifierStatus::Local,
+                        set_bang: false,
+                    },
+                );
                 return;
             }
 
             // Otherwise, go ahead and mark it as captured if we can find a reference to it
             if let Some(is_captured) = self.scope.get_mut(ident) {
                 *is_captured = true;
+                self.info.insert(
+                    &a.syn,
+                    LexicalInformation {
+                        kind: IdentifierStatus::Captured,
+                        set_bang: false,
+                    },
+                );
                 return;
             }
+
+            // Otherwise, we've hit a global variable
+            self.info.insert(
+                &a.syn,
+                LexicalInformation {
+                    kind: IdentifierStatus::Global,
+                    set_bang: false,
+                },
+            );
         }
     }
 
-    fn visit_list(&mut self, l: &mut crate::parser::ast::List) -> Self::Output {
-        todo!()
-    }
+    // TODO: merge the representations of the anonymous function call
+    // and the normal visit lambda
+    fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
+        if l.is_anonymous_function_call() {
+            if let Some(arguments) = l.rest_mut() {
+                for argument in arguments {
+                    self.visit(argument)
+                }
+            }
 
-    fn visit_syntax_rules(&mut self, l: &mut crate::parser::ast::SyntaxRules) -> Self::Output {
-        todo!()
-    }
+            // l.rest_mut()
+            //     .map(|x| x.iter_mut().for_each(|x| self.visit(x)));
 
-    fn visit_set(&mut self, s: &mut crate::parser::ast::Set) -> Self::Output {
-        todo!()
-    }
+            // Since we're effectively visiting a let, enter the scope
+            self.scope.push_layer();
 
-    fn visit_require(&mut self, s: &mut crate::parser::ast::Require) -> Self::Output {
-        todo!()
-    }
+            let func = l.first_func_mut().unwrap();
 
-    fn visit_callcc(&mut self, cc: &mut crate::parser::ast::CallCC) -> Self::Output {
-        todo!()
-    }
+            // func.args.iter().map(|x| x.atom_identifier().unwrap())
 
-    fn visit_let(&mut self, l: &mut crate::parser::ast::Let) -> Self::Output {
-        todo!()
+            let let_level_bindings = func
+                .args
+                .iter()
+                .map(|x| x.atom_identifier().unwrap())
+                .collect::<Vec<_>>();
+
+            for arg in &let_level_bindings {
+                self.scope.define(arg.to_string(), false);
+            }
+
+            self.visit(&mut func.body);
+
+            let captured_vars = self
+                .scope
+                .iter()
+                .filter(|x| *x.1)
+                .filter(|x| !let_level_bindings.contains(&x.0.as_str()))
+                .map(|x| x.0.to_string())
+                .collect::<HashSet<_>>();
+
+            self.scope.pop_layer();
+
+            for var in &func.args {
+                let kind = if captured_vars.contains(var.atom_identifier().unwrap()) {
+                    IdentifierStatus::Captured
+                } else {
+                    IdentifierStatus::Local
+                };
+
+                self.info.insert(
+                    &var.atom_syntax_object().unwrap(),
+                    LexicalInformation {
+                        kind,
+                        set_bang: false,
+                    },
+                );
+            }
+        } else {
+            for arg in &mut l.args {
+                self.visit(arg)
+            }
+        }
+    }
+}
+
+// struct PrinterPass {}
+
+impl<'a> VisitorMutUnitRef<'a> for Analysis {
+    fn visit_atom(&mut self, a: &'a crate::parser::ast::Atom) {
+        println!(
+            "Atom: {:?}, Lexical Information: {:?}",
+            a.syn.ty,
+            self.get(&a.syn)
+        );
+    }
+}
+
+#[cfg(test)]
+mod analysis_pass_tests {
+    use crate::parser::parser::Parser;
+
+    use super::*;
+
+    #[test]
+    fn check_analysis_pass() {
+        let script = r#"
+        (define (foo x y z)
+            (lambda (extra-arg) (+ x y z)))
+        "#;
+
+        let mut analysis = Analysis::default();
+        let mut exprs = Parser::parse(script).unwrap();
+
+        analysis.run(&mut exprs);
+
+        analysis.visit(&exprs[0]);
+
+        // println!("{:?}", analysis.info);
     }
 }

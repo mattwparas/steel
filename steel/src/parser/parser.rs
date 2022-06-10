@@ -19,6 +19,10 @@ use crate::rvals::SteelVal::*;
 
 use super::ast;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
+
 /// A syntax object that can hold anything as the syntax
 /// In this case, we're using the token type emitted by logos
 ///
@@ -31,6 +35,7 @@ pub struct RawSyntaxObject<T> {
     pub(crate) span: Span,
     pub(crate) source: Option<Rc<PathBuf>>,
     pub(crate) metadata: Option<IdentifierMetadata>,
+    pub(crate) syntax_object_id: usize,
 }
 
 impl<T: Clone> Clone for RawSyntaxObject<T> {
@@ -40,6 +45,7 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
             span: self.span.clone(),
             source: self.source.clone(),
             metadata: self.metadata.clone(),
+            syntax_object_id: self.syntax_object_id.clone(),
         }
     }
 }
@@ -103,6 +109,7 @@ impl SyntaxObject {
             span,
             source: None,
             metadata: None,
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -112,6 +119,7 @@ impl SyntaxObject {
             span,
             source,
             metadata: None,
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -121,6 +129,7 @@ impl SyntaxObject {
             span: Span::new(0, 0),
             source: None,
             metadata: None,
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -134,6 +143,7 @@ impl SyntaxObject {
             span: val.span,
             source: source.as_ref().map(Rc::clone),
             metadata: None,
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 }

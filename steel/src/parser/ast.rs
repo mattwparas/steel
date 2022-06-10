@@ -780,6 +780,10 @@ impl List {
         self.args.is_empty()
     }
 
+    pub fn rest_mut(&mut self) -> Option<&mut [ExprKind]> {
+        self.args.split_first_mut().map(|x| x.1)
+    }
+
     pub fn first_ident(&self) -> Option<&str> {
         if let Some(ExprKind::Atom(Atom {
             syn:
@@ -797,6 +801,14 @@ impl List {
 
     pub fn is_anonymous_function_call(&self) -> bool {
         matches!(self.args.get(0), Some(ExprKind::LambdaFunction(_)))
+    }
+
+    pub fn first_func_mut(&mut self) -> Option<&mut LambdaFunction> {
+        if let Some(ExprKind::LambdaFunction(l)) = self.args.get_mut(0) {
+            Some(l)
+        } else {
+            None
+        }
     }
 }
 
