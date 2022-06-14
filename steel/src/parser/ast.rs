@@ -647,6 +647,10 @@ impl LambdaFunction {
             rest: true,
         }
     }
+
+    pub fn arguments(&self) -> Option<Vec<&str>> {
+        self.args.iter().map(|x| x.atom_identifier()).collect()
+    }
 }
 
 impl From<LambdaFunction> for ExprKind {

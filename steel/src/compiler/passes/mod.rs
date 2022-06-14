@@ -265,6 +265,7 @@ pub trait VisitorMutUnitRef<'a> {
 
     #[inline]
     fn visit_define(&mut self, define: &'a Define) {
+        self.visit(&define.name);
         self.visit(&define.body);
     }
 
