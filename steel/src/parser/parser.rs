@@ -21,7 +21,7 @@ use super::ast;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// A syntax object that can hold anything as the syntax
 /// In this case, we're using the token type emitted by logos

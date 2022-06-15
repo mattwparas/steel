@@ -3,7 +3,7 @@ use crate::parser::parser::SyntaxObject;
 use crate::parser::tokens::TokenType;
 use crate::parser::tokens::TokenType::*;
 
-use std::convert::TryFrom;
+use std::{convert::TryFrom, sync::atomic::Ordering};
 
 use itertools::Itertools;
 use pretty::RcDoc;
@@ -17,7 +17,7 @@ use crate::rvals::SteelVal::*;
 
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 
-use super::span::Span;
+use super::{parser::SYNTAX_OBJECT_ID, span::Span};
 
 pub(crate) trait AstTools {
     fn pretty_print(&self);
@@ -598,6 +598,7 @@ pub struct LambdaFunction {
     pub body: ExprKind,
     pub location: SyntaxObject,
     pub rest: bool,
+    pub syntax_object_id: usize,
 }
 
 impl fmt::Display for LambdaFunction {
@@ -636,6 +637,7 @@ impl LambdaFunction {
             body,
             location,
             rest: false,
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -645,6 +647,7 @@ impl LambdaFunction {
             body,
             location,
             rest: true,
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 
