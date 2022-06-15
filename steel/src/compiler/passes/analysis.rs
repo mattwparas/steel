@@ -240,8 +240,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .map(|x| (x.0.clone(), x.1.clone()))
             .collect::<HashMap<_, _>>();
 
-        println!("Arguments: {:?}", arguments);
-
         // Pop the layer here - now, we check if any of the arguments below actually already exist
         // in scope. If thats the case, we've shadowed and should mark it accordingly.
         self.scope.pop_layer();
@@ -360,8 +358,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     }
 }
 
-// struct PrinterPass {}
-
 impl<'a> VisitorMutUnitRef<'a> for Analysis {
     fn visit_atom(&mut self, a: &'a crate::parser::ast::Atom) {
         log::info!(
@@ -404,36 +400,6 @@ pub fn query_top_level_define<'a, A: AsRef<str>>(
     None
 }
 
-pub fn find_call_sites_and_call<F>(
-    name: &str,
-    analysis: &Analysis,
-    expressions: &[ExprKind],
-    function: F,
-) where
-    F: FnMut(&Analysis, &crate::parser::ast::List) -> (),
-{
-    let mut find_call_sites = FindCallSites::new(name, analysis, function);
-
-    for expr in expressions {
-        find_call_sites.visit(expr);
-    }
-}
-
-pub fn find_call_sites_and_modify_with<F>(
-    name: &str,
-    analysis: &Analysis,
-    expressions: &mut [ExprKind],
-    function: F,
-) where
-    F: FnMut(&Analysis, &mut crate::parser::ast::List) -> (),
-{
-    let mut find_call_sites = FindCallSites::new(name, analysis, function);
-
-    for expr in expressions {
-        find_call_sites.visit(expr);
-    }
-}
-
 struct FindCallSites<'a, F> {
     name: &'a str,
     analysis: &'a Analysis,
@@ -449,19 +415,26 @@ impl<'a, F> FindCallSites<'a, F> {
         }
     }
 }
+impl<'a, F> FindCallSites<'a, F> {
+    fn is_required_global_function_call(&mut self, l: &List) -> bool {
+        if let Some(name) = l.first_ident() {
+            if let Some(lexical_info) = self.analysis.get(&l.args[0].atom_syntax_object().unwrap())
+            {
+                return name == self.name && lexical_info.kind == IdentifierStatus::Global;
+            }
+        }
+
+        false
+    }
+}
 
 impl<'a, F> VisitorMutUnitRef<'a> for FindCallSites<'a, F>
 where
     F: FnMut(&Analysis, &crate::parser::ast::List) -> (),
 {
     fn visit_list(&mut self, l: &'a crate::parser::ast::List) {
-        if let Some(name) = l.first_ident() {
-            if let Some(lexical_info) = self.analysis.get(&l.args[0].atom_syntax_object().unwrap())
-            {
-                if name == self.name && lexical_info.kind == IdentifierStatus::Global {
-                    (self.func)(&self.analysis, l)
-                }
-            }
+        if self.is_required_global_function_call(l) {
+            (self.func)(&self.analysis, l)
         }
 
         for arg in &l.args {
@@ -475,13 +448,8 @@ where
     F: FnMut(&Analysis, &mut crate::parser::ast::List) -> (),
 {
     fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
-        if let Some(name) = l.first_ident() {
-            if let Some(lexical_info) = self.analysis.get(&l.args[0].atom_syntax_object().unwrap())
-            {
-                if name == self.name && lexical_info.kind == IdentifierStatus::Global {
-                    (self.func)(&self.analysis, l)
-                }
-            }
+        if self.is_required_global_function_call(l) {
+            (self.func)(&self.analysis, l)
         }
 
         for arg in &mut l.args {
@@ -656,9 +624,22 @@ impl<'a> LexicalAnalysis<'a> {
         }
     }
 
+    // pub fn add_captured_variables_to_function_arguments(&mut self) {
+    //     let mut re_run_analysis = false;
+
+    //     self.
+
+    // }
+
+    /// Find anonymous function calls with no arguments that don't capture anything,
+    /// and replace this with just the body of the function. For instance:
+    ///
+    /// ```scheme
+    /// (let () (+ 1 2 3 4 5)) ;; => (+ 1 2 3 4 5)
+    ///
+    /// ```
     pub fn replace_pure_empty_lets_with_body(&mut self) {
         let mut re_run_analysis = false;
-        let re_run_analysis_ref = &mut re_run_analysis;
 
         self.find_anonymous_function_calls_and_mutate_with(|analysis, anon| {
             if let ExprKind::List(l) = anon {
@@ -677,7 +658,7 @@ impl<'a> LexicalAnalysis<'a> {
                             std::mem::swap(&mut f.body, &mut dummy);
                             *anon = dummy;
 
-                            *re_run_analysis_ref = true;
+                            re_run_analysis = true;
 
                             // We changed the function call - we should adjust accordingly
                             return true;
@@ -700,6 +681,7 @@ impl<'a> LexicalAnalysis<'a> {
         }
     }
 
+    // Modify the call site to point to another kind of expression
     pub fn find_call_sites_and_mutate_with<F>(&mut self, name: &str, func: F)
     where
         F: FnMut(&Analysis, &mut ExprKind) -> (),
@@ -717,7 +699,11 @@ impl<'a> LexicalAnalysis<'a> {
     where
         F: FnMut(&Analysis, &crate::parser::ast::List) -> (),
     {
-        find_call_sites_and_call(name, &self.analysis, &self.exprs, func)
+        let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
+
+        for expr in self.exprs.iter() {
+            find_call_sites.visit(expr);
+        }
     }
 
     // Locate the call sites of the given global function, and calls the given function
@@ -726,7 +712,11 @@ impl<'a> LexicalAnalysis<'a> {
     where
         F: FnMut(&Analysis, &mut crate::parser::ast::List) -> (),
     {
-        find_call_sites_and_modify_with(name, &self.analysis, &mut self.exprs, func)
+        let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
+
+        for expr in self.exprs.iter_mut() {
+            find_call_sites.visit(expr);
+        }
     }
 }
 
