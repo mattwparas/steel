@@ -834,31 +834,6 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
             self.lifted_functions.push(removed_function);
         }
     }
-
-    // fn visit_define(&mut self, define: &mut crate::parser::ast::Define) {
-    //     let ident = define.name.atom_syntax_object().unwrap();
-
-    //     if let Some(func) = define.body.lambda_function() {
-    //         if let Some(info) = self.analysis.get_function_info(func) {
-    //             let ident_info = self.analysis.get(&ident).unwrap();
-
-    //             if ident_info.depth > 1 {
-    //                 if !info.captured_vars.is_empty() {
-    //                     log::info!(
-    //                         "Found a local function which captures variables: {} - captures vars: {:#?}",
-    //                         define.name,
-    //                         info.captured_vars
-    //                     );
-    //                 } else {
-    //                     log::info!("Found a pure local function: {}", define.name);
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     self.visit(&mut define.name);
-    //     self.visit(&mut define.body);
-    // }
 }
 
 // impl<'a, F> VisitorMutRefUnit for FindCallSites<>
@@ -1054,11 +1029,16 @@ impl<'a> LexicalAnalysis<'a> {
     // The extra arguments necessary for this to work
     pub fn lift_local_functions(&mut self) {
         let mut overall_lifted = Vec::new();
+        let mut re_run_analysis = false;
 
         for expr in self.exprs.iter_mut() {
             let mut local_funcs = LiftLocallyDefinedFunctions::new(&self.analysis);
 
             local_funcs.visit(expr);
+
+            if !local_funcs.lifted_functions.is_empty() {
+                re_run_analysis = true;
+            }
 
             // Move out the local functions
             let mut local_functions = local_funcs.lifted_functions;
@@ -1107,6 +1087,10 @@ impl<'a> LexicalAnalysis<'a> {
                         unreachable!("These should only be defines by design");
                     }
                 }
+
+                // Check if we need to re run this analysis - if we've made any modifications up to this point, we
+                // Need to re run the analysis afterwards
+                re_run_analysis |= find_call_site_by_id.modified;
             }
 
             // Put the lifted expressions back at the end - they _probably_ should go to the front, but for now
@@ -1118,26 +1102,11 @@ impl<'a> LexicalAnalysis<'a> {
         // Move the lifted functions to the back of the original expression list
         self.exprs.append(&mut overall_lifted);
 
-        // todo!()
+        if re_run_analysis {
+            log::info!("Re-running the lexical analysis after modifications during lambda lifting");
 
-        // let mut find_call_site_by_id = FindCallSiteById::new()
-
-        // TODO: replace call sites with new names, and do the whole name mangling thing to all call sites
-        // Do this for the bodies of the moved functions as well
-
-        // println!(
-        //     "Lifted local functions: {}",
-        //     local_funcs.lifted_functions[0]
-        // );
-
-        // let ids = local_functions.lifted_functions.iter().map(|x| x.atom_syntax_object().unwrap().syntax_object_id).collect::<Vec<_>>();
-
-        // // TODO: Only should have to revisit the
-        // for id in ids {
-        //     let mut find_call_site_by_id = FindCallSiteById::new(id, &self.analysis, |analysis, call_site| {
-        //         todo!()
-        //     });
-        // }
+            self.analysis = Analysis::from_exprs(self.exprs);
+        }
     }
 }
 
