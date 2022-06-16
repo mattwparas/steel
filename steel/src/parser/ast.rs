@@ -62,9 +62,21 @@ impl ExprKind {
         ))))
     }
 
-    pub fn atom_syntax_object(&self) -> Option<SyntaxObject> {
+    pub fn atom_syntax_object(&self) -> Option<&SyntaxObject> {
         match self {
-            Self::Atom(Atom { syn }) => Some(syn.clone()),
+            Self::Atom(Atom { syn }) => Some(syn),
+            _ => None,
+        }
+    }
+
+    pub fn atom_identifier_mut(&mut self) -> Option<&mut String> {
+        match self {
+            Self::Atom(Atom {
+                syn: SyntaxObject { ty: t, .. },
+            }) => match t {
+                TokenType::Identifier(s) => Some(s),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -789,6 +801,21 @@ impl List {
 
     pub fn rest_mut(&mut self) -> Option<&mut [ExprKind]> {
         self.args.split_first_mut().map(|x| x.1)
+    }
+
+    pub fn first_ident_mut(&mut self) -> Option<&mut String> {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(s),
+                    ..
+                },
+        })) = self.args.first_mut()
+        {
+            Some(s)
+        } else {
+            None
+        }
     }
 
     pub fn first_ident(&self) -> Option<&str> {

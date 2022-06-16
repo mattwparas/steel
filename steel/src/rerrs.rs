@@ -48,7 +48,7 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
-    fn to_error_code(&self) -> &str {
+    pub fn to_error_code(&self) -> &str {
         use ErrorKind::*;
         match self {
             ArityMismatch => "E01",
@@ -228,6 +228,63 @@ impl SteelErr {
             )
             .with_message(&self.repr.message)])
     }
+}
+
+pub fn report_warning(
+    error_code: &str,
+    file_name: &str,
+    file_content: &str,
+    message: String,
+    span: Span,
+) {
+    let writer = StandardStream::stderr(ColorChoice::Always);
+    let config = codespan_reporting::term::Config::default();
+
+    let file = SimpleFile::new(file_name, file_content);
+
+    let report = Diagnostic::warning()
+        .with_code(error_code)
+        .with_labels(vec![Label::primary((), span).with_message(message)]);
+
+    term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
+}
+
+pub fn report_error(
+    error_code: &str,
+    file_name: &str,
+    file_content: &str,
+    message: String,
+    span: Span,
+) {
+    let writer = StandardStream::stderr(ColorChoice::Always);
+    let config = codespan_reporting::term::Config::default();
+
+    let file = SimpleFile::new(file_name, file_content);
+
+    let report = Diagnostic::error()
+        .with_code(error_code)
+        .with_labels(vec![Label::primary((), span).with_message(message)]);
+
+    term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
+}
+
+pub fn report_info(
+    error_code: &str,
+    file_name: &str,
+    file_content: &str,
+    message: String,
+    span: Span,
+) {
+    let writer = StandardStream::stderr(ColorChoice::Always);
+    let config = codespan_reporting::term::Config::default();
+
+    let file = SimpleFile::new(file_name, file_content);
+
+    let report = Diagnostic::note()
+        .with_code(error_code)
+        .with_labels(vec![Label::primary((), span).with_message(message)]);
+
+    term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
 }
 
 #[macro_export]
