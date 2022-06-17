@@ -30,6 +30,7 @@ pub struct LexicalInformation {
     span: Span,
     refers_to: Option<usize>,
     aliases_to: Option<usize>,
+    builtin: bool,
 }
 
 impl LexicalInformation {
@@ -43,6 +44,7 @@ impl LexicalInformation {
             span,
             refers_to: None,
             aliases_to: None,
+            builtin: false,
         }
     }
 
@@ -64,6 +66,10 @@ impl LexicalInformation {
     pub fn aliases_to(mut self, id: usize) -> Self {
         self.aliases_to = Some(id);
         self
+    }
+
+    pub fn mark_builtin(&mut self) {
+        self.builtin = true;
     }
 }
 
@@ -992,6 +998,37 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
         for index in functions.into_iter().rev() {
             let removed_function = begin.exprs.remove(index);
             self.lifted_functions.push(removed_function);
+        }
+    }
+}
+
+// After everything is done, walk the tree and mark anything that is explicitly defined via the "##__module-get" primitive
+// This gives us the direct knowledge that any identifiers defined this way, explicitly refer to the builtin, and gives
+// better insight into what is actually referring to the base level primitives
+//
+// TODO: Implement a better solution to this that does this in the top level analysis pass
+struct MarkBuiltInFunctions<'a> {
+    info: &'a mut Analysis,
+}
+
+impl<'a> MarkBuiltInFunctions<'a> {
+    pub fn new(info: &'a mut Analysis) -> Self {
+        MarkBuiltInFunctions { info }
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for MarkBuiltInFunctions<'a> {
+    fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
+        if let ExprKind::List(l) = &define.body {
+            match l.first_ident() {
+                Some(func) if func == "##__module-get" => {
+                    self.info
+                        .get_mut(&define.name.atom_syntax_object().unwrap().syntax_object_id)
+                        .unwrap()
+                        .mark_builtin();
+                }
+                _ => {}
+            }
         }
     }
 }
