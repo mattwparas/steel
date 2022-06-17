@@ -15,6 +15,7 @@ use super::{VisitorMutRefUnit, VisitorMutUnitRef};
 pub enum IdentifierStatus {
     Global,
     Local,
+    LocallyDefinedFunction,
     Captured,
     Free,
 }
@@ -28,6 +29,7 @@ pub struct LexicalInformation {
     usage_count: usize,
     span: Span,
     refers_to: Option<usize>,
+    aliases_to: Option<usize>,
 }
 
 impl LexicalInformation {
@@ -40,6 +42,7 @@ impl LexicalInformation {
             usage_count: 0,
             span,
             refers_to: None,
+            aliases_to: None,
         }
     }
 
@@ -57,15 +60,20 @@ impl LexicalInformation {
         self.refers_to = Some(id);
         self
     }
+
+    pub fn aliases_to(mut self, id: usize) -> Self {
+        self.aliases_to = Some(id);
+        self
+    }
 }
 
 #[derive(Debug)]
 pub struct FunctionInformation {
-    captured_vars: HashSet<String>,
+    captured_vars: HashMap<String, ScopeInfo>,
 }
 
 impl FunctionInformation {
-    pub fn new(captured_vars: HashSet<String>) -> Self {
+    pub fn new(captured_vars: HashMap<String, ScopeInfo>) -> Self {
         Self { captured_vars }
     }
 }
@@ -84,35 +92,112 @@ impl Analysis {
         analysis
     }
 
+    pub fn resolve_alias(&self, mut id: usize) -> Option<usize> {
+        while let Some(next) = self
+            .info
+            .get(&id)
+            .map(|x| x.aliases_to.map(|x| self.info.get(&x)))
+            .flatten()
+            .flatten()
+            .map(|x| x.refers_to)
+            .flatten()
+        {
+            println!("id -> {}", next);
+            id = next;
+        }
+
+        return Some(id);
+    }
+
+    pub fn visit_top_level_define_function_without_body(
+        &mut self,
+        scope: &mut ScopeMap<String, ScopeInfo>,
+        define: &crate::parser::ast::Define,
+    ) {
+        let name = define.name.atom_identifier().unwrap();
+
+        let mut lexical_info = LexicalInformation::new(
+            IdentifierStatus::Global,
+            1,
+            define.name.atom_syntax_object().unwrap().span,
+        );
+
+        // If this variable name is already in scope, we should mark that this variable
+        // shadows the previous id
+        if let Some(shadowed_var) = scope.get(name) {
+            lexical_info = lexical_info.shadows(shadowed_var.id)
+        }
+
+        log::info!("Defining global: {:?}", define.name);
+        define_var(scope, &define);
+
+        self.insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
+    }
+
+    pub fn visit_top_level_define_value_without_body(
+        &mut self,
+        scope: &mut ScopeMap<String, ScopeInfo>,
+        define: &crate::parser::ast::Define,
+    ) {
+        let name = define.name.atom_identifier().unwrap();
+
+        let mut lexical_info = LexicalInformation::new(
+            IdentifierStatus::Global,
+            1,
+            define.name.atom_syntax_object().unwrap().span,
+        );
+
+        // If this variable name is already in scope, we should mark that this variable
+        // shadows the previous id
+        if let Some(shadowed_var) = scope.get(name) {
+            lexical_info = lexical_info.shadows(shadowed_var.id)
+        }
+
+        if let Some(aliases) = define.is_an_alias_definition() {
+            log::info!(
+                "Found definition that aliases - {} aliases {}: {} -> {}",
+                define.name,
+                define.body,
+                define.name.atom_syntax_object().unwrap().syntax_object_id,
+                define.body.atom_syntax_object().unwrap().syntax_object_id,
+            );
+            lexical_info = lexical_info.aliases_to(aliases);
+        }
+
+        log::info!("Defining global: {:?}", define.name);
+        define_var(scope, &define);
+
+        self.insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
+    }
+
     pub fn run(&mut self, exprs: &[ExprKind]) {
         let mut scope: ScopeMap<String, ScopeInfo> = ScopeMap::new();
 
+        // TODO: Functions should be globally resolvable but top level identifiers cannot be used before they are defined
+        // The way this is implemented right now doesn't respect that
         for expr in exprs.iter() {
             if let ExprKind::Define(define) = expr {
-                let name = define.name.atom_identifier().unwrap();
-
-                let mut lexical_info = LexicalInformation::new(
-                    IdentifierStatus::Global,
-                    1,
-                    define.name.atom_syntax_object().unwrap().span,
-                );
-
-                // If this variable name is already in scope, we should mark that this variable
-                // shadows the previous id
-                if let Some(shadowed_var) = scope.get(name) {
-                    lexical_info = lexical_info.shadows(shadowed_var.id)
+                if define.body.lambda_function().is_some() {
+                    self.visit_top_level_define_function_without_body(&mut scope, define);
                 }
-
-                log::info!("Defining global: {:?}", define.name);
-                define_var(&mut scope, &define);
-
-                self.insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
             }
         }
 
         for expr in exprs {
             let mut pass = AnalysisPass::new(self, &mut scope);
-            pass.visit(expr);
+            // pass.visit(expr);
+
+            if let ExprKind::Define(define) = expr {
+                if define.body.lambda_function().is_some() {
+                    // Continue with the rest of the body here
+                    pass.visit(&define.body);
+                } else {
+                    pass.visit_top_level_define_value_without_body(define);
+                    pass.visit(&define.body);
+                }
+            } else {
+                pass.visit(expr);
+            }
         }
 
         log::info!("Global scope: {:?}", scope.iter_top().collect::<Vec<_>>());
@@ -144,8 +229,8 @@ impl Analysis {
     }
 }
 
-#[derive(Debug, Clone)]
-struct ScopeInfo {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScopeInfo {
     id: usize,
     captured: bool,
     usage_count: usize,
@@ -174,25 +259,61 @@ impl<'a> AnalysisPass<'a> {
 }
 
 impl<'a> AnalysisPass<'a> {
-    fn get_captured_vars(&self, let_level_bindings: &[&str]) -> HashSet<String> {
+    fn get_captured_vars(&self, let_level_bindings: &[&str]) -> HashMap<String, ScopeInfo> {
         self.scope
             .iter()
             .filter(|x| x.1.captured)
             .filter(|x| !let_level_bindings.contains(&x.0.as_str()))
-            .map(|x| x.0.to_string())
-            .collect::<HashSet<_>>()
+            .map(|x| (x.0.clone(), x.1.clone()))
+            .collect()
     }
-}
 
-impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
-    fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
+    fn visit_top_level_define_value_without_body(&mut self, define: &crate::parser::ast::Define) {
+        let name = define.name.atom_identifier().unwrap();
+
+        let mut lexical_info = LexicalInformation::new(
+            IdentifierStatus::Global,
+            1,
+            define.name.atom_syntax_object().unwrap().span,
+        );
+
+        // If this variable name is already in scope, we should mark that this variable
+        // shadows the previous id
+        if let Some(shadowed_var) = self.scope.get(name) {
+            lexical_info = lexical_info.shadows(shadowed_var.id)
+        }
+
+        if let Some(aliases) = define.is_an_alias_definition() {
+            log::info!(
+                "Found definition that aliases - {} aliases {}: {} -> {}",
+                define.name,
+                define.body,
+                define.name.atom_syntax_object().unwrap().syntax_object_id,
+                define.body.atom_syntax_object().unwrap().syntax_object_id,
+            );
+            lexical_info = lexical_info.aliases_to(aliases);
+        }
+
+        log::info!("Defining global: {:?}", define.name);
+        define_var(self.scope, &define);
+
+        self.info
+            .insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
+    }
+
+    // TODO: I really hate this identifier status if local nonsense
+    fn visit_define_without_body(
+        &mut self,
+        define: &crate::parser::ast::Define,
+        identifier_status_if_local: IdentifierStatus,
+    ) {
         let name = define.name.atom_identifier().unwrap();
 
         let mut lexical_info = LexicalInformation::new(
             if self.scope.depth() == 1 {
                 IdentifierStatus::Global
             } else {
-                IdentifierStatus::Local
+                identifier_status_if_local
             },
             self.scope.depth(),
             define.name.atom_syntax_object().unwrap().span,
@@ -209,9 +330,43 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         self.info
             .insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
+    fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
+        self.visit_define_without_body(&define, IdentifierStatus::Local);
 
         // self.visit(&define.name);
         self.visit(&define.body);
+    }
+
+    fn visit_begin(&mut self, begin: &'a crate::parser::ast::Begin) {
+        // Collect all of the defines inside of the body first
+        for expr in &begin.exprs {
+            if let ExprKind::Define(define) = expr {
+                if define.body.lambda_function().is_some() {
+                    self.visit_define_without_body(
+                        define,
+                        IdentifierStatus::LocallyDefinedFunction,
+                    );
+                }
+            }
+        }
+
+        // After that, we can continue with everything but those
+        for expr in &begin.exprs {
+            if let ExprKind::Define(define) = expr {
+                if define.body.lambda_function().is_some() {
+                    // Continue with the rest of the body here
+                    self.visit(&define.body);
+                } else {
+                    self.visit(expr);
+                }
+            } else {
+                self.visit(expr);
+            }
+        }
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
@@ -270,7 +425,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         for var in &lambda_function.args {
             let ident = var.atom_identifier().unwrap();
-            let kind = if captured_vars.contains(ident) {
+            let kind = if captured_vars.contains_key(ident) {
                 IdentifierStatus::Captured
             } else {
                 IdentifierStatus::Local
@@ -333,11 +488,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let name = a.ident();
         let depth = self.scope.depth();
 
-        println!("VISITING {:?} at depth: {:?}", name, depth);
+        // println!("VISITING {:?} at depth: {:?}", name, depth);
 
         if let Some(ident) = name {
-            let interest = ident == "inner-func-that-captures";
-
             // Check if its a global var - otherwise, we want to check if its a free
             // identifier
             if let Some(depth) = self.scope.height_of(ident) {
@@ -361,10 +514,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             // If this contains a key at the top, then it shouldn't be marked as captured by this scope
             if self.scope.contains_key_at_top(ident) {
-                if interest {
-                    println!("350");
-                }
-
                 // Set it to not be captured if its contained at the top level
                 // self.scope.get_mut(ident).unwrap().captured = false;
 
@@ -372,10 +521,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 mut_ref.captured = false;
                 mut_ref.usage_count += 1;
-
-                if interest {
-                    println!("Usage count: {:?}", mut_ref.usage_count);
-                }
 
                 // In the event there is a local define, we want to count the usage here
                 if let Some(local_define) = self.info.get_mut(&mut_ref.id) {
@@ -387,6 +532,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         .with_usage_count(1)
                         .refers_to(mut_ref.id);
 
+                println!("Variable {} refers to {}", ident, mut_ref.id);
+
                 self.info.insert(&a.syn, lexical_info);
 
                 return;
@@ -394,38 +541,40 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             // Otherwise, go ahead and mark it as captured if we can find a reference to it
             if let Some(is_captured) = self.scope.get_mut(ident) {
-                if interest {
-                    println!("372");
-                }
-
                 is_captured.captured = true;
                 is_captured.usage_count += 1;
 
-                if interest {
-                    println!("Usage count: {:?}", is_captured.usage_count);
-                }
+                let mut identifier_status = IdentifierStatus::Captured;
 
                 if let Some(local_define) = self.info.get_mut(&is_captured.id) {
                     local_define.usage_count = is_captured.usage_count;
+
+                    // If this _is_ in fact a locally defined function, we don't want to capture it
+                    // This is something that is going to get lifted to the top environment anyway
+                    if local_define.kind == IdentifierStatus::LocallyDefinedFunction {
+                        is_captured.captured = false;
+                        identifier_status = IdentifierStatus::LocallyDefinedFunction;
+                    }
                 }
 
-                let lexical_info =
-                    LexicalInformation::new(IdentifierStatus::Captured, depth, a.syn.span)
-                        .with_usage_count(1)
-                        .refers_to(is_captured.id);
+                let lexical_info = LexicalInformation::new(identifier_status, depth, a.syn.span)
+                    .with_usage_count(1)
+                    .refers_to(is_captured.id);
+
+                println!("Variable {} refers to {}", ident, is_captured.id);
 
                 self.info.insert(&a.syn, lexical_info);
 
                 return;
             }
 
-            println!("384");
-
             // Otherwise, we've hit a free variable at this point
             self.info.insert(
                 &a.syn,
                 LexicalInformation::new(IdentifierStatus::Free, depth, a.syn.span),
             );
+
+            log::warn!("Found free var: {}", a);
         }
     }
 }
@@ -460,13 +609,25 @@ pub fn query_top_level_define<'a, A: AsRef<str>>(
     exprs: &'a [ExprKind],
     name: A,
 ) -> Option<&'a crate::parser::ast::Define> {
+    let mut found_defines = Vec::new();
     for expr in exprs {
         if let ExprKind::Define(d) = expr {
             match d.name.atom_identifier() {
-                Some(n) if name.as_ref() == n => return Some(d),
+                Some(n) if name.as_ref() == n => found_defines.push(d.as_ref()),
                 _ => {}
             }
         }
+    }
+
+    if found_defines.len() > 1 {
+        log::info!(
+            "Multiple defines found, unable to find one unique value to associate with a name"
+        );
+        return None;
+    }
+
+    if found_defines.len() == 1 {
+        return found_defines.into_iter().next();
     }
 
     None
@@ -747,7 +908,7 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
         for arg in &lambda_function.args {
             if let Some(syntax_object) = arg.atom_syntax_object() {
                 if let Some(info) = self.analysis.get(syntax_object) {
-                    println!("Ident: {}, Info: {:?}", arg, info);
+                    // println!("Ident: {}, Info: {:?}", arg, info);
                     if info.usage_count == 0 {
                         self.unused_args.push(syntax_object.span);
                     }
@@ -812,8 +973,6 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
                         let ident_info = self.analysis.get(&ident).unwrap();
 
                         if ident_info.depth > 1 {
-                            functions.push(index);
-
                             if !info.captured_vars.is_empty() {
                                 log::info!(
                                     "Found a local function which captures variables: {} - captures vars: {:#?}",
@@ -822,6 +981,7 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
                                 );
                             } else {
                                 log::info!("Found a pure local function: {}", define.name);
+                                functions.push(index);
                             }
                         }
                     }
@@ -867,6 +1027,13 @@ impl<'a> LexicalAnalysis<'a> {
         name: A,
     ) -> Option<&crate::parser::ast::Define> {
         query_top_level_define(&self.exprs, name)
+    }
+
+    pub fn get_global_id<A: AsRef<str>>(&self, name: A) -> Option<usize> {
+        self.query_top_level_define("list")?
+            .name
+            .atom_syntax_object()
+            .map(|x| x.syntax_object_id)
     }
 
     /// In this case, `let` also translates directly to an anonymous function call
@@ -1031,10 +1198,14 @@ impl<'a> LexicalAnalysis<'a> {
         let mut overall_lifted = Vec::new();
         let mut re_run_analysis = false;
 
-        for expr in self.exprs.iter_mut() {
+        let exprs_len = self.exprs.len();
+
+        // Window in to the individual values - we're going to want to get access to each of the other ones individually
+        for i in 0..exprs_len {
             let mut local_funcs = LiftLocallyDefinedFunctions::new(&self.analysis);
 
-            local_funcs.visit(expr);
+            // Just borrow for exactly how long we need it for
+            local_funcs.visit(self.exprs.get_mut(i).unwrap());
 
             if !local_funcs.lifted_functions.is_empty() {
                 re_run_analysis = true;
@@ -1047,6 +1218,7 @@ impl<'a> LexicalAnalysis<'a> {
                 .iter()
                 .map(|x| {
                     if let ExprKind::Define(d) = x {
+                        println!("Found a local function to lift: {}", d.name);
                         d.name.atom_syntax_object().unwrap().syntax_object_id
                     } else {
                         unreachable!()
@@ -1071,12 +1243,21 @@ impl<'a> LexicalAnalysis<'a> {
                 );
 
                 // Mutate the call sites of the original expression we were visiting
-                find_call_site_by_id.visit(expr);
+                // Similar to here - just borrow exactly how long we need it for
+                find_call_site_by_id.visit(self.exprs.get_mut(i).unwrap());
                 // Now also mutate the bodies of any of the functions as well
                 for local_function in &mut local_functions {
                     find_call_site_by_id.visit(local_function);
+                    // println!("Function: {}", local_function);
+
                     // Also update the name
                     if let ExprKind::Define(define) = local_function {
+                        if let Some(syntax_object) = define.name.atom_syntax_object() {
+                            if syntax_object.syntax_object_id != id {
+                                continue;
+                            }
+                        }
+
                         if let Some(name) = define.name.atom_identifier_mut() {
                             *name =
                                 "##lambda-lifting##".to_string() + name + id.to_string().as_str();
@@ -1087,6 +1268,20 @@ impl<'a> LexicalAnalysis<'a> {
                         unreachable!("These should only be defines by design");
                     }
                 }
+
+                // Visit the other ones
+                for j in 0..exprs_len {
+                    if i != j {
+                        // println!("Revisiting: {}", self.exprs.get_mut(j).unwrap());
+                        find_call_site_by_id.visit(self.exprs.get_mut(j).unwrap());
+                    }
+                }
+
+                // Also visit those that have been lifted out
+                // for expr in &mut overall_lifted {
+                //     println!("Visiting: {}", expr);
+                //     find_call_site_by_id.visit(expr);
+                // }
 
                 // Check if we need to re run this analysis - if we've made any modifications up to this point, we
                 // Need to re run the analysis afterwards
@@ -1107,6 +1302,10 @@ impl<'a> LexicalAnalysis<'a> {
 
             self.analysis = Analysis::from_exprs(self.exprs);
         }
+    }
+
+    pub fn resolve_alias(&self, id: usize) -> Option<usize> {
+        self.analysis.resolve_alias(id)
     }
 }
 
@@ -1139,18 +1338,34 @@ mod analysis_pass_tests {
         (define + _)
         (define list _)
 
+        (define alias-list list)
+        (define alias-list2 alias-list)
+        (define alias-list3 alias-list2)
+        (define alias-list4 alias-list3)
+
         (let ()
             (let ()
                 (let ()
                     (let () (+ 1 2 3 4 5)))))
 
+        (+ applesauce 20)
+
+        (define applesauce 100)
+
         ;(let ((a 10) (b 20))
         ;    (+ a b c))
 
-        (define (foo x y z)
-            (define (inner-func-that-captures a b c)
-                (inner-func-that-captures x y z))
-            (inner-func-that-captures 1 2 3))
+        ;(define (foo x y z)
+        ;    (define (inner-func-that-captures a b c)
+        ;        (inner-func-that-captures x y z))
+        ;    (inner-func-that-captures 1 2 3))
+
+        (define (test)
+            (define (foo)
+                    (bar))
+            (define (bar)
+                    (foo))
+            (foo))
 
         ;(define (foo x y z)
         ;    (let ((x x) (y y))
@@ -1214,10 +1429,34 @@ mod analysis_pass_tests {
             }
 
             analysis.lift_local_functions();
+            // analysis.lift_local_functions();
 
-            for expr in analysis.exprs {
+            for expr in analysis.exprs.iter() {
                 println!("{}", expr);
             }
+
+            let list_id = analysis
+                .query_top_level_define("list")
+                .unwrap()
+                .name
+                .atom_syntax_object()
+                .unwrap()
+                .syntax_object_id;
+
+            let alias_list_4_id = analysis
+                .query_top_level_define("alias-list4")
+                .unwrap()
+                .name
+                .atom_syntax_object()
+                .unwrap()
+                .syntax_object_id;
+
+            let found = analysis.resolve_alias(alias_list_4_id);
+
+            println!(
+                "List id: {}, list 4 id: {}, resolved alias id: {:?}",
+                list_id, alias_list_4_id, found
+            );
         }
 
         // println!("{}", exprs[0]);

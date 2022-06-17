@@ -596,6 +596,16 @@ impl Define {
             location,
         }
     }
+
+    pub(crate) fn is_an_alias_definition(&self) -> Option<usize> {
+        if let Some(atom) = self.body.atom_syntax_object() {
+            if let TokenType::Identifier(_) = atom.ty {
+                return Some(atom.syntax_object_id);
+            }
+        }
+
+        None
+    }
 }
 
 impl From<Define> for ExprKind {
