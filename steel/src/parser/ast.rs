@@ -606,6 +606,18 @@ impl Define {
 
         None
     }
+
+    pub(crate) fn is_a_builtin_definition(&self) -> bool {
+        if let ExprKind::List(l) = &self.body {
+            match l.first_ident() {
+                Some(func) if func == "##__module-get" => return true,
+                Some(func) if func == "%module-get%" => return true,
+                _ => {}
+            }
+        }
+
+        false
+    }
 }
 
 impl From<Define> for ExprKind {

@@ -128,6 +128,10 @@ impl Analysis {
             define.name.atom_syntax_object().unwrap().span,
         );
 
+        if define.is_a_builtin_definition() {
+            lexical_info.mark_builtin();
+        }
+
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = scope.get(name) {
@@ -140,41 +144,45 @@ impl Analysis {
         self.insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
     }
 
-    pub fn visit_top_level_define_value_without_body(
-        &mut self,
-        scope: &mut ScopeMap<String, ScopeInfo>,
-        define: &crate::parser::ast::Define,
-    ) {
-        let name = define.name.atom_identifier().unwrap();
+    // pub fn visit_top_level_define_value_without_body(
+    //     &mut self,
+    //     scope: &mut ScopeMap<String, ScopeInfo>,
+    //     define: &crate::parser::ast::Define,
+    // ) {
+    //     let name = define.name.atom_identifier().unwrap();
 
-        let mut lexical_info = LexicalInformation::new(
-            IdentifierStatus::Global,
-            1,
-            define.name.atom_syntax_object().unwrap().span,
-        );
+    //     let mut lexical_info = LexicalInformation::new(
+    //         IdentifierStatus::Global,
+    //         1,
+    //         define.name.atom_syntax_object().unwrap().span,
+    //     );
 
-        // If this variable name is already in scope, we should mark that this variable
-        // shadows the previous id
-        if let Some(shadowed_var) = scope.get(name) {
-            lexical_info = lexical_info.shadows(shadowed_var.id)
-        }
+    //     // If this variable name is already in scope, we should mark that this variable
+    //     // shadows the previous id
+    //     if let Some(shadowed_var) = scope.get(name) {
+    //         lexical_info = lexical_info.shadows(shadowed_var.id)
+    //     }
 
-        if let Some(aliases) = define.is_an_alias_definition() {
-            log::info!(
-                "Found definition that aliases - {} aliases {}: {} -> {}",
-                define.name,
-                define.body,
-                define.name.atom_syntax_object().unwrap().syntax_object_id,
-                define.body.atom_syntax_object().unwrap().syntax_object_id,
-            );
-            lexical_info = lexical_info.aliases_to(aliases);
-        }
+    //     if define.is_a_builtin_definition() {
+    //         lexical_info.mark_builtin();
+    //     }
 
-        log::info!("Defining global: {:?}", define.name);
-        define_var(scope, &define);
+    //     if let Some(aliases) = define.is_an_alias_definition() {
+    //         log::info!(
+    //             "Found definition that aliases - {} aliases {}: {} -> {}",
+    //             define.name,
+    //             define.body,
+    //             define.name.atom_syntax_object().unwrap().syntax_object_id,
+    //             define.body.atom_syntax_object().unwrap().syntax_object_id,
+    //         );
+    //         lexical_info = lexical_info.aliases_to(aliases);
+    //     }
 
-        self.insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
-    }
+    //     log::info!("Defining global: {:?}", define.name);
+    //     define_var(scope, &define);
+
+    //     self.insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
+    // }
 
     pub fn run(&mut self, exprs: &[ExprKind]) {
         let mut scope: ScopeMap<String, ScopeInfo> = ScopeMap::new();
@@ -224,6 +232,9 @@ impl Analysis {
         existing.shadows = metadata.shadows;
         existing.depth = metadata.depth;
         existing.usage_count = metadata.usage_count;
+        existing.aliases_to = metadata.aliases_to;
+        existing.refers_to = metadata.refers_to;
+        existing.builtin = metadata.builtin;
     }
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&LexicalInformation> {
@@ -289,6 +300,10 @@ impl<'a> AnalysisPass<'a> {
             lexical_info = lexical_info.shadows(shadowed_var.id)
         }
 
+        if define.is_a_builtin_definition() {
+            lexical_info.mark_builtin();
+        }
+
         if let Some(aliases) = define.is_an_alias_definition() {
             log::info!(
                 "Found definition that aliases - {} aliases {}: {} -> {}",
@@ -324,6 +339,10 @@ impl<'a> AnalysisPass<'a> {
             self.scope.depth(),
             define.name.atom_syntax_object().unwrap().span,
         );
+
+        if define.is_a_builtin_definition() {
+            lexical_info.mark_builtin();
+        }
 
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
@@ -1209,6 +1228,14 @@ impl<'a> LexicalAnalysis<'a> {
             .map(|x| x.span)
     }
 
+    pub fn built_ins(&self) -> impl Iterator<Item = Span> + '_ {
+        self.analysis
+            .info
+            .values()
+            .filter(|x| x.builtin)
+            .map(|x| x.span)
+    }
+
     pub fn find_free_identifiers(&self) -> Vec<Span> {
         let mut free = FreeIdentifiers::new(&self.analysis);
 
@@ -1372,8 +1399,8 @@ mod analysis_pass_tests {
 
         let script = r#"
 
-        (define + _)
-        (define list _)
+        (define + (%module-get%))
+        (define list (%module-get%))
 
         (define alias-list list)
         (define alias-list2 alias-list)
@@ -1461,6 +1488,16 @@ mod analysis_pass_tests {
                     "input.rkt",
                     script,
                     format!("global var"),
+                    var,
+                );
+            }
+
+            for var in analysis.built_ins() {
+                crate::rerrs::report_info(
+                    ErrorKind::FreeIdentifier.to_error_code(),
+                    "input.rkt",
+                    script,
+                    format!("built in function"),
                     var,
                 );
             }
