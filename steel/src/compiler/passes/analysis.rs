@@ -16,12 +16,13 @@ pub enum IdentifierStatus {
     Global,
     Local,
     LocallyDefinedFunction,
+    LetVar,
     Captured,
     Free,
 }
 
 #[derive(Debug)]
-pub struct LexicalInformation {
+pub struct SemanticInformation {
     kind: IdentifierStatus,
     set_bang: bool,
     depth: usize,
@@ -33,7 +34,7 @@ pub struct LexicalInformation {
     builtin: bool,
 }
 
-impl LexicalInformation {
+impl SemanticInformation {
     pub fn new(kind: IdentifierStatus, depth: usize, span: Span) -> Self {
         Self {
             kind,
@@ -87,7 +88,7 @@ impl FunctionInformation {
 // Populate the metadata about individual
 #[derive(Default, Debug)]
 pub struct Analysis {
-    info: HashMap<usize, LexicalInformation>,
+    info: HashMap<usize, SemanticInformation>,
     function_info: HashMap<usize, FunctionInformation>,
 }
 
@@ -122,26 +123,26 @@ impl Analysis {
     ) {
         let name = define.name.atom_identifier().unwrap();
 
-        let mut lexical_info = LexicalInformation::new(
+        let mut semantic_info = SemanticInformation::new(
             IdentifierStatus::Global,
             1,
             define.name.atom_syntax_object().unwrap().span,
         );
 
         if define.is_a_builtin_definition() {
-            lexical_info.mark_builtin();
+            semantic_info.mark_builtin();
         }
 
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = scope.get(name) {
-            lexical_info = lexical_info.shadows(shadowed_var.id)
+            semantic_info = semantic_info.shadows(shadowed_var.id)
         }
 
         log::info!("Defining global: {:?}", define.name);
         define_var(scope, &define);
 
-        self.insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
+        self.insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
     }
 
     // pub fn visit_top_level_define_value_without_body(
@@ -151,7 +152,7 @@ impl Analysis {
     // ) {
     //     let name = define.name.atom_identifier().unwrap();
 
-    //     let mut lexical_info = LexicalInformation::new(
+    //     let mut semantic_info = SemanticInformation::new(
     //         IdentifierStatus::Global,
     //         1,
     //         define.name.atom_syntax_object().unwrap().span,
@@ -160,11 +161,11 @@ impl Analysis {
     //     // If this variable name is already in scope, we should mark that this variable
     //     // shadows the previous id
     //     if let Some(shadowed_var) = scope.get(name) {
-    //         lexical_info = lexical_info.shadows(shadowed_var.id)
+    //         semantic_info = semantic_info.shadows(shadowed_var.id)
     //     }
 
     //     if define.is_a_builtin_definition() {
-    //         lexical_info.mark_builtin();
+    //         semantic_info.mark_builtin();
     //     }
 
     //     if let Some(aliases) = define.is_an_alias_definition() {
@@ -175,13 +176,13 @@ impl Analysis {
     //             define.name.atom_syntax_object().unwrap().syntax_object_id,
     //             define.body.atom_syntax_object().unwrap().syntax_object_id,
     //         );
-    //         lexical_info = lexical_info.aliases_to(aliases);
+    //         semantic_info = semantic_info.aliases_to(aliases);
     //     }
 
     //     log::info!("Defining global: {:?}", define.name);
     //     define_var(scope, &define);
 
-    //     self.insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
+    //     self.insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
     // }
 
     pub fn run(&mut self, exprs: &[ExprKind]) {
@@ -221,11 +222,11 @@ impl Analysis {
         self.function_info.get(&function.syntax_object_id)
     }
 
-    pub fn insert(&mut self, object: &SyntaxObject, metadata: LexicalInformation) {
+    pub fn insert(&mut self, object: &SyntaxObject, metadata: SemanticInformation) {
         self.info.insert(object.syntax_object_id, metadata);
     }
 
-    pub fn update_with(&mut self, object: &SyntaxObject, metadata: LexicalInformation) {
+    pub fn update_with(&mut self, object: &SyntaxObject, metadata: SemanticInformation) {
         let mut existing = self.info.get_mut(&object.syntax_object_id).unwrap();
         existing.kind = metadata.kind;
         existing.set_bang = existing.set_bang || metadata.set_bang;
@@ -237,11 +238,11 @@ impl Analysis {
         existing.builtin = metadata.builtin;
     }
 
-    pub fn get(&self, object: &SyntaxObject) -> Option<&LexicalInformation> {
+    pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
         self.info.get(&object.syntax_object_id)
     }
 
-    pub fn get_mut(&mut self, id: &usize) -> Option<&mut LexicalInformation> {
+    pub fn get_mut(&mut self, id: &usize) -> Option<&mut SemanticInformation> {
         self.info.get_mut(id)
     }
 }
@@ -288,7 +289,7 @@ impl<'a> AnalysisPass<'a> {
     fn visit_top_level_define_value_without_body(&mut self, define: &crate::parser::ast::Define) {
         let name = define.name.atom_identifier().unwrap();
 
-        let mut lexical_info = LexicalInformation::new(
+        let mut semantic_info = SemanticInformation::new(
             IdentifierStatus::Global,
             1,
             define.name.atom_syntax_object().unwrap().span,
@@ -297,11 +298,11 @@ impl<'a> AnalysisPass<'a> {
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = self.scope.get(name) {
-            lexical_info = lexical_info.shadows(shadowed_var.id)
+            semantic_info = semantic_info.shadows(shadowed_var.id)
         }
 
         if define.is_a_builtin_definition() {
-            lexical_info.mark_builtin();
+            semantic_info.mark_builtin();
         }
 
         if let Some(aliases) = define.is_an_alias_definition() {
@@ -312,14 +313,14 @@ impl<'a> AnalysisPass<'a> {
                 define.name.atom_syntax_object().unwrap().syntax_object_id,
                 define.body.atom_syntax_object().unwrap().syntax_object_id,
             );
-            lexical_info = lexical_info.aliases_to(aliases);
+            semantic_info = semantic_info.aliases_to(aliases);
         }
 
         log::info!("Defining global: {:?}", define.name);
         define_var(self.scope, &define);
 
         self.info
-            .insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
+            .insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
     }
 
     // TODO: I really hate this identifier status if local nonsense
@@ -330,7 +331,7 @@ impl<'a> AnalysisPass<'a> {
     ) {
         let name = define.name.atom_identifier().unwrap();
 
-        let mut lexical_info = LexicalInformation::new(
+        let mut semantic_info = SemanticInformation::new(
             if self.scope.depth() == 1 {
                 IdentifierStatus::Global
             } else {
@@ -341,20 +342,20 @@ impl<'a> AnalysisPass<'a> {
         );
 
         if define.is_a_builtin_definition() {
-            lexical_info.mark_builtin();
+            semantic_info.mark_builtin();
         }
 
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = self.scope.get(name) {
             log::warn!("Redefining previous variable: {:?}", name);
-            lexical_info = lexical_info.shadows(shadowed_var.id)
+            semantic_info = semantic_info.shadows(shadowed_var.id)
         }
 
         define_var(&mut self.scope, &define);
 
         self.info
-            .insert(&define.name.atom_syntax_object().unwrap(), lexical_info);
+            .insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
     }
 }
 
@@ -420,7 +421,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // Later on in this function this gets updated accordingly
             self.info.insert(
                 &arg.atom_syntax_object().unwrap(),
-                LexicalInformation::new(
+                SemanticInformation::new(
                     IdentifierStatus::Local,
                     depth,
                     arg.atom_syntax_object().unwrap().span,
@@ -456,8 +457,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 IdentifierStatus::Local
             };
 
-            let mut lexical_info =
-                LexicalInformation::new(kind, depth, var.atom_syntax_object().unwrap().span);
+            let mut semantic_info =
+                SemanticInformation::new(kind, depth, var.atom_syntax_object().unwrap().span);
 
             // Update the usage count to collect how many times the variable was referenced
             // Inside of the scope in which the variable existed
@@ -468,19 +469,19 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 log::warn!("Found unused argument: {:?}", ident);
             }
 
-            lexical_info = lexical_info.with_usage_count(count);
+            semantic_info = semantic_info.with_usage_count(count);
 
             // If this variable name is already in scope, we should mark that this variable
             // shadows the previous id
             if let Some(shadowed_var) = self.scope.get(ident) {
-                lexical_info = lexical_info.shadows(shadowed_var.id)
+                semantic_info = semantic_info.shadows(shadowed_var.id)
             }
 
             self.info
-                .update_with(&var.atom_syntax_object().unwrap(), lexical_info);
+                .update_with(&var.atom_syntax_object().unwrap(), semantic_info);
         }
 
-        // Capture the information and store it in the lexical analysis for this individual function
+        // Capture the information and store it in the semantic analysis for this individual function
         self.info.function_info.insert(
             lambda_function.syntax_object_id,
             FunctionInformation::new(captured_vars),
@@ -526,12 +527,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     self.info.get_mut(&global_var.id).unwrap().usage_count += 1;
 
-                    let lexical_information =
-                        LexicalInformation::new(IdentifierStatus::Global, depth, a.syn.span)
+                    let semantic_information =
+                        SemanticInformation::new(IdentifierStatus::Global, depth, a.syn.span)
                             .with_usage_count(1)
                             .refers_to(global_var.id);
 
-                    self.info.insert(&a.syn, lexical_information);
+                    self.info.insert(&a.syn, semantic_information);
 
                     return;
                 }
@@ -552,14 +553,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     local_define.usage_count = mut_ref.usage_count;
                 }
 
-                let lexical_info =
-                    LexicalInformation::new(IdentifierStatus::Local, depth, a.syn.span)
+                let semantic_info =
+                    SemanticInformation::new(IdentifierStatus::Local, depth, a.syn.span)
                         .with_usage_count(1)
                         .refers_to(mut_ref.id);
 
                 println!("Variable {} refers to {}", ident, mut_ref.id);
 
-                self.info.insert(&a.syn, lexical_info);
+                self.info.insert(&a.syn, semantic_info);
 
                 return;
             }
@@ -582,13 +583,13 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     }
                 }
 
-                let lexical_info = LexicalInformation::new(identifier_status, depth, a.syn.span)
+                let semantic_info = SemanticInformation::new(identifier_status, depth, a.syn.span)
                     .with_usage_count(1)
                     .refers_to(is_captured.id);
 
                 println!("Variable {} refers to {}", ident, is_captured.id);
 
-                self.info.insert(&a.syn, lexical_info);
+                self.info.insert(&a.syn, semantic_info);
 
                 return;
             }
@@ -596,7 +597,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // Otherwise, we've hit a free variable at this point
             self.info.insert(
                 &a.syn,
-                LexicalInformation::new(IdentifierStatus::Free, depth, a.syn.span),
+                SemanticInformation::new(IdentifierStatus::Free, depth, a.syn.span),
             );
 
             log::warn!("Found free var: {}", a);
@@ -607,7 +608,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 impl<'a> VisitorMutUnitRef<'a> for Analysis {
     fn visit_atom(&mut self, a: &'a crate::parser::ast::Atom) {
         log::info!(
-            "Id: {:?}, Atom: {:?}, Lexical Information: {:?}",
+            "Id: {:?}, Atom: {:?}, Semantic Information: {:?}",
             a.syn.syntax_object_id,
             a.syn.ty,
             self.get(&a.syn)
@@ -618,7 +619,7 @@ impl<'a> VisitorMutUnitRef<'a> for Analysis {
         for arg in &lambda_function.args {
             if let Some(arg) = arg.atom_syntax_object() {
                 log::info!(
-                    "Id: {:?}, Atom in function argument: {:?}, Lexical Information: {:?}",
+                    "Id: {:?}, Atom in function argument: {:?}, Semantic Information: {:?}",
                     arg.syntax_object_id,
                     arg.ty,
                     self.get(&arg)
@@ -724,9 +725,9 @@ impl<'a, F> FindCallSites<'a, F> {
 impl<'a, F> FindCallSites<'a, F> {
     fn is_required_global_function_call(&self, l: &List) -> bool {
         if let Some(name) = l.first_ident() {
-            if let Some(lexical_info) = self.analysis.get(&l.args[0].atom_syntax_object().unwrap())
+            if let Some(semantic_info) = self.analysis.get(&l.args[0].atom_syntax_object().unwrap())
             {
-                return name == self.name && lexical_info.kind == IdentifierStatus::Global;
+                return name == self.name && semantic_info.kind == IdentifierStatus::Global;
             }
         }
 
@@ -798,10 +799,10 @@ where
             list @ ExprKind::List(_) => {
                 if let ExprKind::List(l) = &list {
                     if let Some(name) = l.first_ident() {
-                        if let Some(lexical_info) =
+                        if let Some(semantic_info) =
                             self.analysis.get(&l.args[0].atom_syntax_object().unwrap())
                         {
-                            if name == self.name && lexical_info.kind == IdentifierStatus::Global {
+                            if name == self.name && semantic_info.kind == IdentifierStatus::Global {
                                 // At this point, call out to the user given function - if we do in fact mutate
                                 // where the value points to, we should return a full node that needs to be visited
                                 (self.func)(&self.analysis, list);
@@ -1056,13 +1057,13 @@ impl<'a> VisitorMutUnitRef<'a> for MarkBuiltInFunctions<'a> {
 
 // TODO: There might be opportunity to parallelize this here - perhaps shard the analysis between threads
 // across some subset of expressions and then merge afterwards
-pub struct LexicalAnalysis<'a> {
+pub struct SemanticAnalysis<'a> {
     // We want to reserve the right to add or remove expressions from the program as needed
     exprs: &'a mut Vec<ExprKind>,
     analysis: Analysis,
 }
 
-impl<'a> LexicalAnalysis<'a> {
+impl<'a> SemanticAnalysis<'a> {
     pub fn new(exprs: &'a mut Vec<ExprKind>) -> Self {
         let analysis = Analysis::from_exprs(exprs);
         Self { exprs, analysis }
@@ -1074,7 +1075,7 @@ impl<'a> LexicalAnalysis<'a> {
     //     self.exprs
     // }
 
-    pub fn get(&self, object: &SyntaxObject) -> Option<&LexicalInformation> {
+    pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
         self.analysis.get(object)
     }
 
@@ -1155,7 +1156,7 @@ impl<'a> LexicalAnalysis<'a> {
         });
 
         if re_run_analysis {
-            log::info!("Re-running the lexical analysis after modifications");
+            log::info!("Re-running the semantic analysis after modifications");
 
             self.analysis = Analysis::from_exprs(self.exprs);
         }
@@ -1362,7 +1363,9 @@ impl<'a> LexicalAnalysis<'a> {
         self.exprs.append(&mut overall_lifted);
 
         if re_run_analysis {
-            log::info!("Re-running the lexical analysis after modifications during lambda lifting");
+            log::info!(
+                "Re-running the semantic analysis after modifications during lambda lifting"
+            );
 
             self.analysis = Analysis::from_exprs(self.exprs);
         }
@@ -1450,7 +1453,7 @@ mod analysis_pass_tests {
         // let mut analysis = Analysis::default();
         let mut exprs = Parser::parse(script).unwrap();
         {
-            let mut analysis = LexicalAnalysis::new(&mut exprs);
+            let mut analysis = SemanticAnalysis::new(&mut exprs);
             analysis.replace_pure_empty_lets_with_body();
 
             // Log the free identifiers
