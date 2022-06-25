@@ -521,6 +521,35 @@ fn number_module() -> BuiltInModule {
     module
 }
 
+#[inline]
+pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() == 0 {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    for (left, right) in args.iter().tuple_windows() {
+        if left != right {
+            return Ok(SteelVal::BoolV(false));
+        }
+    }
+
+    Ok(SteelVal::BoolV(true))
+}
+
+pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() == 0 {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    for (left, right) in args.iter().tuple_windows() {
+        if !(left <= right) {
+            return Ok(SteelVal::BoolV(false));
+        }
+    }
+
+    Ok(SteelVal::BoolV(true))
+}
+
 fn equality_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/equality".to_string());
     module
@@ -542,7 +571,7 @@ fn ord_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ord".to_string());
     module
         .register_value(">", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a > b)))
-        .register_value(">=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a >= b)))
+        .register_value(">=", SteelVal::FuncV(lte_primitive))
         .register_value("<", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a < b)))
         .register_value("<=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a <= b)));
     module

@@ -19,7 +19,8 @@ use std::{
 
 use super::{
     code_generator::{
-        convert_call_globals, loop_condition_local_const_arity_two, specialize_constants,
+        convert_call_globals, inline_num_operations, loop_condition_local_const_arity_two,
+        specialize_constants,
     },
     compiler::DebruijnIndicesInterner,
     constants::ConstantTable,
@@ -424,6 +425,7 @@ impl RawProgramWithSymbols {
     pub(crate) fn apply_optimizations(&mut self) -> &mut Self {
         // Run down the optimizations here
         for instructions in &mut self.instructions {
+            inline_num_operations(instructions);
             convert_call_globals(instructions);
             // loop_condition_local_const_arity_two(instructions);
         }

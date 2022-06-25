@@ -3,7 +3,7 @@ use std::{cell::RefCell, convert::TryFrom, rc::Rc};
 use super::constants::{ConstantMap, ConstantTable};
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
-    parser::{ast::Atom, parser::SyntaxObject, span_visitor::get_span, tokens::TokenType},
+    parser::{ast::Atom, parser::{SyntaxObject, RawSyntaxObject}, span_visitor::get_span, tokens::TokenType},
     values::structs::StructFuncBuilder,
 };
 
@@ -1764,6 +1764,58 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 // 1    LOADINT2 : 12
 // 2    CALLGLOBAL : 6
 // 3    PASS : 2
+
+pub fn inline_num_operations(instructions: &mut [Instruction]) {
+
+
+    for i in 0..instructions.len() - 1 {
+        let push = instructions.get(i);
+        let func = instructions.get(i + 1);
+
+        match (push, func) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::FUNC | OpCode::TAILCALL,
+                    contents: Some(RawSyntaxObject { ty: TokenType::Identifier(ident), ..}),
+                    payload_size,
+                    ..
+                }),
+            ) => {
+
+                let replaced = match ident.as_ref() {
+                    "+" => Some(OpCode::ADD),
+                    "-" => Some(OpCode::SUB),
+                    "/" => Some(OpCode::DIV),
+                    "*" => Some(OpCode::MUL),
+                    "equal?" => Some(OpCode::EQUAL),
+                    "<=" => Some(OpCode::LTE),
+                    _ => None
+                };
+
+                if let Some(new_op_code) = replaced {
+                    let payload_size = *payload_size;
+                    if let Some(x) = instructions.get_mut(i) {
+                        x.op_code = new_op_code;
+                        x.payload_size = payload_size;
+                    }
+    
+                    if let Some(x) = instructions.get_mut(i + 1) {
+                        x.op_code = OpCode::PASS;
+                    }
+                } 
+
+                
+            }
+            _ => {}
+        }
+    }
+
+
+}
 
 // Often, there may be a loop condition with something like (= x 10000)
 // this identifies these and lazily applies the function, only pushing on to the stack

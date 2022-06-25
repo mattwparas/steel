@@ -31,6 +31,8 @@ pub use symbols::SymbolOperations;
 pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
 
+pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
+
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::{
     rvals::{create_result_ok_struct, FunctionSignature, SteelVal},

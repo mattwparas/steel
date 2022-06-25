@@ -12,7 +12,12 @@ use super::{
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
-use crate::{compiler::program::Executable, values::transducers::Transducers};
+use crate::{
+    compiler::program::Executable,
+    primitives::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive},
+    steel_vm::primitives::{equality_primitive, lte_primitive},
+    values::transducers::Transducers,
+};
 use crate::{compiler::program::OpCodeOccurenceProfiler, values::transducers::Reducer};
 // use crate::steel_vm::contracts::FlatContractExt;
 use crate::values::contracts::ContractType;
@@ -957,6 +962,23 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
         // let mut cur_inst;
 
+        macro_rules! inline_primitive {
+            ($name:tt, $payload_size:expr) => {{
+                let last_index = self.stack.len() - $payload_size as usize;
+
+                let result = match $name(self.stack.peek_range(last_index..)) {
+                    Ok(value) => value,
+                    Err(e) => return Err(e.set_span(self.current_span())),
+                };
+
+                // This is the old way... lets see if the below way improves the speed
+                self.stack.truncate(last_index);
+                self.stack.push(result);
+
+                self.ip += 2;
+            }};
+        }
+
         while self.ip < self.instructions.len() {
             // Process the op code
             // self.profiler.process_opcode(
@@ -990,6 +1012,49 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     println!("Hitting a pass - this shouldn't happen");
                     self.ip += 1;
                 }
+                DenseInstruction {
+                    op_code: OpCode::ADD,
+                    payload_size,
+                    ..
+                } => {
+                    inline_primitive!(add_primitive, payload_size)
+                }
+                DenseInstruction {
+                    op_code: OpCode::SUB,
+                    payload_size,
+                    ..
+                } => {
+                    inline_primitive!(subtract_primitive, payload_size)
+                }
+                DenseInstruction {
+                    op_code: OpCode::MUL,
+                    payload_size,
+                    ..
+                } => {
+                    inline_primitive!(multiply_primitive, payload_size)
+                }
+                DenseInstruction {
+                    op_code: OpCode::DIV,
+                    payload_size,
+                    ..
+                } => inline_primitive!(divide_primitive, payload_size),
+
+                DenseInstruction {
+                    op_code: OpCode::EQUAL,
+                    payload_size,
+                    ..
+                } => {
+                    inline_primitive!(equality_primitive, payload_size);
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::LTE,
+                    payload_size,
+                    ..
+                } => {
+                    inline_primitive!(lte_primitive, payload_size);
+                }
+
                 DenseInstruction {
                     op_code: OpCode::VOID,
                     ..

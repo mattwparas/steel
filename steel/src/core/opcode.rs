@@ -46,6 +46,12 @@ pub enum OpCode {
     BEGINSCOPE,
     ENDSCOPE,
     FUNC0,
+    ADD,
+    SUB,
+    MUL,
+    DIV,
+    EQUAL,
+    LTE,
 }
 
 impl OpCode {
@@ -96,6 +102,12 @@ impl OpCode {
             "BEGINSCOPE" => BEGINSCOPE,
             "ENDSCOPE" => ENDSCOPE,
             "FUNC0" => FUNC0,
+            "ADD" => ADD,
+            "SUB" => SUB,
+            "MUL" => MUL,
+            "DIV" => DIV,
+            "EQUAL" => EQUAL,
+            "LTE" => LTE,
             _ => panic!("Unable to map string to opcode"),
         }
     }

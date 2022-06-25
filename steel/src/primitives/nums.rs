@@ -1,6 +1,173 @@
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
+pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "* requires at least one argument")
+    }
+
+    let mut sum_int = 1;
+    let mut sum_float = 1.0;
+    let mut found_float = false;
+
+    for arg in args {
+        match arg {
+            SteelVal::IntV(n) => {
+                if found_float {
+                    sum_float *= *n as f64;
+                } else {
+                    if let Some(res) = isize::checked_mul(sum_int, *n) {
+                        sum_int = res
+                    } else {
+                        found_float = true;
+                        sum_float *= *n as f64;
+                    }
+                }
+            }
+            SteelVal::NumV(n) => {
+                if !found_float {
+                    sum_float = sum_int as f64;
+                    found_float = true
+                }
+                sum_float *= n;
+            }
+            _ => stop!(TypeMismatch => "* expected a number"),
+        }
+    }
+
+    if found_float {
+        Ok(SteelVal::NumV(sum_float))
+    } else {
+        Ok(SteelVal::IntV(sum_int))
+    }
+}
+
+pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "/ requires at least one argument")
+    }
+
+    let floats: Result<Vec<f64>> = args
+        .iter()
+        .map(|x| match x {
+            SteelVal::IntV(n) => Ok(*n as f64),
+            SteelVal::NumV(n) => Ok(*n),
+            _ => stop!(TypeMismatch => "division expects a number"),
+        })
+        .collect();
+
+    let mut floats = floats?.into_iter();
+
+    if let Some(first) = floats.next() {
+        Ok(SteelVal::NumV(floats.fold(first, |acc, x| acc / x)))
+    } else {
+        stop!(ArityMismatch => "division requires at least one argument")
+    }
+}
+
+pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "- requires at least one argument")
+    }
+
+    let mut sum_int = 0;
+    let mut sum_float = 0.0;
+    let mut found_float = false;
+
+    let mut args = args.into_iter();
+
+    if let Some(first) = args.next() {
+        match first {
+            SteelVal::IntV(n) => {
+                sum_int = *n;
+                // sum_float = *n as f64;
+            }
+            SteelVal::NumV(n) => {
+                found_float = true;
+                sum_float = *n;
+            }
+            _ => {
+                stop!(TypeMismatch => format!("'-' expected a number type, found: {}", first))
+            }
+        }
+    }
+
+    for arg in args {
+        match arg {
+            SteelVal::IntV(n) => {
+                if found_float {
+                    sum_float -= *n as f64;
+                } else {
+                    if let Some(res) = isize::checked_sub(sum_int, *n) {
+                        sum_int = res
+                    } else {
+                        found_float = true;
+                        sum_float -= *n as f64;
+                    }
+                }
+            }
+            SteelVal::NumV(n) => {
+                if !found_float {
+                    sum_float = sum_int as f64;
+                    found_float = true
+                }
+                sum_float -= n;
+            }
+            _ => stop!(TypeMismatch => "- expected a number"),
+        }
+    }
+
+    if found_float {
+        Ok(SteelVal::NumV(sum_float))
+    } else {
+        Ok(SteelVal::IntV(sum_int))
+    }
+}
+
+pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "+ requires at least one argument")
+    }
+
+    let mut sum_int = 0;
+    let mut sum_float = 0.0;
+    let mut found_float = false;
+
+    for arg in args {
+        match arg {
+            SteelVal::IntV(n) => {
+                if found_float {
+                    sum_float += *n as f64;
+                } else {
+                    if let Some(res) = isize::checked_add(sum_int, *n) {
+                        sum_int = res
+                    } else {
+                        found_float = true;
+                        sum_float += *n as f64;
+                    }
+                }
+            }
+            SteelVal::NumV(n) => {
+                if !found_float {
+                    sum_float = sum_int as f64;
+                    found_float = true
+                }
+                sum_float += n;
+            }
+            _ => {
+                let e = format!("+ expected a number, found {:?}", arg);
+                stop!(TypeMismatch => e);
+            }
+        }
+    }
+
+    if found_float {
+        Ok(SteelVal::NumV(sum_float))
+    } else {
+        Ok(SteelVal::IntV(sum_int))
+    }
+}
+
 pub struct NumOperations {}
 impl NumOperations {
     pub fn arithmetic_shift() -> SteelVal {
@@ -116,180 +283,21 @@ impl NumOperations {
     }
 
     pub fn adder() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                stop!(ArityMismatch => "+ requires at least one argument")
-            }
-
-            let mut sum_int = 0;
-            let mut sum_float = 0.0;
-            let mut found_float = false;
-
-            for arg in args {
-                match arg {
-                    SteelVal::IntV(n) => {
-                        if found_float {
-                            sum_float += *n as f64;
-                        } else {
-                            if let Some(res) = isize::checked_add(sum_int, *n) {
-                                sum_int = res
-                            } else {
-                                found_float = true;
-                                sum_float += *n as f64;
-                            }
-                        }
-                    }
-                    SteelVal::NumV(n) => {
-                        if !found_float {
-                            sum_float = sum_int as f64;
-                            found_float = true
-                        }
-                        sum_float += n;
-                    }
-                    _ => {
-                        let e = format!("+ expected a number, found {:?}", arg);
-                        stop!(TypeMismatch => e);
-                    }
-                }
-            }
-
-            if found_float {
-                Ok(SteelVal::NumV(sum_float))
-            } else {
-                Ok(SteelVal::IntV(sum_int))
-            }
-        })
+        SteelVal::FuncV(add_primitive)
     }
 
     pub fn multiply() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                stop!(ArityMismatch => "* requires at least one argument")
-            }
-
-            let mut sum_int = 1;
-            let mut sum_float = 1.0;
-            let mut found_float = false;
-
-            for arg in args {
-                match arg {
-                    SteelVal::IntV(n) => {
-                        if found_float {
-                            sum_float *= *n as f64;
-                        } else {
-                            if let Some(res) = isize::checked_mul(sum_int, *n) {
-                                sum_int = res
-                            } else {
-                                found_float = true;
-                                sum_float *= *n as f64;
-                            }
-                        }
-                    }
-                    SteelVal::NumV(n) => {
-                        if !found_float {
-                            sum_float = sum_int as f64;
-                            found_float = true
-                        }
-                        sum_float *= n;
-                    }
-                    _ => stop!(TypeMismatch => "* expected a number"),
-                }
-            }
-
-            if found_float {
-                Ok(SteelVal::NumV(sum_float))
-            } else {
-                Ok(SteelVal::IntV(sum_int))
-            }
-        })
+        SteelVal::FuncV(multiply_primitive)
     }
 
     // TODO implement the full numerical tower
     // For now, only support division into floats
     pub fn divide() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                stop!(ArityMismatch => "/ requires at least one argument")
-            }
-
-            let floats: Result<Vec<f64>> = args
-                .iter()
-                .map(|x| match x {
-                    SteelVal::IntV(n) => Ok(*n as f64),
-                    SteelVal::NumV(n) => Ok(*n),
-                    _ => stop!(TypeMismatch => "division expects a number"),
-                })
-                .collect();
-
-            let mut floats = floats?.into_iter();
-
-            if let Some(first) = floats.next() {
-                Ok(SteelVal::NumV(floats.fold(first, |acc, x| acc / x)))
-            } else {
-                stop!(ArityMismatch => "division requires at least one argument")
-            }
-        })
+        SteelVal::FuncV(divide_primitive)
     }
 
     pub fn subtract() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                stop!(ArityMismatch => "- requires at least one argument")
-            }
-
-            let mut sum_int = 0;
-            let mut sum_float = 0.0;
-            let mut found_float = false;
-
-            let mut args = args.into_iter();
-
-            if let Some(first) = args.next() {
-                match first {
-                    SteelVal::IntV(n) => {
-                        sum_int = *n;
-                        // sum_float = *n as f64;
-                    }
-                    SteelVal::NumV(n) => {
-                        found_float = true;
-                        sum_float = *n;
-                    }
-                    _ => {
-                        stop!(TypeMismatch => format!("'-' expected a number type, found: {}", first))
-                    }
-                }
-            }
-
-            for arg in args {
-                match arg {
-                    SteelVal::IntV(n) => {
-                        if found_float {
-                            sum_float -= *n as f64;
-                        } else {
-                            if let Some(res) = isize::checked_sub(sum_int, *n) {
-                                sum_int = res
-                            } else {
-                                found_float = true;
-                                sum_float -= *n as f64;
-                            }
-                        }
-                    }
-                    SteelVal::NumV(n) => {
-                        if !found_float {
-                            sum_float = sum_int as f64;
-                            found_float = true
-                        }
-                        sum_float -= n;
-                    }
-                    _ => stop!(TypeMismatch => "- expected a number"),
-                }
-            }
-
-            if found_float {
-                Ok(SteelVal::NumV(sum_float))
-            } else {
-                Ok(SteelVal::IntV(sum_int))
-            }
-        })
+        SteelVal::FuncV(subtract_primitive)
     }
 }
 
