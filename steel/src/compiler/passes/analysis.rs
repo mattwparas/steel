@@ -214,6 +214,19 @@ pub struct ScopeInfo {
     id: usize,
     captured: bool,
     usage_count: usize,
+    /// Last touched by this ID
+    last_used: Option<usize>,
+}
+
+impl ScopeInfo {
+    pub fn new(id: usize) -> Self {
+        Self {
+            id,
+            captured: false,
+            usage_count: 0,
+            last_used: None,
+        }
+    }
 }
 
 struct AnalysisPass<'a> {
@@ -224,11 +237,7 @@ struct AnalysisPass<'a> {
 fn define_var(scope: &mut ScopeMap<String, ScopeInfo>, define: &crate::parser::ast::Define) {
     scope.define(
         define.name.atom_identifier().unwrap().to_string(),
-        ScopeInfo {
-            id: define.name.atom_syntax_object().unwrap().syntax_object_id,
-            captured: false,
-            usage_count: 0,
-        },
+        ScopeInfo::new(define.name.atom_syntax_object().unwrap().syntax_object_id),
     );
 }
 
@@ -328,14 +337,7 @@ impl<'a> AnalysisPass<'a> {
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
 
-            self.scope.define(
-                name.to_string(),
-                ScopeInfo {
-                    id,
-                    captured: false,
-                    usage_count: 0,
-                },
-            );
+            self.scope.define(name.to_string(), ScopeInfo::new(id));
 
             // Throw in a dummy info so that no matter what, we have something to refer to
             // in the event of a set!
@@ -462,6 +464,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // in scope. If thats the case, we've shadowed and should mark it accordingly.
         let arguments = self.pop_top_layer();
 
+        // Mark the last usage of the variable after the values go out of scope
+        for id in arguments.values().map(|x| x.id) {
+            self.info.get_mut(&id).unwrap().last_usage = true;
+        }
+
         // Using the arguments, mark the vars that have been captured
         self.find_and_mark_captured_arguments(lambda_function, &captured_vars, depth, arguments);
 
@@ -497,8 +504,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     fn visit_atom(&mut self, a: &'a crate::parser::ast::Atom) {
         let name = a.ident();
         let depth = self.scope.depth();
-
-        // println!("VISITING {:?} at depth: {:?}", name, depth);
+        // Snag the current id of this node - we're gonna want this for later
+        let current_id = a.syn.syntax_object_id;
 
         if let Some(ident) = name {
             // Check if its a global var - otherwise, we want to check if its a free
@@ -532,6 +539,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 mut_ref.captured = false;
                 mut_ref.usage_count += 1;
 
+                // Mark this as last touched by this identifier
+                mut_ref.last_used = Some(current_id);
+
                 // In the event there is a local define, we want to count the usage here
                 if let Some(local_define) = self.info.get_mut(&mut_ref.id) {
                     local_define.usage_count = mut_ref.usage_count;
@@ -553,6 +563,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             if let Some(is_captured) = self.scope.get_mut(ident) {
                 is_captured.captured = true;
                 is_captured.usage_count += 1;
+
+                // TODO: Make sure we want to mark this identifier as last used
+                is_captured.last_used = Some(current_id);
 
                 let mut identifier_status = IdentifierStatus::Captured;
 
