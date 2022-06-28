@@ -607,6 +607,7 @@ impl Define {
         None
     }
 
+    // TODO: address this later
     pub(crate) fn is_a_builtin_definition(&self) -> bool {
         if let ExprKind::List(l) = &self.body {
             match l.first_ident() {
@@ -618,6 +619,10 @@ impl Define {
 
         false
     }
+
+    pub(crate) fn name_id(&self) -> Option<usize> {
+        self.name.atom_syntax_object().map(|x| x.syntax_object_id)
+    }
 }
 
 impl From<Define> for ExprKind {
@@ -626,13 +631,22 @@ impl From<Define> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LambdaFunction {
     pub args: Vec<ExprKind>,
     pub body: ExprKind,
     pub location: SyntaxObject,
     pub rest: bool,
     pub syntax_object_id: usize,
+}
+
+impl PartialEq for LambdaFunction {
+    fn eq(&self, other: &Self) -> bool {
+        self.args == other.args
+            && self.body == other.body
+            && self.location == other.location
+            && self.rest == other.rest
+    }
 }
 
 impl fmt::Display for LambdaFunction {

@@ -32,6 +32,7 @@ pub struct SemanticInformation {
     refers_to: Option<usize>,
     aliases_to: Option<usize>,
     builtin: bool,
+    last_usage: bool,
 }
 
 impl SemanticInformation {
@@ -46,6 +47,7 @@ impl SemanticInformation {
             refers_to: None,
             aliases_to: None,
             builtin: false,
+            last_usage: false,
         }
     }
 
@@ -109,7 +111,7 @@ impl Analysis {
             .map(|x| x.refers_to)
             .flatten()
         {
-            println!("id -> {}", next);
+            // println!("id -> {}", next);
             id = next;
         }
 
@@ -144,46 +146,6 @@ impl Analysis {
 
         self.insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
     }
-
-    // pub fn visit_top_level_define_value_without_body(
-    //     &mut self,
-    //     scope: &mut ScopeMap<String, ScopeInfo>,
-    //     define: &crate::parser::ast::Define,
-    // ) {
-    //     let name = define.name.atom_identifier().unwrap();
-
-    //     let mut semantic_info = SemanticInformation::new(
-    //         IdentifierStatus::Global,
-    //         1,
-    //         define.name.atom_syntax_object().unwrap().span,
-    //     );
-
-    //     // If this variable name is already in scope, we should mark that this variable
-    //     // shadows the previous id
-    //     if let Some(shadowed_var) = scope.get(name) {
-    //         semantic_info = semantic_info.shadows(shadowed_var.id)
-    //     }
-
-    //     if define.is_a_builtin_definition() {
-    //         semantic_info.mark_builtin();
-    //     }
-
-    //     if let Some(aliases) = define.is_an_alias_definition() {
-    //         log::info!(
-    //             "Found definition that aliases - {} aliases {}: {} -> {}",
-    //             define.name,
-    //             define.body,
-    //             define.name.atom_syntax_object().unwrap().syntax_object_id,
-    //             define.body.atom_syntax_object().unwrap().syntax_object_id,
-    //         );
-    //         semantic_info = semantic_info.aliases_to(aliases);
-    //     }
-
-    //     log::info!("Defining global: {:?}", define.name);
-    //     define_var(scope, &define);
-
-    //     self.insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
-    // }
 
     pub fn run(&mut self, exprs: &[ExprKind]) {
         let mut scope: ScopeMap<String, ScopeInfo> = ScopeMap::new();
@@ -357,6 +319,90 @@ impl<'a> AnalysisPass<'a> {
         self.info
             .insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
     }
+
+    // Visit the function arguments, marking these as defining in our scope
+    // and also defaulting them to be local identifiers. This way, in the event of a set!
+    // we have something to refer to
+    fn visit_func_args(&mut self, lambda_function: &LambdaFunction, depth: usize) {
+        for arg in &lambda_function.args {
+            let name = arg.atom_identifier().unwrap();
+            let id = arg.atom_syntax_object().unwrap().syntax_object_id;
+
+            self.scope.define(
+                name.to_string(),
+                ScopeInfo {
+                    id,
+                    captured: false,
+                    usage_count: 0,
+                },
+            );
+
+            // Throw in a dummy info so that no matter what, we have something to refer to
+            // in the event of a set!
+            // Later on in this function this gets updated accordingly
+            self.info.insert(
+                &arg.atom_syntax_object().unwrap(),
+                SemanticInformation::new(
+                    IdentifierStatus::Local,
+                    depth,
+                    arg.atom_syntax_object().unwrap().span,
+                ),
+            );
+        }
+    }
+
+    fn pop_top_layer(&mut self) -> HashMap<String, ScopeInfo> {
+        let arguments = self
+            .scope
+            .iter_top()
+            // .cloned()
+            .map(|x| (x.0.clone(), x.1.clone()))
+            .collect::<HashMap<_, _>>();
+
+        self.scope.pop_layer();
+
+        arguments
+    }
+
+    fn find_and_mark_captured_arguments(
+        &mut self,
+        lambda_function: &LambdaFunction,
+        captured_vars: &HashMap<String, ScopeInfo>,
+        depth: usize,
+        arguments: HashMap<String, ScopeInfo>,
+    ) {
+        for var in &lambda_function.args {
+            let ident = var.atom_identifier().unwrap();
+            let kind = if captured_vars.contains_key(ident) {
+                IdentifierStatus::Captured
+            } else {
+                IdentifierStatus::Local
+            };
+
+            let mut semantic_info =
+                SemanticInformation::new(kind, depth, var.atom_syntax_object().unwrap().span);
+
+            // Update the usage count to collect how many times the variable was referenced
+            // Inside of the scope in which the variable existed
+            let count = arguments.get(ident).unwrap().usage_count;
+
+            if count == 0 {
+                // TODO: Emit warning with the span
+                log::warn!("Found unused argument: {:?}", ident);
+            }
+
+            semantic_info = semantic_info.with_usage_count(count);
+
+            // If this variable name is already in scope, we should mark that this variable
+            // shadows the previous id
+            if let Some(shadowed_var) = self.scope.get(ident) {
+                semantic_info = semantic_info.shadows(shadowed_var.id)
+            }
+
+            self.info
+                .update_with(&var.atom_syntax_object().unwrap(), semantic_info);
+        }
+    }
 }
 
 impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
@@ -400,35 +446,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         self.scope.push_layer();
 
         let let_level_bindings = lambda_function.arguments().unwrap();
-
         let depth = self.scope.depth();
 
-        for arg in &lambda_function.args {
-            let name = arg.atom_identifier().unwrap();
-            let id = arg.atom_syntax_object().unwrap().syntax_object_id;
-
-            self.scope.define(
-                name.to_string(),
-                ScopeInfo {
-                    id,
-                    captured: false,
-                    usage_count: 0,
-                },
-            );
-
-            // Throw in a dummy info so that no matter what, we have something to refer to
-            // in the event of a set!
-            // Later on in this function this gets updated accordingly
-            self.info.insert(
-                &arg.atom_syntax_object().unwrap(),
-                SemanticInformation::new(
-                    IdentifierStatus::Local,
-                    depth,
-                    arg.atom_syntax_object().unwrap().span,
-                ),
-            );
-        }
-
+        self.visit_func_args(lambda_function, depth);
         self.visit(&lambda_function.body);
 
         // TODO: combine the captured_vars and arguments into one thing
@@ -438,48 +458,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         log::info!("Captured variables: {:?}", captured_vars);
 
         // Get the arguments to get the counts
-        let arguments = self
-            .scope
-            .iter_top()
-            // .cloned()
-            .map(|x| (x.0.clone(), x.1.clone()))
-            .collect::<HashMap<_, _>>();
-
         // Pop the layer here - now, we check if any of the arguments below actually already exist
         // in scope. If thats the case, we've shadowed and should mark it accordingly.
-        self.scope.pop_layer();
+        let arguments = self.pop_top_layer();
 
-        for var in &lambda_function.args {
-            let ident = var.atom_identifier().unwrap();
-            let kind = if captured_vars.contains_key(ident) {
-                IdentifierStatus::Captured
-            } else {
-                IdentifierStatus::Local
-            };
-
-            let mut semantic_info =
-                SemanticInformation::new(kind, depth, var.atom_syntax_object().unwrap().span);
-
-            // Update the usage count to collect how many times the variable was referenced
-            // Inside of the scope in which the variable existed
-            let count = arguments.get(ident).unwrap().usage_count;
-
-            if count == 0 {
-                // TODO: Emit warning with the span
-                log::warn!("Found unused argument: {:?}", ident);
-            }
-
-            semantic_info = semantic_info.with_usage_count(count);
-
-            // If this variable name is already in scope, we should mark that this variable
-            // shadows the previous id
-            if let Some(shadowed_var) = self.scope.get(ident) {
-                semantic_info = semantic_info.shadows(shadowed_var.id)
-            }
-
-            self.info
-                .update_with(&var.atom_syntax_object().unwrap(), semantic_info);
-        }
+        // Using the arguments, mark the vars that have been captured
+        self.find_and_mark_captured_arguments(lambda_function, &captured_vars, depth, arguments);
 
         // Capture the information and store it in the semantic analysis for this individual function
         self.info.function_info.insert(
@@ -1022,39 +1006,6 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
     }
 }
 
-// After everything is done, walk the tree and mark anything that is explicitly defined via the "##__module-get" primitive
-// This gives us the direct knowledge that any identifiers defined this way, explicitly refer to the builtin, and gives
-// better insight into what is actually referring to the base level primitives
-//
-// TODO: Implement a better solution to this that does this in the top level analysis pass
-struct MarkBuiltInFunctions<'a> {
-    info: &'a mut Analysis,
-}
-
-impl<'a> MarkBuiltInFunctions<'a> {
-    pub fn new(info: &'a mut Analysis) -> Self {
-        MarkBuiltInFunctions { info }
-    }
-}
-
-impl<'a> VisitorMutUnitRef<'a> for MarkBuiltInFunctions<'a> {
-    fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
-        if let ExprKind::List(l) = &define.body {
-            match l.first_ident() {
-                Some(func) if func == "##__module-get" => {
-                    self.info
-                        .get_mut(&define.name.atom_syntax_object().unwrap().syntax_object_id)
-                        .unwrap()
-                        .mark_builtin();
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-// impl<'a, F> VisitorMutRefUnit for FindCallSites<>
-
 // TODO: There might be opportunity to parallelize this here - perhaps shard the analysis between threads
 // across some subset of expressions and then merge afterwards
 pub struct SemanticAnalysis<'a> {
@@ -1069,12 +1020,6 @@ impl<'a> SemanticAnalysis<'a> {
         Self { exprs, analysis }
     }
 
-    // fn anonymous_function_call
-
-    // pub fn top_level_defines(&self) -> impl Iterator<Item = &str> {
-    //     self.exprs
-    // }
-
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
         self.analysis.get(object)
     }
@@ -1087,7 +1032,7 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn get_global_id<A: AsRef<str>>(&self, name: A) -> Option<usize> {
-        self.query_top_level_define("list")?
+        self.query_top_level_define(name)?
             .name
             .atom_syntax_object()
             .map(|x| x.syntax_object_id)
@@ -1105,13 +1050,6 @@ impl<'a> SemanticAnalysis<'a> {
         }
     }
 
-    // pub fn add_captured_variables_to_function_arguments(&mut self) {
-    //     let mut re_run_analysis = false;
-
-    //     self.
-
-    // }
-
     /// Find anonymous function calls with no arguments that don't capture anything,
     /// and replace this with just the body of the function. For instance:
     ///
@@ -1122,7 +1060,7 @@ impl<'a> SemanticAnalysis<'a> {
     pub fn replace_pure_empty_lets_with_body(&mut self) -> &mut Self {
         let mut re_run_analysis = false;
 
-        self.find_anonymous_function_calls_and_mutate_with(|analysis, anon| {
+        let func = |analysis: &Analysis, anon: &mut ExprKind| {
             if let ExprKind::List(l) = anon {
                 let arg_count = l.args.len() - 1;
                 let function = l.args.get_mut(0).unwrap();
@@ -1153,7 +1091,9 @@ impl<'a> SemanticAnalysis<'a> {
             }
 
             false
-        });
+        };
+
+        self.find_anonymous_function_calls_and_mutate_with(func);
 
         if re_run_analysis {
             log::info!("Re-running the semantic analysis after modifications");
@@ -1237,14 +1177,12 @@ impl<'a> SemanticAnalysis<'a> {
             .map(|x| x.span)
     }
 
-    pub fn find_free_identifiers(&self) -> Vec<Span> {
-        let mut free = FreeIdentifiers::new(&self.analysis);
-
-        for expr in self.exprs.iter() {
-            free.visit(expr);
-        }
-
-        free.free_identifiers
+    pub fn find_free_identifiers(&self) -> impl Iterator<Item = Span> + '_ {
+        self.analysis
+            .info
+            .values()
+            .filter(|x| x.kind == IdentifierStatus::Free)
+            .map(|x| x.span)
     }
 
     pub fn find_unused_arguments(&self) -> Vec<Span> {
@@ -1389,6 +1327,62 @@ mod analysis_pass_tests {
     use super::*;
 
     #[test]
+    fn analysis_pass_finds_call_sites() {
+        let script = r#"
+            (define (foo) (+ 1 2 3 4 5))
+            (define (test) (let ((a 10) (b 20)) (foo)))
+            (foo)
+            (foo)
+            (begin
+                (foo)
+                (foo)
+                (foo))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+
+        let mut count = 0;
+
+        analysis.find_call_sites_and_call("foo", |_, _| count += 1);
+
+        assert_eq!(count, 6);
+    }
+
+    #[test]
+    fn resolve_alias() {
+        let script = r#"
+            (define list (%module-get%))
+            (define alias-list list)
+            (define alias-list2 alias-list)
+            (define alias-list3 alias-list2)
+            (define alias-list4 alias-list3)
+        "#;
+
+        // let mut analysis = Analysis::default();
+        let mut exprs = Parser::parse(script).unwrap();
+        {
+            let analysis = SemanticAnalysis::new(&mut exprs);
+
+            let list_id = analysis
+                .query_top_level_define("list")
+                .unwrap()
+                .name_id()
+                .unwrap();
+
+            let alias_list_4_id = analysis
+                .query_top_level_define("alias-list4")
+                .unwrap()
+                .name_id()
+                .unwrap();
+
+            let found = analysis.resolve_alias(alias_list_4_id);
+
+            assert_eq!(list_id, found.unwrap());
+        }
+    }
+
+    #[test]
     fn check_analysis_pass() {
         let mut builder = Builder::new();
 
@@ -1458,8 +1452,6 @@ mod analysis_pass_tests {
 
             // Log the free identifiers
             let free_vars = analysis.find_free_identifiers();
-
-            println!("Free vars: {:?}", free_vars);
 
             for var in free_vars {
                 crate::rerrs::report_error(
