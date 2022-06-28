@@ -111,7 +111,6 @@ impl Analysis {
             .map(|x| x.refers_to)
             .flatten()
         {
-            // println!("id -> {}", next);
             id = next;
         }
 
@@ -260,11 +259,10 @@ impl<'a> AnalysisPass<'a> {
     fn visit_top_level_define_value_without_body(&mut self, define: &crate::parser::ast::Define) {
         let name = define.name.atom_identifier().unwrap();
 
-        let mut semantic_info = SemanticInformation::new(
-            IdentifierStatus::Global,
-            1,
-            define.name.atom_syntax_object().unwrap().span,
-        );
+        let name_syntax_object = define.name.atom_syntax_object().unwrap();
+
+        let mut semantic_info =
+            SemanticInformation::new(IdentifierStatus::Global, 1, name_syntax_object.span);
 
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
@@ -281,7 +279,7 @@ impl<'a> AnalysisPass<'a> {
                 "Found definition that aliases - {} aliases {}: {} -> {}",
                 define.name,
                 define.body,
-                define.name.atom_syntax_object().unwrap().syntax_object_id,
+                name_syntax_object.syntax_object_id,
                 define.body.atom_syntax_object().unwrap().syntax_object_id,
             );
             semantic_info = semantic_info.aliases_to(aliases);
@@ -290,8 +288,7 @@ impl<'a> AnalysisPass<'a> {
         log::info!("Defining global: {:?}", define.name);
         define_var(self.scope, &define);
 
-        self.info
-            .insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
+        self.info.insert(&name_syntax_object, semantic_info);
     }
 
     // TODO: I really hate this identifier status if local nonsense
@@ -552,7 +549,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         .with_usage_count(1)
                         .refers_to(mut_ref.id);
 
-                println!("Variable {} refers to {}", ident, mut_ref.id);
+                // println!("Variable {} refers to {}", ident, mut_ref.id);
 
                 self.info.insert(&a.syn, semantic_info);
 
@@ -584,7 +581,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     .with_usage_count(1)
                     .refers_to(is_captured.id);
 
-                println!("Variable {} refers to {}", ident, is_captured.id);
+                // println!("Variable {} refers to {}", ident, is_captured.id);
 
                 self.info.insert(&a.syn, semantic_info);
 
@@ -883,31 +880,6 @@ where
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::CallCC(cc) => self.visit_callcc(cc),
             ExprKind::Let(l) => self.visit_let(l),
-        }
-    }
-}
-
-struct FreeIdentifiers<'a> {
-    analysis: &'a Analysis,
-    free_identifiers: Vec<Span>,
-}
-
-impl<'a> FreeIdentifiers<'a> {
-    pub fn new(analysis: &'a Analysis) -> Self {
-        Self {
-            analysis,
-            free_identifiers: Vec::new(),
-        }
-    }
-}
-
-impl<'a> VisitorMutUnitRef<'a> for FreeIdentifiers<'a> {
-    fn visit_atom(&mut self, a: &'a crate::parser::ast::Atom) {
-        if let Some(info) = self.analysis.get(&a.syn) {
-            if info.kind == IdentifierStatus::Free {
-                log::error!("Free identifier: {}", a);
-                self.free_identifiers.push(a.syn.span);
-            }
         }
     }
 }
@@ -1331,6 +1303,23 @@ mod analysis_pass_tests {
     };
 
     use super::*;
+
+    #[test]
+    fn find_last_usages() {
+        let script = r#"
+            (define (loop value accum)
+                (+ value accum)
+                (loop value (cons value accum)))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+
+        let last_usages = analysis.last_usages().collect::<Vec<_>>();
+        // In this case, we should be identifying just the two usages for
+        // value and accum in the recursive call
+        assert_eq!(last_usages.len(), 2);
+    }
 
     #[test]
     fn analysis_pass_finds_call_sites() {
