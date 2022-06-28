@@ -465,7 +465,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let arguments = self.pop_top_layer();
 
         // Mark the last usage of the variable after the values go out of scope
-        for id in arguments.values().map(|x| x.id) {
+        for id in arguments.values().filter_map(|x| x.last_used) {
             self.info.get_mut(&id).unwrap().last_usage = true;
         }
 
@@ -1155,47 +1155,40 @@ impl<'a> SemanticAnalysis<'a> {
         }
     }
 
-    pub fn free_identifiers(&self) -> impl Iterator<Item = Span> + '_ {
+    pub fn last_usages(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
+        self.analysis.info.values().filter(|x| x.last_usage)
+    }
+
+    pub fn free_identifiers(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
         self.analysis
             .info
             .values()
             .filter(|x| x.kind == IdentifierStatus::Free)
-            .map(|x| x.span)
     }
 
-    pub fn unused_variables(&self) -> impl Iterator<Item = Span> + '_ {
-        self.analysis
-            .info
-            .values()
-            .filter(|x| {
-                x.usage_count == 0
-                    && matches!(x.kind, IdentifierStatus::Local | IdentifierStatus::Global)
-            })
-            .map(|x| x.span)
+    pub fn unused_variables(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
+        self.analysis.info.values().filter(|x| {
+            x.usage_count == 0
+                && matches!(x.kind, IdentifierStatus::Local | IdentifierStatus::Global)
+        })
     }
 
-    pub fn global_defs(&self) -> impl Iterator<Item = Span> + '_ {
+    pub fn global_defs(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
         self.analysis
             .info
             .values()
             .filter(|x| x.kind == IdentifierStatus::Global)
-            .map(|x| x.span)
     }
 
-    pub fn built_ins(&self) -> impl Iterator<Item = Span> + '_ {
-        self.analysis
-            .info
-            .values()
-            .filter(|x| x.builtin)
-            .map(|x| x.span)
+    pub fn built_ins(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
+        self.analysis.info.values().filter(|x| x.builtin)
     }
 
-    pub fn find_free_identifiers(&self) -> impl Iterator<Item = Span> + '_ {
+    pub fn find_free_identifiers(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
         self.analysis
             .info
             .values()
             .filter(|x| x.kind == IdentifierStatus::Free)
-            .map(|x| x.span)
     }
 
     pub fn find_unused_arguments(&self) -> Vec<Span> {
@@ -1441,6 +1434,9 @@ mod analysis_pass_tests {
                     (foo))
             (foo))
 
+        (define (loop value accum)
+            (loop (cons value accum)))
+
         ;(define (foo x y z)
         ;    (let ((x x) (y y))
         ;        (lambda (extra-arg x) 
@@ -1472,7 +1468,7 @@ mod analysis_pass_tests {
                     "input.rkt",
                     script,
                     format!("Free identifier"),
-                    var,
+                    var.span,
                 );
             }
 
@@ -1486,7 +1482,7 @@ mod analysis_pass_tests {
                     "input.rkt",
                     script,
                     format!("Unused variable"),
-                    var,
+                    var.span,
                 );
             }
 
@@ -1496,17 +1492,27 @@ mod analysis_pass_tests {
                     "input.rkt",
                     script,
                     format!("global var"),
-                    var,
+                    var.span,
                 );
             }
 
-            for var in analysis.built_ins() {
+            // for var in analysis.built_ins() {
+            //     crate::rerrs::report_info(
+            //         ErrorKind::FreeIdentifier.to_error_code(),
+            //         "input.rkt",
+            //         script,
+            //         format!("built in function"),
+            //         var.span,
+            //     );
+            // }
+
+            for var in analysis.last_usages() {
                 crate::rerrs::report_info(
                     ErrorKind::FreeIdentifier.to_error_code(),
                     "input.rkt",
                     script,
-                    format!("built in function"),
-                    var,
+                    format!("last usage of variable"),
+                    var.span,
                 );
             }
 
