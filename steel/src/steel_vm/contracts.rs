@@ -138,8 +138,7 @@ impl FunctionContractExt for DependentContract {
                 .map(|named_argument| {
                     self.arg_positions
                         .get(named_argument)
-                        .map(|x| arguments.get(*x))
-                        .flatten()
+                        .and_then(|x| arguments.get(*x))
                         .cloned()
                 })
                 .collect::<Option<Vec<SteelVal>>>()
@@ -228,8 +227,7 @@ impl FunctionContractExt for DependentContract {
             .map(|named_argument| {
                 self.arg_positions
                     .get(named_argument)
-                    .map(|x| arguments.get(*x))
-                    .flatten()
+                    .and_then(|x| arguments.get(*x))
                     .cloned()
             })
             .collect::<Option<Vec<SteelVal>>>()

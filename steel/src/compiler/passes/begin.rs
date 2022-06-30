@@ -29,7 +29,7 @@ impl Folder for FlattenBegin {
         let flattened_exprs = begin
             .exprs
             .into_iter()
-            .map(|x| {
+            .flat_map(|x| {
                 if let ExprKind::Begin(b) = x {
                     b.exprs
                         .into_iter()
@@ -39,7 +39,6 @@ impl Folder for FlattenBegin {
                     vec![self.visit(x)]
                 }
             })
-            .flatten()
             .collect::<Vec<_>>();
 
         if flattened_exprs.len() == 1 {

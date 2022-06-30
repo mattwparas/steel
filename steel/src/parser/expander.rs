@@ -261,8 +261,7 @@ impl MacroCase {
 
         let args_str: Vec<&str> = args
             .iter()
-            .map(|x| x.deconstruct_without_syntax())
-            .flatten()
+            .flat_map(|x| x.deconstruct_without_syntax())
             .collect();
 
         // let syntaxes: Vec<&str> = args
@@ -424,7 +423,7 @@ impl MacroPattern {
             Self::Syntax(s) => vec![&s],
             Self::Single(s) => vec![&s],
             Self::Many(s) => vec![&s],
-            Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
+            Self::Nested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
             _ => vec![],
         }
     }
@@ -433,7 +432,7 @@ impl MacroPattern {
         match self {
             Self::Single(s) => vec![&s],
             Self::Many(s) => vec![&s],
-            Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
+            Self::Nested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
             _ => vec![],
         }
     }

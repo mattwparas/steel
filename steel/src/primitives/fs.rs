@@ -58,8 +58,7 @@ impl FsFunctions {
                     Ok(SteelVal::StringV(
                         Path::new(s.as_ref())
                             .file_name()
-                            .map(|x| x.to_str())
-                            .flatten()
+                            .and_then(|x| x.to_str())
                             .unwrap_or("")
                             .into(),
                     ))

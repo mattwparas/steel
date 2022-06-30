@@ -567,15 +567,13 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                 .unwrap_or(false)
         {
             prev_up_value = upvalue.clone();
-            upvalue = upvalue
-                .map(|x| {
-                    x.upgrade()
-                        .expect("Upvalue freed too early")
-                        .borrow()
-                        .next
-                        .clone()
-                })
-                .flatten();
+            upvalue = upvalue.and_then(|x| {
+                x.upgrade()
+                    .expect("Upvalue freed too early")
+                    .borrow()
+                    .next
+                    .clone()
+            });
         }
 
         // println!("Unoffset index: {:?}", unoffset_index);

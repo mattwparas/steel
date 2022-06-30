@@ -378,8 +378,7 @@ impl RawProgramWithSymbols {
                 // If I can't parse the object, just move on
                 let contents = ExprKind::try_from(v.get(3).unwrap())
                     .ok()
-                    .map(|x| x.atom_syntax_object().cloned())
-                    .flatten();
+                    .and_then(|x| x.atom_syntax_object().cloned());
 
                 let instruction = Instruction::new_from_parts(op_code, payload, contents);
 

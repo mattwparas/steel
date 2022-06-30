@@ -127,8 +127,7 @@ impl VariableData {
         let local = self
             .enclosing
             .as_ref()
-            .map(|x| x.borrow().resolve_local(ident))
-            .flatten();
+            .and_then(|x| x.borrow().resolve_local(ident));
 
         if let Some(local) = local {
             let var_offset = {
@@ -157,8 +156,7 @@ impl VariableData {
         let upvalue = self
             .enclosing
             .as_ref()
-            .map(|x| x.borrow_mut().resolve_upvalue(ident))
-            .flatten();
+            .and_then(|x| x.borrow_mut().resolve_upvalue(ident));
         if let Some(upvalue) = upvalue {
             return Some(self.add_upvalue(upvalue, false, ident.to_string()));
         }
@@ -646,8 +644,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         if let Some(idx) = self
             .variable_data
             .as_ref()
-            .map(|x| x.borrow().resolve_local(ident))
-            .flatten()
+            .and_then(|x| x.borrow().resolve_local(ident))
         {
             self.push(Instruction::new_local(idx, a.syn.clone()));
 
@@ -655,8 +652,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         } else if let Some(idx) = self
             .variable_data
             .as_ref()
-            .map(|x| x.borrow_mut().resolve_upvalue(ident))
-            .flatten()
+            .and_then(|x| x.borrow_mut().resolve_upvalue(ident))
         {
             self.push(Instruction::new_read_upvalue(idx, a.syn.clone()));
 
@@ -841,8 +837,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             if let Some(idx) = self
                 .variable_data
                 .as_ref()
-                .map(|x| x.borrow().resolve_local(ident))
-                .flatten()
+                .and_then(|x| x.borrow().resolve_local(ident))
             {
                 // println!("new set local on {}", ident);
                 self.push(Instruction::new_set_local(idx, s.clone()));
@@ -851,8 +846,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             } else if let Some(idx) = self
                 .variable_data
                 .as_ref()
-                .map(|x| x.borrow_mut().resolve_upvalue(ident))
-                .flatten()
+                .and_then(|x| x.borrow_mut().resolve_upvalue(ident))
             {
                 // println!("new set upvalue on {} @ index: {}", ident, idx);
                 self.push(Instruction::new_set_upvalue(idx, s.clone()));
@@ -1002,8 +996,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             if let Some(local) = self
                 .variable_data
                 .as_ref()
-                .map(|x| x.borrow_mut().locals.pop())
-                .flatten()
+                .and_then(|x| x.borrow_mut().locals.pop())
             {
                 close_upvalues.push(Instruction::new_close_upvalue(
                     if local.is_captured { 1 } else { 0 },

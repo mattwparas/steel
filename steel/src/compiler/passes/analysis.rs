@@ -105,11 +105,9 @@ impl Analysis {
         while let Some(next) = self
             .info
             .get(&id)
-            .map(|x| x.aliases_to.map(|x| self.info.get(&x)))
-            .flatten()
-            .flatten()
-            .map(|x| x.refers_to)
-            .flatten()
+            .and_then(|x| x.aliases_to)
+            .and_then(|x| self.info.get(&x))
+            .and_then(|x| x.refers_to)
         {
             id = next;
         }
@@ -672,12 +670,14 @@ impl<'a, F> FindCallSiteById<'a, F> {
 
     // TODO: clean this up a bit
     pub fn is_required_call_site(&self, l: &List) -> bool {
-        if let Some(first) = l.args.first().map(|x| x.atom_syntax_object()).flatten() {
-            if let Some(info) = self.analysis.get(&first) {
-                if let Some(refers_to) = info.refers_to {
-                    return refers_to == self.id;
-                }
-            }
+        if let Some(refers_to) = l
+            .args
+            .first()
+            .and_then(|x| x.atom_syntax_object())
+            .and_then(|x| self.analysis.get(&x))
+            .and_then(|x| x.refers_to)
+        {
+            return refers_to == self.id;
         }
 
         false
