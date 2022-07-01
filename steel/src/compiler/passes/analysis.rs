@@ -1361,14 +1361,12 @@ mod analysis_pass_tests {
 
             let list_id = analysis
                 .query_top_level_define("list")
-                .unwrap()
-                .name_id()
+                .and_then(|x| x.name_id())
                 .unwrap();
 
             let alias_list_4_id = analysis
                 .query_top_level_define("alias-list4")
-                .unwrap()
-                .name_id()
+                .and_then(|x| x.name_id())
                 .unwrap();
 
             let found = analysis.resolve_alias(alias_list_4_id);
