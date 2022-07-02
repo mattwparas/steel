@@ -821,14 +821,24 @@ impl From<Require> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct List {
     pub args: Vec<ExprKind>,
+    pub(crate) syntax_object_id: usize,
+}
+
+impl PartialEq for List {
+    fn eq(&self, other: &Self) -> bool {
+        self.args == other.args
+    }
 }
 
 impl List {
     pub fn new(args: Vec<ExprKind>) -> Self {
-        List { args }
+        List {
+            args,
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+        }
     }
 
     pub fn is_empty(&self) -> bool {

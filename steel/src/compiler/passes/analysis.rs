@@ -87,11 +87,31 @@ impl FunctionInformation {
     }
 }
 
+#[derive(Debug)]
+pub enum CallKind {
+    Normal,
+    TailCall,
+    SelfTailCall,
+}
+
+#[derive(Debug)]
+pub struct CallSiteInformation {
+    kind: CallKind,
+}
+
+impl CallSiteInformation {
+    pub fn new(kind: CallKind) -> Self {
+        Self { kind }
+    }
+}
+
 // Populate the metadata about individual
 #[derive(Default, Debug)]
 pub struct Analysis {
+    // TODO: make these be specific IDs for semantic id, function id, and call info id
     info: HashMap<usize, SemanticInformation>,
     function_info: HashMap<usize, FunctionInformation>,
+    call_info: HashMap<usize, CallSiteInformation>,
 }
 
 impl Analysis {
