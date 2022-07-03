@@ -87,7 +87,7 @@ impl FunctionInformation {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum CallKind {
     Normal,
     TailCall,
@@ -97,11 +97,12 @@ pub enum CallKind {
 #[derive(Debug)]
 pub struct CallSiteInformation {
     kind: CallKind,
+    span: Span,
 }
 
 impl CallSiteInformation {
-    pub fn new(kind: CallKind) -> Self {
-        Self { kind }
+    pub fn new(kind: CallKind, span: Span) -> Self {
+        Self { kind, span }
     }
 }
 
@@ -249,6 +250,8 @@ impl ScopeInfo {
 struct AnalysisPass<'a> {
     info: &'a mut Analysis,
     scope: &'a mut ScopeMap<String, ScopeInfo>,
+    tail_call_eligible: bool,
+    defining_context: Option<usize>,
 }
 
 fn define_var(scope: &mut ScopeMap<String, ScopeInfo>, define: &crate::parser::ast::Define) {
@@ -260,7 +263,12 @@ fn define_var(scope: &mut ScopeMap<String, ScopeInfo>, define: &crate::parser::a
 
 impl<'a> AnalysisPass<'a> {
     pub fn new(info: &'a mut Analysis, scope: &'a mut ScopeMap<String, ScopeInfo>) -> Self {
-        AnalysisPass { info, scope }
+        AnalysisPass {
+            info,
+            scope,
+            tail_call_eligible: false,
+            defining_context: None,
+        }
     }
 }
 
@@ -420,14 +428,69 @@ impl<'a> AnalysisPass<'a> {
                 .update_with(&var.atom_syntax_object().unwrap(), semantic_info);
         }
     }
+
+    fn visit_with_tail_call_eligibility(&mut self, expr: &'a ExprKind, state: bool) {
+        let eligibility = self.tail_call_eligible;
+        self.tail_call_eligible = state;
+        self.visit(expr);
+        self.tail_call_eligible = eligibility;
+    }
 }
 
 impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
         self.visit_define_without_body(&define, IdentifierStatus::Local);
 
-        // self.visit(&define.name);
-        self.visit(&define.body);
+        self.visit_with_tail_call_eligibility(&define.body, true);
+    }
+
+    fn visit_if(&mut self, f: &'a crate::parser::ast::If) {
+        // Explicitly disallow a tail call in the test expression
+        // There is no way that this could be a tail call
+
+        self.visit_with_tail_call_eligibility(&f.test_expr, false);
+
+        self.visit(&f.then_expr);
+        self.visit(&f.else_expr);
+    }
+
+    fn visit_list(&mut self, l: &'a List) {
+        let eligibility = self.tail_call_eligible;
+
+        // Mark the call site - see what happens
+        let call_site_kind = if eligibility {
+            CallKind::TailCall
+        } else {
+            CallKind::Normal
+        };
+
+        // TODO: Come back here on cleanup
+        // This just checks that this is actually a real function call and not just an empty list
+        // Every actual call site should in fact have a real span, otherwise its a bit of a waste to include
+        // that information - it _has_ to at least be calling something
+        if !l.is_empty() {
+            let span = l
+                .first()
+                .and_then(|x| x.atom_syntax_object())
+                .map(|x| x.span);
+
+            if let Some(span) = span {
+                self.info.call_info.insert(
+                    l.syntax_object_id,
+                    CallSiteInformation::new(call_site_kind, span),
+                );
+            }
+        }
+
+        // In this case, each of the arguments (including the function itself) are not in the tail position
+        // However, the function call _itself_ might be in the tail position, so we save that state
+        self.tail_call_eligible = false;
+
+        for expr in &l.args {
+            self.visit(expr);
+        }
+
+        self.tail_call_eligible = eligibility;
     }
 
     fn visit_begin(&mut self, begin: &'a crate::parser::ast::Begin) {
@@ -443,8 +506,18 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
         }
 
+        let last = begin.exprs.len() - 1;
+
+        // TODO: Clean up this bad pattern
+        let eligibility = self.tail_call_eligible;
+        self.tail_call_eligible = false;
+
         // After that, we can continue with everything but those
-        for expr in &begin.exprs {
+        for (index, expr) in begin.exprs.iter().enumerate() {
+            if index == last {
+                self.tail_call_eligible = true;
+            }
+
             if let ExprKind::Define(define) = expr {
                 if define.body.lambda_function().is_some() {
                     // Continue with the rest of the body here
@@ -455,7 +528,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             } else {
                 self.visit(expr);
             }
+
+            self.tail_call_eligible = false;
         }
+
+        self.tail_call_eligible = eligibility;
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
@@ -466,7 +543,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let depth = self.scope.depth();
 
         self.visit_func_args(lambda_function, depth);
-        self.visit(&lambda_function.body);
+
+        // TODO: Better abstract this pattern - perhaps have the function call be passed in?
+        self.visit_with_tail_call_eligibility(&lambda_function.body, true);
 
         // TODO: combine the captured_vars and arguments into one thing
         // We don't need to generate a hashset and a hashmap - we can just do it once
@@ -495,6 +574,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     }
 
     fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
+        self.visit_with_tail_call_eligibility(&s.expr, false);
+
         let name = s.variable.atom_identifier();
 
         if let Some(name) = name {
@@ -1323,6 +1404,37 @@ mod analysis_pass_tests {
     };
 
     use super::*;
+
+    #[test]
+    fn tail_call_eligible_test() {
+        let script = r#"
+            (define (loop value accum)
+                ;; This should not get registered as a tail call
+                (loop value (cons value accum))
+                (if #true
+                    (loop value (cons value accum))
+                    (loop value accum)))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+
+        let tail_calls = analysis
+            .analysis
+            .call_info
+            .values()
+            .filter(|x| x.kind == CallKind::TailCall);
+
+        for var in tail_calls {
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                format!("tail call"),
+                var.span,
+            );
+        }
+    }
 
     #[test]
     fn find_last_usages() {
