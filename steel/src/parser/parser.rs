@@ -1,10 +1,10 @@
 use crate::parser::lexer::TokenStream;
 use crate::parser::tokens::{Token, TokenType, TokenType::*};
 
-use std::rc::Rc;
 use std::result;
 use std::str;
 use std::{collections::HashMap, path::PathBuf};
+use std::{fmt::write, rc::Rc};
 use thiserror::Error;
 
 use crate::parser::span::Span;
@@ -23,6 +23,21 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug)]
+pub struct SyntaxObjectId(usize);
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug)]
+pub struct ListId(usize);
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug)]
+pub struct FunctionId(usize);
+
+impl std::fmt::Display for SyntaxObjectId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 /// A syntax object that can hold anything as the syntax
 /// In this case, we're using the token type emitted by logos
 ///
@@ -35,7 +50,7 @@ pub struct RawSyntaxObject<T> {
     pub(crate) span: Span,
     pub(crate) source: Option<Rc<PathBuf>>,
     pub(crate) metadata: Option<IdentifierMetadata>,
-    pub(crate) syntax_object_id: usize,
+    pub(crate) syntax_object_id: SyntaxObjectId,
 }
 
 impl<T: Clone> Clone for RawSyntaxObject<T> {
@@ -109,7 +124,7 @@ impl SyntaxObject {
             span,
             source: None,
             metadata: None,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
 
@@ -119,7 +134,7 @@ impl SyntaxObject {
             span,
             source,
             metadata: None,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
 
@@ -129,7 +144,7 @@ impl SyntaxObject {
             span: Span::new(0, 0),
             source: None,
             metadata: None,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
 
@@ -143,7 +158,7 @@ impl SyntaxObject {
             span: val.span,
             source: source.as_ref().map(Rc::clone),
             metadata: None,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
 }

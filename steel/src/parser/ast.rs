@@ -17,7 +17,10 @@ use crate::rvals::SteelVal::*;
 
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 
-use super::{parser::SYNTAX_OBJECT_ID, span::Span};
+use super::{
+    parser::{SyntaxObjectId, SYNTAX_OBJECT_ID},
+    span::Span,
+};
 
 pub(crate) trait AstTools {
     fn pretty_print(&self);
@@ -597,7 +600,7 @@ impl Define {
         }
     }
 
-    pub(crate) fn is_an_alias_definition(&self) -> Option<usize> {
+    pub(crate) fn is_an_alias_definition(&self) -> Option<SyntaxObjectId> {
         if let Some(atom) = self.body.atom_syntax_object() {
             if let TokenType::Identifier(_) = atom.ty {
                 return Some(atom.syntax_object_id);
@@ -620,7 +623,7 @@ impl Define {
         false
     }
 
-    pub(crate) fn name_id(&self) -> Option<usize> {
+    pub(crate) fn name_id(&self) -> Option<SyntaxObjectId> {
         self.name.atom_syntax_object().map(|x| x.syntax_object_id)
     }
 }

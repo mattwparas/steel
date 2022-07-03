@@ -4,7 +4,7 @@ use quickscope::ScopeMap;
 
 use crate::parser::{
     ast::{ExprKind, LambdaFunction, List},
-    parser::{IdentifierMetadata, SyntaxObject},
+    parser::{IdentifierMetadata, SyntaxObject, SyntaxObjectId},
     span::Span,
     visitors::VisitorMutRef,
 };
@@ -26,13 +26,14 @@ pub struct SemanticInformation {
     kind: IdentifierStatus,
     set_bang: bool,
     depth: usize,
-    shadows: Option<usize>,
+    shadows: Option<SyntaxObjectId>,
     usage_count: usize,
     span: Span,
-    refers_to: Option<usize>,
-    aliases_to: Option<usize>,
+    refers_to: Option<SyntaxObjectId>,
+    aliases_to: Option<SyntaxObjectId>,
     builtin: bool,
     last_usage: bool,
+    stack_offset: Option<usize>,
 }
 
 impl SemanticInformation {
@@ -48,10 +49,11 @@ impl SemanticInformation {
             aliases_to: None,
             builtin: false,
             last_usage: false,
+            stack_offset: None,
         }
     }
 
-    pub fn shadows(mut self, id: usize) -> Self {
+    pub fn shadows(mut self, id: SyntaxObjectId) -> Self {
         self.shadows = Some(id);
         self
     }
@@ -61,12 +63,12 @@ impl SemanticInformation {
         self
     }
 
-    pub fn refers_to(mut self, id: usize) -> Self {
+    pub fn refers_to(mut self, id: SyntaxObjectId) -> Self {
         self.refers_to = Some(id);
         self
     }
 
-    pub fn aliases_to(mut self, id: usize) -> Self {
+    pub fn aliases_to(mut self, id: SyntaxObjectId) -> Self {
         self.aliases_to = Some(id);
         self
     }
@@ -110,7 +112,7 @@ impl CallSiteInformation {
 #[derive(Default, Debug)]
 pub struct Analysis {
     // TODO: make these be specific IDs for semantic id, function id, and call info id
-    info: HashMap<usize, SemanticInformation>,
+    info: HashMap<SyntaxObjectId, SemanticInformation>,
     function_info: HashMap<usize, FunctionInformation>,
     call_info: HashMap<usize, CallSiteInformation>,
 }
@@ -122,7 +124,7 @@ impl Analysis {
         analysis
     }
 
-    pub fn resolve_alias(&self, mut id: usize) -> Option<usize> {
+    pub fn resolve_alias(&self, mut id: SyntaxObjectId) -> Option<SyntaxObjectId> {
         while let Some(next) = self
             .info
             .get(&id)
@@ -226,27 +228,31 @@ impl Analysis {
         self.info.get(&object.syntax_object_id)
     }
 
-    pub fn get_mut(&mut self, id: &usize) -> Option<&mut SemanticInformation> {
+    pub fn get_mut(&mut self, id: &SyntaxObjectId) -> Option<&mut SemanticInformation> {
         self.info.get_mut(id)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeInfo {
-    id: usize,
+    id: SyntaxObjectId,
     captured: bool,
     usage_count: usize,
     /// Last touched by this ID
-    last_used: Option<usize>,
+    last_used: Option<SyntaxObjectId>,
+    /// Represents the position on the stack that this variable
+    /// should live at during the execution of the program
+    stack_offset: Option<usize>,
 }
 
 impl ScopeInfo {
-    pub fn new(id: usize) -> Self {
+    pub fn new(id: SyntaxObjectId) -> Self {
         Self {
             id,
             captured: false,
             usage_count: 0,
             last_used: None,
+            stack_offset: None,
         }
     }
 }
@@ -255,7 +261,7 @@ struct AnalysisPass<'a> {
     info: &'a mut Analysis,
     scope: &'a mut ScopeMap<String, ScopeInfo>,
     tail_call_eligible: bool,
-    defining_context: Option<usize>,
+    defining_context: Option<SyntaxObjectId>,
 }
 
 fn define_var(scope: &mut ScopeMap<String, ScopeInfo>, define: &crate::parser::ast::Define) {
@@ -306,7 +312,7 @@ impl<'a> AnalysisPass<'a> {
 
         if let Some(aliases) = define.is_an_alias_definition() {
             log::info!(
-                "Found definition that aliases - {} aliases {}: {} -> {}",
+                "Found definition that aliases - {} aliases {}: {:?} -> {:?}",
                 define.name,
                 define.body,
                 name_syntax_object.syntax_object_id,
@@ -779,14 +785,14 @@ pub fn query_top_level_define<'a, A: AsRef<str>>(
 }
 
 struct FindCallSiteById<'a, F> {
-    id: usize,
+    id: SyntaxObjectId,
     analysis: &'a Analysis,
     func: F,
     modified: bool,
 }
 
 impl<'a, F> FindCallSiteById<'a, F> {
-    pub fn new(id: usize, analysis: &'a Analysis, func: F) -> Self {
+    pub fn new(id: SyntaxObjectId, analysis: &'a Analysis, func: F) -> Self {
         Self {
             id,
             analysis,
@@ -1143,7 +1149,7 @@ impl<'a> SemanticAnalysis<'a> {
         query_top_level_define(&self.exprs, name)
     }
 
-    pub fn get_global_id<A: AsRef<str>>(&self, name: A) -> Option<usize> {
+    pub fn get_global_id<A: AsRef<str>>(&self, name: A) -> Option<SyntaxObjectId> {
         self.query_top_level_define(name)?
             .name
             .atom_syntax_object()
@@ -1414,7 +1420,7 @@ impl<'a> SemanticAnalysis<'a> {
         }
     }
 
-    pub fn resolve_alias(&self, id: usize) -> Option<usize> {
+    pub fn resolve_alias(&self, id: SyntaxObjectId) -> Option<SyntaxObjectId> {
         self.analysis.resolve_alias(id)
     }
 }
