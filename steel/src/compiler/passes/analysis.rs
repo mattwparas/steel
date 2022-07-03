@@ -1438,7 +1438,9 @@ mod analysis_pass_tests {
                 ;; This should not get registered as a tail call
                 (loop value (cons value accum))
                 (if #true
-                    (loop value (cons value accum))
+                    (if #true
+                        (loop value (cons value accum))
+                        (loop value (cons value accum)))
                     (loop value accum)))
         "#;
 
