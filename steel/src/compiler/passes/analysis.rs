@@ -184,8 +184,12 @@ impl Analysis {
 
             if let ExprKind::Define(define) = expr {
                 if define.body.lambda_function().is_some() {
+                    // Since we're at the top level, care should be taken to actually
+                    // refer to the defining context correctly
+                    pass.defining_context = define.name_id();
                     // Continue with the rest of the body here
                     pass.visit(&define.body);
+                    pass.defining_context = None;
                 } else {
                     pass.visit_top_level_define_value_without_body(define);
                     pass.visit(&define.body);
@@ -441,7 +445,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
         self.visit_define_without_body(&define, IdentifierStatus::Local);
 
+        let define_ctx = self.defining_context.take();
+
+        // Mark defining context
+        self.defining_context = define.name_id();
         self.visit_with_tail_call_eligibility(&define.body, true);
+        self.defining_context = define_ctx;
     }
 
     fn visit_if(&mut self, f: &'a crate::parser::ast::If) {
@@ -457,31 +466,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     fn visit_list(&mut self, l: &'a List) {
         let eligibility = self.tail_call_eligible;
 
-        // Mark the call site - see what happens
-        let call_site_kind = if eligibility {
-            CallKind::TailCall
-        } else {
-            CallKind::Normal
-        };
-
-        // TODO: Come back here on cleanup
-        // This just checks that this is actually a real function call and not just an empty list
-        // Every actual call site should in fact have a real span, otherwise its a bit of a waste to include
-        // that information - it _has_ to at least be calling something
-        if !l.is_empty() {
-            let span = l
-                .first()
-                .and_then(|x| x.atom_syntax_object())
-                .map(|x| x.span);
-
-            if let Some(span) = span {
-                self.info.call_info.insert(
-                    l.syntax_object_id,
-                    CallSiteInformation::new(call_site_kind, span),
-                );
-            }
-        }
-
         // In this case, each of the arguments (including the function itself) are not in the tail position
         // However, the function call _itself_ might be in the tail position, so we save that state
         self.tail_call_eligible = false;
@@ -491,6 +475,43 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         self.tail_call_eligible = eligibility;
+
+        // TODO: Come back here on cleanup
+        // This just checks that this is actually a real function call and not just an empty list
+        // Every actual call site should in fact have a real span, otherwise its a bit of a waste to include
+        // that information - it _has_ to at least be calling something
+        if !l.is_empty() {
+            // Mark the call site - see what happens
+            let mut call_site_kind = if eligibility {
+                CallKind::TailCall
+            } else {
+                CallKind::Normal
+            };
+
+            let syntax_object = l.first().and_then(|x| x.atom_syntax_object());
+
+            if let Some(func) = syntax_object {
+                let span = func.span;
+
+                // Assuming this information is here, otherwise we'll panic for whatever reason the symbol is missing
+                // But this shouldn't happen given that we're checking this _after_ we visit the function
+                let func_info = self.info.get(func).unwrap();
+
+                // If we've managed to resolve this call site to the definition, then we should be able
+                // to identify if this refers to the correct definition
+                if call_site_kind == CallKind::TailCall
+                    && self.defining_context.is_some()
+                    && func_info.refers_to == self.defining_context
+                {
+                    call_site_kind = CallKind::SelfTailCall;
+                }
+
+                self.info.call_info.insert(
+                    l.syntax_object_id,
+                    CallSiteInformation::new(call_site_kind, span),
+                );
+            }
+        }
     }
 
     fn visit_begin(&mut self, begin: &'a crate::parser::ast::Begin) {
@@ -519,12 +540,17 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
 
             if let ExprKind::Define(define) = expr {
+                let define_ctx = self.defining_context.take();
+                self.defining_context = define.name_id();
+
                 if define.body.lambda_function().is_some() {
                     // Continue with the rest of the body here
                     self.visit(&define.body);
                 } else {
                     self.visit(expr);
                 }
+
+                self.defining_context = define_ctx;
             } else {
                 self.visit(expr);
             }
@@ -1423,7 +1449,7 @@ mod analysis_pass_tests {
             .analysis
             .call_info
             .values()
-            .filter(|x| x.kind == CallKind::TailCall);
+            .filter(|x| x.kind == CallKind::SelfTailCall);
 
         for var in tail_calls {
             crate::rerrs::report_info(
