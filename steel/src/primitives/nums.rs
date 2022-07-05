@@ -124,11 +124,53 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.is_empty() {
-        stop!(ArityMismatch => "+ requires at least one argument")
+pub fn add_primitive_faster(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut sum_int = 0;
+    let mut sum_float = 0.0;
+    let mut found_float = false;
+
+    for arg in args {
+        match arg {
+            SteelVal::IntV(n) => {
+                sum_int += n;
+
+                // if found_float {
+                //     sum_float += *n as f64;
+                // } else {
+                //     if let Some(res) = isize::checked_add(sum_int, *n) {
+                //         sum_int = res
+                //     } else {
+                //         found_float = true;
+                //         sum_float += *n as f64;
+                //     }
+                // }
+            }
+            SteelVal::NumV(n) => {
+                sum_float += n;
+
+                found_float = true;
+
+                // if !found_float {
+                //     sum_float = sum_int as f64;
+                //     found_float = true
+                // }
+                // sum_float += n;
+            }
+            _ => {
+                let e = format!("+ expected a number, found {:?}", arg);
+                stop!(TypeMismatch => e);
+            }
+        }
     }
 
+    if found_float {
+        Ok(SteelVal::NumV(sum_float + sum_int as f64))
+    } else {
+        Ok(SteelVal::IntV(sum_int))
+    }
+}
+
+pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     let mut sum_int = 0;
     let mut sum_float = 0.0;
     let mut found_float = false;
@@ -283,7 +325,7 @@ impl NumOperations {
     }
 
     pub fn adder() -> SteelVal {
-        SteelVal::FuncV(add_primitive)
+        SteelVal::FuncV(add_primitive_faster)
     }
 
     pub fn multiply() -> SteelVal {
