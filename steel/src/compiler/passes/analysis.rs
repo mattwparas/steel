@@ -76,6 +76,11 @@ impl SemanticInformation {
     pub fn mark_builtin(&mut self) {
         self.builtin = true;
     }
+
+    pub fn with_offset(mut self, offset: usize) -> Self {
+        self.stack_offset = Some(offset);
+        self
+    }
 }
 
 #[derive(Debug)]
@@ -235,8 +240,11 @@ impl Analysis {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeInfo {
+    /// The ID of the variable, this is globally unique
     id: SyntaxObjectId,
+    /// Whether or not this variable is captured by a scope
     captured: bool,
+    /// How many times has this variable been referenced
     usage_count: usize,
     /// Last touched by this ID
     last_used: Option<SyntaxObjectId>,
@@ -253,6 +261,16 @@ impl ScopeInfo {
             usage_count: 0,
             last_used: None,
             stack_offset: None,
+        }
+    }
+
+    pub fn new_local(id: SyntaxObjectId, offset: usize) -> Self {
+        Self {
+            id,
+            captured: false,
+            usage_count: 0,
+            last_used: None,
+            stack_offset: Some(offset),
         }
     }
 }
