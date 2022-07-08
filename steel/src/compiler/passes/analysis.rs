@@ -384,11 +384,12 @@ impl<'a> AnalysisPass<'a> {
     // and also defaulting them to be local identifiers. This way, in the event of a set!
     // we have something to refer to
     fn visit_func_args(&mut self, lambda_function: &LambdaFunction, depth: usize) {
-        for arg in &lambda_function.args {
+        for (index, arg) in lambda_function.args.iter().enumerate() {
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
 
-            self.scope.define(name.to_string(), ScopeInfo::new(id));
+            self.scope
+                .define(name.to_string(), ScopeInfo::new_local(id, index));
 
             // Throw in a dummy info so that no matter what, we have something to refer to
             // in the event of a set!
