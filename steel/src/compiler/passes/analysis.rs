@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use quickscope::ScopeMap;
 
 use crate::parser::{
-    ast::{ExprKind, LambdaFunction, List},
+    ast::{ExprKind, LambdaFunction, Let, List},
     parser::{IdentifierMetadata, SyntaxObject, SyntaxObjectId},
     span::Span,
     visitors::VisitorMutRef,
@@ -280,6 +280,7 @@ struct AnalysisPass<'a> {
     scope: &'a mut ScopeMap<String, ScopeInfo>,
     tail_call_eligible: bool,
     defining_context: Option<SyntaxObjectId>,
+    stack_offset: usize,
 }
 
 fn define_var(scope: &mut ScopeMap<String, ScopeInfo>, define: &crate::parser::ast::Define) {
@@ -296,6 +297,7 @@ impl<'a> AnalysisPass<'a> {
             scope,
             tail_call_eligible: false,
             defining_context: None,
+            stack_offset: 0,
         }
     }
 }
@@ -403,6 +405,10 @@ impl<'a> AnalysisPass<'a> {
                 ),
             );
         }
+    }
+
+    fn visit_let_args(&mut self, l: &Let) {
+        todo!()
     }
 
     fn pop_top_layer(&mut self) -> HashMap<String, ScopeInfo> {
@@ -584,6 +590,20 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         self.tail_call_eligible = eligibility;
+    }
+
+    fn visit_let(&mut self, l: &'a crate::parser::ast::Let) {
+        let eligibility = self.tail_call_eligible;
+
+        self.tail_call_eligible = false;
+
+        for expr in l.expression_arguments() {
+            self.visit(expr);
+        }
+
+        self.tail_call_eligible = eligibility;
+
+        todo!()
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {

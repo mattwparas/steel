@@ -418,6 +418,14 @@ impl Let {
             location,
         }
     }
+
+    pub fn local_bindings(&self) -> impl Iterator<Item = &'_ ExprKind> {
+        self.bindings.iter().map(|x| &x.0)
+    }
+
+    pub fn expression_arguments(&self) -> impl Iterator<Item = &'_ ExprKind> {
+        self.bindings.iter().map(|x| &x.1)
+    }
 }
 
 impl fmt::Display for Let {
