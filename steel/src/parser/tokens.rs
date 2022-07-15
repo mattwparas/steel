@@ -141,7 +141,7 @@ pub enum TokenType {
     #[token("let")]
     Let,
 
-    #[token("(test-let)|(%let)")]
+    #[token("%plain-let")]
     TestLet,
     // #[token("transduce")]
     // Transduce,

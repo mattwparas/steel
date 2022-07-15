@@ -407,10 +407,6 @@ impl<'a> AnalysisPass<'a> {
         }
     }
 
-    fn visit_let_args(&mut self, l: &Let) {
-        todo!()
-    }
-
     fn pop_top_layer(&mut self) -> HashMap<String, ScopeInfo> {
         let arguments = self
             .scope
@@ -501,10 +497,19 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // However, the function call _itself_ might be in the tail position, so we save that state
         self.tail_call_eligible = false;
 
+        // Save the spot in the recursion - here we might be in something like this:
+        // (lambda (x y)
+        //      (+ 10 (let ((z (function-call))) (+ x y z))))
+        // In this case the 10 will be on the stack, but will be reset after
+        // the function call.
+        let stack_offset = self.stack_offset;
+
         for expr in &l.args {
+            self.stack_offset += 1;
             self.visit(expr);
         }
 
+        self.stack_offset = stack_offset;
         self.tail_call_eligible = eligibility;
 
         // TODO: Come back here on cleanup
@@ -590,20 +595,45 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         self.tail_call_eligible = eligibility;
+        self.stack_offset += 1;
     }
 
     fn visit_let(&mut self, l: &'a crate::parser::ast::Let) {
-        let eligibility = self.tail_call_eligible;
+        println!("Visiting let");
 
+        let eligibility = self.tail_call_eligible;
         self.tail_call_eligible = false;
+
+        let mut stack_offset = self.stack_offset;
 
         for expr in l.expression_arguments() {
             self.visit(expr);
+            self.stack_offset += 1;
         }
 
         self.tail_call_eligible = eligibility;
 
-        todo!()
+        for arg in l.local_bindings() {
+            let name = arg.atom_identifier().unwrap();
+            let id = arg.atom_syntax_object().unwrap().syntax_object_id;
+
+            self.scope
+                .define(name.to_string(), ScopeInfo::new_local(id, stack_offset));
+            stack_offset += 1;
+
+            self.info.insert(
+                &arg.atom_syntax_object().unwrap(),
+                SemanticInformation::new(
+                    IdentifierStatus::LetVar,
+                    self.scope.depth(),
+                    arg.atom_syntax_object().unwrap().span,
+                ),
+            );
+
+            println!("Inserted: {:?}", arg);
+        }
+
+        self.visit(&l.body_expr);
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
@@ -1475,6 +1505,38 @@ mod analysis_pass_tests {
     };
 
     use super::*;
+
+    #[test]
+    fn local_vars() {
+        let script = r#"
+            (define (applesauce)
+                (%plain-let ((a 10) (b 20))
+                    (+ a b)))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+
+        println!("{:?}", exprs);
+
+        let analysis = SemanticAnalysis::new(&mut exprs);
+
+        let let_vars = analysis
+            .analysis
+            .info
+            .values()
+            .filter(|x| x.kind == IdentifierStatus::LetVar);
+
+        for var in let_vars {
+            println!("{:?}", var);
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                format!("let-var"),
+                var.span,
+            );
+        }
+    }
 
     #[test]
     fn tail_call_eligible_test() {
