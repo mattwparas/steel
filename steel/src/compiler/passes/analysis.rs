@@ -564,6 +564,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         let last = begin.exprs.len() - 1;
+        let stack_offset = self.stack_offset;
 
         // TODO: Clean up this bad pattern
         let eligibility = self.tail_call_eligible;
@@ -592,10 +593,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
 
             self.tail_call_eligible = false;
+            self.stack_offset += 1;
         }
 
         self.tail_call_eligible = eligibility;
-        self.stack_offset += 1;
+        self.stack_offset = stack_offset
     }
 
     fn visit_let(&mut self, l: &'a crate::parser::ast::Let) {
@@ -605,6 +607,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         self.tail_call_eligible = false;
 
         let mut stack_offset = self.stack_offset;
+        let rollback_offset = stack_offset;
 
         for expr in l.expression_arguments() {
             self.visit(expr);
@@ -634,6 +637,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         self.visit(&l.body_expr);
+        self.stack_offset = rollback_offset;
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
@@ -739,6 +743,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // Mark this as last touched by this identifier
                 mut_ref.last_used = Some(current_id);
 
+                // let identifier_status = IdentifierStatus::Local;
+
                 // In the event there is a local define, we want to count the usage here
                 if let Some(local_define) = self.info.get_mut(&mut_ref.id) {
                     local_define.usage_count = mut_ref.usage_count;
@@ -747,7 +753,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 let semantic_info =
                     SemanticInformation::new(IdentifierStatus::Local, depth, a.syn.span)
                         .with_usage_count(1)
-                        .refers_to(mut_ref.id);
+                        .refers_to(mut_ref.id)
+                        .with_offset(
+                            mut_ref
+                                .stack_offset
+                                .expect("Local variables should have an offset"),
+                        );
 
                 // println!("Variable {} refers to {}", ident, mut_ref.id);
 
@@ -779,7 +790,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 let semantic_info = SemanticInformation::new(identifier_status, depth, a.syn.span)
                     .with_usage_count(1)
-                    .refers_to(is_captured.id);
+                    .refers_to(is_captured.id)
+                    .with_offset(
+                        is_captured
+                            .stack_offset
+                            .expect("Local variables should have an offset"),
+                    );
 
                 // println!("Variable {} refers to {}", ident, is_captured.id);
 
@@ -1524,7 +1540,7 @@ mod analysis_pass_tests {
             .analysis
             .info
             .values()
-            .filter(|x| x.kind == IdentifierStatus::LetVar);
+            .filter(|x| x.kind == IdentifierStatus::Local);
 
         for var in let_vars {
             println!("{:?}", var);
