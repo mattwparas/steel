@@ -469,6 +469,7 @@ impl<'a> AnalysisPass<'a> {
 }
 
 impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
+    // TODO: define expressions are not handled by this for stack offset purposes
     fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
         self.visit_define_without_body(&define, IdentifierStatus::Local);
 
