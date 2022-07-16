@@ -506,8 +506,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let stack_offset = self.stack_offset;
 
         for expr in &l.args {
-            self.stack_offset += 1;
             self.visit(expr);
+            self.stack_offset += 1;
         }
 
         self.stack_offset = stack_offset;
@@ -602,8 +602,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     }
 
     fn visit_let(&mut self, l: &'a crate::parser::ast::Let) {
-        println!("Visiting let");
-
         let eligibility = self.tail_call_eligible;
         self.tail_call_eligible = false;
 
@@ -633,8 +631,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     arg.atom_syntax_object().unwrap().span,
                 ),
             );
-
-            println!("Inserted: {:?}", arg);
         }
 
         self.visit(&l.body_expr);
@@ -1516,10 +1512,7 @@ mod analysis_pass_tests {
     use env_logger::Builder;
     use log::LevelFilter;
 
-    use crate::{
-        parser::{ast::List, parser::Parser},
-        rerrs::ErrorKind,
-    };
+    use crate::{parser::parser::Parser, rerrs::ErrorKind};
 
     use super::*;
 
@@ -1527,13 +1520,12 @@ mod analysis_pass_tests {
     fn local_vars() {
         let script = r#"
             (define (applesauce)
-                (%plain-let ((a 10) (b 20))
-                    (+ a b)))
+                (+ 10 20 30 
+                    (%plain-let ((a 10) (b 20))
+                        (+ a b))))
         "#;
 
         let mut exprs = Parser::parse(script).unwrap();
-
-        println!("{:?}", exprs);
 
         let analysis = SemanticAnalysis::new(&mut exprs);
 
