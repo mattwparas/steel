@@ -1,71 +1,65 @@
-pub trait ApplyContracts: Copy {
-    fn enforce_contracts(&self) -> bool;
+pub trait ApplyContracts {
+    fn enforce_contracts() -> bool;
 }
 
-#[derive(Clone, Copy)]
 pub struct ApplyContract;
 
 impl ApplyContracts for ApplyContract {
     #[inline(always)]
-    fn enforce_contracts(&self) -> bool {
+    fn enforce_contracts() -> bool {
         true
     }
 }
 
-#[derive(Clone, Copy)]
 pub struct DoNotApplyContracts;
 
 impl ApplyContracts for DoNotApplyContracts {
     #[inline(always)]
-    fn enforce_contracts(&self) -> bool {
+    fn enforce_contracts() -> bool {
         false
     }
 }
 
-pub trait UseCallbacks: Copy {
-    fn use_callbacks(&self) -> bool;
+pub trait UseCallbacks {
+    fn use_callbacks() -> bool;
 }
 
-#[derive(Clone, Copy)]
 pub struct UseCallback;
 
 impl UseCallbacks for UseCallback {
     #[inline(always)]
-    fn use_callbacks(&self) -> bool {
+    fn use_callbacks() -> bool {
         true
     }
 }
 
-#[derive(Clone, Copy)]
 pub struct DoNotUseCallback;
 
 impl UseCallbacks for DoNotUseCallback {
     #[inline(always)]
-    fn use_callbacks(&self) -> bool {
+    fn use_callbacks() -> bool {
         false
     }
 }
 
-pub trait EnableJit: Copy {
-    fn enable_jit(&self) -> bool;
+pub trait EnableJit {
+    fn enable_jit() -> bool;
 }
 
-#[derive(Clone, Copy)]
 pub struct UseJit;
 
 impl EnableJit for UseJit {
     #[inline(always)]
-    fn enable_jit(&self) -> bool {
+    fn enable_jit() -> bool {
         true
     }
 }
 
-#[derive(Clone, Copy)]
 pub struct DoNotUseJit;
 
 impl EnableJit for DoNotUseJit {
     #[inline(always)]
-    fn enable_jit(&self) -> bool {
+    fn enable_jit() -> bool {
         false
     }
 }

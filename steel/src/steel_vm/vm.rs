@@ -46,6 +46,7 @@ use crate::{
 use std::{
     cell::RefCell,
     iter::Iterator,
+    marker::PhantomData,
     rc::{Rc, Weak},
 };
 
@@ -102,8 +103,6 @@ impl VirtualMachineCore {
     pub fn run_executable<U: UseCallbacks, A: ApplyContracts>(
         &mut self,
         program: Executable,
-        use_callbacks: U,
-        apply_contracts: A,
     ) -> Result<Vec<SteelVal>> {
         let Executable {
             instructions,
@@ -115,15 +114,7 @@ impl VirtualMachineCore {
 
         let output = instructions
             .into_iter()
-            .map(|x| {
-                self.execute(
-                    Rc::from(x.into_boxed_slice()),
-                    &constant_map,
-                    &spans,
-                    use_callbacks,
-                    apply_contracts,
-                )
-            })
+            .map(|x| self.execute::<U, A>(Rc::from(x.into_boxed_slice()), &constant_map, &spans))
             .collect();
 
         // TODO
@@ -139,8 +130,6 @@ impl VirtualMachineCore {
     pub fn execute_program<U: UseCallbacks, A: ApplyContracts>(
         &mut self,
         program: Program,
-        use_callbacks: U,
-        apply_contracts: A,
     ) -> Result<Vec<SteelVal>> {
         let Program {
             instructions,
@@ -169,15 +158,7 @@ impl VirtualMachineCore {
 
         let output = instructions
             .into_iter()
-            .map(|x| {
-                self.execute(
-                    Rc::from(x.into_boxed_slice()),
-                    &constant_map,
-                    &[],
-                    use_callbacks,
-                    apply_contracts,
-                )
-            })
+            .map(|x| self.execute::<U, A>(Rc::from(x.into_boxed_slice()), &constant_map, &[]))
             .collect();
 
         // TODO
@@ -201,19 +182,17 @@ impl VirtualMachineCore {
 
         instructions
             .into_iter()
-            .map(|code| self.execute(code, &constant_map, &[], UseCallback, ApplyContract))
+            .map(|code| self.execute::<UseCallback, ApplyContract>(code, &constant_map, &[]))
             .collect()
     }
 
     pub(crate) fn call_function<U: UseCallbacks, A: ApplyContracts>(
         &mut self,
         constant_map: &ConstantMap,
-        use_callbacks: U,
-        apply_contracts: A,
         function: SteelVal,
         args: Vec<SteelVal>,
     ) -> Result<SteelVal> {
-        let mut vm_instance = VmCore::new_unchecked(
+        let mut vm_instance = VmCore::<U, A>::new_unchecked(
             Rc::new([]),
             &mut self.stack,
             &mut self.global_env,
@@ -224,8 +203,6 @@ impl VirtualMachineCore {
             &mut self.stack_index,
             self.upvalue_head.take(),
             &[],
-            use_callbacks,
-            apply_contracts,
             &mut self.profiler,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
@@ -244,12 +221,10 @@ impl VirtualMachineCore {
         instructions: Rc<[DenseInstruction]>,
         constant_map: &ConstantMap,
         spans: &[Span],
-        use_callbacks: U,
-        apply_contracts: A,
     ) -> Result<SteelVal> {
         self.profiler.reset();
 
-        let mut vm_instance = VmCore::new(
+        let mut vm_instance = VmCore::<U, A>::new(
             instructions,
             &mut self.stack,
             &mut self.global_env,
@@ -260,8 +235,6 @@ impl VirtualMachineCore {
             &mut self.stack_index,
             self.upvalue_head.take(),
             spans,
-            use_callbacks,
-            apply_contracts,
             &mut self.profiler,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
@@ -388,7 +361,7 @@ pub trait VmContext {
 // See if this is even possible -> if you ever want to offload function calls to the
 pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;
 
-impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for VmCore<'a, CT, U, A> {
+impl<'a, U: UseCallbacks, A: ApplyContracts> VmContext for VmCore<'a, U, A> {
     fn call_function_one_arg(&mut self, function: &SteelVal, arg: SteelVal) -> Result<SteelVal> {
         let span = Span::default();
         self.call_func_or_else(
@@ -441,45 +414,43 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmContext for Vm
     }
 }
 
-pub(crate) struct VmCore<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> {
+pub(crate) struct VmCore<'a, U: UseCallbacks, A: ApplyContracts> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: &'a mut StackFrame,
     pub(crate) global_env: &'a mut Env,
     pub(crate) instruction_stack: Stack<InstructionPointer>,
     pub(crate) stack_index: &'a mut Stack<usize>,
     pub(crate) callback: &'a EvaluationProgress,
-    pub(crate) constants: &'a CT,
+    pub(crate) constants: &'a ConstantMap,
     pub(crate) ip: usize,
     pub(crate) pop_count: usize,
     pub(crate) upvalue_head: Option<Weak<RefCell<UpValue>>>,
     pub(crate) upvalue_heap: &'a mut UpValueHeap,
     pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
     pub(crate) spans: &'a [Span],
-    pub(crate) use_callbacks: U,
-    pub(crate) apply_contracts: A,
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
+    _use_callback: PhantomData<U>,
+    _apply_contracts: PhantomData<A>,
     #[cfg(feature = "jit")]
     pub(crate) jit: Option<&'a mut JIT>,
 }
 
-impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
+impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
     fn new_unchecked(
         instructions: Rc<[DenseInstruction]>,
         stack: &'a mut StackFrame,
         global_env: &'a mut Env,
-        constants: &'a CT,
+        constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
         upvalue_heap: &'a mut UpValueHeap,
         function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
         stack_index: &'a mut Stack<usize>,
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
-        use_callbacks: U,
-        apply_contracts: A,
         profiler: &'a mut OpCodeOccurenceProfiler,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
-    ) -> VmCore<'a, CT, U, A> {
-        VmCore {
+    ) -> VmCore<'a, U, A> {
+        VmCore::<U, A> {
             instructions: Rc::clone(&instructions),
             stack,
             global_env,
@@ -493,9 +464,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             upvalue_heap,
             function_stack,
             spans,
-            use_callbacks,
-            apply_contracts,
             profiler,
+            _use_callback: PhantomData,
+            _apply_contracts: PhantomData,
             #[cfg(feature = "jit")]
             jit,
         }
@@ -505,23 +476,21 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
         instructions: Rc<[DenseInstruction]>,
         stack: &'a mut StackFrame,
         global_env: &'a mut Env,
-        constants: &'a CT,
+        constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
         upvalue_heap: &'a mut UpValueHeap,
         function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
         stack_index: &'a mut Stack<usize>,
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
-        use_callbacks: U,
-        apply_contracts: A,
         profiler: &'a mut OpCodeOccurenceProfiler,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
-    ) -> Result<VmCore<'a, CT, U, A>> {
+    ) -> Result<VmCore<'a, U, A>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
         }
 
-        Ok(VmCore {
+        Ok(VmCore::<U, A> {
             instructions: Rc::clone(&instructions),
             stack,
             global_env,
@@ -535,9 +504,9 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             upvalue_heap,
             function_stack,
             spans,
-            use_callbacks,
-            apply_contracts,
             profiler,
+            _use_callback: PhantomData,
+            _apply_contracts: PhantomData,
             #[cfg(feature = "jit")]
             jit,
         })
@@ -1429,7 +1398,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             // );
 
             // Put callbacks behind generic
-            if self.use_callbacks.use_callbacks() {
+            if U::use_callbacks() {
                 match self.callback.call_and_increment() {
                     Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
                     _ => {}
@@ -2348,7 +2317,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             }
         }
 
-        if self.apply_contracts.enforce_contracts() {
+        if A::enforce_contracts() {
             let args = self.stack.split_off(self.stack.len() - payload_size);
 
             let result = cf.apply(args, &self.current_span(), self)?;
@@ -2373,7 +2342,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
             }
         }
 
-        if self.apply_contracts.enforce_contracts() {
+        if A::enforce_contracts() {
             let args = self.stack.split_off(self.stack.len() - payload_size);
 
             let result = cf.apply(args, &self.current_span(), self)?;
@@ -2539,7 +2508,7 @@ impl<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U
                     }
                 }
 
-                if self.apply_contracts.enforce_contracts() {
+                if A::enforce_contracts() {
                     let result = cf.apply(vec![local, const_value], &self.current_span(), self)?;
 
                     self.stack.push(result);

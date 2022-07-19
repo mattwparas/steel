@@ -547,8 +547,6 @@ mod flatten_begin_test {
     use crate::parser::tokens::TokenType;
     use crate::parser::tokens::TokenType::*;
 
-    use crate::parser::parser::Parser;
-
     // #[test]
     // fn defines_translates_to_simple_let() {
     //     let expr = r#"

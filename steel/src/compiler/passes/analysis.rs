@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use quickscope::ScopeMap;
 
 use crate::parser::{
-    ast::{ExprKind, LambdaFunction, Let, List},
-    parser::{IdentifierMetadata, SyntaxObject, SyntaxObjectId},
+    ast::{ExprKind, LambdaFunction, List},
+    parser::{SyntaxObject, SyntaxObjectId},
     span::Span,
     visitors::VisitorMutRef,
 };
@@ -747,15 +747,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     local_define.usage_count = mut_ref.usage_count;
                 }
 
-                let semantic_info =
+                let mut semantic_info =
                     SemanticInformation::new(IdentifierStatus::Local, depth, a.syn.span)
                         .with_usage_count(1)
-                        .refers_to(mut_ref.id)
-                        .with_offset(
-                            mut_ref
-                                .stack_offset
-                                .expect("Local variables should have an offset"),
-                        );
+                        .refers_to(mut_ref.id);
+
+                if let Some(stack_offset) = mut_ref.stack_offset {
+                    semantic_info = semantic_info.with_offset(stack_offset);
+                } else {
+                    log::warn!("Stack offset missing from local define")
+                }
 
                 // println!("Variable {} refers to {}", ident, mut_ref.id);
 
@@ -785,14 +786,21 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     }
                 }
 
-                let semantic_info = SemanticInformation::new(identifier_status, depth, a.syn.span)
-                    .with_usage_count(1)
-                    .refers_to(is_captured.id)
-                    .with_offset(
-                        is_captured
-                            .stack_offset
-                            .expect("Local variables should have an offset"),
-                    );
+                let mut semantic_info =
+                    SemanticInformation::new(identifier_status, depth, a.syn.span)
+                        .with_usage_count(1)
+                        .refers_to(is_captured.id);
+                // .with_offset(
+                //     is_captured
+                //         .stack_offset
+                //         .expect("Local variables should have an offset"),
+                // );
+
+                if let Some(stack_offset) = is_captured.stack_offset {
+                    semantic_info = semantic_info.with_offset(stack_offset);
+                } else {
+                    log::warn!("Stack offset missing from local define")
+                }
 
                 // println!("Variable {} refers to {}", ident, is_captured.id);
 

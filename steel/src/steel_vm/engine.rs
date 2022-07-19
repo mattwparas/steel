@@ -145,13 +145,12 @@ impl Engine {
         function: SteelVal,
         arguments: Vec<SteelVal>,
     ) -> Result<SteelVal> {
-        self.virtual_machine.call_function(
-            &self.compiler.constant_map,
-            UseCallback,
-            ApplyContract,
-            function,
-            arguments,
-        )
+        self.virtual_machine
+            .call_function::<UseCallback, ApplyContract>(
+                &self.compiler.constant_map,
+                function,
+                arguments,
+            )
     }
 
     /// Instantiates a new engine instance with all the primitive functions enabled.
@@ -297,7 +296,7 @@ impl Engine {
         constant_map: &ConstantMap,
     ) -> Result<SteelVal> {
         self.virtual_machine
-            .execute(bytecode, constant_map, &[], UseCallback, ApplyContract)
+            .execute::<UseCallback, ApplyContract>(bytecode, constant_map, &[])
     }
 
     /// Emit the bytecode directly, with a path provided.
@@ -320,7 +319,7 @@ impl Engine {
     /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
     pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
         self.virtual_machine
-            .execute_program(program, UseCallback, ApplyContract)
+            .execute_program::<UseCallback, ApplyContract>(program)
     }
 
     // TODO -> clean up this API a lot
@@ -373,12 +372,12 @@ impl Engine {
     pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
         let executable = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)?;
         self.virtual_machine
-            .run_executable(executable, UseCallback, ApplyContract)
+            .run_executable::<UseCallback, ApplyContract>(executable)
     }
 
     pub fn run_executable(&mut self, executable: Executable) -> Result<Vec<SteelVal>> {
         self.virtual_machine
-            .run_executable(executable, DoNotUseCallback, ApplyContract)
+            .run_executable::<DoNotUseCallback, ApplyContract>(executable)
     }
 
     /// Directly emit the expanded ast
@@ -606,7 +605,7 @@ impl Engine {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, None, constants)?;
         self.virtual_machine
-            .execute_program(program, UseCallback, ApplyContract)
+            .execute_program::<UseCallback, ApplyContract>(program)
     }
 
     /// Execute a program, however do not run any callbacks as registered with `on_progress`.
@@ -614,7 +613,7 @@ impl Engine {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, None, constants)?;
         self.virtual_machine
-            .execute_program(program, DoNotUseCallback, ApplyContract)
+            .execute_program::<DoNotUseCallback, ApplyContract>(program)
     }
 
     /// Execute a program (as per [`run`](crate::steel_vm::engine::Engine::run)), however do not enforce any contracts. Any contracts that are added are not
@@ -639,7 +638,7 @@ impl Engine {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, None, constants)?;
         self.virtual_machine
-            .execute_program(program, UseCallback, DoNotApplyContracts)
+            .execute_program::<UseCallback, DoNotApplyContracts>(program)
     }
 
     /// Execute a program without invoking any callbacks, or enforcing any contract checking
@@ -647,7 +646,7 @@ impl Engine {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, None, constants)?;
         self.virtual_machine
-            .execute_program(program, DoNotUseCallback, DoNotApplyContracts)
+            .execute_program::<DoNotUseCallback, DoNotApplyContracts>(program)
     }
 
     /// Similar to [`run`](crate::steel_vm::engine::Engine::run), however it includes path information
@@ -656,14 +655,14 @@ impl Engine {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, Some(path), constants)?;
         self.virtual_machine
-            .execute_program(program, UseCallback, ApplyContract)
+            .execute_program::<UseCallback, ApplyContract>(program)
     }
 
     pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, None, constants)?;
         self.virtual_machine
-            .execute_program(program, DoNotUseCallback, ApplyContract)
+            .execute_program::<DoNotUseCallback, ApplyContract>(program)
     }
 
     pub fn parse_and_execute(&mut self, expr: &str) -> Result<Vec<SteelVal>> {

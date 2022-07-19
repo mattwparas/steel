@@ -1,7 +1,6 @@
 use super::options::ApplyContracts;
 use super::options::UseCallbacks;
 use super::vm::VmCore;
-use crate::compiler::constants::ConstantTable;
 use crate::parser::span::Span;
 use crate::rvals::{Result, SteelVal};
 use std::cell::RefCell;
@@ -10,19 +9,16 @@ use std::rc::Rc;
 use crate::values::lazy_stream::LazyStream;
 
 // Used for inlining stream iterators
-pub(crate) struct LazyStreamIter<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>
-{
+pub(crate) struct LazyStreamIter<'global, 'a, U: UseCallbacks, A: ApplyContracts> {
     stream: LazyStream,
-    vm_ctx: Rc<RefCell<&'global mut VmCore<'a, CT, U, A>>>,
+    vm_ctx: Rc<RefCell<&'global mut VmCore<'a, U, A>>>,
     cur_inst_span: &'global Span,
 }
 
-impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>
-    LazyStreamIter<'global, 'a, CT, U, A>
-{
+impl<'global, 'a, U: UseCallbacks, A: ApplyContracts> LazyStreamIter<'global, 'a, U, A> {
     pub fn new(
         stream: LazyStream,
-        vm_ctx: Rc<RefCell<&'global mut VmCore<'a, CT, U, A>>>,
+        vm_ctx: Rc<RefCell<&'global mut VmCore<'a, U, A>>>,
         cur_inst_span: &'global Span,
     ) -> Self {
         Self {
@@ -33,8 +29,8 @@ impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>
     }
 }
 
-impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> Iterator
-    for LazyStreamIter<'global, 'a, CT, U, A>
+impl<'global, 'a, U: UseCallbacks, A: ApplyContracts> Iterator
+    for LazyStreamIter<'global, 'a, U, A>
 {
     type Item = Result<SteelVal>;
     fn next(&mut self) -> Option<Self::Item> {

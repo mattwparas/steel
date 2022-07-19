@@ -19,20 +19,20 @@ use log::debug;
 /// Extension trait for the application of contracted functions
 // TODO replace this with an &mut VmCore instead
 pub(crate) trait ContractedFunctionExt {
-    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arguments: Vec<SteelVal>,
         cur_inst_span: &Span,
-        context: &mut VmCore<'a, CT, U, A>,
+        context: &mut VmCore<'a, U, A>,
     ) -> Result<SteelVal>;
 }
 
 impl ContractedFunctionExt for ContractedFunction {
-    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arguments: Vec<SteelVal>,
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a, CT, U, A>,
+        ctx: &mut VmCore<'a, U, A>,
     ) -> Result<SteelVal> {
         // Walk back and find the contracts to apply
         {
@@ -51,20 +51,20 @@ impl ContractedFunctionExt for ContractedFunction {
 
 /// Extension trait for the application of flat contracts
 pub(crate) trait FlatContractExt {
-    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arg: SteelVal,
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a, CT, U, A>,
+        ctx: &mut VmCore<'a, U, A>,
     ) -> Result<()>;
 }
 
 impl FlatContractExt for FlatContract {
-    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, U: UseCallbacks, A: ApplyContracts>(
         &self,
         arg: SteelVal,
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a, CT, U, A>,
+        ctx: &mut VmCore<'a, U, A>,
     ) -> Result<()> {
         // TODO make this not clone the argument
         let output = match self.predicate() {
@@ -89,25 +89,25 @@ impl FlatContractExt for FlatContract {
 
 /// Extension trait for the application of function contracts
 pub(crate) trait FunctionContractExt {
-    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
         // function: &Gc<ByteCodeLambda>,
         function: &SteelVal,
         arguments: &[SteelVal],
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a, CT, U, A>,
+        ctx: &mut VmCore<'a, U, A>,
     ) -> Result<SteelVal>;
 }
 
 impl FunctionContractExt for FunctionKind {
-    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
         function: &SteelVal,
         arguments: &[SteelVal],
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a, CT, U, A>,
+        ctx: &mut VmCore<'a, U, A>,
     ) -> Result<SteelVal> {
         match self {
             Self::Basic(fc) => fc.apply(name, function, arguments, cur_inst_span, ctx),
@@ -117,13 +117,13 @@ impl FunctionContractExt for FunctionKind {
 }
 
 impl FunctionContractExt for DependentContract {
-    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
         function: &SteelVal,
         arguments: &[SteelVal],
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a, CT, U, A>,
+        ctx: &mut VmCore<'a, U, A>,
     ) -> Result<SteelVal> {
         let mut verified_args: Vec<SteelVal> = Vec::new();
 
@@ -311,13 +311,13 @@ impl FunctionContractExt for DependentContract {
 }
 
 impl FunctionContractExt for FunctionContract {
-    fn apply<'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts>(
+    fn apply<'a, U: UseCallbacks, A: ApplyContracts>(
         &self,
         name: &Option<String>,
         function: &SteelVal,
         arguments: &[SteelVal],
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a, CT, U, A>,
+        ctx: &mut VmCore<'a, U, A>,
     ) -> Result<SteelVal> {
         let mut verified_args = Vec::new();
 

@@ -96,7 +96,7 @@ fn transduce(mut args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVa
 //     }
 // }
 
-impl<'global, 'a, CT: ConstantTable, U: UseCallbacks, A: ApplyContracts> VmCore<'a, CT, U, A> {
+impl<'global, 'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
     // With transducers, we also need reducers
     // reducers should define _how_ a value is going to be converted away
     // from the iterator stream
