@@ -569,73 +569,39 @@ mod flatten_begin_test {
     //     assert_eq!(result, expected_parsed);
     // }
 
+    fn atom(ident: &str) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+            ident.to_string(),
+        ))))
+    }
+
+    fn int(num: isize) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(num))))
+    }
+
     #[test]
     fn basic_flatten_one_level() {
         let expr = ExprKind::Begin(Begin::new(
             vec![
                 ExprKind::Begin(Begin::new(
                     vec![ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "x".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                        atom("+"),
+                        atom("x"),
+                        int(10),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
                 )),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "y".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "z".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(30)))),
-                ])),
+                ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
+                ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
         ));
 
         let expected = ExprKind::Begin(Begin::new(
             vec![
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "x".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "y".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "z".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(30)))),
-                ])),
+                ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
+                ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
+                ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
         ));
@@ -649,37 +615,25 @@ mod flatten_begin_test {
             vec![
                 ExprKind::Begin(Begin::new(
                     vec![ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "x".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                        atom("+"),
+                        atom("x"),
+                        int(10),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
                 )),
                 ExprKind::Begin(Begin::new(
                     vec![ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "y".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
+                        atom("+"),
+                        atom("y"),
+                        int(20),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
                 )),
                 ExprKind::Begin(Begin::new(
                     vec![ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "z".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(30)))),
+                        atom("+"),
+                        atom("z"),
+                        int(30),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
                 )),
@@ -689,33 +643,9 @@ mod flatten_begin_test {
 
         let expected = ExprKind::Begin(Begin::new(
             vec![
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "x".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "y".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "z".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(30)))),
-                ])),
+                ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
+                ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
+                ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
         ));
