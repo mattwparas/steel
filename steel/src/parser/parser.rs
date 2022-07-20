@@ -43,7 +43,6 @@ impl std::fmt::Display for SyntaxObjectId {
 ///
 /// This should open the door to interning our strings to make
 /// parsing (and optimizations later) faster
-
 #[derive(Serialize, Deserialize)]
 pub struct RawSyntaxObject<T> {
     pub(crate) ty: T,

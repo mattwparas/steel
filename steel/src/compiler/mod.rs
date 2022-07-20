@@ -5,3 +5,5 @@ pub mod map;
 pub mod modules;
 pub mod passes;
 pub mod program;
+
+pub mod code_gen;
