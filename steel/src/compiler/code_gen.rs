@@ -1,13 +1,28 @@
 use crate::{
+    compiler::passes::analysis::IdentifierStatus::{
+        Captured, Free, Global, LetVar, Local, LocallyDefinedFunction,
+    },
     core::{
         labels::{LabelGenerator, LabeledInstruction},
         opcode::OpCode,
     },
-    parser::{ast::ExprKind, tokens::TokenType, visitors::VisitorMut},
-    stop,
+    parser::{
+        ast::{Atom, ExprKind},
+        parser::SyntaxObject,
+        span_visitor::get_span,
+        tokens::TokenType,
+        visitors::VisitorMut,
+    },
+    stop, SteelVal,
 };
 
-use super::{constants::ConstantMap, passes::analysis::Analysis};
+use super::{
+    constants::{ConstantMap, ConstantTable},
+    passes::analysis::{
+        Analysis,
+        CallKind::{Normal, SelfTailCall, TailCall},
+    },
+};
 
 use crate::rvals::Result;
 
@@ -16,6 +31,23 @@ pub struct CodeGenerator<'a> {
     constant_map: &'a mut ConstantMap,
     analysis: &'a Analysis,
     label_maker: LabelGenerator,
+}
+
+fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
+    match &t.ty {
+        TokenType::BooleanLiteral(b) => Ok((*b).into()),
+        // TokenType::Identifier(s) => env.borrow().lookup(&s),
+        TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
+        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
+        TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
+        TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
+        // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
+        TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
+        what => {
+            println!("getting here in the eval_atom");
+            stop!(UnexpectedToken => what; t.span)
+        }
+    }
 }
 
 impl<'a> CodeGenerator<'a> {
@@ -34,6 +66,25 @@ impl<'a> CodeGenerator<'a> {
 
     fn len(&self) -> usize {
         self.instructions.len()
+    }
+
+    fn specialize_constant(&mut self, syn: &SyntaxObject) -> Result<()> {
+        let value = eval_atom(syn)?;
+
+        let opcode = match &value {
+            // SteelVal::IntV(1) => OpCode::LOADINT1,
+            // SteelVal::IntV(2) => OpCode::LOADINT2,
+            _ => OpCode::PUSHCONST,
+        };
+
+        let idx = self.constant_map.add_or_get(value);
+        self.push(
+            LabeledInstruction::builder(opcode)
+                .payload(idx)
+                .contents(syn.clone())
+                .constant(true),
+        );
+        Ok(())
     }
 }
 
@@ -136,14 +187,22 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
     fn visit_return(&mut self, r: &crate::parser::ast::Return) -> Self::Output {
         self.visit(&r.expr)?;
-
         self.push(LabeledInstruction::builder(OpCode::POP));
-
         Ok(())
     }
 
     fn visit_quote(&mut self, quote: &crate::parser::ast::Quote) -> Self::Output {
-        todo!()
+        let converted =
+            SteelVal::try_from(crate::parser::ast::ExprKind::Quote(Box::new(quote.clone())))?;
+
+        let idx = self.constant_map.add_or_get(converted);
+        self.push(
+            LabeledInstruction::builder(OpCode::PUSHCONST)
+                .payload(idx)
+                .constant(true),
+        );
+
+        Ok(())
     }
 
     fn visit_struct(&mut self, s: &crate::parser::ast::Struct) -> Self::Output {
@@ -151,15 +210,78 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_macro(&mut self, m: &crate::parser::ast::Macro) -> Self::Output {
-        todo!()
+        stop!(BadSyntax => "unexpected macro definition"; m.location.span)
     }
 
     fn visit_atom(&mut self, a: &crate::parser::ast::Atom) -> Self::Output {
-        todo!()
+        if let Some(analysis) = self.analysis.get(&a.syn) {
+            let op_code = match (&analysis.kind, analysis.last_usage) {
+                (Global, _) => OpCode::PUSH,
+                (Local, true) | (LetVar, true) => OpCode::MOVEREADLOCAL,
+                (Local, false) | (LetVar, false) => OpCode::READLOCAL,
+
+                (LocallyDefinedFunction, _) => {
+                    stop!(Generic => "Unable to lower to bytecode: locally defined function should be lifted to an external scope")
+                }
+                (Captured, true) => OpCode::MOVEREADUPVALUE,
+                (Captured, false) => OpCode::READUPVALUE,
+                (Free, _) => stop!(FreeIdentifier => format!("free identifier: {}", a); a.syn.span),
+            };
+
+            self.push(
+                LabeledInstruction::builder(op_code)
+                    .payload(analysis.stack_offset.unwrap_or_default())
+                    .contents(a.syn.clone()),
+            );
+
+            Ok(())
+        } else {
+            return self.specialize_constant(&a.syn);
+        }
     }
 
     fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
-        todo!()
+        if l.args.is_empty() {
+            stop!(BadSyntax => "function application empty");
+        }
+
+        let pop_len = if l.args.len() > 0 {
+            l.args[1..].len()
+        } else {
+            0
+        };
+
+        for expr in &l.args[1..] {
+            self.visit(expr)?;
+        }
+
+        let contents = if let ExprKind::Atom(Atom { syn: s }) = &l.args[0] {
+            s.clone()
+        } else {
+            // TODO check span information here by coalescing the entire list
+            SyntaxObject::new(
+                TokenType::Identifier("lambda".to_string()),
+                get_span(&l.args[0]),
+            )
+        };
+
+        if let Some(call_info) = self.analysis.call_info.get(&l.syntax_object_id) {
+            let op_code = match call_info.kind {
+                Normal => OpCode::FUNC,
+                TailCall => OpCode::TCOJMP,
+                SelfTailCall => OpCode::TAILCALL,
+            };
+
+            self.push(
+                LabeledInstruction::builder(op_code)
+                    .contents(contents)
+                    .payload(pop_len),
+            );
+
+            Ok(())
+        } else {
+            stop!(Generic => "Unable to find analysis information for call site!")
+        }
     }
 
     fn visit_syntax_rules(&mut self, l: &crate::parser::ast::SyntaxRules) -> Self::Output {
@@ -181,6 +303,32 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {
+        // What we're gonna do here is pretty straight forward:
+        // Since we're entering a scope, we need to include the code to remove from this from
+        // the stack as well
+        //
+        // Otherwise, the machinery is more or less the same as before - we're just not going to
+        // enter a new section of bytecode, its all going to live under the same block.
+        //
+        // (let ((a 10) (b 20))
+        //      (+ 1 2 3 4 5) <- Could get dropped... immediately
+        //      (+ 2 3 4 5 6) <- Could get dropped... immediately
+        //      (+ a b))
+        //
+        // This should result in something like
+        // PUSHCONST 10
+        // PUSHCONST 20
+        // READLOCAL a
+        // READLOCAL b
+        // PUSH +
+        // FUNC 2
+        // ENDSCOPE 2 + n expressions
+
+        self.push(LabeledInstruction::builder(OpCode::BEGINSCOPE));
+        for expr in l.expression_arguments() {
+            self.visit(expr)?;
+        }
+
         todo!()
     }
 }

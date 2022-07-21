@@ -62,6 +62,11 @@ impl LabeledInstruction {
         self
     }
 
+    pub fn constant(mut self, constant: bool) -> Self {
+        self.constant = constant;
+        self
+    }
+
     pub fn set_goto(&mut self, goto: Label) {
         self.goto = Some(goto);
     }

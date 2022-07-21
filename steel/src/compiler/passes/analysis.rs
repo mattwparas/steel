@@ -21,19 +21,20 @@ pub enum IdentifierStatus {
     Free,
 }
 
+// TODO: Make these not just plain public variables
 #[derive(Debug)]
 pub struct SemanticInformation {
-    kind: IdentifierStatus,
-    set_bang: bool,
-    depth: usize,
-    shadows: Option<SyntaxObjectId>,
-    usage_count: usize,
-    span: Span,
-    refers_to: Option<SyntaxObjectId>,
-    aliases_to: Option<SyntaxObjectId>,
-    builtin: bool,
-    last_usage: bool,
-    stack_offset: Option<usize>,
+    pub kind: IdentifierStatus,
+    pub set_bang: bool,
+    pub depth: usize,
+    pub shadows: Option<SyntaxObjectId>,
+    pub usage_count: usize,
+    pub span: Span,
+    pub refers_to: Option<SyntaxObjectId>,
+    pub aliases_to: Option<SyntaxObjectId>,
+    pub builtin: bool,
+    pub last_usage: bool,
+    pub stack_offset: Option<usize>,
 }
 
 impl SemanticInformation {
@@ -103,8 +104,8 @@ pub enum CallKind {
 
 #[derive(Debug)]
 pub struct CallSiteInformation {
-    kind: CallKind,
-    span: Span,
+    pub kind: CallKind,
+    pub span: Span,
 }
 
 impl CallSiteInformation {
@@ -117,9 +118,9 @@ impl CallSiteInformation {
 #[derive(Default, Debug)]
 pub struct Analysis {
     // TODO: make these be specific IDs for semantic id, function id, and call info id
-    info: HashMap<SyntaxObjectId, SemanticInformation>,
-    function_info: HashMap<usize, FunctionInformation>,
-    call_info: HashMap<usize, CallSiteInformation>,
+    pub(crate) info: HashMap<SyntaxObjectId, SemanticInformation>,
+    pub(crate) function_info: HashMap<usize, FunctionInformation>,
+    pub(crate) call_info: HashMap<usize, CallSiteInformation>,
 }
 
 impl Analysis {
@@ -704,6 +705,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let depth = self.scope.depth();
         // Snag the current id of this node - we're gonna want this for later
         let current_id = a.syn.syntax_object_id;
+
+        // TODO: Check if this is actually a constant - if it is, mark it accordingly and lift it out
 
         if let Some(ident) = name {
             // Check if its a global var - otherwise, we want to check if its a free
