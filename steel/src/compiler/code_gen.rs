@@ -27,7 +27,7 @@ use super::{
 use crate::rvals::Result;
 
 pub struct CodeGenerator<'a> {
-    instructions: Vec<LabeledInstruction>,
+    pub(crate) instructions: Vec<LabeledInstruction>,
     constant_map: &'a mut ConstantMap,
     analysis: &'a Analysis,
     label_maker: LabelGenerator,
@@ -135,21 +135,24 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_define(&mut self, define: &crate::parser::ast::Define) -> Self::Output {
-        let sidx = self.len();
+        // let sidx = self.len();
 
         if let ExprKind::Atom(name) = &define.name {
             self.push(LabeledInstruction::builder(OpCode::SDEF).contents(name.syn.clone()));
 
             self.visit(&define.body)?;
 
-            let defn_body_size = self.len() - sidx;
+            // let defn_body_size = self.len() - sidx;
+
+            // TODO: Consider whether SDEF and EDEF are even necessary at all
+            // Just remove them otherwise
             self.push(LabeledInstruction::builder(OpCode::EDEF));
 
-            if let Some(elem) = self.instructions.get_mut(sidx) {
-                (*elem).payload_size = defn_body_size;
-            } else {
-                stop!(Generic => "out of bounds closure len");
-            }
+            // if let Some(elem) = self.instructions.get_mut(sidx) {
+            //     (*elem).payload_size = defn_body_size;
+            // } else {
+            //     stop!(Generic => "out of bounds closure len");
+            // }
 
             // println!("binding global: {}", name);
             self.push(LabeledInstruction::builder(OpCode::BIND).contents(name.syn.clone()));
@@ -169,7 +172,56 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         &mut self,
         lambda_function: &crate::parser::ast::LambdaFunction,
     ) -> Self::Output {
-        todo!()
+        let idx = self.len();
+
+        self.push(LabeledInstruction::builder(OpCode::SCLOSURE));
+
+        self.push(
+            LabeledInstruction::builder(OpCode::PASS).payload(if lambda_function.rest {
+                1
+            } else {
+                0
+            }),
+        );
+
+        // Patching over the changes, see old code generator for more information
+        self.push(LabeledInstruction::builder(OpCode::PASS));
+
+        let mut body_instructions = {
+            let mut code_gen = CodeGenerator::new(&mut self.constant_map, &self.analysis);
+            code_gen.visit(&lambda_function.body)?;
+            code_gen.instructions
+        };
+
+        let function_info = self
+            .analysis
+            .function_info
+            .get(&lambda_function.syntax_object_id)
+            .unwrap();
+
+        // Mark the upvalues here
+        self.push(
+            LabeledInstruction::builder(OpCode::NDEFS).payload(function_info.captured_vars().len()),
+        );
+
+        // TODO:
+        // Go through each of the vars an explicitly capture them
+        // This does not match explicitly what the upvalues are doing, and in fact
+        // We don't plan on imitating that behavior moving forward
+        //
+        // Moving forward, there will simply be a new constructor for lambdas, which
+        // explicitly captures the variables made.
+        //
+        // Something like (make-closure (vars) (captured-vars) exprs...)
+        //
+        // This way, at run time we can simply allocate these values directly onto the heap
+        // and subsequently store the weak refs in the closure object, which there will be separate
+        // objects for, for pure functions and closures
+        for var in function_info.captured_vars() {
+            self.push(LabeledInstruction::builder(OpCode::FILLLOCALUPVALUE))
+        }
+
+        Ok(())
     }
 
     fn visit_begin(&mut self, begin: &crate::parser::ast::Begin) -> Self::Output {
@@ -255,6 +307,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             self.visit(expr)?;
         }
 
+        // emit instructions for the func
+        self.visit(&l.args[0])?;
+
         let contents = if let ExprKind::Atom(Atom { syn: s }) = &l.args[0] {
             s.clone()
         } else {
@@ -311,8 +366,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // enter a new section of bytecode, its all going to live under the same block.
         //
         // (let ((a 10) (b 20))
-        //      (+ 1 2 3 4 5) <- Could get dropped... immediately
-        //      (+ 2 3 4 5 6) <- Could get dropped... immediately
+        //      (+ 1 2 3 4 5) <-| Could get dropped immediately, but for now it does not
+        //      (+ 2 3 4 5 6) <-|
         //      (+ a b))
         //
         // This should result in something like
@@ -322,13 +377,72 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // READLOCAL b
         // PUSH +
         // FUNC 2
-        // ENDSCOPE 2 + n expressions
+        // ENDSCOPE 0 <- index of the stack when we entered this let expr
 
-        self.push(LabeledInstruction::builder(OpCode::BEGINSCOPE));
+        // We just assume these will live on the stack at whatever position we're entering now
         for expr in l.expression_arguments() {
             self.visit(expr)?;
         }
 
-        todo!()
+        let info = self
+            .analysis
+            .let_info
+            .get(&l.syntax_object_id)
+            .expect("Missing analysis information for let");
+
+        self.visit(&l.body_expr)?;
+
+        // TODO: Add handling in the VM for this, as well as understanding how
+        // upvalues are going to get closed when exiting the stack
+        self.push(LabeledInstruction::builder(OpCode::LETENDSCOPE).payload(info.stack_offset));
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod code_gen_tests {
+    use super::*;
+
+    use crate::{parser::parser::Parser, rerrs::ErrorKind};
+
+    #[test]
+    fn check_let_output() {
+        let expr = r#"
+
+            (define + "dummy")
+
+            (%plain-let ((a 10) (b 20))
+                (+ a b))
+        "#;
+
+        let exprs = Parser::parse(expr).unwrap();
+
+        let analysis = Analysis::from_exprs(&exprs);
+        let mut constants = ConstantMap::new();
+
+        let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
+
+        code_gen.visit(&exprs[1]).unwrap();
+
+        println!("{:#?}", code_gen.instructions);
+
+        let expected = vec![
+            (OpCode::PUSHCONST, 0),   // Should be the only constant in the map
+            (OpCode::PUSHCONST, 1),   // Should be the second constant in the map
+            (OpCode::READLOCAL, 0),   // Corresponds to index 0
+            (OpCode::READLOCAL, 1),   // Corresponds to index 1
+            (OpCode::PUSH, 0), // + is a global, that is late bound and the index is resolved later
+            (OpCode::FUNC, 2), // Function call with 2 arguments
+            (OpCode::LETENDSCOPE, 0), // Exit the let scope and drop the vars and anything above it
+        ];
+
+        let found = code_gen
+            .instructions
+            .iter()
+            .map(|x| (x.op_code, x.payload_size))
+            .collect::<Vec<_>>();
+
+        assert_eq!(expected, found);
     }
 }

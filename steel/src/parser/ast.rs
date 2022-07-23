@@ -404,6 +404,7 @@ pub struct Let {
     pub bindings: Vec<(ExprKind, ExprKind)>,
     pub body_expr: ExprKind,
     pub location: SyntaxObject,
+    pub syntax_object_id: usize,
 }
 
 impl Let {
@@ -416,6 +417,7 @@ impl Let {
             bindings,
             body_expr,
             location,
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
 

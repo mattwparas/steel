@@ -93,6 +93,10 @@ impl FunctionInformation {
     pub fn new(captured_vars: HashMap<String, ScopeInfo>) -> Self {
         Self { captured_vars }
     }
+
+    pub fn captured_vars(&self) -> &HashMap<String, ScopeInfo> {
+        &self.captured_vars
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -114,6 +118,17 @@ impl CallSiteInformation {
     }
 }
 
+#[derive(Debug)]
+pub struct LetInformation {
+    pub stack_offset: usize,
+}
+
+impl LetInformation {
+    pub fn new(stack_offset: usize) -> Self {
+        Self { stack_offset }
+    }
+}
+
 // Populate the metadata about individual
 #[derive(Default, Debug)]
 pub struct Analysis {
@@ -121,6 +136,7 @@ pub struct Analysis {
     pub(crate) info: HashMap<SyntaxObjectId, SemanticInformation>,
     pub(crate) function_info: HashMap<usize, FunctionInformation>,
     pub(crate) call_info: HashMap<usize, CallSiteInformation>,
+    pub(crate) let_info: HashMap<usize, LetInformation>,
 }
 
 impl Analysis {
@@ -242,16 +258,16 @@ impl Analysis {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeInfo {
     /// The ID of the variable, this is globally unique
-    id: SyntaxObjectId,
+    pub id: SyntaxObjectId,
     /// Whether or not this variable is captured by a scope
-    captured: bool,
+    pub captured: bool,
     /// How many times has this variable been referenced
-    usage_count: usize,
+    pub usage_count: usize,
     /// Last touched by this ID
-    last_used: Option<SyntaxObjectId>,
+    pub last_used: Option<SyntaxObjectId>,
     /// Represents the position on the stack that this variable
     /// should live at during the execution of the program
-    stack_offset: Option<usize>,
+    pub stack_offset: Option<usize>,
 }
 
 impl ScopeInfo {
@@ -552,6 +568,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
     }
 
+    // TODO: -> understand stack offset here. Should begins drop everything inside?
     fn visit_begin(&mut self, begin: &'a crate::parser::ast::Begin) {
         // Collect all of the defines inside of the body first
         for expr in &begin.exprs {
@@ -566,7 +583,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         let last = begin.exprs.len() - 1;
-        let stack_offset = self.stack_offset;
+        // let stack_offset = self.stack_offset;
 
         // TODO: Clean up this bad pattern
         let eligibility = self.tail_call_eligible;
@@ -599,7 +616,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         self.tail_call_eligible = eligibility;
-        self.stack_offset = stack_offset
+        // self.stack_offset = stack_offset
     }
 
     fn visit_let(&mut self, l: &'a crate::parser::ast::Let) {
@@ -609,12 +626,22 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let mut stack_offset = self.stack_offset;
         let rollback_offset = stack_offset;
 
+        self.info
+            .let_info
+            .insert(l.syntax_object_id, LetInformation::new(self.stack_offset));
+
         for expr in l.expression_arguments() {
             self.visit(expr);
             self.stack_offset += 1;
         }
 
         self.tail_call_eligible = eligibility;
+
+        let is_top_level = self.scope.depth() == 1;
+
+        if is_top_level {
+            self.scope.push_layer();
+        }
 
         for arg in l.local_bindings() {
             let name = arg.atom_identifier().unwrap();
@@ -635,6 +662,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         self.visit(&l.body_expr);
+
+        if is_top_level {
+            self.scope.pop_layer();
+        }
+
         self.stack_offset = rollback_offset;
     }
 

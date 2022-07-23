@@ -13,6 +13,14 @@ pub struct LabelGenerator {
 }
 
 impl LabelGenerator {
+    pub fn current(&self) -> usize {
+        self.seed
+    }
+
+    pub fn new(seed: usize) -> Self {
+        LabelGenerator { seed }
+    }
+
     pub fn fresh(&mut self) -> Label {
         let label = Label(self.seed);
         self.seed += 1;

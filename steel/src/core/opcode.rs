@@ -45,6 +45,7 @@ pub enum OpCode {
     MOVECGLOCALCONST,
     BEGINSCOPE,
     ENDSCOPE,
+    LETENDSCOPE,
     FUNC0,
     ADD,
     SUB,
@@ -108,6 +109,7 @@ impl OpCode {
             "DIV" => DIV,
             "EQUAL" => EQUAL,
             "LTE" => LTE,
+            "LETENDSCOPE" => LETENDSCOPE,
             _ => panic!("Unable to map string to opcode"),
         }
     }
