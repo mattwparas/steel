@@ -3,7 +3,7 @@ use crate::{
         Captured, Free, Global, LetVar, Local, LocallyDefinedFunction,
     },
     core::{
-        labels::{LabelGenerator, LabeledInstruction},
+        labels::{fresh, LabeledInstruction},
         opcode::OpCode,
     },
     parser::{
@@ -30,7 +30,6 @@ pub struct CodeGenerator<'a> {
     pub(crate) instructions: Vec<LabeledInstruction>,
     constant_map: &'a mut ConstantMap,
     analysis: &'a Analysis,
-    label_maker: LabelGenerator,
 }
 
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
@@ -56,7 +55,6 @@ impl<'a> CodeGenerator<'a> {
             instructions: Vec::new(),
             constant_map,
             analysis,
-            label_maker: LabelGenerator::default(),
         }
     }
 
@@ -100,14 +98,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         self.visit(&f.then_expr)?;
 
-        let false_start_label = self.label_maker.fresh();
+        let false_start_label = fresh();
 
         self.push(LabeledInstruction::builder(OpCode::JMP).goto(false_start_label));
         let false_start = self.len();
 
         self.visit(&f.else_expr)?;
 
-        let j3_label = self.label_maker.fresh();
+        let j3_label = fresh();
 
         self.instructions.last_mut().unwrap().set_tag(j3_label);
 
@@ -174,8 +172,23 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     ) -> Self::Output {
         let idx = self.len();
 
-        self.push(LabeledInstruction::builder(OpCode::SCLOSURE));
+        // Grab the function information from the analysis - this is going to tell us what the captured
+        // vars are, and subsequently how to compile the let for this use case
+        let function_info = self
+            .analysis
+            .function_info
+            .get(&lambda_function.syntax_object_id)
+            .unwrap();
 
+        // Distinguishing between a pure function and a non pure function will enable
+        // thinner code for the resulting function
+        let op_code = if function_info.captured_vars().is_empty() {
+            OpCode::PUREFUNC
+        } else {
+            OpCode::SCLOSURE
+        };
+
+        self.push(LabeledInstruction::builder(op_code));
         self.push(
             LabeledInstruction::builder(OpCode::PASS).payload(if lambda_function.rest {
                 1
@@ -183,6 +196,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 0
             }),
         );
+
+        let arity = lambda_function.args.len();
 
         // Patching over the changes, see old code generator for more information
         self.push(LabeledInstruction::builder(OpCode::PASS));
@@ -193,32 +208,61 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             code_gen.instructions
         };
 
-        let function_info = self
-            .analysis
-            .function_info
-            .get(&lambda_function.syntax_object_id)
-            .unwrap();
+        // In the event we actually have a closure, we need to add the necessarily
+        // boilerplate to lift out closed over variables since they could escape
+        if op_code == OpCode::SCLOSURE {
+            // Mark the upvalues here
+            self.push(
+                LabeledInstruction::builder(OpCode::NDEFS)
+                    .payload(function_info.captured_vars().len()),
+            );
 
-        // Mark the upvalues here
-        self.push(
-            LabeledInstruction::builder(OpCode::NDEFS).payload(function_info.captured_vars().len()),
-        );
+            // TODO:
+            // Go through each of the vars an explicitly capture them
+            // This does not match explicitly what the upvalues are doing, and in fact
+            // We don't plan on imitating that behavior moving forward
+            //
+            // Moving forward, there will simply be a new constructor for lambdas, which
+            // explicitly captures the variables made.
+            //
+            // Something like (make-closure (vars) (captured-vars) exprs...)
+            //
+            // This way, at run time we can simply allocate these values directly onto the heap
+            // and subsequently store the weak refs in the closure object, which there will be separate
+            // objects for, for pure functions and closures
+            for _ in function_info.captured_vars() {
+                println!("Ignored upvalues in closure creation");
+                self.push(LabeledInstruction::builder(OpCode::FILLLOCALUPVALUE))
+            }
+        }
 
-        // TODO:
-        // Go through each of the vars an explicitly capture them
-        // This does not match explicitly what the upvalues are doing, and in fact
-        // We don't plan on imitating that behavior moving forward
-        //
-        // Moving forward, there will simply be a new constructor for lambdas, which
-        // explicitly captures the variables made.
-        //
-        // Something like (make-closure (vars) (captured-vars) exprs...)
-        //
-        // This way, at run time we can simply allocate these values directly onto the heap
-        // and subsequently store the weak refs in the closure object, which there will be separate
-        // objects for, for pure functions and closures
-        for var in function_info.captured_vars() {
-            self.push(LabeledInstruction::builder(OpCode::FILLLOCALUPVALUE))
+        // TODO: Add over the locals length
+        body_instructions
+            .push(LabeledInstruction::builder(OpCode::POP).payload(lambda_function.args.len()));
+
+        if op_code == OpCode::SCLOSURE {
+            for var in &lambda_function.args {
+                // TODO: Payload needs to be whether the local variable is captured
+                // or not - this will tell us if we need to close over it later
+                body_instructions.push(
+                    LabeledInstruction::builder(OpCode::CLOSEUPVALUE)
+                        .payload(0)
+                        .contents(var.atom_syntax_object().unwrap().clone()),
+                );
+            }
+        }
+
+        self.instructions.append(&mut body_instructions);
+
+        // pop off the local variables from the run time stack, so we don't have them
+
+        let closure_body_size = self.len() - idx;
+        self.push(LabeledInstruction::builder(OpCode::ECLOSURE).payload(arity));
+
+        if let Some(elem) = self.instructions.get_mut(idx) {
+            (*elem).payload_size = closure_body_size;
+        } else {
+            stop!(Generic => "out of bounds closure len");
         }
 
         Ok(())
@@ -258,7 +302,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_struct(&mut self, s: &crate::parser::ast::Struct) -> Self::Output {
-        todo!()
+        stop!(Generic => "structs are going to be deprecated, please stop using them"; s.location.span)
     }
 
     fn visit_macro(&mut self, m: &crate::parser::ast::Macro) -> Self::Output {
@@ -323,8 +367,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         if let Some(call_info) = self.analysis.call_info.get(&l.syntax_object_id) {
             let op_code = match call_info.kind {
                 Normal => OpCode::FUNC,
-                TailCall => OpCode::TCOJMP,
-                SelfTailCall => OpCode::TAILCALL,
+                TailCall => OpCode::TAILCALL,
+                SelfTailCall => OpCode::TCOJMP,
             };
 
             self.push(
@@ -344,7 +388,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_set(&mut self, s: &crate::parser::ast::Set) -> Self::Output {
-        todo!()
+        stop!(BadSyntax => "sets are currently not implemented"; s.location.span);
     }
 
     fn visit_require(&mut self, r: &crate::parser::ast::Require) -> Self::Output {
@@ -366,8 +410,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // enter a new section of bytecode, its all going to live under the same block.
         //
         // (let ((a 10) (b 20))
-        //      (+ 1 2 3 4 5) <-| Could get dropped immediately, but for now it does not
-        //      (+ 2 3 4 5 6) <-|
+        //      (+ 1 2 3 4 5) <--- Could get dropped immediately, but for now it does not
+        //      (+ 2 3 4 5 6) <--|
         //      (+ a b))
         //
         // This should result in something like
@@ -405,6 +449,49 @@ mod code_gen_tests {
     use super::*;
 
     use crate::{parser::parser::Parser, rerrs::ErrorKind};
+
+    #[test]
+    fn check_lambda_output() {
+        let expr = r#"
+
+        (define + "dummy")
+
+        (lambda (x y z)
+            (+ x y z))
+        "#;
+
+        let exprs = Parser::parse(expr).unwrap();
+
+        let analysis = Analysis::from_exprs(&exprs);
+        let mut constants = ConstantMap::new();
+
+        let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
+
+        code_gen.visit(&exprs[1]).unwrap();
+
+        println!("{:#?}", code_gen.instructions);
+
+        let expected = vec![
+            (OpCode::PUREFUNC, 9), // This captures no variables - should be able to be lifted as well
+            (OpCode::PASS, 0),     // multi arity
+            (OpCode::PASS, 0),     // This shouldn't need to be here
+            (OpCode::MOVEREADLOCAL, 0), // last usage of x, first var
+            (OpCode::MOVEREADLOCAL, 1), // last usage of y
+            (OpCode::MOVEREADLOCAL, 2), // last usage of z
+            (OpCode::PUSH, 0), // + is a global, that is late bound and the index is resolved later
+            (OpCode::TAILCALL, 3), // tail call function, with 3 arguments
+            (OpCode::POP, 3),  // Pop 3 arguments
+            (OpCode::ECLOSURE, 3), // Something about 3 arguments...
+        ];
+
+        let found = code_gen
+            .instructions
+            .iter()
+            .map(|x| (x.op_code, x.payload_size))
+            .collect::<Vec<_>>();
+
+        assert_eq!(expected, found);
+    }
 
     #[test]
     fn check_let_output() {

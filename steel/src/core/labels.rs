@@ -2,30 +2,18 @@ use super::instructions::Instruction;
 use super::opcode::OpCode;
 use crate::parser::parser::SyntaxObject;
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+pub(crate) static LABEL_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash, Eq)]
 pub struct Label(usize);
 
-#[derive(Default, Debug)]
-pub struct LabelGenerator {
-    seed: usize,
-}
-
-impl LabelGenerator {
-    pub fn current(&self) -> usize {
-        self.seed
-    }
-
-    pub fn new(seed: usize) -> Self {
-        LabelGenerator { seed }
-    }
-
-    pub fn fresh(&mut self) -> Label {
-        let label = Label(self.seed);
-        self.seed += 1;
-        label
-    }
+pub fn fresh() -> Label {
+    Label(LABEL_ID.fetch_add(1, Ordering::SeqCst))
 }
 
 #[derive(Clone, Debug)]
