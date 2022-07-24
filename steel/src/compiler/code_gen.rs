@@ -245,14 +245,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
-        if op_code == OpCode::SCLOSURE {
-            body_instructions
-                .push(LabeledInstruction::builder(OpCode::POP).payload(lambda_function.args.len()));
+        let pop_op_code = if op_code == OpCode::SCLOSURE {
+            OpCode::POP
         } else {
-            body_instructions.push(
-                LabeledInstruction::builder(OpCode::POP_PURE).payload(lambda_function.args.len()),
-            );
-        }
+            OpCode::POP_PURE
+        };
+
+        body_instructions
+            .push(LabeledInstruction::builder(pop_op_code).payload(lambda_function.args.len()));
 
         // TODO: Add over the locals length
 
@@ -460,6 +460,22 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .expect("Missing analysis information for let");
 
         self.visit(&l.body_expr)?;
+
+        // TODO:
+        // It is possible, that during the course of execution, local variables get captured.
+        // For example:
+        //
+        // (let ((a 10) (b 20))
+        //      (lambda (x) (+ x a b)))
+        //
+        // In this case, at the end of the let scope, we can move those variables
+        // into the slot that exists on the heap - and local variable references internally
+        // in the function will refer to the local function slots, rather than the spots on the stack
+        //
+        // Having things on the stack will make things much faster. Lets try to keep them there.
+        //
+        // The let will have to keep track of if any of these values are captured, and if they are
+        // just insert an instruction to close that upvalue
 
         // TODO: Add handling in the VM for this, as well as understanding how
         // upvalues are going to get closed when exiting the stack
