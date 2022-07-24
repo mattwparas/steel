@@ -46,7 +46,7 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{
     code_generator::loop_condition_local_const_arity_two, modules::ModuleManager,
-    program::RawProgramWithSymbols,
+    passes::analysis::Analysis, program::RawProgramWithSymbols,
 };
 
 use im_rc::HashMap as ImmutableHashMap;
@@ -831,11 +831,27 @@ impl Compiler {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
 
+        let analysis = std::env::var("CODE_GEN_V2")
+            .ok()
+            .map(|_| Analysis::from_exprs(&expanded_statements));
+
         for expr in expanded_statements {
             // TODO add printing out the expression as its own special function
 
-            let mut instructions =
-                CodeGenerator::new(&mut self.constant_map).top_level_compile(&expr)?;
+            let mut instructions = if let Ok(_) = std::env::var("CODE_GEN_V2") {
+                println!("{}", expr);
+
+                super::code_gen::CodeGenerator::new(
+                    &mut self.constant_map,
+                    analysis.as_ref().unwrap(),
+                )
+                .top_level_compile(&expr)?
+            } else {
+                CodeGenerator::new(&mut self.constant_map).top_level_compile(&expr)?
+            };
+
+            // let mut instructions =
+            //     CodeGenerator::new(&mut self.constant_map).top_level_compile(&expr)?;
 
             // instructions.push(Instruction::new_pop());
             inject_heap_save_to_pop(&mut instructions);
@@ -933,7 +949,7 @@ impl Compiler {
         let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;
 
         debug!("About to expand defines");
-        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
         if log_enabled!(log::Level::Debug) {
             debug!(
@@ -948,8 +964,12 @@ impl Compiler {
         // TODO - make sure I want to keep this
         // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
 
+        if let Err(_) = std::env::var("CODE_GEN_V2") {
+            expanded_statements = LambdaLifter::lift(expanded_statements);
+        }
+
         // TODO
-        let expanded_statements = LambdaLifter::lift(expanded_statements);
+        // let expanded_statements = LambdaLifter::lift(expanded_statements);
 
         // TODO - make sure I want to keep this
         let expanded_statements =

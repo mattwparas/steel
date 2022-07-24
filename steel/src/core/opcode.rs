@@ -16,6 +16,7 @@ pub enum OpCode {
     BIND = 10,
     SDEF = 11,
     EDEF = 12,
+    POP_PURE,
     PASS,
     PUSHCONST,
     NDEFS,
@@ -112,6 +113,7 @@ impl OpCode {
             "LTE" => LTE,
             "LETENDSCOPE" => LETENDSCOPE,
             "PUREFUNC" => PUREFUNC,
+            "POP_PURE" => POP_PURE,
             _ => panic!("Unable to map string to opcode"),
         }
     }

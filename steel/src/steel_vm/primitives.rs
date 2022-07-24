@@ -671,6 +671,10 @@ fn get_environment_variable(var: String) -> Result<SteelVal> {
         .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
 }
 
+fn set_environment_variable(key: String, value: String) {
+    std::env::set_var(key, value)
+}
+
 fn sandboxed_meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta".to_string());
     module
@@ -736,7 +740,8 @@ fn meta_module() -> BuiltInModule {
             crate::rvals::MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
         )
         .register_value("custom-struct?", is_custom_struct())
-        .register_fn("env-var", get_environment_variable);
+        .register_fn("env-var", get_environment_variable)
+        .register_fn("set-env-var!", set_environment_variable);
     module
 }
 

@@ -1298,10 +1298,25 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                     // self.stack_index.push(self.stack.len());
                 }
                 DenseInstruction {
-                    op_code: OpCode::ENDSCOPE,
+                    op_code: OpCode::LETENDSCOPE,
                     payload_size,
                     ..
                 } => {
+                    let beginning_scope = payload_size as usize;
+                    let offset = self.stack_index.last().copied().unwrap_or(0);
+
+                    // Move to the pop
+                    self.ip += 1;
+
+                    let rollback_index = beginning_scope + offset;
+
+                    let last = self.stack.pop().expect("stack empty at pop");
+
+                    self.stack.truncate(rollback_index);
+                    self.stack.push(last);
+
+                    /*
+
                     // todo!()
 
                     let beginning_scope = payload_size as usize;
@@ -1351,6 +1366,8 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                     println!("Current instruction: {:?}", self.instructions[self.ip]);
                     // let last = self.stack_index.pop().unwrap();
                     // self.stack.truncate(last);
+
+                    */
                 }
                 DenseInstruction {
                     op_code: OpCode::POP,
@@ -1358,6 +1375,15 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                     ..
                 } => {
                     if let Some(r) = self.handle_pop(payload_size) {
+                        return r;
+                    }
+                }
+                DenseInstruction {
+                    op_code: OpCode::POP_PURE,
+                    payload_size,
+                    ..
+                } => {
+                    if let Some(r) = self.handle_pop_pure(payload_size) {
                         return r;
                     }
                 }
@@ -1371,6 +1397,11 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                     payload_size,
                     ..
                 } => self.handle_start_closure(payload_size as usize),
+                DenseInstruction {
+                    op_code: OpCode::PUREFUNC,
+                    payload_size,
+                    ..
+                } => self.handle_pure_function(payload_size as usize),
                 DenseInstruction {
                     op_code: OpCode::SDEF,
                     ..
@@ -1428,6 +1459,79 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             // .flatten()
             .copied()
             .unwrap_or_default()
+    }
+
+    fn handle_pop_pure(&mut self, payload: u32) -> Option<Result<SteelVal>> {
+        // Check that the amoutn we're looking to pop and the function stack length are equivalent
+        // otherwise we have a problem
+        // assert_eq!(self.pop_count, self.function_stack.len());
+
+        self.pop_count -= 1;
+
+        // unwrap just because we want to see if we have something here
+        // rolling back the function stack
+        self.function_stack.pop();
+
+        if self.pop_count == 0 {
+            let ret_val = self.stack.try_pop().ok_or_else(|| {
+                // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+
+                SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
+                    .with_span(self.current_span())
+            });
+
+            // self.close_upvalues();
+
+            // println!("ROLLING BACK STACK");
+            // println!("BEFORE: {:?}", self.stack);
+            // println!("index: {:?}", self.stack_index);
+
+            // Roll back if needed
+            if let Some(rollback_index) = self.stack_index.pop() {
+                // TODO check if this is better / correct
+                // self.close_upvalues(rollback_index);
+
+                // Move forward past the pop
+                self.ip += 1;
+
+                self.stack.truncate(rollback_index);
+            }
+
+            Some(ret_val)
+        } else {
+            let ret_val = self.stack.pop().unwrap();
+
+            // TODO fix this
+            let rollback_index = self.stack_index.pop().unwrap();
+
+            // Snatch the value to close from the payload size
+            // Move forward past the pop
+            self.ip += 1;
+
+            // Close remaining values on the stack
+
+            self.stack.truncate(rollback_index);
+            self.stack.push(ret_val);
+
+            // self.stack.drain_range(rollback_index..self.stack.len() - 1);
+
+            // self.stack.truncate(rollback_index + 1);
+            // *self.stack.last_mut().unwrap() = ret_val;
+
+            // if !self
+            //     .instruction_stack
+            //     .last()
+            //     .unwrap()
+            //     .instrs_ref()
+            //     .is_empty()
+            // {
+            let prev_state = self.instruction_stack.pop().unwrap();
+            self.ip = prev_state.0;
+            self.instructions = prev_state.instrs();
+            // }
+
+            None
+        }
     }
 
     // #[inline(always)]
@@ -1777,6 +1881,62 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
 
         self.stack.push(value);
         self.ip += 1;
+    }
+
+    fn handle_pure_function(&mut self, offset: usize) {
+        // println!("Hitting start closure");
+
+        // println!("Instruction: {:?}", self.instructions[self.ip]);
+
+        // if self.instructions[self.ip].payload_size == 1 {
+        //     println!("Found multi arity function");
+        // }
+
+        self.ip += 1;
+
+        let is_multi_arity = self.instructions[self.ip].payload_size == 1;
+
+        self.ip += 1;
+
+        // Check whether this is a let or a rooted function
+        let is_let = self.instructions[self.ip].payload_size == 1;
+
+        // if is_multi_arity {
+        //     println!("Found multi arity function");
+        // }
+
+        self.ip += 1;
+
+        // TODO - used to be offset - 2, now 3 with the multi arity
+        let forward_jump = offset - 2;
+
+        // TODO clean this up a bit
+        // hold the spot for where we need to jump aftwards
+        let forward_index = self.ip + forward_jump;
+
+        // TODO -> this is probably quite slow
+        // If extraneous lets are lifted, we probably don't need this
+        // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
+
+        // Construct the closure body using the offsets from the payload
+        // used to be - 1, now - 2
+        let closure_body = self.instructions[self.ip..(self.ip + forward_jump - 1)].to_vec();
+
+        // snag the arity from the eclosure instruction
+        let arity = self.instructions[forward_index - 1].payload_size;
+
+        let constructed_lambda = ByteCodeLambda::new(
+            closure_body,
+            arity as usize,
+            Vec::new(),
+            is_let,
+            is_multi_arity,
+        );
+
+        self.stack
+            .push(SteelVal::Closure(Gc::new(constructed_lambda)));
+
+        self.ip = forward_index;
     }
 
     // #[inline(always)]

@@ -3,7 +3,8 @@ use crate::{
         Captured, Free, Global, LetVar, Local, LocallyDefinedFunction,
     },
     core::{
-        labels::{fresh, LabeledInstruction},
+        instructions::Instruction,
+        labels::{fresh, resolve_labels, LabeledInstruction},
         opcode::OpCode,
     },
     parser::{
@@ -56,6 +57,14 @@ impl<'a> CodeGenerator<'a> {
             constant_map,
             analysis,
         }
+    }
+
+    pub fn top_level_compile(mut self, expr: &ExprKind) -> Result<Vec<Instruction>> {
+        self.visit(expr)?;
+        self.instructions
+            .push(LabeledInstruction::builder(OpCode::POP));
+
+        Ok(resolve_labels(self.instructions))
     }
 
     fn push(&mut self, instr: LabeledInstruction) {
@@ -236,9 +245,16 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
+        if op_code == OpCode::SCLOSURE {
+            body_instructions
+                .push(LabeledInstruction::builder(OpCode::POP).payload(lambda_function.args.len()));
+        } else {
+            body_instructions.push(
+                LabeledInstruction::builder(OpCode::POP_PURE).payload(lambda_function.args.len()),
+            );
+        }
+
         // TODO: Add over the locals length
-        body_instructions
-            .push(LabeledInstruction::builder(OpCode::POP).payload(lambda_function.args.len()));
 
         if op_code == OpCode::SCLOSURE {
             for var in &lambda_function.args {
@@ -321,7 +337,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 }
                 (Captured, true) => OpCode::MOVEREADUPVALUE,
                 (Captured, false) => OpCode::READUPVALUE,
-                (Free, _) => stop!(FreeIdentifier => format!("free identifier: {}", a); a.syn.span),
+                (Free, _) => OpCode::PUSH, // This is technically true, but in an incremental compilation mode, we assume the variable is already bound
+                                           // stop!(FreeIdentifier => format!("free identifier: {}", a); a.syn.span),
             };
 
             self.push(
@@ -379,7 +396,15 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             Ok(())
         } else {
-            stop!(Generic => "Unable to find analysis information for call site!")
+            self.push(
+                LabeledInstruction::builder(OpCode::FUNC)
+                    .contents(contents)
+                    .payload(pop_len),
+            );
+
+            Ok(())
+
+            // stop!(Generic => "Unable to find analysis information for call site!")
         }
     }
 
@@ -388,7 +413,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_set(&mut self, s: &crate::parser::ast::Set) -> Self::Output {
-        stop!(BadSyntax => "sets are currently not implemented"; s.location.span);
+        stop!(BadSyntax => "set! is currently not implemented"; s.location.span);
     }
 
     fn visit_require(&mut self, r: &crate::parser::ast::Require) -> Self::Output {
@@ -421,7 +446,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // READLOCAL b
         // PUSH +
         // FUNC 2
-        // ENDSCOPE 0 <- index of the stack when we entered this let expr
+        // LETENDSCOPE 0 <- index of the stack when we entered this let expr
 
         // We just assume these will live on the stack at whatever position we're entering now
         for expr in l.expression_arguments() {
@@ -453,9 +478,6 @@ mod code_gen_tests {
     #[test]
     fn check_lambda_output() {
         let expr = r#"
-
-        (define + "dummy")
-
         (lambda (x y z)
             (+ x y z))
         "#;
@@ -467,7 +489,7 @@ mod code_gen_tests {
 
         let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
 
-        code_gen.visit(&exprs[1]).unwrap();
+        code_gen.visit(&exprs[0]).unwrap();
 
         println!("{:#?}", code_gen.instructions);
 
@@ -480,7 +502,7 @@ mod code_gen_tests {
             (OpCode::MOVEREADLOCAL, 2), // last usage of z
             (OpCode::PUSH, 0), // + is a global, that is late bound and the index is resolved later
             (OpCode::TAILCALL, 3), // tail call function, with 3 arguments
-            (OpCode::POP, 3),  // Pop 3 arguments
+            (OpCode::POP_PURE, 3), // Pop 3 arguments
             (OpCode::ECLOSURE, 3), // Something about 3 arguments...
         ];
 
@@ -496,9 +518,6 @@ mod code_gen_tests {
     #[test]
     fn check_let_output() {
         let expr = r#"
-
-            (define + "dummy")
-
             (%plain-let ((a 10) (b 20))
                 (+ a b))
         "#;
@@ -510,7 +529,7 @@ mod code_gen_tests {
 
         let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
 
-        code_gen.visit(&exprs[1]).unwrap();
+        code_gen.visit(&exprs[0]).unwrap();
 
         println!("{:#?}", code_gen.instructions);
 
