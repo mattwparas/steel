@@ -1731,21 +1731,26 @@ mod analysis_pass_tests {
     fn test_complicated_escape_analysis() {
         let script = r#"
 
-            (define (lift x) x)
+            (define (func-lift x) x)
 
             (define (adder x)
 
                 ;; x == 2
 
                 (define func (lambda () x))
+                ;; This is pretty eligible for some sort of
+                ;; lifting? closure conversion?
+                (define func 
+                    (let ((a 10) (b 20) (c 30))
+                        (lambda () (+ a b c))))
 
-                (lift x) ;; replace known callsites with the lifted version
-                (lift x)
+                (func) -> (func-lift x) ;; replace known callsites with the lifted version
+                (func) -> (func-lift x)
 
                 (set! x 20)
 
-                (lift x)
-                (lift x)
+                (func) -> (func-lift x)
+                (func) -> (func-lift x)
 
                 func ;; replace last callsite with something like
                      ;; (lambda () x) -> doesn't interfere with previous calls, and now captures the var
