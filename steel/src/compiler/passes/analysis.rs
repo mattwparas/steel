@@ -1728,11 +1728,52 @@ mod analysis_pass_tests {
     }
 
     #[test]
+    fn test_complicated_escape_analysis() {
+        let script = r#"
+
+            (define (lift x) x)
+
+            (define (adder x)
+
+                ;; x == 2
+
+                (define func (lambda () x))
+
+                (lift x) ;; replace known callsites with the lifted version
+                (lift x)
+
+                (set! x 20)
+
+                (lift x)
+                (lift x)
+
+                func ;; replace last callsite with something like
+                     ;; (lambda () x) -> doesn't interfere with previous calls, and now captures the var
+                )
+        "#;
+
+        // let mut analysis = Analysis::default();
+        let mut exprs = Parser::parse(script).unwrap();
+        {
+            let analysis = SemanticAnalysis::new(&mut exprs);
+
+            let escaping_functions = analysis
+                .analysis
+                .function_info
+                .values()
+                .filter(|x| x.escapes)
+                .collect::<Vec<_>>();
+
+            println!("{:#?}", escaping_functions);
+        }
+    }
+
+    #[test]
     fn test_rudimentary_escape_analysis() {
         let script = r#"
             (define (adder x)
-
-                ;; (map (lambda (y) (+ x y)) (list 1 2 3 4 5))
+                
+                (map (lambda (y) (+ x y)) (list 1 2 3 4 5))
 
                 (black-box (lambda (y) (+ x y))))
         "#;

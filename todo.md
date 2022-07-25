@@ -19,3 +19,11 @@
 * Add syntax object metadata pass -> include scope information, be able to query with this information at macro expansion time (see Racket docs for information about this, but something like `free-identifier?`)
 
 * Clean up warnings overall
+
+
+
+- Closure fixing:
+  - Lambda lifting 
+    - this should solve pure local functions - those that don't capture - DONE
+    - Those that do capture, these are solved if all call sites are known, not solved if the function escapes since we can't adjust all call sites
+  - Closure conversion - for closures that escape, just move the variable _in_ to the function from the stack.
