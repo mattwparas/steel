@@ -459,6 +459,15 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .get(&l.syntax_object_id)
             .expect("Missing analysis information for let");
 
+        for var in l.local_bindings() {
+            let variable_info = self
+                .analysis
+                .get(var.atom_syntax_object().unwrap())
+                .unwrap();
+
+            println!("{:#?}", variable_info);
+        }
+
         self.visit(&l.body_expr)?;
 
         // TODO:
@@ -529,6 +538,24 @@ mod code_gen_tests {
             .collect::<Vec<_>>();
 
         assert_eq!(expected, found);
+    }
+
+    #[test]
+    fn check_let_captured_var() {
+        let expr = r#"
+        (%plain-let ((a 10) (b 20))
+            (lambda () (+ a b))
+            (+ a b))
+        "#;
+
+        let exprs = Parser::parse(expr).unwrap();
+
+        let analysis = Analysis::from_exprs(&exprs);
+        let mut constants = ConstantMap::new();
+
+        let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
+
+        code_gen.visit(&exprs[0]).unwrap();
     }
 
     #[test]

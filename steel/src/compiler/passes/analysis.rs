@@ -35,6 +35,7 @@ pub struct SemanticInformation {
     pub builtin: bool,
     pub last_usage: bool,
     pub stack_offset: Option<usize>,
+    pub escapes: bool,
 }
 
 impl SemanticInformation {
@@ -51,6 +52,7 @@ impl SemanticInformation {
             builtin: false,
             last_usage: false,
             stack_offset: None,
+            escapes: false,
         }
     }
 
@@ -82,20 +84,40 @@ impl SemanticInformation {
         self.stack_offset = Some(offset);
         self
     }
+
+    pub fn mark_escapes(&mut self) {
+        self.escapes = true;
+    }
 }
 
 #[derive(Debug)]
 pub struct FunctionInformation {
+    // Just a mapping of the vars to their scope info - holds which vars are being
+    // captured by this function
     captured_vars: HashMap<String, ScopeInfo>,
+    // If this function is defined in the tail position / and or the alias to this function escapes,
+    // then this should be marked as true
+    pub escapes: bool,
+    // If this function is bound to a variable, this is the id of that bound value
+    pub aliases_to: Option<SyntaxObjectId>,
 }
 
 impl FunctionInformation {
     pub fn new(captured_vars: HashMap<String, ScopeInfo>) -> Self {
-        Self { captured_vars }
+        Self {
+            captured_vars,
+            escapes: false,
+            aliases_to: None,
+        }
     }
 
     pub fn captured_vars(&self) -> &HashMap<String, ScopeInfo> {
         &self.captured_vars
+    }
+
+    pub fn escapes(mut self, escapes: bool) -> Self {
+        self.escapes = escapes;
+        self
     }
 }
 
@@ -268,6 +290,9 @@ pub struct ScopeInfo {
     /// Represents the position on the stack that this variable
     /// should live at during the execution of the program
     pub stack_offset: Option<usize>,
+    /// Does this variable escape its scope? As in, does the value outlive the scope
+    /// that it was defined in
+    pub escapes: bool,
 }
 
 impl ScopeInfo {
@@ -278,6 +303,7 @@ impl ScopeInfo {
             usage_count: 0,
             last_used: None,
             stack_offset: None,
+            escapes: false,
         }
     }
 
@@ -288,6 +314,7 @@ impl ScopeInfo {
             usage_count: 0,
             last_used: None,
             stack_offset: Some(offset),
+            escapes: false,
         }
     }
 }
@@ -296,6 +323,7 @@ struct AnalysisPass<'a> {
     info: &'a mut Analysis,
     scope: &'a mut ScopeMap<String, ScopeInfo>,
     tail_call_eligible: bool,
+    escape_analysis: bool,
     defining_context: Option<SyntaxObjectId>,
     stack_offset: usize,
 }
@@ -313,6 +341,7 @@ impl<'a> AnalysisPass<'a> {
             info,
             scope,
             tail_call_eligible: false,
+            escape_analysis: false,
             defining_context: None,
             stack_offset: 0,
         }
@@ -510,6 +539,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
     fn visit_list(&mut self, l: &'a List) {
         let eligibility = self.tail_call_eligible;
+        let escape = self.escape_analysis;
 
         // In this case, each of the arguments (including the function itself) are not in the tail position
         // However, the function call _itself_ might be in the tail position, so we save that state
@@ -525,10 +555,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         for expr in &l.args {
             self.visit(expr);
             self.stack_offset += 1;
+            self.escape_analysis = eligibility;
         }
 
         self.stack_offset = stack_offset;
         self.tail_call_eligible = eligibility;
+        self.escape_analysis = escape;
 
         // TODO: Come back here on cleanup
         // This just checks that this is actually a real function call and not just an empty list
@@ -704,7 +736,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Capture the information and store it in the semantic analysis for this individual function
         self.info.function_info.insert(
             lambda_function.syntax_object_id,
-            FunctionInformation::new(captured_vars),
+            FunctionInformation::new(captured_vars).escapes(self.escape_analysis),
         );
     }
 
@@ -1220,22 +1252,23 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
         for (index, expr) in begin.exprs.iter().enumerate() {
             if let ExprKind::Define(define) = expr {
                 let ident = define.name.atom_syntax_object().unwrap();
+                if let Some(info) = define
+                    .body
+                    .lambda_function()
+                    .and_then(|func| self.analysis.get_function_info(func))
+                {
+                    let ident_info = self.analysis.get(&ident).unwrap();
 
-                if let Some(func) = define.body.lambda_function() {
-                    if let Some(info) = self.analysis.get_function_info(func) {
-                        let ident_info = self.analysis.get(&ident).unwrap();
-
-                        if ident_info.depth > 1 {
-                            if !info.captured_vars.is_empty() {
-                                log::info!(
+                    if ident_info.depth > 1 {
+                        if !info.captured_vars.is_empty() {
+                            log::info!(
                                     "Found a local function which captures variables: {} - captures vars: {:#?}",
                                     define.name,
                                     info.captured_vars
                                 );
-                            } else {
-                                log::info!("Found a pure local function: {}", define.name);
-                                functions.push(index);
-                            }
+                        } else {
+                            log::info!("Found a pure local function: {}", define.name);
+                            functions.push(index);
                         }
                     }
                 }
@@ -1433,7 +1466,7 @@ impl<'a> SemanticAnalysis<'a> {
 
     // TODO: Right now this lifts and renames, but it does not handle
     // The extra arguments necessary for this to work
-    pub fn lift_local_functions(&mut self) {
+    pub fn lift_pure_local_functions(&mut self) {
         let mut overall_lifted = Vec::new();
         let mut re_run_analysis = false;
 
@@ -1473,7 +1506,7 @@ impl<'a> SemanticAnalysis<'a> {
                         if let Some(first_ident) = call_site.first_ident_mut() {
                             *first_ident = "##lambda-lifting##".to_string()
                                 + first_ident
-                                + id.to_string().as_str();
+                                + id.0.to_string().as_str();
                             true
                         } else {
                             false
@@ -1499,7 +1532,7 @@ impl<'a> SemanticAnalysis<'a> {
 
                         if let Some(name) = define.name.atom_identifier_mut() {
                             *name =
-                                "##lambda-lifting##".to_string() + name + id.to_string().as_str();
+                                "##lambda-lifting##".to_string() + name + id.0.to_string().as_str();
                         } else {
                             unreachable!("This should explicitly be an identifier here - perhaps a macro was invalid?");
                         }
@@ -1695,6 +1728,32 @@ mod analysis_pass_tests {
     }
 
     #[test]
+    fn test_rudimentary_escape_analysis() {
+        let script = r#"
+            (define (adder x)
+
+                ;; (map (lambda (y) (+ x y)) (list 1 2 3 4 5))
+
+                (black-box (lambda (y) (+ x y))))
+        "#;
+
+        // let mut analysis = Analysis::default();
+        let mut exprs = Parser::parse(script).unwrap();
+        {
+            let analysis = SemanticAnalysis::new(&mut exprs);
+
+            let escaping_functions = analysis
+                .analysis
+                .function_info
+                .values()
+                .filter(|x| x.escapes)
+                .collect::<Vec<_>>();
+
+            println!("{:#?}", escaping_functions);
+        }
+    }
+
+    #[test]
     fn check_analysis_pass() {
         let mut builder = Builder::new();
 
@@ -1822,7 +1881,7 @@ mod analysis_pass_tests {
                 );
             }
 
-            analysis.lift_local_functions();
+            analysis.lift_pure_local_functions();
             // analysis.lift_local_functions();
 
             for expr in analysis.exprs.iter() {

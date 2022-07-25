@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug)]
-pub struct SyntaxObjectId(usize);
+pub struct SyntaxObjectId(pub usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug)]
 pub struct ListId(usize);
