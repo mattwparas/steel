@@ -36,6 +36,7 @@ pub struct SemanticInformation {
     pub last_usage: bool,
     pub stack_offset: Option<usize>,
     pub escapes: bool,
+    pub capture_index: Option<usize>,
 }
 
 impl SemanticInformation {
@@ -53,6 +54,7 @@ impl SemanticInformation {
             last_usage: false,
             stack_offset: None,
             escapes: false,
+            capture_index: None,
         }
     }
 
@@ -87,6 +89,11 @@ impl SemanticInformation {
 
     pub fn mark_escapes(&mut self) {
         self.escapes = true;
+    }
+
+    pub fn with_capture_index(mut self, offset: usize) -> Self {
+        self.capture_index = Some(offset);
+        self
     }
 }
 
@@ -833,6 +840,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
 
             // Otherwise, go ahead and mark it as captured if we can find a reference to it
+            // TODO: @Matt - There is an opportunity here to also check extra information. If the
+            // variables exists in the local scope - i.e, the var has been patched in via a closure,
+            // we could 1. do closure conversion on it via rewriting, or could 2. automatically
+            // patch those vars in
             if let Some(is_captured) = self.scope.get_mut(ident) {
                 is_captured.captured = true;
                 is_captured.usage_count += 1;
@@ -1724,6 +1735,41 @@ mod analysis_pass_tests {
             let found = analysis.resolve_alias(alias_list_4_id);
 
             assert_eq!(list_id, found.unwrap());
+        }
+    }
+
+    #[test]
+    fn test_capture() {
+        let script = r#"
+
+            (define (adder x)
+                (set! x 100)
+                (lambda ()
+                    (lambda ()
+                        (lambda ()
+                            (lambda () x)))))
+
+        "#;
+
+        // let mut analysis = Analysis::default();
+        let mut exprs = Parser::parse(script).unwrap();
+        {
+            let analysis = SemanticAnalysis::new(&mut exprs);
+
+            // This _should_ print I think 4 lambdas that will have captured x -> each one should actually cascade the capture downward, copying in each value directly
+            // Since x is an immutable capture, we're okay with this
+            for function in analysis
+                .analysis
+                .function_info
+                .values()
+                .filter(|x| !x.captured_vars().is_empty())
+            {
+                println!("{:?}", function.captured_vars());
+            }
+
+            println!("{:?}", analysis.analysis.info.get(&SyntaxObjectId(2)));
+
+            // println!("{:#?}", escaping_functions);
         }
     }
 

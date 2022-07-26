@@ -1,3 +1,5 @@
+#[allow(dead_code)]
+pub(crate) mod closed;
 pub(crate) mod contracts;
 pub(crate) mod functions;
 pub(crate) mod json_vals;
