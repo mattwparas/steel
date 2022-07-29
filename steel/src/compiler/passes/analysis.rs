@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use itertools::Itertools;
 use quickscope::ScopeMap;
 
 use crate::parser::{
@@ -300,6 +301,8 @@ pub struct ScopeInfo {
     /// Does this variable escape its scope? As in, does the value outlive the scope
     /// that it was defined in
     pub escapes: bool,
+    /// If this is a captured var, the capture index
+    pub capture_offset: Option<usize>,
 }
 
 impl ScopeInfo {
@@ -311,6 +314,7 @@ impl ScopeInfo {
             last_used: None,
             stack_offset: None,
             escapes: false,
+            capture_offset: None,
         }
     }
 
@@ -322,6 +326,7 @@ impl ScopeInfo {
             last_used: None,
             stack_offset: Some(offset),
             escapes: false,
+            capture_offset: None,
         }
     }
 }
@@ -329,6 +334,7 @@ impl ScopeInfo {
 struct AnalysisPass<'a> {
     info: &'a mut Analysis,
     scope: &'a mut ScopeMap<String, ScopeInfo>,
+    captures: ScopeMap<String, ScopeInfo>,
     tail_call_eligible: bool,
     escape_analysis: bool,
     defining_context: Option<SyntaxObjectId>,
@@ -347,6 +353,7 @@ impl<'a> AnalysisPass<'a> {
         AnalysisPass {
             info,
             scope,
+            captures: ScopeMap::default(),
             tail_call_eligible: false,
             escape_analysis: false,
             defining_context: None,
@@ -712,6 +719,29 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
         // We're entering a new scope since we've entered a lambda function
         self.scope.push_layer();
+        // The captures correspond to what variables _this_ scope should decide to capture, and also
+        // arbitrarily decide the index for that capture
+        self.captures.push_layer();
+
+        // In this case, we've actually already seen this function. This works if we're on the second pass
+        // of running this analysis with the same information
+        if let Some(function_info) = self
+            .info
+            .function_info
+            .get_mut(&lambda_function.syntax_object_id)
+        {
+            let vars = &mut function_info.captured_vars;
+
+            let mut sorted_vars = vars.iter_mut().collect::<Vec<_>>();
+            sorted_vars.sort_by_key(|x| x.1.id);
+
+            // So for now, we sort by id, then map these directly to indices that will live in the
+            // corresponding captured closure
+            for (index, (key, value)) in sorted_vars.iter_mut().enumerate() {
+                value.capture_offset = Some(index);
+                self.captures.define(key.clone(), value.clone())
+            }
+        }
 
         let let_level_bindings = lambda_function.arguments().unwrap();
         let depth = self.scope.depth();
@@ -732,6 +762,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // in scope. If thats the case, we've shadowed and should mark it accordingly.
         let arguments = self.pop_top_layer();
 
+        // Pop off of the captures
+        self.captures.pop_layer();
+
         // Mark the last usage of the variable after the values go out of scope
         for id in arguments.values().filter_map(|x| x.last_used) {
             self.info.get_mut(&id).unwrap().last_usage = true;
@@ -740,11 +773,20 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Using the arguments, mark the vars that have been captured
         self.find_and_mark_captured_arguments(lambda_function, &captured_vars, depth, arguments);
 
-        // Capture the information and store it in the semantic analysis for this individual function
-        self.info.function_info.insert(
-            lambda_function.syntax_object_id,
-            FunctionInformation::new(captured_vars).escapes(self.escape_analysis),
-        );
+        // If we've already seen this function, lets not do anything just quite yet
+        if let Some(_) = self
+            .info
+            .function_info
+            .get(&lambda_function.syntax_object_id)
+        {
+            return;
+        } else {
+            // Capture the information and store it in the semantic analysis for this individual function
+            self.info.function_info.insert(
+                lambda_function.syntax_object_id,
+                FunctionInformation::new(captured_vars).escapes(self.escape_analysis),
+            );
+        }
     }
 
     fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
@@ -837,6 +879,17 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 self.info.insert(&a.syn, semantic_info);
 
                 return;
+            }
+
+            // This is the result of some fancy fancy stuff
+            // We are going to do two of these passes to resolve captures, where the first pass does a holistic
+            // analysis of captures for each closure. Then we can do a top down analysis
+            // which populates the closures with their capture positions, and then when we do analysis the
+            // second time, we'll have closure references populated.
+            if let Some(captured) = self.captures.get(ident) {
+                // TODO: Fill in this information here - when the vars are captured in the immediate enclosing,
+                // we want to do stuff....
+                println!("Found a captured var: {:?}", captured)
             }
 
             // Otherwise, go ahead and mark it as captured if we can find a reference to it
@@ -1307,6 +1360,10 @@ impl<'a> SemanticAnalysis<'a> {
         Self { exprs, analysis }
     }
 
+    pub fn populate_captures(&mut self) {
+        self.analysis.run(&self.exprs);
+    }
+
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
         self.analysis.get(object)
     }
@@ -1742,19 +1799,20 @@ mod analysis_pass_tests {
     fn test_capture() {
         let script = r#"
 
-            (define (adder x)
+            (define (adder x y z)
                 (set! x 100)
                 (lambda ()
                     (lambda ()
                         (lambda ()
-                            (lambda () x)))))
+                            (lambda () (+ x y z))))))
 
         "#;
 
         // let mut analysis = Analysis::default();
         let mut exprs = Parser::parse(script).unwrap();
         {
-            let analysis = SemanticAnalysis::new(&mut exprs);
+            let mut analysis = SemanticAnalysis::new(&mut exprs);
+            analysis.populate_captures();
 
             // This _should_ print I think 4 lambdas that will have captured x -> each one should actually cascade the capture downward, copying in each value directly
             // Since x is an immutable capture, we're okay with this

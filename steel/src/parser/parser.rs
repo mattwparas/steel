@@ -1,10 +1,10 @@
 use crate::parser::lexer::TokenStream;
 use crate::parser::tokens::{Token, TokenType, TokenType::*};
 
+use std::rc::Rc;
 use std::result;
 use std::str;
 use std::{collections::HashMap, path::PathBuf};
-use std::{fmt::write, rc::Rc};
 use thiserror::Error;
 
 use crate::parser::span::Span;
@@ -23,13 +23,19 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+)]
 pub struct SyntaxObjectId(pub usize);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+)]
 pub struct ListId(usize);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+)]
 pub struct FunctionId(usize);
 
 impl std::fmt::Display for SyntaxObjectId {
