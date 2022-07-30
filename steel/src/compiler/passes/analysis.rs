@@ -37,7 +37,10 @@ pub struct SemanticInformation {
     pub last_usage: bool,
     pub stack_offset: Option<usize>,
     pub escapes: bool,
+    // TODO: Move a bunch of these individual things into their own structs
+    // something like Option<CaptureInformation>
     pub capture_index: Option<usize>,
+    pub captured_from_enclosing: bool,
 }
 
 impl SemanticInformation {
@@ -56,6 +59,7 @@ impl SemanticInformation {
             stack_offset: None,
             escapes: false,
             capture_index: None,
+            captured_from_enclosing: false,
         }
     }
 
@@ -95,6 +99,10 @@ impl SemanticInformation {
     pub fn with_capture_index(mut self, offset: usize) -> Self {
         self.capture_index = Some(offset);
         self
+    }
+
+    pub fn with_captured_from_enclosing(&mut self, captured_from_enclosing: bool) {
+        self.captured_from_enclosing = captured_from_enclosing;
     }
 }
 
@@ -303,6 +311,8 @@ pub struct ScopeInfo {
     pub escapes: bool,
     /// If this is a captured var, the capture index
     pub capture_offset: Option<usize>,
+    /// Was this var captured from the stack or from an enclosing function
+    pub captured_from_enclosing: bool,
 }
 
 impl ScopeInfo {
@@ -315,6 +325,7 @@ impl ScopeInfo {
             stack_offset: None,
             escapes: false,
             capture_offset: None,
+            captured_from_enclosing: false,
         }
     }
 
@@ -327,6 +338,7 @@ impl ScopeInfo {
             stack_offset: Some(offset),
             escapes: false,
             capture_offset: None,
+            captured_from_enclosing: false,
         }
     }
 }
@@ -735,11 +747,23 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             let mut sorted_vars = vars.iter_mut().collect::<Vec<_>>();
             sorted_vars.sort_by_key(|x| x.1.id);
 
+            // let current_depth = self.scope.depth();
+            // let height_of_var = self.scope.height_of(key)
+
             // So for now, we sort by id, then map these directly to indices that will live in the
             // corresponding captured closure
             for (index, (key, value)) in sorted_vars.iter_mut().enumerate() {
                 value.capture_offset = Some(index);
-                self.captures.define(key.clone(), value.clone())
+
+                // If we've already captured this variable, mark it as being captured from the enclosing environment
+                // TODO: If there is shadowing, this might not work?
+                if self.captures.contains_key(key.as_str()) {
+                    let mut value = value.clone();
+                    value.captured_from_enclosing = true;
+                    self.captures.define(key.clone(), value)
+                } else {
+                    self.captures.define(key.clone(), value.clone());
+                }
             }
         }
 
@@ -886,10 +910,55 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // analysis of captures for each closure. Then we can do a top down analysis
             // which populates the closures with their capture positions, and then when we do analysis the
             // second time, we'll have closure references populated.
-            if let Some(captured) = self.captures.get(ident) {
+            if let Some(captured) = self.captures.get_mut(ident) {
                 // TODO: Fill in this information here - when the vars are captured in the immediate enclosing,
                 // we want to do stuff....
-                println!("Found a captured var: {:?}", captured)
+                println!("Found a captured var: {:?}", captured);
+
+                captured.captured = true;
+                captured.usage_count += 1;
+
+                // TODO: Make sure we want to mark this identifier as last used
+                captured.last_used = Some(current_id);
+
+                let mut identifier_status = IdentifierStatus::Captured;
+
+                if let Some(local_define) = self.info.get_mut(&captured.id) {
+                    local_define.usage_count = captured.usage_count;
+
+                    // If this _is_ in fact a locally defined function, we don't want to capture it
+                    // This is something that is going to get lifted to the top environment anyway
+                    if local_define.kind == IdentifierStatus::LocallyDefinedFunction {
+                        captured.captured = false;
+                        identifier_status = IdentifierStatus::LocallyDefinedFunction;
+                    }
+                }
+
+                let mut semantic_info =
+                    SemanticInformation::new(identifier_status, depth, a.syn.span)
+                        .with_usage_count(1)
+                        .refers_to(captured.id);
+
+                // TODO: Merge the behavior of all of these separate cases into one
+                semantic_info.with_captured_from_enclosing(captured.captured_from_enclosing);
+
+                // .with_offset(
+                //     is_captured
+                //         .stack_offset
+                //         .expect("Local variables should have an offset"),
+                // );
+
+                if let Some(capture_offset) = captured.capture_offset {
+                    semantic_info = semantic_info.with_capture_index(capture_offset);
+                } else {
+                    log::warn!("Stack offset missing from local define")
+                }
+
+                // println!("Variable {} refers to {}", ident, is_captured.id);
+
+                self.info.insert(&a.syn, semantic_info);
+
+                return;
             }
 
             // Otherwise, go ahead and mark it as captured if we can find a reference to it
@@ -1802,8 +1871,11 @@ mod analysis_pass_tests {
             (define (adder x y z)
                 (set! x 100)
                 (lambda ()
+                    (+ x y z)
                     (lambda ()
+                        (+ x y z)
                         (lambda ()
+                            (+ x y z)
                             (lambda () (+ x y z))))))
 
         "#;
