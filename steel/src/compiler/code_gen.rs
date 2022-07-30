@@ -98,52 +98,100 @@ impl<'a> CodeGenerator<'a> {
 impl<'a> VisitorMut for CodeGenerator<'a> {
     type Output = Result<()>;
 
+    // TODO come back later and resolve this properly using labels
+    // If looks like label resolution needs to be able to arbitrarily point to a label one
+    // instruction after
     fn visit_if(&mut self, f: &crate::parser::ast::If) -> Self::Output {
+        // load in the test condition
         self.visit(&f.test_expr)?;
-
+        // Get the if index
         let if_idx = self.instructions.len();
-
+        // push in if
         self.push(LabeledInstruction::builder(OpCode::IF).payload(self.instructions.len() + 2));
+        // save spot of jump instruction, fill in after
+        // let idx = self.len();
+        // self.push(Instruction::new_jmp(0)); // dummy value
 
+        // emit instructions for then
         self.visit(&f.then_expr)?;
-
-        let false_start_label = fresh();
-
-        self.push(LabeledInstruction::builder(OpCode::JMP).goto(false_start_label));
+        self.push(LabeledInstruction::builder(OpCode::JMP));
         let false_start = self.len();
 
-        // self.instructions
-        //     .last_mut()
-        //     .unwrap()
-        //     .set_tag(false_start_label);
-
+        // emit instructions for else expression
         self.visit(&f.else_expr)?;
+        let j3 = self.len(); // first instruction after else
 
-        let j3_label = fresh();
+        // println!("false_start: {:?}", false_start);
+        // println!("j3: {:?}", j3);
 
-        self.instructions.last_mut().unwrap().set_tag(j3_label);
+        // // set index of jump instruction
+        // if let Some(elem) = self.instructions.get_mut(idx) {
+        //     (*elem).payload_size = false_start;
+        // } else {
+        //     stop!(Generic => "out of bounds jump");
+        // }
 
         if let Some(elem) = self.instructions.get_mut(false_start - 1) {
-            // (*elem).goto = Some(j3);
-
-            elem.set_goto(j3_label);
-
+            (*elem).payload_size = j3;
             // (*elem).payload_size = false_start;
         } else {
             stop!(Generic => "out of bounds jump");
         }
 
         if let Some(elem) = self.instructions.get_mut(if_idx) {
-            // (*elem).goto = Some(false_start_label);
-
-            elem.set_goto(false_start_label);
-
+            (*elem).payload_size = false_start;
             // (*elem).payload_size = false_start;
         } else {
             stop!(Generic => "out of bounds jump");
         }
 
         Ok(())
+
+        // self.visit(&f.test_expr)?;
+
+        // let if_idx = self.instructions.len();
+
+        // self.push(LabeledInstruction::builder(OpCode::IF).payload(self.instructions.len() + 2));
+
+        // self.visit(&f.then_expr)?;
+
+        // let false_start_label = fresh();
+        // let j3_label = fresh();
+
+        // self.push(LabeledInstruction::builder(OpCode::JMP).goto(j3_label));
+
+        // let false_start = self.len(); // index after the jump
+
+        // // self.instructions
+        // //     .last_mut()
+        // //     .unwrap()
+        // //     .set_tag(false_start_label);
+
+        // self.visit(&f.else_expr)?;
+
+        // self.instructions.last_mut().unwrap().set_tag(j3_label);
+
+        // // if let Some(elem) = self.instructions.get_mut(false_start - 1) {
+        // //     // (*elem).goto = Some(j3);
+
+        // //     elem.set_goto(j3_label);
+
+        // //     // (*elem).payload_size = false_start;
+        // // } else {
+        // //     stop!(Generic => "out of bounds jump");
+        // // }
+
+        // if let Some(elem) = self.instructions.get_mut(if_idx) {
+        //     // (*elem).goto = Some(false_start_label);
+
+        //     elem.set_goto(false_start_label);
+
+        //     // (*elem).payload_size = false_start;
+        // } else {
+        //     stop!(Generic => "out of bounds jump");
+        // }
+
+        // Ok(())
     }
 
     fn visit_define(&mut self, define: &crate::parser::ast::Define) -> Self::Output {
@@ -231,30 +279,44 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     .payload(function_info.captured_vars().len()),
             );
 
-            // TODO:
-            // Go through each of the vars an explicitly capture them
-            // This does not match explicitly what the upvalues are doing, and in fact
-            // We don't plan on imitating that behavior moving forward
+            // Here we're going to explicitly capture from either the enclosing scope
+            // or the stack. For example:
             //
-            // Moving forward, there will simply be a new constructor for lambdas, which
-            // explicitly captures the variables made.
+            // (lambda (x)
+            //      (lambda (y)
+            //            (+ x y)))
             //
-            // Something like (make-closure (vars) (captured-vars) exprs...)
+            // The inner lambda here will capture x from the stack, since that
+            // is the environment in which it was immediately available.
+            // Whereas:
             //
-            // This way, at run time we can simply allocate these values directly onto the heap
-            // and subsequently store the weak refs in the closure object, which there will be separate
-            // objects for, for pure functions and closures
+            // (lambda (x)
+            //      (lambda (y)
+            //            (lambda (z)
+            //                   (+ x y z))))
+            //
+            // The innermost lambda is going to have to capture x and y from the closure above it,
+            // where they've already been captured.
+            //
+            // This way, at closure construction (in the VM) we can immediately patch in the kind
+            // of closure that we want to create, and where to get it
             for var in function_info.captured_vars().values() {
                 println!("Ignored upvalues in closure creation");
 
-                let op_code = if var.captured_from_enclosing {
-                    OpCode::COPYCAPTURECLOSURE
+                if var.captured_from_enclosing {
+                    // In this case we're gonna patch in the variable from the current captured scope
+                    self.push(
+                        LabeledInstruction::builder(OpCode::COPYCAPTURECLOSURE)
+                            .payload(var.capture_offset.unwrap()),
+                    );
                 } else {
-                    OpCode::COPYCAPTURESTACK
-                };
-
-                // In this case we're gonna patch in the variable
-                self.push(LabeledInstruction::builder(op_code).payload(var.stack_offset.unwrap()))
+                    // In this case, it hasn't yet been captured, so we'll just capture
+                    // directly from the stack
+                    self.push(
+                        LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
+                            .payload(var.stack_offset.unwrap()),
+                    );
+                }
             }
         }
 
@@ -268,17 +330,17 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .push(LabeledInstruction::builder(pop_op_code).payload(lambda_function.args.len()));
 
         // TODO: Add over the locals length
-        if op_code == OpCode::NEWSCLOSURE {
-            // for var in &lambda_function.args {
-            //     // TODO: Payload needs to be whether the local variable is captured
-            //     // or not - this will tell us if we need to close over it later
-            //     body_instructions.push(
-            //         LabeledInstruction::builder(OpCode::CLOSEUPVALUE)
-            //             .payload(0)
-            //             .contents(var.atom_syntax_object().unwrap().clone()),
-            //     );
-            // }
-        }
+        // if op_code == OpCode::NEWSCLOSURE {
+        // for var in &lambda_function.args {
+        //     // TODO: Payload needs to be whether the local variable is captured
+        //     // or not - this will tell us if we need to close over it later
+        //     body_instructions.push(
+        //         LabeledInstruction::builder(OpCode::CLOSEUPVALUE)
+        //             .payload(0)
+        //             .contents(var.atom_syntax_object().unwrap().clone()),
+        //     );
+        // }
+        // }
 
         self.instructions.append(&mut body_instructions);
 

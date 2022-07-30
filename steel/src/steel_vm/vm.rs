@@ -953,7 +953,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             //     self.instructions[self.ip].payload_size as usize,
             // );
 
-            println!("{:?}", self.instructions[self.ip]);
+            // println!("{:?}", self.instructions[self.ip]);
 
             // let now = Instant::now();
 

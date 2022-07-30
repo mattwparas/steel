@@ -422,14 +422,14 @@ impl RawProgramWithSymbols {
 
     // Apply the optimizations to raw bytecode
     pub(crate) fn apply_optimizations(&mut self) -> &mut Self {
-        if std::env::var("CODE_GEN_V2").is_err() {
-            // Run down the optimizations here
-            for instructions in &mut self.instructions {
-                inline_num_operations(instructions);
-                convert_call_globals(instructions);
-                // loop_condition_local_const_arity_two(instructions);
-            }
+        // if std::env::var("CODE_GEN_V2").is_err() {
+        // Run down the optimizations here
+        for instructions in &mut self.instructions {
+            inline_num_operations(instructions);
+            convert_call_globals(instructions);
+            // loop_condition_local_const_arity_two(instructions);
         }
+        // }
 
         self
     }
@@ -529,14 +529,14 @@ impl RawProgramWithSymbols {
             interner.collect_second_pass_defines(expression, symbol_map)?
         }
 
-        if std::env::var("CODE_GEN_V2").is_err() {
-            // TODO try here - the loop condition local const arity two seems to rely on the
-            // existence of having been already adjusted by the interner
-            for instructions in &mut self.instructions {
-                loop_condition_local_const_arity_two(instructions);
-                specialize_constants(instructions)?;
-            }
+        // if std::env::var("CODE_GEN_V2").is_err() {
+        // TODO try here - the loop condition local const arity two seems to rely on the
+        // existence of having been already adjusted by the interner
+        for instructions in &mut self.instructions {
+            loop_condition_local_const_arity_two(instructions);
+            specialize_constants(instructions)?;
         }
+        // }
 
         // Put the new struct functions at the front
         struct_instructions.append(&mut self.instructions);

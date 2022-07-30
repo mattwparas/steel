@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use std::{rc::Rc};
+use std::rc::Rc;
 use steel::stdlib::PRELUDE;
 use steel::steel_vm::{engine::Engine, register_fn::RegisterFn};
 
@@ -215,6 +215,8 @@ fn trie_sort_with_optimizations(c: &mut Criterion) {
 }
 
 fn fib_28(c: &mut Criterion) {
+    // std::env::set_var("CODE_GEN_V2", "true");
+
     let mut vm = Engine::new();
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
     vm.parse_and_execute_without_optimizations(
