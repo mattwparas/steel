@@ -301,8 +301,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // This way, at closure construction (in the VM) we can immediately patch in the kind
             // of closure that we want to create, and where to get it
             for var in function_info.captured_vars().values() {
-                println!("Ignored upvalues in closure creation");
-
                 if var.captured_from_enclosing {
                     // In this case we're gonna patch in the variable from the current captured scope
                     self.push(
@@ -328,19 +326,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         body_instructions
             .push(LabeledInstruction::builder(pop_op_code).payload(lambda_function.args.len()));
-
-        // TODO: Add over the locals length
-        // if op_code == OpCode::NEWSCLOSURE {
-        // for var in &lambda_function.args {
-        //     // TODO: Payload needs to be whether the local variable is captured
-        //     // or not - this will tell us if we need to close over it later
-        //     body_instructions.push(
-        //         LabeledInstruction::builder(OpCode::CLOSEUPVALUE)
-        //             .payload(0)
-        //             .contents(var.atom_syntax_object().unwrap().clone()),
-        //     );
-        // }
-        // }
 
         self.instructions.append(&mut body_instructions);
 
@@ -691,13 +676,14 @@ mod code_gen_tests {
     fn check_let_captured_var() {
         let expr = r#"
         (%plain-let ((a 10) (b 20))
-            (lambda () (+ a b))
-            (+ a b))
+            (lambda () (+ a b)))
         "#;
 
         let exprs = Parser::parse(expr).unwrap();
 
-        let analysis = Analysis::from_exprs(&exprs);
+        let mut analysis = Analysis::from_exprs(&exprs);
+        analysis.populate_captures(&exprs);
+
         let mut constants = ConstantMap::new();
 
         let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
