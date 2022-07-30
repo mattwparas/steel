@@ -135,7 +135,7 @@ impl DebruijnIndicesInterner {
         for i in 0..instructions.len() {
             match &instructions[i] {
                 Instruction {
-                    op_code: OpCode::SCLOSURE,
+                    op_code: OpCode::SCLOSURE | OpCode::NEWSCLOSURE | OpCode::PUREFUNC,
                     ..
                 } => {
                     depth += 1;

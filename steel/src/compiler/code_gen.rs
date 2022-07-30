@@ -112,6 +112,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         self.push(LabeledInstruction::builder(OpCode::JMP).goto(false_start_label));
         let false_start = self.len();
 
+        // self.instructions
+        //     .last_mut()
+        //     .unwrap()
+        //     .set_tag(false_start_label);
+
         self.visit(&f.else_expr)?;
 
         let j3_label = fresh();
@@ -131,7 +136,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         if let Some(elem) = self.instructions.get_mut(if_idx) {
             // (*elem).goto = Some(false_start_label);
 
-            elem.set_tag(false_start_label);
+            elem.set_goto(false_start_label);
 
             // (*elem).payload_size = false_start;
         } else {
@@ -515,9 +520,11 @@ mod code_gen_tests {
     use crate::{parser::parser::Parser, rerrs::ErrorKind};
 
     #[test]
-    fn check_fib() {
+    fn check_function_calls() {
         let expr = r#"
-        (define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))
+        ;; (define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))
+
+        (fib 10)
             "#;
 
         let exprs = Parser::parse(expr).unwrap();
@@ -529,6 +536,29 @@ mod code_gen_tests {
         let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
 
         code_gen.visit(&exprs[0]).unwrap();
+        // code_gen.visit(&exprs[1]).unwrap();
+
+        println!("{:#?}", code_gen.instructions);
+    }
+
+    #[test]
+    fn check_fib() {
+        let expr = r#"
+        (define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))
+
+        (fib 10)
+            "#;
+
+        let exprs = Parser::parse(expr).unwrap();
+        let mut analysis = Analysis::from_exprs(&exprs);
+        analysis.populate_captures(&exprs);
+
+        let mut constants = ConstantMap::new();
+
+        let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
+
+        code_gen.visit(&exprs[0]).unwrap();
+        code_gen.visit(&exprs[1]).unwrap();
 
         println!("{:#?}", code_gen.instructions);
     }

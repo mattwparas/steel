@@ -953,6 +953,8 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             //     self.instructions[self.ip].payload_size as usize,
             // );
 
+            println!("{:?}", self.instructions[self.ip]);
+
             // let now = Instant::now();
 
             // TODO -> don't just copy the value from the instructions
@@ -2226,7 +2228,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
-        // println!("##########################################");
+        println!("##########################################");
         // println!("stack before: {:?}", self.stack);
         // println!("stack index: {:?}", self.stack_index);
         // println!(
