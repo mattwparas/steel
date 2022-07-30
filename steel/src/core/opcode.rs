@@ -31,6 +31,8 @@ pub enum OpCode {
     READUPVALUE,
     SETUPVALUE,
     FILLUPVALUE,
+    COPYCAPTURESTACK,
+    COPYCAPTURECLOSURE,
     FILLLOCALUPVALUE,
     CLOSEUPVALUE, // Should be 1 for close, 0 for not
     TCOJMP,
@@ -43,6 +45,7 @@ pub enum OpCode {
     INNERSTRUCT,
     MOVEREADLOCAL,
     MOVEREADUPVALUE,
+    READCAPTURED,
     MOVECGLOCALCONST,
     BEGINSCOPE,
     ENDSCOPE,
@@ -55,6 +58,8 @@ pub enum OpCode {
     DIV,
     EQUAL,
     LTE,
+    NEWSCLOSURE,
+    POPNEW,
 }
 
 impl OpCode {
@@ -114,6 +119,11 @@ impl OpCode {
             "LETENDSCOPE" => LETENDSCOPE,
             "PUREFUNC" => PUREFUNC,
             "POP_PURE" => POP_PURE,
+            "READCAPTURED" => READCAPTURED,
+            "COPYCAPTURESTACK" => COPYCAPTURESTACK,
+            "COPYCAPTURECLOSURE" => COPYCAPTURECLOSURE,
+            "NEWSCLOSURE" => NEWSCLOSURE,
+            "POPNEW" => POPNEW,
             _ => panic!("Unable to map string to opcode"),
         }
     }

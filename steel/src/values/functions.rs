@@ -10,6 +10,7 @@ use crate::{
     rvals::{BoxedFunctionSignature, FunctionSignature, MutFunctionSignature},
     steel_vm::vm::BuiltInSignature,
     values::contracts::ContractedFunction,
+    SteelVal,
 };
 
 use super::upvalue::UpValue;
@@ -33,6 +34,7 @@ pub struct ByteCodeLambda {
     cant_be_compiled: Cell<bool>,
     pub(crate) is_let: bool,
     pub(crate) is_multi_arity: bool,
+    captures: Vec<SteelVal>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -58,6 +60,7 @@ impl ByteCodeLambda {
         upvalues: Vec<Weak<RefCell<UpValue>>>,
         is_let: bool,
         is_multi_arity: bool,
+        captures: Vec<SteelVal>,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
@@ -67,6 +70,7 @@ impl ByteCodeLambda {
             cant_be_compiled: Cell::new(false),
             is_let,
             is_multi_arity,
+            captures,
         }
     }
 
@@ -80,6 +84,10 @@ impl ByteCodeLambda {
 
     pub fn upvalues(&self) -> &[Weak<RefCell<UpValue>>] {
         &self.upvalues
+    }
+
+    pub fn captures(&self) -> &[SteelVal] {
+        &self.captures
     }
 
     pub(crate) fn debug_upvalues(&self) -> Vec<Rc<RefCell<UpValue>>> {

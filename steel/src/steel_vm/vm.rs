@@ -1080,6 +1080,11 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                     ..
                 } => self.handle_local(payload_size as usize)?,
                 DenseInstruction {
+                    op_code: OpCode::READCAPTURED,
+                    payload_size,
+                    ..
+                } => self.handle_read_captures(payload_size as usize)?,
+                DenseInstruction {
                     op_code: OpCode::MOVEREADLOCAL,
                     payload_size,
                     ..
@@ -1388,6 +1393,15 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                     }
                 }
                 DenseInstruction {
+                    op_code: OpCode::POPNEW,
+                    payload_size,
+                    ..
+                } => {
+                    if let Some(r) = self.handle_pop_pure(payload_size) {
+                        return r;
+                    }
+                }
+                DenseInstruction {
                     op_code: OpCode::BIND,
                     payload_size,
                     ..
@@ -1397,6 +1411,11 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                     payload_size,
                     ..
                 } => self.handle_start_closure(payload_size as usize),
+                DenseInstruction {
+                    op_code: OpCode::NEWSCLOSURE,
+                    payload_size,
+                    ..
+                } => self.handle_new_start_closure(payload_size as usize),
                 DenseInstruction {
                     op_code: OpCode::PUREFUNC,
                     payload_size,
@@ -1835,6 +1854,13 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         Ok(())
     }
 
+    fn handle_read_captures(&mut self, index: usize) -> Result<()> {
+        let value = self.function_stack.last().unwrap().captures()[index].clone();
+        self.stack.push(value);
+        self.ip += 1;
+        Ok(())
+    }
+
     // #[inline(always)]
     fn handle_move_local(&mut self, index: usize) -> Result<()> {
         let offset = self.stack_index.last().copied().unwrap_or(0);
@@ -1931,6 +1957,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             Vec::new(),
             is_let,
             is_multi_arity,
+            Vec::new(),
         );
 
         self.stack
@@ -2027,6 +2054,94 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             upvalues,
             is_let,
             is_multi_arity,
+            Vec::new(),
+        );
+
+        self.stack
+            .push(SteelVal::Closure(Gc::new(constructed_lambda)));
+
+        self.ip = forward_index;
+    }
+
+    fn handle_new_start_closure(&mut self, offset: usize) {
+        // println!("Hitting start closure");
+
+        // println!("Instruction: {:?}", self.instructions[self.ip]);
+
+        // if self.instructions[self.ip].payload_size == 1 {
+        //     println!("Found multi arity function");
+        // }
+
+        self.ip += 1;
+
+        let is_multi_arity = self.instructions[self.ip].payload_size == 1;
+
+        self.ip += 1;
+
+        // Check whether this is a let or a rooted function
+        let is_let = self.instructions[self.ip].payload_size == 1;
+
+        // if is_multi_arity {
+        //     println!("Found multi arity function");
+        // }
+
+        self.ip += 1;
+
+        // TODO - used to be offset - 2, now 3 with the multi arity
+        let forward_jump = offset - 3;
+
+        // Snag the number of upvalues here
+        let ndefs = self.instructions[self.ip].payload_size;
+        self.ip += 1;
+
+        // TODO preallocate size
+        let mut captures = Vec::with_capacity(ndefs as usize);
+
+        // TODO clean this up a bit
+        // hold the spot for where we need to jump aftwards
+        let forward_index = self.ip + forward_jump;
+
+        // Insert metadata
+        for _ in 0..ndefs {
+            let instr = self.instructions[self.ip];
+            match (instr.op_code, instr.payload_size) {
+                (OpCode::COPYCAPTURESTACK, n) => {
+                    let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let value = self.stack[n as usize + offset].clone();
+                    captures.push(value);
+                }
+                (OpCode::COPYCAPTURECLOSURE, n) => {
+                    captures
+                        .push(self.function_stack.last().unwrap().captures()[n as usize].clone());
+                }
+                (l, _) => {
+                    panic!(
+                        "Something went wrong in closure construction!, found: {:?} @ {}",
+                        l, self.ip,
+                    );
+                }
+            }
+            self.ip += 1;
+        }
+
+        // TODO -> this is probably quite slow
+        // If extraneous lets are lifted, we probably don't need this
+        // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
+
+        // Construct the closure body using the offsets from the payload
+        // used to be - 1, now - 2
+        let closure_body = self.instructions[self.ip..(self.ip + forward_jump - 1)].to_vec();
+
+        // snag the arity from the eclosure instruction
+        let arity = self.instructions[forward_index - 1].payload_size;
+
+        let constructed_lambda = ByteCodeLambda::new(
+            closure_body,
+            arity as usize,
+            Vec::new(),
+            is_let,
+            is_multi_arity,
+            captures,
         );
 
         self.stack

@@ -184,6 +184,10 @@ impl Analysis {
         analysis
     }
 
+    pub fn populate_captures(&mut self, exprs: &[ExprKind]) {
+        self.run(&exprs);
+    }
+
     pub fn resolve_alias(&self, mut id: SyntaxObjectId) -> Option<SyntaxObjectId> {
         while let Some(next) = self
             .info

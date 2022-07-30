@@ -292,7 +292,7 @@ pub fn replace_defines_with_debruijn_indices(
     for i in 0..instructions.len() {
         match &instructions[i] {
             Instruction {
-                op_code: OpCode::SCLOSURE,
+                op_code: OpCode::SCLOSURE | OpCode::NEWSCLOSURE | OpCode::PUREFUNC,
                 ..
             } => {
                 depth += 1;
@@ -831,9 +831,11 @@ impl Compiler {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
 
-        let analysis = std::env::var("CODE_GEN_V2")
-            .ok()
-            .map(|_| Analysis::from_exprs(&expanded_statements));
+        let analysis = std::env::var("CODE_GEN_V2").ok().map(|_| {
+            let mut analysis = Analysis::from_exprs(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
+            analysis
+        });
 
         for expr in expanded_statements {
             // TODO add printing out the expression as its own special function

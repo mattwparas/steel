@@ -131,7 +131,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         if let Some(elem) = self.instructions.get_mut(if_idx) {
             // (*elem).goto = Some(false_start_label);
 
-            elem.set_goto(false_start_label);
+            elem.set_tag(false_start_label);
 
             // (*elem).payload_size = false_start;
         } else {
@@ -194,7 +194,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let op_code = if function_info.captured_vars().is_empty() {
             OpCode::PUREFUNC
         } else {
-            OpCode::SCLOSURE
+            OpCode::NEWSCLOSURE
         };
 
         self.push(LabeledInstruction::builder(op_code));
@@ -219,7 +219,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         // In the event we actually have a closure, we need to add the necessarily
         // boilerplate to lift out closed over variables since they could escape
-        if op_code == OpCode::SCLOSURE {
+        if op_code == OpCode::NEWSCLOSURE {
             // Mark the upvalues here
             self.push(
                 LabeledInstruction::builder(OpCode::NDEFS)
@@ -239,14 +239,22 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // This way, at run time we can simply allocate these values directly onto the heap
             // and subsequently store the weak refs in the closure object, which there will be separate
             // objects for, for pure functions and closures
-            for _ in function_info.captured_vars() {
+            for var in function_info.captured_vars().values() {
                 println!("Ignored upvalues in closure creation");
-                self.push(LabeledInstruction::builder(OpCode::FILLLOCALUPVALUE))
+
+                let op_code = if var.captured_from_enclosing {
+                    OpCode::COPYCAPTURECLOSURE
+                } else {
+                    OpCode::COPYCAPTURESTACK
+                };
+
+                // In this case we're gonna patch in the variable
+                self.push(LabeledInstruction::builder(op_code).payload(var.stack_offset.unwrap()))
             }
         }
 
         let pop_op_code = if op_code == OpCode::SCLOSURE {
-            OpCode::POP
+            OpCode::POPNEW
         } else {
             OpCode::POP_PURE
         };
@@ -255,17 +263,16 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .push(LabeledInstruction::builder(pop_op_code).payload(lambda_function.args.len()));
 
         // TODO: Add over the locals length
-
-        if op_code == OpCode::SCLOSURE {
-            for var in &lambda_function.args {
-                // TODO: Payload needs to be whether the local variable is captured
-                // or not - this will tell us if we need to close over it later
-                body_instructions.push(
-                    LabeledInstruction::builder(OpCode::CLOSEUPVALUE)
-                        .payload(0)
-                        .contents(var.atom_syntax_object().unwrap().clone()),
-                );
-            }
+        if op_code == OpCode::NEWSCLOSURE {
+            // for var in &lambda_function.args {
+            //     // TODO: Payload needs to be whether the local variable is captured
+            //     // or not - this will tell us if we need to close over it later
+            //     body_instructions.push(
+            //         LabeledInstruction::builder(OpCode::CLOSEUPVALUE)
+            //             .payload(0)
+            //             .contents(var.atom_syntax_object().unwrap().clone()),
+            //     );
+            // }
         }
 
         self.instructions.append(&mut body_instructions);
@@ -335,15 +342,22 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 (LocallyDefinedFunction, _) => {
                     stop!(Generic => "Unable to lower to bytecode: locally defined function should be lifted to an external scope")
                 }
-                (Captured, true) => OpCode::MOVEREADUPVALUE,
-                (Captured, false) => OpCode::READUPVALUE,
+                // In the event we're captured, we're going to just read the
+                // offset from the captured var
+                (Captured, _) => OpCode::READCAPTURED,
                 (Free, _) => OpCode::PUSH, // This is technically true, but in an incremental compilation mode, we assume the variable is already bound
                                            // stop!(FreeIdentifier => format!("free identifier: {}", a); a.syn.span),
             };
 
+            let payload = if op_code == OpCode::READCAPTURED {
+                analysis.capture_index.unwrap()
+            } else {
+                analysis.stack_offset.unwrap_or_default()
+            };
+
             self.push(
                 LabeledInstruction::builder(op_code)
-                    .payload(analysis.stack_offset.unwrap_or_default())
+                    .payload(payload)
                     .contents(a.syn.clone()),
             );
 
@@ -501,6 +515,45 @@ mod code_gen_tests {
     use crate::{parser::parser::Parser, rerrs::ErrorKind};
 
     #[test]
+    fn check_fib() {
+        let expr = r#"
+        (define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))
+            "#;
+
+        let exprs = Parser::parse(expr).unwrap();
+        let mut analysis = Analysis::from_exprs(&exprs);
+        analysis.populate_captures(&exprs);
+
+        let mut constants = ConstantMap::new();
+
+        let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
+
+        code_gen.visit(&exprs[0]).unwrap();
+
+        println!("{:#?}", code_gen.instructions);
+    }
+
+    #[test]
+    fn check_new_closure() {
+        let expr = r#"
+            (lambda (x)
+                (lambda (y) (+ x y)))
+        "#;
+
+        let exprs = Parser::parse(expr).unwrap();
+        let mut analysis = Analysis::from_exprs(&exprs);
+        analysis.populate_captures(&exprs);
+
+        let mut constants = ConstantMap::new();
+
+        let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
+
+        code_gen.visit(&exprs[0]).unwrap();
+
+        println!("{:#?}", code_gen.instructions);
+    }
+
+    #[test]
     fn check_lambda_output() {
         let expr = r#"
         (lambda (x y z)
@@ -509,7 +562,9 @@ mod code_gen_tests {
 
         let exprs = Parser::parse(expr).unwrap();
 
-        let analysis = Analysis::from_exprs(&exprs);
+        let mut analysis = Analysis::from_exprs(&exprs);
+        analysis.populate_captures(&exprs);
+
         let mut constants = ConstantMap::new();
 
         let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
