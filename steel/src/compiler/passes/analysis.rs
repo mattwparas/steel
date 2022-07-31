@@ -763,6 +763,13 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             for (index, (key, value)) in sorted_vars.iter_mut().enumerate() {
                 value.capture_offset = Some(index);
 
+                if value.mutated {
+                    // TODO: For mutable variables, we should actually find a better way
+                    // These needs to be allocated directly on to the heap, and then
+                    // all references should refer to that one directly.
+                    println!("Found captured mutable value");
+                }
+
                 // If we've already captured this variable, mark it as being captured from the enclosing environment
                 // TODO: If there is shadowing, this might not work?
                 if self.captures.contains_key(key.as_str()) {
@@ -950,12 +957,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // TODO: Merge the behavior of all of these separate cases into one
                 semantic_info.with_captured_from_enclosing(captured.captured_from_enclosing);
-
-                // .with_offset(
-                //     is_captured
-                //         .stack_offset
-                //         .expect("Local variables should have an offset"),
-                // );
 
                 if let Some(capture_offset) = captured.capture_offset {
                     semantic_info = semantic_info.with_capture_index(capture_offset);
