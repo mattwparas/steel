@@ -317,6 +317,8 @@ pub struct ScopeInfo {
     pub capture_offset: Option<usize>,
     /// Was this var captured from the stack or from an enclosing function
     pub captured_from_enclosing: bool,
+    /// Was this var mutated?
+    pub mutated: bool,
 }
 
 impl ScopeInfo {
@@ -330,6 +332,7 @@ impl ScopeInfo {
             escapes: false,
             capture_offset: None,
             captured_from_enclosing: false,
+            mutated: false,
         }
     }
 
@@ -343,6 +346,7 @@ impl ScopeInfo {
             escapes: false,
             capture_offset: None,
             captured_from_enclosing: false,
+            mutated: false,
         }
     }
 }
@@ -832,6 +836,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 let id = scope_info.id;
                 if let Some(var) = self.info.get_mut(&id) {
                     var.set_bang = true;
+                    scope_info.mutated = true;
                 } else {
                     println!("Unable to find var: {} in info map to update to set!", name);
                 }
