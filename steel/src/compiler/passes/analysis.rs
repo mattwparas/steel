@@ -752,7 +752,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         {
             let vars = &mut function_info.captured_vars;
 
-            let mut sorted_vars = vars.iter_mut().collect::<Vec<_>>();
+            // TODO:
+            // If this var is both captured and mutated, lets separate it for a different kind
+            // of allocation - this way we can actually separately allocate where these go. Since it is possible
+            // that a variable is both captured, and mutated by both the closure and the stack, we want to
+            // make sure that things that get captured and mutated end up on the heap, and both references
+            // point to the same thing
+            // let mut captured_and_mutated =
+            // vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
+
+            let mut sorted_vars = vars.iter_mut().filter(|x| !x.1.mutated).collect::<Vec<_>>();
             sorted_vars.sort_by_key(|x| x.1.id);
 
             // let current_depth = self.scope.depth();
@@ -767,7 +776,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // TODO: For mutable variables, we should actually find a better way
                     // These needs to be allocated directly on to the heap, and then
                     // all references should refer to that one directly.
-                    println!("Found captured mutable value");
+                    println!("Found captured mutable value - this var should be allocated directly into heap storage");
                 }
 
                 // If we've already captured this variable, mark it as being captured from the enclosing environment
@@ -1258,6 +1267,52 @@ where
     }
 }
 
+struct LetCallSites<'a, F> {
+    analysis: &'a Analysis,
+    func: F,
+}
+
+impl<'a, F> LetCallSites<'a, F> {
+    pub fn new(analysis: &'a Analysis, func: F) -> Self {
+        Self { analysis, func }
+    }
+}
+
+impl<'a, F> VisitorMutRefUnit for LetCallSites<'a, F>
+where
+    F: FnMut(&Analysis, &mut ExprKind) -> bool,
+{
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Struct(s) => self.visit_struct(s),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::CallCC(cc) => self.visit_callcc(cc),
+            let_expr @ ExprKind::Let(_) => {
+                if let ExprKind::Let(l) = let_expr {
+                    self.visit_let(l);
+                }
+
+                if let ExprKind::Let(_) = &let_expr {
+                    if (self.func)(&self.analysis, let_expr) {
+                        log::info!("Modified let expression");
+                    }
+                }
+            }
+        }
+    }
+}
+
 // TODO: This will need to get changed in the event we actually modify _what_ the mutable pointer points to
 // Right now, if we want to modify a call site, we can only change it to a call site - what we _should_ do is have it be able to point
 // back to any arbitrary value, and subsequently change l to point to that value by doing another level of the recursion
@@ -1461,6 +1516,16 @@ impl<'a> SemanticAnalysis<'a> {
             .map(|x| x.syntax_object_id)
     }
 
+    pub fn find_let_call_sites_and_mutate_with<F>(&mut self, func: F)
+    where
+        F: FnMut(&Analysis, &mut ExprKind) -> bool,
+    {
+        let mut let_call_sites = LetCallSites::new(&self.analysis, func);
+        for expr in self.exprs.iter_mut() {
+            let_call_sites.visit(expr);
+        }
+    }
+
     /// In this case, `let` also translates directly to an anonymous function call
     pub fn find_anonymous_function_calls_and_mutate_with<F>(&mut self, func: F)
     where
@@ -1471,6 +1536,51 @@ impl<'a> SemanticAnalysis<'a> {
         for expr in self.exprs.iter_mut() {
             anonymous_function_call_sites.visit(expr);
         }
+    }
+
+    /// Find lets without arguments and replace these with just the body of the function.
+    /// For instance:
+    /// ```scheme
+    /// (let () (+ 1 2 3 4 5)) ;; => (+ 1 2 3 4 5)
+    /// ```
+    ///
+    /// The other function - `replace_pure_empty_lets_with_body` explicitly refers to anonymous functions
+    /// that lets are naively translated to, so something like this:
+    ///
+    /// ```scheme
+    /// ((lambda () (+ 1 2 3 4 5)))
+    /// ```
+    ///
+    pub fn replace_no_argument_lets_with_body(&mut self) -> &mut Self {
+        let mut re_run_analysis = false;
+
+        let func = |_: &Analysis, anon: &mut ExprKind| {
+            if let ExprKind::Let(l) = anon {
+                if l.bindings.is_empty() {
+                    let mut dummy = ExprKind::List(List::new(Vec::new()));
+                    std::mem::swap(&mut l.body_expr, &mut dummy);
+                    *anon = dummy;
+
+                    re_run_analysis = true;
+
+                    return true;
+                }
+            } else {
+                unreachable!()
+            }
+
+            false
+        };
+
+        self.find_let_call_sites_and_mutate_with(func);
+
+        if re_run_analysis {
+            log::info!("Re-running the semantic analysis after modifying let call sites");
+
+            self.analysis = Analysis::from_exprs(self.exprs);
+        }
+
+        self
     }
 
     /// Find anonymous function calls with no arguments that don't capture anything,
