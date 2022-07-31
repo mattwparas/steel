@@ -4,9 +4,10 @@ use itertools::Itertools;
 use quickscope::ScopeMap;
 
 use crate::parser::{
-    ast::{ExprKind, LambdaFunction, List},
+    ast::{Atom, Define, ExprKind, LambdaFunction, List},
     parser::{SyntaxObject, SyntaxObjectId},
     span::Span,
+    tokens::TokenType,
     visitors::VisitorMutRef,
 };
 
@@ -1403,6 +1404,93 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
     }
 }
 
+struct LiftPureFunctionsToGlobalScope<'a> {
+    analysis: &'a Analysis,
+    lifted_functions: Vec<ExprKind>,
+}
+
+impl<'a> LiftPureFunctionsToGlobalScope<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self {
+            analysis,
+            lifted_functions: Vec::new(),
+        }
+    }
+}
+
+fn atom(name: String) -> ExprKind {
+    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+        name,
+    ))))
+}
+
+impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            lambda @ ExprKind::LambdaFunction(_) => {
+                // Do this bottom up - visit the children and on the way up we're going to
+                // apply the transformation
+                if let ExprKind::LambdaFunction(l) = lambda {
+                    for var in &mut l.args {
+                        self.visit(var);
+                    }
+                    self.visit(&mut l.body);
+                }
+
+                if let ExprKind::LambdaFunction(l) = lambda {
+                    if let Some(info) = self.analysis.get_function_info(l) {
+                        // If we have no captured variables, this is a pure function for our purposes
+                        if info.captured_vars.is_empty() {
+                            // Name the closure something mangled, but something we can refer to later
+                            let constructed_name = "##__lifted_pure_function".to_string()
+                                + l.syntax_object_id.to_string().as_ref();
+
+                            // Point the reference to a dummy list - this is just an ephemeral placeholder
+                            let mut dummy = ExprKind::List(List::new(Vec::new()));
+
+                            // Have the lambda now actually point to this dummy list
+                            std::mem::swap(lambda, &mut dummy);
+
+                            // Construct the global definition, this is something like
+                            //
+                            // (define ##__lifted_pure_function42 (lambda (x) 10))
+                            //
+                            // This is going to go into our vec of lifted functions
+                            let constructed_definition = ExprKind::Define(Box::new(Define::new(
+                                atom(constructed_name.clone()),
+                                dummy,
+                                SyntaxObject::default(TokenType::Define),
+                            )));
+
+                            self.lifted_functions.push(constructed_definition);
+
+                            // Now update the reference to just point straight to a variable reference
+                            // This _should_ be globally unique
+                            *lambda = atom(constructed_name);
+                        }
+                    }
+                }
+
+                // if let ExprKind::LambdaFunction(l) = lambda
+            }
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Struct(s) => self.visit_struct(s),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::CallCC(cc) => self.visit_callcc(cc),
+            ExprKind::Let(l) => self.visit_let(l),
+        }
+    }
+}
+
 struct LiftLocallyDefinedFunctions<'a> {
     analysis: &'a Analysis,
     lifted_functions: Vec<ExprKind>,
@@ -1418,26 +1506,6 @@ impl<'a> LiftLocallyDefinedFunctions<'a> {
 }
 
 impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
-    fn visit(&mut self, expr: &mut ExprKind) {
-        match expr {
-            ExprKind::If(f) => self.visit_if(f),
-            ExprKind::Define(d) => self.visit_define(d),
-            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
-            ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
-            ExprKind::Macro(m) => self.visit_macro(m),
-            ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => self.visit_list(l),
-            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-            ExprKind::Set(s) => self.visit_set(s),
-            ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::CallCC(cc) => self.visit_callcc(cc),
-            ExprKind::Let(l) => self.visit_let(l),
-        }
-    }
-
     fn visit_begin(&mut self, begin: &mut crate::parser::ast::Begin) {
         // Traverse down the tree first - start bubbling up the lifted functions
         // on the way back up
@@ -1536,6 +1604,32 @@ impl<'a> SemanticAnalysis<'a> {
         for expr in self.exprs.iter_mut() {
             anonymous_function_call_sites.visit(expr);
         }
+    }
+
+    /// Find all local pure functions (and when I say all, I mean all of them) - no matter the position
+    /// and replace them with a globally defined function. This means we're not going to be recreating
+    /// the function _on every instance_ and instead can just grab them each time.
+    /// TODO: @Matt - figure out a way to simplify the construction of closures as well - perhaps introduce
+    /// some sort of combinator for closures as well.
+    pub fn lift_all_local_functions(&mut self) -> &mut Self {
+        let mut lifter = LiftPureFunctionsToGlobalScope::new(&self.analysis);
+
+        for expr in self.exprs.iter_mut() {
+            lifter.visit(expr);
+        }
+
+        if !lifter.lifted_functions.is_empty() {
+            // This is a silly little way to put the lifted functions actually at the top of
+            // the expression list
+            lifter.lifted_functions.append(self.exprs);
+
+            *self.exprs = lifter.lifted_functions;
+
+            log::info!("Re-running the analysis after lifting local functions");
+            self.analysis = Analysis::from_exprs(&self.exprs);
+        }
+
+        self
     }
 
     /// Find lets without arguments and replace these with just the body of the function.
