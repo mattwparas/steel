@@ -45,6 +45,7 @@ use crate::{
 // use std::env::current_exe;
 use std::{
     cell::RefCell,
+    collections::HashMap,
     iter::Iterator,
     marker::PhantomData,
     rc::{Rc, Weak},
@@ -67,6 +68,8 @@ pub struct VirtualMachineCore {
     stack_index: Stack<usize>,
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
     profiler: OpCodeOccurenceProfiler,
+    // TODO: make this not as bad
+    closure_interner: HashMap<usize, ByteCodeLambda>,
     #[cfg(feature = "jit")]
     jit: JIT,
 }
@@ -82,6 +85,7 @@ impl VirtualMachineCore {
             stack_index: Stack::with_capacity(64),
             upvalue_head: None,
             profiler: OpCodeOccurenceProfiler::new(),
+            closure_interner: HashMap::new(),
             #[cfg(feature = "jit")]
             jit: JIT::default(),
         }
@@ -204,6 +208,7 @@ impl VirtualMachineCore {
             self.upvalue_head.take(),
             &[],
             &mut self.profiler,
+            &mut self.closure_interner,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
         );
@@ -236,6 +241,7 @@ impl VirtualMachineCore {
             self.upvalue_head.take(),
             spans,
             &mut self.profiler,
+            &mut self.closure_interner,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
         )?;
@@ -429,6 +435,7 @@ pub(crate) struct VmCore<'a, U: UseCallbacks, A: ApplyContracts> {
     pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
+    pub(crate) closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
     _use_callback: PhantomData<U>,
     _apply_contracts: PhantomData<A>,
     #[cfg(feature = "jit")]
@@ -448,6 +455,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
+        closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> VmCore<'a, U, A> {
         VmCore::<U, A> {
@@ -467,6 +475,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             profiler,
             _use_callback: PhantomData,
             _apply_contracts: PhantomData,
+            closure_interner,
             #[cfg(feature = "jit")]
             jit,
         }
@@ -484,6 +493,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
+        closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> Result<VmCore<'a, U, A>> {
         if instructions.is_empty() {
@@ -505,6 +515,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             function_stack,
             spans,
             profiler,
+            closure_interner,
             _use_callback: PhantomData,
             _apply_contracts: PhantomData,
             #[cfg(feature = "jit")]
@@ -2074,14 +2085,23 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         //     println!("Found multi arity function");
         // }
 
+        /*
+        TODO: make prototype for closure construction:
+        idea being, if we've seen it, we shouldn't have to reconstruct the ENTIRE thing from scratch
+        store the prototype w/o captures - if we've seen it, just fetch it, store the offset, move on.
+
+        otherwise, store it plus the necessary information we need
+
+        */
+
         self.ip += 1;
 
         let is_multi_arity = self.instructions[self.ip].payload_size == 1;
 
         self.ip += 1;
 
-        // Check whether this is a let or a rooted function
-        let is_let = self.instructions[self.ip].payload_size == 1;
+        // Get the ID of the function
+        let closure_id = self.instructions[self.ip].payload_size as usize;
 
         // if is_multi_arity {
         //     println!("Found multi arity function");
@@ -2126,25 +2146,42 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             self.ip += 1;
         }
 
-        // TODO -> this is probably quite slow
-        // If extraneous lets are lifted, we probably don't need this
-        // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
+        let constructed_lambda = if let Some(prototype) = self.closure_interner.get(&closure_id) {
+            println!("Fetching closure from cache");
 
-        // Construct the closure body using the offsets from the payload
-        // used to be - 1, now - 2
-        let closure_body = self.instructions[self.ip..(self.ip + forward_jump - 1)].to_vec();
+            let mut prototype = prototype.clone();
+            prototype.set_captures(captures);
+            prototype
+        } else {
+            println!("Constructing closure for the first time");
 
-        // snag the arity from the eclosure instruction
-        let arity = self.instructions[forward_index - 1].payload_size;
+            // TODO -> this is probably quite slow
+            // If extraneous lets are lifted, we probably don't need this
+            // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
 
-        let constructed_lambda = ByteCodeLambda::new(
-            closure_body,
-            arity as usize,
-            Vec::new(),
-            is_let,
-            is_multi_arity,
-            captures,
-        );
+            // Construct the closure body using the offsets from the payload
+            // used to be - 1, now - 2
+            let closure_body = self.instructions[self.ip..(self.ip + forward_jump - 1)].to_vec();
+
+            // snag the arity from the eclosure instruction
+            let arity = self.instructions[forward_index - 1].payload_size;
+
+            let mut constructed_lambda = ByteCodeLambda::new(
+                closure_body,
+                arity as usize,
+                Vec::new(),
+                false,
+                is_multi_arity,
+                Vec::new(),
+            );
+
+            self.closure_interner
+                .insert(closure_id, constructed_lambda.clone());
+
+            constructed_lambda.set_captures(captures);
+
+            constructed_lambda
+        };
 
         self.stack
             .push(SteelVal::Closure(Gc::new(constructed_lambda)));

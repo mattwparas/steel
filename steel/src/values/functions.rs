@@ -74,6 +74,10 @@ impl ByteCodeLambda {
         }
     }
 
+    pub fn set_captures(&mut self, captures: Vec<SteelVal>) {
+        self.captures = captures;
+    }
+
     pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
         Rc::clone(&self.body_exp)
     }

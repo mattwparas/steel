@@ -262,7 +262,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let arity = lambda_function.args.len();
 
         // Patching over the changes, see old code generator for more information
-        self.push(LabeledInstruction::builder(OpCode::PASS));
+        // TODO: This is not a portable change. Syntax Object IDs need to have a patched unique ID
+        // This should be doable by supplementing everything with an offset when consuming external modules
+        self.push(
+            LabeledInstruction::builder(OpCode::PASS).payload(lambda_function.syntax_object_id),
+        );
 
         let mut body_instructions = {
             let mut code_gen = CodeGenerator::new(&mut self.constant_map, &self.analysis);
