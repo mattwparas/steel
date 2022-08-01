@@ -117,6 +117,9 @@ pub struct FunctionInformation {
     pub escapes: bool,
     // If this function is bound to a variable, this is the id of that bound value
     pub aliases_to: Option<SyntaxObjectId>,
+
+    // Depth the function definition occurs at
+    pub depth: usize,
 }
 
 impl FunctionInformation {
@@ -125,6 +128,7 @@ impl FunctionInformation {
             captured_vars,
             escapes: false,
             aliases_to: None,
+            depth: 0,
         }
     }
 
@@ -134,6 +138,11 @@ impl FunctionInformation {
 
     pub fn escapes(mut self, escapes: bool) -> Self {
         self.escapes = escapes;
+        self
+    }
+
+    pub fn depth(mut self, depth: usize) -> Self {
+        self.depth = depth;
         self
     }
 }
@@ -833,7 +842,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // Capture the information and store it in the semantic analysis for this individual function
             self.info.function_info.insert(
                 lambda_function.syntax_object_id,
-                FunctionInformation::new(captured_vars).escapes(self.escape_analysis),
+                FunctionInformation::new(captured_vars)
+                    .escapes(self.escape_analysis)
+                    .depth(self.scope.depth()),
             );
         }
     }
@@ -1441,6 +1452,13 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
 
                 if let ExprKind::LambdaFunction(l) = lambda {
                     if let Some(info) = self.analysis.get_function_info(l) {
+                        println!("depth: {}", info.depth);
+
+                        // We don't need to lift top level functions to the top level already
+                        if info.depth == 1 {
+                            return;
+                        }
+
                         // If we have no captured variables, this is a pure function for our purposes
                         if info.captured_vars.is_empty() {
                             // Name the closure something mangled, but something we can refer to later
@@ -1606,7 +1624,7 @@ impl<'a> SemanticAnalysis<'a> {
         }
     }
 
-    /// Find all local pure functions (and when I say all, I mean all of them) - no matter the position
+    /// Find all local pure functions, except those defined already at the top level and those defined with 'define',
     /// and replace them with a globally defined function. This means we're not going to be recreating
     /// the function _on every instance_ and instead can just grab them each time.
     /// TODO: @Matt - figure out a way to simplify the construction of closures as well - perhaps introduce
@@ -2160,6 +2178,26 @@ mod analysis_pass_tests {
                 .collect::<Vec<_>>();
 
             println!("{:#?}", escaping_functions);
+        }
+    }
+
+    #[test]
+    fn test_lifting_local_functions_to_global_scope() {
+        let script = r#"
+            (define (test)
+                (mapping (lambda (x) 10) (list 1 2 3 4 5)))        
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+
+        {
+            let mut analysis = SemanticAnalysis::new(&mut exprs);
+
+            analysis.lift_all_local_functions();
+        }
+
+        for expr in exprs {
+            println!("{}", expr.to_pretty(60))
         }
     }
 
