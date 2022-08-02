@@ -2147,13 +2147,13 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         }
 
         let constructed_lambda = if let Some(prototype) = self.closure_interner.get(&closure_id) {
-            println!("Fetching closure from cache");
+            log::info!("Fetching closure from cache");
 
             let mut prototype = prototype.clone();
             prototype.set_captures(captures);
             prototype
         } else {
-            println!("Constructing closure for the first time");
+            log::info!("Constructing closure for the first time");
 
             // TODO -> this is probably quite slow
             // If extraneous lets are lifted, we probably don't need this
