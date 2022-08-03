@@ -60,6 +60,10 @@ pub enum OpCode {
     LTE,
     NEWSCLOSURE,
     POPNEW,
+    ADDREGISTER,
+    SUBREGISTER,
+    LTEREGISTER,
+    SUBREGISTER1,
 }
 
 impl OpCode {
@@ -124,6 +128,10 @@ impl OpCode {
             "COPYCAPTURECLOSURE" => COPYCAPTURECLOSURE,
             "NEWSCLOSURE" => NEWSCLOSURE,
             "POPNEW" => POPNEW,
+            "ADDREGISTER" => ADDREGISTER,
+            "SUBREGISTER" => SUBREGISTER,
+            "LTEREGISTER" => LTEREGISTER,
+            "SUBREGISTER1" => SUBREGISTER1,
             _ => panic!("Unable to map string to opcode"),
         }
     }

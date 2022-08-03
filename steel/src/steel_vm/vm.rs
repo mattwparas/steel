@@ -957,6 +957,29 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             }};
         }
 
+        macro_rules! inline_register_primitive {
+            ($name:tt) => {{
+                let read_local = &self.instructions[self.ip + 1];
+                let push_const = &self.instructions[self.ip + 2];
+
+                // get the local
+                let offset = self.stack_index.last().copied().unwrap_or(0);
+                let local_value = self.stack[read_local.payload_size as usize + offset].clone();
+
+                // get the const
+                let const_val = self.constants.get(push_const.payload_size as usize);
+
+                let result = match $name(&[local_value, const_val]) {
+                    Ok(value) => value,
+                    Err(e) => return Err(e.set_span(self.current_span())),
+                };
+
+                self.stack.push(result);
+
+                self.ip += 3;
+            }};
+        }
+
         while self.ip < self.instructions.len() {
             // Process the op code
             // self.profiler.process_opcode(
@@ -991,6 +1014,43 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                 } => {
                     println!("Hitting a pass - this shouldn't happen");
                     self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::SUBREGISTER1,
+                    ..
+                } => {
+                    let read_local = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let local_value = self.stack[read_local.payload_size as usize + offset].clone();
+
+                    let result = match subtract_primitive(&[local_value, SteelVal::IntV(1)]) {
+                        Ok(value) => value,
+                        Err(e) => return Err(e.set_span(self.current_span())),
+                    };
+
+                    self.stack.push(result);
+
+                    self.ip += 2;
+                }
+                DenseInstruction {
+                    op_code: OpCode::ADDREGISTER,
+                    ..
+                } => {
+                    inline_register_primitive!(add_primitive)
+                }
+                DenseInstruction {
+                    op_code: OpCode::SUBREGISTER,
+                    ..
+                } => {
+                    inline_register_primitive!(subtract_primitive)
+                }
+                DenseInstruction {
+                    op_code: OpCode::LTEREGISTER,
+                    ..
+                } => {
+                    inline_register_primitive!(lte_primitive)
                 }
                 DenseInstruction {
                     op_code: OpCode::ADD,

@@ -8,7 +8,7 @@ use crate::{
         opcode::OpCode,
     },
     parser::{
-        ast::{Atom, ExprKind},
+        ast::{Atom, ExprKind, List},
         parser::SyntaxObject,
         span_visitor::get_span,
         tokens::TokenType,
@@ -91,6 +91,84 @@ impl<'a> CodeGenerator<'a> {
                 .contents(syn.clone())
                 .constant(true),
         );
+        Ok(())
+    }
+
+    fn should_specialize_call(&self, l: &List) -> Option<OpCode> {
+        if l.args.len() == 3 {
+            let function = l.first()?;
+
+            let _ = l.args[1].atom_identifier()?;
+            let _ = eval_atom(l.args[2].atom_syntax_object()?).ok()?;
+
+            if let Some(info) = self.analysis.get(function.atom_syntax_object()?) {
+                if info.kind == Free || info.kind == Global {
+                    return match function.atom_identifier().unwrap() {
+                        "+" => Some(OpCode::ADDREGISTER),
+                        "-" => Some(OpCode::SUBREGISTER),
+                        "<=" => Some(OpCode::LTEREGISTER),
+                        _ => None,
+                    };
+                }
+            }
+        }
+
+        None
+    }
+
+    fn specialize_call(&mut self, l: &List, op: OpCode) -> Result<()> {
+        let value = eval_atom(l.args[2].atom_syntax_object().unwrap())?;
+
+        // Specialize SUB1 -> specializing here is a bit much but it should help
+        // if value == SteelVal::IntV(1) && op == OpCode::SUBREGISTER {
+        //     self.push(LabeledInstruction::builder(OpCode::SUBREGISTER1));
+
+        //     if let Some(analysis) = &l.args[1]
+        //         .atom_syntax_object()
+        //         .and_then(|a| self.analysis.get(&a))
+        //     {
+        //         self.push(
+        //             LabeledInstruction::builder(OpCode::PASS)
+        //                 .payload(analysis.stack_offset.unwrap()),
+        //         );
+        //     } else {
+        //         panic!("Shouldn't be happening")
+        //     }
+
+        //     return Ok(());
+        // }
+
+        self.push(LabeledInstruction::builder(op));
+
+        if let Some(analysis) = &l.args[1]
+            .atom_syntax_object()
+            .and_then(|a| self.analysis.get(&a))
+        {
+            self.push(
+                LabeledInstruction::builder(OpCode::PASS).payload(analysis.stack_offset.unwrap()),
+            );
+        } else {
+            panic!("Shouldn't be happening")
+        }
+
+        // local variable, map to index:
+        // if let ExprKind::Atom(a) = &l.args[1] {
+        //     if let Some(analysis) = self.analysis.get(&a.syn) {
+        //         self.push(
+        //             LabeledInstruction::builder(OpCode::PASS)
+        //                 .payload(analysis.stack_offset.unwrap()),
+        //         );
+        //     } else {
+        //         panic!("Shouldn't be getting here")
+        //     }
+        // } else {
+        //     panic!("Shouldn't be getting here")
+        // }
+
+        let idx = self.constant_map.add_or_get(value);
+
+        self.push(LabeledInstruction::builder(OpCode::PASS).payload(idx));
+
         Ok(())
     }
 }
@@ -423,7 +501,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         }
     }
 
+    // TODO: Specialize the calls to binops here
+    // This should be pretty straightforward - just check if they're still globals
+    // then, specialize accordingly.
     fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
+        if let Some(op) = self.should_specialize_call(l) {
+            return self.specialize_call(l, op);
+        }
+
         if l.args.is_empty() {
             stop!(BadSyntax => "function application empty");
         }
