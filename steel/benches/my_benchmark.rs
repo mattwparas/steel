@@ -232,7 +232,7 @@ fn fib_28(c: &mut Criterion) {
     let mut group = c.benchmark_group("fib-28");
     group.sample_size(200);
     group.bench_function("fib-28", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
+        b.iter(|| vm.execute_without_callbacks(Rc::clone(&bytecode), &constant_map))
     });
     group.finish();
 }
@@ -255,7 +255,7 @@ fn fib_28_contract(c: &mut Criterion) {
     let mut group = c.benchmark_group("fib-28-contract");
     group.sample_size(200);
     group.bench_function("fib-28-contract", |b| {
-        b.iter(|| vm.execute(Rc::clone(&bytecode), &constant_map))
+        b.iter(|| vm.execute_without_callbacks(Rc::clone(&bytecode), &constant_map))
     });
     group.finish();
 }

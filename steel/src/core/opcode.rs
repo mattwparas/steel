@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize, Eq, PartialOrd, Ord)]
 pub enum OpCode {
     VOID = 0,
     PUSH = 1,
@@ -133,6 +133,72 @@ impl OpCode {
             "LTEREGISTER" => LTEREGISTER,
             "SUBREGISTER1" => SUBREGISTER1,
             _ => panic!("Unable to map string to opcode"),
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        match self {
+            OpCode::VOID => todo!(),
+            OpCode::PUSH => todo!(),
+            OpCode::LOOKUP => todo!(),
+            OpCode::IF => todo!(),
+            OpCode::JMP => todo!(),
+            OpCode::FUNC => todo!(),
+            OpCode::SCLOSURE => todo!(),
+            OpCode::ECLOSURE => todo!(),
+            OpCode::STRUCT => todo!(),
+            OpCode::POP => todo!(),
+            OpCode::BIND => todo!(),
+            OpCode::SDEF => todo!(),
+            OpCode::EDEF => todo!(),
+            OpCode::POP_PURE => todo!(),
+            OpCode::PASS => todo!(),
+            OpCode::PUSHCONST => todo!(),
+            OpCode::NDEFS => todo!(),
+            OpCode::PANIC => todo!(),
+            OpCode::CLEAR => todo!(),
+            OpCode::TAILCALL => todo!(),
+            OpCode::SET => todo!(),
+            OpCode::METALOOKUP => todo!(),
+            OpCode::CALLCC => todo!(),
+            OpCode::READLOCAL => todo!(),
+            OpCode::SETLOCAL => todo!(),
+            OpCode::READUPVALUE => todo!(),
+            OpCode::SETUPVALUE => todo!(),
+            OpCode::FILLUPVALUE => todo!(),
+            OpCode::COPYCAPTURESTACK => todo!(),
+            OpCode::COPYCAPTURECLOSURE => todo!(),
+            OpCode::FILLLOCALUPVALUE => todo!(),
+            OpCode::CLOSEUPVALUE => todo!(),
+            OpCode::TCOJMP => todo!(),
+            OpCode::CALLGLOBAL => 2,
+            OpCode::CALLGLOBALTAIL => todo!(),
+            OpCode::LOADINT0 => todo!(),
+            OpCode::LOADINT1 => todo!(),
+            OpCode::LOADINT2 => todo!(),
+            OpCode::CGLOCALCONST => todo!(),
+            OpCode::INNERSTRUCT => todo!(),
+            OpCode::MOVEREADLOCAL => todo!(),
+            OpCode::MOVEREADUPVALUE => todo!(),
+            OpCode::READCAPTURED => todo!(),
+            OpCode::MOVECGLOCALCONST => todo!(),
+            OpCode::BEGINSCOPE => todo!(),
+            OpCode::ENDSCOPE => todo!(),
+            OpCode::LETENDSCOPE => todo!(),
+            OpCode::PUREFUNC => todo!(),
+            OpCode::FUNC0 => todo!(),
+            OpCode::ADD => 2,
+            OpCode::SUB => todo!(),
+            OpCode::MUL => todo!(),
+            OpCode::DIV => todo!(),
+            OpCode::EQUAL => todo!(),
+            OpCode::LTE => todo!(),
+            OpCode::NEWSCLOSURE => todo!(),
+            OpCode::POPNEW => 1,
+            OpCode::ADDREGISTER => 2,
+            OpCode::SUBREGISTER => 2,
+            OpCode::LTEREGISTER => 2,
+            OpCode::SUBREGISTER1 => todo!(),
         }
     }
 }

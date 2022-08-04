@@ -257,6 +257,7 @@ impl VirtualMachineCore {
 
         // self.profiler.report();
         // self.profiler.report_time_spend();
+        // self.profiler.report_basic_blocks();
 
         // self.upvalue_head = vm_instance.upvalue_head;
 
@@ -959,8 +960,8 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
 
         macro_rules! inline_register_primitive {
             ($name:tt) => {{
-                let read_local = &self.instructions[self.ip + 1];
-                let push_const = &self.instructions[self.ip + 2];
+                let read_local = &self.instructions[self.ip];
+                let push_const = &self.instructions[self.ip + 1];
 
                 // get the local
                 let offset = self.stack_index.last().copied().unwrap_or(0);
@@ -976,7 +977,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
 
                 self.stack.push(result);
 
-                self.ip += 3;
+                self.ip += 2;
             }};
         }
 
@@ -989,7 +990,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
 
             // println!("{:?}", self.instructions[self.ip]);
 
-            // let now = Instant::now();
+            // let now = std::time::Instant::now();
 
             // TODO -> don't just copy the value from the instructions
             // We don't need to do that... Figure out a way to just take a reference to the value

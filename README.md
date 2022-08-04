@@ -251,8 +251,8 @@ Preliminary benchmarks show the following on my machine:
 
 | Benchmark | Steel    | Python   |
 | --------- | -------- | -------- |
-| (fib 28)  | 68.495ms | 65.10 ms |
-| (ack 3 3) | 0.35 ms  | 0.195 ms |
+| (fib 28)  | 63.383ms | 65.10 ms |
+| (ack 3 3) | 0.303 ms | 0.195 ms |
 
 ## Examples of embedding Rust values in the virtual machine
 

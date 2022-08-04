@@ -12,7 +12,7 @@ use crate::{rvals::Result, values::structs::StructFuncBuilderConcrete};
 use log::{debug, log_enabled};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     convert::{TryFrom, TryInto},
     time::{Instant, SystemTime},
 };
@@ -183,9 +183,27 @@ where
 //     fn report(&self);
 // }
 
+#[derive(PartialEq, Eq, Hash, Clone, PartialOrd, Ord, Debug)]
+pub struct InstructionPattern {
+    block: Vec<OpCode>,
+}
+
+impl InstructionPattern {
+    pub fn new(block: Vec<OpCode>) -> Self {
+        Self { block }
+    }
+}
+
 pub struct OpCodeOccurenceProfiler {
     occurrences: HashMap<(OpCode, usize), usize>,
     time: HashMap<(OpCode, usize), std::time::Duration>,
+    // This should be a hashset of all of the sequences of instructions that we run into, along with their counts
+    // This can be a good entry point for understanding common sequences
+    // TODO: @Matt - 8/3/22
+    // This could also be calculated ahead of time - basic blocks can be memoized, but for profiling this is... fine
+    basic_blocks: HashMap<InstructionPattern, usize>,
+    // The current sequence before we get cut off
+    sequence: Vec<OpCode>,
 }
 
 impl OpCodeOccurenceProfiler {
@@ -193,6 +211,8 @@ impl OpCodeOccurenceProfiler {
         OpCodeOccurenceProfiler {
             occurrences: HashMap::new(),
             time: HashMap::new(),
+            basic_blocks: HashMap::new(),
+            sequence: Vec::new(),
         }
     }
 
@@ -203,10 +223,51 @@ impl OpCodeOccurenceProfiler {
 
     pub fn process_opcode(&mut self, opcode: &OpCode, payload: usize) {
         *self.occurrences.entry((*opcode, payload)).or_default() += 1;
+
+        match opcode {
+            OpCode::SDEF | OpCode::EDEF => return,
+            _ => {}
+        }
+
+        self.sequence.push(*opcode);
+
+        match opcode {
+            OpCode::JMP
+            | OpCode::CALLGLOBAL
+            | OpCode::CALLGLOBALTAIL
+            | OpCode::TAILCALL
+            | OpCode::TCOJMP
+            | OpCode::POP
+            | OpCode::POP_PURE
+            | OpCode::FUNC => {
+                let new_sequence = self.sequence.drain(0..).collect();
+                // Increment the count on this basic block if we've seen it
+                *self
+                    .basic_blocks
+                    .entry(InstructionPattern::new(new_sequence))
+                    .or_default() += 1;
+            }
+            _ => {}
+        }
     }
 
     pub fn add_time(&mut self, opcode: &OpCode, payload: usize, time: std::time::Duration) {
         *self.time.entry((*opcode, payload)).or_default() += time;
+    }
+
+    pub fn report_basic_blocks(&self) {
+        println!("--------------- Basic Blocks ---------------");
+
+        let mut blocks = self.basic_blocks.iter().collect::<Vec<_>>();
+
+        blocks.sort_by_key(|x| x.1);
+        blocks.reverse();
+
+        for block in blocks {
+            println!("{:#?}", block)
+        }
+
+        println!("--------------------------------------------")
     }
 
     pub fn report_time_spend(&self) {

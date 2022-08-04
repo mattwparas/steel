@@ -138,15 +138,11 @@ impl<'a> CodeGenerator<'a> {
         //     return Ok(());
         // }
 
-        self.push(LabeledInstruction::builder(op));
-
         if let Some(analysis) = &l.args[1]
             .atom_syntax_object()
             .and_then(|a| self.analysis.get(&a))
         {
-            self.push(
-                LabeledInstruction::builder(OpCode::PASS).payload(analysis.stack_offset.unwrap()),
-            );
+            self.push(LabeledInstruction::builder(op).payload(analysis.stack_offset.unwrap()));
         } else {
             panic!("Shouldn't be happening")
         }
@@ -752,11 +748,14 @@ mod code_gen_tests {
             (OpCode::ECLOSURE, 3), // Something about 3 arguments...
         ];
 
-        let found = code_gen
+        let mut found = code_gen
             .instructions
             .iter()
             .map(|x| (x.op_code, x.payload_size))
             .collect::<Vec<_>>();
+
+        // Wipe out the syntax object id from the PASS
+        found[2].1 = 0;
 
         assert_eq!(expected, found);
     }

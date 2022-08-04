@@ -289,6 +289,15 @@ impl Engine {
             })
     }
 
+    pub fn execute_without_callbacks(
+        &mut self,
+        bytecode: Rc<[DenseInstruction]>,
+        constant_map: &ConstantMap,
+    ) -> Result<SteelVal> {
+        self.virtual_machine
+            .execute::<DoNotUseCallback, ApplyContract>(bytecode, constant_map, &[])
+    }
+
     /// Execute bytecode with a constant map directly.
     pub fn execute(
         &mut self,
