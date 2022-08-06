@@ -70,7 +70,6 @@ pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type MutFunctionSignature = fn(&mut [SteelVal]) -> Result<SteelVal>;
 // pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
-pub type StructClosureSignature = fn(&[SteelVal], &SteelStruct) -> Result<SteelVal>;
 pub type BoxedFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>;
 
 pub type BoxedAsyncFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>;

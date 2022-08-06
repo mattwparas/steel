@@ -70,6 +70,7 @@ pub struct VirtualMachineCore {
     profiler: OpCodeOccurenceProfiler,
     // TODO: make this not as bad
     closure_interner: HashMap<usize, ByteCodeLambda>,
+    contracts_on: bool,
     #[cfg(feature = "jit")]
     jit: JIT,
 }
@@ -86,9 +87,16 @@ impl VirtualMachineCore {
             upvalue_head: None,
             profiler: OpCodeOccurenceProfiler::new(),
             closure_interner: HashMap::new(),
+            contracts_on: true,
             #[cfg(feature = "jit")]
             jit: JIT::default(),
         }
+    }
+
+    // If you want to explicitly turn off contracts, you can do so
+    pub fn without_contracts(&mut self) -> &mut Self {
+        self.contracts_on = false;
+        self
     }
 
     pub fn insert_binding(&mut self, idx: usize, value: SteelVal) {
@@ -305,23 +313,6 @@ pub struct Continuation {
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
 }
 
-// // #[inline(always)]
-// fn validate_closure_for_call_cc(function: &SteelVal, span: Span) -> Result<()> {
-//     match function {
-//         SteelVal::Closure(c) => {
-//             if c.arity() != 1 {
-//                 stop!(Generic => "function arity in call/cc must be 1"; span)
-//             }
-//         }
-//         SteelVal::ContinuationFunction(_) => {}
-//         _ => {
-//             stop!(Generic => "call/cc expects a function"; span)
-//         }
-//     }
-
-//     Ok(())
-// }
-
 pub trait VmContext {
     // This allows for some funky self calling business
     fn call_function_one_arg(&mut self, function: &SteelVal, arg: SteelVal) -> Result<SteelVal>;
@@ -340,21 +331,6 @@ pub trait VmContext {
         args: List<SteelVal>,
     ) -> Result<SteelVal>;
 
-    // fn call_transduce(
-    //     &mut self,
-    //     ops: &[Transducers],
-    //     root: SteelVal,
-    //     initial_value: SteelVal,
-    //     reducer: SteelVal,
-    // ) -> Result<SteelVal>;
-
-    // fn call_execute(
-    //     &mut self,
-    //     ops: &[Transducers],
-    //     root: SteelVal,
-    //     collection_type: Option<SteelVal>,
-    // ) -> Result<SteelVal>;
-
     fn call_transduce(
         &mut self,
         ops: &[Transducers],
@@ -367,6 +343,11 @@ pub trait VmContext {
 // For when we want a reference to the built in context as well -> In the event we want to call something
 // See if this is even possible -> if you ever want to offload function calls to the
 pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;
+
+pub type SteelThread = VirtualMachineCore;
+
+// These reference the current existing thread
+pub type BuildInSignature2 = fn(&mut SteelThread, Vec<SteelVal>) -> Result<SteelVal>;
 
 impl<'a, U: UseCallbacks, A: ApplyContracts> VmContext for VmCore<'a, U, A> {
     fn call_function_one_arg(&mut self, function: &SteelVal, arg: SteelVal) -> Result<SteelVal> {
