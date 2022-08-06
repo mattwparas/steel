@@ -2,7 +2,7 @@ use super::{
     builtin::BuiltInModule,
     options::{ApplyContract, DoNotApplyContracts, DoNotUseCallback, UseCallback},
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
-    vm::VirtualMachineCore,
+    vm::SteelThread,
 };
 use crate::{
     compiler::{
@@ -27,7 +27,7 @@ use im_rc::HashMap as ImmutableHashMap;
 use itertools::Itertools;
 
 pub struct Engine {
-    virtual_machine: VirtualMachineCore,
+    virtual_machine: SteelThread,
     compiler: Compiler,
     constants: Option<ImmutableHashMap<String, SteelVal>>,
     modules: ImmutableHashMap<String, BuiltInModule>,
@@ -41,7 +41,7 @@ impl Engine {
         log::info!(target:"kernel", "Instantiating a new kernel");
 
         let mut vm = Engine {
-            virtual_machine: VirtualMachineCore::new(),
+            virtual_machine: SteelThread::new(),
             compiler: Compiler::default(),
             constants: None,
             modules: ImmutableHashMap::new(),
@@ -81,7 +81,7 @@ impl Engine {
     /// ```
     pub fn new_raw() -> Self {
         Engine {
-            virtual_machine: VirtualMachineCore::new(),
+            virtual_machine: SteelThread::new(),
             compiler: Compiler::default_with_kernel(),
             constants: None,
             modules: ImmutableHashMap::new(),

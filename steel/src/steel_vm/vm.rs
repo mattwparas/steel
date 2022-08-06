@@ -59,7 +59,7 @@ use log::error;
 const STACK_LIMIT: usize = 1000;
 const _JIT_THRESHOLD: usize = 100;
 
-pub struct VirtualMachineCore {
+pub struct SteelThread {
     global_env: Env,
     global_upvalue_heap: UpValueHeap,
     callback: EvaluationProgress,
@@ -75,9 +75,9 @@ pub struct VirtualMachineCore {
     jit: JIT,
 }
 
-impl VirtualMachineCore {
-    pub fn new() -> VirtualMachineCore {
-        VirtualMachineCore {
+impl SteelThread {
+    pub fn new() -> SteelThread {
+        SteelThread {
             global_env: Env::root(),
             global_upvalue_heap: UpValueHeap::new(),
             callback: EvaluationProgress::new(),
@@ -343,8 +343,6 @@ pub trait VmContext {
 // For when we want a reference to the built in context as well -> In the event we want to call something
 // See if this is even possible -> if you ever want to offload function calls to the
 pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;
-
-pub type SteelThread = VirtualMachineCore;
 
 // These reference the current existing thread
 pub type BuildInSignature2 = fn(&mut SteelThread, Vec<SteelVal>) -> Result<SteelVal>;
