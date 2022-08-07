@@ -326,10 +326,10 @@ impl Engine {
     }
 
     /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
-    pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
-        self.virtual_machine
-            .execute_program::<UseCallback, ApplyContract>(program)
-    }
+    // pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
+    //     self.virtual_machine
+    //         .execute_program::<UseCallback, ApplyContract>(program)
+    // }
 
     // TODO -> clean up this API a lot
     pub fn compile_and_run_raw_program_with_path(
@@ -618,12 +618,12 @@ impl Engine {
     }
 
     /// Execute a program, however do not run any callbacks as registered with `on_progress`.
-    pub fn run_without_callbacks(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine
-            .execute_program::<DoNotUseCallback, ApplyContract>(program)
-    }
+    // pub fn run_without_callbacks(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, None, constants)?;
+    //     self.virtual_machine
+    //         .execute_program::<DoNotUseCallback, ApplyContract>(program)
+    // }
 
     /// Execute a program (as per [`run`](crate::steel_vm::engine::Engine::run)), however do not enforce any contracts. Any contracts that are added are not
     /// enforced.
@@ -651,12 +651,12 @@ impl Engine {
     }
 
     /// Execute a program without invoking any callbacks, or enforcing any contract checking
-    pub fn run_without_callbacks_or_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine
-            .execute_program::<DoNotUseCallback, DoNotApplyContracts>(program)
-    }
+    // pub fn run_without_callbacks_or_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, None, constants)?;
+    //     self.virtual_machine
+    //         .execute_program::<DoNotUseCallback, DoNotApplyContracts>(program)
+    // }
 
     /// Similar to [`run`](crate::steel_vm::engine::Engine::run), however it includes path information
     /// for error reporting purposes.

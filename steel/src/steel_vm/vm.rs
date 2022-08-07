@@ -124,15 +124,13 @@ impl SteelThread {
             ..
         } = program;
 
-        let output = instructions
+        instructions
             .into_iter()
             .map(|x| self.execute::<U, A>(Rc::from(x.into_boxed_slice()), &constant_map, &spans))
-            .collect();
+            .collect()
 
         // TODO
         // self.global_env.print_diagnostics();
-
-        output
 
         // todo!("Initialize structs and build the program");
     }
@@ -168,15 +166,13 @@ impl SteelThread {
         // Add the new functions to the hashmap for the JIT
         self.global_env.add_hashmap(ast);
 
-        let output = instructions
+        instructions
             .into_iter()
             .map(|x| self.execute::<U, A>(Rc::from(x.into_boxed_slice()), &constant_map, &[]))
-            .collect();
+            .collect()
 
         // TODO
         // self.global_env.print_diagnostics();
-
-        output
     }
 
     pub fn _execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<SteelVal>> {
