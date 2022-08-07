@@ -374,10 +374,10 @@ impl Engine {
 
     pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
         let executable = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)?;
-        self.virtual_machine.run_executable(executable)
+        self.virtual_machine.run_executable(&executable)
     }
 
-    pub fn run_executable(&mut self, executable: Executable) -> Result<Vec<SteelVal>> {
+    pub fn run_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
         self.virtual_machine.run_executable(executable)
     }
 

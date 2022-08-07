@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     convert::{TryFrom, TryInto},
+    rc::Rc,
     time::{Instant, SystemTime},
 };
 
@@ -608,7 +609,10 @@ impl RawProgramWithSymbols {
             name,
             version: self.version,
             time_stamp: SystemTime::now(),
-            instructions,
+            instructions: instructions
+                .into_iter()
+                .map(|x| Rc::from(x.into_boxed_slice()))
+                .collect(),
             constant_map: self.constant_map,
             spans,
         });
@@ -667,7 +671,7 @@ pub struct Executable {
     pub(crate) name: String,
     pub(crate) version: String,
     pub(crate) time_stamp: SystemTime, // TODO -> don't use system time, probably not as portable, prefer date time
-    pub(crate) instructions: Vec<Vec<DenseInstruction>>,
+    pub(crate) instructions: Vec<Rc<[DenseInstruction]>>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) spans: Vec<Span>,
 }

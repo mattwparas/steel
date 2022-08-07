@@ -102,7 +102,7 @@ impl SteelThread {
     }
 
     // Run the executable
-    pub fn run_executable(&mut self, program: Executable) -> Result<Vec<SteelVal>> {
+    pub fn run_executable(&mut self, program: &Executable) -> Result<Vec<SteelVal>> {
         let Executable {
             instructions,
             constant_map,
@@ -113,7 +113,7 @@ impl SteelThread {
 
         instructions
             .into_iter()
-            .map(|x| self.execute(Rc::from(x.into_boxed_slice()), &constant_map, &spans))
+            .map(|x| self.execute(Rc::clone(&x), &constant_map, &spans))
             .collect()
 
         // TODO
@@ -133,19 +133,19 @@ impl SteelThread {
 
         // TODO come back to this
         // Don't want to necessarily pre-compile _anything_ yet
-        #[cfg(feature = "jit")]
-        {
-            // for (index, expr) in &ast {
-            //     match self.jit.compile(&expr) {
-            //         Ok(ptr) => {
-            //             println!("Found JIT-able function at index: {}!", index)
-            //         }
-            //         Err(_) => {
-            //             println!("Unable to compile function!");
-            //         }
-            //     }
-            // }
-        }
+        // #[cfg(feature = "jit")]
+        // {
+        // for (index, expr) in &ast {
+        //     match self.jit.compile(&expr) {
+        //         Ok(ptr) => {
+        //             println!("Found JIT-able function at index: {}!", index)
+        //         }
+        //         Err(_) => {
+        //             println!("Unable to compile function!");
+        //         }
+        //     }
+        // }
+        // }
 
         // Add the new functions to the hashmap for the JIT
         self.global_env.add_hashmap(ast);
@@ -159,24 +159,24 @@ impl SteelThread {
         // self.global_env.print_diagnostics();
     }
 
-    pub fn _execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<SteelVal>> {
-        let Program {
-            instructions,
-            constant_map,
-            ..
-        } = program;
+    // pub fn _execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<SteelVal>> {
+    //     let Program {
+    //         instructions,
+    //         constant_map,
+    //         ..
+    //     } = program;
 
-        let instructions: Vec<_> = instructions
-            .clone()
-            .into_iter()
-            .map(|x| Rc::from(x.into_boxed_slice()))
-            .collect();
+    //     let instructions: Vec<_> = instructions
+    //         .clone()
+    //         .into_iter()
+    //         .map(|x| Rc::from(x.into_boxed_slice()))
+    //         .collect();
 
-        instructions
-            .into_iter()
-            .map(|code| self.execute(code, &constant_map, &[]))
-            .collect()
-    }
+    //     instructions
+    //         .into_iter()
+    //         .map(|code| self.execute(code, &constant_map, &[]))
+    //         .collect()
+    // }
 
     pub(crate) fn call_function(
         &mut self,
@@ -325,7 +325,7 @@ pub trait VmContext {
 pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;
 
 // These reference the current existing thread
-pub type BuiltInSignature2 = fn(&mut SteelThread, Vec<SteelVal>) -> Result<SteelVal>;
+// pub type BuiltInSignature = fn(&mut VmCore<'_>, Vec<SteelVal>) -> Result<SteelVal>;
 
 impl<'a> VmContext for VmCore<'a> {
     fn call_function_one_arg(&mut self, function: &SteelVal, arg: SteelVal) -> Result<SteelVal> {
