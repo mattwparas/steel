@@ -1,17 +1,12 @@
 use super::contracts::ContractedFunctionExt;
-use super::options::ApplyContract;
-use super::options::ApplyContracts;
-use super::options::UseCallback;
-use super::options::UseCallbacks;
-use super::{
-    heap::UpValueHeap,
-    stack::{Stack, StackFrame},
-};
+use super::heap::UpValueHeap;
 
 #[cfg(feature = "jit")]
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
+use crate::values::contracts::ContractType;
+use crate::values::upvalue::UpValue;
 use crate::{
     compiler::program::Executable,
     primitives::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive},
@@ -19,14 +14,8 @@ use crate::{
     values::transducers::Transducers,
 };
 use crate::{compiler::program::OpCodeOccurenceProfiler, values::transducers::Reducer};
-// use crate::steel_vm::contracts::FlatContractExt;
-use crate::values::contracts::ContractType;
-use crate::values::upvalue::UpValue;
 use crate::{
-    compiler::{
-        constants::{ConstantMap, ConstantTable},
-        program::Program,
-    },
+    compiler::{constants::ConstantMap, program::Program},
     core::{instructions::DenseInstruction, opcode::OpCode},
     rvals::FutureResult,
     values::contracts::ContractedFunction,
@@ -47,7 +36,6 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     iter::Iterator,
-    marker::PhantomData,
     rc::{Rc, Weak},
 };
 
@@ -63,13 +51,15 @@ pub struct SteelThread {
     global_env: Env,
     global_upvalue_heap: UpValueHeap,
     callback: EvaluationProgress,
-    stack: StackFrame,
+    stack: Vec<SteelVal>,
     function_stack: Vec<Gc<ByteCodeLambda>>,
-    stack_index: Stack<usize>,
+    stack_index: Vec<usize>,
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
     profiler: OpCodeOccurenceProfiler,
     // TODO: make this not as bad
     closure_interner: HashMap<usize, ByteCodeLambda>,
+    // If contracts are set to off - contract construction results in a no-op, so we don't
+    // need generics on the thread
     contracts_on: bool,
     #[cfg(feature = "jit")]
     jit: JIT,
@@ -81,9 +71,9 @@ impl SteelThread {
             global_env: Env::root(),
             global_upvalue_heap: UpValueHeap::new(),
             callback: EvaluationProgress::new(),
-            stack: StackFrame::with_capacity(256),
+            stack: Vec::with_capacity(256),
             function_stack: Vec::with_capacity(64),
-            stack_index: Stack::with_capacity(64),
+            stack_index: Vec::with_capacity(64),
             upvalue_head: None,
             profiler: OpCodeOccurenceProfiler::new(),
             closure_interner: HashMap::new(),
@@ -112,10 +102,7 @@ impl SteelThread {
     }
 
     // Run the executable
-    pub fn run_executable<U: UseCallbacks, A: ApplyContracts>(
-        &mut self,
-        program: Executable,
-    ) -> Result<Vec<SteelVal>> {
+    pub fn run_executable(&mut self, program: Executable) -> Result<Vec<SteelVal>> {
         let Executable {
             instructions,
             constant_map,
@@ -126,7 +113,7 @@ impl SteelThread {
 
         instructions
             .into_iter()
-            .map(|x| self.execute::<U, A>(Rc::from(x.into_boxed_slice()), &constant_map, &spans))
+            .map(|x| self.execute(Rc::from(x.into_boxed_slice()), &constant_map, &spans))
             .collect()
 
         // TODO
@@ -137,10 +124,7 @@ impl SteelThread {
 
     // fn vec_exprs_to_map(&mut self, exprs: Vec<ExprKind>) {}
 
-    pub fn execute_program<U: UseCallbacks, A: ApplyContracts>(
-        &mut self,
-        program: Program,
-    ) -> Result<Vec<SteelVal>> {
+    pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
         let Program {
             instructions,
             constant_map,
@@ -168,7 +152,7 @@ impl SteelThread {
 
         instructions
             .into_iter()
-            .map(|x| self.execute::<U, A>(Rc::from(x.into_boxed_slice()), &constant_map, &[]))
+            .map(|x| self.execute(Rc::from(x.into_boxed_slice()), &constant_map, &[]))
             .collect()
 
         // TODO
@@ -190,17 +174,17 @@ impl SteelThread {
 
         instructions
             .into_iter()
-            .map(|code| self.execute::<UseCallback, ApplyContract>(code, &constant_map, &[]))
+            .map(|code| self.execute(code, &constant_map, &[]))
             .collect()
     }
 
-    pub(crate) fn call_function<U: UseCallbacks, A: ApplyContracts>(
+    pub(crate) fn call_function(
         &mut self,
         constant_map: &ConstantMap,
         function: SteelVal,
         args: Vec<SteelVal>,
     ) -> Result<SteelVal> {
-        let mut vm_instance = VmCore::<U, A>::new_unchecked(
+        let mut vm_instance = VmCore::new_unchecked(
             Rc::new([]),
             &mut self.stack,
             &mut self.global_env,
@@ -225,7 +209,7 @@ impl SteelThread {
         )
     }
 
-    pub fn execute<U: UseCallbacks, A: ApplyContracts>(
+    pub fn execute(
         &mut self,
         instructions: Rc<[DenseInstruction]>,
         constant_map: &ConstantMap,
@@ -233,7 +217,7 @@ impl SteelThread {
     ) -> Result<SteelVal> {
         self.profiler.reset();
 
-        let mut vm_instance = VmCore::<U, A>::new(
+        let mut vm_instance = VmCore::new(
             instructions,
             &mut self.stack,
             &mut self.global_env,
@@ -299,10 +283,10 @@ impl InstructionPointer {
 
 #[derive(Clone, Debug)]
 pub struct Continuation {
-    pub(crate) stack: StackFrame,
+    pub(crate) stack: Vec<SteelVal>,
     instructions: Rc<[DenseInstruction]>,
-    instruction_stack: Stack<InstructionPointer>,
-    stack_index: Stack<usize>,
+    instruction_stack: Vec<InstructionPointer>,
+    stack_index: Vec<usize>,
     ip: usize,
     pop_count: usize,
     function_stack: Vec<Gc<ByteCodeLambda>>,
@@ -341,9 +325,9 @@ pub trait VmContext {
 pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;
 
 // These reference the current existing thread
-pub type BuildInSignature2 = fn(&mut SteelThread, Vec<SteelVal>) -> Result<SteelVal>;
+pub type BuiltInSignature2 = fn(&mut SteelThread, Vec<SteelVal>) -> Result<SteelVal>;
 
-impl<'a, U: UseCallbacks, A: ApplyContracts> VmContext for VmCore<'a, U, A> {
+impl<'a> VmContext for VmCore<'a> {
     fn call_function_one_arg(&mut self, function: &SteelVal, arg: SteelVal) -> Result<SteelVal> {
         let span = Span::default();
         self.call_func_or_else(
@@ -396,12 +380,46 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmContext for VmCore<'a, U, A> {
     }
 }
 
-pub(crate) struct VmCore<'a, U: UseCallbacks, A: ApplyContracts> {
+// This is the state that the VM should spin up and tear down at each invocation
+// of the vm loop
+struct InstructionState {
+    instruction_stack: Vec<InstructionPointer>,
+    instructions: Rc<[DenseInstruction]>,
+    ip: usize,
+    // TODO: this shouldn't be necessary - it should just be the count of the stack
+    // eventually get rid of this I think
+    pop_count: usize,
+}
+
+impl InstructionState {
+    pub fn new(instructions: Rc<[DenseInstruction]>) -> Self {
+        Self {
+            instruction_stack: Vec::new(),
+            instructions,
+            ip: 0,
+            pop_count: 1,
+        }
+    }
+}
+
+impl Default for InstructionState {
+    fn default() -> Self {
+        Self::new(Rc::new([]))
+    }
+}
+
+// impl InstructionState {
+//     pub fn new() -> Self {
+//         Self { instruction_stack: , instructions: Rc::new([]), ip: (), pop_count: () }
+//     }
+// }
+
+pub(crate) struct VmCore<'a> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
-    pub(crate) stack: &'a mut StackFrame,
+    pub(crate) stack: &'a mut Vec<SteelVal>,
     pub(crate) global_env: &'a mut Env,
-    pub(crate) instruction_stack: Stack<InstructionPointer>,
-    pub(crate) stack_index: &'a mut Stack<usize>,
+    pub(crate) instruction_stack: Vec<InstructionPointer>,
+    pub(crate) stack_index: &'a mut Vec<usize>,
     pub(crate) callback: &'a EvaluationProgress,
     pub(crate) constants: &'a ConstantMap,
     pub(crate) ip: usize,
@@ -412,33 +430,31 @@ pub(crate) struct VmCore<'a, U: UseCallbacks, A: ApplyContracts> {
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
     pub(crate) closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
-    _use_callback: PhantomData<U>,
-    _apply_contracts: PhantomData<A>,
     #[cfg(feature = "jit")]
     pub(crate) jit: Option<&'a mut JIT>,
 }
 
-impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
+impl<'a> VmCore<'a> {
     fn new_unchecked(
         instructions: Rc<[DenseInstruction]>,
-        stack: &'a mut StackFrame,
+        stack: &'a mut Vec<SteelVal>,
         global_env: &'a mut Env,
         constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
         upvalue_heap: &'a mut UpValueHeap,
         function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
-        stack_index: &'a mut Stack<usize>,
+        stack_index: &'a mut Vec<usize>,
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
-    ) -> VmCore<'a, U, A> {
-        VmCore::<U, A> {
+    ) -> VmCore<'a> {
+        VmCore {
             instructions: Rc::clone(&instructions),
             stack,
             global_env,
-            instruction_stack: Stack::new(),
+            instruction_stack: Vec::new(),
             stack_index,
             callback,
             constants,
@@ -449,8 +465,6 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             function_stack,
             spans,
             profiler,
-            _use_callback: PhantomData,
-            _apply_contracts: PhantomData,
             closure_interner,
             #[cfg(feature = "jit")]
             jit,
@@ -459,28 +473,28 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
 
     fn new(
         instructions: Rc<[DenseInstruction]>,
-        stack: &'a mut StackFrame,
+        stack: &'a mut Vec<SteelVal>,
         global_env: &'a mut Env,
         constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
         upvalue_heap: &'a mut UpValueHeap,
         function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
-        stack_index: &'a mut Stack<usize>,
+        stack_index: &'a mut Vec<usize>,
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
-    ) -> Result<VmCore<'a, U, A>> {
+    ) -> Result<VmCore<'a>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
         }
 
-        Ok(VmCore::<U, A> {
+        Ok(VmCore {
             instructions: Rc::clone(&instructions),
             stack,
             global_env,
-            instruction_stack: Stack::new(),
+            instruction_stack: Vec::new(),
             stack_index,
             callback,
             constants,
@@ -492,8 +506,6 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             spans,
             profiler,
             closure_interner,
-            _use_callback: PhantomData,
-            _apply_contracts: PhantomData,
             #[cfg(feature = "jit")]
             jit,
         })
@@ -551,10 +563,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         let created_up_value: Weak<RefCell<UpValue>> = self.upvalue_heap.new_upvalue(
             local_idx,
             upvalue,
-            self.stack
-                .0
-                .iter()
-                .chain(self.global_env.bindings_vec.iter()),
+            self.stack.iter().chain(self.global_env.bindings_vec.iter()),
             self.function_stack.iter(),
         );
 
@@ -920,7 +929,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             ($name:tt, $payload_size:expr) => {{
                 let last_index = self.stack.len() - $payload_size as usize;
 
-                let result = match $name(self.stack.peek_range(last_index..)) {
+                let result = match $name(&mut self.stack[last_index..]) {
                     Ok(value) => value,
                     Err(e) => return Err(e.set_span(self.current_span())),
                 };
@@ -1219,7 +1228,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                     // get the local by moving its position
                     let offset = self.stack_index.last().copied().unwrap_or(0);
                     let local_value = std::mem::replace(
-                        &mut self.stack.0[move_read_local.payload_size as usize + offset],
+                        &mut self.stack[move_read_local.payload_size as usize + offset],
                         SteelVal::Void,
                     );
 
@@ -1328,7 +1337,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                     //      ^^^^^^~~~~~~~~
                     let back = self.stack.len() - current_arity;
                     for i in 0..current_arity {
-                        self.stack.set_idx(offset + i, self.stack[back + i].clone());
+                        self.stack[offset + i] = self.stack[back + i].clone();
                     }
 
                     // self.stack.truncate(offset + current_arity);
@@ -1496,13 +1505,14 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             //     now.elapsed(),
             // );
 
+            // TODO: @Matt Add a way to interrupt back thats not crappy
             // Put callbacks behind generic
-            if U::use_callbacks() {
-                match self.callback.call_and_increment() {
-                    Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
-                    _ => {}
-                }
-            }
+            // if U::use_callbacks() {
+            //     match self.callback.call_and_increment() {
+            //         Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
+            //         _ => {}
+            //     }
+            // }
         }
 
         error!(
@@ -1541,7 +1551,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         self.function_stack.pop();
 
         if self.pop_count == 0 {
-            let ret_val = self.stack.try_pop().ok_or_else(|| {
+            let ret_val = self.stack.pop().ok_or_else(|| {
                 // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
                 SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
@@ -1615,7 +1625,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         self.function_stack.pop();
 
         if self.pop_count == 0 {
-            let ret_val = self.stack.try_pop().ok_or_else(|| {
+            let ret_val = self.stack.pop().ok_or_else(|| {
                 // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
                 SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
@@ -1914,7 +1924,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
     fn handle_move_local(&mut self, index: usize) -> Result<()> {
         let offset = self.stack_index.last().copied().unwrap_or(0);
         // let value = self.stack[index + offset].clone();
-        let value = std::mem::replace(&mut self.stack.0[index + offset], SteelVal::Void);
+        let value = std::mem::replace(&mut self.stack[index + offset], SteelVal::Void);
         self.stack.push(value);
         self.ip += 1;
         Ok(())
@@ -1952,7 +1962,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             .upgrade()
             .expect("Upvalue dropped too early!")
             .borrow_mut()
-            .try_move_value(&mut self.stack.0);
+            .try_move_value(&mut self.stack);
 
         self.stack.push(value);
         self.ip += 1;
@@ -2242,7 +2252,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         let old_value = self.stack[old_index].clone();
 
         // Modify the stack and change the value to the new one
-        self.stack.set_idx(old_index, value_to_set);
+        self.stack[old_index] = value_to_set;
 
         self.stack.push(old_value);
         self.ip += 1;
@@ -2253,7 +2263,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         let new = self.stack.pop().unwrap();
         let last_func = self.function_stack.last().unwrap();
         let upvalue = last_func.upvalues()[index].upgrade().unwrap();
-        let value = upvalue.borrow_mut().mutate_value(&mut self.stack.0, new);
+        let value = upvalue.borrow_mut().mutate_value(&mut self.stack, new);
 
         self.stack.push(value);
         self.ip += 1;
@@ -2422,7 +2432,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         // take the last arity off the stack, go back and replace those in order
         let back = self.stack.len() - new_arity;
         for i in 0..new_arity {
-            self.stack.set_idx(offset + i, self.stack[back + i].clone());
+            self.stack[offset + i] = self.stack[back + i].clone();
         }
 
         self.stack.truncate(offset + new_arity);
@@ -2437,10 +2447,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
 
         // Just collect here and minimize the heap size
         self.upvalue_heap.collect(
-            self.stack
-                .0
-                .iter()
-                .chain(self.global_env.bindings_vec.iter()),
+            self.stack.iter().chain(self.global_env.bindings_vec.iter()),
             self.function_stack.iter(),
         );
 
@@ -2492,8 +2499,8 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
     ) -> Result<()> {
         let last_index = self.stack.len() - payload_size;
 
-        let result = func(self.stack.peek_range(last_index..))
-            .map_err(|x| x.set_span(self.current_span()))?;
+        let result =
+            func(&self.stack[last_index..]).map_err(|x| x.set_span(self.current_span()))?;
 
         self.stack.truncate(last_index);
 
@@ -2519,7 +2526,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         // let result = func(self.stack.peek_range_double(last_index..len))
         //     .map_err(|x| x.set_span(self.current_span()))?;
 
-        let result = match func(self.stack.peek_range_double(last_index..len)) {
+        let result = match func(&self.stack[last_index..len]) {
             Ok(value) => value,
             Err(e) => return Err(e.set_span(self.current_span())),
         };
@@ -2551,7 +2558,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         // let result = func(self.stack.peek_range_double(last_index..len))
         //     .map_err(|x| x.set_span(self.current_span()))?;
 
-        let result = match func(self.stack.peek_range_double(last_index..len)) {
+        let result = match func(&self.stack[last_index..len]) {
             Ok(value) => value,
             Err(e) => return Err(e.set_span(self.current_span())),
         };
@@ -2595,8 +2602,8 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
 
         let last_index = self.stack.len() - payload_size;
 
-        let result = f(self.stack.peek_range_mut(last_index..))
-            .map_err(|x| x.set_span(self.current_span()))?;
+        let result =
+            f(&mut self.stack[last_index..]).map_err(|x| x.set_span(self.current_span()))?;
 
         // TODO -> this can actually just be something like:
         // self.stack.truncate(self.stack.len() - payload_size + 1)
@@ -2619,7 +2626,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
 
         let last_index = self.stack.len() - payload_size;
 
-        let result = match f(self.stack.peek_range(last_index..)) {
+        let result = match f(&self.stack[last_index..]) {
             Ok(value) => value,
             Err(e) => return Err(e.set_span(self.current_span())),
         };
@@ -2667,17 +2674,17 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             }
         }
 
-        if A::enforce_contracts() {
-            let args = self.stack.split_off(self.stack.len() - payload_size);
+        // if A::enforce_contracts() {
+        let args = self.stack.split_off(self.stack.len() - payload_size);
 
-            let result = cf.apply(args, &self.current_span(), self)?;
+        let result = cf.apply(args, &self.current_span(), self)?;
 
-            self.stack.push(result);
-            self.ip += 1;
-            Ok(())
-        } else {
-            self.handle_function_call(cf.function.clone(), payload_size)
-        }
+        self.stack.push(result);
+        self.ip += 1;
+        Ok(())
+        // } else {
+        //     self.handle_function_call(cf.function.clone(), payload_size)
+        // }
     }
 
     // #[inline(always)]
@@ -2692,17 +2699,17 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
             }
         }
 
-        if A::enforce_contracts() {
-            let args = self.stack.split_off(self.stack.len() - payload_size);
+        // if A::enforce_contracts() {
+        let args = self.stack.split_off(self.stack.len() - payload_size);
 
-            let result = cf.apply(args, &self.current_span(), self)?;
+        let result = cf.apply(args, &self.current_span(), self)?;
 
-            self.stack.push(result);
-            self.ip += 1;
-            Ok(())
-        } else {
-            self.handle_tail_call(cf.function.clone(), payload_size)
-        }
+        self.stack.push(result);
+        self.ip += 1;
+        Ok(())
+        // } else {
+        // self.handle_tail_call(cf.function.clone(), payload_size)
+        // }
     }
 
     fn call_future_func_on_stack(
@@ -2720,7 +2727,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
         // let result = func(self.stack.peek_range_double(last_index..len))
         //     .map_err(|x| x.set_span(self.current_span()))?;
 
-        let result = match func(self.stack.peek_range_double(last_index..len)) {
+        let result = match func(&self.stack[last_index..len]) {
             Ok(value) => value,
             Err(e) => return Err(e.set_span(self.current_span())),
         };
@@ -2744,7 +2751,7 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
     ) -> Result<()> {
         let last_index = self.stack.len() - payload_size;
 
-        let result = SteelVal::FutureV(Gc::new(f(self.stack.peek_range(last_index..))?));
+        let result = SteelVal::FutureV(Gc::new(f(&self.stack[last_index..])?));
 
         self.stack.truncate(last_index);
         self.stack.push(result);
@@ -2858,14 +2865,14 @@ impl<'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
                     }
                 }
 
-                if A::enforce_contracts() {
-                    let result = cf.apply(vec![local, const_value], &self.current_span(), self)?;
+                // if A::enforce_contracts() {
+                let result = cf.apply(vec![local, const_value], &self.current_span(), self)?;
 
-                    self.stack.push(result);
-                    self.ip += 4;
-                } else {
-                    self.handle_lazy_function_call(cf.function.clone(), local, const_value)?;
-                }
+                self.stack.push(result);
+                self.ip += 4;
+                // } else {
+                // self.handle_lazy_function_call(cf.function.clone(), local, const_value)?;
+                // }
             }
             // Contract(c) => self.call_contract(c, payload_size, span)?,
             ContinuationFunction(_cc) => {

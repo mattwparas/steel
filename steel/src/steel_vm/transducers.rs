@@ -4,11 +4,9 @@ use itertools::Itertools;
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
 use super::{
     lazy_stream::LazyStreamIter,
-    options::{ApplyContracts, UseCallbacks},
     vm::{VmContext, VmCore},
 };
 use crate::{
-    compiler::constants::ConstantTable,
     gc::Gc,
     parser::span::Span,
     primitives::VectorOperations,
@@ -96,7 +94,7 @@ fn transduce(mut args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVa
 //     }
 // }
 
-impl<'global, 'a, U: UseCallbacks, A: ApplyContracts> VmCore<'a, U, A> {
+impl<'global, 'a> VmCore<'a> {
     // With transducers, we also need reducers
     // reducers should define _how_ a value is going to be converted away
     // from the iterator stream

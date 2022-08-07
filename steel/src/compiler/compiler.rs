@@ -1,7 +1,7 @@
 use crate::{
     compiler::{
         code_generator::{convert_call_globals, CodeGenerator},
-        constants::{ConstantMap, ConstantTable},
+        constants::ConstantMap,
         map::SymbolMap,
         passes::{
             begin::flatten_begins_and_expand_defines,

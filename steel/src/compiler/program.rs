@@ -23,7 +23,6 @@ use super::{
         specialize_constants,
     },
     compiler::DebruijnIndicesInterner,
-    constants::ConstantTable,
     map::SymbolMap,
 };
 

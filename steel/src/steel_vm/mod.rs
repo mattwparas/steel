@@ -10,7 +10,6 @@ mod meta;
 pub mod options;
 pub mod primitives;
 pub mod register_fn;
-pub mod stack;
 #[cfg(test)]
 mod test_util;
 #[cfg(test)]

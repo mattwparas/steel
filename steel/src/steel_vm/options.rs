@@ -1,46 +1,24 @@
-pub trait ApplyContracts {
-    fn enforce_contracts() -> bool;
-}
+// pub trait UseCallbacks {
+//     fn use_callbacks() -> bool;
+// }
 
-pub struct ApplyContract;
+// pub struct UseCallback;
 
-impl ApplyContracts for ApplyContract {
-    #[inline(always)]
-    fn enforce_contracts() -> bool {
-        true
-    }
-}
+// impl UseCallbacks for UseCallback {
+//     #[inline(always)]
+//     fn use_callbacks() -> bool {
+//         true
+//     }
+// }
 
-pub struct DoNotApplyContracts;
+// pub struct DoNotUseCallback;
 
-impl ApplyContracts for DoNotApplyContracts {
-    #[inline(always)]
-    fn enforce_contracts() -> bool {
-        false
-    }
-}
-
-pub trait UseCallbacks {
-    fn use_callbacks() -> bool;
-}
-
-pub struct UseCallback;
-
-impl UseCallbacks for UseCallback {
-    #[inline(always)]
-    fn use_callbacks() -> bool {
-        true
-    }
-}
-
-pub struct DoNotUseCallback;
-
-impl UseCallbacks for DoNotUseCallback {
-    #[inline(always)]
-    fn use_callbacks() -> bool {
-        false
-    }
-}
+// impl UseCallbacks for DoNotUseCallback {
+//     #[inline(always)]
+//     fn use_callbacks() -> bool {
+//         false
+//     }
+// }
 
 pub trait EnableJit {
     fn enable_jit() -> bool;

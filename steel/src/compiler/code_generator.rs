@@ -1,6 +1,6 @@
 use std::{cell::RefCell, convert::TryFrom, rc::Rc};
 
-use super::constants::{ConstantMap, ConstantTable};
+use super::constants::{ConstantMap};
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::{ast::Atom, parser::{SyntaxObject, RawSyntaxObject}, span_visitor::get_span, tokens::TokenType},

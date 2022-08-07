@@ -1,6 +1,5 @@
 use super::{
     builtin::BuiltInModule,
-    options::{ApplyContract, DoNotApplyContracts, DoNotUseCallback, UseCallback},
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::SteelThread,
 };
@@ -146,11 +145,7 @@ impl Engine {
         arguments: Vec<SteelVal>,
     ) -> Result<SteelVal> {
         self.virtual_machine
-            .call_function::<UseCallback, ApplyContract>(
-                &self.compiler.constant_map,
-                function,
-                arguments,
-            )
+            .call_function(&self.compiler.constant_map, function, arguments)
     }
 
     /// Instantiates a new engine instance with all the primitive functions enabled.
@@ -289,14 +284,14 @@ impl Engine {
             })
     }
 
-    pub fn execute_without_callbacks(
-        &mut self,
-        bytecode: Rc<[DenseInstruction]>,
-        constant_map: &ConstantMap,
-    ) -> Result<SteelVal> {
-        self.virtual_machine
-            .execute::<DoNotUseCallback, ApplyContract>(bytecode, constant_map, &[])
-    }
+    // pub fn execute_without_callbacks(
+    //     &mut self,
+    //     bytecode: Rc<[DenseInstruction]>,
+    //     constant_map: &ConstantMap,
+    // ) -> Result<SteelVal> {
+    //     self.virtual_machine
+    //         .execute::<DoNotUseCallback>(bytecode, constant_map, &[])
+    // }
 
     /// Execute bytecode with a constant map directly.
     pub fn execute(
@@ -304,8 +299,7 @@ impl Engine {
         bytecode: Rc<[DenseInstruction]>,
         constant_map: &ConstantMap,
     ) -> Result<SteelVal> {
-        self.virtual_machine
-            .execute::<UseCallback, ApplyContract>(bytecode, constant_map, &[])
+        self.virtual_machine.execute(bytecode, constant_map, &[])
     }
 
     /// Emit the bytecode directly, with a path provided.
@@ -380,13 +374,11 @@ impl Engine {
 
     pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
         let executable = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)?;
-        self.virtual_machine
-            .run_executable::<UseCallback, ApplyContract>(executable)
+        self.virtual_machine.run_executable(executable)
     }
 
     pub fn run_executable(&mut self, executable: Executable) -> Result<Vec<SteelVal>> {
-        self.virtual_machine
-            .run_executable::<DoNotUseCallback, ApplyContract>(executable)
+        self.virtual_machine.run_executable(executable)
     }
 
     /// Directly emit the expanded ast
@@ -613,8 +605,7 @@ impl Engine {
     pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine
-            .execute_program::<UseCallback, ApplyContract>(program)
+        self.virtual_machine.execute_program(program)
     }
 
     /// Execute a program, however do not run any callbacks as registered with `on_progress`.
@@ -625,30 +616,32 @@ impl Engine {
     //         .execute_program::<DoNotUseCallback, ApplyContract>(program)
     // }
 
-    /// Execute a program (as per [`run`](crate::steel_vm::engine::Engine::run)), however do not enforce any contracts. Any contracts that are added are not
-    /// enforced.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # extern crate steel;
-    /// # use steel::steel_vm::engine::Engine;
-    /// use steel::rvals::SteelVal;
-    /// let mut vm = Engine::new();
-    /// let output = vm.run_without_contracts(r#"
-    ///        (define/contract (foo x)
-    ///           (->/c integer? any/c)
-    ///           "hello world")
-    ///
-    ///        (foo "bad-input")
-    /// "#).unwrap();
-    /// ```
-    pub fn run_without_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine
-            .execute_program::<UseCallback, DoNotApplyContracts>(program)
-    }
+    // TODO: Come back to this
+    /*
+    // / Execute a program (as per [`run`](crate::steel_vm::engine::Engine::run)), however do not enforce any contracts. Any contracts that are added are not
+    // / enforced.
+    // /
+    // / # Examples
+    // /
+    // / ```
+    // / # extern crate steel;
+    // / # use steel::steel_vm::engine::Engine;
+    // / use steel::rvals::SteelVal;
+    // / let mut vm = Engine::new();
+    // / let output = vm.run_without_contracts(r#"
+    // /        (define/contract (foo x)
+    // /           (->/c integer? any/c)
+    // /           "hello world")
+    // /
+    // /        (foo "bad-input")
+    // / "#).unwrap();
+    // / ```
+    // pub fn run_without_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, None, constants)?;
+    //     self.virtual_machine.execute_program::<UseCallback>(program)
+    // }
+     */
 
     /// Execute a program without invoking any callbacks, or enforcing any contract checking
     // pub fn run_without_callbacks_or_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
@@ -663,15 +656,13 @@ impl Engine {
     pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, Some(path), constants)?;
-        self.virtual_machine
-            .execute_program::<UseCallback, ApplyContract>(program)
+        self.virtual_machine.execute_program(program)
     }
 
     pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
         let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine
-            .execute_program::<DoNotUseCallback, ApplyContract>(program)
+        self.virtual_machine.execute_program(program)
     }
 
     pub fn parse_and_execute(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
@@ -725,38 +716,40 @@ mod on_progress_tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    #[test]
-    fn count_every_thousand() {
-        let mut vm = Engine::new();
+    // TODO: At the moment the on progress business is turned off
 
-        let external_count = Rc::new(Cell::new(0));
-        let embedded_count = Rc::clone(&external_count);
+    // #[test]
+    // fn count_every_thousand() {
+    //     let mut vm = Engine::new();
 
-        vm.on_progress(move |count| {
-            // parameter is 'usize' - number of instructions performed up to this point
-            if count % 1000 == 0 {
-                // print out a progress log every 1000 operations
-                println!("Number of instructions up to this point: {}", count);
-                embedded_count.set(embedded_count.get() + 1);
+    //     let external_count = Rc::new(Cell::new(0));
+    //     let embedded_count = Rc::clone(&external_count);
 
-                // Returning false here would quit the evaluation of the function
-                return true;
-            }
-            true
-        });
+    //     vm.on_progress(move |count| {
+    //         // parameter is 'usize' - number of instructions performed up to this point
+    //         if count % 1000 == 0 {
+    //             // print out a progress log every 1000 operations
+    //             println!("Number of instructions up to this point: {}", count);
+    //             embedded_count.set(embedded_count.get() + 1);
 
-        // This should end with "Number of instructions up to this point: 4000"
-        vm.run(
-            r#"
-            (define (loop x)
-                (if (equal? x 1000)
-                    x
-                    (loop (+ x 1))))
-            (displayln (loop 0))
-        "#,
-        )
-        .unwrap();
+    //             // Returning false here would quit the evaluation of the function
+    //             return true;
+    //         }
+    //         true
+    //     });
 
-        assert_eq!(external_count.get(), 4);
-    }
+    //     // This should end with "Number of instructions up to this point: 4000"
+    //     vm.run(
+    //         r#"
+    //         (define (loop x)
+    //             (if (equal? x 1000)
+    //                 x
+    //                 (loop (+ x 1))))
+    //         (displayln (loop 0))
+    //     "#,
+    //     )
+    //     .unwrap();
+
+    //     assert_eq!(external_count.get(), 4);
+    // }
 }

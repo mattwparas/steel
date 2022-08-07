@@ -18,7 +18,7 @@ use crate::{
 };
 
 use super::{
-    constants::{ConstantMap, ConstantTable},
+    constants::ConstantMap,
     passes::analysis::{
         Analysis,
         CallKind::{Normal, SelfTailCall, TailCall},

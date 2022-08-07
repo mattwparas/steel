@@ -1,7 +1,6 @@
 use crate::gc::Gc;
 use crate::jit::code_gen::JIT;
 use crate::jit::value::{decode, to_encoded_double};
-use crate::steel_vm::stack::StackFrame;
 use crate::SteelVal;
 
 #[derive(Clone, Copy)]
@@ -75,11 +74,11 @@ macro_rules! pop_values_and_call {
 }
 
 impl JitFunctionPointer {
-    pub fn call_func(&self, stack: &mut StackFrame) -> SteelVal {
+    pub fn call_func(&self, stack: &mut Vec<SteelVal>) -> SteelVal {
         unsafe { self.call_func_unsafe(stack) }
     }
 
-    unsafe fn call_func_unsafe(&self, stack: &mut StackFrame) -> SteelVal {
+    unsafe fn call_func_unsafe(&self, stack: &mut Vec<SteelVal>) -> SteelVal {
         // Get at the internal function pointer that this points to
         // We'll need to transform it into an actual function pointer later
         let fn_ptr = self.fn_ptr;
