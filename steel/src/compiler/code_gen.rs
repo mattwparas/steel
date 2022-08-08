@@ -571,12 +571,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         stop!(BadSyntax => "unexpected require statement in code gen"; r.location.span)
     }
 
-    fn visit_callcc(&mut self, cc: &crate::parser::ast::CallCC) -> Self::Output {
-        self.visit(&cc.expr)?;
-        self.push(LabeledInstruction::builder(OpCode::CALLCC));
-        Ok(())
-    }
-
     fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {
         // What we're gonna do here is pretty straight forward:
         // Since we're entering a scope, we need to include the code to remove from this from

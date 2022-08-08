@@ -870,12 +870,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     // There may need to be more magic here
     // but for now, explore how the VM can handle this wth holding
     // the continuation as a value
-    fn visit_callcc(&mut self, cc: &crate::parser::ast::CallCC) -> Self::Output {
-        self.visit(&cc.expr)?;
-        self.push(Instruction::new_call_cc());
-        // self.push(Instruction::new_pop());
-        Ok(())
-    }
+
 
     // Certainly the most complicated case
     fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {

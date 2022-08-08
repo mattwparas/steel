@@ -32,7 +32,6 @@ pub trait Folder {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::CallCC(cc) => self.visit_callcc(cc),
             ExprKind::Let(l) => self.visit_let(l),
         }
     }
@@ -126,12 +125,6 @@ pub trait Folder {
     fn visit_require(&mut self, s: Require) -> ExprKind {
         ExprKind::Require(s)
     }
-
-    #[inline]
-    fn visit_callcc(&mut self, mut cc: Box<CallCC>) -> ExprKind {
-        cc.expr = self.visit(cc.expr);
-        ExprKind::CallCC(cc)
-    }
 }
 
 pub trait VisitorMutUnit {
@@ -150,7 +143,6 @@ pub trait VisitorMutUnit {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::CallCC(cc) => self.visit_callcc(cc),
             ExprKind::Let(l) => self.visit_let(l),
         }
     }
@@ -222,11 +214,6 @@ pub trait VisitorMutUnit {
 
     #[inline]
     fn visit_require(&mut self, _s: &Require) {}
-
-    #[inline]
-    fn visit_callcc(&mut self, cc: &CallCC) {
-        self.visit(&cc.expr);
-    }
 }
 
 pub trait VisitorMutUnitRef<'a> {
@@ -245,7 +232,6 @@ pub trait VisitorMutUnitRef<'a> {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::CallCC(cc) => self.visit_callcc(cc),
             ExprKind::Let(l) => self.visit_let(l),
         }
     }
@@ -318,11 +304,6 @@ pub trait VisitorMutUnitRef<'a> {
 
     #[inline]
     fn visit_require(&mut self, _s: &'a Require) {}
-
-    #[inline]
-    fn visit_callcc(&mut self, cc: &'a CallCC) {
-        self.visit(&cc.expr);
-    }
 }
 
 pub trait VisitorMutRefUnit {
@@ -341,7 +322,6 @@ pub trait VisitorMutRefUnit {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::CallCC(cc) => self.visit_callcc(cc),
             ExprKind::Let(l) => self.visit_let(l),
         }
     }
@@ -417,9 +397,4 @@ pub trait VisitorMutRefUnit {
 
     #[inline]
     fn visit_require(&mut self, _s: &mut Require) {}
-
-    #[inline]
-    fn visit_callcc(&mut self, cc: &mut CallCC) {
-        self.visit(&mut cc.expr);
-    }
 }

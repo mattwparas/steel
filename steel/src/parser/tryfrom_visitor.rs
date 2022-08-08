@@ -143,11 +143,6 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         stop!(Generic => "internal compiler error - could not translate require to steel value")
     }
 
-    fn visit_callcc(&mut self, cc: Box<super::ast::CallCC>) -> Self::Output {
-        let expr = [SteelVal::try_from(cc.location)?, self.visit(cc.expr)?];
-        Ok(SteelVal::ListV(expr.into_iter().collect()))
-    }
-
     fn visit_let(&mut self, _l: Box<super::ast::Let>) -> Self::Output {
         todo!()
     }
@@ -348,17 +343,6 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
     fn visit_require(&mut self, _s: super::ast::Require) -> Self::Output {
         stop!(Generic => "internal compiler error - could not translate require to steel value")
-    }
-
-    fn visit_callcc(&mut self, cc: Box<super::ast::CallCC>) -> Self::Output {
-        let span = cc.location.span.clone();
-        let source = cc.location.source.clone();
-
-        let expr = [SteelVal::try_from(cc.location)?, self.visit(cc.expr)?];
-        Ok(
-            Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span, source)
-                .into(),
-        )
     }
 
     fn visit_let(&mut self, _l: Box<super::ast::Let>) -> Self::Output {

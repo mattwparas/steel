@@ -175,9 +175,6 @@ pub enum TokenType {
     #[token("require")]
     Require,
 
-    #[token("call/cc")]
-    CallCC,
-
     #[token("#\\SPACE", |_| Some(' '))]
     #[token("#\\space", |_| Some(' '))]
     #[token("#\\\\", |_| Some('\\'))]

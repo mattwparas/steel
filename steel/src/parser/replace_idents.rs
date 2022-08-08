@@ -325,11 +325,6 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
     }
 
-    fn visit_callcc(&mut self, mut cc: Box<super::ast::CallCC>) -> Self::Output {
-        cc.expr = self.visit(cc.expr)?;
-        Ok(ExprKind::CallCC(cc))
-    }
-
     fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
         let mut visited_bindings = Vec::new();
 
@@ -456,11 +451,6 @@ impl ConsumingVisitor for RewriteSpan {
 
     fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
         stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
-    }
-
-    fn visit_callcc(&mut self, mut cc: Box<super::ast::CallCC>) -> Self::Output {
-        cc.expr = self.visit(cc.expr)?;
-        Ok(ExprKind::CallCC(cc))
     }
 
     fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {

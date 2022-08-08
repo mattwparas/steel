@@ -1273,7 +1273,6 @@ where
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::CallCC(cc) => self.visit_callcc(cc),
             ExprKind::Let(l) => self.visit_let(l),
         }
     }
@@ -1309,7 +1308,6 @@ where
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::CallCC(cc) => self.visit_callcc(cc),
             let_expr @ ExprKind::Let(_) => {
                 if let ExprKind::Let(l) = let_expr {
                     self.visit_let(l);
@@ -1378,7 +1376,6 @@ where
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::CallCC(cc) => self.visit_callcc(cc),
             ExprKind::Let(l) => self.visit_let(l),
         }
     }
@@ -1503,7 +1500,6 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
-            ExprKind::CallCC(cc) => self.visit_callcc(cc),
             ExprKind::Let(l) => self.visit_let(l),
         }
     }

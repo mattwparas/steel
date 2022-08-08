@@ -320,10 +320,6 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
         None
     }
 
-    fn visit_callcc(&mut self, _cc: &ast::CallCC) -> Self::Output {
-        None
-    }
-
     fn visit_let(&mut self, l: &ast::Let) -> Self::Output {
         todo!()
     }

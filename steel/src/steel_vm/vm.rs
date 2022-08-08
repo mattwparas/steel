@@ -856,76 +856,6 @@ impl<'a> VmCore<'a> {
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
-    fn call_cc(&mut self) -> Result<()> {
-        /*
-        - Construct the continuation
-        - Get the function that has been passed in (off the stack)
-        - Apply the function with the continuation
-        - Handle continuation function call separately in the handle_func_call
-        */
-
-        let function = self.stack.pop().unwrap();
-
-        // validate_closure_for_call_cc(&function, self.current_span())?;
-
-        match &function {
-            SteelVal::Closure(c) => {
-                if c.arity() != 1 {
-                    stop!(Generic => "function arity in call/cc must be 1"; self.current_span())
-                }
-            }
-            SteelVal::ContinuationFunction(_) => {}
-            _ => {
-                stop!(Generic => "call/cc expects a function"; self.current_span())
-            }
-        }
-
-        // Ok(())
-
-        let continuation = self.construct_continuation_function();
-
-        match function {
-            SteelVal::Closure(closure) => {
-                if self.stack_index.len() == STACK_LIMIT {
-                    println!("stack frame at exit: {:?}", self.stack);
-                    stop!(Generic => "stack overflowed!"; self.current_span());
-                }
-
-                if closure.arity() != 1 {
-                    stop!(Generic => "call/cc expects a function with arity 1");
-                }
-
-                self.stack_index.push(self.stack.len());
-
-                // Put the continuation as the argument
-                self.stack.push(continuation);
-
-                // self.global_env = inner_env;
-                self.instruction_stack.push(InstructionPointer::new(
-                    self.ip + 1,
-                    Rc::clone(&self.instructions),
-                ));
-                self.pop_count += 1;
-
-                self.instructions = closure.body_exp();
-                self.function_stack.push(closure);
-
-                self.ip = 0;
-            }
-            SteelVal::ContinuationFunction(cc) => {
-                self.set_state_from_continuation(cc.unwrap());
-                self.ip += 1;
-                self.stack.push(continuation);
-            }
-
-            _ => {
-                stop!(Generic => "call/cc expects a function");
-            }
-        }
-
-        Ok(())
-    }
-
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
         // let mut cur_inst;
 
@@ -1112,11 +1042,6 @@ impl<'a> VmCore<'a> {
                     self.stack.push(SteelVal::Void);
                     self.ip += 1;
                 }
-                // TODO -> this can be moved entirely to a function that modifies the vm state
-                DenseInstruction {
-                    op_code: OpCode::CALLCC,
-                    ..
-                } => self.call_cc()?,
                 DenseInstruction {
                     op_code: OpCode::SET,
                     payload_size,

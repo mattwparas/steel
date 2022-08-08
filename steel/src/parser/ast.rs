@@ -48,7 +48,7 @@ pub enum ExprKind {
     List(List),
     Set(Box<Set>),
     Require(Require),
-    CallCC(Box<CallCC>),
+    // CallCC(Box<CallCC>),
 }
 
 impl ExprKind {
@@ -292,7 +292,6 @@ impl ToDoc for ExprKind {
             ExprKind::List(l) => l.to_doc(),
             ExprKind::Set(s) => s.to_doc(),
             ExprKind::Require(r) => r.to_doc(),
-            ExprKind::CallCC(c) => c.to_doc(),
         }
     }
 }
@@ -322,43 +321,7 @@ impl fmt::Display for ExprKind {
             ExprKind::List(l) => write!(f, "{}", l),
             ExprKind::Set(s) => write!(f, "{}", s),
             ExprKind::Require(r) => write!(f, "{}", r),
-            ExprKind::CallCC(cc) => write!(f, "{}", cc),
         }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct CallCC {
-    pub expr: ExprKind,
-    pub location: SyntaxObject,
-}
-
-impl CallCC {
-    pub fn new(expr: ExprKind, location: SyntaxObject) -> Self {
-        CallCC { expr, location }
-    }
-}
-
-impl fmt::Display for CallCC {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "(call/cc {})", self.expr)
-    }
-}
-
-impl ToDoc for CallCC {
-    fn to_doc(&self) -> RcDoc<()> {
-        RcDoc::text("(call/cc")
-            .append(RcDoc::line())
-            .append(self.expr.to_doc())
-            .append(RcDoc::text(")"))
-            .nest(2)
-            .group()
-    }
-}
-
-impl From<CallCC> for ExprKind {
-    fn from(val: CallCC) -> Self {
-        ExprKind::CallCC(Box::new(val))
     }
 }
 
@@ -1589,19 +1552,6 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                             a.syn.clone(),
                             "return!",
                             |expr, syn| Return::new(expr, syn).into(),
-                        ),
-
-                        TokenType::CallCC => parse_single_argument(
-                            value.into_iter(),
-                            a.syn.clone(),
-                            "call/cc",
-                            |expr, syn| CallCC::new(expr, syn).into(),
-                        ),
-                        TokenType::Identifier(expr) if expr == "call/cc" => parse_single_argument(
-                            value.into_iter(),
-                            a.syn.clone(),
-                            "call/cc",
-                            |expr, syn| CallCC::new(expr, syn).into(),
                         ),
 
                         TokenType::Require => parse_require(&a, value),

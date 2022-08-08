@@ -152,11 +152,6 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         // stop!(Generic => "unexpected require statement during expansion"; s.location.span)
     }
 
-    fn visit_callcc(&mut self, mut cc: Box<super::ast::CallCC>) -> Self::Output {
-        cc.expr = self.visit(cc.expr)?;
-        Ok(ExprKind::CallCC(cc))
-    }
-
     fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
         let mut visited_bindings = Vec::new();
 
@@ -462,11 +457,6 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
     fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
         Ok(ExprKind::Require(s))
         // stop!(Generic => "unexpected require statement during expansion"; s.location.span)
-    }
-
-    fn visit_callcc(&mut self, mut cc: Box<super::ast::CallCC>) -> Self::Output {
-        cc.expr = self.visit(cc.expr)?;
-        Ok(ExprKind::CallCC(cc))
     }
 
     fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {

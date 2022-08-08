@@ -225,15 +225,6 @@ impl Instruction {
         }
     }
 
-    pub fn new_call_cc() -> Instruction {
-        Instruction {
-            op_code: OpCode::CALLCC,
-            payload_size: 0,
-            contents: None,
-            constant: true,
-        }
-    }
-
     pub fn new_local(idx: usize, contents: SyntaxObject) -> Instruction {
         Instruction {
             op_code: OpCode::READLOCAL,

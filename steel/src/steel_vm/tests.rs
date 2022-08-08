@@ -27,9 +27,9 @@ mod call_cc_tests {
 
         ; current-continuation : -> continuation
         (define (current-continuation)
-        (call/cc
-        (lambda (cc)
-            (cc cc))))
+            (call/cc
+                (lambda (cc)
+                    (cc cc))))
 
         ; await : future -> value
         ; yield the current thread and loop until the value is completed

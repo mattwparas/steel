@@ -752,10 +752,6 @@ impl<'a> VisitorMut for ContractChecker<'a> {
         panic!("Unexpected require")
     }
 
-    fn visit_callcc(&mut self, cc: &crate::parser::ast::CallCC) -> Self::Output {
-        self.visit(&cc.expr)
-    }
-
     fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {
         for binding in &l.bindings {
             self.visit(&binding.1)?;

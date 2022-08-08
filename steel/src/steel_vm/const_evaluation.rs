@@ -609,11 +609,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         stop!(Generic => "unexpected require - require is only allowed at the top level");
     }
 
-    fn visit_callcc(&mut self, mut cc: Box<crate::parser::ast::CallCC>) -> Self::Output {
-        cc.expr = self.visit(cc.expr)?;
-        Ok(ExprKind::CallCC(cc))
-    }
-
     // TODO come back to this
     fn visit_let(&mut self, mut l: Box<crate::parser::ast::Let>) -> Self::Output {
         // panic!("---------------------------Visiting let!--------------------");
@@ -696,10 +691,6 @@ impl<'a> VisitorMut for CollectSet<'a> {
     }
 
     fn visit_require(&mut self, _s: &crate::parser::ast::Require) -> Self::Output {}
-
-    fn visit_callcc(&mut self, cc: &crate::parser::ast::CallCC) -> Self::Output {
-        self.visit(&cc.expr);
-    }
 
     fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {
         l.bindings.iter().for_each(|x| self.visit(&x.1));
