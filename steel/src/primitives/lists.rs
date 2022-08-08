@@ -1,5 +1,8 @@
-use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::steel_vm::vm::VmContext;
+use crate::{
+    rvals::{IntoSteelVal, Result, SteelVal},
+    steel_vm::vm::VmCore,
+};
 use crate::{stop, throw};
 use im_lists::{list, list::List};
 
@@ -69,7 +72,7 @@ pub(crate) fn third(list: &List<SteelVal>) -> UnRecoverableResult {
     list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list)).into()
 }
 
-fn test_map(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
+fn test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: Vec<SteelVal>) -> Result<SteelVal> {
     arity_check!(test_map, args, 2);
 
     let mut arg_iter = args.into_iter();
@@ -95,7 +98,7 @@ fn test_map(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
     }
 }
 
-fn apply(args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
+fn apply<'a, 'b>(ctx: &'a mut VmCore<'b>, args: Vec<SteelVal>) -> Result<SteelVal> {
     arity_check!(apply, args, 2);
 
     let mut arg_iter = args.into_iter();

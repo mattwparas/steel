@@ -1,4 +1,4 @@
-use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
+use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn, vm::VmCore};
 use crate::{
     primitives::{
         ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
@@ -729,6 +729,7 @@ fn meta_module() -> BuiltInModule {
         .register_value("struct->vector", struct_to_vector())
         .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
         .register_value("read!", SteelVal::FuncV(super::meta::read))
+        .register_value("test-call/cc", SteelVal::BuiltIn(super::vm::call_cc))
         .register_fn("eval!", super::meta::eval)
         .register_fn("value->string", super::meta::value_to_string)
         // TODO: @Matt -> implement the traits for modules as well

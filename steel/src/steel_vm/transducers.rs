@@ -50,7 +50,7 @@ macro_rules! generate_drop {
 pub(crate) const TRANSDUCE: SteelVal = SteelVal::BuiltIn(transduce);
 
 // figure out if nested transducers works
-fn transduce(mut args: Vec<SteelVal>, ctx: &mut dyn VmContext) -> Result<SteelVal> {
+fn transduce<'a, 'b>(ctx: &'a mut VmCore<'b>, mut args: Vec<SteelVal>) -> Result<SteelVal> {
     let reducer = args
         .pop()
         .ok_or_else(throw!(ArityMismatch => "transduce expects 3 arguments, found none"))?;

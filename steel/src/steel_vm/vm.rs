@@ -58,6 +58,7 @@ pub struct SteelThread {
     profiler: OpCodeOccurenceProfiler,
     // TODO: make this not as bad
     closure_interner: HashMap<usize, ByteCodeLambda>,
+    // constants: ConstantMap,
     // If contracts are set to off - contract construction results in a no-op, so we don't
     // need generics on the thread
     contracts_on: bool,
@@ -77,6 +78,7 @@ impl SteelThread {
             upvalue_head: None,
             profiler: OpCodeOccurenceProfiler::new(),
             closure_interner: HashMap::new(),
+            // constants: ConstantMap::new(),
             contracts_on: true,
             #[cfg(feature = "jit")]
             jit: JIT::default(),
@@ -322,10 +324,11 @@ pub trait VmContext {
 
 // For when we want a reference to the built in context as well -> In the event we want to call something
 // See if this is even possible -> if you ever want to offload function calls to the
-pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;
+// pub type BuiltInSignature2 = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;
 
 // These reference the current existing thread
-// pub type BuiltInSignature = fn(&mut VmCore<'_>, Vec<SteelVal>) -> Result<SteelVal>;
+// TODO: Change this to refer directly to SteelThread in some way
+pub type BuiltInSignature = for<'a, 'b> fn(&'a mut VmCore<'b>, Vec<SteelVal>) -> Result<SteelVal>;
 
 impl<'a> VmContext for VmCore<'a> {
     fn call_function_one_arg(&mut self, function: &SteelVal, arg: SteelVal) -> Result<SteelVal> {
@@ -414,7 +417,7 @@ impl Default for InstructionState {
 //     }
 // }
 
-pub(crate) struct VmCore<'a> {
+pub struct VmCore<'a> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: &'a mut Vec<SteelVal>,
     pub(crate) global_env: &'a mut Env,
@@ -703,7 +706,7 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::BuiltIn(func) => {
                 let arg_vec: Vec<_> = vec![arg];
-                func(arg_vec, self).map_err(|x| x.set_span(*cur_inst_span))
+                func(self, arg_vec).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => self.call_with_one_arg(closure, arg),
             _ => Err(err()),
@@ -738,7 +741,7 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::BuiltIn(func) => {
                 let arg_vec: Vec<_> = vec![arg1, arg2];
-                func(arg_vec, self).map_err(|x| x.set_span(*cur_inst_span))
+                func(self, arg_vec).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => self.call_with_two_args(closure, arg1, arg2),
             _ => Err(err()),
@@ -772,7 +775,7 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::BuiltIn(func) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
-                func(arg_vec, self).map_err(|x| x.set_span(*cur_inst_span))
+                func(self, arg_vec).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => self.call_with_args(closure, args),
             _ => Err(err()),
@@ -860,6 +863,7 @@ impl<'a> VmCore<'a> {
         - Apply the function with the continuation
         - Handle continuation function call separately in the handle_func_call
         */
+
         let function = self.stack.pop().unwrap();
 
         // validate_closure_for_call_cc(&function, self.current_span())?;
@@ -2576,8 +2580,13 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn call_builtin_func(&mut self, func: &BuiltInSignature, payload_size: usize) -> Result<()> {
+        // Note: We Advance the pointer here. In the event we're calling a builtin that fusses with
+        // the instruction pointer, we allow the function to override this. For example, call/cc will
+        // advance the pointer - or perhaps, even fuss with the control flow.
+        self.ip += 1;
+
         let args = self.stack.split_off(self.stack.len() - payload_size);
-        let result = func(args, self).map_err(|x| {
+        let result = func(self, args).map_err(|x| {
             // TODO: @Matt 4/24/2022 -> combine this into one function probably
             if x.has_span() {
                 x
@@ -2588,7 +2597,6 @@ impl<'a> VmCore<'a> {
         })?;
 
         self.stack.push(result);
-        self.ip += 1;
         Ok(())
     }
 
@@ -2888,7 +2896,7 @@ impl<'a> VmCore<'a> {
             }
             BuiltIn(func) => {
                 let args = vec![local, const_value];
-                let result = func(args, self).map_err(|x| x.set_span(self.current_span()))?;
+                let result = func(self, args).map_err(|x| x.set_span(self.current_span()))?;
                 self.stack.push(result);
                 self.ip += 4;
             }
@@ -3195,4 +3203,84 @@ impl<'a> VmCore<'a> {
     fn handle_start_def(&mut self) {
         self.ip += 1;
     }
+}
+
+pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: Vec<SteelVal>) -> Result<SteelVal> {
+    /*
+    - Construct the continuation
+    - Get the function that has been passed in (off the stack)
+    - Apply the function with the continuation
+    - Handle continuation function call separately in the handle_func_call
+    */
+
+    // Roll back one because we advanced prior to entering the builtin
+    ctx.ip -= 1;
+
+    if args.len() != 1 {
+        stop!(ArityMismatch => format!("call/cc expects one argument, found: {}", args.len()); ctx.current_span());
+    }
+
+    // let function = ctx.stack.pop().unwrap();
+
+    let function = args[0].clone();
+
+    // validate_closure_for_call_cc(&function, self.current_span())?;
+
+    match &function {
+        SteelVal::Closure(c) => {
+            if c.arity() != 1 {
+                stop!(Generic => "function arity in call/cc must be 1"; ctx.current_span())
+            }
+        }
+        SteelVal::ContinuationFunction(_) => {}
+        _ => {
+            stop!(Generic => "call/cc expects a function"; ctx.current_span())
+        }
+    }
+
+    // Ok(())
+
+    let continuation = ctx.construct_continuation_function();
+
+    match function {
+        SteelVal::Closure(closure) => {
+            if ctx.stack_index.len() == STACK_LIMIT {
+                println!("stack frame at exit: {:?}", ctx.stack);
+                stop!(Generic => "stack overflowed!"; ctx.current_span());
+            }
+
+            if closure.arity() != 1 {
+                stop!(Generic => "call/cc expects a function with arity 1");
+            }
+
+            ctx.stack_index.push(ctx.stack.len());
+
+            // Put the continuation as the argument
+            // Previously we put the continuation directly on the stack ourselves, but instead we now return as an argument
+            // ctx.stack.push(continuation);
+
+            // self.global_env = inner_env;
+            ctx.instruction_stack.push(InstructionPointer::new(
+                ctx.ip + 1,
+                Rc::clone(&ctx.instructions),
+            ));
+            ctx.pop_count += 1;
+
+            ctx.instructions = closure.body_exp();
+            ctx.function_stack.push(closure);
+
+            ctx.ip = 0;
+        }
+        SteelVal::ContinuationFunction(cc) => {
+            ctx.set_state_from_continuation(cc.unwrap());
+            ctx.ip += 1;
+            // ctx.stack.push(continuation);
+        }
+
+        _ => {
+            stop!(Generic => "call/cc expects a function");
+        }
+    }
+
+    Ok(continuation)
 }
