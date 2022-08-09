@@ -1,7 +1,7 @@
 use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn, vm::VmCore};
 use crate::{
     primitives::{
-        ContractOperations, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
+        contracts, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
         IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations,
         StringOperations, SymbolOperations, TransducerOperations, VectorOperations,
     },
@@ -492,17 +492,14 @@ fn stream_module() -> BuiltInModule {
 fn contract_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/contracts".to_string());
     module
-        .register_value("bind/c", ContractOperations::bind_contract_to_function())
-        .register_value("make-flat/c", ContractOperations::make_flat_contract())
+        .register_value("bind/c", contracts::BIND_CONTRACT_TO_FUNCTION)
+        .register_value("make-flat/c", contracts::MAKE_FLAT_CONTRACT)
         .register_value(
             "make-dependent-function/c",
-            ContractOperations::make_dependent_contract(),
+            contracts::MAKE_DEPENDENT_CONTRACT,
         )
-        .register_value(
-            "make-function/c",
-            ContractOperations::make_function_contract(),
-        )
-        .register_value("make/c", ContractOperations::make_c());
+        .register_value("make-function/c", contracts::MAKE_FUNCTION_CONTRACT)
+        .register_value("make/c", contracts::MAKE_C);
 
     module
 }

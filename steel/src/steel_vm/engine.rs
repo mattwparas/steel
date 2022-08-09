@@ -112,6 +112,11 @@ impl Engine {
         vm
     }
 
+    pub fn with_contracts(&mut self, contracts: bool) -> &mut Self {
+        self.virtual_machine.with_contracts(contracts);
+        self
+    }
+
     #[inline]
     pub fn new_sandboxed() -> Self {
         let mut vm = Engine::new_raw();

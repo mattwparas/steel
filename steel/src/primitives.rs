@@ -1,4 +1,4 @@
-mod contracts;
+pub mod contracts;
 mod control;
 mod fs;
 mod hashmaps;
@@ -15,7 +15,6 @@ mod transducers;
 mod utils;
 mod vectors;
 
-pub use contracts::ContractOperations;
 pub use control::ControlOperations;
 pub use fs::FsFunctions;
 pub use hashmaps::HashMapOperations;

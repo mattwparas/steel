@@ -86,8 +86,8 @@ impl SteelThread {
     }
 
     // If you want to explicitly turn off contracts, you can do so
-    pub fn without_contracts(&mut self) -> &mut Self {
-        self.contracts_on = false;
+    pub fn with_contracts(&mut self, contracts: bool) -> &mut Self {
+        self.contracts_on = contracts;
         self
     }
 
@@ -161,25 +161,6 @@ impl SteelThread {
         // self.global_env.print_diagnostics();
     }
 
-    // pub fn _execute_program_by_ref(&mut self, program: &Program) -> Result<Vec<SteelVal>> {
-    //     let Program {
-    //         instructions,
-    //         constant_map,
-    //         ..
-    //     } = program;
-
-    //     let instructions: Vec<_> = instructions
-    //         .clone()
-    //         .into_iter()
-    //         .map(|x| Rc::from(x.into_boxed_slice()))
-    //         .collect();
-
-    //     instructions
-    //         .into_iter()
-    //         .map(|code| self.execute(code, &constant_map, &[]))
-    //         .collect()
-    // }
-
     pub(crate) fn call_function(
         &mut self,
         constant_map: &ConstantMap,
@@ -199,6 +180,7 @@ impl SteelThread {
             &[],
             &mut self.profiler,
             &mut self.closure_interner,
+            self.contracts_on,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
         );
@@ -232,6 +214,7 @@ impl SteelThread {
             spans,
             &mut self.profiler,
             &mut self.closure_interner,
+            self.contracts_on,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
         )?;
@@ -328,7 +311,7 @@ pub trait VmContext {
 
 // These reference the current existing thread
 // TODO: Change this to refer directly to SteelThread in some way
-pub type BuiltInSignature = for<'a, 'b> fn(&'a mut VmCore<'b>, Vec<SteelVal>) -> Result<SteelVal>;
+pub type BuiltInSignature = for<'a, 'b> fn(&'a mut VmCore<'b>, &[SteelVal]) -> Result<SteelVal>;
 
 impl<'a> VmContext for VmCore<'a> {
     fn call_function_one_arg(&mut self, function: &SteelVal, arg: SteelVal) -> Result<SteelVal> {
@@ -433,6 +416,7 @@ pub struct VmCore<'a> {
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
     pub(crate) closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
+    pub(crate) use_contracts: bool,
     #[cfg(feature = "jit")]
     pub(crate) jit: Option<&'a mut JIT>,
 }
@@ -451,6 +435,7 @@ impl<'a> VmCore<'a> {
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
+        use_contracts: bool,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> VmCore<'a> {
         VmCore {
@@ -469,6 +454,7 @@ impl<'a> VmCore<'a> {
             spans,
             profiler,
             closure_interner,
+            use_contracts,
             #[cfg(feature = "jit")]
             jit,
         }
@@ -487,6 +473,7 @@ impl<'a> VmCore<'a> {
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
+        use_contracts: bool,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> Result<VmCore<'a>> {
         if instructions.is_empty() {
@@ -509,6 +496,7 @@ impl<'a> VmCore<'a> {
             spans,
             profiler,
             closure_interner,
+            use_contracts,
             #[cfg(feature = "jit")]
             jit,
         })
@@ -705,8 +693,8 @@ impl<'a> VmCore<'a> {
                 func(&mut arg_vec).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::BuiltIn(func) => {
-                let arg_vec: Vec<_> = vec![arg];
-                func(self, arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                let arg_vec = [arg];
+                func(self, &arg_vec).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => self.call_with_one_arg(closure, arg),
             _ => Err(err()),
@@ -740,8 +728,8 @@ impl<'a> VmCore<'a> {
                 func(&mut arg_vec).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::BuiltIn(func) => {
-                let arg_vec: Vec<_> = vec![arg1, arg2];
-                func(self, arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                let arg_vec = [arg1, arg2];
+                func(self, &arg_vec).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => self.call_with_two_args(closure, arg1, arg2),
             _ => Err(err()),
@@ -775,7 +763,7 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::BuiltIn(func) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
-                func(self, arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(self, &arg_vec).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => self.call_with_args(closure, args),
             _ => Err(err()),
@@ -2510,8 +2498,9 @@ impl<'a> VmCore<'a> {
         // advance the pointer - or perhaps, even fuss with the control flow.
         self.ip += 1;
 
+        // TODO: Don't do this - just read directly from the stack
         let args = self.stack.split_off(self.stack.len() - payload_size);
-        let result = func(self, args).map_err(|x| {
+        let result = func(self, &args).map_err(|x| {
             // TODO: @Matt 4/24/2022 -> combine this into one function probably
             if x.has_span() {
                 x
@@ -2820,8 +2809,8 @@ impl<'a> VmCore<'a> {
                 self.ip += 4;
             }
             BuiltIn(func) => {
-                let args = vec![local, const_value];
-                let result = func(self, args).map_err(|x| x.set_span(self.current_span()))?;
+                let args = [local, const_value];
+                let result = func(self, &args).map_err(|x| x.set_span(self.current_span()))?;
                 self.stack.push(result);
                 self.ip += 4;
             }
@@ -3130,7 +3119,7 @@ impl<'a> VmCore<'a> {
     }
 }
 
-pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: Vec<SteelVal>) -> Result<SteelVal> {
+pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
     /*
     - Construct the continuation
     - Get the function that has been passed in (off the stack)

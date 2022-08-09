@@ -72,7 +72,7 @@ pub(crate) fn third(list: &List<SteelVal>) -> UnRecoverableResult {
     list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list)).into()
 }
 
-fn test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: Vec<SteelVal>) -> Result<SteelVal> {
+fn test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(test_map, args, 2);
 
     let mut arg_iter = args.into_iter();
@@ -85,7 +85,7 @@ fn test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: Vec<SteelVal>) -> Result<Stee
 
             Ok(SteelVal::ListV(
                 l.into_iter()
-                    .map(|x| ctx.call_function_one_arg(&arg1, x))
+                    .map(|x| ctx.call_function_one_arg(&arg1, x.clone()))
                     .collect::<Result<_>>()?,
             ))
 
@@ -98,7 +98,7 @@ fn test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: Vec<SteelVal>) -> Result<Stee
     }
 }
 
-fn apply<'a, 'b>(ctx: &'a mut VmCore<'b>, args: Vec<SteelVal>) -> Result<SteelVal> {
+fn apply<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(apply, args, 2);
 
     let mut arg_iter = args.into_iter();
@@ -107,7 +107,7 @@ fn apply<'a, 'b>(ctx: &'a mut VmCore<'b>, args: Vec<SteelVal>) -> Result<SteelVa
 
     if let SteelVal::ListV(l) = arg2 {
         if arg1.is_function() {
-            ctx.call_function_many_args(&arg1, l)
+            ctx.call_function_many_args(&arg1, l.clone())
         } else {
             stop!(TypeMismatch => "apply expected a function")
         }
