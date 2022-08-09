@@ -1,7 +1,7 @@
 pub mod contracts;
 mod control;
 mod fs;
-mod hashmaps;
+pub mod hashmaps;
 mod hashsets;
 mod io;
 pub mod lists;

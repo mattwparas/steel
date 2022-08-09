@@ -1,7 +1,7 @@
-use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn, vm::VmCore};
+use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
 use crate::{
     primitives::{
-        contracts, ControlOperations, FsFunctions, HashMapOperations, HashSetOperations,
+        contracts, hashmaps::hashmap_module, ControlOperations, FsFunctions, HashSetOperations,
         IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations,
         StringOperations, SymbolOperations, TransducerOperations, VectorOperations,
     },
@@ -390,25 +390,6 @@ fn string_module() -> BuiltInModule {
         .register_value("string->symbol", StringOperations::string_to_symbol())
         .register_value("starts-with?", StringOperations::starts_with())
         .register_value("ends-with?", StringOperations::ends_with());
-    module
-}
-
-// TODO: Make this lazy
-pub(crate) fn hashmap_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/hash".to_string());
-    module
-        .register_value("hash", HashMapOperations::hm_construct())
-        .register_value("hash-insert", HashMapOperations::hm_insert())
-        .register_value("hash-get", HashMapOperations::hm_get())
-        .register_value("hash-try-get", HashMapOperations::hm_try_get())
-        .register_value("hash-length", HashMapOperations::hm_length())
-        .register_value("hash-contains?", HashMapOperations::hm_contains())
-        .register_value("hash-keys->list", HashMapOperations::keys_to_list())
-        .register_value("hash-keys->vector", HashMapOperations::keys_to_vector())
-        .register_value("hash-values->list", HashMapOperations::values_to_list())
-        .register_value("hash-values->vector", HashMapOperations::values_to_vector())
-        .register_value("hash-clear", HashMapOperations::clear())
-        .register_value("hash-empty?", HashMapOperations::hm_empty());
     module
 }
 
