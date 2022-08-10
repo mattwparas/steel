@@ -5,10 +5,6 @@ use crate::{
     steel_vm::vm::VmCore,
 };
 
-// pub fn make_c<'a, 'b>(ctx: &'a mut VmCore<'b>, args: Vec<SteelVal>) -> Result<SteelVal> {
-
-// }
-
 pub const MAKE_C: SteelVal = SteelVal::FuncV(make_c);
 pub const MAKE_DEPENDENT_CONTRACT: SteelVal = SteelVal::FuncV(make_dependent_contract);
 pub const MAKE_FLAT_CONTRACT: SteelVal = SteelVal::FuncV(make_flat_contract);
@@ -31,12 +27,6 @@ pub fn make_c(args: &[SteelVal]) -> Result<SteelVal> {
 
         if function.is_function() {
             return FlatContract::new_from_steelval(function, name.to_string());
-
-            // if let SteelVal::SymbolV(s) = name.as_ref() {
-            //     return FlatContract::new_from_steelval(function, s.to_string());
-            // } else {
-            //     stop!(TypeMismatch => "make/c attempted to make a flat contract, expected a symbol for the name in the second position");
-            // }
         }
     }
 

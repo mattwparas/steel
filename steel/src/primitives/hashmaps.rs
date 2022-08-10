@@ -256,17 +256,10 @@ pub fn hm_empty(args: &[SteelVal]) -> Result<SteelVal> {
 #[cfg(test)]
 mod hashmap_tests {
     use super::*;
-    use crate::throw;
     use im_rc::hashmap;
     use std::rc::Rc;
 
     use crate::rvals::SteelVal::*;
-
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
-        let args: Vec<SteelVal> = args.into_iter().collect();
-        func.func_or_else(throw!(BadSyntax => "hash tests"))
-            .unwrap()(&args)
-    }
 
     #[test]
     fn hm_construct_normal() {

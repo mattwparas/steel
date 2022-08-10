@@ -715,46 +715,46 @@ impl Engine {
     }
 }
 
-#[cfg(test)]
-mod on_progress_tests {
-    use super::*;
-    use std::cell::Cell;
-    use std::rc::Rc;
+// #[cfg(test)]
+// mod on_progress_tests {
+//     use super::*;
+//     use std::cell::Cell;
+//     use std::rc::Rc;
 
-    // TODO: At the moment the on progress business is turned off
+//     // TODO: At the moment the on progress business is turned off
 
-    // #[test]
-    // fn count_every_thousand() {
-    //     let mut vm = Engine::new();
+//     // #[test]
+//     // fn count_every_thousand() {
+//     //     let mut vm = Engine::new();
 
-    //     let external_count = Rc::new(Cell::new(0));
-    //     let embedded_count = Rc::clone(&external_count);
+//     //     let external_count = Rc::new(Cell::new(0));
+//     //     let embedded_count = Rc::clone(&external_count);
 
-    //     vm.on_progress(move |count| {
-    //         // parameter is 'usize' - number of instructions performed up to this point
-    //         if count % 1000 == 0 {
-    //             // print out a progress log every 1000 operations
-    //             println!("Number of instructions up to this point: {}", count);
-    //             embedded_count.set(embedded_count.get() + 1);
+//     //     vm.on_progress(move |count| {
+//     //         // parameter is 'usize' - number of instructions performed up to this point
+//     //         if count % 1000 == 0 {
+//     //             // print out a progress log every 1000 operations
+//     //             println!("Number of instructions up to this point: {}", count);
+//     //             embedded_count.set(embedded_count.get() + 1);
 
-    //             // Returning false here would quit the evaluation of the function
-    //             return true;
-    //         }
-    //         true
-    //     });
+//     //             // Returning false here would quit the evaluation of the function
+//     //             return true;
+//     //         }
+//     //         true
+//     //     });
 
-    //     // This should end with "Number of instructions up to this point: 4000"
-    //     vm.run(
-    //         r#"
-    //         (define (loop x)
-    //             (if (equal? x 1000)
-    //                 x
-    //                 (loop (+ x 1))))
-    //         (displayln (loop 0))
-    //     "#,
-    //     )
-    //     .unwrap();
+//     //     // This should end with "Number of instructions up to this point: 4000"
+//     //     vm.run(
+//     //         r#"
+//     //         (define (loop x)
+//     //             (if (equal? x 1000)
+//     //                 x
+//     //                 (loop (+ x 1))))
+//     //         (displayln (loop 0))
+//     //     "#,
+//     //     )
+//     //     .unwrap();
 
-    //     assert_eq!(external_count.get(), 4);
-    // }
-}
+//     //     assert_eq!(external_count.get(), 4);
+//     // }
+// }

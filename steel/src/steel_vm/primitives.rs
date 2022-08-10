@@ -1,8 +1,8 @@
 use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
 use crate::{
     primitives::{
-        contracts, hashmaps::hashmap_module, ControlOperations, FsFunctions, HashSetOperations,
-        IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations,
+        contracts, hashmaps::hashmap_module, hashsets::hashset_module, ControlOperations,
+        FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations,
         StringOperations, SymbolOperations, TransducerOperations, VectorOperations,
     },
     rerrs::ErrorKind,
@@ -390,21 +390,6 @@ fn string_module() -> BuiltInModule {
         .register_value("string->symbol", StringOperations::string_to_symbol())
         .register_value("starts-with?", StringOperations::starts_with())
         .register_value("ends-with?", StringOperations::ends_with());
-    module
-}
-
-pub(crate) fn hashset_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/sets".to_string());
-    module
-        .register_value("hashset", HashSetOperations::hs_construct())
-        .register_value("hashset-length", HashSetOperations::hs_length())
-        .register_value("hashset-contains?", HashSetOperations::hs_contains())
-        .register_value("hashset-insert", HashSetOperations::hs_insert())
-        .register_value("hashset->list", HashSetOperations::keys_to_list())
-        .register_value("hashset->vector", HashSetOperations::keys_to_vector())
-        .register_value("hashset-clear", HashSetOperations::clear())
-        .register_value("hashset-subset?", HashSetOperations::is_subset())
-        .register_value("list->hashset", HashSetOperations::list_to_hashset());
     module
 }
 
