@@ -11,7 +11,7 @@ mod ports;
 mod streams;
 mod strings;
 mod symbols;
-mod transducers;
+pub mod transducers;
 mod utils;
 mod vectors;
 
@@ -25,7 +25,6 @@ pub use ports::PortOperations;
 pub use streams::StreamOperations;
 pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
-pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
 
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};

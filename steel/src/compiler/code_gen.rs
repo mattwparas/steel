@@ -536,7 +536,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             let op_code = match call_info.kind {
                 Normal => OpCode::FUNC,
                 TailCall => OpCode::TAILCALL,
-                SelfTailCall => OpCode::TCOJMP,
+                SelfTailCall => {
+                    // We don't need to push the function onto the stack if we're doing a self
+                    // tail call
+                    self.instructions.pop();
+                    OpCode::TCOJMP
+                }
             };
 
             self.push(

@@ -256,10 +256,6 @@ impl InstructionPointer {
         InstructionPointer(ip, instrs)
     }
 
-    pub fn instrs_ref(&self) -> &Rc<[DenseInstruction]> {
-        &self.1
-    }
-
     // #[inline(always)]
     pub fn instrs(self) -> Rc<[DenseInstruction]> {
         self.1
@@ -393,12 +389,6 @@ impl Default for InstructionState {
         Self::new(Rc::new([]))
     }
 }
-
-// impl InstructionState {
-//     pub fn new() -> Self {
-//         Self { instruction_stack: , instructions: Rc::new([]), ip: (), pop_count: () }
-//     }
-// }
 
 pub struct VmCore<'a> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
@@ -1228,8 +1218,8 @@ impl<'a> VmCore<'a> {
                 } => {
                     // println!("At tco jump");
 
-                    let current_arity = self.instructions[self.ip + 1].payload_size as usize;
-                    self.ip = payload_size as usize;
+                    let current_arity = payload_size as usize;
+                    self.ip = 0;
 
                     let closure_arity = self.function_stack.last().unwrap().arity();
 

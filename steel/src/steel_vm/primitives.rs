@@ -3,7 +3,7 @@ use crate::{
     primitives::{
         contracts, hashmaps::hashmap_module, hashsets::hashset_module, ControlOperations,
         FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations,
-        StringOperations, SymbolOperations, TransducerOperations, VectorOperations,
+        StringOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
     values::structs::is_custom_struct,
@@ -543,17 +543,17 @@ fn ord_module() -> BuiltInModule {
 pub fn transducer_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/transducers".to_string());
     module
-        .register_value("compose", TransducerOperations::compose())
-        .register_value("mapping", TransducerOperations::map())
-        .register_value("flattening", TransducerOperations::flatten())
-        .register_value("flat-mapping", TransducerOperations::flat_map())
-        .register_value("filtering", TransducerOperations::filter())
-        .register_value("taking", TransducerOperations::take())
-        .register_value("dropping", TransducerOperations::dropping())
-        .register_value("extending", TransducerOperations::extending())
-        .register_value("enumerating", TransducerOperations::enumerating())
-        .register_value("zipping", TransducerOperations::zipping())
-        .register_value("interleaving", TransducerOperations::interleaving())
+        .register_value("compose", crate::primitives::transducers::COMPOSE)
+        .register_value("mapping", crate::primitives::transducers::MAPPING)
+        .register_value("flattening", crate::primitives::transducers::FLATTENING)
+        .register_value("flat-mapping", crate::primitives::transducers::FLAT_MAPPING)
+        .register_value("filtering", crate::primitives::transducers::FILTERING)
+        .register_value("taking", crate::primitives::transducers::TAKING)
+        .register_value("dropping", crate::primitives::transducers::DROPPING)
+        .register_value("extending", crate::primitives::transducers::EXTENDING)
+        .register_value("enumerating", crate::primitives::transducers::ENUMERATING)
+        .register_value("zipping", crate::primitives::transducers::ZIPPING)
+        .register_value("interleaving", crate::primitives::transducers::INTERLEAVING)
         .register_value("into-sum", crate::values::transducers::INTO_SUM)
         .register_value("into-product", crate::values::transducers::INTO_PRODUCT)
         .register_value("into-max", crate::values::transducers::INTO_MAX)

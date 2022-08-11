@@ -123,10 +123,10 @@ impl Instruction {
         }
     }
 
-    pub fn new_tco_jmp() -> Instruction {
+    pub fn new_tco_jmp(arity: usize) -> Instruction {
         Instruction {
             op_code: OpCode::TCOJMP,
-            payload_size: 0,
+            payload_size: arity,
             contents: None,
             constant: false,
         }
