@@ -357,3 +357,7 @@
 (define (slice l offset n)
   (take (drop l offset) n))
 ;;; Macros go here:
+
+
+(define (code-gen-v2)
+  (set-env-var! "CODE_GEN_V2" "true"))

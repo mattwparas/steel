@@ -2301,12 +2301,12 @@ impl<'a> VmCore<'a> {
         // TODO
         self.function_stack.push(Gc::clone(&closure));
 
-        if self.stack_index.len() == STACK_LIMIT {
-            // println!("stacks at exit: {:?}", self.stacks);
-            crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-            println!("tail call - stack frame at exit: {:?}", self.stack);
-            stop!(Generic => "stack overflowed!"; self.current_span());
-        }
+        // if self.stack_index.len() == STACK_LIMIT {
+        //     // println!("stacks at exit: {:?}", self.stacks);
+        //     crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+        //     println!("tail call - stack frame at exit: {:?}", self.stack);
+        //     stop!(Generic => "stack overflowed!"; self.current_span());
+        // }
 
         // if closure.arity() != payload_size {
         //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
@@ -2376,26 +2376,139 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
+    fn new_handle_tail_call_closure(
+        &mut self,
+        closure: &Gc<ByteCodeLambda>,
+        payload_size: usize,
+    ) -> Result<()> {
+        // println!("################ New Tail Call ################");
+        // println!("stack before: {:?}", self.stack);
+        // println!("stack index: {:?}", self.stack_index);
+        // println!(
+        //     "Function stack length before: {}",
+        //     self.function_stack.len()
+        // );
+
+        // closure.increment_call_count();
+
+        // while let Some(current_executing) = self.function_stack.pop() {
+        //     if !current_executing.is_let {}
+        // }
+
+        // let ;
+
+        // self.close_upvalues(0);
+
+        // let mut scopes_to_pop = Vec::new();
+
+        // println!("Pop count: {}", self.pop_count);
+
+        self.function_stack.pop().unwrap();
+
+        // self.pop_count -= 1;
+        // let offset = self.stack_index.pop().unwrap();
+        // self.instruction_stack.pop();
+
+        let offset = self.stack_index.last().copied().unwrap_or(0);
+
+        // println!("Falling back to offset: {}", offset);
+        // println!("Pop count before: {}", self.pop_count);
+
+        // Wipe out the last one
+        // let current_executing = self.function_stack.pop().unwrap();
+
+        // if !current_executing
+        //     .map(|x| x.upvalues().is_empty())
+        //     .unwrap_or(true)
+        // {
+        //     println!("CLOSING UPVALUES *******************");
+        //     self.close_upvalues(offset);
+        // }
+
+        // TODO
+        self.function_stack.push(Gc::clone(&closure));
+
+        // if self.stack_index.len() == STACK_LIMIT {
+        //     // println!("stacks at exit: {:?}", self.stacks);
+        //     crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+        //     println!("tail call - stack frame at exit: {:?}", self.stack);
+        //     stop!(Generic => "stack overflowed!"; self.current_span());
+        // }
+
+        // if closure.arity() != payload_size {
+        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
+        // }
+
+        if closure.is_multi_arity {
+            if payload_size < closure.arity() - 1 {
+                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
+            }
+
+            // (define (test x . y))
+            // (test 1 2 3 4 5)
+            // in this case, arity = 2 and payload size = 5
+            // pop off the last 4, collect into a list
+            let amount_to_remove = 1 + payload_size - closure.arity();
+
+            let values = self.stack.split_off(self.stack.len() - amount_to_remove);
+
+            let list = SteelVal::ListV(List::from(values));
+
+            self.stack.push(list);
+        } else if closure.arity() != payload_size {
+            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
+        }
+
+        // Find the new arity from the payload
+        let new_arity = payload_size;
+
+        // We should have arity at this point, drop the stack up to this point
+        // take the last arity off the stack, go back and replace those in order
+        let back = self.stack.len() - new_arity;
+        for i in 0..new_arity {
+            self.stack[offset + i] = self.stack[back + i].clone();
+        }
+
+        self.stack.truncate(offset + new_arity);
+
+        // // TODO
+        // self.heap
+        // .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+
+        // self.heap.collect_garbage();
+
+        // Added this one as well
+        // self.heap.add(Rc::clone(&self.global_env));
+
+        // self.global_env = inner_env;
+        self.instructions = closure.body_exp();
+
+        self.ip = 0;
+        Ok(())
+    }
+
     // #[inline(always)]
     fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
         match &stack_func {
-            BoxedFunction(f) => self.call_boxed_func(f, payload_size)?,
-            FuncV(f) => self.call_primitive_func(f, payload_size)?,
-            MutFunc(f) => self.call_primitive_mut_func(f, payload_size)?,
-            FutureFunc(f) => self.call_future_func(f, payload_size)?,
-            ContractedFunction(cf) => self.call_contracted_function_tail_call(cf, payload_size)?,
+            BoxedFunction(f) => self.call_boxed_func(f, payload_size),
+            FuncV(f) => self.call_primitive_func(f, payload_size),
+            MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
+            FutureFunc(f) => self.call_future_func(f, payload_size),
+            ContractedFunction(cf) => self.call_contracted_function_tail_call(cf, payload_size),
             #[cfg(feature = "jit")]
-            CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            ContinuationFunction(cc) => self.call_continuation(cc)?,
-            Closure(closure) => self.handle_tail_call_closure(closure, payload_size)?,
-            BuiltIn(f) => self.call_builtin_func(f, payload_size)?,
+            CompiledFunction(function) => self.call_compiled_function(function, payload_size),
+            ContinuationFunction(cc) => self.call_continuation(cc),
+            // TODO: Take this out when we move to the new code gen
+            Closure(closure) if std::env::var("CODE_GEN_V2").is_ok() => {
+                self.new_handle_tail_call_closure(closure, payload_size)
+            }
+            Closure(closure) => self.handle_tail_call_closure(closure, payload_size),
+            BuiltIn(f) => self.call_builtin_func(f, payload_size),
             _ => {
                 stop!(BadSyntax => "TailCall - Application not a procedure or function type not supported"; self.current_span());
             }
         }
-
-        Ok(())
     }
 
     // #[inline(always)]
