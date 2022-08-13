@@ -185,7 +185,6 @@ pub fn list_to_hashset(args: &[SteelVal]) -> Result<SteelVal> {
 #[cfg(test)]
 mod hashset_tests {
     use super::*;
-    use crate::throw;
     use std::rc::Rc;
 
     #[test]

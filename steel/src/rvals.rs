@@ -1,6 +1,11 @@
 use crate::{
     gc::Gc,
-    parser::{ast::ExprKind, span::Span, tokens::TokenType},
+    parser::{
+        ast::{Atom, ExprKind},
+        parser::SyntaxObject,
+        span::Span,
+        tokens::TokenType,
+    },
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
@@ -483,39 +488,37 @@ impl Syntax {
         match value {
             // Mutual recursion case
             SyntaxObject(s) => s.to_exprkind(),
-            BoolV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::default(TokenType::BooleanLiteral(*x)),
-            ))),
-            NumV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::default(TokenType::NumberLiteral(*x)),
-            ))),
-            IntV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::default(TokenType::IntegerLiteral(*x)),
-            ))),
+            BoolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::BooleanLiteral(*x),
+            )))),
+            NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::NumberLiteral(*x),
+            )))),
+            IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::IntegerLiteral(*x),
+            )))),
             VectorV(lst) => {
                 let items: Result<Vec<ExprKind>> =
                     lst.iter().map(|x| Self::steelval_to_exprkind(x)).collect();
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
-            StringV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::default(TokenType::StringLiteral(
-                    x.to_string(),
-                )),
-            ))),
+            StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::StringLiteral(x.to_string()),
+            )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
-            SymbolV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::default(TokenType::Identifier(x.to_string())),
-            ))),
+            SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::Identifier(x.to_string()),
+            )))),
             ListV(l) => {
                 let items: Result<Vec<ExprKind>> =
                     l.iter().map(|x| Self::steelval_to_exprkind(x)).collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
-            CharV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::default(TokenType::CharacterLiteral(*x)),
-            ))),
+            CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::CharacterLiteral(*x),
+            )))),
             _ => stop!(ConversionError => "unable to convert {:?} to expression", value),
         }
     }
@@ -528,61 +531,49 @@ impl Syntax {
         match &self.syntax {
             // Mutual recursion case
             SyntaxObject(s) => s.to_exprkind(),
-            BoolV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::new_with_source(
-                    TokenType::BooleanLiteral(*x),
-                    span,
-                    source,
-                ),
-            ))),
-            NumV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::new_with_source(
-                    TokenType::NumberLiteral(*x),
-                    span,
-                    source,
-                ),
-            ))),
-            IntV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::new_with_source(
-                    TokenType::IntegerLiteral(*x),
-                    span,
-                    source,
-                ),
-            ))),
+            BoolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new_with_source(
+                TokenType::BooleanLiteral(*x),
+                span,
+                source,
+            )))),
+            NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new_with_source(
+                TokenType::NumberLiteral(*x),
+                span,
+                source,
+            )))),
+            IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new_with_source(
+                TokenType::IntegerLiteral(*x),
+                span,
+                source,
+            )))),
             VectorV(lst) => {
                 let items: Result<Vec<ExprKind>> =
                     lst.iter().map(|x| Self::steelval_to_exprkind(x)).collect();
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
-            StringV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::new_with_source(
-                    TokenType::StringLiteral(x.to_string()),
-                    span,
-                    source,
-                ),
-            ))),
+            StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new_with_source(
+                TokenType::StringLiteral(x.to_string()),
+                span,
+                source,
+            )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
-            SymbolV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::new_with_source(
-                    TokenType::Identifier(x.to_string()),
-                    span,
-                    source,
-                ),
-            ))),
+            SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new_with_source(
+                TokenType::Identifier(x.to_string()),
+                span,
+                source,
+            )))),
             ListV(l) => {
                 let items: Result<Vec<ExprKind>> =
                     l.iter().map(|x| Self::steelval_to_exprkind(x)).collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
-            CharV(x) => Ok(ExprKind::Atom(crate::parser::ast::Atom::new(
-                crate::parser::parser::SyntaxObject::new_with_source(
-                    TokenType::CharacterLiteral(*x),
-                    span,
-                    source,
-                ),
-            ))),
+            CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new_with_source(
+                TokenType::CharacterLiteral(*x),
+                span,
+                source,
+            )))),
             _ => stop!(ConversionError => "unable to convert {:?} to expression", &self.syntax),
         }
     }
@@ -1142,9 +1133,6 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         StringV(s) => write!(f, "\"{}\"", s),
         CharV(c) => write!(f, "#\\{}", c),
         FuncV(_) => write!(f, "#<function>"),
-        // LambdaV(_) => write!(f, "#<lambda-function>"),
-        // LambdaV(l) => write!(f, "#<{}>", l.pretty_print_closure()),
-        // MacroV(_) => write!(f, "#<macro>"),
         Void => write!(f, "#<void>"),
         SymbolV(s) => write!(f, "{}", s),
         VectorV(lst) => {
@@ -1160,12 +1148,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, ")")
         }
         Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
-        // Pair(_) => {
-        //     let v = collect_pair_into_vector(val);
-        //     display_helper(&v, f)
-        // }
         StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
-        // StructClosureV(_) => write!(f, "#<struct-constructor>"),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
         HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
