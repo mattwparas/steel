@@ -229,7 +229,6 @@ impl TryFrom<SyntaxObject> for SteelVal {
             // Apply => Ok(SymbolV("apply".into())),
             Set => Ok(SymbolV("set!".into())),
             Require => Ok(SymbolV("require".into())),
-            CallCC => Ok(SymbolV("call/cc".into())),
         }
     }
 }

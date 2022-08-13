@@ -329,6 +329,8 @@ pub struct ScopeInfo {
     pub captured_from_enclosing: bool,
     /// Was this var mutated?
     pub mutated: bool,
+    /// Heap offset
+    pub heap_offset: Option<usize>,
 }
 
 impl ScopeInfo {
@@ -343,6 +345,7 @@ impl ScopeInfo {
             capture_offset: None,
             captured_from_enclosing: false,
             mutated: false,
+            heap_offset: None,
         }
     }
 
@@ -357,6 +360,7 @@ impl ScopeInfo {
             capture_offset: None,
             captured_from_enclosing: false,
             mutated: false,
+            heap_offset: None,
         }
     }
 }
@@ -479,6 +483,12 @@ impl<'a> AnalysisPass<'a> {
         for (index, arg) in lambda_function.args.iter().enumerate() {
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
+
+            if let Some(var) = self.scope.get(name) {
+                if var.mutated && var.captured {
+                    println!("Found a var that is both mutated and captured")
+                }
+            }
 
             self.scope
                 .define(name.to_string(), ScopeInfo::new_local(id, index));
@@ -769,25 +779,30 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // make sure that things that get captured and mutated end up on the heap, and both references
             // point to the same thing
             // let mut captured_and_mutated =
-            // vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
+            //     vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
+            // captured_and_mutated.sort_by_key(|x| x.1.id);
 
             let mut sorted_vars = vars.iter_mut().filter(|x| !x.1.mutated).collect::<Vec<_>>();
             sorted_vars.sort_by_key(|x| x.1.id);
 
-            // let current_depth = self.scope.depth();
-            // let height_of_var = self.scope.height_of(key)
+            // for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
+            //     value.heap_offset = Some(index);
+
+            //     // If we've already captured this variable, mark it as being captured from the enclosing environment
+            //     // TODO: If there is shadowing, this might not work?
+            //     if self.captures.contains_key(key.as_str()) {
+            //         let mut value = value.clone();
+            //         value.captured_from_enclosing = true;
+            //         self.captures.define(key.clone(), value)
+            //     } else {
+            //         self.captures.define(key.clone(), value.clone());
+            //     }
+            // }
 
             // So for now, we sort by id, then map these directly to indices that will live in the
             // corresponding captured closure
             for (index, (key, value)) in sorted_vars.iter_mut().enumerate() {
                 value.capture_offset = Some(index);
-
-                if value.mutated {
-                    // TODO: For mutable variables, we should actually find a better way
-                    // These needs to be allocated directly on to the heap, and then
-                    // all references should refer to that one directly.
-                    println!("Found captured mutable value - this var should be allocated directly into heap storage");
-                }
 
                 // If we've already captured this variable, mark it as being captured from the enclosing environment
                 // TODO: If there is shadowing, this might not work?
@@ -1956,6 +1971,13 @@ mod analysis_pass_tests {
     use crate::{parser::parser::Parser, rerrs::ErrorKind};
 
     use super::*;
+
+    // #[test]
+    // fn mutated_and_captured() {
+    //     let script = r#"
+    //         (define )
+    //     "#;
+    // }
 
     #[test]
     fn local_vars() {

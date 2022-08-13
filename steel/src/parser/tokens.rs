@@ -282,7 +282,6 @@ impl fmt::Display for TokenType {
             Struct => write!(f, "struct"),
             Set => write!(f, "set!"),
             Require => write!(f, "require"),
-            CallCC => write!(f, "call/cc"),
         }
     }
 }
