@@ -5,8 +5,8 @@ use super::heap::UpValueHeap;
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
-use crate::values::contracts::ContractType;
 use crate::values::upvalue::UpValue;
+use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
     compiler::program::Executable,
     primitives::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive},
@@ -58,6 +58,7 @@ pub struct SteelThread {
     profiler: OpCodeOccurenceProfiler,
     // TODO: make this not as bad
     closure_interner: HashMap<usize, ByteCodeLambda>,
+    heap: Heap,
     // constants: ConstantMap,
     // If contracts are set to off - contract construction results in a no-op, so we don't
     // need generics on the thread
@@ -78,6 +79,7 @@ impl SteelThread {
             upvalue_head: None,
             profiler: OpCodeOccurenceProfiler::new(),
             closure_interner: HashMap::new(),
+            heap: Heap::new(),
             // constants: ConstantMap::new(),
             contracts_on: true,
             #[cfg(feature = "jit")]
@@ -180,6 +182,7 @@ impl SteelThread {
             &[],
             &mut self.profiler,
             &mut self.closure_interner,
+            &mut self.heap,
             self.contracts_on,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
@@ -214,6 +217,7 @@ impl SteelThread {
             spans,
             &mut self.profiler,
             &mut self.closure_interner,
+            &mut self.heap,
             self.contracts_on,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
@@ -406,6 +410,7 @@ pub struct VmCore<'a> {
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
     pub(crate) closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
+    pub(crate) heap: &'a mut Heap,
     pub(crate) use_contracts: bool,
     #[cfg(feature = "jit")]
     pub(crate) jit: Option<&'a mut JIT>,
@@ -425,6 +430,7 @@ impl<'a> VmCore<'a> {
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
+        heap: &'a mut Heap,
         use_contracts: bool,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> VmCore<'a> {
@@ -444,6 +450,7 @@ impl<'a> VmCore<'a> {
             spans,
             profiler,
             closure_interner,
+            heap,
             use_contracts,
             #[cfg(feature = "jit")]
             jit,
@@ -463,6 +470,7 @@ impl<'a> VmCore<'a> {
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
+        heap: &'a mut Heap,
         use_contracts: bool,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> Result<VmCore<'a>> {
@@ -486,6 +494,7 @@ impl<'a> VmCore<'a> {
             spans,
             profiler,
             closure_interner,
+            heap,
             use_contracts,
             #[cfg(feature = "jit")]
             jit,
@@ -1268,11 +1277,63 @@ impl<'a> VmCore<'a> {
                     // self.stack_index.push(self.stack.len());
                 }
                 DenseInstruction {
+                    op_code: OpCode::SETALLOC,
+                    payload_size,
+                    ..
+                } => {
+                    let value_to_assign = self.stack.pop().unwrap();
+
+                    let old_value = self
+                        .function_stack
+                        .last()
+                        .unwrap()
+                        .heap_allocated()
+                        .borrow_mut()[payload_size as usize]
+                        .set(value_to_assign);
+
+                    self.stack.push(old_value);
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::READALLOC,
+                    payload_size,
+                    ..
+                } => {
+                    let value = self
+                        .function_stack
+                        .last()
+                        .unwrap()
+                        .heap_allocated()
+                        .borrow()[payload_size as usize]
+                        .get();
+
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+                DenseInstruction {
                     op_code: OpCode::ALLOC,
                     payload_size,
                     ..
                 } => {
-                    todo!("Implement patching in vars from the stack to the heap");
+                    let offset =
+                        self.stack_index.last().copied().unwrap_or(0) + payload_size as usize;
+
+                    let allocated_var = self.heap.allocate(
+                        self.stack[offset].clone(), // TODO: Could actually move off of the stack entirely
+                        self.stack.iter(),
+                        self.function_stack.iter(),
+                    );
+
+                    self.function_stack
+                        .last_mut()
+                        .unwrap()
+                        .heap_allocated
+                        .borrow_mut()
+                        .push(allocated_var);
+
+                    self.ip += 1;
+
+                    // todo!("Implement patching in vars from the stack to the heap");
                 }
                 DenseInstruction {
                     op_code: OpCode::LETENDSCOPE,
@@ -1931,6 +1992,7 @@ impl<'a> VmCore<'a> {
             is_let,
             is_multi_arity,
             Vec::new(),
+            Vec::new(),
         );
 
         self.stack
@@ -2028,6 +2090,7 @@ impl<'a> VmCore<'a> {
             is_let,
             is_multi_arity,
             Vec::new(),
+            Vec::new(),
         );
 
         self.stack
@@ -2079,6 +2142,9 @@ impl<'a> VmCore<'a> {
         // TODO preallocate size
         let mut captures = Vec::with_capacity(ndefs as usize);
 
+        // TODO: This shouldn't be the same size as the captures
+        let mut heap_vars = Vec::with_capacity(ndefs as usize);
+
         // TODO clean this up a bit
         // hold the spot for where we need to jump aftwards
         let forward_index = self.ip + forward_jump;
@@ -2095,6 +2161,16 @@ impl<'a> VmCore<'a> {
                 (OpCode::COPYCAPTURECLOSURE, n) => {
                     captures
                         .push(self.function_stack.last().unwrap().captures()[n as usize].clone());
+                }
+                (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
+                    heap_vars.push(
+                        self.function_stack
+                            .last()
+                            .unwrap()
+                            .heap_allocated()
+                            .borrow()[n as usize]
+                            .clone(),
+                    );
                 }
                 (l, _) => {
                     panic!(
@@ -2133,6 +2209,7 @@ impl<'a> VmCore<'a> {
                 false,
                 is_multi_arity,
                 Vec::new(),
+                heap_vars,
             );
 
             self.closure_interner

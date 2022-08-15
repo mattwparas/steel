@@ -14,6 +14,14 @@ pub struct Heap {
 }
 
 impl Heap {
+    pub fn new() -> Self {
+        Heap {
+            memory: Vec::with_capacity(256),
+            count: 0,
+            threshold: 256,
+        }
+    }
+
     // Allocate this variable on the heap
     // It explicitly should no longer be on the stack, and variables that
     // reference it should be pointing here now
@@ -22,7 +30,7 @@ impl Heap {
         value: SteelVal,
         roots: impl Iterator<Item = &'a SteelVal>,
         live_functions: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
-    ) -> Weak<RefCell<HeapAllocated>> {
+    ) -> HeapRef {
         let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
         let weak_ptr = Rc::downgrade(&pointer);
 
@@ -30,7 +38,7 @@ impl Heap {
 
         self.collect(roots, live_functions);
 
-        weak_ptr
+        HeapRef { inner: weak_ptr }
     }
 
     pub fn collect<'a>(
@@ -38,7 +46,7 @@ impl Heap {
         roots: impl Iterator<Item = &'a SteelVal>,
         live_functions: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
     ) {
-        todo!()
+        println!("Calling collect - no op");
     }
 }
 
@@ -52,8 +60,13 @@ impl HeapRef {
         self.inner.upgrade().unwrap().borrow().value.clone()
     }
 
-    pub fn set(&mut self, value: SteelVal) {
-        self.inner.upgrade().unwrap().borrow_mut().value = value
+    pub fn set(&mut self, value: SteelVal) -> SteelVal {
+        let inner = self.inner.upgrade().unwrap();
+
+        let ret = { inner.borrow().value.clone() };
+
+        inner.borrow_mut().value = value;
+        ret
     }
 }
 

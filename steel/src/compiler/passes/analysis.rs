@@ -517,6 +517,22 @@ impl<'a> AnalysisPass<'a> {
     // and also defaulting them to be local identifiers. This way, in the event of a set!
     // we have something to refer to
     fn visit_func_args(&mut self, lambda_function: &LambdaFunction, depth: usize) {
+        // let function_info = self
+        //     .info
+        //     .function_info
+        //     .get(&lambda_function.syntax_object_id);
+
+        let alloc_capture_count = self
+            .info
+            .function_info
+            .get(&lambda_function.syntax_object_id)
+            .map(|x| {
+                x.captured_vars()
+                    .values()
+                    .filter(|x| x.captured && x.mutated)
+                    .count()
+            });
+
         for (index, arg) in lambda_function.args.iter().enumerate() {
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
@@ -547,7 +563,7 @@ impl<'a> AnalysisPass<'a> {
             if heap_alloc {
                 self.scope.define(
                     name.to_string(),
-                    ScopeInfo::new_heap_allocated_var(id, index),
+                    ScopeInfo::new_heap_allocated_var(id, index + alloc_capture_count.unwrap()),
                 );
 
                 // Throw in a dummy info so that no matter what, we have something to refer to
@@ -859,6 +875,13 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .function_info
             .get_mut(&lambda_function.syntax_object_id)
         {
+            // How many spots are going to be filled by the current functions arguments that need to be allocated
+            let alloc_count = function_info
+                .arguments()
+                .values()
+                .filter(|x| x.captured && x.mutated)
+                .count();
+
             let vars = &mut function_info.captured_vars;
 
             // TODO:
@@ -2095,7 +2118,7 @@ mod analysis_pass_tests {
         let script = r#"
             (define (foo x)
                 (lambda (y) 
-                    x
+                    (displayln x)
                     (set! x y)))
         "#;
 

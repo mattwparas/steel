@@ -35,7 +35,7 @@ pub struct ByteCodeLambda {
     pub(crate) is_let: bool,
     pub(crate) is_multi_arity: bool,
     captures: Vec<SteelVal>,
-    heap_allocated: Vec<HeapRef>,
+    pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -62,6 +62,7 @@ impl ByteCodeLambda {
         is_let: bool,
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
+        heap_allocated: Vec<HeapRef>,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
@@ -73,7 +74,7 @@ impl ByteCodeLambda {
             is_multi_arity,
             captures,
             // TODO: Allocated the necessary size right away <- we're going to index into it
-            heap_allocated: Vec::new(),
+            heap_allocated: RefCell::new(heap_allocated),
         }
     }
 
@@ -91,6 +92,10 @@ impl ByteCodeLambda {
 
     pub fn upvalues(&self) -> &[Weak<RefCell<UpValue>>] {
         &self.upvalues
+    }
+
+    pub fn heap_allocated(&self) -> &RefCell<Vec<HeapRef>> {
+        &self.heap_allocated
     }
 
     pub fn captures(&self) -> &[SteelVal] {
