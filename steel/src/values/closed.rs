@@ -42,6 +42,7 @@ impl Heap {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct HeapRef {
     inner: Weak<RefCell<HeapAllocated>>,
 }
@@ -56,6 +57,7 @@ impl HeapRef {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct HeapAllocated {
     pub(crate) reachable: bool,
     pub(crate) value: SteelVal,

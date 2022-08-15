@@ -32,6 +32,7 @@ pub enum OpCode {
     FILLUPVALUE,
     COPYCAPTURESTACK,
     COPYCAPTURECLOSURE,
+    COPYHEAPCAPTURECLOSURE,
     FILLLOCALUPVALUE,
     CLOSEUPVALUE, // Should be 1 for close, 0 for not
     TCOJMP,
@@ -63,6 +64,10 @@ pub enum OpCode {
     SUBREGISTER,
     LTEREGISTER,
     SUBREGISTER1,
+    ALLOC,
+    READALLOC,
+    SETCAPTURED,
+    SETALLOC,
 }
 
 impl OpCode {
@@ -124,12 +129,17 @@ impl OpCode {
             "READCAPTURED" => READCAPTURED,
             "COPYCAPTURESTACK" => COPYCAPTURESTACK,
             "COPYCAPTURECLOSURE" => COPYCAPTURECLOSURE,
+            "COPYHEAPCAPTURECLOSURE" => COPYHEAPCAPTURECLOSURE,
             "NEWSCLOSURE" => NEWSCLOSURE,
             "POPNEW" => POPNEW,
             "ADDREGISTER" => ADDREGISTER,
             "SUBREGISTER" => SUBREGISTER,
             "LTEREGISTER" => LTEREGISTER,
             "SUBREGISTER1" => SUBREGISTER1,
+            "ALLOC" => ALLOC,
+            "READALLOC" => READALLOC,
+            "SETALLOC" => SETALLOC,
+            "SETCAPTURED" => SETCAPTURED,
             _ => panic!("Unable to map string to opcode"),
         }
     }
@@ -196,6 +206,8 @@ impl OpCode {
             OpCode::SUBREGISTER => 2,
             OpCode::LTEREGISTER => 2,
             OpCode::SUBREGISTER1 => todo!(),
+            OpCode::ALLOC => todo!(),
+            _ => todo!(),
         }
     }
 }

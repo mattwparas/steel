@@ -1268,6 +1268,13 @@ impl<'a> VmCore<'a> {
                     // self.stack_index.push(self.stack.len());
                 }
                 DenseInstruction {
+                    op_code: OpCode::ALLOC,
+                    payload_size,
+                    ..
+                } => {
+                    todo!("Implement patching in vars from the stack to the heap");
+                }
+                DenseInstruction {
                     op_code: OpCode::LETENDSCOPE,
                     payload_size,
                     ..

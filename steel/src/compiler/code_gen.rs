@@ -1,6 +1,6 @@
 use crate::{
     compiler::passes::analysis::IdentifierStatus::{
-        Captured, Free, Global, LetVar, Local, LocallyDefinedFunction,
+        Captured, Free, Global, HeapAllocated, LetVar, Local, LocallyDefinedFunction,
     },
     core::{
         instructions::Instruction,
@@ -379,19 +379,35 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // This way, at closure construction (in the VM) we can immediately patch in the kind
             // of closure that we want to create, and where to get it
             for var in function_info.captured_vars().values() {
+                // If we're patching in from the enclosing, check to see if this is a heap allocated var that
+                // we need to patch in to the current scope
                 if var.captured_from_enclosing {
-                    // In this case we're gonna patch in the variable from the current captured scope
-                    self.push(
-                        LabeledInstruction::builder(OpCode::COPYCAPTURECLOSURE)
-                            .payload(var.capture_offset.unwrap()),
-                    );
+                    if var.mutated {
+                        self.push(
+                            LabeledInstruction::builder(OpCode::COPYHEAPCAPTURECLOSURE)
+                                .payload(var.heap_offset.unwrap()),
+                        );
+                    } else {
+                        // In this case we're gonna patch in the variable from the current captured scope
+                        self.push(
+                            LabeledInstruction::builder(OpCode::COPYCAPTURECLOSURE)
+                                .payload(var.capture_offset.unwrap()),
+                        );
+                    }
                 } else {
-                    // In this case, it hasn't yet been captured, so we'll just capture
-                    // directly from the stack
-                    self.push(
-                        LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
-                            .payload(var.stack_offset.unwrap()),
-                    );
+                    if var.mutated {
+                        self.push(
+                            LabeledInstruction::builder(OpCode::COPYHEAPCAPTURECLOSURE)
+                                .payload(var.heap_offset.unwrap()),
+                        );
+                    } else {
+                        // In this case, it hasn't yet been captured, so we'll just capture
+                        // directly from the stack
+                        self.push(
+                            LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
+                                .payload(var.stack_offset.unwrap()),
+                        );
+                    }
                 }
             }
         }
@@ -404,6 +420,26 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         body_instructions
             .push(LabeledInstruction::builder(pop_op_code).payload(lambda_function.args.len()));
+
+        // Load in the heap alloc instructions - on each invocation we can copy in to the current frame
+        {
+            let mut captured_mutable_arguments = function_info
+                .arguments()
+                .values()
+                .filter(|x| x.captured && x.mutated)
+                .collect::<Vec<_>>();
+
+            captured_mutable_arguments.sort_by_key(|x| x.stack_offset);
+
+            for var in captured_mutable_arguments {
+                println!("Found a var that is both mutated and captured");
+                println!("{:#?}", var);
+
+                self.push(
+                    LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap()),
+                );
+            }
+        }
 
         self.instructions.append(&mut body_instructions);
 
@@ -475,14 +511,16 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 // In the event we're captured, we're going to just read the
                 // offset from the captured var
                 (Captured, _) => OpCode::READCAPTURED,
-                (Free, _) => OpCode::PUSH, // This is technically true, but in an incremental compilation mode, we assume the variable is already bound
-                                           // stop!(FreeIdentifier => format!("free identifier: {}", a); a.syn.span),
+                (Free, _) => OpCode::PUSH,
+                (HeapAllocated, _) => OpCode::READALLOC,
+                // This is technically true, but in an incremental compilation mode, we assume the variable is already bound
+                // stop!(FreeIdentifier => format!("free identifier: {}", a); a.syn.span),
             };
 
-            let payload = if op_code == OpCode::READCAPTURED {
-                analysis.capture_index.unwrap()
-            } else {
-                analysis.stack_offset.unwrap_or_default()
+            let payload = match op_code {
+                OpCode::READCAPTURED => analysis.capture_index.unwrap(),
+                OpCode::READALLOC => analysis.heap_offset.unwrap(),
+                _ => analysis.stack_offset.unwrap_or_default(),
             };
 
             self.push(
@@ -569,7 +607,45 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_set(&mut self, s: &crate::parser::ast::Set) -> Self::Output {
-        stop!(BadSyntax => "set! is currently not implemented"; s.location.span);
+        // stop!(BadSyntax => "set! is currently not implemented"; s.location.span);
+
+        self.visit(&s.expr)?;
+
+        let a = s.variable.atom_syntax_object().unwrap();
+
+        if let Some(analysis) = self.analysis.get(&a) {
+            let op_code = match &analysis.kind {
+                Global => OpCode::SET,
+                Local | LetVar => OpCode::SETLOCAL,
+
+                LocallyDefinedFunction => {
+                    stop!(Generic => "Unable to lower to bytecode: locally defined function should be lifted to an external scope")
+                }
+                // In the event we're captured, we're going to just read the
+                // offset from the captured var
+                Captured => OpCode::SETCAPTURED,
+                Free => OpCode::SET,
+                HeapAllocated => OpCode::SETALLOC,
+                // This is technically true, but in an incremental compilation mode, we assume the variable is already bound
+                // stop!(FreeIdentifier => format!("free identifier: {}", a); a.syn.span),
+            };
+
+            let payload = match op_code {
+                OpCode::SETCAPTURED => analysis.capture_index.unwrap(),
+                OpCode::SETALLOC => analysis.heap_offset.unwrap(),
+                _ => analysis.stack_offset.unwrap_or_default(),
+            };
+
+            self.push(
+                LabeledInstruction::builder(op_code)
+                    .payload(payload)
+                    .contents(a.clone()),
+            );
+
+            Ok(())
+        } else {
+            stop!(Generic => "Something went wrong with getting the var in set!");
+        }
     }
 
     fn visit_require(&mut self, r: &crate::parser::ast::Require) -> Self::Output {

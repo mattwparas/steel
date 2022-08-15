@@ -21,6 +21,7 @@ pub enum IdentifierStatus {
     LetVar,
     Captured,
     Free,
+    HeapAllocated,
 }
 
 // TODO: Make these not just plain public variables
@@ -32,7 +33,9 @@ pub struct SemanticInformation {
     pub shadows: Option<SyntaxObjectId>,
     pub usage_count: usize,
     pub span: Span,
+    // Referring to a local var definition
     pub refers_to: Option<SyntaxObjectId>,
+    // If this is a top level define, what does this alias to?
     pub aliases_to: Option<SyntaxObjectId>,
     pub builtin: bool,
     pub last_usage: bool,
@@ -42,6 +45,7 @@ pub struct SemanticInformation {
     // something like Option<CaptureInformation>
     pub capture_index: Option<usize>,
     pub captured_from_enclosing: bool,
+    pub heap_offset: Option<usize>,
 }
 
 impl SemanticInformation {
@@ -61,6 +65,7 @@ impl SemanticInformation {
             escapes: false,
             capture_index: None,
             captured_from_enclosing: false,
+            heap_offset: None,
         }
     }
 
@@ -102,6 +107,11 @@ impl SemanticInformation {
         self
     }
 
+    pub fn with_heap_offset(mut self, offset: usize) -> Self {
+        self.heap_offset = Some(offset);
+        self
+    }
+
     pub fn with_captured_from_enclosing(&mut self, captured_from_enclosing: bool) {
         self.captured_from_enclosing = captured_from_enclosing;
     }
@@ -112,6 +122,10 @@ pub struct FunctionInformation {
     // Just a mapping of the vars to their scope info - holds which vars are being
     // captured by this function
     captured_vars: HashMap<String, ScopeInfo>,
+    arguments: HashMap<String, ScopeInfo>,
+    // Keeps a mapping of vars to their scope info, if the variable was mutated
+    // if this variable was mutated and inevitably captured, we want to know
+    // mutated_vars: HashMap<String, ScopeInfo>,
     // If this function is defined in the tail position / and or the alias to this function escapes,
     // then this should be marked as true
     pub escapes: bool,
@@ -123,9 +137,13 @@ pub struct FunctionInformation {
 }
 
 impl FunctionInformation {
-    pub fn new(captured_vars: HashMap<String, ScopeInfo>) -> Self {
+    pub fn new(
+        captured_vars: HashMap<String, ScopeInfo>,
+        arguments: HashMap<String, ScopeInfo>,
+    ) -> Self {
         Self {
             captured_vars,
+            arguments,
             escapes: false,
             aliases_to: None,
             depth: 0,
@@ -134,6 +152,10 @@ impl FunctionInformation {
 
     pub fn captured_vars(&self) -> &HashMap<String, ScopeInfo> {
         &self.captured_vars
+    }
+
+    pub fn arguments(&self) -> &HashMap<String, ScopeInfo> {
+        &self.arguments
     }
 
     pub fn escapes(mut self, escapes: bool) -> Self {
@@ -363,6 +385,21 @@ impl ScopeInfo {
             heap_offset: None,
         }
     }
+
+    pub fn new_heap_allocated_var(id: SyntaxObjectId, heap_offset: usize) -> Self {
+        Self {
+            id,
+            captured: true,
+            usage_count: 0,
+            last_used: None,
+            stack_offset: None,
+            escapes: false,
+            capture_offset: None,
+            captured_from_enclosing: false,
+            mutated: true,
+            heap_offset: Some(heap_offset),
+        }
+    }
 }
 
 struct AnalysisPass<'a> {
@@ -484,26 +521,62 @@ impl<'a> AnalysisPass<'a> {
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
 
-            if let Some(var) = self.scope.get(name) {
-                if var.mutated && var.captured {
-                    println!("Found a var that is both mutated and captured")
+            // TODO: Don't need to do these repeated hash lookups over and over
+            // can coalesce this into one at the top of the args
+            let heap_alloc = if let Some(info) = self
+                .info
+                .function_info
+                .get(&lambda_function.syntax_object_id)
+            {
+                if let Some(info) = info.arguments.get(name) {
+                    // println!("Found information: {:#?}", info);
+
+                    if info.mutated && info.captured {
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
                 }
+            } else {
+                false
+            };
+
+            // TODO: clean this up like a lot
+            if heap_alloc {
+                self.scope.define(
+                    name.to_string(),
+                    ScopeInfo::new_heap_allocated_var(id, index),
+                );
+
+                // Throw in a dummy info so that no matter what, we have something to refer to
+                // in the event of a set!
+                // Later on in this function this gets updated accordingly
+                self.info.insert(
+                    &arg.atom_syntax_object().unwrap(),
+                    SemanticInformation::new(
+                        IdentifierStatus::HeapAllocated,
+                        depth,
+                        arg.atom_syntax_object().unwrap().span,
+                    ),
+                );
+            } else {
+                self.scope
+                    .define(name.to_string(), ScopeInfo::new_local(id, index));
+
+                // Throw in a dummy info so that no matter what, we have something to refer to
+                // in the event of a set!
+                // Later on in this function this gets updated accordingly
+                self.info.insert(
+                    &arg.atom_syntax_object().unwrap(),
+                    SemanticInformation::new(
+                        IdentifierStatus::Local,
+                        depth,
+                        arg.atom_syntax_object().unwrap().span,
+                    ),
+                );
             }
-
-            self.scope
-                .define(name.to_string(), ScopeInfo::new_local(id, index));
-
-            // Throw in a dummy info so that no matter what, we have something to refer to
-            // in the event of a set!
-            // Later on in this function this gets updated accordingly
-            self.info.insert(
-                &arg.atom_syntax_object().unwrap(),
-                SemanticInformation::new(
-                    IdentifierStatus::Local,
-                    depth,
-                    arg.atom_syntax_object().unwrap().span,
-                ),
-            );
         }
     }
 
@@ -525,21 +598,33 @@ impl<'a> AnalysisPass<'a> {
         lambda_function: &LambdaFunction,
         captured_vars: &HashMap<String, ScopeInfo>,
         depth: usize,
-        arguments: HashMap<String, ScopeInfo>,
+        arguments: &HashMap<String, ScopeInfo>,
     ) {
         for var in &lambda_function.args {
             let ident = var.atom_identifier().unwrap();
-            let kind = if captured_vars.contains_key(ident) {
-                IdentifierStatus::Captured
+
+            let kind = if let Some(info) = captured_vars.get(ident) {
+                if info.mutated {
+                    IdentifierStatus::HeapAllocated
+                } else {
+                    IdentifierStatus::Captured
+                }
             } else {
                 IdentifierStatus::Local
             };
+
+            // let kind = if captured_vars.contains_key(ident) {
+            //     IdentifierStatus::Captured
+            // } else {
+            //     IdentifierStatus::Local
+            // };
 
             let mut semantic_info =
                 SemanticInformation::new(kind, depth, var.atom_syntax_object().unwrap().span);
 
             // Update the usage count to collect how many times the variable was referenced
             // Inside of the scope in which the variable existed
+            // TODO: merge this into one
             let count = arguments.get(ident).unwrap().usage_count;
 
             if count == 0 {
@@ -553,6 +638,10 @@ impl<'a> AnalysisPass<'a> {
             // shadows the previous id
             if let Some(shadowed_var) = self.scope.get(ident) {
                 semantic_info = semantic_info.shadows(shadowed_var.id)
+            }
+
+            if let Some(info) = self.info.get(&var.atom_syntax_object().unwrap()) {
+                println!("{:#?}", info);
             }
 
             self.info
@@ -778,40 +867,46 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // that a variable is both captured, and mutated by both the closure and the stack, we want to
             // make sure that things that get captured and mutated end up on the heap, and both references
             // point to the same thing
-            // let mut captured_and_mutated =
-            //     vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
-            // captured_and_mutated.sort_by_key(|x| x.1.id);
 
-            let mut sorted_vars = vars.iter_mut().filter(|x| !x.1.mutated).collect::<Vec<_>>();
-            sorted_vars.sort_by_key(|x| x.1.id);
+            // Handle the immutable variables being patched in
+            {
+                let mut sorted_vars = vars.iter_mut().filter(|x| !x.1.mutated).collect::<Vec<_>>();
+                sorted_vars.sort_by_key(|x| x.1.id);
 
-            // for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
-            //     value.heap_offset = Some(index);
+                // So for now, we sort by id, then map these directly to indices that will live in the
+                // corresponding captured closure
+                for (index, (key, value)) in sorted_vars.iter_mut().enumerate() {
+                    value.capture_offset = Some(index);
 
-            //     // If we've already captured this variable, mark it as being captured from the enclosing environment
-            //     // TODO: If there is shadowing, this might not work?
-            //     if self.captures.contains_key(key.as_str()) {
-            //         let mut value = value.clone();
-            //         value.captured_from_enclosing = true;
-            //         self.captures.define(key.clone(), value)
-            //     } else {
-            //         self.captures.define(key.clone(), value.clone());
-            //     }
-            // }
+                    // If we've already captured this variable, mark it as being captured from the enclosing environment
+                    // TODO: If there is shadowing, this might not work?
+                    if self.captures.contains_key(key.as_str()) {
+                        let mut value = value.clone();
+                        value.captured_from_enclosing = true;
+                        self.captures.define(key.clone(), value)
+                    } else {
+                        self.captures.define(key.clone(), value.clone());
+                    }
+                }
+            }
 
-            // So for now, we sort by id, then map these directly to indices that will live in the
-            // corresponding captured closure
-            for (index, (key, value)) in sorted_vars.iter_mut().enumerate() {
-                value.capture_offset = Some(index);
+            {
+                let mut captured_and_mutated =
+                    vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
+                captured_and_mutated.sort_by_key(|x| x.1.id);
 
-                // If we've already captured this variable, mark it as being captured from the enclosing environment
-                // TODO: If there is shadowing, this might not work?
-                if self.captures.contains_key(key.as_str()) {
-                    let mut value = value.clone();
-                    value.captured_from_enclosing = true;
-                    self.captures.define(key.clone(), value)
-                } else {
-                    self.captures.define(key.clone(), value.clone());
+                for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
+                    value.heap_offset = Some(index);
+
+                    // If we've already captured this variable, mark it as being captured from the enclosing environment
+                    // TODO: If there is shadowing, this might not work?
+                    if self.captures.contains_key(key.as_str()) {
+                        let mut value = value.clone();
+                        value.captured_from_enclosing = true;
+                        self.captures.define(key.clone(), value)
+                    } else {
+                        self.captures.define(key.clone(), value.clone());
+                    }
                 }
             }
         }
@@ -843,8 +938,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             self.info.get_mut(&id).unwrap().last_usage = true;
         }
 
+        println!("{:#?}", arguments);
+
         // Using the arguments, mark the vars that have been captured
-        self.find_and_mark_captured_arguments(lambda_function, &captured_vars, depth, arguments);
+        self.find_and_mark_captured_arguments(lambda_function, &captured_vars, depth, &arguments);
 
         // If we've already seen this function, lets not do anything just quite yet
         if let Some(_) = self
@@ -857,7 +954,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // Capture the information and store it in the semantic analysis for this individual function
             self.info.function_info.insert(
                 lambda_function.syntax_object_id,
-                FunctionInformation::new(captured_vars)
+                FunctionInformation::new(captured_vars, arguments)
                     .escapes(self.escape_analysis)
                     .depth(self.scope.depth()),
             );
@@ -877,9 +974,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 scope_info.usage_count += 1;
 
                 let id = scope_info.id;
-                if let Some(var) = self.info.get_mut(&id) {
+                if let Some(mut var) = self.info.get_mut(&id) {
                     var.set_bang = true;
                     scope_info.mutated = true;
+
+                    // while let Some(reference) = var.refers_to.and_then(|x| self.info.get_mut(&x)) {
+                    //     reference.set_bang = true;
+                    //     var = reference;
+                    // }
+
+                    // var.refers
                 } else {
                     println!("Unable to find var: {} in info map to update to set!", name);
                 }
@@ -887,6 +991,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 println!("Variable not yet in scope: {}", name);
             }
         }
+
+        self.visit(&s.variable)
     }
 
     fn visit_atom(&mut self, a: &'a crate::parser::ast::Atom) {
@@ -926,13 +1032,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 let mut_ref = self.scope.get_mut(ident).unwrap();
 
-                mut_ref.captured = false;
+                // Not sure if this is going to be a problem...
+                // Because if its captured at this stage, I think we want it to be marked as captured
+                // TODO:
+                // mut_ref.captured = false;
                 mut_ref.usage_count += 1;
 
                 // Mark this as last touched by this identifier
                 mut_ref.last_used = Some(current_id);
-
-                // let identifier_status = IdentifierStatus::Local;
 
                 // In the event there is a local define, we want to count the usage here
                 if let Some(local_define) = self.info.get_mut(&mut_ref.id) {
@@ -950,7 +1057,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     log::warn!("Stack offset missing from local define")
                 }
 
-                // println!("Variable {} refers to {}", ident, mut_ref.id);
+                if mut_ref.captured && mut_ref.mutated {
+                    semantic_info.kind = IdentifierStatus::HeapAllocated;
+                    semantic_info.heap_offset = mut_ref.heap_offset;
+                }
 
                 self.info.insert(&a.syn, semantic_info);
 
@@ -973,7 +1083,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // TODO: Make sure we want to mark this identifier as last used
                 captured.last_used = Some(current_id);
 
-                let mut identifier_status = IdentifierStatus::Captured;
+                let mut identifier_status = if captured.mutated {
+                    IdentifierStatus::HeapAllocated
+                } else {
+                    IdentifierStatus::Captured
+                };
 
                 if let Some(local_define) = self.info.get_mut(&captured.id) {
                     local_define.usage_count = captured.usage_count;
@@ -994,8 +1108,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // TODO: Merge the behavior of all of these separate cases into one
                 semantic_info.with_captured_from_enclosing(captured.captured_from_enclosing);
 
+                // If we're getting captured and mutated, then we should be fine to do these checks
+                // exclusively
                 if let Some(capture_offset) = captured.capture_offset {
                     semantic_info = semantic_info.with_capture_index(capture_offset);
+                } else if let Some(heap_offset) = captured.heap_offset {
+                    semantic_info = semantic_info.with_heap_offset(heap_offset);
                 } else {
                     log::warn!("Stack offset missing from local define")
                 }
@@ -1972,12 +2090,20 @@ mod analysis_pass_tests {
 
     use super::*;
 
-    // #[test]
-    // fn mutated_and_captured() {
-    //     let script = r#"
-    //         (define )
-    //     "#;
-    // }
+    #[test]
+    fn mutated_and_captured() {
+        let script = r#"
+            (define (foo x)
+                (lambda (y) 
+                    x
+                    (set! x y)))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+    }
 
     #[test]
     fn local_vars() {

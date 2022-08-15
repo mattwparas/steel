@@ -13,7 +13,7 @@ use crate::{
     SteelVal,
 };
 
-use super::upvalue::UpValue;
+use super::{closed::HeapRef, upvalue::UpValue};
 
 pub(crate) enum Function {
     BoxedFunction(BoxedFunctionSignature),
@@ -35,6 +35,7 @@ pub struct ByteCodeLambda {
     pub(crate) is_let: bool,
     pub(crate) is_multi_arity: bool,
     captures: Vec<SteelVal>,
+    heap_allocated: Vec<HeapRef>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -71,6 +72,8 @@ impl ByteCodeLambda {
             is_let,
             is_multi_arity,
             captures,
+            // TODO: Allocated the necessary size right away <- we're going to index into it
+            heap_allocated: Vec::new(),
         }
     }
 
