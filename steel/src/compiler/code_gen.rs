@@ -507,7 +507,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             let op_code = match (&analysis.kind, analysis.last_usage) {
                 (Global, _) => OpCode::PUSH,
                 (Local, true) | (LetVar, true) => OpCode::MOVEREADLOCAL,
-                // (Local, true) | (LetVar, true) => OpCode::READLOCAL,
                 (Local, false) | (LetVar, false) => OpCode::READLOCAL,
 
                 (LocallyDefinedFunction, _) => {
