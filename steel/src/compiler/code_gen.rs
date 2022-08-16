@@ -44,7 +44,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
         what => {
-            println!("getting here in the eval_atom");
+            println!("getting here in the eval_atom - code_gen");
             stop!(UnexpectedToken => what; t.span)
         }
     }
@@ -357,6 +357,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     .payload(function_info.captured_vars().len()),
             );
 
+            let mut vars = function_info.captured_vars().values().collect::<Vec<_>>();
+
+            vars.sort_by_key(|x| x.id);
+
             // Here we're going to explicitly capture from either the enclosing scope
             // or the stack. For example:
             //
@@ -378,7 +382,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             //
             // This way, at closure construction (in the VM) we can immediately patch in the kind
             // of closure that we want to create, and where to get it
-            for var in function_info.captured_vars().values() {
+            for var in vars {
                 // If we're patching in from the enclosing, check to see if this is a heap allocated var that
                 // we need to patch in to the current scope
                 if var.captured_from_enclosing {
@@ -432,8 +436,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             captured_mutable_arguments.sort_by_key(|x| x.stack_offset);
 
             for var in captured_mutable_arguments {
-                println!("Found a var that is both mutated and captured");
-                println!("{:#?}", var);
+                // println!("Found a var that is both mutated and captured");
+                // println!("{:#?}", var);
 
                 self.push(
                     LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap()),
@@ -503,6 +507,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             let op_code = match (&analysis.kind, analysis.last_usage) {
                 (Global, _) => OpCode::PUSH,
                 (Local, true) | (LetVar, true) => OpCode::MOVEREADLOCAL,
+                // (Local, true) | (LetVar, true) => OpCode::READLOCAL,
                 (Local, false) | (LetVar, false) => OpCode::READLOCAL,
 
                 (LocallyDefinedFunction, _) => {
@@ -578,6 +583,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     // We don't need to push the function onto the stack if we're doing a self
                     // tail call
                     self.instructions.pop();
+                    println!("Found a self tail call: {:?}", l);
                     OpCode::TCOJMP
                 }
             };
@@ -685,14 +691,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .get(&l.syntax_object_id)
             .expect("Missing analysis information for let");
 
-        for var in l.local_bindings() {
-            let variable_info = self
-                .analysis
-                .get(var.atom_syntax_object().unwrap())
-                .unwrap();
+        // for var in l.local_bindings() {
+        //     let variable_info = self
+        //         .analysis
+        //         .get(var.atom_syntax_object().unwrap())
+        //         .unwrap();
 
-            println!("{:#?}", variable_info);
-        }
+        //     // println!("{:#?}", variable_info);
+        // }
 
         self.visit(&l.body_expr)?;
 

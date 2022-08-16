@@ -2064,7 +2064,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
         what => {
-            println!("getting here in the eval_atom");
+            println!("getting here in the eval_atom - code_generator");
             stop!(UnexpectedToken => what; t.span)
         }
     }

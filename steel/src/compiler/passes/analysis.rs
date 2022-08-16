@@ -656,9 +656,9 @@ impl<'a> AnalysisPass<'a> {
                 semantic_info = semantic_info.shadows(shadowed_var.id)
             }
 
-            if let Some(info) = self.info.get(&var.atom_syntax_object().unwrap()) {
-                println!("{:#?}", info);
-            }
+            // if let Some(info) = self.info.get(&var.atom_syntax_object().unwrap()) {
+            //     println!("{:#?}", info);
+            // }
 
             self.info
                 .update_with(&var.atom_syntax_object().unwrap(), semantic_info);
@@ -840,6 +840,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             self.scope
                 .define(name.to_string(), ScopeInfo::new_local(id, stack_offset));
+
+            println!("Inserting local: {:?} at offset: {}", arg, stack_offset);
+
             stack_offset += 1;
 
             self.info.insert(
@@ -862,6 +865,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
+        let stack_offset_rollback = self.stack_offset;
+
         // We're entering a new scope since we've entered a lambda function
         self.scope.push_layer();
         // The captures correspond to what variables _this_ scope should decide to capture, and also
@@ -875,12 +880,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .function_info
             .get_mut(&lambda_function.syntax_object_id)
         {
+            if !function_info.escapes {
+                self.defining_context = None;
+            }
+
             // How many spots are going to be filled by the current functions arguments that need to be allocated
-            let alloc_count = function_info
-                .arguments()
-                .values()
-                .filter(|x| x.captured && x.mutated)
-                .count();
+            // let alloc_count = function_info
+            //     .arguments()
+            //     .values()
+            //     .filter(|x| x.captured && x.mutated)
+            //     .count();
 
             let vars = &mut function_info.captured_vars;
 
@@ -939,6 +948,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         self.visit_func_args(lambda_function, depth);
 
+        self.stack_offset += lambda_function.args.len();
+
         // TODO: Better abstract this pattern - perhaps have the function call be passed in?
         self.visit_with_tail_call_eligibility(&lambda_function.body, true);
 
@@ -961,7 +972,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             self.info.get_mut(&id).unwrap().last_usage = true;
         }
 
-        println!("{:#?}", arguments);
+        // println!("{:#?}", arguments);
 
         // Using the arguments, mark the vars that have been captured
         self.find_and_mark_captured_arguments(lambda_function, &captured_vars, depth, &arguments);
@@ -982,6 +993,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     .depth(self.scope.depth()),
             );
         }
+
+        self.stack_offset = stack_offset_rollback;
     }
 
     fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
@@ -1105,6 +1118,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // TODO: Make sure we want to mark this identifier as last used
                 captured.last_used = Some(current_id);
+
+                // We also want to mark the current var thats actually in scope as last used as well
+                if let Some(in_scope) = self.scope.get_mut(ident) {
+                    in_scope.last_used = Some(current_id);
+                }
 
                 let mut identifier_status = if captured.mutated {
                     IdentifierStatus::HeapAllocated
@@ -1727,6 +1745,10 @@ pub struct SemanticAnalysis<'a> {
 }
 
 impl<'a> SemanticAnalysis<'a> {
+    pub fn from_analysis(exprs: &'a mut Vec<ExprKind>, analysis: Analysis) -> Self {
+        Self { exprs, analysis }
+    }
+
     pub fn new(exprs: &'a mut Vec<ExprKind>) -> Self {
         let analysis = Analysis::from_exprs(exprs);
         Self { exprs, analysis }
@@ -2088,7 +2110,10 @@ impl<'a> SemanticAnalysis<'a> {
 
         // Same as the above - just getting around a double mutable borrow.
         // Move the lifted functions to the back of the original expression list
-        self.exprs.append(&mut overall_lifted);
+        // self.exprs.append(&mut overall_lifted);
+
+        overall_lifted.append(&mut self.exprs);
+        *self.exprs = overall_lifted;
 
         if re_run_analysis {
             log::info!(
@@ -2112,6 +2137,39 @@ mod analysis_pass_tests {
     use crate::{parser::parser::Parser, rerrs::ErrorKind};
 
     use super::*;
+
+    #[test]
+    fn last_usages_test() {
+        let script = r#"
+        (define (tree-rec path padding)
+        ; (define name (file-name path))
+        (%plain-let ((name (file-name path)))
+            ; (displayln path)
+            ; (displayln name)
+            (displayln (string-append padding name))
+            (cond [(is-file? path) name]
+                    [(is-dir? path)
+                    (map (fn (x)
+                            (tree-rec x (string-append padding "    ")))
+                            ; (merge-sort (read-dir path)))]
+                            (read-dir path))]
+                    [else void])))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+
+        for var in analysis.last_usages() {
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                format!("last usage"),
+                var.span,
+            );
+        }
+    }
 
     #[test]
     fn mutated_and_captured() {

@@ -4,6 +4,7 @@ use crate::{
         constants::ConstantMap,
         map::SymbolMap,
         passes::{
+            analysis::SemanticAnalysis,
             begin::flatten_begins_and_expand_defines,
             lambda_lifting::LambdaLifter,
             reader::{ExpandMethodCalls, MultipleArityFunctions},
@@ -948,7 +949,18 @@ impl Compiler {
         //         .collect::<Result<Vec<_>>>()?;
         // }
 
-        let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;
+        let mut expanded_statements =
+            self.apply_const_evaluation(constants, expanded_statements)?;
+
+        if std::env::var("CODE_GEN_V2").is_ok() {
+            let mut analysis = Analysis::from_exprs(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
+
+            let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+            semantic.lift_pure_local_functions();
+            semantic.lift_all_local_functions();
+        }
 
         debug!("About to expand defines");
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
@@ -966,7 +978,7 @@ impl Compiler {
         // TODO - make sure I want to keep this
         // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
 
-        if let Err(_) = std::env::var("CODE_GEN_V2") {
+        if std::env::var("CODE_GEN_V2").is_err() {
             expanded_statements = LambdaLifter::lift(expanded_statements);
         }
 

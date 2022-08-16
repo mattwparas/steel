@@ -19,7 +19,7 @@ impl StringOperations {
                     ok_string!(new_string)
                 // Ok(Gc::new(SteelVal::StringV(new_string)))
                 } else {
-                    stop!(TypeMismatch => "string-append expected two strings")
+                    stop!(TypeMismatch => format!("string-append expected two strings, found {} and {}", &args[0], &args[1]))
                 }
             } else {
                 stop!(ArityMismatch => "string-append takes two arguments")

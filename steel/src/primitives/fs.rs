@@ -27,7 +27,7 @@ impl FsFunctions {
                 if let SteelVal::StringV(s) = &args[0] {
                     Ok(SteelVal::BoolV(Path::new(s.as_ref()).is_file()))
                 } else {
-                    stop!(TypeMismatch => "is-file? expects a string")
+                    stop!(TypeMismatch => format!("is-file? expects a string, found: {}", &args[0]))
                 }
             } else {
                 stop!(ArityMismatch => "is-file? takes one argument")
@@ -63,7 +63,7 @@ impl FsFunctions {
                             .into(),
                     ))
                 } else {
-                    stop!(TypeMismatch => "is-dir? expects a string")
+                    stop!(TypeMismatch => "file-name expects a string")
                 }
             } else {
                 stop!(ArityMismatch => "file-name takes one argument")

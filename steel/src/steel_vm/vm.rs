@@ -1233,7 +1233,7 @@ impl<'a> VmCore<'a> {
                     let closure_arity = self.function_stack.last().unwrap().arity();
 
                     if current_arity != closure_arity {
-                        stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure_arity, current_arity));
+                        stop!(ArityMismatch => format!("tco: function expected {} arguments, found {}", closure_arity, current_arity));
                     }
 
                     // HACK COME BACK TO THIS
@@ -2156,6 +2156,7 @@ impl<'a> VmCore<'a> {
                 (OpCode::COPYCAPTURESTACK, n) => {
                     let offset = self.stack_index.last().copied().unwrap_or(0);
                     let value = self.stack[n as usize + offset].clone();
+                    // println!("Capturing: {value}");
                     captures.push(value);
                 }
                 (OpCode::COPYCAPTURECLOSURE, n) => {
