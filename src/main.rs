@@ -49,7 +49,10 @@ fn main() {
     //     .init();
 
     builder
-        .filter(Some("requires"), LevelFilter::Trace)
+        .filter(
+            Some("steel::compiler::passes::analysis"),
+            LevelFilter::Trace,
+        )
         // .filter(Some("steel::steel_vm::vm"), LevelFilter::Trace)
         .init();
 

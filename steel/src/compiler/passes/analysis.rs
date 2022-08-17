@@ -841,7 +841,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             self.scope
                 .define(name.to_string(), ScopeInfo::new_local(id, stack_offset));
 
-            println!("Inserting local: {:?} at offset: {}", arg, stack_offset);
+            // println!("Inserting local: {:?} at offset: {}", arg, stack_offset);
 
             stack_offset += 1;
 
@@ -1111,7 +1111,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             if let Some(captured) = self.captures.get_mut(ident) {
                 // TODO: Fill in this information here - when the vars are captured in the immediate enclosing,
                 // we want to do stuff....
-                println!("Found a captured var: {:?}", captured);
+                // println!("Found a captured var: {:?}", captured);
 
                 captured.captured = true;
                 captured.usage_count += 1;
@@ -1623,7 +1623,7 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
 
                 if let ExprKind::LambdaFunction(l) = lambda {
                     if let Some(info) = self.analysis.get_function_info(l) {
-                        println!("depth: {}", info.depth);
+                        // println!("depth: {}", info.depth);
 
                         // We don't need to lift top level functions to the top level already
                         if info.depth == 1 {
@@ -1947,6 +1947,7 @@ impl<'a> SemanticAnalysis<'a> {
                     *anon = ExprKind::Let(let_expr.into());
 
                     re_run_analysis = true;
+                    log::info!("Replaced anonymous function call with let");
 
                     return true;
                 } else {
@@ -2056,7 +2057,7 @@ impl<'a> SemanticAnalysis<'a> {
 
     // TODO: Right now this lifts and renames, but it does not handle
     // The extra arguments necessary for this to work
-    pub fn lift_pure_local_functions(&mut self) {
+    pub fn lift_pure_local_functions(&mut self) -> &mut Self {
         let mut overall_lifted = Vec::new();
         let mut re_run_analysis = false;
 
@@ -2080,7 +2081,7 @@ impl<'a> SemanticAnalysis<'a> {
                 .iter()
                 .map(|x| {
                     if let ExprKind::Define(d) = x {
-                        println!("Found a local function to lift: {}", d.name);
+                        log::info!("Found a local function to lift: {}", d.name);
                         d.name.atom_syntax_object().unwrap().syntax_object_id
                     } else {
                         unreachable!()
@@ -2169,6 +2170,8 @@ impl<'a> SemanticAnalysis<'a> {
 
             self.analysis = Analysis::from_exprs(self.exprs);
         }
+
+        self
     }
 
     pub fn resolve_alias(&self, id: SyntaxObjectId) -> Option<SyntaxObjectId> {
