@@ -958,12 +958,22 @@ impl Compiler {
 
             let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
+            semantic.replace_anonymous_function_calls_with_plain_lets();
             semantic.lift_pure_local_functions();
             semantic.lift_all_local_functions();
         }
 
         debug!("About to expand defines");
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+
+        if std::env::var("CODE_GEN_V2").is_ok() {
+            let mut analysis = Analysis::from_exprs(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
+
+            let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+            semantic.replace_anonymous_function_calls_with_plain_lets();
+        }
 
         if log_enabled!(log::Level::Debug) {
             debug!(

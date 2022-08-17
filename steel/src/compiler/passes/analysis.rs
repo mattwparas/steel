@@ -4,7 +4,7 @@ use itertools::Itertools;
 use quickscope::ScopeMap;
 
 use crate::parser::{
-    ast::{Atom, Define, ExprKind, LambdaFunction, List},
+    ast::{Atom, Define, ExprKind, LambdaFunction, Let, List},
     parser::{SyntaxObject, SyntaxObjectId},
     span::Span,
     tokens::TokenType,
@@ -1910,6 +1910,53 @@ impl<'a> SemanticAnalysis<'a> {
             }
 
             false
+        };
+
+        self.find_anonymous_function_calls_and_mutate_with(func);
+
+        if re_run_analysis {
+            log::info!("Re-running the semantic analysis after modifications");
+
+            self.analysis = Analysis::from_exprs(self.exprs);
+        }
+
+        self
+    }
+
+    pub fn replace_anonymous_function_calls_with_plain_lets(&mut self) -> &mut Self {
+        let mut re_run_analysis = false;
+
+        let func = |_: &Analysis, anon: &mut ExprKind| {
+            if let ExprKind::List(l) = anon {
+                let function = l.args.remove(0);
+
+                if let ExprKind::LambdaFunction(mut f) = function {
+                    let mut function_body = ExprKind::List(List::new(Vec::new()));
+                    std::mem::swap(&mut f.body, &mut function_body);
+
+                    let let_expr = Let::new(
+                        f.args
+                            .iter()
+                            .zip(l.args.iter())
+                            .map(|x| (x.0.clone(), x.1.clone()))
+                            .collect(),
+                        function_body,
+                        f.location.clone(),
+                    );
+
+                    *anon = ExprKind::Let(let_expr.into());
+
+                    re_run_analysis = true;
+
+                    return true;
+                } else {
+                    unreachable!()
+                }
+            } else {
+                unreachable!()
+            }
+
+            // false
         };
 
         self.find_anonymous_function_calls_and_mutate_with(func);
