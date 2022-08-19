@@ -106,8 +106,7 @@
 ;; These will just be stored in a hash map at the back of the struct.
 (define (make-struct struct-name fields . options)
   (when (not (list? fields))
-    (error! "make-struct expects a list of field names, found " fields)
-    void)
+    (error! "make-struct expects a list of field names, found " fields))
 
   (when (not (symbol? struct-name))
     (error! "make-struct expects an identifier as the first argument, found " struct-name))

@@ -686,6 +686,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         self.defining_context = define_ctx;
     }
 
+    // Quoted values are just constants - lets ignore them for now?
+    fn visit_quote(&mut self, quote: &'a crate::parser::ast::Quote) {
+        return;
+    }
+
     fn visit_if(&mut self, f: &'a crate::parser::ast::If) {
         // Explicitly disallow a tail call in the test expression
         // There is no way that this could be a tail call
@@ -804,6 +809,13 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             self.tail_call_eligible = false;
             self.stack_offset += 1;
+        }
+
+        // Overall, 1 for the total
+        // self.stack_offset += 1;
+
+        if !begin.exprs.is_empty() {
+            self.stack_offset -= 1;
         }
 
         self.tail_call_eligible = eligibility;
@@ -948,7 +960,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         self.visit_func_args(lambda_function, depth);
 
-        self.stack_offset += lambda_function.args.len();
+        self.stack_offset = lambda_function.args.len();
 
         // TODO: Better abstract this pattern - perhaps have the function call be passed in?
         self.visit_with_tail_call_eligibility(&lambda_function.body, true);
