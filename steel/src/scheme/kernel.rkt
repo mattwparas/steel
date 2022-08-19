@@ -98,7 +98,7 @@
                        (make/c any/c 'any/c))
                       (lambda (this value) (vector-set! this ,(car (cdr field)) value))
                       (quote ,function-name)))))
-       (enumerate 4 '() fields)))
+       (enumerate 3 '() fields)))
 
 ;; Valid options on make-struct at the moment are:
 ;; :transparent, default #false
