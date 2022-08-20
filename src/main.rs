@@ -42,19 +42,19 @@ enum EmitAction {
 fn main() {
     // env_logger::init();
 
-    let mut builder = Builder::new();
+    // let mut builder = Builder::new();
 
     // builder
     //     .filter(Some("pipeline_time"), LevelFilter::Trace)
     //     .init();
 
-    builder
-        .filter(
-            Some("steel::compiler::passes::analysis"),
-            LevelFilter::Trace,
-        )
-        // .filter(Some("steel::steel_vm::vm"), LevelFilter::Trace)
-        .init();
+    // builder
+    //     .filter(
+    //         Some("steel::compiler::passes::analysis"),
+    //         LevelFilter::Trace,
+    //     )
+    //     // .filter(Some("steel::steel_vm::vm"), LevelFilter::Trace)
+    //     .init();
 
     let clap_args = Args::parse();
 

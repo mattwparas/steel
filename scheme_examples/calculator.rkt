@@ -2,7 +2,11 @@
 ;; Example taken from: https://people.eecs.berkeley.edu/~bh/ssch18/trees.html
 
 
-(struct node (datum children))
+; (struct node (datum children))
+
+(define (node datum children) (list datum children))
+(define (node-datum node) (car node))
+(define (node-children node) (cadr node))
 
 (define (parse expr)
   (parse-helper expr '() '()))

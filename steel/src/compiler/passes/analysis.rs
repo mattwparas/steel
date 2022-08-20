@@ -191,11 +191,21 @@ impl CallSiteInformation {
 #[derive(Debug)]
 pub struct LetInformation {
     pub stack_offset: usize,
+    pub function_context: Option<usize>,
+    pub arguments: HashMap<String, ScopeInfo>,
 }
 
 impl LetInformation {
-    pub fn new(stack_offset: usize) -> Self {
-        Self { stack_offset }
+    pub fn new(
+        stack_offset: usize,
+        function_context: Option<usize>,
+        arguments: HashMap<String, ScopeInfo>,
+    ) -> Self {
+        Self {
+            stack_offset,
+            function_context,
+            arguments,
+        }
     }
 }
 
@@ -410,6 +420,7 @@ struct AnalysisPass<'a> {
     escape_analysis: bool,
     defining_context: Option<SyntaxObjectId>,
     stack_offset: usize,
+    function_context: Option<usize>,
 }
 
 fn define_var(scope: &mut ScopeMap<String, ScopeInfo>, define: &crate::parser::ast::Define) {
@@ -429,6 +440,7 @@ impl<'a> AnalysisPass<'a> {
             escape_analysis: false,
             defining_context: None,
             stack_offset: 0,
+            function_context: None,
         }
     }
 }
@@ -829,10 +841,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let mut stack_offset = self.stack_offset;
         let rollback_offset = stack_offset;
 
-        self.info
-            .let_info
-            .insert(l.syntax_object_id, LetInformation::new(self.stack_offset));
-
         for expr in l.expression_arguments() {
             self.visit(expr);
             self.stack_offset += 1;
@@ -846,28 +854,85 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             self.scope.push_layer();
         }
 
-        for arg in l.local_bindings() {
+        let alloc_capture_count = self
+            .function_context
+            .and_then(|x| self.info.function_info.get(&x))
+            .map(|x| {
+                x.captured_vars()
+                    .values()
+                    .filter(|x| x.captured && x.mutated)
+                    .count()
+            });
+
+        for (index, arg) in l.local_bindings().enumerate() {
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
-
-            self.scope
-                .define(name.to_string(), ScopeInfo::new_local(id, stack_offset));
-
             // println!("Inserting local: {:?} at offset: {}", arg, stack_offset);
 
-            stack_offset += 1;
+            let heap_alloc = if let Some(info) = self.info.let_info.get(&l.syntax_object_id) {
+                if let Some(info) = info.arguments.get(name) {
+                    if info.mutated && info.captured {
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
 
-            self.info.insert(
-                &arg.atom_syntax_object().unwrap(),
-                SemanticInformation::new(
-                    IdentifierStatus::LetVar,
-                    self.scope.depth(),
-                    arg.atom_syntax_object().unwrap().span,
-                ),
-            );
+            if heap_alloc {
+                self.scope.define(
+                    name.to_string(),
+                    ScopeInfo::new_heap_allocated_var(id, index + alloc_capture_count.unwrap()),
+                );
+
+                // Throw in a dummy info so that no matter what, we have something to refer to
+                // in the event of a set!
+                // Later on in this function this gets updated accordingly
+                self.info.insert(
+                    &arg.atom_syntax_object().unwrap(),
+                    SemanticInformation::new(
+                        IdentifierStatus::HeapAllocated,
+                        self.scope.depth(),
+                        arg.atom_syntax_object().unwrap().span,
+                    ),
+                );
+            } else {
+                self.scope
+                    .define(name.to_string(), ScopeInfo::new_local(id, stack_offset));
+
+                self.info.insert(
+                    &arg.atom_syntax_object().unwrap(),
+                    SemanticInformation::new(
+                        IdentifierStatus::LetVar,
+                        self.scope.depth(),
+                        arg.atom_syntax_object().unwrap().span,
+                    ),
+                );
+            }
+
+            stack_offset += 1;
         }
 
         self.visit(&l.body_expr);
+
+        let mut arguments = HashMap::new();
+
+        for arg in l.local_bindings() {
+            let name = arg.atom_identifier().unwrap();
+
+            arguments.insert(name.to_string(), self.scope.remove(name).unwrap());
+        }
+
+        if !self.info.let_info.contains_key(&l.syntax_object_id) {
+            self.info.let_info.insert(
+                l.syntax_object_id,
+                LetInformation::new(self.stack_offset, self.function_context, arguments),
+            );
+        }
 
         if is_top_level {
             self.scope.pop_layer();
@@ -962,14 +1027,21 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         self.stack_offset = lambda_function.args.len();
 
+        let function_context = self.function_context.take();
+        self.function_context = Some(lambda_function.syntax_object_id);
+
         // TODO: Better abstract this pattern - perhaps have the function call be passed in?
         self.visit_with_tail_call_eligibility(&lambda_function.body, true);
+
+        self.function_context = function_context;
 
         // TODO: combine the captured_vars and arguments into one thing
         // We don't need to generate a hashset and a hashmap - we can just do it once
         let captured_vars = self.get_captured_vars(&let_level_bindings);
 
         log::info!("Captured variables: {:?}", captured_vars);
+
+        println!("Captured variables: {:#?}", captured_vars);
 
         // Get the arguments to get the counts
         // Pop the layer here - now, we check if any of the arguments below actually already exist

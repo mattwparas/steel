@@ -2591,7 +2591,7 @@ impl<'a> VmCore<'a> {
             Closure(closure) => self.handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             _ => {
-                stop!(BadSyntax => "TailCall - Application not a procedure or function type not supported"; self.current_span());
+                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type not supported: {}", stack_func); self.current_span());
             }
         }
     }

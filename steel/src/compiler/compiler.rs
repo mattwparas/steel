@@ -842,7 +842,7 @@ impl Compiler {
             // TODO add printing out the expression as its own special function
 
             let mut instructions = if let Ok(_) = std::env::var("CODE_GEN_V2") {
-                println!("{}", expr);
+                // println!("{}", expr);
 
                 super::code_gen::CodeGenerator::new(
                     &mut self.constant_map,
