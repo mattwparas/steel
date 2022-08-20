@@ -680,25 +680,33 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // FUNC 2
         // LETENDSCOPE 0 <- index of the stack when we entered this let expr
 
-        // We just assume these will live on the stack at whatever position we're entering now
-        for expr in l.expression_arguments() {
-            self.visit(expr)?;
-        }
-
         let info = self
             .analysis
             .let_info
             .get(&l.syntax_object_id)
             .expect("Missing analysis information for let");
 
-        // for var in l.local_bindings() {
-        //     let variable_info = self
-        //         .analysis
-        //         .get(var.atom_syntax_object().unwrap())
-        //         .unwrap();
+        // We just assume these will live on the stack at whatever position we're entering now
+        for expr in l.expression_arguments() {
+            self.visit(expr)?;
+        }
 
-        //     // println!("{:#?}", variable_info);
-        // }
+        let mut heap_allocated_arguments = info
+            .arguments
+            .values()
+            .filter(|x| x.captured && x.mutated)
+            .collect::<Vec<_>>();
+
+        heap_allocated_arguments.sort_by_key(|x| x.stack_offset);
+
+        for var in heap_allocated_arguments {
+            // println!("Found a var that is both mutated and captured");
+            // println!("{:#?}", var);
+
+            self.push(
+                LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap()),
+            );
+        }
 
         self.visit(&l.body_expr)?;
 

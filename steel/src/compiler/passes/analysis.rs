@@ -227,6 +227,28 @@ impl Analysis {
     }
 
     pub fn populate_captures(&mut self, exprs: &[ExprKind]) {
+        // Resolve all mutated and captured vars so that they're mutated after they've been captured
+        let mutated_and_captured_vars = self
+            .function_info
+            .values()
+            .flat_map(|x| x.captured_vars.values())
+            .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
+            .filter(|x| x.captured && x.mutated)
+            .map(|x| x.id)
+            .collect::<std::collections::HashSet<_>>();
+
+        self.function_info
+            .values_mut()
+            .flat_map(|x| x.captured_vars.values_mut())
+            .for_each(|x| {
+                if mutated_and_captured_vars.contains(&x.id) {
+                    x.mutated = true;
+                    x.captured = true;
+                }
+            });
+
+        println!("Mutated and captured vars: {:?}", mutated_and_captured_vars);
+
         self.run(&exprs);
     }
 
@@ -864,7 +886,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     .count()
             });
 
-        for (index, arg) in l.local_bindings().enumerate() {
+        // We don't want to include normal variables when keeping track
+        // of the offset
+        let mut mutable_var_offset = 0;
+
+        for arg in l.local_bindings() {
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
             // println!("Inserting local: {:?} at offset: {}", arg, stack_offset);
@@ -886,7 +912,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             if heap_alloc {
                 self.scope.define(
                     name.to_string(),
-                    ScopeInfo::new_heap_allocated_var(id, index + alloc_capture_count.unwrap()),
+                    ScopeInfo::new_heap_allocated_var(
+                        id,
+                        mutable_var_offset + alloc_capture_count.unwrap(),
+                    ),
                 );
 
                 // Throw in a dummy info so that no matter what, we have something to refer to
@@ -900,6 +929,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
+
+                mutable_var_offset += 1;
             } else {
                 self.scope
                     .define(name.to_string(), ScopeInfo::new_local(id, stack_offset));
@@ -960,13 +991,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             if !function_info.escapes {
                 self.defining_context = None;
             }
-
-            // How many spots are going to be filled by the current functions arguments that need to be allocated
-            // let alloc_count = function_info
-            //     .arguments()
-            //     .values()
-            //     .filter(|x| x.captured && x.mutated)
-            //     .count();
 
             let vars = &mut function_info.captured_vars;
 
