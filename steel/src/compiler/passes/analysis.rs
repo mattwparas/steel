@@ -8,7 +8,6 @@ use crate::parser::{
     parser::{SyntaxObject, SyntaxObjectId},
     span::Span,
     tokens::TokenType,
-    visitors::VisitorMutRef,
 };
 
 use super::{VisitorMutRefUnit, VisitorMutUnitRef};
@@ -2295,31 +2294,32 @@ mod analysis_pass_tests {
     use super::*;
 
     #[test]
-    fn tail_call_analysis() {
+    fn escaping_functions() {
         let script = r#"
-            (define (test x) x)
-            (define ___Applesauce-options___ (hash))
+        (define (sieve n)
+            (define (aux u v)
+            ; (displayln v)
+                (let ((p (car v)))
+                    (if (> (* p p) n)
+                    (rev-append u v)
+                    (aux (cons p u)
+                        (wheel '() (cdr v) (* p p) p)))))
+            (aux '(2)
+                (range-s '() (if (odd? n) n (- n 1)))))
         "#;
 
         let mut exprs = Parser::parse(script).unwrap();
         let mut analysis = SemanticAnalysis::new(&mut exprs);
         analysis.populate_captures();
 
-        let tail_calls = analysis
+        let escaping_functions = analysis
             .analysis
-            .call_info
+            .function_info
             .values()
-            .filter(|x| x.kind == CallKind::TailCall);
+            .filter(|x| x.escapes)
+            .collect::<Vec<_>>();
 
-        for var in tail_calls {
-            crate::rerrs::report_info(
-                ErrorKind::FreeIdentifier.to_error_code(),
-                "input.rkt",
-                script,
-                format!("tail call"),
-                var.span,
-            );
-        }
+        println!("{:#?}", escaping_functions);
     }
 
     #[test]

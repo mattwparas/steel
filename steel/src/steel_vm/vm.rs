@@ -2517,9 +2517,6 @@ impl<'a> VmCore<'a> {
 
         // println!("Pop count: {}", self.pop_count);
 
-        println!("current instructions:");
-        crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
         self.function_stack.pop().unwrap();
 
         // self.pop_count -= 1;
