@@ -62,7 +62,7 @@ impl<'a> CodeGenerator<'a> {
     pub fn top_level_compile(mut self, expr: &ExprKind) -> Result<Vec<Instruction>> {
         self.visit(expr)?;
         self.instructions
-            .push(LabeledInstruction::builder(OpCode::POP));
+            .push(LabeledInstruction::builder(OpCode::POP_PURE));
 
         Ok(resolve_labels(self.instructions))
     }
@@ -476,7 +476,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
     fn visit_return(&mut self, r: &crate::parser::ast::Return) -> Self::Output {
         self.visit(&r.expr)?;
-        self.push(LabeledInstruction::builder(OpCode::POP));
+        self.push(LabeledInstruction::builder(OpCode::POP_PURE));
         Ok(())
     }
 

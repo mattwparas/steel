@@ -533,7 +533,7 @@ impl RawProgramWithSymbols {
         // TODO try here - the loop condition local const arity two seems to rely on the
         // existence of having been already adjusted by the interner
         for instructions in &mut self.instructions {
-            loop_condition_local_const_arity_two(instructions);
+            // loop_condition_local_const_arity_two(instructions);
             specialize_constants(instructions)?;
         }
 
@@ -594,7 +594,8 @@ impl RawProgramWithSymbols {
         // TODO try here - the loop condition local const arity two seems to rely on the
         // existence of having been already adjusted by the interner
         for instructions in &mut self.instructions {
-            loop_condition_local_const_arity_two(instructions);
+            // TODO: Re-enable optimizations
+            // loop_condition_local_const_arity_two(instructions);
             specialize_constants(instructions)?;
         }
         // }

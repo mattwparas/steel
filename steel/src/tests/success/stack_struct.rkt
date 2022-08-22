@@ -34,7 +34,7 @@
     (def-method struct-name (define/method (a this b ...) body ...))]))
 
 
-(struct Stack (lst))
+(make-struct Stack (lst) #:transparent #true)
 (impl Stack
     ;; Change this to be something like (define/method)
     ;; as to disambiguate it from the base define
@@ -48,17 +48,36 @@
         (define contents (Stack-lst stack))
         (Stack (cons value contents))))
 
-(define test-stack (Stack '()))
 
-(destruct (pop-val-test new-stack-test)
-        (-> test-stack
-            (Stack.push 1)
-            (Stack.push 2)
-            (Stack.push 3)
-            (Stack.push 4)
-            (Stack.pop)))
+(-> (Stack '())
+    (Stack.push 1)
+    (Stack.push 2)
+    (Stack.push 3)
+    (Stack.push 4)
+    (Stack.pop))
 
-pop-val-test ;; => 4
-new-stack-test ;; => '(3 2 1)
-(assert! (equal? 4 pop-val-test))
-(assert! (equal? '(3 2 1) new-stack-test))
+; (Stack.pop 
+;     (%plain-let
+;         ((x (%plain-let 
+;                 ((x (%plain-let 
+;                         ((x (%plain-let ((x (Stack (quote ()))))
+;                                 (Stack.push x 1)))) 
+;                             (Stack.push x 2)))) 
+;                             (Stack.push x 3)))) 
+;                             (Stack.push x 4)))
+
+
+; (define test-stack (Stack '()))
+
+; (destruct (pop-val-test new-stack-test)
+;         (-> test-stack
+;             (Stack.push 1)
+;             (Stack.push 2)
+;             (Stack.push 3)
+;             (Stack.push 4)
+;             (Stack.pop)))
+
+; pop-val-test ;; => 4
+; new-stack-test ;; => '(3 2 1)
+; (assert! (equal? 4 pop-val-test))
+; (assert! (equal? '(3 2 1) new-stack-test))

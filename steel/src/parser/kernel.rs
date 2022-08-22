@@ -75,7 +75,7 @@ impl Kernel {
 
             let arguments = iter.collect();
 
-            // println!("Expanding: {:?} with arguments: {:?}", ident, arguments);
+            println!("Expanding: {:?} with arguments: {:?}", ident, arguments);
 
             let result = self
                 .engine

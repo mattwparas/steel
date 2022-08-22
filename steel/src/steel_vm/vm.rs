@@ -394,6 +394,33 @@ impl Default for InstructionState {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct FunctionStack {
+    stack: Vec<Gc<ByteCodeLambda>>,
+}
+
+impl FunctionStack {
+    pub fn new() -> Self {
+        Self { stack: Vec::new() }
+    }
+
+    pub fn push(&mut self, val: Gc<ByteCodeLambda>) {
+        self.stack.push(val);
+    }
+
+    pub fn pop(&mut self) -> Option<Gc<ByteCodeLambda>> {
+        self.stack.pop()
+    }
+
+    pub fn len(&self) -> usize {
+        self.stack.len()
+    }
+
+    pub fn current_closure_arity(&self) -> Option<usize> {
+        self.stack.last().map(|x| x.arity())
+    }
+}
+
 pub struct VmCore<'a> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: &'a mut Vec<SteelVal>,
@@ -807,7 +834,9 @@ impl<'a> VmCore<'a> {
         }
 
         self.function_stack.push(Gc::clone(closure));
-        self.call_with_instructions_and_reset_state(closure.body_exp())
+        let result = self.call_with_instructions_and_reset_state(closure.body_exp());
+
+        result
     }
 
     // Calling convention
@@ -2488,6 +2517,9 @@ impl<'a> VmCore<'a> {
 
         // println!("Pop count: {}", self.pop_count);
 
+        println!("current instructions:");
+        crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+
         self.function_stack.pop().unwrap();
 
         // self.pop_count -= 1;
@@ -2893,7 +2925,6 @@ impl<'a> VmCore<'a> {
         // push them onto the stack if we need to
         self.stack.push(local);
         self.stack.push(const_value);
-
         // Push on the function stack so we have access to it later
         self.function_stack.push(Gc::clone(closure));
 
@@ -3029,7 +3060,7 @@ impl<'a> VmCore<'a> {
             closure.increment_call_count();
         }
 
-        // Push on the function stack so we have access to it later
+        // Push on the function stack so we have access to it laters
         self.function_stack.push(Gc::clone(closure));
 
         // if closure.arity() != payload_size {
@@ -3153,6 +3184,7 @@ impl<'a> VmCore<'a> {
         }
 
         // Push on the function stack so we have access to it later
+        ;
         self.function_stack.push(Gc::clone(closure));
 
         // TODO - this is unclear - need to pop values off of the stack, collect them as a list, then push it back in

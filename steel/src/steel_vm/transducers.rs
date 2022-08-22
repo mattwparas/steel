@@ -51,6 +51,10 @@ pub(crate) const TRANSDUCE: SteelVal = SteelVal::BuiltIn(transduce);
 
 // figure out if nested transducers works
 fn transduce<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() < 2 {
+        stop!(ArityMismatch => format!("transduce expects at least 2 arguments, found {}", args.len()))
+    }
+
     let (reducer, args) = args
         .split_last()
         .ok_or_else(throw!(ArityMismatch => "transduce expects 3 arguments, found none"))?;

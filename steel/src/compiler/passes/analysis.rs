@@ -716,7 +716,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         // Mark defining context
         self.defining_context = define.name_id();
-        self.visit_with_tail_call_eligibility(&define.body, true);
+        self.visit_with_tail_call_eligibility(&define.body, false);
         self.defining_context = define_ctx;
     }
 
@@ -1064,8 +1064,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let captured_vars = self.get_captured_vars(&let_level_bindings);
 
         log::info!("Captured variables: {:?}", captured_vars);
-
-        println!("Captured variables: {:#?}", captured_vars);
 
         // Get the arguments to get the counts
         // Pop the layer here - now, we check if any of the arguments below actually already exist
@@ -2295,6 +2293,34 @@ mod analysis_pass_tests {
     use crate::{parser::parser::Parser, rerrs::ErrorKind};
 
     use super::*;
+
+    #[test]
+    fn tail_call_analysis() {
+        let script = r#"
+            (define (test x) x)
+            (define ___Applesauce-options___ (hash))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+
+        let tail_calls = analysis
+            .analysis
+            .call_info
+            .values()
+            .filter(|x| x.kind == CallKind::TailCall);
+
+        for var in tail_calls {
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                format!("tail call"),
+                var.span,
+            );
+        }
+    }
 
     #[test]
     fn last_usages_test() {

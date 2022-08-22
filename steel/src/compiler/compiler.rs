@@ -842,7 +842,7 @@ impl Compiler {
             // TODO add printing out the expression as its own special function
 
             let mut instructions = if let Ok(_) = std::env::var("CODE_GEN_V2") {
-                // println!("{}", expr);
+                println!("{}", expr);
 
                 super::code_gen::CodeGenerator::new(
                     &mut self.constant_map,
@@ -959,7 +959,7 @@ impl Compiler {
             let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
             semantic
-                .replace_anonymous_function_calls_with_plain_lets()
+                // .replace_anonymous_function_calls_with_plain_lets()
                 .lift_pure_local_functions()
                 .lift_all_local_functions();
         }
@@ -973,7 +973,7 @@ impl Compiler {
 
             let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
-            semantic.replace_anonymous_function_calls_with_plain_lets();
+            // semantic.replace_anonymous_function_calls_with_plain_lets();
         }
 
         if log_enabled!(log::Level::Debug) {
@@ -989,9 +989,9 @@ impl Compiler {
         // TODO - make sure I want to keep this
         // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
 
-        if std::env::var("CODE_GEN_V2").is_err() {
-            expanded_statements = LambdaLifter::lift(expanded_statements);
-        }
+        // if std::env::var("CODE_GEN_V2").is_err() {
+        expanded_statements = LambdaLifter::lift(expanded_statements);
+        // }
 
         // TODO
         // let expanded_statements = LambdaLifter::lift(expanded_statements);
