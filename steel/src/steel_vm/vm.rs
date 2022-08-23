@@ -2137,15 +2137,6 @@ impl<'a> VmCore<'a> {
         //     println!("Found multi arity function");
         // }
 
-        /*
-        TODO: make prototype for closure construction:
-        idea being, if we've seen it, we shouldn't have to reconstruct the ENTIRE thing from scratch
-        store the prototype w/o captures - if we've seen it, just fetch it, store the offset, move on.
-
-        otherwise, store it plus the necessary information we need
-
-        */
-
         self.ip += 1;
 
         let is_multi_arity = self.instructions[self.ip].payload_size == 1;

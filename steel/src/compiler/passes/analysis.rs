@@ -241,6 +241,19 @@ impl Analysis {
             .flat_map(|x| x.captured_vars.values_mut())
             .for_each(|x| {
                 if mutated_and_captured_vars.contains(&x.id) {
+                    println!("Updated a var");
+
+                    x.mutated = true;
+                    x.captured = true;
+                }
+            });
+
+        self.function_info
+            .values_mut()
+            .flat_map(|x| x.arguments.values_mut())
+            .for_each(|x| {
+                if mutated_and_captured_vars.contains(&x.id) {
+                    println!("Updated a var");
                     x.mutated = true;
                     x.captured = true;
                 }
@@ -349,6 +362,7 @@ impl Analysis {
         existing.aliases_to = metadata.aliases_to;
         existing.refers_to = metadata.refers_to;
         existing.builtin = metadata.builtin;
+        existing.captured_from_enclosing = metadata.captured_from_enclosing;
     }
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
@@ -659,7 +673,15 @@ impl<'a> AnalysisPass<'a> {
                     IdentifierStatus::Captured
                 }
             } else {
-                IdentifierStatus::Local
+                if let Some(info) = self.info.get(&var.atom_syntax_object().unwrap()) {
+                    match info.kind {
+                        IdentifierStatus::HeapAllocated => IdentifierStatus::HeapAllocated,
+                        // IdentifierStatus::Captured => IdentifierStatus::Captured,
+                        _ => IdentifierStatus::Local,
+                    }
+                } else {
+                    IdentifierStatus::Local
+                }
             };
 
             // let kind = if captured_vars.contains_key(ident) {
@@ -1017,7 +1039,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         value.captured_from_enclosing = true;
                         self.captures.define(key.clone(), value)
                     } else {
-                        self.captures.define(key.clone(), value.clone());
+                        let mut value = value.clone();
+                        value.captured_from_enclosing = false;
+                        self.captures.define(key.clone(), value);
                     }
                 }
             }
@@ -1037,6 +1061,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         value.captured_from_enclosing = true;
                         self.captures.define(key.clone(), value)
                     } else {
+                        let mut value = value.clone();
+                        value.captured_from_enclosing = false;
                         self.captures.define(key.clone(), value.clone());
                     }
                 }
@@ -1060,9 +1086,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         // TODO: combine the captured_vars and arguments into one thing
         // We don't need to generate a hashset and a hashmap - we can just do it once
-        let captured_vars = self.get_captured_vars(&let_level_bindings);
+        let mut captured_vars = self.get_captured_vars(&let_level_bindings);
+
+        for (var, value) in self.captures.iter() {
+            captured_vars
+                .get_mut(var.as_str())
+                .map(|x| x.captured_from_enclosing = value.captured_from_enclosing);
+        }
 
         log::info!("Captured variables: {:?}", captured_vars);
+        println!("Captured variables: {:?}", captured_vars);
 
         // Get the arguments to get the counts
         // Pop the layer here - now, we check if any of the arguments below actually already exist
@@ -1071,6 +1104,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         // Pop off of the captures
         self.captures.pop_layer();
+
+        println!("Captures: {:#?}", self.captures.iter().collect::<Vec<_>>());
 
         // Mark the last usage of the variable after the values go out of scope
         for id in arguments.values().filter_map(|x| x.last_used) {
@@ -1083,11 +1118,19 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         self.find_and_mark_captured_arguments(lambda_function, &captured_vars, depth, &arguments);
 
         // If we've already seen this function, lets not do anything just quite yet
-        if let Some(_) = self
+        if let Some(info) = self
             .info
             .function_info
-            .get(&lambda_function.syntax_object_id)
+            .get_mut(&lambda_function.syntax_object_id)
         {
+            for (var, value) in captured_vars {
+                info.captured_vars
+                    .get_mut(var.as_str())
+                    .map(|x| x.captured_from_enclosing = value.captured_from_enclosing);
+            }
+
+            // info.captured_vars = captured_vars;
+
             return;
         } else {
             // Capture the information and store it in the semantic analysis for this individual function
@@ -1227,12 +1270,21 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // We also want to mark the current var thats actually in scope as last used as well
                 if let Some(in_scope) = self.scope.get_mut(ident) {
                     in_scope.last_used = Some(current_id);
+                    in_scope.captured = true;
                 }
 
                 let mut identifier_status = if captured.mutated {
                     IdentifierStatus::HeapAllocated
                 } else {
-                    IdentifierStatus::Captured
+                    if let Some(info) = self.info.get(&a.syn) {
+                        if info.kind == IdentifierStatus::HeapAllocated {
+                            IdentifierStatus::HeapAllocated
+                        } else {
+                            IdentifierStatus::Captured
+                        }
+                    } else {
+                        IdentifierStatus::Captured
+                    }
                 };
 
                 if let Some(local_define) = self.info.get_mut(&captured.id) {
@@ -1860,7 +1912,7 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn populate_captures(&mut self) {
-        self.analysis.run(&self.exprs);
+        self.analysis.populate_captures(&self.exprs);
     }
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
@@ -2296,30 +2348,41 @@ mod analysis_pass_tests {
     #[test]
     fn escaping_functions() {
         let script = r#"
-        (define (sieve n)
-            (define (aux u v)
-            ; (displayln v)
-                (let ((p (car v)))
-                    (if (> (* p p) n)
-                    (rev-append u v)
-                    (aux (cons p u)
-                        (wheel '() (cdr v) (* p p) p)))))
-            (aux '(2)
-                (range-s '() (if (odd? n) n (- n 1)))))
+        (define sieve (lambda (n) 
+           ((lambda (aux) 
+             ((lambda (aux0) 
+               (begin (set! aux aux0) 
+                       (aux (quote (2)) (range-s (quote ()) (if (odd? n) n (- n 1)))))) 
+               (lambda (u v) 
+                 ((lambda (p) 
+                   (if (> (* p p) n) (rev-append u v) (aux (cons p u) (wheel (quote ()) (cdr v) (* p p) p)))) (car v))))) 123)))
+
+        (define wheel (lambda (u v a p) (if (null? v) (reverse u) (if (= (car v) a) (wheel u (cdr v) (+ a p) p) (if (> (car v) a) (wheel u v (+ a p) p) (wheel (cons (car v) u) (cdr v) a p))))))
+        (define rev-append (lambda (u v) (if (null? u) v (rev-append (cdr u) (cons (car u) v)))))
+        (define range-s (lambda (v k) (if (< k 3) v (range-s (cons k v) (- k 2)))))
+
         "#;
 
         let mut exprs = Parser::parse(script).unwrap();
         let mut analysis = SemanticAnalysis::new(&mut exprs);
         analysis.populate_captures();
 
-        let escaping_functions = analysis
+        let let_vars = analysis
             .analysis
-            .function_info
+            .info
             .values()
-            .filter(|x| x.escapes)
-            .collect::<Vec<_>>();
+            .filter(|x| x.kind == IdentifierStatus::HeapAllocated);
 
-        println!("{:#?}", escaping_functions);
+        for var in let_vars {
+            println!("{:?}", var);
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                format!("let-var"),
+                var.span,
+            );
+        }
     }
 
     #[test]

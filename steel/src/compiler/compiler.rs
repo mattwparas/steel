@@ -841,8 +841,8 @@ impl Compiler {
         for expr in expanded_statements {
             // TODO add printing out the expression as its own special function
 
-            let mut instructions = if let Ok(_) = std::env::var("CODE_GEN_V2") {
-                println!("{}", expr);
+            let mut instructions = if std::env::var("CODE_GEN_V2").is_ok() {
+                println!("{}", expr.to_pretty(60));
 
                 super::code_gen::CodeGenerator::new(
                     &mut self.constant_map,
@@ -990,7 +990,7 @@ impl Compiler {
         // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
 
         // if std::env::var("CODE_GEN_V2").is_err() {
-        expanded_statements = LambdaLifter::lift(expanded_statements);
+        // expanded_statements = LambdaLifter::lift(expanded_statements);
         // }
 
         // TODO

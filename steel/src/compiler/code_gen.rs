@@ -383,6 +383,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // This way, at closure construction (in the VM) we can immediately patch in the kind
             // of closure that we want to create, and where to get it
             for var in vars {
+                println!("Var: {:?}", var);
                 // If we're patching in from the enclosing, check to see if this is a heap allocated var that
                 // we need to patch in to the current scope
                 if var.captured_from_enclosing {
@@ -621,6 +622,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let a = s.variable.atom_syntax_object().unwrap();
 
         if let Some(analysis) = self.analysis.get(&a) {
+            println!("{:#?}", analysis);
+
             let op_code = match &analysis.kind {
                 Global => OpCode::SET,
                 Local | LetVar => OpCode::SETLOCAL,

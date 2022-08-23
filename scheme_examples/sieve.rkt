@@ -3,7 +3,7 @@
 (define (sieve n)
   ;; Transform this function since it does not escape - should be possible to pass the argument in
   (define (aux u v)
-    ; (displayln v)
+    (displayln v)
     (let ((p (car v)))
       (if (> (* p p) n)
         (rev-append u v)
@@ -11,6 +11,15 @@
           (wheel '() (cdr v) (* p p) p)))))
   (aux '(2)
     (range-s '() (if (odd? n) n (- n 1)))))
+
+; (define sieve (lambda (n) 
+;   ((lambda (aux) 
+;     ((lambda (#####aux0) 
+;       (begin (set! aux #####aux0) 
+;               (aux (quote (2)) (range-s (quote ()) (if (odd? n) n (- n 1)))))) 
+;       (lambda (u v) 
+;         ((lambda (p) 
+;           (if (> (* p p) n) (rev-append u v) (aux (cons p u) (wheel (quote ()) (cdr v) (* p p) p)))) (car v))))) 123)))
 
 
 ;; TODO: Looks like the lambda lifter doesn't work on its own
@@ -44,6 +53,7 @@
 
 
 (define (wheel u v a p)
+  ; (displayln v)
     (cond ((null? v) (reverse u))
           ((= (car v) a) (wheel u (cdr v) (+ a p) p))
           ((> (car v) a) (wheel u v (+ a p) p))
