@@ -123,7 +123,7 @@ pub fn hm_try_get(args: &[SteelVal]) -> Result<SteelVal> {
             None => Ok(SteelVal::BoolV(false)),
         }
     } else {
-        stop!(TypeMismatch => "hm-try-get takes a hashmap")
+        stop!(TypeMismatch => format!("hash-try-get takes a hashmap, found: {}", hashmap))
     }
 }
 

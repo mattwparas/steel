@@ -1998,10 +1998,13 @@ impl<'a> VmCore<'a> {
 
         // TODO - used to be offset - 2, now 3 with the multi arity
         let forward_jump = offset - 2;
+        // let forward_jump = offset;
 
         // TODO clean this up a bit
         // hold the spot for where we need to jump aftwards
         let forward_index = self.ip + forward_jump;
+
+        // debug_assert!(self.instructions[forward_index - 1].op_code == OpCode::ECLOSURE);
 
         // TODO -> this is probably quite slow
         // If extraneous lets are lifted, we probably don't need this
@@ -2153,7 +2156,9 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
 
         // TODO - used to be offset - 2, now 3 with the multi arity
+        // let forward_jump = offset;
         let forward_jump = offset - 3;
+        // println!("Forward jump: {}", forward_jump);
 
         // Snag the number of upvalues here
         let ndefs = self.instructions[self.ip].payload_size;
@@ -2211,14 +2216,24 @@ impl<'a> VmCore<'a> {
             prototype
         } else {
             log::info!("Constructing closure for the first time");
+            println!("Constructing closure for the first time");
 
-            // TODO -> this is probably quite slow
-            // If extraneous lets are lifted, we probably don't need this
-            // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
+            debug_assert!(self.instructions[forward_index - 1].op_code == OpCode::ECLOSURE);
+
+            // debug_assert!(self.ip + forward_jump - 1 <= self.instructions.len())
+
+            if forward_index - 1 > self.instructions.len() {
+                crate::core::instructions::pretty_print_dense_instructions(
+                    self.instructions.as_ref(),
+                );
+                println!("Forward index: {}", self.ip + forward_jump - 1);
+                println!("Length: {}", self.instructions.len());
+                panic!("Out of bounds forward jump");
+            }
 
             // Construct the closure body using the offsets from the payload
             // used to be - 1, now - 2
-            let closure_body = self.instructions[self.ip..(self.ip + forward_jump - 1)].to_vec();
+            let closure_body = self.instructions[self.ip..(forward_index - 1)].to_vec();
 
             // snag the arity from the eclosure instruction
             let arity = self.instructions[forward_index - 1].payload_size;
@@ -2486,7 +2501,7 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
-        // println!("################ New Tail Call ################");
+        println!("################ New Tail Call ################");
         // println!("stack before: {:?}", self.stack);
         // println!("stack index: {:?}", self.stack_index);
         // println!(
@@ -2925,7 +2940,7 @@ impl<'a> VmCore<'a> {
         if self.stack_index.len() == STACK_LIMIT {
             crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
             println!("lazy - stack frame at exit: {:?}", self.stack);
-            stop!(Generic => "stack overflowed!"; self.current_span());
+            stop!(Generic => "lazy closure: stack overflowed!"; self.current_span());
         }
 
         self.stack_index.push(self.stack.len() - 2);
@@ -3080,7 +3095,7 @@ impl<'a> VmCore<'a> {
         if self.stack_index.len() == STACK_LIMIT {
             crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
             println!("function call - stack frame at exit: {:?}", self.stack);
-            stop!(Generic => "stack overflowed!"; self.current_span());
+            stop!(Generic => "function call closure: stack overflowed!"; self.current_span());
         }
 
         self.stack_index.push(self.stack.len() - closure.arity());
@@ -3203,7 +3218,7 @@ impl<'a> VmCore<'a> {
         if self.stack_index.len() == STACK_LIMIT {
             crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
             println!("stack frame at exit: {:?}", self.stack);
-            stop!(Generic => "stack overflowed!"; self.current_span());
+            stop!(Generic => "function call closure jit: stack overflowed!"; self.current_span());
         }
 
         // closure arity here is the number of true arguments
@@ -3328,6 +3343,8 @@ impl<'a> VmCore<'a> {
 }
 
 pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
+    println!("Entering call/cc");
+
     /*
     - Construct the continuation
     - Get the function that has been passed in (off the stack)
@@ -3368,7 +3385,7 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
         SteelVal::Closure(closure) => {
             if ctx.stack_index.len() == STACK_LIMIT {
                 println!("stack frame at exit: {:?}", ctx.stack);
-                stop!(Generic => "stack overflowed!"; ctx.current_span());
+                stop!(Generic => "call/cc: stack overflowed!"; ctx.current_span());
             }
 
             if closure.arity() != 1 {
@@ -3380,6 +3397,8 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
             // Put the continuation as the argument
             // Previously we put the continuation directly on the stack ourselves, but instead we now return as an argument
             // ctx.stack.push(continuation);
+
+            println!("Instruction: {:?}", ctx.instructions[ctx.ip + 1]);
 
             // self.global_env = inner_env;
             ctx.instruction_stack.push(InstructionPointer::new(

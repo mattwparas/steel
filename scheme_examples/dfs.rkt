@@ -48,6 +48,28 @@
             (try-all-neighbors (cdr neighbors) best-path end new-path graph)))
       best-path))
 
+; (define dfs
+;   (λ (curr end path best-path graph)
+;     ((λ (neighbors)
+;          ((λ (new-path)
+;               (if (equal? curr end)
+;                 (cons curr path)
+;                 (if (member? curr path)
+;                   (quote
+;                     ())
+;                   (if neighbors
+;                     (try-all-neighbors
+;                        neighbors
+;                        best-path
+;                        end
+;                        (cons curr path)
+;                        graph)
+;                     (quote
+;                       ())))))
+;             (cons curr path)))
+;        (get-neighbors curr graph))))
+
+
 (define (dfs curr end path best-path graph)
   (define neighbors (get-neighbors curr graph))
   (define new-path (cons curr path))

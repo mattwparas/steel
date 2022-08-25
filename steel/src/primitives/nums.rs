@@ -197,7 +197,7 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
                 sum_float += n;
             }
             _ => {
-                let e = format!("+ expected a number, found {:?}", arg);
+                let e = format!("+ expected a number, found {:?}, all args: {:?}", arg, args);
                 stop!(TypeMismatch => e);
             }
         }

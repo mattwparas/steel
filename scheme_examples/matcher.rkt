@@ -73,7 +73,7 @@
 ;; Pretty print for testing purposes
 ;; Throw in the assert as well for testing
 (define (test name input expected)
-  (assert! (equal? input expected))
+;   (assert! (equal? input expected))
   (if (equal? input expected)
       (begin
         (display "> ")
@@ -296,6 +296,69 @@
               ((?x 2 ?y 4 ?z) (+ ?x ?y ?z)))
       (+ 1 3 5))
 
+
+(test
+   "Matches patterns with constants mixed in"
+   ((λ (evald-expr)
+        ((λ (match?)
+             (if match?
+               ((λ (?x)
+                    ((λ (?y)
+                         ((λ (?z)
+                              (+ ?x ?y ?z))
+                            (hash-try-get
+                               match?
+                               (quote
+                                 ?z))))
+                       (hash-try-get match? (quote ?y))))
+                  (hash-try-get match? (quote ?x)))
+               (error!
+                  "Unable to match expression: "
+                  evald-expr
+                  " to any of the given patterns")))
+           (match
+              (cons
+                 (quote
+                   ?x)
+                 (cons
+                    (quote
+                      2)
+                    (cons
+                       (quote
+                         ?y)
+                       (cons (quote 4) (quote (?z))))))
+              evald-expr)))
+      (list 1 2 3 4 5))
+   (+ 1 3 5))
+
+; ((λ (evald-expr)
+;       ((λ (match?)
+;             (if match?
+;                   ((λ (?x)
+;                         ((λ (?y)
+;                               ((λ (?z) (+ ?x ?y ?z))
+;                                     (hash-try-get match? (quote ?z))))
+;                         (hash-try-get match? (quote ?y))))
+;                   (hash-try-get match? (quote ?x)))
+;             (error! "Unable to match expression: " evald-expr " to any of the given patterns")))
+;       (hash '?x 1 '?y 3 '?z 5)))
+;       (list 1 2 3 4 5))
+
+
+; ; ((λ (evald-expr)
+; ((λ (match?)
+;       (if match?
+;             ((λ (?x)
+;                   ((λ (?y)
+;                         ((λ (?z) (+ ?x ?y ?z))
+;                               (hash-try-get match? (quote ?z))))
+;                   (hash-try-get match? (quote ?y))))
+;             (hash-try-get match? (quote ?x)))
+;       (error! "Unable to match expression: to any of the given patterns")))
+; (hash '?x 1 '?y 3 '?z 5))
+;       ; (list 1 2 3 4 5))
+
+
 (test "Dispatches on first of multiple matching patterns"
       (match! (list 1 2 3 4 5)
               (?x 'case1)
@@ -315,26 +378,26 @@
       'case3)
 
 
-; (test "Custom map implementation succeeds"
-;       ((lambda ()
-;          (define (budget-map func lst)
-;            (define (loop lst accum)
-;              (match! lst
-;                      (() accum)
-;                      ((?x ?xs...)
-;                       (loop ?xs...
-;                             (cons (func ?x) accum)))))
-;            (reverse (loop lst '())))
-;          (budget-map (fn (x) (+ x 1)) (list 1 2 3 4 5))))
-;       '(2 3 4 5 6))
+(test "Custom map implementation succeeds"
+      ((lambda ()
+         (define (budget-map func lst)
+           (define (loop lst accum)
+             (match! lst
+                     (() accum)
+                     ((?x ?xs...)
+                      (loop ?xs...
+                            (cons (func ?x) accum)))))
+           (reverse (loop lst '())))
+         (budget-map (fn (x) (+ x 1)) (list 1 2 3 4 5))))
+      '(2 3 4 5 6))
 
-; (test "Empty list matches empty list"
-;       (match! '()
-;               (() 'found-empty-list!)
-;               ((?x ?xs...) 'found-list!))
-;       'found-empty-list!)
+(test "Empty list matches empty list"
+      (match! '()
+              (() 'found-empty-list!)
+              ((?x ?xs...) 'found-list!))
+      'found-empty-list!)
 
-; (test "Nested patterns match with bindings"
-;       (match! (list (list 1 2) 3 (list 4 (list 5 6)))
-;               (((?a 2) ?b (?c (5 6))) (+ ?a ?b ?c)))
-;       (+ 1 3 4))
+(test "Nested patterns match with bindings"
+      (match! (list (list 1 2) 3 (list 4 (list 5 6)))
+              (((?a 2) ?b (?c (5 6))) (+ ?a ?b ?c)))
+      (+ 1 3 4))

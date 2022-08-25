@@ -65,7 +65,7 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
             span: self.span.clone(),
             source: self.source.clone(),
             metadata: self.metadata.clone(),
-            syntax_object_id: self.syntax_object_id.clone(),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
 }

@@ -307,6 +307,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         lambda_function: &crate::parser::ast::LambdaFunction,
     ) -> Self::Output {
         let idx = self.len();
+        let mut offset = 0;
 
         // Grab the function information from the analysis - this is going to tell us what the captured
         // vars are, and subsequently how to compile the let for this use case
@@ -360,6 +361,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             let mut vars = function_info.captured_vars().values().collect::<Vec<_>>();
 
             vars.sort_by_key(|x| x.id);
+            // vars.sort_by_key(|x| x.stack_offset);
 
             // Here we're going to explicitly capture from either the enclosing scope
             // or the stack. For example:
@@ -383,7 +385,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // This way, at closure construction (in the VM) we can immediately patch in the kind
             // of closure that we want to create, and where to get it
             for var in vars {
-                println!("Var: {:?}", var);
+                // println!("Var: {:?}", var);
                 // If we're patching in from the enclosing, check to see if this is a heap allocated var that
                 // we need to patch in to the current scope
                 if var.captured_from_enclosing {
@@ -524,7 +526,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             };
 
             let payload = match op_code {
-                OpCode::READCAPTURED => analysis.capture_index.unwrap(),
+                OpCode::READCAPTURED => analysis.read_capture_offset.unwrap(),
                 OpCode::READALLOC => analysis.heap_offset.unwrap(),
                 _ => analysis.stack_offset.unwrap_or_default(),
             };

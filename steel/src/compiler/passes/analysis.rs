@@ -43,6 +43,7 @@ pub struct SemanticInformation {
     // TODO: Move a bunch of these individual things into their own structs
     // something like Option<CaptureInformation>
     pub capture_index: Option<usize>,
+    pub read_capture_offset: Option<usize>,
     pub captured_from_enclosing: bool,
     pub heap_offset: Option<usize>,
 }
@@ -63,6 +64,7 @@ impl SemanticInformation {
             stack_offset: None,
             escapes: false,
             capture_index: None,
+            read_capture_offset: None,
             captured_from_enclosing: false,
             heap_offset: None,
         }
@@ -103,6 +105,11 @@ impl SemanticInformation {
 
     pub fn with_capture_index(mut self, offset: usize) -> Self {
         self.capture_index = Some(offset);
+        self
+    }
+
+    pub fn with_read_capture_offset(mut self, offset: usize) -> Self {
+        self.read_capture_offset = Some(offset);
         self
     }
 
@@ -398,6 +405,8 @@ pub struct ScopeInfo {
     pub mutated: bool,
     /// Heap offset
     pub heap_offset: Option<usize>,
+    pub read_capture_offset: Option<usize>,
+    pub read_heap_offset: Option<usize>,
 }
 
 impl ScopeInfo {
@@ -413,6 +422,8 @@ impl ScopeInfo {
             captured_from_enclosing: false,
             mutated: false,
             heap_offset: None,
+            read_capture_offset: None,
+            read_heap_offset: None,
         }
     }
 
@@ -428,6 +439,8 @@ impl ScopeInfo {
             captured_from_enclosing: false,
             mutated: false,
             heap_offset: None,
+            read_capture_offset: None,
+            read_heap_offset: None,
         }
     }
 
@@ -443,6 +456,8 @@ impl ScopeInfo {
             captured_from_enclosing: false,
             mutated: true,
             heap_offset: Some(heap_offset),
+            read_capture_offset: None,
+            read_heap_offset: None,
         }
     }
 }
@@ -1015,6 +1030,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             let vars = &mut function_info.captured_vars;
 
+            println!("####################################################");
+            println!("Function: {}", lambda_function);
+
             // TODO:
             // If this var is both captured and mutated, lets separate it for a different kind
             // of allocation - this way we can actually separately allocate where these go. Since it is possible
@@ -1026,21 +1044,55 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             {
                 let mut sorted_vars = vars.iter_mut().filter(|x| !x.1.mutated).collect::<Vec<_>>();
                 sorted_vars.sort_by_key(|x| x.1.id);
+                println!("Sorted vars: {:#?}", sorted_vars);
+
+                {
+                    self.captures.pop_layer();
+
+                    let mut self_captured = self.captures.iter_top().collect::<Vec<_>>();
+                    self_captured.sort_by_key(|x| x.1.id);
+                    println!("Self captures: {:#?}", self_captured);
+
+                    self.captures.push_layer();
+                }
+
+                println!("####################################################");
+
+                // let sorted_captures
+
+                // sorted_vars.sort_by_key(|x| x.1.stack_offset);
+
+                // let mut offset = 0;
 
                 // So for now, we sort by id, then map these directly to indices that will live in the
                 // corresponding captured closure
                 for (index, (key, value)) in sorted_vars.iter_mut().enumerate() {
-                    value.capture_offset = Some(index);
+                    // value.capture_offset = Some(index);
+                    // value.read_capture_offset = Some(index);
 
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
                     if self.captures.contains_key(key.as_str()) {
+                        value.capture_offset = self
+                            .captures
+                            .get(key.as_str())
+                            .and_then(|x| x.capture_offset);
+
+                        value.read_capture_offset = Some(index);
+
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
+
+                        // println!("Marking var as captured from the enclosing: {}", key);
+                        // println!("value: {:#?}", value);
+
                         self.captures.define(key.clone(), value)
                     } else {
+                        value.capture_offset = Some(index);
+                        value.read_capture_offset = Some(index);
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
+
                         self.captures.define(key.clone(), value);
                     }
                 }
@@ -1059,6 +1111,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     if self.captures.contains_key(key.as_str()) {
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
+
+                        // value.heap_offset =
+                        //     self.captures.get(key.as_str()).and_then(|x| x.heap_offset);
+
                         self.captures.define(key.clone(), value)
                     } else {
                         let mut value = value.clone();
@@ -1095,7 +1151,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         log::info!("Captured variables: {:?}", captured_vars);
-        println!("Captured variables: {:?}", captured_vars);
+        // println!("Captured variables: {:?}", captured_vars);
 
         // Get the arguments to get the counts
         // Pop the layer here - now, we check if any of the arguments below actually already exist
@@ -1105,7 +1161,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Pop off of the captures
         self.captures.pop_layer();
 
-        println!("Captures: {:#?}", self.captures.iter().collect::<Vec<_>>());
+        // println!("Captures: {:#?}", self.captures.iter().collect::<Vec<_>>());
 
         // Mark the last usage of the variable after the values go out of scope
         for id in arguments.values().filter_map(|x| x.last_used) {
@@ -1124,9 +1180,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .get_mut(&lambda_function.syntax_object_id)
         {
             for (var, value) in captured_vars {
-                info.captured_vars
-                    .get_mut(var.as_str())
-                    .map(|x| x.captured_from_enclosing = value.captured_from_enclosing);
+                info.captured_vars.get_mut(var.as_str()).map(|x| {
+                    x.captured_from_enclosing = value.captured_from_enclosing;
+                });
             }
 
             // info.captured_vars = captured_vars;
@@ -1308,8 +1364,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // If we're getting captured and mutated, then we should be fine to do these checks
                 // exclusively
-                if let Some(capture_offset) = captured.capture_offset {
-                    semantic_info = semantic_info.with_capture_index(capture_offset);
+                if let Some(capture_offset) = captured.read_capture_offset {
+                    semantic_info = semantic_info.with_read_capture_offset(capture_offset);
+                    semantic_info =
+                        semantic_info.with_capture_index(captured.capture_offset.unwrap());
                 } else if let Some(heap_offset) = captured.heap_offset {
                     semantic_info = semantic_info.with_heap_offset(heap_offset);
                 } else {
@@ -2348,18 +2406,18 @@ mod analysis_pass_tests {
     #[test]
     fn escaping_functions() {
         let script = r#"
-        (define sieve (lambda (n) 
-           ((lambda (aux) 
-             ((lambda (aux0) 
-               (begin (set! aux aux0) 
-                       (aux (quote (2)) (range-s (quote ()) (if (odd? n) n (- n 1)))))) 
-               (lambda (u v) 
-                 ((lambda (p) 
-                   (if (> (* p p) n) (rev-append u v) (aux (cons p u) (wheel (quote ()) (cdr v) (* p p) p)))) (car v))))) 123)))
-
-        (define wheel (lambda (u v a p) (if (null? v) (reverse u) (if (= (car v) a) (wheel u (cdr v) (+ a p) p) (if (> (car v) a) (wheel u v (+ a p) p) (wheel (cons (car v) u) (cdr v) a p))))))
-        (define rev-append (lambda (u v) (if (null? u) v (rev-append (cdr u) (cons (car u) v)))))
-        (define range-s (lambda (v k) (if (< k 3) v (range-s (cons k v) (- k 2)))))
+        ((λ (evald-expr)
+            ((λ (match?)
+                (if match?
+                        ((λ (?x)
+                            ((λ (?y)
+                                    ((λ (?z) (+ ?x ?y ?z))
+                                        (hash-try-get match? (quote ?z))))
+                            (hash-try-get match? (quote ?y))))
+                        (hash-try-get match? (quote ?x)))
+                (error! "Unable to match expression: " evald-expr " to any of the given patterns")))
+            (hash '?x 1 '?y 3 '?z 5)))
+            (list 1 2 3 4 5))
 
         "#;
 
@@ -2371,7 +2429,7 @@ mod analysis_pass_tests {
             .analysis
             .info
             .values()
-            .filter(|x| x.kind == IdentifierStatus::HeapAllocated);
+            .filter(|x| x.kind == IdentifierStatus::Captured);
 
         for var in let_vars {
             println!("{:?}", var);
