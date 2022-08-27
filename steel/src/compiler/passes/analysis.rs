@@ -12,7 +12,7 @@ use crate::parser::{
 
 use super::{VisitorMutRefUnit, VisitorMutUnitRef};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IdentifierStatus {
     Global,
     Local,
@@ -46,6 +46,7 @@ pub struct SemanticInformation {
     pub read_capture_offset: Option<usize>,
     pub captured_from_enclosing: bool,
     pub heap_offset: Option<usize>,
+    pub read_heap_offset: Option<usize>,
 }
 
 impl SemanticInformation {
@@ -67,6 +68,7 @@ impl SemanticInformation {
             read_capture_offset: None,
             captured_from_enclosing: false,
             heap_offset: None,
+            read_heap_offset: None,
         }
     }
 
@@ -115,6 +117,11 @@ impl SemanticInformation {
 
     pub fn with_heap_offset(mut self, offset: usize) -> Self {
         self.heap_offset = Some(offset);
+        self
+    }
+
+    pub fn with_read_heap_offset(mut self, offset: usize) -> Self {
+        self.read_heap_offset = Some(offset);
         self
     }
 
@@ -240,18 +247,21 @@ impl Analysis {
             .flat_map(|x| x.captured_vars.values())
             .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
             .filter(|x| x.captured && x.mutated)
-            .map(|x| x.id)
-            .collect::<std::collections::HashSet<_>>();
+            .map(|x| (x.id, x.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
 
         self.function_info
             .values_mut()
             .flat_map(|x| x.captured_vars.values_mut())
             .for_each(|x| {
-                if mutated_and_captured_vars.contains(&x.id) {
+                if let Some(info) = mutated_and_captured_vars.get(&x.id) {
                     println!("Updated a var");
 
                     x.mutated = true;
                     x.captured = true;
+
+                    x.read_capture_offset = info.read_capture_offset;
+                    x.heap_offset = info.heap_offset;
                 }
             });
 
@@ -259,10 +269,13 @@ impl Analysis {
             .values_mut()
             .flat_map(|x| x.arguments.values_mut())
             .for_each(|x| {
-                if mutated_and_captured_vars.contains(&x.id) {
+                if let Some(info) = mutated_and_captured_vars.get(&x.id) {
                     println!("Updated a var");
                     x.mutated = true;
                     x.captured = true;
+
+                    x.read_capture_offset = info.read_capture_offset;
+                    x.heap_offset = info.heap_offset;
                 }
             });
 
@@ -370,6 +383,8 @@ impl Analysis {
         existing.refers_to = metadata.refers_to;
         existing.builtin = metadata.builtin;
         existing.captured_from_enclosing = metadata.captured_from_enclosing;
+        existing.heap_offset = metadata.heap_offset;
+        existing.read_heap_offset = metadata.read_heap_offset;
     }
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
@@ -457,7 +472,7 @@ impl ScopeInfo {
             mutated: true,
             heap_offset: Some(heap_offset),
             read_capture_offset: None,
-            read_heap_offset: None,
+            read_heap_offset: Some(heap_offset),
         }
     }
 }
@@ -623,6 +638,12 @@ impl<'a> AnalysisPass<'a> {
 
             // TODO: clean this up like a lot
             if heap_alloc {
+                println!(
+                    "Defining a heap alloc var: {} at index: {}",
+                    name,
+                    index + alloc_capture_count.unwrap()
+                );
+
                 self.scope.define(
                     name.to_string(),
                     ScopeInfo::new_heap_allocated_var(id, index + alloc_capture_count.unwrap()),
@@ -681,8 +702,14 @@ impl<'a> AnalysisPass<'a> {
         for var in &lambda_function.args {
             let ident = var.atom_identifier().unwrap();
 
+            // let mut heap_offset = None;
+            // let mut read_heap_offset = None;
+
             let kind = if let Some(info) = captured_vars.get(ident) {
                 if info.mutated {
+                    // heap_offset = info.heap_offset;
+                    // read_heap_offset = info.read_heap_offset;
+
                     IdentifierStatus::HeapAllocated
                 } else {
                     IdentifierStatus::Captured
@@ -690,7 +717,12 @@ impl<'a> AnalysisPass<'a> {
             } else {
                 if let Some(info) = self.info.get(&var.atom_syntax_object().unwrap()) {
                     match info.kind {
-                        IdentifierStatus::HeapAllocated => IdentifierStatus::HeapAllocated,
+                        IdentifierStatus::HeapAllocated => {
+                            // heap_offset = info.heap_offset;
+                            // read_heap_offset = info.read_heap_offset;
+
+                            IdentifierStatus::HeapAllocated
+                        }
                         // IdentifierStatus::Captured => IdentifierStatus::Captured,
                         _ => IdentifierStatus::Local,
                     }
@@ -717,6 +749,11 @@ impl<'a> AnalysisPass<'a> {
                 // TODO: Emit warning with the span
                 log::warn!("Found unused argument: {:?}", ident);
             }
+
+            // if kind == IdentifierStatus::HeapAllocated {
+            //     semantic_info = semantic_info.with_heap_offset(heap_offset.unwrap());
+            //     semantic_info = semantic_info.with_read_heap_offset(read_heap_offset.unwrap());
+            // }
 
             semantic_info = semantic_info.with_usage_count(count);
 
@@ -1011,8 +1048,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
         let stack_offset_rollback = self.stack_offset;
 
-        // We're entering a new scope since we've entered a lambda function
-        self.scope.push_layer();
         // The captures correspond to what variables _this_ scope should decide to capture, and also
         // arbitrarily decide the index for that capture
         self.captures.push_layer();
@@ -1104,26 +1139,44 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 captured_and_mutated.sort_by_key(|x| x.1.id);
 
                 for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
-                    value.heap_offset = Some(index);
+                    // value.heap_offset = Some(index);
 
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
                     if self.captures.contains_key(key.as_str()) {
+                        value.heap_offset =
+                            self.captures.get(key.as_str()).and_then(|x| x.heap_offset);
+
+                        value.read_heap_offset = self
+                            .captures
+                            .get(key.as_str())
+                            .and_then(|x| x.read_heap_offset);
+
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
 
-                        // value.heap_offset =
-                        //     self.captures.get(key.as_str()).and_then(|x| x.heap_offset);
-
-                        self.captures.define(key.clone(), value)
+                        self.captures.define(key.clone(), value);
                     } else {
+                        value.heap_offset = Some(index);
+                        value.read_heap_offset = Some(index);
+
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
+
+                        // If this is at the top of the scope we're patching in from
+                        // mark that this is where you get it from
+                        // if let Some(scope) = self.scope.get_mut(key.as_str()) {
+                        //     scope.read_heap_offset = Some(index);
+                        // }
+
                         self.captures.define(key.clone(), value.clone());
                     }
                 }
             }
         }
+
+        // We're entering a new scope since we've entered a lambda function
+        self.scope.push_layer();
 
         let let_level_bindings = lambda_function.arguments().unwrap();
         let depth = self.scope.depth();
@@ -1300,6 +1353,26 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 if mut_ref.captured && mut_ref.mutated {
                     semantic_info.kind = IdentifierStatus::HeapAllocated;
                     semantic_info.heap_offset = mut_ref.heap_offset;
+                    semantic_info.read_heap_offset = mut_ref.read_heap_offset;
+
+                    println!(
+                        "Semantic info read heap offset: {}: {:?}",
+                        ident, semantic_info.read_heap_offset
+                    );
+
+                    // if let Some(info) = self.info.get(&a.syn) {
+                    //     semantic_info.heap_offset = info.heap_offset;
+                    //     semantic_info.read_heap_offset = info.read_heap_offset;
+
+                    //     println!(
+                    //         "Semantic info read heap offset: {}: {:?}",
+                    //         ident, semantic_info.read_heap_offset
+                    //     );
+                    // }
+
+                    // if mut_ref.read_heap_offset.is_none() {
+                    //     panic!("Missing read heap offset");
+                    // }
                 }
 
                 self.info.insert(&a.syn, semantic_info);
@@ -1323,12 +1396,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // TODO: Make sure we want to mark this identifier as last used
                 captured.last_used = Some(current_id);
 
-                // We also want to mark the current var thats actually in scope as last used as well
-                if let Some(in_scope) = self.scope.get_mut(ident) {
-                    in_scope.last_used = Some(current_id);
-                    in_scope.captured = true;
-                }
-
                 let mut identifier_status = if captured.mutated {
                     IdentifierStatus::HeapAllocated
                 } else {
@@ -1342,6 +1409,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         IdentifierStatus::Captured
                     }
                 };
+
+                // We also want to mark the current var thats actually in scope as last used as well
+                if let Some(in_scope) = self.scope.get_mut(ident) {
+                    in_scope.last_used = Some(current_id);
+                    in_scope.captured = true;
+
+                    // if identifier_status == IdentifierStatus::HeapAllocated {
+                    //     in_scope.read_heap_offset = captured.read_heap_offset;
+                    // }
+                }
 
                 if let Some(local_define) = self.info.get_mut(&captured.id) {
                     local_define.usage_count = captured.usage_count;
@@ -1368,11 +1445,20 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     semantic_info = semantic_info.with_read_capture_offset(capture_offset);
                     semantic_info =
                         semantic_info.with_capture_index(captured.capture_offset.unwrap());
-                } else if let Some(heap_offset) = captured.heap_offset {
+                }
+
+                if let Some(heap_offset) = captured.read_heap_offset {
                     semantic_info = semantic_info.with_heap_offset(heap_offset);
+                    semantic_info = semantic_info.with_read_heap_offset(heap_offset);
                 } else {
                     log::warn!("Stack offset missing from local define")
                 }
+
+                // if semantic_info.kind == IdentifierStatus::HeapAllocated
+                //     && semantic_info.read_heap_offset.is_none()
+                // {
+                //     panic!("Missing read heap offset here");
+                // }
 
                 // println!("Variable {} refers to {}", ident, is_captured.id);
 
@@ -2406,18 +2492,30 @@ mod analysis_pass_tests {
     #[test]
     fn escaping_functions() {
         let script = r#"
-        ((λ (evald-expr)
-            ((λ (match?)
-                (if match?
-                        ((λ (?x)
-                            ((λ (?y)
-                                    ((λ (?z) (+ ?x ?y ?z))
-                                        (hash-try-get match? (quote ?z))))
-                            (hash-try-get match? (quote ?y))))
-                        (hash-try-get match? (quote ?x)))
-                (error! "Unable to match expression: " evald-expr " to any of the given patterns")))
-            (hash '?x 1 '?y 3 '?z 5)))
-            (list 1 2 3 4 5))
+        (define generate-one-element-at-a-time
+            (λ (lst)
+              ((λ (control-state generator)
+                   ((λ (control-state0 generator1)
+                        (begin
+                         (set! control-state control-state0)
+                          (set! generator generator1)
+                          generator))
+                      (λ (return)
+                        (begin
+                         (for-each
+                             (λ (element)
+                               (set! return
+                                 (call/cc
+                                    (λ (resume-here)
+                                      (begin
+                                       (set! control-state resume-here)
+                                        (return element))))))
+                             lst)
+                          (return (quote you-fell-off-the-end))))
+                      (λ ()
+                        (call/cc control-state))))
+                 123
+                 123)))
 
         "#;
 
@@ -2429,7 +2527,7 @@ mod analysis_pass_tests {
             .analysis
             .info
             .values()
-            .filter(|x| x.kind == IdentifierStatus::Captured);
+            .filter(|x| x.kind == IdentifierStatus::HeapAllocated);
 
         for var in let_vars {
             println!("{:?}", var);

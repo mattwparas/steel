@@ -1312,6 +1312,8 @@ impl<'a> VmCore<'a> {
                 } => {
                     let value_to_assign = self.stack.pop().unwrap();
 
+                    let cloned_value = value_to_assign.clone();
+
                     let old_value = self
                         .function_stack
                         .last()
@@ -1319,6 +1321,10 @@ impl<'a> VmCore<'a> {
                         .heap_allocated()
                         .borrow_mut()[payload_size as usize]
                         .set(value_to_assign);
+
+                    println!("------------- set alloc -----------");
+                    println!("---------- old value: {old_value} ---------");
+                    println!("---------- new value: {cloned_value} -------");
 
                     self.stack.push(old_value);
                     self.ip += 1;
@@ -1336,6 +1342,8 @@ impl<'a> VmCore<'a> {
                         .borrow()[payload_size as usize]
                         .get();
 
+                    println!("---------- reading alloc var: {value} ----------");
+
                     self.stack.push(value);
                     self.ip += 1;
                 }
@@ -1346,6 +1354,11 @@ impl<'a> VmCore<'a> {
                 } => {
                     let offset =
                         self.stack_index.last().copied().unwrap_or(0) + payload_size as usize;
+
+                    println!(
+                        "--------------- allocating var: {} --------------",
+                        self.stack[offset]
+                    );
 
                     let allocated_var = self.heap.allocate(
                         self.stack[offset].clone(), // TODO: Could actually move off of the stack entirely

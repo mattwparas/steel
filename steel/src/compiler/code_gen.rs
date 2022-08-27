@@ -307,7 +307,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         lambda_function: &crate::parser::ast::LambdaFunction,
     ) -> Self::Output {
         let idx = self.len();
-        let mut offset = 0;
 
         // Grab the function information from the analysis - this is going to tell us what the captured
         // vars are, and subsequently how to compile the let for this use case
@@ -432,15 +431,17 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         {
             let mut captured_mutable_arguments = function_info
                 .arguments()
-                .values()
-                .filter(|x| x.captured && x.mutated)
+                .iter()
+                // .values()
+                .filter(|x| x.1.captured && x.1.mutated)
                 .collect::<Vec<_>>();
 
-            captured_mutable_arguments.sort_by_key(|x| x.stack_offset);
+            captured_mutable_arguments.sort_by_key(|x| x.1.stack_offset);
 
-            for var in captured_mutable_arguments {
-                // println!("Found a var that is both mutated and captured");
-                // println!("{:#?}", var);
+            for (key, var) in captured_mutable_arguments {
+                println!("Found a var that is both mutated and captured");
+                // println!("")
+                println!("{:#?}", (key, var));
 
                 self.push(
                     LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap()),
@@ -525,9 +526,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 // stop!(FreeIdentifier => format!("free identifier: {}", a); a.syn.span),
             };
 
+            // println!("Atom: {}", a);
+            // println!("{:#?}", analysis);
+
             let payload = match op_code {
                 OpCode::READCAPTURED => analysis.read_capture_offset.unwrap(),
-                OpCode::READALLOC => analysis.heap_offset.unwrap(),
+                OpCode::READALLOC => analysis.read_heap_offset.unwrap(),
                 _ => analysis.stack_offset.unwrap_or_default(),
             };
 
@@ -624,7 +628,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let a = s.variable.atom_syntax_object().unwrap();
 
         if let Some(analysis) = self.analysis.get(&a) {
-            println!("{:#?}", analysis);
+            println!("{}: {:#?}", s, analysis);
 
             let op_code = match &analysis.kind {
                 Global => OpCode::SET,

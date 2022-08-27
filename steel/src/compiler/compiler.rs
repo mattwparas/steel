@@ -835,6 +835,7 @@ impl Compiler {
         let analysis = std::env::var("CODE_GEN_V2").ok().map(|_| {
             let mut analysis = Analysis::from_exprs(&expanded_statements);
             analysis.populate_captures(&expanded_statements);
+            // analysis.populate_captures(&expanded_statements);
             analysis
         });
 
