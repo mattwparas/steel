@@ -357,9 +357,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     .payload(function_info.captured_vars().len()),
             );
 
-            let mut vars = function_info.captured_vars().values().collect::<Vec<_>>();
+            let mut vars = function_info.captured_vars().iter().collect::<Vec<_>>();
 
-            vars.sort_by_key(|x| x.id);
+            vars.sort_by_key(|x| x.1.id);
+
+            println!("Var vec: {:#?}", vars);
+
             // vars.sort_by_key(|x| x.stack_offset);
 
             // Here we're going to explicitly capture from either the enclosing scope
@@ -383,35 +386,47 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             //
             // This way, at closure construction (in the VM) we can immediately patch in the kind
             // of closure that we want to create, and where to get it
-            for var in vars {
-                // println!("Var: {:?}", var);
+            for (key, var) in vars {
+                println!("Var: {:?}", (key, var));
                 // If we're patching in from the enclosing, check to see if this is a heap allocated var that
                 // we need to patch in to the current scope
                 if var.captured_from_enclosing {
                     if var.mutated {
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYHEAPCAPTURECLOSURE)
-                                .payload(var.heap_offset.unwrap()),
+                                .payload(var.heap_offset.unwrap())
+                                .contents(SyntaxObject::default(TokenType::Identifier(
+                                    key.to_string(),
+                                ))),
                         );
                     } else {
                         // In this case we're gonna patch in the variable from the current captured scope
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYCAPTURECLOSURE)
-                                .payload(var.capture_offset.unwrap()),
+                                .payload(var.capture_offset.unwrap())
+                                .contents(SyntaxObject::default(TokenType::Identifier(
+                                    key.to_string(),
+                                ))),
                         );
                     }
                 } else {
                     if var.mutated {
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYHEAPCAPTURECLOSURE)
-                                .payload(var.heap_offset.unwrap()),
+                                .payload(var.heap_offset.unwrap())
+                                .contents(SyntaxObject::default(TokenType::Identifier(
+                                    key.to_string(),
+                                ))),
                         );
                     } else {
                         // In this case, it hasn't yet been captured, so we'll just capture
                         // directly from the stack
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
-                                .payload(var.stack_offset.unwrap()),
+                                .payload(var.stack_offset.unwrap())
+                                .contents(SyntaxObject::default(TokenType::Identifier(
+                                    key.to_string(),
+                                ))),
                         );
                     }
                 }
@@ -647,8 +662,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             };
 
             let payload = match op_code {
-                OpCode::SETCAPTURED => analysis.capture_index.unwrap(),
-                OpCode::SETALLOC => analysis.heap_offset.unwrap(),
+                OpCode::SETCAPTURED => analysis.read_capture_offset.unwrap(),
+                OpCode::SETALLOC => analysis.read_heap_offset.unwrap(),
                 _ => analysis.stack_offset.unwrap_or_default(),
             };
 

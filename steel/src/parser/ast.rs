@@ -466,7 +466,7 @@ impl fmt::Display for Set {
 impl ToDoc for Set {
     fn to_doc(&self) -> RcDoc<()> {
         RcDoc::text("(set!")
-            .append(RcDoc::line())
+            .append(RcDoc::space())
             .append(self.variable.to_doc())
             .append(RcDoc::line())
             .append(self.expr.to_doc())

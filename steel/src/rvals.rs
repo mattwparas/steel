@@ -1162,7 +1162,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         Contract(c) => write!(f, "{}", c.to_string()),
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
         BoxedFunction(_) => write!(f, "#<function>"),
-        ContinuationFunction(_) => write!(f, "#<continuation>"),
+        ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
         #[cfg(feature = "jit")]
         CompiledFunction(_) => write!(f, "#<compiled-function>"),
         ListV(l) => {

@@ -640,6 +640,11 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn new_continuation_from_state(&self) -> Continuation {
+        println!("---- Constructing new continuation ----");
+        println!("Stack: {:?}", self.stack);
+        println!("Instructions:");
+        crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+
         Continuation {
             stack: self.stack.clone(),
             instructions: Rc::clone(&self.instructions),
@@ -654,6 +659,8 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn set_state_from_continuation(&mut self, continuation: Continuation) {
+        println!("Continuation stack: {:?}", continuation.stack);
+
         *self.stack = continuation.stack;
         self.instructions = continuation.instructions;
         self.instruction_stack = continuation.instruction_stack;
@@ -1342,7 +1349,20 @@ impl<'a> VmCore<'a> {
                         .borrow()[payload_size as usize]
                         .get();
 
-                    println!("---------- reading alloc var: {value} ----------");
+                    println!(
+                        "---------- reading alloc var at index: {payload_size}: {value} ----------"
+                    );
+                    println!(
+                        "Rest of the captures: {:?}",
+                        self.function_stack
+                            .last()
+                            .unwrap()
+                            .heap_allocated()
+                            .borrow()
+                            .iter()
+                            .map(|x| x.get())
+                            .collect::<Vec<_>>()
+                    );
 
                     self.stack.push(value);
                     self.ip += 1;
@@ -1595,6 +1615,8 @@ impl<'a> VmCore<'a> {
             Some(ret_val)
         } else {
             let ret_val = self.stack.pop().unwrap();
+
+            println!("Ret val: {}", ret_val);
 
             // TODO fix this
             let rollback_index = self.stack_index.pop().unwrap();
@@ -2919,6 +2941,10 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
+        println!("Calling continuation");
+
+        println!("State before applying continuation: {:?}", self.stack);
+
         let last = self
             .stack
             .pop()
@@ -2926,7 +2952,19 @@ impl<'a> VmCore<'a> {
 
         self.set_state_from_continuation(continuation.clone());
 
+        println!("State at continuation: {}", self.ip);
+        println!("Pop count after applying continuation: {}", self.pop_count);
+        crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+
+        println!("Instruction: {:?}", self.instructions[self.ip]);
+
+        // if std::env::var("CODE_GEN_V2").is_err() {
         self.ip += 1;
+        // }
+
+        println!("Instruction: {:?}", self.instructions[self.ip]);
+        // println!("Next instructions: {:?}", self.instructions[self.ip + 1]);
+
         self.stack.push(last);
         Ok(())
     }
@@ -3366,7 +3404,10 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
     */
 
     // Roll back one because we advanced prior to entering the builtin
+
+    // if std::env::var("CODE_GEN_V2").is_err() {
     ctx.ip -= 1;
+    // }
 
     if args.len() != 1 {
         stop!(ArityMismatch => format!("call/cc expects one argument, found: {}", args.len()); ctx.current_span());
@@ -3386,11 +3427,19 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
         }
         SteelVal::ContinuationFunction(_) => {}
         _ => {
-            stop!(Generic => "call/cc expects a function"; ctx.current_span())
+            stop!(Generic => format!("call/cc expects a function, found: {}", function); ctx.current_span())
         }
     }
 
     // Ok(())
+
+    // if std::env::var("CODE_GEN_V2").is_ok() {
+    //     ctx.ip += 1;
+    // }
+
+    println!("Current state");
+    println!("ip: {}", ctx.ip);
+    crate::core::instructions::pretty_print_dense_instructions(&ctx.instructions);
 
     let continuation = ctx.construct_continuation_function();
 
@@ -3411,8 +3460,6 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
             // Previously we put the continuation directly on the stack ourselves, but instead we now return as an argument
             // ctx.stack.push(continuation);
 
-            println!("Instruction: {:?}", ctx.instructions[ctx.ip + 1]);
-
             // self.global_env = inner_env;
             ctx.instruction_stack.push(InstructionPointer::new(
                 ctx.ip + 1,
@@ -3426,13 +3473,15 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
             ctx.ip = 0;
         }
         SteelVal::ContinuationFunction(cc) => {
+            println!("Setting state from continuation");
+
             ctx.set_state_from_continuation(cc.unwrap());
             ctx.ip += 1;
             // ctx.stack.push(continuation);
         }
 
         _ => {
-            stop!(Generic => "call/cc expects a function");
+            stop!(Generic => format!("call/cc expects a function, found: {}", function));
         }
     }
 

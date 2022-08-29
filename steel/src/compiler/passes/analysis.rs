@@ -260,8 +260,8 @@ impl Analysis {
                     x.mutated = true;
                     x.captured = true;
 
-                    x.read_capture_offset = info.read_capture_offset;
-                    x.heap_offset = info.heap_offset;
+                    // x.read_capture_offset = info.read_capture_offset;
+                    // x.heap_offset = info.heap_offset;
                 }
             });
 
@@ -274,8 +274,8 @@ impl Analysis {
                     x.mutated = true;
                     x.captured = true;
 
-                    x.read_capture_offset = info.read_capture_offset;
-                    x.heap_offset = info.heap_offset;
+                    // x.read_capture_offset = info.read_capture_offset;
+                    // x.heap_offset = info.heap_offset;
                 }
             });
 
@@ -1198,9 +1198,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let mut captured_vars = self.get_captured_vars(&let_level_bindings);
 
         for (var, value) in self.captures.iter() {
-            captured_vars
-                .get_mut(var.as_str())
-                .map(|x| x.captured_from_enclosing = value.captured_from_enclosing);
+            captured_vars.get_mut(var.as_str()).map(|x| {
+                x.captured_from_enclosing = value.captured_from_enclosing;
+            });
         }
 
         log::info!("Captured variables: {:?}", captured_vars);
@@ -1235,6 +1235,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             for (var, value) in captured_vars {
                 info.captured_vars.get_mut(var.as_str()).map(|x| {
                     x.captured_from_enclosing = value.captured_from_enclosing;
+                    x.heap_offset = value.heap_offset;
+                    x.read_heap_offset = value.read_heap_offset;
                 });
             }
 
@@ -2494,12 +2496,12 @@ mod analysis_pass_tests {
         let script = r#"
         (define generate-one-element-at-a-time
             (λ (lst)
-              ((λ (control-state generator)
-                   ((λ (control-state0 generator1)
+              ((λ (control-state)
+                   ((λ (control-state0)
                         (begin
                          (set! control-state control-state0)
-                          (set! generator generator1)
-                          generator))
+                          (λ ()
+                            (call/cc control-state))))
                       (λ (return)
                         (begin
                          (for-each
@@ -2511,10 +2513,7 @@ mod analysis_pass_tests {
                                        (set! control-state resume-here)
                                         (return element))))))
                              lst)
-                          (return (quote you-fell-off-the-end))))
-                      (λ ()
-                        (call/cc control-state))))
-                 123
+                          (return (quote you-fell-off-the-end))))))
                  123)))
 
         "#;
