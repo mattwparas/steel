@@ -640,12 +640,6 @@ impl<'a> AnalysisPass<'a> {
 
             // TODO: clean this up like a lot
             if heap_alloc {
-                println!(
-                    "Defining a heap alloc var: {} at index: {}",
-                    name,
-                    index + alloc_capture_count.unwrap()
-                );
-
                 self.scope.define(
                     name.to_string(),
                     ScopeInfo::new_heap_allocated_var(
@@ -1072,9 +1066,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             let vars = &mut function_info.captured_vars;
 
-            println!("####################################################");
-            println!("Function: {}", lambda_function);
-
             // TODO:
             // If this var is both captured and mutated, lets separate it for a different kind
             // of allocation - this way we can actually separately allocate where these go. Since it is possible
@@ -1086,19 +1077,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             {
                 let mut sorted_vars = vars.iter_mut().filter(|x| !x.1.mutated).collect::<Vec<_>>();
                 sorted_vars.sort_by_key(|x| x.1.id);
-                println!("Sorted vars: {:#?}", sorted_vars);
-
-                {
-                    self.captures.pop_layer();
-
-                    let mut self_captured = self.captures.iter_top().collect::<Vec<_>>();
-                    self_captured.sort_by_key(|x| x.1.id);
-                    println!("Self captures: {:#?}", self_captured);
-
-                    self.captures.push_layer();
-                }
-
-                println!("####################################################");
 
                 // let sorted_captures
 
@@ -1364,25 +1342,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     semantic_info.kind = IdentifierStatus::HeapAllocated;
                     semantic_info.heap_offset = mut_ref.heap_offset;
                     semantic_info.read_heap_offset = mut_ref.read_heap_offset;
-
-                    println!(
-                        "Semantic info read heap offset: {}: {:?}",
-                        ident, semantic_info.read_heap_offset
-                    );
-
-                    // if let Some(info) = self.info.get(&a.syn) {
-                    //     semantic_info.heap_offset = info.heap_offset;
-                    //     semantic_info.read_heap_offset = info.read_heap_offset;
-
-                    //     println!(
-                    //         "Semantic info read heap offset: {}: {:?}",
-                    //         ident, semantic_info.read_heap_offset
-                    //     );
-                    // }
-
-                    // if mut_ref.read_heap_offset.is_none() {
-                    //     panic!("Missing read heap offset");
-                    // }
                 }
 
                 self.info.insert(&a.syn, semantic_info);
@@ -1398,7 +1357,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             if let Some(captured) = self.captures.get_mut(ident) {
                 // TODO: Fill in this information here - when the vars are captured in the immediate enclosing,
                 // we want to do stuff....
-                // println!("Found a captured var: {:?}", captured);
 
                 captured.captured = true;
                 captured.usage_count += 1;

@@ -640,11 +640,6 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn new_continuation_from_state(&self) -> Continuation {
-        println!("---- Constructing new continuation ----");
-        println!("Stack: {:?}", self.stack);
-        println!("Instructions:");
-        crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
         Continuation {
             stack: self.stack.clone(),
             instructions: Rc::clone(&self.instructions),
@@ -659,8 +654,6 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn set_state_from_continuation(&mut self, continuation: Continuation) {
-        println!("Continuation stack: {:?}", continuation.stack);
-
         *self.stack = continuation.stack;
         self.instructions = continuation.instructions;
         self.instruction_stack = continuation.instruction_stack;
@@ -1329,10 +1322,6 @@ impl<'a> VmCore<'a> {
                         .borrow_mut()[payload_size as usize]
                         .set(value_to_assign);
 
-                    println!("------------- set alloc -----------");
-                    println!("---------- old value: {old_value} ---------");
-                    println!("---------- new value: {cloned_value} -------");
-
                     self.stack.push(old_value);
                     self.ip += 1;
                 }
@@ -1349,21 +1338,6 @@ impl<'a> VmCore<'a> {
                         .borrow()[payload_size as usize]
                         .get();
 
-                    println!(
-                        "---------- reading alloc var at index: {payload_size}: {value} ----------"
-                    );
-                    println!(
-                        "Rest of the captures: {:?}",
-                        self.function_stack
-                            .last()
-                            .unwrap()
-                            .heap_allocated()
-                            .borrow()
-                            .iter()
-                            .map(|x| x.get())
-                            .collect::<Vec<_>>()
-                    );
-
                     self.stack.push(value);
                     self.ip += 1;
                 }
@@ -1374,11 +1348,6 @@ impl<'a> VmCore<'a> {
                 } => {
                     let offset =
                         self.stack_index.last().copied().unwrap_or(0) + payload_size as usize;
-
-                    println!(
-                        "--------------- allocating var: {} --------------",
-                        self.stack[offset]
-                    );
 
                     let allocated_var = self.heap.allocate(
                         self.stack[offset].clone(), // TODO: Could actually move off of the stack entirely
@@ -1615,8 +1584,6 @@ impl<'a> VmCore<'a> {
             Some(ret_val)
         } else {
             let ret_val = self.stack.pop().unwrap();
-
-            println!("Ret val: {}", ret_val);
 
             // TODO fix this
             let rollback_index = self.stack_index.pop().unwrap();
@@ -2251,7 +2218,6 @@ impl<'a> VmCore<'a> {
             prototype
         } else {
             log::info!("Constructing closure for the first time");
-            println!("Constructing closure for the first time");
 
             debug_assert!(self.instructions[forward_index - 1].op_code == OpCode::ECLOSURE);
 
@@ -2536,7 +2502,6 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
-        println!("################ New Tail Call ################");
         // println!("stack before: {:?}", self.stack);
         // println!("stack index: {:?}", self.stack_index);
         // println!(
@@ -3394,8 +3359,6 @@ impl<'a> VmCore<'a> {
 }
 
 pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
-    println!("Entering call/cc");
-
     /*
     - Construct the continuation
     - Get the function that has been passed in (off the stack)
@@ -3437,10 +3400,6 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
     //     ctx.ip += 1;
     // }
 
-    println!("Current state");
-    println!("ip: {}", ctx.ip);
-    crate::core::instructions::pretty_print_dense_instructions(&ctx.instructions);
-
     let continuation = ctx.construct_continuation_function();
 
     match function {
@@ -3473,8 +3432,6 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
             ctx.ip = 0;
         }
         SteelVal::ContinuationFunction(cc) => {
-            println!("Setting state from continuation");
-
             ctx.set_state_from_continuation(cc.unwrap());
             ctx.ip += 1;
             // ctx.stack.push(continuation);

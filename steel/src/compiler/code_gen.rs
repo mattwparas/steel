@@ -361,8 +361,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             vars.sort_by_key(|x| x.1.id);
 
-            println!("Var vec: {:#?}", vars);
-
             // vars.sort_by_key(|x| x.stack_offset);
 
             // Here we're going to explicitly capture from either the enclosing scope
@@ -387,7 +385,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // This way, at closure construction (in the VM) we can immediately patch in the kind
             // of closure that we want to create, and where to get it
             for (key, var) in vars {
-                println!("Var: {:?}", (key, var));
                 // If we're patching in from the enclosing, check to see if this is a heap allocated var that
                 // we need to patch in to the current scope
                 if var.captured_from_enclosing {
@@ -454,10 +451,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             captured_mutable_arguments.sort_by_key(|x| x.1.stack_offset);
 
             for (key, var) in captured_mutable_arguments {
-                println!("Found a var that is both mutated and captured");
-                // println!("")
-                println!("{:#?}", (key, var));
-
                 self.push(
                     LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap()),
                 );
@@ -643,8 +636,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let a = s.variable.atom_syntax_object().unwrap();
 
         if let Some(analysis) = self.analysis.get(&a) {
-            println!("{}: {:#?}", s, analysis);
-
             let op_code = match &analysis.kind {
                 Global => OpCode::SET,
                 Local | LetVar => OpCode::SETLOCAL,

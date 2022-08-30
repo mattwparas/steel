@@ -46,10 +46,10 @@
 (define generate-digit
     (generate-one-element-at-a-time '(0 1 2)))
 
-; (assert! (equal? 0 (generate-digit))) ;; 0
-; (assert! (equal? 1 (generate-digit))) ;; 1
-; (assert! (equal? 2 (generate-digit))) ;; 2
-; (assert! (equal? 'you-fell-off-the-end (generate-digit))) ;; you-fell-off-the-end
+(assert! (equal? 0 (generate-digit))) ;; 0
+(assert! (equal? 1 (generate-digit))) ;; 1
+(assert! (equal? 2 (generate-digit))) ;; 2
+(assert! (equal? 'you-fell-off-the-end (generate-digit))) ;; you-fell-off-the-end
 
 
 ; (let ((control-state 123) (generator 123))
