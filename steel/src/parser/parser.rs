@@ -28,6 +28,12 @@ pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 )]
 pub struct SyntaxObjectId(pub usize);
 
+impl SyntaxObjectId {
+    pub fn fresh() -> Self {
+        SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst))
+    }
+}
+
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]

@@ -275,7 +275,7 @@ impl Analysis {
                     x.captured = true;
 
                     // x.read_capture_offset = info.read_capture_offset;
-                    // x.heap_offset = info.heap_offset;
+                    // x.heap_offset = info.heap_offset;.
                 }
             });
 
@@ -610,6 +610,8 @@ impl<'a> AnalysisPass<'a> {
                     .count()
             });
 
+        let mut mut_var_offset = 0;
+
         for (index, arg) in lambda_function.args.iter().enumerate() {
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
@@ -646,7 +648,10 @@ impl<'a> AnalysisPass<'a> {
 
                 self.scope.define(
                     name.to_string(),
-                    ScopeInfo::new_heap_allocated_var(id, index + alloc_capture_count.unwrap()),
+                    ScopeInfo::new_heap_allocated_var(
+                        id,
+                        mut_var_offset + alloc_capture_count.unwrap(),
+                    ),
                 );
 
                 // Throw in a dummy info so that no matter what, we have something to refer to
@@ -660,6 +665,8 @@ impl<'a> AnalysisPass<'a> {
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
+
+                mut_var_offset += 1;
             } else {
                 self.scope
                     .define(name.to_string(), ScopeInfo::new_local(id, index));
@@ -1272,6 +1279,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 if let Some(mut var) = self.info.get_mut(&id) {
                     var.set_bang = true;
                     scope_info.mutated = true;
+                    // scope_info.read_heap_offset = var.read_heap_offset;
 
                     // while let Some(reference) = var.refers_to.and_then(|x| self.info.get_mut(&x)) {
                     //     reference.set_bang = true;
@@ -1287,7 +1295,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
         }
 
-        self.visit(&s.variable)
+        self.visit(&s.variable);
     }
 
     fn visit_atom(&mut self, a: &'a crate::parser::ast::Atom) {
@@ -1687,6 +1695,14 @@ where
         for arg in &mut l.args {
             self.visit(arg);
         }
+    }
+}
+
+struct RefreshVars;
+
+impl VisitorMutRefUnit for RefreshVars {
+    fn visit_atom(&mut self, a: &mut Atom) {
+        a.syn.syntax_object_id = SyntaxObjectId::fresh();
     }
 }
 
@@ -2270,6 +2286,16 @@ impl<'a> SemanticAnalysis<'a> {
 
             self.analysis = Analysis::from_exprs(self.exprs);
         }
+
+        self
+    }
+
+    pub fn refresh_variables(&mut self) -> &mut Self {
+        for expr in self.exprs.iter_mut() {
+            RefreshVars.visit(expr);
+        }
+
+        self.analysis = Analysis::from_exprs(self.exprs);
 
         self
     }

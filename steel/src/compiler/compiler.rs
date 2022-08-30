@@ -973,6 +973,7 @@ impl Compiler {
             analysis.populate_captures(&expanded_statements);
 
             let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+            semantic.refresh_variables();
 
             // semantic.replace_anonymous_function_calls_with_plain_lets();
         }
