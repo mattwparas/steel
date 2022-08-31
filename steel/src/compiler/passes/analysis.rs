@@ -813,10 +813,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // the function call.
         let stack_offset = self.stack_offset;
 
-        for expr in &l.args {
+        for expr in &l.args[1..] {
             self.visit(expr);
             self.stack_offset += 1;
             self.escape_analysis = eligibility;
+        }
+
+        if !l.is_empty() {
+            self.visit(&l.args[0]);
         }
 
         self.stack_offset = stack_offset;
@@ -2516,19 +2520,10 @@ mod analysis_pass_tests {
     #[test]
     fn last_usages_test() {
         let script = r#"
-        (define (tree-rec path padding)
-        ; (define name (file-name path))
-        (%plain-let ((name (file-name path)))
-            ; (displayln path)
-            ; (displayln name)
-            (displayln (string-append padding name))
-            (cond [(is-file? path) name]
-                    [(is-dir? path)
-                    (map (fn (x)
-                            (tree-rec x (string-append padding "    ")))
-                            ; (merge-sort (read-dir path)))]
-                            (read-dir path))]
-                    [else void])))
+        (define Y 
+            (lambda (f)
+                ((lambda (x) (x x))
+                (lambda (x) (f (lambda (y) ((x x) y)))))))
         "#;
 
         let mut exprs = Parser::parse(script).unwrap();
