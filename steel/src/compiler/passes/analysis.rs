@@ -254,14 +254,9 @@ impl Analysis {
             .values_mut()
             .flat_map(|x| x.captured_vars.values_mut())
             .for_each(|x| {
-                if let Some(info) = mutated_and_captured_vars.get(&x.id) {
-                    println!("Updated a var");
-
+                if mutated_and_captured_vars.get(&x.id).is_some() {
                     x.mutated = true;
                     x.captured = true;
-
-                    // x.read_capture_offset = info.read_capture_offset;
-                    // x.heap_offset = info.heap_offset;
                 }
             });
 
@@ -269,17 +264,11 @@ impl Analysis {
             .values_mut()
             .flat_map(|x| x.arguments.values_mut())
             .for_each(|x| {
-                if let Some(info) = mutated_and_captured_vars.get(&x.id) {
-                    println!("Updated a var");
+                if mutated_and_captured_vars.get(&x.id).is_some() {
                     x.mutated = true;
                     x.captured = true;
-
-                    // x.read_capture_offset = info.read_capture_offset;
-                    // x.heap_offset = info.heap_offset;.
                 }
             });
-
-        println!("Mutated and captured vars: {:?}", mutated_and_captured_vars);
 
         self.run(&exprs);
     }

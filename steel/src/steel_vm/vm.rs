@@ -2906,29 +2906,13 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
-        println!("Calling continuation");
-
-        println!("State before applying continuation: {:?}", self.stack);
-
         let last = self
             .stack
             .pop()
             .ok_or_else(throw!(ArityMismatch => "continuation expected 1 argument, found none"))?;
 
         self.set_state_from_continuation(continuation.clone());
-
-        println!("State at continuation: {}", self.ip);
-        println!("Pop count after applying continuation: {}", self.pop_count);
-        crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
-        println!("Instruction: {:?}", self.instructions[self.ip]);
-
-        // if std::env::var("CODE_GEN_V2").is_err() {
         self.ip += 1;
-        // }
-
-        println!("Instruction: {:?}", self.instructions[self.ip]);
-        // println!("Next instructions: {:?}", self.instructions[self.ip + 1]);
 
         self.stack.push(last);
         Ok(())
