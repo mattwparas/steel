@@ -2187,10 +2187,25 @@ impl<'a> VmCore<'a> {
                     captures.push(value);
                 }
                 (OpCode::COPYCAPTURECLOSURE, n) => {
+                    debug_assert!(
+                        (n as usize) < self.function_stack.last().unwrap().captures().len()
+                    );
+
                     captures
                         .push(self.function_stack.last().unwrap().captures()[n as usize].clone());
                 }
                 (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
+                    debug_assert!(
+                        (n as usize)
+                            < self
+                                .function_stack
+                                .last()
+                                .unwrap()
+                                .heap_allocated()
+                                .borrow()
+                                .len()
+                    );
+
                     heap_vars.push(
                         self.function_stack
                             .last()

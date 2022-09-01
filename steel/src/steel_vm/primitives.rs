@@ -693,6 +693,10 @@ fn meta_module() -> BuiltInModule {
         .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
         .register_value("read!", SteelVal::FuncV(super::meta::read))
         .register_value("call/cc", SteelVal::BuiltIn(super::vm::call_cc))
+        .register_value(
+            "call-with-current-continuation",
+            SteelVal::BuiltIn(super::vm::call_cc),
+        )
         .register_fn("eval!", super::meta::eval)
         .register_fn("value->string", super::meta::value_to_string)
         // TODO: @Matt -> implement the traits for modules as well
