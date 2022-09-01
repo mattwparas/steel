@@ -5,7 +5,7 @@
     ((shift ?k ?e) (*shift (lambda (?k) ?e)))))
 
 (define (*meta-continuation* v)
-    (error! "You forgot the top-level reset..."))
+    (error "You forgot the top-level reset..."))
 
 (define (*abort thunk) 
     ; (let ((v (thunk)))
@@ -27,4 +27,6 @@
                         (f (lambda (v)
                                 (reset (k v)))))))))
 
+;; TODO: This fails because we try to capture 2, but 2 isn't actually in a context to capture
+;; Instead we should mark top level stuff as just living on the stack
 (* 2 (reset (+ 1 (shift k (k 5)))))

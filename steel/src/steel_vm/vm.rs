@@ -2187,6 +2187,9 @@ impl<'a> VmCore<'a> {
                     captures.push(value);
                 }
                 (OpCode::COPYCAPTURECLOSURE, n) => {
+                    println!("Function stack: {:?}", self.function_stack);
+                    crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+
                     debug_assert!(
                         (n as usize) < self.function_stack.last().unwrap().captures().len()
                     );

@@ -223,6 +223,8 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_value("error!", ControlOperations::error());
 
+    engine.register_value("error", ControlOperations::error());
+
     engine
         .register_module(MAP_MODULE.with(|x| x.clone()))
         .register_module(SET_MODULE.with(|x| x.clone()))
@@ -249,6 +251,8 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
 pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_value("error!", ControlOperations::error());
+
+    engine.register_value("error", ControlOperations::error());
 
     engine
         .register_module(MAP_MODULE.with(|x| x.clone()))
