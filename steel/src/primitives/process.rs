@@ -2,7 +2,22 @@ use std::process::{Child, Command};
 
 use im_lists::list::List;
 
-use crate::{rvals::Custom, SteelVal};
+use crate::{
+    rvals::{Custom, CustomType, FromSteelVal, IntoSteelVal},
+    steel_vm::builtin::BuiltInModule,
+    SteelVal,
+};
+use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
+
+pub fn process_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("process".to_string());
+
+    module
+        .register_fn("command", CommandBuilder::command_builder)
+        .register_fn("spawn-process", CommandBuilder::spawn_process);
+
+    module
+}
 
 #[derive(Debug)]
 struct CommandBuilder {
@@ -33,9 +48,13 @@ impl CommandBuilder {
         CommandBuilder::new(command)
     }
 
-    pub fn spawn_process(&mut self) -> Result<ChildProcess, std::io::Error> {
-        self.command.spawn().map(ChildProcess::new)
+    pub fn spawn_process(&mut self) -> Result<ChildProcess, SteelErr> {
+        self.command
+            .spawn()
+            .map(ChildProcess::new)
+            .map_err(|x| x.into())
     }
 }
 
 impl Custom for CommandBuilder {}
+impl Custom for ChildProcess {}
