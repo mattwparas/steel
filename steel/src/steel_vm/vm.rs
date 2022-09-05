@@ -1922,12 +1922,6 @@ impl<'a> VmCore<'a> {
     fn handle_read_captures(&mut self, index: usize) -> Result<()> {
         let value = self.function_stack.last().unwrap().captures()[index].clone();
 
-        println!("Reading captured: {}", value);
-        // println!(
-        //     "Captures: {:?}",
-        //     self.function_stack.last().unwrap().captures()
-        // );
-
         self.stack.push(value);
         self.ip += 1;
         Ok(())
@@ -1935,14 +1929,8 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn handle_move_local(&mut self, index: usize) -> Result<()> {
-        println!("Stack: {:?}", self.stack);
         let offset = self.stack_index.last().copied().unwrap_or(0);
-        // let value = self.stack[index + offset].clone();
         let value = std::mem::replace(&mut self.stack[index + offset], SteelVal::Void);
-
-        println!("Reading local from offset: {}", offset);
-        println!("Index: {}, offset: {}", index, offset);
-        println!("Local: {}", value);
 
         self.stack.push(value);
         self.ip += 1;
@@ -2196,17 +2184,9 @@ impl<'a> VmCore<'a> {
                 (OpCode::COPYCAPTURESTACK, n) => {
                     let offset = self.stack_index.last().copied().unwrap_or(0);
                     let value = self.stack[n as usize + offset].clone();
-                    println!("Stack: {:?}", self.stack);
-                    println!("Offset: {}", n as usize + offset);
-                    println!("%%%%% Capturing from stack : {value}");
-                    println!("%%%%% IP: {}", self.ip);
-                    crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     captures.push(value);
                 }
                 (OpCode::COPYCAPTURECLOSURE, n) => {
-                    // println!("Function stack length: {}", self.function_stack.len());
-                    crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
                     debug_assert!(
                         !self.function_stack.is_empty(),
                         "Trying to capture from closure that doesn't exist",
@@ -2217,8 +2197,6 @@ impl<'a> VmCore<'a> {
                     );
 
                     let value = self.function_stack.last().unwrap().captures()[n as usize].clone();
-
-                    println!("Copying from closure: {}", value);
 
                     captures.push(value);
                 }
@@ -2382,7 +2360,6 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
-        println!("##########################################");
         // println!("stack before: {:?}", self.stack);
         // println!("stack index: {:?}", self.stack_index);
         // println!(
@@ -2952,16 +2929,12 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
-        println!("##### Calling continuation ######");
-
         let last = self
             .stack
             .pop()
             .ok_or_else(throw!(ArityMismatch => "continuation expected 1 argument, found none"))?;
 
         self.set_state_from_continuation(continuation.clone());
-
-        println!("Current instruction: {:?}", self.instructions[self.ip]);
 
         self.ip += 1;
 
@@ -3407,8 +3380,6 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
     ctx.ip -= 1;
     // }
 
-    println!("--------------- Entering call/cc ---------------");
-
     if args.len() != 1 {
         stop!(ArityMismatch => format!("call/cc expects one argument, found: {}", args.len()); ctx.current_span());
     }
@@ -3441,8 +3412,6 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
 
     match function {
         SteelVal::Closure(closure) => {
-            println!("Calling closure inside call/cc");
-
             if ctx.stack_index.len() == STACK_LIMIT {
                 println!("stack frame at exit: {:?}", ctx.stack);
                 stop!(Generic => "call/cc: stack overflowed!"; ctx.current_span());
@@ -3471,8 +3440,6 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
             ctx.ip = 0;
         }
         SteelVal::ContinuationFunction(cc) => {
-            println!("Setting state from continuation");
-
             ctx.set_state_from_continuation(cc.unwrap());
             ctx.ip += 1;
             // ctx.stack.push(continuation);
