@@ -959,10 +959,10 @@ impl Compiler {
 
             let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
-            semantic
-                // .replace_anonymous_function_calls_with_plain_lets()
-                .lift_pure_local_functions()
-                .lift_all_local_functions();
+            // semantic
+            // .replace_anonymous_function_calls_with_plain_lets()
+            // .lift_pure_local_functions()
+            // .lift_all_local_functions();
         }
 
         debug!("About to expand defines");

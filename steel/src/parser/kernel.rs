@@ -26,12 +26,12 @@ impl Kernel {
     pub fn new() -> Self {
         let mut engine = Engine::new_kernel();
 
-        std::env::set_var("CODE_GEN_V2", "true");
+        // std::env::set_var("CODE_GEN_V2", "true");
 
         // Run the script for building the core interface for structs
         engine.compile_and_run_raw_program(KERNEL).unwrap();
 
-        std::env::remove_var("CODE_GEN_V2");
+        // std::env::remove_var("CODE_GEN_V2");
 
         let mut macros = HashSet::new();
         macros.insert("make-struct".to_string());
@@ -55,7 +55,7 @@ impl Kernel {
     pub fn expand(&mut self, ident: &str, expr: ExprKind) -> Result<ExprKind> {
         let span = get_span(&expr);
 
-        let syntax_objects = SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
+        // let syntax_objects = SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
 
         // println!("{:?}", syntax_objects);
 

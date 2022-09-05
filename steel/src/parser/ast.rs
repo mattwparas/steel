@@ -607,13 +607,25 @@ impl From<Define> for ExprKind {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LambdaFunction {
     pub args: Vec<ExprKind>,
     pub body: ExprKind,
     pub location: SyntaxObject,
     pub rest: bool,
     pub syntax_object_id: usize,
+}
+
+impl Clone for LambdaFunction {
+    fn clone(&self) -> Self {
+        Self {
+            args: self.args.clone(),
+            body: self.body.clone(),
+            location: self.location.clone(),
+            rest: self.rest.clone(),
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+        }
+    }
 }
 
 impl PartialEq for LambdaFunction {

@@ -1089,7 +1089,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         value.capture_offset = self
                             .captures
                             .get(key.as_str())
-                            .and_then(|x| x.capture_offset);
+                            .and_then(|x| x.read_capture_offset);
 
                         value.read_capture_offset = Some(index);
 
@@ -2089,6 +2089,7 @@ impl<'a> SemanticAnalysis<'a> {
 
             log::info!("Re-running the analysis after lifting local functions");
             self.analysis = Analysis::from_exprs(&self.exprs);
+            self.analysis.populate_captures(&self.exprs);
         }
 
         self
@@ -2449,6 +2450,7 @@ impl<'a> SemanticAnalysis<'a> {
             );
 
             self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.populate_captures(&self.exprs);
         }
 
         self
