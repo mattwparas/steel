@@ -1,5 +1,3 @@
-; #lang racket
-
 (define-syntax reset 
     (syntax-rules ()
         ((reset ?e) (*reset (lambda () ?e)))))
@@ -30,52 +28,6 @@
         (lambda (k)
             (*abort (lambda ()
                         (f (lambda (v)
-                                (displayln "### k5 world")
-                                ; (displayln k)
-                                ; (inspect-bytecode k)
-                                ; (displayln v)
                                 (reset (k v)))))))))
 
-;; TODO: something is off with the general flow of things here
-; (* 2 (reset (+ 1 (shift k (k 5)))))
-
-(* 2 (reset (+ 1 (shift k (begin 
-    (displayln "@@@@@@@@@@@@@@@@@")
-    (displayln k)
-    ; (inspect-bytecode k)
-    ; (displayln "@@@@@@@@@@@@@@@@@")
-    (k 5)
-    
-    ; 5
-
-    )))))
-
-
-; (* 2 (reset (+ 1 (shift k (begin 
-;     (displayln "@@@@@@@@@@@@@@@@@")
-;     ; (displayln k)
-;     (displayln k)
-;     (k 5)
-;     (displayln "@@@@@@@@@@@@@@@@@")
-;     )))))
-
-; (* 2 (+ 1 []))
-
-; (* 2 (+ 1 5))
-
-; (* 2 (reset (+ 1 (shift _ 5))))
-
-; 0    NEWSCLOSURE : 10
-; 1    PASS : 0
-; 2    PASS : 32888
-; 3    NDEFS : 2
-; 4    COPYCAPTURECLOSURE : 0
-; 5    COPYCAPTURESTACK : 0
-; 6    READCAPTURED : 1
-; 7    READCAPTURED : 0
-; 8    TAILCALL : 1
-; 9    POP_PURE : 0
-; 10    ECLOSURE : 0
-; 11    CALLGLOBALTAIL : 282
-; 12    PASS : 1
-; 13    POP_PURE : 1
+(* 2 (reset (+ 1 (shift k (k 5)))))

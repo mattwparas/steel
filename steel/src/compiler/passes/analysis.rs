@@ -1122,6 +1122,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
                     if self.captures.contains_key(key.as_str()) {
+                        // TODO: If theres weird bugs here, match behavior of the captures from above
+                        // i.e. heap offset just patches in the read offset from the parent
                         value.heap_offset =
                             self.captures.get(key.as_str()).and_then(|x| x.heap_offset);
 

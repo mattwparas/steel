@@ -74,6 +74,7 @@ test_harness_success! {
     read,
     set_local,
     set_tail_call,
+    shift_reset,
     sieve,
     simple_stream_with_map,
     simple_stream_with_mapping,
