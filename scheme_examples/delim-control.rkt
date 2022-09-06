@@ -157,14 +157,14 @@
                 (cons (car xs) (k (cdr xs)))))))))
 
 (define (traverse xs)
-    (define visit
-        (lambda (xs)
-            (if (null? xs)
-            '()
-            (visit (control*
-                (lambda (k)
-                    (cons (car xs) (k (cdr xs)))))))))
-      (prompt*
+    ; (define visit
+    ;     (lambda (xs)
+    ;         (if (null? xs)
+    ;         '()
+    ;         (visit (control*
+    ;             (lambda (k)
+    ;                 (cons (car xs) (k (cdr xs)))))))))
+    (prompt*
         (lambda ()
             (visit xs))))
 
