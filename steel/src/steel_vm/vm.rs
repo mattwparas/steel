@@ -1312,8 +1312,6 @@ impl<'a> VmCore<'a> {
                 } => {
                     let value_to_assign = self.stack.pop().unwrap();
 
-                    let cloned_value = value_to_assign.clone();
-
                     let old_value = self
                         .function_stack
                         .last()
