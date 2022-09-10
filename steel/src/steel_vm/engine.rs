@@ -245,17 +245,17 @@ impl Engine {
         self
     }
 
-    /// Emits a program with path information embedded for error messaging.
-    pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
-        let constants = self.constants();
-        self.compiler.compile_program(expr, Some(path), constants)
-    }
+    // /// Emits a program with path information embedded for error messaging.
+    // pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
+    //     let constants = self.constants();
+    //     self.compiler.compile_program(expr, Some(path), constants)
+    // }
 
     /// Emits a program for a given `expr` directly without providing any error messaging for the path.
-    pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
-        let constants = self.constants();
-        self.compiler.compile_program(expr, None, constants)
-    }
+    // pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
+    //     let constants = self.constants();
+    //     self.compiler.compile_program(expr, None, constants)
+    // }
 
     pub fn emit_raw_program_no_path(&mut self, expr: &str) -> Result<RawProgramWithSymbols> {
         let constants = self.constants();
@@ -308,21 +308,21 @@ impl Engine {
     }
 
     /// Emit the bytecode directly, with a path provided.
-    pub fn emit_instructions_with_path(
-        &mut self,
-        exprs: &str,
-        path: PathBuf,
-    ) -> Result<Vec<Vec<DenseInstruction>>> {
-        let constants = self.constants();
-        self.compiler
-            .emit_instructions(exprs, Some(path), constants)
-    }
+    // pub fn emit_instructions_with_path(
+    //     &mut self,
+    //     exprs: &str,
+    //     path: PathBuf,
+    // ) -> Result<Vec<Vec<DenseInstruction>>> {
+    //     let constants = self.constants();
+    //     self.compiler
+    //         .emit_instructions(exprs, Some(path), constants)
+    // }
 
-    /// Emit instructions directly, without a path for error messaging.
-    pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
-        let constants = self.constants();
-        self.compiler.emit_instructions(exprs, None, constants)
-    }
+    // /// Emit instructions directly, without a path for error messaging.
+    // pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
+    //     let constants = self.constants();
+    //     self.compiler.emit_instructions(exprs, None, constants)
+    // }
 
     /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
     // pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {

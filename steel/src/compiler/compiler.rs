@@ -587,34 +587,34 @@ impl Compiler {
         self.emit_instructions_from_exprs(parsed, path, constants)
     }
 
-    pub fn emit_instructions(
-        &mut self,
-        expr_str: &str,
-        path: Option<PathBuf>,
-        constants: ImmutableHashMap<String, SteelVal>,
-    ) -> Result<Vec<Vec<DenseInstruction>>> {
-        let mut intern = HashMap::new();
+    // pub fn emit_instructions(
+    //     &mut self,
+    //     expr_str: &str,
+    //     path: Option<PathBuf>,
+    //     constants: ImmutableHashMap<String, SteelVal>,
+    // ) -> Result<Vec<Vec<DenseInstruction>>> {
+    //     let mut intern = HashMap::new();
 
-        let now = Instant::now();
+    //     let now = Instant::now();
 
-        // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
-            Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
-        } else {
-            Parser::new(expr_str, &mut intern).collect()
-        };
+    //     // Could fail here
+    //     let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
+    //         Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
+    //     } else {
+    //         Parser::new(expr_str, &mut intern).collect()
+    //     };
 
-        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
-        }
+    //     if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+    //         debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+    //     }
 
-        let parsed = parsed?;
+    //     let parsed = parsed?;
 
-        // TODO fix this hack
-        Ok(self
-            .emit_instructions_from_exprs(parsed, path, constants)?
-            .1)
-    }
+    //     // TODO fix this hack
+    //     Ok(self
+    //         .emit_instructions_from_exprs(parsed, path, constants)?
+    //         .1)
+    // }
 
     pub fn emit_debug_instructions(
         &mut self,
