@@ -136,8 +136,6 @@ fn main() {
                 let contents =
                     fs::read_to_string(&path).expect("Something went wrong reading the file");
 
-                std::env::set_var("CODE_GEN_V2", "#true");
-
                 let program = vm.emit_raw_program(&contents, path.clone().into());
 
                 match program {

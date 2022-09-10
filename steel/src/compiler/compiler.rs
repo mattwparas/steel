@@ -832,32 +832,17 @@ impl Compiler {
         let mut instruction_buffer = Vec::new();
         let mut index_buffer = Vec::new();
 
-        let analysis = std::env::var("CODE_GEN_V2").ok().map(|_| {
+        let analysis = {
             let mut analysis = Analysis::from_exprs(&expanded_statements);
             analysis.populate_captures(&expanded_statements);
-            // analysis.populate_captures(&expanded_statements);
             analysis
-        });
+        };
 
         for expr in expanded_statements {
-            // TODO add printing out the expression as its own special function
+            let mut instructions =
+                super::code_gen::CodeGenerator::new(&mut self.constant_map, &analysis)
+                    .top_level_compile(&expr)?;
 
-            let mut instructions = if std::env::var("CODE_GEN_V2").is_ok() {
-                println!("{}", expr.to_pretty(60));
-
-                super::code_gen::CodeGenerator::new(
-                    &mut self.constant_map,
-                    analysis.as_ref().unwrap(),
-                )
-                .top_level_compile(&expr)?
-            } else {
-                CodeGenerator::new(&mut self.constant_map).top_level_compile(&expr)?
-            };
-
-            // let mut instructions =
-            //     CodeGenerator::new(&mut self.constant_map).top_level_compile(&expr)?;
-
-            // instructions.push(Instruction::new_pop());
             inject_heap_save_to_pop(&mut instructions);
             index_buffer.push(instructions.len());
             instruction_buffer.append(&mut instructions);
@@ -953,30 +938,24 @@ impl Compiler {
         let mut expanded_statements =
             self.apply_const_evaluation(constants, expanded_statements)?;
 
-        if std::env::var("CODE_GEN_V2").is_ok() {
-            let mut analysis = Analysis::from_exprs(&expanded_statements);
-            analysis.populate_captures(&expanded_statements);
+        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
 
-            let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
-            semantic
-                // .replace_anonymous_function_calls_with_plain_lets()
-                .lift_pure_local_functions()
-                .lift_all_local_functions();
-        }
+        semantic
+            // .replace_anonymous_function_calls_with_plain_lets()
+            .lift_pure_local_functions()
+            .lift_all_local_functions();
 
         debug!("About to expand defines");
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
-        if std::env::var("CODE_GEN_V2").is_ok() {
-            let mut analysis = Analysis::from_exprs(&expanded_statements);
-            analysis.populate_captures(&expanded_statements);
+        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
 
-            let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-            semantic.refresh_variables();
-
-            // semantic.replace_anonymous_function_calls_with_plain_lets();
-        }
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+        semantic.refresh_variables();
 
         if log_enabled!(log::Level::Debug) {
             debug!(

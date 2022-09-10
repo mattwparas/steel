@@ -2638,10 +2638,8 @@ impl<'a> VmCore<'a> {
             CompiledFunction(function) => self.call_compiled_function(function, payload_size),
             ContinuationFunction(cc) => self.call_continuation(cc),
             // TODO: Take this out when we move to the new code gen
-            Closure(closure) if std::env::var("CODE_GEN_V2").is_ok() => {
-                self.new_handle_tail_call_closure(closure, payload_size)
-            }
-            Closure(closure) => self.handle_tail_call_closure(closure, payload_size),
+            Closure(closure) => self.new_handle_tail_call_closure(closure, payload_size),
+            // Closure(closure) => self.handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             _ => {
                 println!("{:?}", self.stack);

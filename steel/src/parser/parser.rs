@@ -577,50 +577,26 @@ impl<'a> Parser<'a> {
                                                         ty: TokenType::Quote,
                                                         ..
                                                     },
-                                            })) => {
-                                                match self.context.last() {
-                                                    Some(
-                                                        ParsingContext::Quasiquote(_)
-                                                        | ParsingContext::QuasiquoteTick(_)
-                                                        | ParsingContext::Quote(_)
-                                                        | ParsingContext::QuoteTick(_),
-                                                    ) => prev_frame.push(ExprKind::List(
-                                                        List::new(current_frame),
-                                                    )),
-                                                    _ => {
-                                                        prev_frame.push(
-                                                            ExprKind::try_from(current_frame)
-                                                                .map_err(|x| {
-                                                                    x.set_source(
-                                                                        self.source_name.clone(),
-                                                                    )
-                                                                })?,
-                                                        );
-                                                    }
+                                            })) => match self.context.last() {
+                                                Some(
+                                                    ParsingContext::Quasiquote(_)
+                                                    | ParsingContext::QuasiquoteTick(_)
+                                                    | ParsingContext::Quote(_)
+                                                    | ParsingContext::QuoteTick(_),
+                                                ) => prev_frame
+                                                    .push(ExprKind::List(List::new(current_frame))),
+                                                _ => {
+                                                    prev_frame.push(
+                                                        ExprKind::try_from(current_frame).map_err(
+                                                            |x| {
+                                                                x.set_source(
+                                                                    self.source_name.clone(),
+                                                                )
+                                                            },
+                                                        )?,
+                                                    );
                                                 }
-
-                                                // if  {
-                                                //     // println!("Exiting Context: {:?}", self.context.pop());
-
-                                                //     println!("Converting to quote");
-
-                                                //     prev_frame.push(
-                                                //         ExprKind::try_from(current_frame).map_err(
-                                                //             |x| {
-                                                //                 x.set_source(
-                                                //                     self.source_name.clone(),
-                                                //                 )
-                                                //             },
-                                                //         )?,
-                                                //     );
-                                                // } else {
-                                                //     println!("Not converting to quote");
-
-                                                //     prev_frame.push(ExprKind::List(List::new(
-                                                //         current_frame,
-                                                //     )))
-                                                // }
-                                            }
+                                            },
                                             _ => {
                                                 // println!("Converting to list");
                                                 // println!("Context here: {:?}", self.context);
@@ -632,18 +608,6 @@ impl<'a> Parser<'a> {
 
                                     Some(ParsingContext::QuoteTick(_))
                                     | Some(ParsingContext::QuasiquoteTick(_)) => {
-                                        // if stack.len() == *last_quote_index && *last_quote_index > 1
-                                        // {
-                                        //     self.context.pop();
-                                        // }
-
-                                        // if stack.len() <= *last_quote_index {
-                                        //     self.context.pop();
-                                        // }
-
-                                        // println!("QuoteTick: Inside here!");
-                                        // println!("QuoteTick: Frame: {:?}", current_frame);
-
                                         match current_frame.first() {
                                             Some(ExprKind::Atom(Atom {
                                                 syn:
@@ -732,144 +696,7 @@ impl<'a> Parser<'a> {
                                             .map_err(|x| x.set_source(self.source_name.clone()))
                                     }
                                 }
-
-                                // if self.context.last().is_some() {
-                                //     println!(
-                                //         "Context at this point before dumping to list: {:?}",
-                                //         self.context
-                                //     );
-                                //     return Ok(ExprKind::List(List::new(current_frame)));
-                                // } else {
-                                //     println!(
-                                //         "Context at this point before turning into typed ast: {:?}",
-                                //         self.context
-                                //     );
-                                //     return ExprKind::try_from(current_frame)
-                                //         .map_err(|x| x.set_source(self.source_name.clone()));
-                                // }
                             }
-
-                            /*
-
-                            if let Some(mut prev_frame) = stack.pop() {
-                                match self.quote_stack.last() {
-                                    Some(last_quote_index)
-                                        if stack.len() == *last_quote_index
-                                            && self.quote_stack.len() > 1 =>
-                                    {
-                                        self.quote_stack.pop();
-                                        prev_frame.push(ExprKind::List(List::new(current_frame)))
-                                    }
-                                    Some(last_quote_index)
-                                        if stack.len() == *last_quote_index
-                                            && self.quote_stack.len() == 1 =>
-                                    {
-                                        self.quote_stack.pop();
-
-                                        match current_frame.first() {
-                                            Some(ExprKind::Atom(Atom {
-                                                syn:
-                                                    SyntaxObject {
-                                                        ty: TokenType::Quote,
-                                                        ..
-                                                    },
-                                            })) => {
-                                                prev_frame.push(
-                                                    ExprKind::try_from(current_frame).map_err(
-                                                        |x| x.set_source(self.source_name.clone()),
-                                                    )?,
-                                                );
-                                            }
-                                            _ => prev_frame
-                                                .push(ExprKind::List(List::new(current_frame))),
-                                        }
-                                    }
-                                    Some(_) if self.quote_stack.len() == 1 => {
-                                        // self.quote_stack.pop();
-
-                                        // println!("Inside here");
-
-                                        match current_frame.first() {
-                                            Some(ExprKind::Atom(Atom {
-                                                syn:
-                                                    SyntaxObject {
-                                                        ty: TokenType::Quote,
-                                                        ..
-                                                    },
-                                            })) => {
-                                                self.quote_stack.pop();
-
-                                                prev_frame.push(
-                                                    ExprKind::try_from(current_frame).map_err(
-                                                        |x| x.set_source(self.source_name.clone()),
-                                                    )?,
-                                                );
-                                            }
-                                            _ => prev_frame
-                                                .push(ExprKind::List(List::new(current_frame))),
-                                        }
-                                    }
-                                    Some(_) => {
-                                        // println!("Inside here");
-                                        // println!("quote stack: {:?}", self.quote_stack);
-                                        prev_frame.push(ExprKind::List(List::new(current_frame)))
-                                    }
-                                    _ => {
-                                        // println!(
-                                        //     "Shorthand quote stack: {:?}",
-                                        //     self.shorthand_quote_stack
-                                        // );
-
-                                        // println!("Getting here!");
-
-                                        match self.shorthand_quote_stack.last() {
-                                            Some(_) => prev_frame
-                                                .push(ExprKind::List(List::new(current_frame))),
-                                            _ => {
-                                                prev_frame.push(
-                                                    ExprKind::try_from(current_frame).map_err(
-                                                        |x| x.set_source(self.source_name.clone()),
-                                                    )?,
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                                current_frame = prev_frame;
-                            } else {
-                                // println!("Shorthand quote stack: {:?}", self.shorthand_quote_stack);
-                                // println!("Current frame: {:?}", current_frame);
-                                // println!("Quote stack: {:?}", self.quote_stack);
-
-                                match self.shorthand_quote_stack.last() {
-                                    Some(last_quote_index) if stack.len() == *last_quote_index => {
-                                        // self.shorthand_quote_stack.pop();
-
-                                        // println!("Inside here!");
-
-                                        return Ok(ExprKind::List(List::new(current_frame)));
-                                    }
-                                    Some(_) => {
-                                        // println!("Inside second one");
-
-                                        // self.shorthand_quote_stack.pop();
-                                        return Ok(ExprKind::List(List::new(current_frame)));
-                                    }
-
-                                    _ => {
-                                        // if !self.quote_stack.is_empty() {
-                                        //     unimplemented!()
-                                        // }
-
-                                        // println!("Inside third here");
-
-                                        return ExprKind::try_from(current_frame)
-                                            .map_err(|x| x.set_source(self.source_name.clone()));
-                                    }
-                                }
-                            }
-
-                            */
                         }
 
                         _ => {
