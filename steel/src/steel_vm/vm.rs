@@ -274,7 +274,7 @@ pub struct Continuation {
     stack_index: Vec<usize>,
     ip: usize,
     pop_count: usize,
-    function_stack: Vec<Gc<ByteCodeLambda>>,
+    pub(crate) function_stack: Vec<Gc<ByteCodeLambda>>,
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
 }
 
