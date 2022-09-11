@@ -1,5 +1,5 @@
-use steel::{steel_vm::register_fn::RegisterFn};
-use steel::{steel_vm::engine::Engine};
+use steel::steel_vm::engine::Engine;
+use steel::steel_vm::register_fn::RegisterFn;
 
 fn external_function(arg1: usize, arg2: usize) -> usize {
     arg1 + arg2
@@ -45,7 +45,7 @@ pub fn main() {
     //     std::result::Result::<String, String>::unwrap_or,
     // );
 
-    vm.run(
+    vm.compile_and_run_raw_program(
         r#"
         (define foo (external-function 10 25))
         (define bar (option-function "applesauce"))

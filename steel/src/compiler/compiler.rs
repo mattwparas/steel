@@ -838,6 +838,8 @@ impl Compiler {
             analysis
         };
 
+        expanded_statements.pretty_print();
+
         for expr in expanded_statements {
             let mut instructions =
                 super::code_gen::CodeGenerator::new(&mut self.constant_map, &analysis)

@@ -18,7 +18,7 @@ pub fn test_from_files(input_path: &str, output_path: &str) {
 
 pub fn test_lines(input: impl BufRead, output: impl BufRead) {
     let mut evaluator = Engine::new();
-    evaluator.parse_and_execute(PRELUDE).unwrap();
+    evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
 
     let io_lines = input.lines().zip(output.lines());
     for (line_in, line_out) in io_lines {

@@ -42,11 +42,9 @@ enum EmitAction {
 fn main() {
     // env_logger::init();
 
-    // let mut builder = Builder::new();
+    let mut builder = Builder::new();
 
-    // builder
-    //     .filter(Some("pipeline_time"), LevelFilter::Trace)
-    //     .init();
+    builder.filter(Some("requires"), LevelFilter::Trace).init();
 
     // builder
     //     .filter(

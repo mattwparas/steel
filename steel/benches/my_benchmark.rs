@@ -130,7 +130,7 @@ fn trie_sort_without_optimizations(c: &mut Criterion) {
 fn trie_sort_with_optimizations(c: &mut Criterion) {
     let mut vm = Engine::new();
     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-    vm.parse_and_execute(steel::stdlib::TRIESORT).unwrap();
+    vm.compile_and_run_raw_program(steel::stdlib::TRIESORT).unwrap();
 
     let warmup = "(define lst
         (list

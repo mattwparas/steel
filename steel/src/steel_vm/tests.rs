@@ -110,7 +110,7 @@ mod call_cc_tests {
         (start-threads)
         "#;
 
-        vm.run(contents).unwrap();
+        vm.compile_and_run_raw_program(contents).unwrap();
 
         assert_eq!(vm.extract::<isize>("counter").unwrap(), -1);
     }
@@ -170,7 +170,7 @@ mod register_fn_tests {
         vm.register_fn("adding-one", add_one);
         vm.register_fn("always-true", always_true);
 
-        vm.run(
+        vm.compile_and_run_raw_program(
             r#"
         (define foo (external-function 10 25))
         (define bar (option-function "applesauce"))
@@ -255,7 +255,7 @@ mod register_type_tests {
             .unwrap();
 
         let _ = vm
-            .run(
+            .compile_and_run_raw_program(
                 r#"
             (define new-external-struct (set-foo external-struct 100))
             (define get-output (method-by-value external-struct))

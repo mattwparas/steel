@@ -607,11 +607,11 @@ impl Engine {
     /// let output = vm.run("(+ 1 2) (* 5 5) (- 10 5)").unwrap();
     /// assert_eq!(output, vec![SteelVal::IntV(3), SteelVal::IntV(25), SteelVal::IntV(5)]);
     /// ```
-    pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine.execute_program(program)
-    }
+    // pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, None, constants)?;
+    //     self.virtual_machine.execute_program(program)
+    // }
 
     /// Execute a program, however do not run any callbacks as registered with `on_progress`.
     // pub fn run_without_callbacks(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
@@ -670,9 +670,9 @@ impl Engine {
         self.virtual_machine.execute_program(program)
     }
 
-    pub fn parse_and_execute(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        self.parse_and_execute_without_optimizations(expr)
-    }
+    // pub fn compile_and_run_raw_program(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     self.parse_and_execute_without_optimizations(expr)
+    // }
 
     // Read in the file from the given path and execute accordingly
     // Loads all the functions in from the given env
@@ -683,7 +683,7 @@ impl Engine {
     //     let mut file = std::fs::File::open(path)?;
     //     let mut exprs = String::new();
     //     file.read_to_string(&mut exprs)?;
-    //     self.parse_and_execute(exprs.as_str(), )
+    //     self.compile_and_run_raw_program(exprs.as_str(), )
     // }
 
     pub fn parse_and_execute_from_path<P: AsRef<Path>>(

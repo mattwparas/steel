@@ -98,7 +98,7 @@ pub fn main() {
         .unwrap();
 
     let output = vm
-        .run(
+        .compile_and_run_raw_program(
             r#"
             (define new-external-struct (set-foo external-struct 100))
             (define get-output (method-by-value external-struct))

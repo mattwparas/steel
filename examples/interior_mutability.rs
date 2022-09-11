@@ -55,7 +55,7 @@ pub fn main() {
         .register_fn("mutex-inc", mutex_increment)
         .register_fn("push-global-vector", push_global_vector);
 
-    vm.run(
+    vm.compile_and_run_raw_program(
         r#"
         (define rc (new-rc-refcell 0))
         (define mutex (new-mutex-wrapper 0))

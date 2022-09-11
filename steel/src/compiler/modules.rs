@@ -6,6 +6,7 @@ use crate::{
         parser::{ParseError, Parser, SyntaxObject},
         tokens::TokenType,
     },
+    steel_vm::primitives::ALL_MODULES,
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
@@ -818,10 +819,16 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn parse_from_path(mut self) -> Result<Self> {
+        println!("Opening: {:?}", self.name);
         let mut file = std::fs::File::open(&self.name)?;
         self.file_metadata
             .insert(self.name.clone(), file.metadata()?.modified()?);
         let mut exprs = String::new();
+
+        // Add the modules here:
+
+        exprs.push_str(ALL_MODULES);
+
         file.read_to_string(&mut exprs)?;
 
         let mut intern = HashMap::new();
