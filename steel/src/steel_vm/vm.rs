@@ -1873,10 +1873,10 @@ impl<'a> VmCore<'a> {
     fn handle_set(&mut self, index: usize) -> Result<()> {
         let value_to_assign = self.stack.pop().unwrap();
 
-        if let SteelVal::Closure(_) = &value_to_assign {
-            // println!("Closing upvalue in set");
-            self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        }
+        // if let SteelVal::Closure(_) = &value_to_assign {
+        //     // println!("Closing upvalue in set");
+        //     self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
+        // }
 
         let value = self.global_env.repl_set_idx(index, value_to_assign)?;
 

@@ -1,11 +1,14 @@
 mod helpers;
 extern crate steel;
 
-use std::path::PathBuf;
+use std::{io::Read, path::PathBuf};
 
 use helpers::*;
-use steel::steel_vm::engine::Engine;
 use steel::PRELUDE;
+use steel::{
+    stdlib::{CONTRACTS, DISPLAY},
+    steel_vm::engine::Engine,
+};
 
 #[test]
 fn basic_test() {
@@ -18,9 +21,17 @@ fn basic_test() {
 #[test]
 fn module_test() {
     let mut evaluator = Engine::new();
-    evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
+    // evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
+    // evaluator.compile_and_run_raw_program(DISPLAY).unwrap();
+    // evaluator.compile_and_run_raw_program(CONTRACTS).unwrap();
+
+    let path_buf = PathBuf::from("tests/modules/main.rkt");
+    let mut file = std::fs::File::open(&path_buf).unwrap();
+    let mut exprs = String::new();
+    file.read_to_string(&mut exprs).unwrap();
+
     evaluator
-        .parse_and_execute_from_path(PathBuf::from("tests/modules/main.rkt"))
+        .compile_and_run_raw_program_with_path(&exprs, path_buf)
         .unwrap();
     test_line("(a 10)", &["127"], &mut evaluator);
     test_line("(b 20)", &["47"], &mut evaluator);

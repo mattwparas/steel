@@ -44,7 +44,10 @@ fn main() {
 
     let mut builder = Builder::new();
 
-    builder.filter(Some("requires"), LevelFilter::Trace).init();
+    builder
+        .filter(Some("requires"), LevelFilter::Trace)
+        .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
+        .init();
 
     // builder
     //     .filter(
@@ -100,7 +103,7 @@ fn main() {
                 ];
 
                 for core in core_libraries {
-                    let res = vm.parse_and_execute_without_optimizations(core);
+                    let res = vm.compile_and_run_raw_program(core);
                     if let Err(e) = res {
                         eprintln!("{}", e);
                         return;
@@ -124,7 +127,7 @@ fn main() {
                 ];
 
                 for core in core_libraries {
-                    let res = vm.parse_and_execute_without_optimizations(core);
+                    let res = vm.compile_and_run_raw_program(core);
                     if let Err(e) = res {
                         eprintln!("{}", e);
                         return;
@@ -229,15 +232,15 @@ pub fn configure_engine() -> Engine {
     vm.compile_and_run_raw_program(crate::steel::steel_vm::primitives::ALL_MODULES)
         .unwrap();
 
-    let mut module = BuiltInModule::new("applesauce".to_string());
+    // let mut module = BuiltInModule::new("applesauce".to_string());
 
-    module.register_value("bananas", SteelVal::IntV(100));
-    module.register_value(
-        "foobar",
-        SteelVal::StringV(std::rc::Rc::from("hello world!")),
-    );
+    // module.register_value("bananas", SteelVal::IntV(100));
+    // module.register_value(
+    //     "foobar",
+    //     SteelVal::StringV(std::rc::Rc::from("hello world!")),
+    // );
 
-    vm.register_module(module);
+    // vm.register_module(module);
 
     vm
 

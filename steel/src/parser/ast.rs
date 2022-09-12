@@ -342,6 +342,14 @@ impl Atom {
             None
         }
     }
+
+    pub fn ident_mut(&mut self) -> Option<&mut String> {
+        if let TokenType::Identifier(ref mut ident) = self.syn.ty {
+            Some(ident)
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Display for Atom {

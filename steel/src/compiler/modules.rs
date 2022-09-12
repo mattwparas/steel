@@ -486,6 +486,9 @@ impl<'a> ModuleBuilder<'a> {
         let mut ast = std::mem::replace(&mut self.source_ast, Vec::new());
         let provides = std::mem::replace(&mut self.provides, Vec::new());
 
+        // let mut ast = self.source_ast.clone();
+        // let provides = self.provides.clone();
+
         let mut requires = Vec::new();
 
         // TODO -> qualified requires as well
@@ -827,7 +830,7 @@ impl<'a> ModuleBuilder<'a> {
 
         // Add the modules here:
 
-        exprs.push_str(ALL_MODULES);
+        // exprs.push_str(ALL_MODULES);
 
         file.read_to_string(&mut exprs)?;
 

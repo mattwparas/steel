@@ -1593,6 +1593,37 @@ where
     }
 }
 
+struct FindUsages<'a, F> {
+    id: SyntaxObjectId,
+    analysis: &'a Analysis,
+    func: F,
+    modified: bool,
+}
+
+impl<'a, F> FindUsages<'a, F> {
+    pub fn new(id: SyntaxObjectId, analysis: &'a Analysis, func: F) -> Self {
+        Self {
+            id,
+            analysis,
+            func,
+            modified: false,
+        }
+    }
+}
+
+impl<'a, F> VisitorMutRefUnit for FindUsages<'a, F>
+where
+    F: FnMut(&Analysis, &mut crate::parser::ast::Atom) -> bool,
+{
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(refers_to) = self.analysis.get(&a.syn).and_then(|x| x.refers_to) {
+            if refers_to == self.id {
+                self.modified |= (self.func)(&self.analysis, a)
+            }
+        }
+    }
+}
+
 struct FindCallSites<'a, F> {
     name: &'a str,
     analysis: &'a Analysis,
@@ -2373,20 +2404,17 @@ impl<'a> SemanticAnalysis<'a> {
                 .collect::<Vec<_>>();
 
             for id in ids {
-                let mut find_call_site_by_id = FindCallSiteById::new(
-                    id,
-                    &self.analysis,
-                    |_: &Analysis, call_site: &mut List| {
-                        if let Some(first_ident) = call_site.first_ident_mut() {
-                            *first_ident = "##lambda-lifting##".to_string()
-                                + first_ident
+                let mut find_call_site_by_id =
+                    FindUsages::new(id, &self.analysis, |_: &Analysis, usage: &mut Atom| {
+                        if let Some(ident) = usage.ident_mut() {
+                            *ident = "##lambda-lifting##".to_string()
+                                + ident
                                 + id.0.to_string().as_str();
                             true
                         } else {
                             false
                         }
-                    },
-                );
+                    });
 
                 // Mutate the call sites of the original expression we were visiting
                 // Similar to here - just borrow exactly how long we need it for

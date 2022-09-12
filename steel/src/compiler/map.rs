@@ -7,7 +7,8 @@ use std::collections::HashMap;
 #[derive(Debug, PartialEq)]
 pub struct SymbolMap {
     values: Vec<String>,
-    map: HashMap<String, usize>,
+    // TODO don't do this - don't expose this API
+    pub(crate) map: HashMap<String, usize>,
 }
 
 impl SymbolMap {
@@ -40,9 +41,17 @@ impl SymbolMap {
         // idx
 
         if let Some(idx) = self.map.get(ident) {
+            if ident == "b" {
+                println!("Fetching from map: {}", idx);
+            }
+
             *idx
         } else {
             let idx = self.map.len();
+
+            if ident == "b" {
+                println!("Adding to map: {}", idx);
+            }
 
             self.map.insert(ident.to_string(), idx);
 

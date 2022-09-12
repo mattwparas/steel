@@ -153,6 +153,10 @@ impl Engine {
             .call_function(&self.compiler.constant_map, function, arguments)
     }
 
+    pub fn run(&mut self, input: &str) -> Result<Vec<SteelVal>> {
+        self.compile_and_run_raw_program(input)
+    }
+
     /// Instantiates a new engine instance with all the primitive functions enabled.
     /// This is the most general engine entry point, and includes both the contract and
     /// prelude files in the root.
@@ -175,7 +179,7 @@ impl Engine {
         ];
 
         for core in core_libraries.into_iter() {
-            vm.parse_and_execute_without_optimizations(core).unwrap();
+            vm.compile_and_run_raw_program(core).unwrap();
         }
 
         vm
@@ -200,7 +204,7 @@ impl Engine {
         ];
 
         for core in core_libraries {
-            self.parse_and_execute_without_optimizations(core)?;
+            self.compile_and_run_raw_program(core)?;
         }
 
         Ok(self)
@@ -226,7 +230,7 @@ impl Engine {
         ];
 
         for core in core_libraries {
-            self.parse_and_execute_without_optimizations(core)?;
+            self.compile_and_run_raw_program(core)?;
         }
 
         Ok(self)

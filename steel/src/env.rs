@@ -26,10 +26,6 @@ pub struct Env {
     pub(crate) ast_map: HashMap<usize, ExprKind>,
 }
 
-pub trait MacroEnv {
-    fn validate_identifier(&self, name: &str) -> bool;
-}
-
 impl Env {
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
         self.bindings_vec.get(idx).cloned()

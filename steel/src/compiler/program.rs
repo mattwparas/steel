@@ -549,6 +549,11 @@ impl RawProgramWithSymbols {
             debug!(target: "pipeline_time", "Executable Build Time: {:?}", now.elapsed());
         }
 
+        // let mut sorted_symbol_map = symbol_map.map.iter().collect::<Vec<_>>();
+        // sorted_symbol_map.sort_by_key(|x| x.1);
+
+        // println!("Symbol Map: {:#?}", sorted_symbol_map);
+
         Ok(())
     }
 
@@ -617,6 +622,11 @@ impl RawProgramWithSymbols {
             constant_map: self.constant_map,
             spans,
         });
+
+        // let mut sorted_symbol_map = symbol_map.map.iter().collect::<Vec<_>>();
+        // sorted_symbol_map.sort_by_key(|x| x.1);
+
+        // println!("Symbol Map: {:#?}", sorted_symbol_map);
 
         if log_enabled!(target: "pipeline_time", log::Level::Debug) {
             debug!(target: "pipeline_time", "Executable Build Time: {:?}", now.elapsed());
