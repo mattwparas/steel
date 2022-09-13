@@ -228,7 +228,7 @@ impl CompiledModule {
                 "module".to_string(),
             )))),
             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                "###".to_string() + self.name.to_str().unwrap(),
+                "___".to_string() + self.name.to_str().unwrap(),
             )))),
         ];
 
