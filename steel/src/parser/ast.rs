@@ -52,6 +52,10 @@ pub enum ExprKind {
 }
 
 impl ExprKind {
+    pub fn empty() -> ExprKind {
+        ExprKind::List(List::new(Vec::new()))
+    }
+
     pub fn integer_literal(value: isize, span: Span) -> ExprKind {
         ExprKind::Atom(crate::parser::ast::Atom::new(SyntaxObject::new(
             TokenType::IntegerLiteral(value),

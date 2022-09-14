@@ -959,6 +959,8 @@ impl Compiler {
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
         semantic.refresh_variables();
 
+        // semantic.flatten_anonymous_functions();
+
         if log_enabled!(log::Level::Debug) {
             debug!(
                 "Successfully expanded defines: {:?}",

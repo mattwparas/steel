@@ -2004,7 +2004,7 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
             self.visit(expr);
         }
 
-        let mut functions = Vec::new();
+        let mut functions: Vec<(usize, String, SyntaxObjectId)> = Vec::new();
 
         for (index, expr) in begin.exprs.iter().enumerate() {
             if let ExprKind::Define(define) = expr {
@@ -2025,16 +2025,94 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
                                 );
                         } else {
                             log::info!("Found a pure local function: {}", define.name);
-                            functions.push(index);
+                            functions.push((
+                                index,
+                                define.name.atom_identifier().unwrap().to_string(),
+                                define.name_id().unwrap(),
+                            ));
                         }
                     }
                 }
             }
         }
 
-        for index in functions.into_iter().rev() {
+        for (index, _name, _id) in functions.into_iter().rev() {
+            // let constructed_name =
+            //     "##lambda-lifting##".to_string() + &name + id.0.to_string().as_str();
+
+            // let mut dummy_define = ExprKind::Define(Box::new(Define::new(
+            //     ExprKind::atom(name),
+            //     ExprKind::atom(constructed_name),
+            //     SyntaxObject::default(TokenType::Define),
+            // )));
+
+            // let mut removed_function = begin.exprs.get_mut(index).unwrap();
+
+            // std::mem::swap(&mut dummy_define, &mut removed_function);
+
             let removed_function = begin.exprs.remove(index);
             self.lifted_functions.push(removed_function);
+        }
+    }
+}
+
+struct FlattenAnonymousFunctionCalls;
+
+impl FlattenAnonymousFunctionCalls {
+    pub fn flatten(exprs: &mut Vec<ExprKind>) {
+        for expr in exprs {
+            Self.visit(expr);
+        }
+    }
+}
+
+impl VisitorMutRefUnit for FlattenAnonymousFunctionCalls {
+    fn visit_list(&mut self, l: &mut List) {
+        // let mut replacement_body: Option<ExprKind> = None;
+        let mut args = Vec::new();
+
+        let mut inner_body = None;
+        let mut changed = false;
+
+        // This is an anonymous function call
+        if let Some(function_a) = l.first_func_mut() {
+            // The body is also just an anonymous function call
+            if let ExprKind::List(inner_l) = &mut function_a.body {
+                if let Some(function_b) = inner_l.first_func_mut() {
+                    // Then we should be able to flatten the function into one
+
+                    // TODO: Check that any of the vars we're using are used in the body expression
+                    // They can only be used in the argument position
+
+                    let mut dummy = ExprKind::empty();
+
+                    // Extract the inner body
+                    std::mem::swap(&mut function_b.body, &mut dummy);
+
+                    inner_body = Some(dummy);
+
+                    // TODO: This doesn't work quite yet -
+                    function_a.args.append(&mut function_b.args);
+                    args.extend(inner_l.args.drain(1..));
+
+                    changed = true;
+                }
+            }
+
+            if let Some(new_body) = inner_body {
+                function_a.body = new_body;
+            }
+        }
+
+        l.args.append(&mut args);
+
+        if changed {
+            self.visit_list(l);
+        } else {
+            // Visit the children after
+            for expr in &mut l.args {
+                self.visit(expr)
+            }
         }
     }
 }
@@ -2488,6 +2566,10 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn resolve_alias(&self, id: SyntaxObjectId) -> Option<SyntaxObjectId> {
         self.analysis.resolve_alias(id)
+    }
+
+    pub fn flatten_anonymous_functions(&mut self) {
+        FlattenAnonymousFunctionCalls::flatten(&mut self.exprs);
     }
 }
 
