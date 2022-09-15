@@ -24,7 +24,7 @@ pub enum IdentifierStatus {
 }
 
 // TODO: Make these not just plain public variables
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SemanticInformation {
     pub kind: IdentifierStatus,
     pub set_bang: bool,
@@ -130,7 +130,7 @@ impl SemanticInformation {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionInformation {
     // Just a mapping of the vars to their scope info - holds which vars are being
     // captured by this function
@@ -182,14 +182,14 @@ impl FunctionInformation {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum CallKind {
     Normal,
     TailCall,
     SelfTailCall,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CallSiteInformation {
     pub kind: CallKind,
     pub span: Span,
@@ -201,7 +201,7 @@ impl CallSiteInformation {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LetInformation {
     pub stack_offset: usize,
     pub function_context: Option<usize>,
@@ -223,7 +223,7 @@ impl LetInformation {
 }
 
 // Populate the metadata about individual
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Analysis {
     // TODO: make these be specific IDs for semantic id, function id, and call info id
     pub(crate) info: HashMap<SyntaxObjectId, SemanticInformation>,
@@ -2166,7 +2166,7 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
 pub struct SemanticAnalysis<'a> {
     // We want to reserve the right to add or remove expressions from the program as needed
     exprs: &'a mut Vec<ExprKind>,
-    analysis: Analysis,
+    pub(crate) analysis: Analysis,
 }
 
 impl<'a> SemanticAnalysis<'a> {
@@ -2748,6 +2748,11 @@ mod analysis_pass_tests {
     #[test]
     fn tail_call_eligible_test() {
         let script = r#"
+            (begin
+                (define loop1
+                    (λ (x)
+                    (if (= x 100) x (loop1 (+ x 1))))))
+
             (define (loop value accum)
                 ;; This should not get registered as a tail call
                 (loop value (cons value accum))
@@ -2759,7 +2764,8 @@ mod analysis_pass_tests {
         "#;
 
         let mut exprs = Parser::parse(script).unwrap();
-        let analysis = SemanticAnalysis::new(&mut exprs);
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
 
         let tail_calls = analysis
             .analysis

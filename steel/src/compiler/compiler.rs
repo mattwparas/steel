@@ -46,8 +46,10 @@ use log::{debug, log_enabled};
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{
-    code_generator::loop_condition_local_const_arity_two, modules::ModuleManager,
-    passes::analysis::Analysis, program::RawProgramWithSymbols,
+    code_generator::loop_condition_local_const_arity_two,
+    modules::ModuleManager,
+    passes::analysis::{Analysis, CallKind},
+    program::RawProgramWithSymbols,
 };
 
 use im_rc::HashMap as ImmutableHashMap;
@@ -826,7 +828,7 @@ impl Compiler {
 
     fn generate_instructions_for_executable(
         &mut self,
-        expanded_statements: Vec<ExprKind>,
+        mut expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<Vec<Instruction>>> {
         let mut results = Vec::new();
         let mut instruction_buffer = Vec::new();

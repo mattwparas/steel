@@ -181,7 +181,12 @@
     [(define/contract (name args ...)
        contract
        body ...)
-     (define name (bind/c contract (lambda (args ...) body ...) 'name))]
+     (begin
+        (define name (lambda (args ...) body ...))
+        (set! name (bind/c contract name 'name)))
+    ;  (define name (bind/c contract (lambda (args ...) body ...) 'name))
+     
+     ]
     [(define/contract name contract expr)
      (define name ((bind/c
                       (make-function/c (make/c contract 'contract))
