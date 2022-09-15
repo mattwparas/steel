@@ -164,27 +164,27 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         validator: MatchingBracketValidator::default(),
     }));
 
-    let buffer = String::new();
+    // let buffer = String::new();
 
     // TODO make this better
-    let core_libraries = &[PRELUDE, DISPLAY, CONTRACTS];
+    // let core_libraries = &[PRELUDE, DISPLAY, CONTRACTS];
 
     let current_dir = std::env::current_dir()?;
 
-    for core in core_libraries {
-        let res = vm.compile_and_run_raw_program(core);
+    // for core in core_libraries {
+    //     let res = vm.compile_and_run_raw_program(core);
 
-        match res {
-            Ok(r) => r.iter().for_each(|x| match x {
-                SteelVal::Void => {}
-                _ => println!("{} {}", "=>".bright_blue().bold(), x),
-            }),
-            Err(e) => {
-                e.emit_result("stdlib.stl", buffer.as_str());
-                eprintln!("{}", e.to_string().bright_red());
-            }
-        }
-    }
+    //     match res {
+    //         Ok(r) => r.iter().for_each(|x| match x {
+    //             SteelVal::Void => {}
+    //             _ => println!("{} {}", "=>".bright_blue().bold(), x),
+    //         }),
+    //         Err(e) => {
+    //             e.emit_result("stdlib.stl", buffer.as_str());
+    //             eprintln!("{}", e.to_string().bright_red());
+    //         }
+    //     }
+    // }
 
     let mut print_time = false;
 

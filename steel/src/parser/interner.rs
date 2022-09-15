@@ -2,12 +2,26 @@ use lasso::Key;
 use lasso::Spur;
 use std::fmt;
 
+// #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+// pub enum MaybeInternedString {
+//     Interned(InternedString),
+//     Uninterned(String),
+// }
+
 /// An interned string
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct InternedString(Spur);
 
 impl InternedString {
+    pub fn from_string(ident: &str) -> Self {
+        Self(
+            INTERNER
+                .get_or_init(|| ThreadedRodeo::new())
+                .get_or_intern(ident),
+        )
+    }
+
     pub fn new(key: usize) -> Self {
         Self(Spur::try_from_usize(key).unwrap())
     }
@@ -26,6 +40,18 @@ impl InternedString {
     }
 }
 
+impl From<&str> for InternedString {
+    fn from(ident: &str) -> Self {
+        Self::from_string(&ident)
+    }
+}
+
+impl From<String> for InternedString {
+    fn from(ident: String) -> Self {
+        Self::from_string(&ident)
+    }
+}
+
 impl From<Spur> for InternedString {
     fn from(spur: Spur) -> Self {
         Self(spur)
@@ -35,6 +61,12 @@ impl From<Spur> for InternedString {
 impl fmt::Debug for InternedString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.get().into_usize())
+    }
+}
+
+impl fmt::Display for InternedString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.resolve())
     }
 }
 
@@ -53,14 +85,14 @@ fn test_initialization() {
     println!("resolved string: {:?}", resolved_string);
 }
 
-pub fn intern(key: String) -> Spur {
+fn intern(key: String) -> Spur {
     INTERNER.get().unwrap().get_or_intern(key)
 }
 
-pub fn intern_static(key: &'static str) -> Spur {
+fn intern_static(key: &'static str) -> Spur {
     INTERNER.get().unwrap().get_or_intern_static(key)
 }
 
-pub fn resolve<'a>(key: &'a Spur) -> &'a str {
+fn resolve<'a>(key: &'a Spur) -> &'a str {
     INTERNER.get().unwrap().resolve(&key)
 }

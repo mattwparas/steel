@@ -5,9 +5,8 @@ use steel::steel_vm::{engine::Engine, register_fn::RegisterFn};
 
 fn benchmark_template(c: &mut Criterion, name: &str, script: &str, warmup: &str) {
     let mut vm = Engine::new();
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-    vm.parse_and_execute_without_optimizations(black_box(warmup))
-        .unwrap();
+    vm.compile_and_run_raw_program(PRELUDE).unwrap();
+    vm.compile_and_run_raw_program(black_box(warmup)).unwrap();
 
     let program = vm.emit_raw_program_no_path(&script).unwrap();
     let executable = vm.raw_program_to_executable(program).unwrap();
@@ -20,7 +19,7 @@ fn range(c: &mut Criterion) {
 
     let mut vm = Engine::new();
 
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
+    vm.compile_and_run_raw_program(PRELUDE).unwrap();
 
     let program = vm.emit_raw_program_no_path(&script).unwrap();
     let executable = vm.raw_program_to_executable(program).unwrap();
@@ -92,8 +91,8 @@ fn ten_thousand_iterations_letrec(c: &mut Criterion) {
 
 fn trie_sort_without_optimizations(c: &mut Criterion) {
     let mut vm = Engine::new();
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-    vm.parse_and_execute_without_optimizations(steel::stdlib::TRIESORT)
+    vm.compile_and_run_raw_program(PRELUDE).unwrap();
+    vm.compile_and_run_raw_program(steel::stdlib::TRIESORT)
         .unwrap();
 
     let warmup = "(define lst
@@ -114,8 +113,7 @@ fn trie_sort_without_optimizations(c: &mut Criterion) {
          \"notify\"
          \"star\"))";
 
-    vm.parse_and_execute_without_optimizations(black_box(&warmup))
-        .unwrap();
+    vm.compile_and_run_raw_program(black_box(&warmup)).unwrap();
 
     let script = "(trie-sort lst)";
 
@@ -129,8 +127,9 @@ fn trie_sort_without_optimizations(c: &mut Criterion) {
 
 fn trie_sort_with_optimizations(c: &mut Criterion) {
     let mut vm = Engine::new();
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-    vm.compile_and_run_raw_program(steel::stdlib::TRIESORT).unwrap();
+    vm.compile_and_run_raw_program(PRELUDE).unwrap();
+    vm.compile_and_run_raw_program(steel::stdlib::TRIESORT)
+        .unwrap();
 
     let warmup = "(define lst
         (list
@@ -150,8 +149,7 @@ fn trie_sort_with_optimizations(c: &mut Criterion) {
          \"notify\"
          \"star\"))";
 
-    vm.parse_and_execute_without_optimizations(black_box(&warmup))
-        .unwrap();
+    vm.compile_and_run_raw_program(black_box(&warmup)).unwrap();
 
     let script = "(trie-sort lst)";
 
@@ -167,8 +165,8 @@ fn fib_28(c: &mut Criterion) {
     // std::env::set_var("CODE_GEN_V2", "true");
 
     let mut vm = Engine::new();
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-    vm.parse_and_execute_without_optimizations(
+    vm.compile_and_run_raw_program(PRELUDE).unwrap();
+    vm.compile_and_run_raw_program(
         "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))",
     )
     .unwrap();
@@ -185,8 +183,8 @@ fn fib_28(c: &mut Criterion) {
 
 fn fib_28_contract(c: &mut Criterion) {
     let mut vm = Engine::new();
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-    vm.parse_and_execute_without_optimizations(
+    vm.compile_and_run_raw_program(PRELUDE).unwrap();
+    vm.compile_and_run_raw_program(
         r#"(define/contract (fib n) 
                 (->/c integer? integer?)
                 (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))"#,
@@ -209,7 +207,7 @@ fn fib_28_contract(c: &mut Criterion) {
 // just to match against the Rhai benchmarks
 // fn fib_20(c: &mut Criterion) {
 //     let mut vm = Engine::new();
-//     vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
+//     vm.compile_and_run_raw_program(PRELUDE).unwrap();
 
 //     let script = "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))) (fib 20)";
 

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
 use quickscope::ScopeMap;
@@ -10,7 +10,7 @@ use crate::parser::{
     tokens::TokenType,
 };
 
-use super::{VisitorMutRefUnit, VisitorMutUnitRef};
+use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IdentifierStatus {
@@ -833,7 +833,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // that information - it _has_ to at least be calling something
         if !l.is_empty() {
             // Mark the call site - see what happens
-            let mut call_site_kind = if eligibility {
+            let mut call_site_kind = if eligibility && self.scope.depth() > 1 {
                 CallKind::TailCall
             } else {
                 CallKind::Normal
@@ -2056,17 +2056,49 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
     }
 }
 
-struct FlattenAnonymousFunctionCalls;
+struct ExprContainsIds<'a> {
+    analysis: &'a Analysis,
+    ids: &'a HashSet<SyntaxObjectId>,
+}
 
-impl FlattenAnonymousFunctionCalls {
-    pub fn flatten(exprs: &mut Vec<ExprKind>) {
+impl<'a> ExprContainsIds<'a> {
+    pub fn contains(
+        analysis: &'a Analysis,
+        ids: &'a HashSet<SyntaxObjectId>,
+        expr: &ExprKind,
+    ) -> bool {
+        matches!(
+            ExprContainsIds { analysis, ids }.visit(expr),
+            std::ops::ControlFlow::Break(_)
+        )
+    }
+}
+
+impl<'a> VisitorMutControlFlow for ExprContainsIds<'a> {
+    fn visit_atom(&mut self, a: &Atom) -> std::ops::ControlFlow<()> {
+        if let Some(refers_to) = self.analysis.get(&a.syn).and_then(|x| x.refers_to) {
+            if self.ids.contains(&refers_to) {
+                return std::ops::ControlFlow::Break(());
+            }
+        }
+
+        std::ops::ControlFlow::Continue(())
+    }
+}
+
+struct FlattenAnonymousFunctionCalls<'a> {
+    analysis: &'a Analysis,
+}
+
+impl<'a> FlattenAnonymousFunctionCalls<'a> {
+    pub fn flatten(analysis: &'a Analysis, exprs: &mut Vec<ExprKind>) {
         for expr in exprs {
-            Self.visit(expr);
+            Self { analysis }.visit(expr);
         }
     }
 }
 
-impl VisitorMutRefUnit for FlattenAnonymousFunctionCalls {
+impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
     fn visit_list(&mut self, l: &mut List) {
         // let mut replacement_body: Option<ExprKind> = None;
         let mut args = Vec::new();
@@ -2078,24 +2110,36 @@ impl VisitorMutRefUnit for FlattenAnonymousFunctionCalls {
         if let Some(function_a) = l.first_func_mut() {
             // The body is also just an anonymous function call
             if let ExprKind::List(inner_l) = &mut function_a.body {
-                if let Some(function_b) = inner_l.first_func_mut() {
-                    // Then we should be able to flatten the function into one
+                let arg_ids = function_a
+                    .args
+                    .iter()
+                    .map(|x| x.atom_syntax_object().unwrap().syntax_object_id)
+                    .collect::<HashSet<_>>();
 
-                    // TODO: Check that any of the vars we're using are used in the body expression
-                    // They can only be used in the argument position
+                let all_dont_contain_references = inner_l.args[1..]
+                    .iter()
+                    .all(|x| !ExprContainsIds::contains(&self.analysis, &arg_ids, x));
 
-                    let mut dummy = ExprKind::empty();
+                if all_dont_contain_references {
+                    if let Some(function_b) = inner_l.first_func_mut() {
+                        // Then we should be able to flatten the function into one
 
-                    // Extract the inner body
-                    std::mem::swap(&mut function_b.body, &mut dummy);
+                        // TODO: Check that any of the vars we're using are used in the body expression
+                        // They can only be used in the argument position
 
-                    inner_body = Some(dummy);
+                        let mut dummy = ExprKind::empty();
 
-                    // TODO: This doesn't work quite yet -
-                    function_a.args.append(&mut function_b.args);
-                    args.extend(inner_l.args.drain(1..));
+                        // Extract the inner body
+                        std::mem::swap(&mut function_b.body, &mut dummy);
 
-                    changed = true;
+                        inner_body = Some(dummy);
+
+                        // TODO: This doesn't work quite yet -
+                        function_a.args.append(&mut function_b.args);
+                        args.extend(inner_l.args.drain(1..));
+
+                        changed = true;
+                    }
                 }
             }
 
@@ -2569,7 +2613,7 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn flatten_anonymous_functions(&mut self) {
-        FlattenAnonymousFunctionCalls::flatten(&mut self.exprs);
+        FlattenAnonymousFunctionCalls::flatten(&self.analysis, &mut self.exprs);
     }
 }
 

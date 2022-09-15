@@ -62,7 +62,7 @@ impl Engine {
         ];
 
         for core in core_libraries.into_iter() {
-            vm.parse_and_execute_without_optimizations(core).unwrap();
+            vm.compile_and_run_raw_program(core).unwrap();
         }
 
         vm
@@ -662,20 +662,20 @@ impl Engine {
 
     /// Similar to [`run`](crate::steel_vm::engine::Engine::run), however it includes path information
     /// for error reporting purposes.
-    pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, Some(path), constants)?;
-        self.virtual_machine.execute_program(program)
-    }
-
-    pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine.execute_program(program)
-    }
+    // pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, Some(path), constants)?;
+    //     self.virtual_machine.execute_program(program)
+    // }
 
     // pub fn compile_and_run_raw_program(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-    //     self.parse_and_execute_without_optimizations(expr)
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, None, constants)?;
+    //     self.virtual_machine.execute_program(program)
+    // }
+
+    // pub fn compile_and_run_raw_program(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     self.compile_and_run_raw_program(expr)
     // }
 
     // Read in the file from the given path and execute accordingly
@@ -690,16 +690,16 @@ impl Engine {
     //     self.compile_and_run_raw_program(exprs.as_str(), )
     // }
 
-    pub fn parse_and_execute_from_path<P: AsRef<Path>>(
-        &mut self,
-        path: P,
-    ) -> Result<Vec<SteelVal>> {
-        let path_buf = PathBuf::from(path.as_ref());
-        let mut file = std::fs::File::open(path)?;
-        let mut exprs = String::new();
-        file.read_to_string(&mut exprs)?;
-        self.run_with_path(exprs.as_str(), path_buf)
-    }
+    // pub fn parse_and_execute_from_path<P: AsRef<Path>>(
+    //     &mut self,
+    //     path: P,
+    // ) -> Result<Vec<SteelVal>> {
+    //     let path_buf = PathBuf::from(path.as_ref());
+    //     let mut file = std::fs::File::open(path)?;
+    //     let mut exprs = String::new();
+    //     file.read_to_string(&mut exprs)?;
+    //     self.run_with_path(exprs.as_str(), path_buf)
+    // }
 
     // TODO this does not take into account the issues with
     // people registering new functions that shadow the original one

@@ -154,7 +154,7 @@ fn main() {
                 ];
 
                 for core in core_libraries {
-                    let res = vm.parse_and_execute_without_optimizations(core);
+                    let res = vm.compile_and_run_raw_program(core);
                     if let Err(e) = res {
                         eprintln!("{}", e);
                         return;
@@ -180,7 +180,7 @@ fn main() {
                 ];
 
                 for core in core_libraries {
-                    let res = vm.parse_and_execute_without_optimizations(core);
+                    let res = vm.compile_and_run_raw_program(core);
                     if let Err(e) = res {
                         eprintln!("{}", e);
                         return;
@@ -225,12 +225,12 @@ async fn test_async_function() -> usize {
 
 pub fn configure_engine() -> Engine {
     // let mut vm = Engine::new_base();
-    let mut vm = Engine::new_raw();
+    let mut vm = Engine::new_base().with_prelude().unwrap();
 
-    register_builtin_modules(&mut vm);
+    // register_builtin_modules(&mut vm);
 
-    vm.compile_and_run_raw_program(crate::steel::steel_vm::primitives::ALL_MODULES)
-        .unwrap();
+    // vm.compile_and_run_raw_program(crate::steel::steel_vm::primitives::ALL_MODULES)
+    //     .unwrap();
 
     // let mut module = BuiltInModule::new("applesauce".to_string());
 
