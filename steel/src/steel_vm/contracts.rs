@@ -514,17 +514,17 @@ mod contract_tests {
         let script = r#"
         (define/contract (foo x)
           (->/c int? int?)
-            (if (= x 1000)
+            (if (= x 100)
                 x
                 (bar (+ x 1))))
 
         (define/contract (bar x)
           (->/c int? int?)
-            (if (= x 1000)
+            (if (= x 100)
                 x
                 (foo (+ x 1))))
 
-        (assert! (equal? (foo 0) 1000))
+        (assert! (equal? (foo 0) 100))
       "#;
         assert_script(script);
     }

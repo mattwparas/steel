@@ -726,9 +726,10 @@ impl ToDoc for Begin {
     fn to_doc(&self) -> RcDoc<()> {
         RcDoc::text("(begin")
             .append(RcDoc::line())
+            .nest(5)
             .append(
                 RcDoc::intersperse(self.exprs.iter().map(|x| x.to_doc()), RcDoc::line())
-                    .nest(1)
+                    .nest(5)
                     .group(),
             )
             .append(RcDoc::text(")"))
