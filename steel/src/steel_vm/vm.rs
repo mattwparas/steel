@@ -58,6 +58,7 @@ pub struct SteelThread {
     profiler: OpCodeOccurenceProfiler,
     // TODO: make this not as bad
     closure_interner: HashMap<usize, ByteCodeLambda>,
+    pure_function_interner: HashMap<usize, Gc<ByteCodeLambda>>,
     heap: Heap,
     // constants: ConstantMap,
     // If contracts are set to off - contract construction results in a no-op, so we don't
@@ -79,6 +80,7 @@ impl SteelThread {
             upvalue_head: None,
             profiler: OpCodeOccurenceProfiler::new(),
             closure_interner: HashMap::new(),
+            pure_function_interner: HashMap::new(),
             heap: Heap::new(),
             // constants: ConstantMap::new(),
             contracts_on: true,
@@ -182,6 +184,7 @@ impl SteelThread {
             &[],
             &mut self.profiler,
             &mut self.closure_interner,
+            &mut self.pure_function_interner,
             &mut self.heap,
             self.contracts_on,
             #[cfg(feature = "jit")]
@@ -217,6 +220,7 @@ impl SteelThread {
             spans,
             &mut self.profiler,
             &mut self.closure_interner,
+            &mut self.pure_function_interner,
             &mut self.heap,
             self.contracts_on,
             #[cfg(feature = "jit")]
@@ -437,6 +441,7 @@ pub struct VmCore<'a> {
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
     pub(crate) closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
+    pub(crate) pure_function_interner: &'a mut HashMap<usize, Gc<ByteCodeLambda>>,
     pub(crate) heap: &'a mut Heap,
     pub(crate) use_contracts: bool,
     #[cfg(feature = "jit")]
@@ -457,6 +462,7 @@ impl<'a> VmCore<'a> {
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
+        pure_function_interner: &'a mut HashMap<usize, Gc<ByteCodeLambda>>,
         heap: &'a mut Heap,
         use_contracts: bool,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
@@ -477,6 +483,7 @@ impl<'a> VmCore<'a> {
             spans,
             profiler,
             closure_interner,
+            pure_function_interner,
             heap,
             use_contracts,
             #[cfg(feature = "jit")]
@@ -497,6 +504,7 @@ impl<'a> VmCore<'a> {
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
+        pure_function_interner: &'a mut HashMap<usize, Gc<ByteCodeLambda>>,
         heap: &'a mut Heap,
         use_contracts: bool,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
@@ -521,6 +529,7 @@ impl<'a> VmCore<'a> {
             spans,
             profiler,
             closure_interner,
+            pure_function_interner,
             heap,
             use_contracts,
             #[cfg(feature = "jit")]
@@ -1989,7 +1998,7 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
 
         // Check whether this is a let or a rooted function
-        let is_let = self.instructions[self.ip].payload_size == 1;
+        let closure_id = self.instructions[self.ip].payload_size as usize;
 
         // if is_multi_arity {
         //     println!("Found multi arity function");
@@ -2005,31 +2014,41 @@ impl<'a> VmCore<'a> {
         // hold the spot for where we need to jump aftwards
         let forward_index = self.ip + forward_jump;
 
-        // debug_assert!(self.instructions[forward_index - 1].op_code == OpCode::ECLOSURE);
+        let constructed_lambda = if let Some(prototype) =
+            self.pure_function_interner.get(&closure_id)
+        {
+            prototype.clone()
+        } else {
+            // debug_assert!(self.instructions[forward_index - 1].op_code == OpCode::ECLOSURE);
 
-        // TODO -> this is probably quite slow
-        // If extraneous lets are lifted, we probably don't need this
-        // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
+            // TODO -> this is probably quite slow
+            // If extraneous lets are lifted, we probably don't need this
+            // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
 
-        // Construct the closure body using the offsets from the payload
-        // used to be - 1, now - 2
-        let closure_body = self.instructions[self.ip..(self.ip + forward_jump - 1)].to_vec();
+            // Construct the closure body using the offsets from the payload
+            // used to be - 1, now - 2
+            let closure_body = self.instructions[self.ip..(self.ip + forward_jump - 1)].to_vec();
 
-        // snag the arity from the eclosure instruction
-        let arity = self.instructions[forward_index - 1].payload_size;
+            // snag the arity from the eclosure instruction
+            let arity = self.instructions[forward_index - 1].payload_size;
 
-        let constructed_lambda = ByteCodeLambda::new(
-            closure_body,
-            arity as usize,
-            Vec::new(),
-            is_let,
-            is_multi_arity,
-            Vec::new(),
-            Vec::new(),
-        );
+            let constructed_lambda = Gc::new(ByteCodeLambda::new(
+                closure_body,
+                arity as usize,
+                Vec::new(),
+                false,
+                is_multi_arity,
+                Vec::new(),
+                Vec::new(),
+            ));
 
-        self.stack
-            .push(SteelVal::Closure(Gc::new(constructed_lambda)));
+            self.pure_function_interner
+                .insert(closure_id, Gc::clone(&constructed_lambda));
+
+            constructed_lambda
+        };
+
+        self.stack.push(SteelVal::Closure(constructed_lambda));
 
         self.ip = forward_index;
     }

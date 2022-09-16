@@ -848,6 +848,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // But this shouldn't happen given that we're checking this _after_ we visit the function
                 let func_info = self.info.get(func).unwrap();
 
+                // println!("Visiting: {:?}", l);
+                // println!("Call site kind: {:?}", call_site_kind);
+                // println!("Defining context: {:?}", self.defining_context);
+                // println!("Refers to: {:?}", func_info.refers_to);
+
                 // If we've managed to resolve this call site to the definition, then we should be able
                 // to identify if this refers to the correct definition
                 if call_site_kind == CallKind::TailCall
@@ -1053,7 +1058,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .function_info
             .get_mut(&lambda_function.syntax_object_id)
         {
-            if !function_info.escapes {
+            // TODO: see if this was necessary
+            if function_info.escapes {
                 self.defining_context = None;
             }
 
@@ -1237,9 +1243,20 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     }
 
     fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
-        self.visit_with_tail_call_eligibility(&s.expr, false);
-
         let name = s.variable.atom_identifier();
+        // let id = s.variable.atom_syntax_object().map(|x| x.syntax_object_id);
+
+        if let Some(info) = s
+            .variable
+            .atom_syntax_object()
+            .and_then(|x| self.info.get(&x))
+        {
+            if info.refers_to == self.defining_context {
+                self.defining_context = None;
+            }
+        }
+
+        self.visit_with_tail_call_eligibility(&s.expr, false);
 
         if let Some(name) = name {
             // Gather the id of the variable that is in fact mutated

@@ -510,6 +510,26 @@ mod contract_tests {
     }
 
     #[test]
+    fn tail_call_mutual_recursion() {
+        let script = r#"
+        (define/contract (foo x)
+          (->/c int? int?)
+            (if (= x 1000)
+                x
+                (bar (+ x 1))))
+
+        (define/contract (bar x)
+          (->/c int? int?)
+            (if (= x 1000)
+                x
+                (foo (+ x 1))))
+
+        (assert! (equal? (foo 0) 1000))
+      "#;
+        assert_script(script);
+    }
+
+    #[test]
     fn tail_call_contract_still_works() {
         let script = r#"
           (define/contract (loop x)

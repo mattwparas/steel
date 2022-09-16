@@ -949,8 +949,8 @@ impl Compiler {
 
         semantic
             // .replace_anonymous_function_calls_with_plain_lets()
-            .lift_pure_local_functions()
-            .lift_all_local_functions();
+            .lift_pure_local_functions();
+        // .lift_all_local_functions();
 
         debug!("About to expand defines");
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
