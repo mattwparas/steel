@@ -288,6 +288,25 @@ pub fn report_info(
 }
 
 #[macro_export]
+macro_rules! steelerr {
+    // ($type:ident) => {
+    //     return Err(SteelErr::new(ErrorKind::$type, None));
+    // };
+    ($type:ident => $fmt:expr, $($arg:tt)+) => {
+        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+)))
+    };
+    ($type:ident => $thing:expr) => {
+        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()))
+    };
+    ($type:ident => $thing:expr; $span:expr) => {
+        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
+    };
+    ($type:ident => $thing:expr; $span:expr; $source:expr) => {
+        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source))
+    };
+}
+
+#[macro_export]
 macro_rules! stop {
     // ($type:ident) => {
     //     return Err(SteelErr::new(ErrorKind::$type, None));

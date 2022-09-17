@@ -1,9 +1,9 @@
 use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
 use crate::{
     primitives::{
-        contracts, hashmaps::hashmap_module, hashsets::hashset_module, ControlOperations,
-        FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations, StreamOperations,
-        StringOperations, SymbolOperations, VectorOperations,
+        contracts, hashmaps::hashmap_module, hashsets::hashset_module, lists::UnRecoverableResult,
+        ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
+        StreamOperations, StringOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
     values::structs::is_custom_struct,
@@ -677,6 +677,14 @@ fn sandboxed_meta_module() -> BuiltInModule {
     module
 }
 
+// Only works with fixed size arity functions
+fn arity(value: SteelVal) -> UnRecoverableResult {
+    match value {
+        SteelVal::Closure(c) => Ok(SteelVal::IntV(c.arity() as isize)).into(),
+        _ => steelerr!(TypeMismatch => "Unable to find the arity for the given function").into(),
+    }
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta".to_string());
     module
@@ -713,7 +721,8 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("custom-struct?", is_custom_struct())
         .register_fn("env-var", get_environment_variable)
-        .register_fn("set-env-var!", set_environment_variable);
+        .register_fn("set-env-var!", set_environment_variable)
+        .register_fn("arity?", arity);
     module
 }
 

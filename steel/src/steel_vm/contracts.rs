@@ -12,19 +12,8 @@ use crate::{
 
 use log::debug;
 
-/// Extension trait for the application of contracted functions
-// TODO replace this with an &mut VmCore instead
-pub(crate) trait ContractedFunctionExt {
-    fn apply<'a>(
-        &self,
-        arguments: Vec<SteelVal>,
-        cur_inst_span: &Span,
-        context: &mut VmCore<'a>,
-    ) -> Result<SteelVal>;
-}
-
-impl ContractedFunctionExt for ContractedFunction {
-    fn apply<'a>(
+impl ContractedFunction {
+    pub fn apply<'a>(
         &self,
         arguments: Vec<SteelVal>,
         cur_inst_span: &Span,
@@ -45,13 +34,13 @@ impl ContractedFunctionExt for ContractedFunction {
     }
 }
 
-/// Extension trait for the application of flat contracts
-pub(crate) trait FlatContractExt {
-    fn apply<'a>(&self, arg: SteelVal, cur_inst_span: &Span, ctx: &mut VmCore<'a>) -> Result<()>;
-}
-
-impl FlatContractExt for FlatContract {
-    fn apply<'a>(&self, arg: SteelVal, cur_inst_span: &Span, ctx: &mut VmCore<'a>) -> Result<()> {
+impl FlatContract {
+    pub fn apply<'a>(
+        &self,
+        arg: SteelVal,
+        cur_inst_span: &Span,
+        ctx: &mut VmCore<'a>,
+    ) -> Result<()> {
         // TODO make this not clone the argument
         let output = match self.predicate() {
             SteelVal::FuncV(func) => func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span)),
@@ -296,8 +285,8 @@ impl FunctionContractExt for DependentContract {
     }
 }
 
-impl FunctionContractExt for FunctionContract {
-    fn apply<'a>(
+impl FunctionContract {
+    pub fn apply<'a>(
         &self,
         name: &Option<String>,
         function: &SteelVal,
@@ -305,71 +294,19 @@ impl FunctionContractExt for FunctionContract {
         cur_inst_span: &Span,
         ctx: &mut VmCore<'a>,
     ) -> Result<SteelVal> {
-        let mut verified_args = Vec::new();
-
-        for (i, (arg, contract)) in arguments
-            .iter()
-            .zip(self.pre_conditions().iter())
-            .enumerate()
-        {
-            match contract.as_ref() {
-                ContractType::Flat(f) => {
-                    debug!("applying flat contract in pre condition: {}", f.name);
-
-                    if let Err(e) = f.apply(arg.clone(), cur_inst_span, ctx) {
-                        debug!(
-                            "Blame locations: {:?}, {:?}",
-                            self.contract_attachment_location, name
-                        );
-
-                        let message = format!("This function call caused an error - it occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location);
-
-                        stop!(ContractViolation => message; *cur_inst_span);
-                    }
-
-                    verified_args.push(arg.clone());
-                }
-                ContractType::Function(fc) => match arg {
-                    SteelVal::ContractedFunction(contracted_function) => {
-                        let mut pre_parent = contracted_function.contract.clone();
-                        pre_parent.set_attachment_location(contracted_function.name.clone());
-
-                        let parent = Gc::new(pre_parent);
-
-                        let func = contracted_function.function.clone();
-
-                        debug!(
-                            "Setting the parent: {} on a precondition function: {}",
-                            parent.to_string(),
-                            fc.to_string()
-                        );
-
-                        // Get the contract down from the
-                        let mut fc = fc.clone();
-                        fc.set_parent(parent);
-                        debug!(
-                            "Inside: {:?}, Setting attachment location in range to: {:?}",
-                            name, contracted_function.name
-                        );
-                        fc.set_attachment_location(contracted_function.name.clone());
-
-                        // TODO Don't pass in None
-                        let new_arg = ContractedFunction::new(fc, func, name.clone()).into();
-
-                        verified_args.push(new_arg);
-                    }
-
-                    _ => verified_args.push(
-                        ContractedFunction::new(fc.clone(), arg.clone(), name.clone()).into(),
-                    ),
-                },
-            }
-        }
+        let verified_args = self.verify_preconditions(arguments, cur_inst_span, ctx, name)?;
 
         // TODO use actual VM with real stack instead
 
+        /*
+            Ideas for this: call a builtin
+
+        */
+
         let output = match function {
             SteelVal::Closure(function) => {
+                // TODO: Here is the problem - we recur by calling the function
+                // What we should do is actually leverage the stack in the VM directly instead of making a recursive call here
                 ctx.call_with_args(function, verified_args.into_iter())?
             }
             SteelVal::BoxedFunction(f) => {
@@ -454,6 +391,79 @@ impl FunctionContractExt for FunctionContract {
                 _ => Ok(ContractedFunction::new(fc.clone(), output, name.clone()).into()),
             },
         }
+    }
+}
+
+impl FunctionContract {
+    fn verify_preconditions(
+        &self,
+        arguments: &[SteelVal],
+        cur_inst_span: &Span,
+        ctx: &mut VmCore,
+        name: &Option<String>,
+    ) -> Result<Vec<SteelVal>> {
+        let mut verified_args = Vec::new();
+
+        for (i, (arg, contract)) in arguments
+            .iter()
+            .zip(self.pre_conditions().iter())
+            .enumerate()
+        {
+            match contract.as_ref() {
+                ContractType::Flat(f) => {
+                    debug!("applying flat contract in pre condition: {}", f.name);
+
+                    if let Err(e) = f.apply(arg.clone(), cur_inst_span, ctx) {
+                        debug!(
+                            "Blame locations: {:?}, {:?}",
+                            self.contract_attachment_location, name
+                        );
+
+                        let message = format!("This function call caused an error - it occured in the domain position: {}, with the contract: {}, {}, blaming: {:?} (callsite)", i, self.to_string(), e.to_string(), self.contract_attachment_location);
+
+                        stop!(ContractViolation => message; *cur_inst_span);
+                    }
+
+                    verified_args.push(arg.clone());
+                }
+                ContractType::Function(fc) => match arg {
+                    SteelVal::ContractedFunction(contracted_function) => {
+                        let mut pre_parent = contracted_function.contract.clone();
+                        pre_parent.set_attachment_location(contracted_function.name.clone());
+
+                        let parent = Gc::new(pre_parent);
+
+                        let func = contracted_function.function.clone();
+
+                        debug!(
+                            "Setting the parent: {} on a precondition function: {}",
+                            parent.to_string(),
+                            fc.to_string()
+                        );
+
+                        // Get the contract down from the
+                        let mut fc = fc.clone();
+                        fc.set_parent(parent);
+                        debug!(
+                            "Inside: {:?}, Setting attachment location in range to: {:?}",
+                            name, contracted_function.name
+                        );
+                        fc.set_attachment_location(contracted_function.name.clone());
+
+                        // TODO Don't pass in None
+                        let new_arg = ContractedFunction::new(fc, func, name.clone()).into();
+
+                        verified_args.push(new_arg);
+                    }
+
+                    _ => verified_args.push(
+                        ContractedFunction::new(fc.clone(), arg.clone(), name.clone()).into(),
+                    ),
+                },
+            }
+        }
+
+        Ok(verified_args)
     }
 }
 

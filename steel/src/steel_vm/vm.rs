@@ -1,4 +1,3 @@
-use super::contracts::ContractedFunctionExt;
 use super::heap::UpValueHeap;
 
 #[cfg(feature = "jit")]
