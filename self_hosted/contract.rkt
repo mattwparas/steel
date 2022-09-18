@@ -94,7 +94,31 @@
         arguments
         (zipping (FunctionContract-pre-conditions contract))
         (enumerating)
-        (mapping displayln)
+        (mapping 
+            (lambda (x)
+                (let ((i (first x)
+                      (arg (first (second x)))
+                      (contract (second (second x)))))
+
+                    (cond [(FlatContract? contract)
+                            => 
+                                (displayln "Applying flat contract in pre condition")
+                                arg]
+                          [(FunctionContract? contract)
+                            =>
+                                (if (ContractedFunction? arg)
+                                    
+                                
+                                )
+                          
+                          
+                          ]                         
+                                
+                                
+                                )
+        
+        
+            ))
         (into-list)
         
         ))
