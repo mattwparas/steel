@@ -14,7 +14,6 @@
 
 ; )
 
-
 (define (split-last lst)
     (define (loop accum lst)
         (if (empty? (cdr lst))
@@ -58,12 +57,17 @@
 ;     (FlatContract boolean? 'boolean?))
 
 
+(make-struct ContractViolation (error-message))
+
 (define (apply-flat-contract flat-contract arg)
-    (unless ((FlatContract-predicate flat-contract) arg)
-        (error! "Contract violation: found in the application of a flat contract for" 
-                (FlatContract-name flat-contract) 
-                ": the given input:" arg 
-                "resulted in a contract violation")))
+    (if ((FlatContract-predicate flat-contract) arg)
+        #true
+        (ContractViolation 
+            (to-string
+                "Contract violation: found in the application of a flat contract for" 
+                        (FlatContract-name flat-contract) 
+                        ": the given input:" arg 
+                        "resulted in a contract violation"))))
 
 
 (make-struct ContractedFunction (contract function name))
@@ -89,39 +93,49 @@
                              (ContractedFunction-function contracted-function)
                              arguments))
 
-(define (verify-preconditions contract arguments name)
+
+(define (verify-preconditions self-contract arguments name)
     (transduce 
         arguments
-        (zipping (FunctionContract-pre-conditions contract))
+        (zipping (FunctionContract-pre-conditions self-contract))
         (enumerating)
         (mapping 
             (lambda (x)
-                (let ((i (first x)
+                (let ((i (first x))
                       (arg (first (second x)))
-                      (contract (second (second x)))))
+                      (contract (second (second x))))
 
                     (cond [(FlatContract? contract)
                             => 
                                 (displayln "Applying flat contract in pre condition")
-                                arg]
+                                (let ((result (apply-flat-contract contract arg)))
+                                    (if (ContractViolation? result)
+                                        (error! "This function call caused an error"
+                                        "- it occured in the domain position:" i ", with the contract: " contract (ContractViolation-error-message result) ", blaming " (FunctionContract-contract-attachment-location self-contract) "(callsite")
+                                        arg))]
                           [(FunctionContract? contract)
                             =>
                                 (if (ContractedFunction? arg)
+                                    (let ((pre-parent (ContractedFunction-contract arg)))
+                                        (let ((parent (FunctionContract
+                                                            (FunctionContract-pre-conditions pre-parent)
+                                                            (FunctionContract-post-condition pre-parent)
+                                                            (ContractedFunction-name arg)
+                                                            void)))
+                                            (let ((fc (FunctionContract 
+                                                            (FunctionContract-pre-conditions contract)
+                                                            (FunctionContract-post-condition contract)
+                                                            (ContractedFunction-name arg)
+                                                            parent)))
+
+                                                (ContractedFunction contract
+                                                                    arg
+                                                                    name))))
+                                    (ContractedFunction contract arg name))]
+                        [else => (error! "Unexpected value in pre conditions: " contract)]
                                     
-                                
-                                )
-                          
-                          
-                          ]                         
-                                
-                                
-                                )
-        
-        
-            ))
-        (into-list)
-        
-        ))
+                                    ))))
+        (into-list)))
 
 (verify-preconditions 
     (make-function-contract 
@@ -129,8 +143,12 @@
         (FlatContract int? 'int?)
         (FlatContract boolean? 'boolean?))
 
-    '(10 20)
+    '("hello world" 20)
     'test-function)
 
 (define (apply-function-contract contract name function arguments)
+    ;; Check that each of the arguments abides by the 
+    (verify-preconditions contract arguments name)
+
+
     (error! "Unimplemented"))

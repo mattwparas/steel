@@ -381,6 +381,7 @@ fn string_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/strings".to_string());
     module
         .register_value("string-append", StringOperations::string_append())
+        .register_value("to-string", ControlOperations::to_string())
         .register_value("string->list", StringOperations::string_to_list())
         .register_value("string-upcase", StringOperations::string_to_upper())
         .register_value("string-lowercase", StringOperations::string_to_lower())
