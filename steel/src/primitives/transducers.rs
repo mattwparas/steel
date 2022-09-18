@@ -45,7 +45,7 @@ pub fn enumerating(args: &[SteelVal]) -> Result<SteelVal> {
 
 pub fn zipping(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 1 {
-        stop!(ArityMismatch => "zipping takes one argument");
+        stop!(ArityMismatch => format!("zipping takes one argument, found: {}", args.len()));
     }
 
     match &args[0] {
