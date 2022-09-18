@@ -143,12 +143,63 @@
         (FlatContract int? 'int?)
         (FlatContract boolean? 'boolean?))
 
-    '("hello world" 20)
+    '(10 20)
     'test-function)
 
 (define (apply-function-contract contract name function arguments)
     ;; Check that each of the arguments abides by the 
     (verify-preconditions contract arguments name)
+    (let ((output (apply function arguments))
+          (contract (FunctionContract-post-condition contract)))
+        (cond [(FlatContract? contract)
+                => 
+                (displayln "aplying flat contract in post condition")
+                
+                (let ((result (apply-flat-contract contract output)))
+                    (if (ContractViolation? result)
+                        (let ((blame-location 
+                                (if (void? (FunctionContract-contract-attachment-location contract))
+                                    name
+                                    (FunctionContract-contract-attachment-location contract))))
+                            
+                            (if blame-location
+                                (error! 
+                                    "this function call resulted in an error - occurred in the range position of this contract: " 
+                                    contract result "blaming: "
+                                     blame-location)
+                                (error!
+                                    "this function call resulted in an error - occured in the range position of this contract: " 
+                                    contract result "blaming: None - broke its own contract")))
+                        output))]
+                [(FunctionContract? contract)
+                  => (if (ContractedFunction? output)
+                            (let ((pre-parent (ContractedFunction-contract output)))
+                                (let ((parent (FunctionContract
+                                                    (FunctionContract-pre-conditions pre-parent)
+                                                    (FunctionContract-post-condition pre-parent)
+                                                    (ContractedFunction-name output)
+                                                    void)))
+                                    (let ((fc (FunctionContract 
+                                                    (FunctionContract-pre-conditions contract)
+                                                    (FunctionContract-post-condition contract)
+                                                    (ContractedFunction-name output)
+                                                    parent)))
 
+                                        (ContractedFunction contract
+                                                            output
+                                                            name))))
+                            (ContractedFunction contract output name))]
+                [else => (error! "Unhandled value in post condition: " contract)]
+                            
+                            )))
 
-    (error! "Unimplemented"))
+(apply-function-contract 
+    (make-function-contract
+        (FlatContract int? 'int?)
+        (FlatContract int? 'int?)
+        (FlatContract boolean? 'boolean?))
+
+    'test-function
+    (lambda (x y) (equal? (+ x y) 10))
+    '("check" 5))
+
