@@ -46,6 +46,31 @@ use log::error;
 const STACK_LIMIT: usize = 1000;
 const _JIT_THRESHOLD: usize = 100;
 
+struct CallContext {
+    span: Span,
+    source: Option<usize>, // TODO intern file names
+    function: Gc<ByteCodeLambda>,
+}
+
+#[derive(Default)]
+struct CallStack {
+    function_stack: Vec<CallContext>,
+}
+
+impl CallStack {
+    pub fn new() -> Self {
+        Self {
+            function_stack: Vec::new(),
+        }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            function_stack: Vec::with_capacity(usize),
+        }
+    }
+}
+
 pub struct SteelThread {
     global_env: Env,
     global_upvalue_heap: UpValueHeap,

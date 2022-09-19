@@ -1,18 +1,3 @@
-; (define (raise-contract))
-
-; ;; Wrap function to check preconditions and post conditions
-; (define (wrap-function contract function)
-;     ;; Construct a function that contains the pre conditions
-;     ;; and post conditions
-;     (lambda args
-;         (check-arity function args)
-;         (check-preconditions function contract args)
-;         ()
-    
-;     )
-
-
-; )
 
 (define (split-last lst)
     (define (loop accum lst)
@@ -27,11 +12,10 @@
 ;; Alias the name for clarity
 (define make-flat-contract FlatContract)
 
-(make-struct FunctionContract 
-    (pre-conditions 
-    post-condition 
-    contract-attachment-location 
-    parent)
+(make-struct FunctionContract (pre-conditions 
+                               post-condition 
+                               contract-attachment-location 
+                               parent)
     #:transparent #true)
 
 (define make-function-contract
@@ -50,12 +34,6 @@
          contract-attachment-location
          parent)
     #:transparent #true)
-
-; (make-function-contract 
-;     (FlatContract int? 'int?) 
-;     (FlatContract int? 'int?) 
-;     (FlatContract boolean? 'boolean?))
-
 
 (make-struct ContractViolation (error-message))
 
@@ -87,7 +65,8 @@
                 
                 (apply-parents (FunctionContract-parent parent)))))
 
-    (apply-parents (FunctionContract-parent contracted-function))
+    (apply-parents (FunctionContract-parent 
+        (ContractedFunction-contract contracted-function)))
     (apply-function-contract (ContractedFunction-contract contracted-function)
                              (ContractedFunction-name contracted-function)
                              (ContractedFunction-function contracted-function)
@@ -111,7 +90,7 @@
                                 (let ((result (apply-flat-contract contract arg)))
                                     (if (ContractViolation? result)
                                         (error! "This function call caused an error"
-                                        "- it occured in the domain position:" i ", with the contract: " contract (ContractViolation-error-message result) ", blaming " (FunctionContract-contract-attachment-location self-contract) "(callsite")
+                                        "- it occured in the domain position:" i ", with the contract: " contract (ContractViolation-error-message result) ", blaming " (FunctionContract-contract-attachment-location self-contract) "(callsite)")
                                         arg))]
                           [(FunctionContract? contract)
                             =>
@@ -184,22 +163,25 @@
                                                     (FunctionContract-post-condition contract)
                                                     (ContractedFunction-name output)
                                                     parent)))
-
                                         (ContractedFunction contract
                                                             output
                                                             name))))
                             (ContractedFunction contract output name))]
-                [else => (error! "Unhandled value in post condition: " contract)]
-                            
-                            )))
+                [else => (error! "Unhandled value in post condition: " contract)])))
 
-(apply-function-contract 
-    (make-function-contract
-        (FlatContract int? 'int?)
-        (FlatContract int? 'int?)
-        (FlatContract boolean? 'boolean?))
+(define (bind-contract-to-function contract function name)
+    (lambda args
+        (apply-contracted-function 
+            (ContractedFunction contract function name)
+            args)))
 
-    'test-function
-    (lambda (x y) (equal? (+ x y) 10))
-    '("check" 5))
+(define test-function
+    (bind-contract-to-function 
+        (make-function-contract
+            (FlatContract int? 'int?)
+            (FlatContract int? 'int?)
+            (FlatContract boolean? 'boolean?))
+        (lambda (x y) (equal? (+ x y) 10))
+        'test-function))
 
+(test-function 10 10)
