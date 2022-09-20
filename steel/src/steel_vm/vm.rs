@@ -33,13 +33,13 @@ use crate::{
 // use std::env::current_exe;
 use std::{
     cell::RefCell,
-    collections::HashMap,
     iter::Iterator,
     rc::{Rc, Weak},
 };
 
 use super::evaluation_progress::EvaluationProgress;
 
+use fnv::FnvHashMap;
 use im_lists::list::List;
 use log::error;
 
@@ -66,7 +66,7 @@ impl CallStack {
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            function_stack: Vec::with_capacity(usize),
+            function_stack: Vec::with_capacity(capacity),
         }
     }
 }
@@ -81,8 +81,8 @@ pub struct SteelThread {
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
     profiler: OpCodeOccurenceProfiler,
     // TODO: make this not as bad
-    closure_interner: HashMap<usize, ByteCodeLambda>,
-    pure_function_interner: HashMap<usize, Gc<ByteCodeLambda>>,
+    closure_interner: FnvHashMap<usize, ByteCodeLambda>,
+    pure_function_interner: FnvHashMap<usize, Gc<ByteCodeLambda>>,
     heap: Heap,
     // constants: ConstantMap,
     // If contracts are set to off - contract construction results in a no-op, so we don't
@@ -103,8 +103,8 @@ impl SteelThread {
             stack_index: Vec::with_capacity(64),
             upvalue_head: None,
             profiler: OpCodeOccurenceProfiler::new(),
-            closure_interner: HashMap::new(),
-            pure_function_interner: HashMap::new(),
+            closure_interner: FnvHashMap::default(),
+            pure_function_interner: FnvHashMap::default(),
             heap: Heap::new(),
             // constants: ConstantMap::new(),
             contracts_on: true,
@@ -464,8 +464,8 @@ pub struct VmCore<'a> {
     pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
-    pub(crate) closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
-    pub(crate) pure_function_interner: &'a mut HashMap<usize, Gc<ByteCodeLambda>>,
+    pub(crate) closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
+    pub(crate) pure_function_interner: &'a mut FnvHashMap<usize, Gc<ByteCodeLambda>>,
     pub(crate) heap: &'a mut Heap,
     pub(crate) use_contracts: bool,
     #[cfg(feature = "jit")]
@@ -485,8 +485,8 @@ impl<'a> VmCore<'a> {
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
-        closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
-        pure_function_interner: &'a mut HashMap<usize, Gc<ByteCodeLambda>>,
+        closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
+        pure_function_interner: &'a mut FnvHashMap<usize, Gc<ByteCodeLambda>>,
         heap: &'a mut Heap,
         use_contracts: bool,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
@@ -527,8 +527,8 @@ impl<'a> VmCore<'a> {
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
-        closure_interner: &'a mut HashMap<usize, ByteCodeLambda>,
-        pure_function_interner: &'a mut HashMap<usize, Gc<ByteCodeLambda>>,
+        closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
+        pure_function_interner: &'a mut FnvHashMap<usize, Gc<ByteCodeLambda>>,
         heap: &'a mut Heap,
         use_contracts: bool,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
@@ -737,11 +737,11 @@ impl<'a> VmCore<'a> {
         match func {
             SteelVal::FuncV(func) => {
                 let arg_vec = [arg];
-                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec = [arg];
-                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec = vec![arg];
@@ -749,11 +749,11 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = vec![arg];
-                func(&mut arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::BuiltIn(func) => {
                 let arg_vec = [arg];
-                func(self, &arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::Closure(closure) => self.call_with_one_arg(closure, arg),
             _ => Err(err()),
@@ -772,11 +772,11 @@ impl<'a> VmCore<'a> {
         match func {
             SteelVal::FuncV(func) => {
                 let arg_vec = [arg1, arg2];
-                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec = [arg1, arg2];
-                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec = vec![arg1, arg2];
@@ -784,11 +784,11 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = vec![arg1, arg2];
-                func(&mut arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::BuiltIn(func) => {
                 let arg_vec = [arg1, arg2];
-                func(self, &arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::Closure(closure) => self.call_with_two_args(closure, arg1, arg2),
             _ => Err(err()),
@@ -806,11 +806,11 @@ impl<'a> VmCore<'a> {
         match func {
             SteelVal::FuncV(func) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
-                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
-                func(&arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
@@ -818,11 +818,11 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = args.into_iter().collect();
-                func(&mut arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::BuiltIn(func) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
-                func(self, &arg_vec).map_err(|x| x.set_span(*cur_inst_span))
+                func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::Closure(closure) => self.call_with_args(closure, args),
             _ => Err(err()),
@@ -914,7 +914,7 @@ impl<'a> VmCore<'a> {
 
                 let result = match $name(&mut self.stack[last_index..]) {
                     Ok(value) => value,
-                    Err(e) => return Err(e.set_span(self.current_span())),
+                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
                 };
 
                 // This is the old way... lets see if the below way improves the speed
@@ -939,7 +939,7 @@ impl<'a> VmCore<'a> {
 
                 let result = match $name(&[local_value, const_val]) {
                     Ok(value) => value,
-                    Err(e) => return Err(e.set_span(self.current_span())),
+                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
                 };
 
                 self.stack.push(result);
@@ -995,7 +995,7 @@ impl<'a> VmCore<'a> {
 
                     let result = match subtract_primitive(&[local_value, SteelVal::IntV(1)]) {
                         Ok(value) => value,
-                        Err(e) => return Err(e.set_span(self.current_span())),
+                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
                     };
 
                     self.stack.push(result);
@@ -1881,7 +1881,7 @@ impl<'a> VmCore<'a> {
     //         // dummy interning hashmap because the parser is bad
     //         // please don't judge I'm working on fixing it
     //         // TODO
-    //         let mut intern = HashMap::new();
+    //         let mut intern = FnvHashMap::new();
 
     //         let parsed: result::Result<Vec<ExprKind>, ParseError> =
     //             Parser::new(expr.as_str(), &mut intern).collect();
@@ -2702,7 +2702,7 @@ impl<'a> VmCore<'a> {
         let last_index = self.stack.len() - payload_size;
 
         let result =
-            func(&self.stack[last_index..]).map_err(|x| x.set_span(self.current_span()))?;
+            func(&self.stack[last_index..]).map_err(|x| x.set_span_if_none(self.current_span()))?;
 
         self.stack.truncate(last_index);
 
@@ -2726,11 +2726,11 @@ impl<'a> VmCore<'a> {
         // Peek the range for the [args ... function]
         //                        ~~~~~~~~~~
         // let result = func(self.stack.peek_range_double(last_index..len))
-        //     .map_err(|x| x.set_span(self.current_span()))?;
+        //     .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
         let result = match func(&self.stack[last_index..len]) {
             Ok(value) => value,
-            Err(e) => return Err(e.set_span(self.current_span())),
+            Err(e) => return Err(e.set_span_if_none(self.current_span())),
         };
 
         // This is the old way, but now given that the function is included on the stack, this should work...
@@ -2758,11 +2758,11 @@ impl<'a> VmCore<'a> {
         // Peek the range for the [args ... function]
         //                        ~~~~~~~~~~
         // let result = func(self.stack.peek_range_double(last_index..len))
-        //     .map_err(|x| x.set_span(self.current_span()))?;
+        //     .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
         let result = match func(&self.stack[last_index..len]) {
             Ok(value) => value,
-            Err(e) => return Err(e.set_span(self.current_span())),
+            Err(e) => return Err(e.set_span_if_none(self.current_span())),
         };
 
         // This is the old way, but now given that the function is included on the stack, this should work...
@@ -2790,9 +2790,9 @@ impl<'a> VmCore<'a> {
             if x.has_span() {
                 x
             } else {
-                x.set_span(self.current_span())
+                x.set_span_if_none(self.current_span())
             }
-            // x.set_span(self.current_span())
+            // x.set_span_if_none(self.current_span())
         })?;
 
         self.stack.push(result);
@@ -2809,8 +2809,8 @@ impl<'a> VmCore<'a> {
 
         let last_index = self.stack.len() - payload_size;
 
-        let result =
-            f(&mut self.stack[last_index..]).map_err(|x| x.set_span(self.current_span()))?;
+        let result = f(&mut self.stack[last_index..])
+            .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
         // TODO -> this can actually just be something like:
         // self.stack.truncate(self.stack.len() - payload_size + 1)
@@ -2829,13 +2829,13 @@ impl<'a> VmCore<'a> {
         payload_size: usize,
     ) -> Result<()> {
         // let result = f(self.stack.peek_range(self.stack.len() - payload_size..))
-        //     .map_err(|x| x.set_span(self.current_span()))?;
+        //     .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
         let last_index = self.stack.len() - payload_size;
 
         let result = match f(&self.stack[last_index..]) {
             Ok(value) => value,
-            Err(e) => return Err(e.set_span(self.current_span())),
+            Err(e) => return Err(e.set_span_if_none(self.current_span())),
         };
 
         // println!("Length to truncate to: {:?}", last_index);
@@ -2932,11 +2932,11 @@ impl<'a> VmCore<'a> {
         // Peek the range for the [args ... function]
         //                        ~~~~~~~~~~
         // let result = func(self.stack.peek_range_double(last_index..len))
-        //     .map_err(|x| x.set_span(self.current_span()))?;
+        //     .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
         let result = match func(&self.stack[last_index..len]) {
             Ok(value) => value,
-            Err(e) => return Err(e.set_span(self.current_span())),
+            Err(e) => return Err(e.set_span_if_none(self.current_span())),
         };
 
         // This is the old way, but now given that the function is included on the stack, this should work...
@@ -3039,27 +3039,30 @@ impl<'a> VmCore<'a> {
 
         match &stack_func {
             BoxedFunction(f) => {
-                self.stack
-                    .push(f(&[local, const_value]).map_err(|x| x.set_span(self.current_span()))?);
+                self.stack.push(
+                    f(&[local, const_value])
+                        .map_err(|x| x.set_span_if_none(self.current_span()))?,
+                );
                 self.ip += 4;
             }
             FuncV(f) => {
                 // self.stack
-                //     .push(f(&[local, const_value]).map_err(|x| x.set_span(self.current_span()))?);
+                //     .push(f(&[local, const_value]).map_err(|x| x.set_span_if_none(self.current_span()))?);
                 // self.ip += 4;
 
                 match f(&[local, const_value]) {
                     Ok(value) => self.stack.push(value),
-                    Err(e) => return Err(e.set_span(self.current_span())),
+                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
                 }
 
                 // self.stack
-                // .push(f(&[local, const_value]).map_err(|x| x.set_span(self.current_span()))?);
+                // .push(f(&[local, const_value]).map_err(|x| x.set_span_if_none(self.current_span()))?);
                 self.ip += 4;
             }
             FutureFunc(f) => {
                 let result = SteelVal::FutureV(Gc::new(
-                    f(&[local, const_value]).map_err(|x| x.set_span(self.current_span()))?,
+                    f(&[local, const_value])
+                        .map_err(|x| x.set_span_if_none(self.current_span()))?,
                 ));
 
                 self.stack.push(result);
@@ -3089,13 +3092,14 @@ impl<'a> VmCore<'a> {
             MutFunc(func) => {
                 let mut args = [local, const_value];
                 self.stack
-                    .push(func(&mut args).map_err(|x| x.set_span(self.current_span()))?);
+                    .push(func(&mut args).map_err(|x| x.set_span_if_none(self.current_span()))?);
 
                 self.ip += 4;
             }
             BuiltIn(func) => {
                 let args = [local, const_value];
-                let result = func(self, &args).map_err(|x| x.set_span(self.current_span()))?;
+                let result =
+                    func(self, &args).map_err(|x| x.set_span_if_none(self.current_span()))?;
                 self.stack.push(result);
                 self.ip += 4;
             }

@@ -172,6 +172,14 @@ impl SteelErr {
         self
     }
 
+    pub fn set_span_if_none(mut self, span: Span) -> Self {
+        if self.repr.span.is_none() {
+            self.repr.set_span(span);
+        }
+
+        self
+    }
+
     pub fn with_span(mut self, span: Span) -> Self {
         self.repr.span = Some(span);
         self

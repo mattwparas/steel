@@ -1873,6 +1873,7 @@ dependencies = [
  "cranelift-module",
  "criterion",
  "env_logger",
+ "fnv",
  "futures",
  "im-lists",
  "im-rc",
