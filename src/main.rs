@@ -47,7 +47,7 @@ fn main() {
     builder
         .filter(Some("requires"), LevelFilter::Trace)
         .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
-        .filter(Some("steel::steel_vm::contracts"), LevelFilter::Trace)
+        // .filter(Some("steel::steel_vm::contracts"), LevelFilter::Trace)
         .init();
 
     // builder

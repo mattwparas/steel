@@ -43,17 +43,40 @@ use fnv::FnvHashMap;
 use im_lists::list::List;
 use log::error;
 
+use crate::rvals::IntoSteelVal;
+
 const STACK_LIMIT: usize = 1000;
 const _JIT_THRESHOLD: usize = 100;
 
-struct CallContext {
-    span: Span,
+#[derive(Debug, Clone)]
+pub struct CallContext {
+    span: Option<Span>,
     source: Option<usize>, // TODO intern file names
     function: Gc<ByteCodeLambda>,
 }
 
-#[derive(Default)]
-struct CallStack {
+impl CallContext {
+    pub fn new(function: Gc<ByteCodeLambda>) -> Self {
+        Self {
+            span: None,
+            source: None,
+            function,
+        }
+    }
+
+    pub fn with_span(mut self, span: Span) -> Self {
+        self.span = Some(span);
+        self
+    }
+
+    pub fn with_source(mut self, source: usize) -> Self {
+        self.source = Some(source);
+        self
+    }
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct CallStack {
     function_stack: Vec<CallContext>,
 }
 
@@ -69,6 +92,34 @@ impl CallStack {
             function_stack: Vec::with_capacity(capacity),
         }
     }
+
+    pub fn push(&mut self, call: CallContext) {
+        self.function_stack.push(call)
+    }
+
+    pub fn pop(&mut self) -> Option<CallContext> {
+        self.function_stack.pop()
+    }
+
+    pub fn function_iter(&self) -> impl Iterator<Item = &Gc<ByteCodeLambda>> {
+        self.function_stack.iter().map(|x| &x.function)
+    }
+
+    pub fn last(&self) -> Option<&Gc<ByteCodeLambda>> {
+        self.function_stack.last().map(|x| &x.function)
+    }
+
+    pub fn last_mut(&mut self) -> Option<&mut Gc<ByteCodeLambda>> {
+        self.function_stack.last_mut().map(|x| &mut x.function)
+    }
+
+    pub fn clear(&mut self) {
+        self.function_stack.clear()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.function_stack.is_empty()
+    }
 }
 
 pub struct SteelThread {
@@ -76,7 +127,7 @@ pub struct SteelThread {
     global_upvalue_heap: UpValueHeap,
     callback: EvaluationProgress,
     stack: Vec<SteelVal>,
-    function_stack: Vec<Gc<ByteCodeLambda>>,
+    function_stack: CallStack,
     stack_index: Vec<usize>,
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
     profiler: OpCodeOccurenceProfiler,
@@ -99,7 +150,7 @@ impl SteelThread {
             global_upvalue_heap: UpValueHeap::new(),
             callback: EvaluationProgress::new(),
             stack: Vec::with_capacity(256),
-            function_stack: Vec::with_capacity(64),
+            function_stack: CallStack::with_capacity(64),
             stack_index: Vec::with_capacity(64),
             upvalue_head: None,
             profiler: OpCodeOccurenceProfiler::new(),
@@ -302,7 +353,7 @@ pub struct Continuation {
     stack_index: Vec<usize>,
     ip: usize,
     pop_count: usize,
-    pub(crate) function_stack: Vec<Gc<ByteCodeLambda>>,
+    pub(crate) function_stack: CallStack,
     upvalue_head: Option<Weak<RefCell<UpValue>>>,
 }
 
@@ -422,33 +473,6 @@ impl Default for InstructionState {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct FunctionStack {
-    stack: Vec<Gc<ByteCodeLambda>>,
-}
-
-impl FunctionStack {
-    pub fn new() -> Self {
-        Self { stack: Vec::new() }
-    }
-
-    pub fn push(&mut self, val: Gc<ByteCodeLambda>) {
-        self.stack.push(val);
-    }
-
-    pub fn pop(&mut self) -> Option<Gc<ByteCodeLambda>> {
-        self.stack.pop()
-    }
-
-    pub fn len(&self) -> usize {
-        self.stack.len()
-    }
-
-    pub fn current_closure_arity(&self) -> Option<usize> {
-        self.stack.last().map(|x| x.arity())
-    }
-}
-
 pub struct VmCore<'a> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: &'a mut Vec<SteelVal>,
@@ -461,7 +485,7 @@ pub struct VmCore<'a> {
     pub(crate) pop_count: usize,
     pub(crate) upvalue_head: Option<Weak<RefCell<UpValue>>>,
     pub(crate) upvalue_heap: &'a mut UpValueHeap,
-    pub(crate) function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
+    pub(crate) function_stack: &'a mut CallStack,
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
     pub(crate) closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
@@ -480,7 +504,7 @@ impl<'a> VmCore<'a> {
         constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
         upvalue_heap: &'a mut UpValueHeap,
-        function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
+        function_stack: &'a mut CallStack,
         stack_index: &'a mut Vec<usize>,
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
@@ -522,7 +546,7 @@ impl<'a> VmCore<'a> {
         constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
         upvalue_heap: &'a mut UpValueHeap,
-        function_stack: &'a mut Vec<Gc<ByteCodeLambda>>,
+        function_stack: &'a mut CallStack,
         stack_index: &'a mut Vec<usize>,
         upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
@@ -614,7 +638,7 @@ impl<'a> VmCore<'a> {
             local_idx,
             upvalue,
             self.stack.iter().chain(self.global_env.bindings_vec.iter()),
-            self.function_stack.iter(),
+            self.function_stack.function_iter(),
         );
 
         // println!(
@@ -866,7 +890,8 @@ impl<'a> VmCore<'a> {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), argument_count); self.current_span());
         }
 
-        self.function_stack.push(Gc::clone(closure));
+        self.function_stack
+            .push(CallContext::new(Gc::clone(closure)));
         let result = self.call_with_instructions_and_reset_state(closure.body_exp());
 
         result
@@ -883,7 +908,8 @@ impl<'a> VmCore<'a> {
         self.stack_index.push(prev_length);
         self.stack.push(arg1);
         self.stack.push(arg2);
-        self.function_stack.push(Gc::clone(closure));
+        self.function_stack
+            .push(CallContext::new(Gc::clone(closure)));
 
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
@@ -900,7 +926,8 @@ impl<'a> VmCore<'a> {
 
         self.stack_index.push(prev_length);
         self.stack.push(arg);
-        self.function_stack.push(Gc::clone(closure));
+        self.function_stack
+            .push(CallContext::new(Gc::clone(closure)));
 
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
@@ -1383,7 +1410,8 @@ impl<'a> VmCore<'a> {
                     let allocated_var = self.heap.allocate(
                         self.stack[offset].clone(), // TODO: Could actually move off of the stack entirely
                         self.stack.iter(),
-                        self.function_stack.iter(),
+                        self.function_stack.function_iter(),
+                        self.global_env.roots(),
                     );
 
                     self.function_stack
@@ -1574,6 +1602,13 @@ impl<'a> VmCore<'a> {
             // .flatten()
             .copied()
             .unwrap_or_default()
+    }
+
+    fn enclosing_span(&self) -> Option<Span> {
+        self.function_stack
+            .function_stack
+            .last()
+            .and_then(|x| x.span)
     }
 
     fn handle_pop_pure(&mut self, payload: u32) -> Option<Result<SteelVal>> {
@@ -2277,6 +2312,7 @@ impl<'a> VmCore<'a> {
 
             let mut prototype = prototype.clone();
             prototype.set_captures(captures);
+            prototype.set_heap_allocated(heap_vars);
             prototype
         } else {
             log::info!("Constructing closure for the first time");
@@ -2308,13 +2344,14 @@ impl<'a> VmCore<'a> {
                 false,
                 is_multi_arity,
                 Vec::new(),
-                heap_vars,
+                Vec::new(),
             );
 
             self.closure_interner
                 .insert(closure_id, constructed_lambda.clone());
 
             constructed_lambda.set_captures(captures);
+            constructed_lambda.set_heap_allocated(heap_vars);
 
             constructed_lambda
         };
@@ -2459,7 +2496,7 @@ impl<'a> VmCore<'a> {
             offset = self.stack_index.pop().unwrap();
             self.instruction_stack.pop();
 
-            self.find_upvalues_to_be_closed(offset, &current_executing);
+            self.find_upvalues_to_be_closed(offset, &current_executing.function);
         }
 
         offset = self.stack_index.last().copied().unwrap_or(0);
@@ -2478,10 +2515,11 @@ impl<'a> VmCore<'a> {
         //     self.close_upvalues(offset);
         // }
 
-        self.find_upvalues_to_be_closed(offset, &current_executing);
+        self.find_upvalues_to_be_closed(offset, &current_executing.function);
 
         // TODO
-        self.function_stack.push(Gc::clone(&closure));
+        self.function_stack
+            .push(CallContext::new(Gc::clone(&closure)));
 
         // if self.stack_index.len() == STACK_LIMIT {
         //     // println!("stacks at exit: {:?}", self.stacks);
@@ -2537,7 +2575,7 @@ impl<'a> VmCore<'a> {
         // Just collect here and minimize the heap size
         self.upvalue_heap.collect(
             self.stack.iter().chain(self.global_env.bindings_vec.iter()),
-            self.function_stack.iter(),
+            self.function_stack.function_iter(),
         );
 
         // self.pop_count -= 1;
@@ -2607,7 +2645,8 @@ impl<'a> VmCore<'a> {
         // }
 
         // TODO
-        self.function_stack.push(Gc::clone(&closure));
+        self.function_stack
+            .push(CallContext::new(Gc::clone(&closure)).with_span(self.current_span()));
 
         // if self.stack_index.len() == STACK_LIMIT {
         //     // println!("stacks at exit: {:?}", self.stacks);
@@ -2992,7 +3031,8 @@ impl<'a> VmCore<'a> {
         self.stack.push(local);
         self.stack.push(const_value);
         // Push on the function stack so we have access to it later
-        self.function_stack.push(Gc::clone(closure));
+        self.function_stack
+            .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
 
         if closure.arity() != 2 {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), 2); self.current_span());
@@ -3131,7 +3171,8 @@ impl<'a> VmCore<'a> {
         }
 
         // Push on the function stack so we have access to it laters
-        self.function_stack.push(Gc::clone(closure));
+        self.function_stack
+            .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
 
         // if closure.arity() != payload_size {
         //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
@@ -3255,7 +3296,8 @@ impl<'a> VmCore<'a> {
 
         // Push on the function stack so we have access to it later
         ;
-        self.function_stack.push(Gc::clone(closure));
+        self.function_stack
+            .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
 
         // TODO - this is unclear - need to pop values off of the stack, collect them as a list, then push it back in
         // If this is a multi arity function
@@ -3409,6 +3451,20 @@ impl<'a> VmCore<'a> {
     }
 }
 
+pub fn current_function_span<'a, 'b>(
+    ctx: &'a mut VmCore<'b>,
+    args: &[SteelVal],
+) -> Result<SteelVal> {
+    if !args.is_empty() {
+        stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
+    }
+
+    match ctx.enclosing_span() {
+        Some(s) => Span::into_steelval(s),
+        None => Ok(SteelVal::Void),
+    }
+}
+
 pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
     /*
     - Construct the continuation
@@ -3478,7 +3534,8 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
             ctx.pop_count += 1;
 
             ctx.instructions = closure.body_exp();
-            ctx.function_stack.push(closure);
+            ctx.function_stack
+                .push(CallContext::new(closure).with_span(ctx.current_span()));
 
             ctx.ip = 0;
         }

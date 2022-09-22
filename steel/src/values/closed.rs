@@ -40,13 +40,14 @@ impl Heap {
         value: SteelVal,
         roots: impl Iterator<Item = &'a SteelVal>,
         live_functions: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
+        globals: impl Iterator<Item = &'a SteelVal>,
     ) -> HeapRef {
+        self.collect(roots, live_functions, globals);
+
         let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
         let weak_ptr = Rc::downgrade(&pointer);
 
         self.memory.push(pointer);
-
-        self.collect(roots, live_functions);
 
         HeapRef { inner: weak_ptr }
     }
@@ -55,20 +56,23 @@ impl Heap {
         &mut self,
         roots: impl Iterator<Item = &'a SteelVal>,
         live_functions: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
+        globals: impl Iterator<Item = &'a SteelVal>,
     ) {
         if self.memory.len() > self.threshold {
-            // println!("Freeing memory");
+            println!("Freeing memory");
 
             let mut changed = true;
             while changed {
+                println!("Small collection");
                 let prior_len = self.memory.len();
                 self.memory.retain(|x| Rc::weak_count(x) > 0);
                 let after = self.memory.len();
+                println!("Objects freed: {:?}", prior_len - after);
                 changed = prior_len != after;
             }
 
             // TODO fix the garbage collector
-            self.mark_and_sweep(roots, live_functions);
+            self.mark_and_sweep(roots, live_functions, globals);
 
             self.threshold = (self.threshold + self.memory.len()) * GC_GROW_FACTOR;
 
@@ -80,9 +84,14 @@ impl Heap {
         &mut self,
         roots: impl Iterator<Item = &'a SteelVal>,
         function_stack: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
+        globals: impl Iterator<Item = &'a SteelVal>,
     ) {
         // mark
         for root in roots {
+            traverse(root);
+        }
+
+        for root in globals {
             traverse(root);
         }
 
@@ -96,6 +105,15 @@ impl Heap {
 
         // TODO -> move destructors to another thread?
         // That way the main thread is not blocked by the dropping of unreachable objects
+
+        println!(
+            "Dropping memory: {:?}",
+            self.memory
+                .iter()
+                .filter(|x| !x.borrow().is_reachable())
+                .map(|x| (Rc::weak_count(&x), x))
+                .collect::<Vec<_>>()
+        );
 
         // sweep
         self.memory.retain(|x| x.borrow().is_reachable());
@@ -116,6 +134,8 @@ impl HeapRef {
     }
 
     pub fn set(&mut self, value: SteelVal) -> SteelVal {
+        println!("Setting: {:?}", value);
+
         let inner = self.inner.upgrade().unwrap();
 
         let ret = { inner.borrow().value.clone() };
@@ -171,22 +191,31 @@ fn traverse(val: &SteelVal) {
                 traverse(value)
             }
         }
-        SteelVal::HashMapV(_) => {}
-        SteelVal::HashSetV(_) => {}
-        SteelVal::StructV(_) => {}
-        SteelVal::PortV(_) => {}
+        SteelVal::MutableVector(v) => {
+            for value in v.borrow().iter() {
+                traverse(value)
+            }
+        }
+        // SteelVal::HashMapV(_) => {}
+        // SteelVal::HashSetV(_) => {}
+        // SteelVal::StructV(_) => {}
+        // SteelVal::PortV(_) => {}
         SteelVal::Closure(c) => {
             for heap_ref in c.heap_allocated.borrow().iter() {
                 mark_heap_ref(&heap_ref.strong_ptr())
             }
+
+            for capture in c.captures() {
+                traverse(capture);
+            }
         }
-        SteelVal::IterV(_) => {}
-        SteelVal::FutureV(_) => {}
+        // SteelVal::IterV(_) => {}
+        // SteelVal::FutureV(_) => {}
         SteelVal::StreamV(s) => {
             traverse(&s.initial_value);
             traverse(&s.stream_thunk);
         }
-        SteelVal::BoxV(_) => {}
+        // SteelVal::BoxV(_) => {}
         SteelVal::Contract(c) => visit_contract_type(c),
         SteelVal::ContractedFunction(c) => {
             visit_function_contract(&c.contract);
@@ -200,13 +229,19 @@ fn traverse(val: &SteelVal) {
                 traverse(root);
             }
 
-            for function in c.function_stack.iter() {
+            for function in c.function_stack.function_iter() {
                 for heap_ref in function.heap_allocated.borrow().iter() {
                     mark_heap_ref(&heap_ref.strong_ptr())
                 }
+
+                for capture in function.captures() {
+                    traverse(capture);
+                }
             }
         }
-        _ => {}
+        _ => {
+            // println!("Traverse bottoming out on: {}", val);
+        }
     }
 }
 
@@ -239,9 +274,12 @@ fn visit_closure(c: &Gc<ByteCodeLambda>) {
     for heap_ref in c.heap_allocated.borrow().iter() {
         mark_heap_ref(&heap_ref.strong_ptr());
     }
+
+    for capture in c.captures() {
+        traverse(capture);
+    }
 }
 
-#[inline(always)]
 fn mark_heap_ref(heap_ref: &Rc<RefCell<HeapAllocated>>) {
     if heap_ref.borrow().is_reachable() {
         return;

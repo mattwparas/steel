@@ -98,4 +98,8 @@ impl Env {
         // self.bindings_map.insert(idx, val);
         self.repl_define_idx(idx, val);
     }
+
+    pub fn roots(&self) -> impl Iterator<Item = &SteelVal> {
+        self.bindings_vec.iter()
+    }
 }

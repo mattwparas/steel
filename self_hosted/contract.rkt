@@ -51,7 +51,7 @@
 (make-struct ContractedFunction (contract function name))
 
 ;; Call a contracted function
-(define (apply-contracted-function contracted-function arguments)
+(define (apply-contracted-function contracted-function arguments span)
 
     ;; Recur upwards to keep track of the 
     (define (apply-parents parent)
@@ -61,7 +61,8 @@
                 (apply-function-contract (ContractedFunction-contract contracted-function)
                                          (ContractedFunction-name contracted-function) 
                                          (ContractedFunction-function contracted-function) 
-                                         arguments)
+                                         arguments
+                                         span)
                 
                 (apply-parents (FunctionContract-parent parent)))))
 
@@ -70,10 +71,11 @@
     (apply-function-contract (ContractedFunction-contract contracted-function)
                              (ContractedFunction-name contracted-function)
                              (ContractedFunction-function contracted-function)
-                             arguments))
+                             arguments
+                             span))
 
 
-(define (verify-preconditions self-contract arguments name)
+(define (verify-preconditions self-contract arguments name span)
     (transduce 
         arguments
         (zipping (FunctionContract-pre-conditions self-contract))
@@ -89,8 +91,9 @@
                                 (displayln "Applying flat contract in pre condition")
                                 (let ((result (apply-flat-contract contract arg)))
                                     (if (ContractViolation? result)
-                                        (error! "This function call caused an error"
-                                        "- it occured in the domain position:" i ", with the contract: " contract (ContractViolation-error-message result) ", blaming " (FunctionContract-contract-attachment-location self-contract) "(callsite)")
+                                        (error-with-span span 
+                                            "This function call caused an error"
+                                            "- it occured in the domain position:" i ", with the contract: " contract (ContractViolation-error-message result) ", blaming " (FunctionContract-contract-attachment-location self-contract) "(callsite)")
                                         arg))]
                           [(FunctionContract? contract)
                             =>
@@ -116,23 +119,23 @@
                                     ))))
         (into-list)))
 
-(verify-preconditions 
-    (make-function-contract 
-        (FlatContract int? 'int?) 
-        (FlatContract int? 'int?)
-        (FlatContract boolean? 'boolean?))
+; (verify-preconditions 
+;     (make-function-contract 
+;         (FlatContract int? 'int?) 
+;         (FlatContract int? 'int?)
+;         (FlatContract boolean? 'boolean?))
 
-    '(10 20)
-    'test-function)
+;     '(10 20)
+;     'test-function)
 
-(define (apply-function-contract contract name function arguments)
+(define (apply-function-contract contract name function arguments span)
     ;; Check that each of the arguments abides by the 
-    (verify-preconditions contract arguments name)
+    (verify-preconditions contract arguments name span)
     (let ((output (apply function arguments))
           (contract (FunctionContract-post-condition contract)))
         (cond [(FlatContract? contract)
                 => 
-                (displayln "aplying flat contract in post condition")
+                (displayln "applying flat contract in post condition")
                 
                 (let ((result (apply-flat-contract contract output)))
                     (if (ContractViolation? result)
@@ -142,11 +145,13 @@
                                     (FunctionContract-contract-attachment-location contract))))
                             
                             (if blame-location
-                                (error! 
+                                (error-with-span
+                                    span 
                                     "this function call resulted in an error - occurred in the range position of this contract: " 
                                     contract result "blaming: "
                                      blame-location)
-                                (error!
+                                (error-with-span
+                                    span
                                     "this function call resulted in an error - occured in the range position of this contract: " 
                                     contract result "blaming: None - broke its own contract")))
                         output))]
@@ -173,7 +178,8 @@
     (lambda args
         (apply-contracted-function 
             (ContractedFunction contract function name)
-            args)))
+            args
+            (current-function-span))))
 
 (define test-function
     (bind-contract-to-function 
@@ -184,4 +190,35 @@
         (lambda (x y) (equal? (+ x y) 10))
         'test-function))
 
-(test-function 10 10)
+; (test-function "hello world" 10)
+
+(define foo
+    (lambda (x) 
+        (if (= x 100)
+            x
+            (bar (+ x 1)))))
+
+(define bar
+    (lambda (x) 
+        (if (= x 100)
+            x
+            (foo (+ x 1)))))
+
+; (set! foo foo)
+
+(set! foo
+    (bind-contract-to-function
+        (make-function-contract
+            (FlatContract int? 'int?)
+            (FlatContract int? 'int?))
+        foo
+        'foo))
+
+
+(set! bar
+    (bind-contract-to-function
+        (make-function-contract
+            (FlatContract int? 'int?)
+            (FlatContract int? 'int?))
+        bar
+        'bar))

@@ -1,11 +1,13 @@
 use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
 use crate::{
+    parser::span::Span,
     primitives::{
         contracts, hashmaps::hashmap_module, hashsets::hashset_module, lists::UnRecoverableResult,
         ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
         StreamOperations, StringOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
+    rvals::{Custom, FromSteelVal},
     values::structs::is_custom_struct,
 };
 use crate::{
@@ -705,6 +707,11 @@ fn meta_module() -> BuiltInModule {
         .register_value("struct->vector", struct_to_vector())
         .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
         .register_value("read!", SteelVal::FuncV(super::meta::read))
+        .register_value(
+            "current-function-span",
+            SteelVal::BuiltIn(super::vm::current_function_span),
+        )
+        .register_value("error-with-span", error_with_src_loc())
         .register_value("call/cc", SteelVal::BuiltIn(super::vm::call_cc))
         .register_value(
             "call-with-current-continuation",
@@ -749,4 +756,40 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("syntax/loc", crate::rvals::Syntax::new)
         .register_value("syntax?", gen_pred!(SyntaxObject));
     module
+}
+
+// #[derive(Clone, Copy)]
+// pub struct SourceLocation {
+//     span: Span,
+//     source: Option<usize>,
+// }
+
+// impl Custom for SourceLocation {}
+
+// TODO: Add integration for native functions to just write something like:
+// pub fn dummy(args: RestArgs) where RestArgs just derefs to &[SteelVal] and the arguments
+// can be selected that way
+
+pub fn error_with_src_loc() -> SteelVal {
+    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+        let mut error_message = String::new();
+
+        if args.len() < 2 {
+            stop!(ArityMismatch => "error-with-span expects at least 2 arguments - the span and the error message")
+        }
+
+        let span = Span::from_steelval(&args[0])?;
+
+        if !args[1..].is_empty() {
+            for arg in &args[1..] {
+                let error_val = arg.to_string();
+                error_message.push(' ');
+                error_message.push_str(error_val.trim_matches('\"'));
+            }
+
+            stop!(Generic => error_message; span);
+        } else {
+            stop!(ArityMismatch => "error-with-span takes at least one argument"; span);
+        }
+    })
 }

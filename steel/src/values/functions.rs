@@ -82,6 +82,10 @@ impl ByteCodeLambda {
         self.captures = captures;
     }
 
+    pub fn set_heap_allocated(&mut self, heap_allocated: Vec<HeapRef>) {
+        self.heap_allocated = RefCell::new(heap_allocated);
+    }
+
     pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
         Rc::clone(&self.body_exp)
     }
