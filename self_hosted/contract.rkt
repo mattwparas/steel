@@ -5,6 +5,11 @@
 ;; Alias the name for clarity
 (define make-flat-contract FlatContract)
 
+(define %pre-condition-attachment-type 'DOMAIN)
+(define %post-condition-attachment-type 'RANGE)
+
+(make-struct ContractAttachmentLocation (type name))
+
 (make-struct FunctionContract (pre-conditions 
                                post-condition 
                                contract-attachment-location 
@@ -65,25 +70,39 @@
 
 (make-struct ContractedFunction (contract function name))
 
+
+(define (apply-parents parent name function arguments span)
+    (if (void? parent)
+        #true
+        (begin
+            (displayln "Applying parent contract")
+            (apply-function-contract (ContractedFunction-contract parent)
+                                        name 
+                                        function 
+                                        arguments
+                                        span)
+            
+            (apply-parents (FunctionContract-parent parent) name function arguments span))))
+
 ;; Call a contracted function
 (define (apply-contracted-function contracted-function arguments span)
 
-    ;; Recur upwards to keep track of the 
-    (define (apply-parents parent)
-        (if (void? parent)
-            #true
-            (begin
-                (displayln "Applying parent contract")
-                (apply-function-contract (ContractedFunction-contract contracted-function)
-                                         (ContractedFunction-name contracted-function) 
-                                         (ContractedFunction-function contracted-function) 
-                                         arguments
-                                         span)
-                
-                (apply-parents (FunctionContract-parent parent)))))
+    (define span (if span span '(0 0)))
 
-    (apply-parents (FunctionContract-parent 
-        (ContractedFunction-contract contracted-function)))
+    (displayln "Applying contracted function")
+    (displayln contracted-function)
+    (let ((parent (FunctionContract-parent 
+                    (ContractedFunction-contract contracted-function))))
+        (when parent
+            (apply-parents 
+                parent 
+                (ContractedFunction-name contracted-function) 
+                (ContractedFunction-function contracted-function) 
+                arguments 
+                span)))
+
+    ; (apply-parents (FunctionContract-parent 
+        ; (ContractedFunction-contract contracted-function)))
     (apply-function-contract (ContractedFunction-contract contracted-function)
                              (ContractedFunction-name contracted-function)
                              (ContractedFunction-function contracted-function)
@@ -109,7 +128,10 @@
                                     (if (ContractViolation? result)
                                         (error-with-span span 
                                             "This function call caused an error"
-                                            "- it occured in the domain position:" i ", with the contract: " (contract->string contract) (ContractViolation-error-message result) ", blaming " (FunctionContract-contract-attachment-location self-contract) "(callsite)")
+                                            "- it occured in the domain position:" i ", with the contract: " (contract->string contract) (ContractViolation-error-message result) ", blaming " 
+                                                (ContractAttachmentLocation-name
+                                                    (FunctionContract-contract-attachment-location self-contract)) 
+                                            "(callsite)")
                                         arg))]
                           [(FunctionContract? contract)
                             =>
@@ -119,16 +141,20 @@
                                         (let ((parent (FunctionContract
                                                             (FunctionContract-pre-conditions pre-parent)
                                                             (FunctionContract-post-condition pre-parent)
-                                                            (ContractedFunction-name arg)
+                                                            (ContractAttachmentLocation 
+                                                                'DOMAIN
+                                                                (ContractedFunction-name arg))
                                                             void)))
                                             (let ((fc (FunctionContract 
                                                             (FunctionContract-pre-conditions contract)
                                                             (FunctionContract-post-condition contract)
-                                                            (ContractedFunction-name arg)
+                                                            (ContractAttachmentLocation
+                                                                'DOMAIN
+                                                                (ContractedFunction-name arg))
                                                             parent)))
 
-                                                (bind-contract-to-function fc arg name))))
-                                    (bind-contract-to-function contract arg name))]
+                                                (bind-contract-to-function fc arg name span))))
+                                    (bind-contract-to-function contract arg name span))]
                         [else => (error! "Unexpected value in pre conditions: " contract)]
                                     
                                     ))))
@@ -146,6 +172,9 @@
 (define (apply-function-contract contract name function arguments span)
     ;; Check that each of the arguments abides by the 
     (let ((validated-arguments (verify-preconditions contract arguments name span)))
+        (displayln "Calling apply - Applying function")
+        (displayln function)
+        (displayln validated-arguments)
         (let ((output (apply function validated-arguments))
             (self-contract contract)
             (self-contract-attachment-location (FunctionContract-contract-attachment-location contract))
@@ -160,17 +189,46 @@
                                     (if (void? self-contract-attachment-location)
                                         name
                                         self-contract-attachment-location)))
+
+                                (displayln self-contract-attachment-location)
+
+                                (cond [(void? blame-location) => 
+                                        (error-with-span
+                                            span
+                                            "this function call resulted in an error - occured in the range position of this contract: " 
+                                            (contract->string self-contract) (ContractViolation-error-message result) "blaming: None - broke its own contract")]
+
+                                      [else => 
+                                        (error-with-span
+                                                span
+                                                "this function call resulted in an error - occurred in the range position of this contract: " 
+                                                (contract->string self-contract) (ContractViolation-error-message result) "blaming: "
+                                                blame-location)
+                                      
+                                      ]
+
+                                    ;   [(equal? (ContractAttachmentLocation-type blame-location) 'DOMAIN)
+                                    ;     =>
+                                    ;     (displayln "occurred in the domain position")
+                                    ;     (error-with-span
+                                    ;         span 
+                                    ;         "this function call resulted in an error - occurred in the range position of this contract: " 
+                                    ;         (contract->string self-contract) (ContractViolation-error-message result) "blaming: "
+                                    ;         blame-location)]
+
+                                    ;   [(equal? (ContractAttachmentLocation-type blame-location) 'RANGE)
+                                    ;     =>
+                                    ;     (error-with-span
+                                    ;         span
+                                    ;         "this function call resulted in an error - occurred in the range position of this contract: " 
+                                    ;         (contract->string self-contract) (ContractViolation-error-message result) "blaming: "
+                                    ;         blame-location)]
+
+                                    ;   [else => (error! "Unexpected value found when assigning blame")]
+                                      
+                                      
+                                      ))
                                 
-                                (if blame-location
-                                    (error-with-span
-                                        span 
-                                        "this function call resulted in an error - occurred in the range position of this contract: " 
-                                        (contract->string self-contract) (ContractViolation-error-message result) "blaming: "
-                                        blame-location " - broke its own contract")
-                                    (error-with-span
-                                        span
-                                        "this function call resulted in an error - occured in the range position of this contract: " 
-                                        (contract->string self-contract) (ContractViolation-error-message result) "blaming: None - broke its own contract")))
                             output))]
                     [(FunctionContract? contract)
                     => (if (ContractedFunction? output)
@@ -183,20 +241,57 @@
                                         (let ((fc (FunctionContract 
                                                         (FunctionContract-pre-conditions contract)
                                                         (FunctionContract-post-condition contract)
-                                                        (ContractedFunction-name output)
+                                                        (ContractAttachmentLocation
+                                                            'RANGE
+                                                            (ContractedFunction-name output))
                                                         parent)))
-                                            (ContractedFunction fc
-                                                                output
-                                                                name))))
-                                (ContractedFunction contract output name))]
+                                            (bind-contract-to-function fc output name span))))
+                                (bind-contract-to-function contract output name span))]
                     [else => (error! "Unhandled value in post condition: " contract)]))))
 
-(define (bind-contract-to-function contract function name)
-    (lambda args
-        (apply-contracted-function 
-            (ContractedFunction contract function name)
-            args
-            (current-function-span))))
+(define (bind-contract-to-function contract function name . span)
+    (define post-condition (FunctionContract-post-condition contract))
+    (let ((updated-preconditions
+            (transduce 
+                (FunctionContract-pre-conditions contract)
+                (mapping (lambda (c)
+                            (cond [(FlatContract? c) => c]
+                                  [(FunctionContract? c) =>
+                                    (FunctionContract
+                                        (FunctionContract-pre-conditions c)
+                                        (FunctionContract-post-condition c)
+                                        (ContractAttachmentLocation 'DOMAIN name)
+                                        (FunctionContract-parent c))]
+                                  [else => (error "Unexpected value found in bind-contract-to-function")])))
+                (into-list)))
+
+          (updated-postcondition
+            (cond [(FlatContract? post-condition) => post-condition]
+                  [(FunctionContract? post-condition) =>
+                    (FunctionContract
+                        (FunctionContract-pre-conditions post-condition)
+                        (FunctionContract-post-condition post-condition)
+                        (ContractAttachmentLocation 'RANGE name)
+                        (FunctionContract-parent post-condition))]
+                    [else => (error "Unexpected value found in bind-contract-to-function")])))
+
+        (displayln "Binding contract to function")
+        ; (displayln updated-preconditions)
+        ; (displayln updated-postcondition)
+        (let ((contracted-function 
+                    (ContractedFunction
+                        (FunctionContract updated-preconditions updated-postcondition void void)
+                        function name)))
+
+            (lambda args
+                ; (displayln contracted-function)
+                (apply-contracted-function contracted-function args 
+                    (if span (car span) (current-function-span))
+            
+            )))))
+
+
+
 
 (define test-function
     (bind-contract-to-function 
@@ -250,4 +345,29 @@
         (lambda (func y) (+ 1 (func y)))
         'blagh))
 
-(blagh (lambda (x) (+ x 2)) 2)
+; (blagh (lambda (x) (+ x 2)) 2)
+
+
+(define (any? x) #true)
+(define level1 
+    (bind-contract-to-function
+        (make-function-contract
+            (make-function-contract (FlatContract int? 'int?)))
+        (lambda () (lambda () 10.2))
+        'level1))
+
+(define level2
+    (bind-contract-to-function
+        (make-function-contract
+            (make-function-contract (FlatContract number? 'number?)))
+        (lambda () (level1))
+        'level2))
+
+(define level3
+    (bind-contract-to-function
+        (make-function-contract
+            (make-function-contract (FlatContract any? 'any?)))
+        (lambda () (level2))
+        'level3))
+
+((level3))

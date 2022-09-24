@@ -134,8 +134,6 @@ impl HeapRef {
     }
 
     pub fn set(&mut self, value: SteelVal) -> SteelVal {
-        println!("Setting: {:?}", value);
-
         let inner = self.inner.upgrade().unwrap();
 
         let ret = { inner.borrow().value.clone() };

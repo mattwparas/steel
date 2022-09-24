@@ -7,17 +7,13 @@ impl ControlOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             let mut error_message = String::new();
 
-            if !args.is_empty() {
-                for arg in args {
-                    let error_val = arg.to_string();
-                    error_message.push(' ');
-                    error_message.push_str(error_val.trim_matches('\"'));
-                }
-
-                Ok(SteelVal::StringV(error_message.into()))
-            } else {
-                stop!(ArityMismatch => "error takes at least one argument");
+            for arg in args {
+                let error_val = arg.to_string();
+                error_message.push(' ');
+                error_message.push_str(error_val.trim_matches('\"'));
             }
+
+            Ok(SteelVal::StringV(error_message.into()))
         })
     }
 

@@ -3034,6 +3034,10 @@ impl<'a> VmCore<'a> {
         self.function_stack
             .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
 
+        if closure.is_multi_arity {
+            panic!("Calling lazy closure with multi arity");
+        }
+
         if closure.arity() != 2 {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), 2); self.current_span());
         }
@@ -3157,8 +3161,6 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
-        // println!("!!!!!!!!!!!!!!!!!");
-
         // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
         // println!("Handling function call for multi arity function");
@@ -3179,6 +3181,8 @@ impl<'a> VmCore<'a> {
         // }
 
         if closure.is_multi_arity {
+            println!("Arity: {}", closure.arity());
+
             if payload_size < closure.arity() - 1 {
                 stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
             }
@@ -3303,6 +3307,8 @@ impl<'a> VmCore<'a> {
         // If this is a multi arity function
         // then we should just
         if closure.is_multi_arity {
+            // println!("Calling multi arity function");
+
             if payload_size < closure.arity() - 1 {
                 stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
             }
