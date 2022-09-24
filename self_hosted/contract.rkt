@@ -284,7 +284,7 @@
                         function name)))
 
             (lambda args
-                ; (displayln contracted-function)
+                (displayln args)
                 (apply-contracted-function contracted-function args 
                     (if span (car span) (current-function-span))
             
