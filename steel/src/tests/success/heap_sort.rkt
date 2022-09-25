@@ -4,8 +4,6 @@
 (define vector-ref mut-vector-ref)
 (define vector-length mut-vec-len)
 
-
-
 ; swap two elements of a vector
 (define (swap! v i j)
   (define temp (vector-ref v i))
@@ -39,7 +37,7 @@
                (iter v (- start 1)))
         'done))
   ; start sifting with final parent node of v
-  (displayln (quotient (- (vector-length v) 2) 2))
+  ; (displayln (quotient (- (vector-length v) 2) 2))
   (iter v (quotient (- (vector-length v) 2) 2)))
 
 (define (heapsort v)
@@ -53,12 +51,16 @@
           (swap! v 0 end)
           (sift-down! v 0 (- end 1))
           (iter v (- end 1)))))
-  (begin
-    (heapify v)
-    ; start swapping with root and final node
-    (iter v (- (vector-length v) 1))))
+  ; (begin
+  (heapify v)
+  ; start swapping with root and final node
+  (iter v (- (vector-length v) 1)))
     
 ; testing
 (define uriah (mutable-vector 3 5 7 9 0 8 1 4 2 6))
 (heapsort uriah)
-uriah
+
+(define (mutable-vector->list vec)
+  (transduce vec (into-list)))
+
+(assert! (equal? (mutable-vector->list uriah) '(0 1 2 3 4 5 6 7 8 9)))

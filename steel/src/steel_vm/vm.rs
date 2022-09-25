@@ -859,9 +859,9 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         args: impl IntoIterator<Item = SteelVal>,
     ) -> Result<SteelVal> {
-        println!("Call with args");
-        println!("Arity: {:?}", closure.arity());
-        println!("Multi arity: {:?}", closure.is_multi_arity);
+        // println!("Call with args");
+        // println!("Arity: {:?}", closure.arity());
+        // println!("Multi arity: {:?}", closure.is_multi_arity);
 
         let prev_length = self.stack.len();
         self.stack_index.push(prev_length);
@@ -2666,7 +2666,14 @@ impl<'a> VmCore<'a> {
         //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
         // }
 
+        let mut new_arity = payload_size;
+
         if closure.is_multi_arity {
+            println!(
+                "multi closure function, multi arity, arity: {:?}",
+                closure.arity()
+            );
+
             if payload_size < closure.arity() - 1 {
                 stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
             }
@@ -2682,12 +2689,15 @@ impl<'a> VmCore<'a> {
             let list = SteelVal::ListV(List::from(values));
 
             self.stack.push(list);
+
+            new_arity = closure.arity();
+
+            println!("Stack after list conversion: {:?}", self.stack);
         } else if closure.arity() != payload_size {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
         }
 
         // Find the new arity from the payload
-        let new_arity = payload_size;
 
         // We should have arity at this point, drop the stack up to this point
         // take the last arity off the stack, go back and replace those in order
