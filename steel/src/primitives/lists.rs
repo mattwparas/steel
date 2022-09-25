@@ -107,6 +107,7 @@ fn apply<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal>
 
     if let SteelVal::ListV(l) = arg2 {
         if arg1.is_function() {
+            println!("Calling apply with args: {:?}, {:?}", arg1, arg2);
             ctx.call_function_many_args(&arg1, l.clone())
         } else {
             stop!(TypeMismatch => "apply expected a function")

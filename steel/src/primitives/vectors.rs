@@ -23,6 +23,22 @@ impl VectorOperations {
         })
     }
 
+    pub fn vec_length() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "vector-length expects one argument found: {:?}", args.len());
+            }
+
+            let vec = args[0].clone();
+
+            if let SteelVal::VectorV(v) = vec {
+                Ok(SteelVal::IntV(v.len() as isize))
+            } else {
+                stop!(TypeMismatch => "vector-length expects a mutable vector, found: {:?}", vec);
+            }
+        })
+    }
+
     pub fn mut_vec_length() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {

@@ -282,13 +282,11 @@
                     (ContractedFunction
                         (FunctionContract updated-preconditions updated-postcondition void void)
                         function name)))
-
+            
             (lambda args
                 (displayln args)
                 (apply-contracted-function contracted-function args 
-                    (if span (car span) (current-function-span))
-            
-            )))))
+                    (if span (car span) (current-function-span)))))))
 
 
 

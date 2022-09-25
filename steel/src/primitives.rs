@@ -6,7 +6,7 @@ pub mod hashsets;
 mod io;
 pub mod lists;
 mod meta_ops;
-mod nums;
+pub mod nums;
 mod ports;
 mod process;
 mod streams;

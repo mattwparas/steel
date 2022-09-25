@@ -3,8 +3,8 @@ use crate::{
     parser::span::Span,
     primitives::{
         contracts, hashmaps::hashmap_module, hashsets::hashset_module, lists::UnRecoverableResult,
-        ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
-        StreamOperations, StringOperations, SymbolOperations, VectorOperations,
+        nums::quotient, ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations,
+        PortOperations, StreamOperations, StringOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
     rvals::{Custom, FromSteelVal},
@@ -363,6 +363,7 @@ fn vector_module() -> BuiltInModule {
         .register_value("mutable-vector", VectorOperations::mut_vec_construct())
         .register_value("vector-push!", VectorOperations::mut_vec_push())
         .register_value("mut-vec-len", VectorOperations::mut_vec_length())
+        .register_value("vector-length", VectorOperations::vec_length())
         .register_value("vector-append!", VectorOperations::mut_vec_append())
         .register_value("mut-vector-ref", VectorOperations::mut_vec_get())
         .register_value("vector-set!", VectorOperations::mut_vec_set())
@@ -377,6 +378,10 @@ fn vector_module() -> BuiltInModule {
         .register_value("vec-append", VectorOperations::vec_append())
         .register_value("vector-ref", VectorOperations::vec_ref());
     module
+}
+
+fn char_upcase(c: char) -> char {
+    c.to_ascii_uppercase()
 }
 
 fn string_module() -> BuiltInModule {
@@ -396,7 +401,8 @@ fn string_module() -> BuiltInModule {
         .register_value("int->string", StringOperations::int_to_string())
         .register_value("string->symbol", StringOperations::string_to_symbol())
         .register_value("starts-with?", StringOperations::starts_with())
-        .register_value("ends-with?", StringOperations::ends_with());
+        .register_value("ends-with?", StringOperations::ends_with())
+        .register_fn("char-upcase", char_upcase);
     module
 }
 
@@ -487,6 +493,7 @@ fn number_module() -> BuiltInModule {
         .register_value("-", NumOperations::subtract())
         .register_value("even?", NumOperations::even())
         .register_value("odd?", NumOperations::odd())
+        .register_fn("quotient", quotient)
         .register_value("arithmetic-shift", NumOperations::arithmetic_shift());
     module
 }

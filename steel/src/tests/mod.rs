@@ -51,12 +51,16 @@ macro_rules! test_harness_failure {
 }
 
 test_harness_success! {
+    abc_problem,
     apply_more_complex,
+    babbage_problem,
+    balanced_brackets,
     basic_apply,
     calculator,
     capture_upvalue,
     capture_upvalues_arity_two,
     close_upvalue,
+    closure_value_capture,
     define_normal,
     dfs,
     fib,
@@ -71,6 +75,7 @@ test_harness_success! {
     local_struct,
     matcher,
     merge_sort,
+    quicksort,
     read,
     set_local,
     set_tail_call,

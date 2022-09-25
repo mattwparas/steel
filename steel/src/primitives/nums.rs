@@ -1,3 +1,5 @@
+use std::ops::Rem;
+
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
@@ -40,6 +42,10 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     } else {
         Ok(SteelVal::IntV(sum_int))
     }
+}
+
+pub fn quotient(l: isize, r: isize) -> isize {
+    l / r
 }
 
 pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {

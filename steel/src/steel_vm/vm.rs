@@ -859,6 +859,10 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         args: impl IntoIterator<Item = SteelVal>,
     ) -> Result<SteelVal> {
+        println!("Call with args");
+        println!("Arity: {:?}", closure.arity());
+        println!("Multi arity: {:?}", closure.is_multi_arity);
+
         let prev_length = self.stack.len();
         self.stack_index.push(prev_length);
 
@@ -1978,6 +1982,9 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn handle_local(&mut self, index: usize) -> Result<()> {
+        // println!("Stack index: {:?}", self.stack_index);
+        // println!("Stack index value: {:?}", index);
+        // println!("Stack: {:?}", self.stack);
         let offset = self.stack_index.last().copied().unwrap_or(0);
         let value = self.stack[index + offset].clone();
         self.stack.push(value);
