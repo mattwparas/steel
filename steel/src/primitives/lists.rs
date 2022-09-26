@@ -98,6 +98,11 @@ fn test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelV
     }
 }
 
+// TODO: This apply does not respect tail position
+// Something like this: (define (loop) (apply loop '()))
+// _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.
+// Similarly, care should be taken to check out transduce, because nested calls to that will
+// result in a stack overflow with sufficient depth on the recursive calls
 fn apply<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(apply, args, 2);
 
