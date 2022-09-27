@@ -9,7 +9,7 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
-    values::structs::SteelStruct,
+    values::structs::{SteelStruct, UserDefinedStruct},
     values::{
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
@@ -631,6 +631,8 @@ pub enum SteelVal {
     HashSetV(Gc<HashSet<SteelVal>>),
     /// Represents a scheme-only struct
     StructV(Gc<SteelStruct>),
+    /// Alternative implementation of a scheme-only struct
+    CustomStruct(Gc<UserDefinedStruct>),
     // Represents a special rust closure
     // StructClosureV(Box<SteelStruct>, StructClosureSignature),
     // StructClosureV(Box<StructClosure>),
@@ -762,6 +764,7 @@ impl SteelVal {
             #[cfg(feature = "jit")]
             CompiledFunction(_) => todo!(),
             SyntaxObject(_) => todo!(),
+            _ => todo!(),
             // BoxedIterator(_) => todo!(),
         }
     }
@@ -1149,6 +1152,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         }
         Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
         StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
+        CustomStruct(s) => write!(f, "#<{:?}>", s),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
         HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),

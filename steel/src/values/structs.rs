@@ -1,9 +1,12 @@
-use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::throw;
 use crate::{gc::Gc, parser::ast::ExprKind};
 use crate::{primitives::VectorOperations, rvals::MAGIC_STRUCT_SYMBOL};
-use std::rc::Rc;
+use crate::{
+    rvals::{Result, SteelVal},
+    SteelErr,
+};
+use std::{cell::RefCell, rc::Rc};
 
 use serde::{Deserialize, Serialize};
 
@@ -38,6 +41,173 @@ i.e. Implement a tagged pointer to delineate the type of the object for the stru
 its important that structs are treated differently than vectors on their own
 
 */
+
+#[derive(Clone, Debug)]
+pub struct UserDefinedStruct {
+    pub(crate) name: Rc<str>,
+    pub(crate) fields: Rc<RefCell<Vec<SteelVal>>>,
+}
+
+impl UserDefinedStruct {
+    fn new(name: Rc<str>, fields: Rc<RefCell<Vec<SteelVal>>>) -> Self {
+        Self { name, fields }
+    }
+
+    fn constructor(name: Rc<str>, len: usize) -> SteelVal {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != len {
+                let error_message = format!(
+                    "{} expected {} arguments, found {}",
+                    name.clone(),
+                    args.len(),
+                    len
+                );
+                stop!(ArityMismatch => error_message);
+            }
+
+            let fields = args.into_iter().cloned().collect::<Vec<_>>();
+
+            let new_struct =
+                UserDefinedStruct::new(Rc::clone(&name), Rc::new(RefCell::new(fields)));
+
+            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
+        };
+
+        SteelVal::BoxedFunction(Rc::new(f))
+    }
+
+    fn predicate(name: Rc<str>) -> SteelVal {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                let error_message =
+                    format!("{}? expected one argument, found {}", name, args.len());
+                stop!(ArityMismatch => error_message);
+            }
+            Ok(SteelVal::BoolV(match &args[0] {
+                SteelVal::CustomStruct(my_struct) if Rc::ptr_eq(&my_struct.name, &name) => true,
+                _ => false,
+            }))
+        };
+
+        SteelVal::BoxedFunction(Rc::new(f))
+    }
+
+    fn getter_prototype(name: Rc<str>) -> SteelVal {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "struct-ref expected two arguments");
+            }
+
+            let steel_struct = &args[0].clone();
+            let idx = &args[1].clone();
+
+            match (&steel_struct, &idx) {
+                (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
+                    if !Rc::ptr_eq(&s.name, &name) {
+                        stop!(TypeMismatch => format!("Struct getter expected {}, found {}", name, &s.name));
+                    }
+
+                    if *idx < 0 {
+                        stop!(Generic => "struct-ref expected a non negative index");
+                    }
+                    if *idx as usize >= s.fields.borrow().len() {
+                        stop!(Generic => "struct-ref: index out of bounds");
+                    }
+                    Ok(s.fields.borrow()[*idx as usize].clone())
+                }
+                _ => {
+                    let error_message = format!(
+                        "struct-ref expected a struct and an int, found: {} and {}",
+                        steel_struct, idx
+                    );
+                    stop!(TypeMismatch => error_message)
+                }
+            }
+        };
+
+        SteelVal::BoxedFunction(Rc::new(f))
+    }
+
+    fn setter_prototype(name: Rc<str>) -> SteelVal {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "struct-ref expected two arguments");
+            }
+
+            let steel_struct = &args[0].clone();
+            let idx = &args[1].clone();
+            let arg = &args[2].clone();
+
+            match (&steel_struct, &idx) {
+                (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
+                    if !Rc::ptr_eq(&s.name, &name) {
+                        stop!(TypeMismatch => format!("Struct getter expected {}, found {}", name, &s.name));
+                    }
+
+                    if *idx < 0 {
+                        stop!(Generic => "struct-ref expected a non negative index");
+                    }
+                    if *idx as usize >= s.fields.borrow().len() {
+                        stop!(Generic => "struct-ref: index out of bounds");
+                    }
+
+                    let old_value = {
+                        let mut guard = s.fields.borrow_mut();
+                        let old = guard[*idx as usize].clone();
+                        guard[*idx as usize] = arg.clone();
+                        old
+                    };
+
+                    Ok(old_value)
+                    // Ok(s.fields[*idx as usize].clone())
+
+                    // s.fields.borrow_mut()[*idx as usize] = arg.clone();
+                }
+                _ => {
+                    let error_message = format!(
+                        "struct-ref expected a struct and an int, found: {} and {}",
+                        steel_struct, idx
+                    );
+                    stop!(TypeMismatch => error_message)
+                }
+            }
+        };
+
+        SteelVal::BoxedFunction(Rc::new(f))
+    }
+}
+
+pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 2 {
+        stop!(ArityMismatch => "make-struct-type expects 2 args, found: {}", args.len())
+    }
+
+    let name = if let SteelVal::SymbolV(s) = &args[0] {
+        Ok::<_, SteelErr>(s)
+    } else {
+        stop!(TypeMismatch => format!("make-struct-type expected a symbol for the name, found: {}", &args[0]));
+    }?;
+
+    let field_count = if let SteelVal::IntV(i) = &args[1] {
+        Ok::<_, SteelErr>(i)
+    } else {
+        stop!(TypeMismatch => format!("make-struct-type expected an integer for the field count, found: {}", &args[0]));
+    }?;
+
+    // Build out the constructor and the predicate
+    let struct_constructor = UserDefinedStruct::constructor(Rc::clone(name), *field_count as usize);
+    let struct_predicate = UserDefinedStruct::predicate(Rc::clone(name));
+
+    let getter_prototype = UserDefinedStruct::getter_prototype(Rc::clone(name));
+    let setter_prototype = UserDefinedStruct::setter_prototype(Rc::clone(name));
+
+    Ok(SteelVal::ListV(im_lists::list![
+        struct_constructor,
+        struct_predicate,
+        getter_prototype,
+        setter_prototype
+    ]))
+}
 
 /// An instance of an immutable struct in Steel
 /// In order to override the display of this struct, the struct definition would need to have

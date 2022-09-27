@@ -8,7 +8,7 @@ use crate::{
     },
     rerrs::ErrorKind,
     rvals::{Custom, FromSteelVal},
-    values::structs::is_custom_struct,
+    values::structs::{is_custom_struct, make_struct_type},
 };
 use crate::{
     rvals::IntoSteelVal,
@@ -751,7 +751,8 @@ fn meta_module() -> BuiltInModule {
         .register_value("custom-struct?", is_custom_struct())
         .register_fn("env-var", get_environment_variable)
         .register_fn("set-env-var!", set_environment_variable)
-        .register_fn("arity?", arity);
+        .register_fn("arity?", arity)
+        .register_value("make-struct-type", SteelVal::FuncV(make_struct_type));
     module
 }
 
