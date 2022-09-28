@@ -32,6 +32,7 @@ impl Kernel {
         let mut macros = HashSet::new();
         macros.insert("make-struct".to_string());
         macros.insert("%better-lambda%".to_string());
+        macros.insert("new-make-struct".to_string());
 
         // macros.insert("%lam%".to_string());
 

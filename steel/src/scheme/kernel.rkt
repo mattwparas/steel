@@ -21,6 +21,46 @@
              (into-list)))
 
 
+(define (new-make-struct struct-name fields . options)
+
+  (define field-count (length fields))
+
+  (when (not (list? fields))
+    (error! "make-struct expects a list of field names, found " fields))
+
+  (when (not (symbol? struct-name))
+    (error! "make-struct expects an identifier as the first argument, found " struct-name))
+
+  (when (odd? (length options))
+    (error! "make-struct options are malformed - each option requires a value"))
+
+  (let ((options-map (apply hash options)))
+    `(begin
+        (define ,struct-name 'unintialized)
+        (define ,(concat-symbols struct-name '?) 'uninitialized)
+        ,@(map (lambda (field) `(define ,(concat-symbols struct-name '- field) 'uninitialized)) fields)
+        ,@(map (lambda (field) `(define ,(concat-symbols 'set- struct-name '- field '!) 'unintialized)) fields)
+
+
+        (let ((prototypes (make-struct-type ,struct-name ,field-count)))
+          (let ((constructor-proto (list-ref prototypes 0))
+                (predicate-proto (list-ref prototypes 1))
+                (getter-proto (list-ref prototypes 2))
+                (setter-proto (list-ref prototypes 3)))
+
+              ,(new-make-constructor struct-name)
+              ,(new-make-predicate struct-name fields)
+              ,@(new-make-getters struct-name fields)
+              ,@(new-make-setters struct-name fields)
+              void
+))
+        
+        )))
+
+
+
+
+
 ;; ------------ Structs ---------------
 ;; Mutable structs in Steel are just implemented as fixed-size vectors, but with a little bit of magic.
 ;; The model is as follows:
@@ -39,6 +79,12 @@
                                     #f)
                                 #f))
              (quote ,(concat-symbols struct-name '?)))))
+
+
+(define (new-make-predicate struct-name fields)
+  `(set! ,(concat-symbols struct-name '?) predicate-proto))
+
+
 
 ;; Defines the constructor with the form `struct-name`
 ;; There is room here for a lot more custom fields to increase the functionality
@@ -60,7 +106,8 @@
                     options
                     ,@fields)))))))
 
-
+(define (new-make-constructor struct-name)
+  `(set! ,struct-name constructor-proto))
 
 ;; Defines the getters for each index. Maps at compile time the getter to the index in the vector
 ;; that contains the value. Take this for example:
@@ -85,6 +132,14 @@
                       (quote ,function-name)))))
        (enumerate 3 '() fields)))
 
+(define (new-make-getters struct-name fields)
+  (map (lambda (field)
+          `(set! ,(concat-symbols struct-name '- (car field))
+              (lambda (this) (getter-proto this ,(list-ref field 1)))))
+       (enumerate 0 '() fields)))
+
+
+
 ;; Pretty much the same as the above, just now accepts a value to update
 ;; in the underlying struct.
 (define (make-setters struct-name fields)
@@ -99,6 +154,13 @@
                       (lambda (this value) (vector-set! this ,(car (cdr field)) value))
                       (quote ,function-name)))))
        (enumerate 3 '() fields)))
+
+(define (new-make-setters struct-name fields)
+  (map (lambda (field)
+          `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
+              (lambda (this value) (setter-proto this ,(list-ref field 1) value))))
+       (enumerate 0 '() fields)))
+
 
 ;; Valid options on make-struct at the moment are:
 ;; :transparent, default #false
