@@ -21,6 +21,38 @@ use super::ast;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+)]
+pub struct SourceId(usize);
+
+pub struct Sources {
+    paths: HashMap<SourceId, PathBuf>,
+    sources: Vec<String>,
+}
+
+impl Sources {
+    pub fn new() -> Self {
+        Sources {
+            paths: HashMap::new(),
+            sources: Vec::new(),
+        }
+    }
+
+    pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
+        let index = self.sources.len();
+        self.sources.push(source);
+
+        let id = SourceId(index);
+
+        if let Some(path) = path {
+            self.paths.insert(id, path);
+        }
+
+        id
+    }
+}
+
 pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(

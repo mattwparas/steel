@@ -36,6 +36,7 @@
 
   (let ((options-map (apply hash options)))
     `(begin
+        (define ,(concat-symbols '___ struct-name '-options___) (hash ,@(hash->list options-map)))
         (define ,struct-name 'unintialized)
         (define ,(concat-symbols struct-name '?) 'uninitialized)
         ,@(map (lambda (field) `(define ,(concat-symbols struct-name '- field) 'uninitialized)) fields)

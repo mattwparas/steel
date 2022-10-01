@@ -11,7 +11,7 @@ use crate::{
     },
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
-    parser::parser::{ParseError, Parser},
+    parser::parser::{ParseError, Parser, Sources},
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw,
 };
@@ -30,6 +30,7 @@ pub struct Engine {
     compiler: Compiler,
     constants: Option<ImmutableHashMap<String, SteelVal>>,
     modules: ImmutableHashMap<String, BuiltInModule>,
+    sources: Sources,
 }
 
 impl Engine {
@@ -44,6 +45,7 @@ impl Engine {
             compiler: Compiler::default(),
             constants: None,
             modules: ImmutableHashMap::new(),
+            sources: Sources::new(),
         };
 
         register_builtin_modules(&mut vm);
@@ -84,6 +86,7 @@ impl Engine {
             compiler: Compiler::default_with_kernel(),
             constants: None,
             modules: ImmutableHashMap::new(),
+            sources: Sources::new(),
         }
     }
 
