@@ -285,16 +285,16 @@ impl Engine {
     }
 
     // Attempts to disassemble the given expression into a series of bytecode dumps
-    pub fn disassemble(&mut self, expr: &str) -> Result<String> {
-        let constants = self.constants();
-        self.compiler
-            .emit_debug_instructions(expr, constants)
-            .map(|x| {
-                x.into_iter()
-                    .map(|i| crate::core::instructions::disassemble(&i))
-                    .join("\n\n")
-            })
-    }
+    // pub fn disassemble(&mut self, expr: &str) -> Result<String> {
+    //     let constants = self.constants();
+    //     self.compiler
+    //         .emit_debug_instructions(expr, constants)
+    //         .map(|x| {
+    //             x.into_iter()
+    //                 .map(|i| crate::core::instructions::disassemble(&i))
+    //                 .join("\n\n")
+    //         })
+    // }
 
     // pub fn execute_without_callbacks(
     //     &mut self,

@@ -1,4 +1,8 @@
-use crate::parser::ast::ExprKind;
+use crate::parser::{
+    ast::ExprKind,
+    parser::{RawSyntaxObject, SyntaxObject},
+    tokens::TokenType,
+};
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::Instruction, opcode::OpCode},
@@ -18,14 +22,270 @@ use std::{
     time::{Instant, SystemTime},
 };
 
-use super::{
-    code_generator::{
-        convert_call_globals, inline_num_operations, loop_condition_local_const_arity_two,
-        specialize_constants,
-    },
-    compiler::DebruijnIndicesInterner,
-    map::SymbolMap,
-};
+use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
+
+/// evaluates an atom expression in given environment
+fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
+    match &t.ty {
+        TokenType::BooleanLiteral(b) => Ok((*b).into()),
+        // TokenType::Identifier(s) => env.borrow().lookup(&s),
+        TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
+        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
+        TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
+        TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
+        // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
+        TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
+        what => {
+            println!("getting here in the eval_atom - code_generator");
+            stop!(UnexpectedToken => what; t.span)
+        }
+    }
+}
+
+// Often, there may be a loop condition with something like (= x 10000)
+// this identifies these and lazily applies the function, only pushing on to the stack
+// until it absolutely needs to
+pub fn loop_condition_local_const_arity_two(instructions: &mut [Instruction]) {
+    for i in 0..instructions.len() {
+        let read_local = instructions.get(i);
+        let push_const = instructions.get(i + 1);
+        let call_global = instructions.get(i + 2);
+        let pass = instructions.get(i + 3);
+
+        match (read_local, push_const, call_global, pass) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::READLOCAL,
+                    payload_size: local_idx,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::PUSHCONST,
+                    payload_size: const_idx,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    payload_size: ident,
+                    contents: identifier,
+                    ..
+                }),
+                // HAS to be arity 2 in this case
+                Some(Instruction {
+                    op_code: OpCode::PASS,
+                    payload_size: 2,
+                    ..
+                }),
+            ) => {
+                let local_idx = *local_idx;
+                let const_idx = *const_idx;
+                let ident = *ident;
+                let identifier = identifier.clone();
+
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::CGLOCALCONST;
+                    x.payload_size = ident;
+                    x.contents = identifier;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.op_code = OpCode::READLOCAL;
+                    x.payload_size = local_idx;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 2) {
+                    x.op_code = OpCode::PUSHCONST;
+                    x.payload_size = const_idx;
+                }
+            }
+            (
+                Some(Instruction {
+                    op_code: OpCode::MOVEREADLOCAL,
+                    payload_size: local_idx,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::PUSHCONST,
+                    payload_size: const_idx,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    payload_size: ident,
+                    contents: identifier,
+                    ..
+                }),
+                // HAS to be arity 2 in this case
+                Some(Instruction {
+                    op_code: OpCode::PASS,
+                    payload_size: 2,
+                    ..
+                }),
+            ) => {
+                let local_idx = *local_idx;
+                let const_idx = *const_idx;
+                let ident = *ident;
+                let identifier = identifier.clone();
+
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::MOVECGLOCALCONST;
+                    x.payload_size = ident;
+                    x.contents = identifier;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.op_code = OpCode::MOVEREADLOCAL;
+                    x.payload_size = local_idx;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 2) {
+                    x.op_code = OpCode::PUSHCONST;
+                    x.payload_size = const_idx;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
+    if instructions.is_empty() {
+        return Ok(());
+    }
+
+    for i in 0..instructions.len() {
+        match instructions.get(i) {
+            Some(Instruction {
+                op_code: OpCode::PUSHCONST,
+                contents:
+                    Some(SyntaxObject {
+                        ty: TokenType::Identifier(_),
+                        ..
+                    }),
+                ..
+            }) => continue,
+            Some(Instruction {
+                op_code: OpCode::PUSHCONST,
+                contents: Some(syn),
+                ..
+            }) => {
+                let value = eval_atom(syn)?;
+
+                let opcode = match &value {
+                    SteelVal::IntV(0) => OpCode::LOADINT0,
+                    SteelVal::IntV(1) => OpCode::LOADINT1,
+                    SteelVal::IntV(2) => OpCode::LOADINT2,
+                    _ => continue,
+                };
+
+                (*instructions.get_mut(i).unwrap()).op_code = opcode;
+            }
+            _ => continue,
+        }
+    }
+
+    Ok(())
+}
+
+pub fn convert_call_globals(instructions: &mut [Instruction]) {
+    if instructions.is_empty() {
+        return;
+    }
+
+    for i in 0..instructions.len() - 1 {
+        let push = instructions.get(i);
+        let func = instructions.get(i + 1);
+
+        match (push, func) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::FUNC,
+                    ..
+                }),
+            ) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::CALLGLOBAL;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.op_code = OpCode::PASS;
+                }
+            }
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::TAILCALL,
+                    ..
+                }),
+            ) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::CALLGLOBALTAIL;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.op_code = OpCode::PASS;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn inline_num_operations(instructions: &mut [Instruction]) {
+    for i in 0..instructions.len() - 1 {
+        let push = instructions.get(i);
+        let func = instructions.get(i + 1);
+
+        match (push, func) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::FUNC | OpCode::TAILCALL,
+                    contents:
+                        Some(RawSyntaxObject {
+                            ty: TokenType::Identifier(ident),
+                            ..
+                        }),
+                    payload_size,
+                    ..
+                }),
+            ) => {
+                let replaced = match ident.as_ref() {
+                    "+" => Some(OpCode::ADD),
+                    "-" => Some(OpCode::SUB),
+                    "/" => Some(OpCode::DIV),
+                    "*" => Some(OpCode::MUL),
+                    "equal?" => Some(OpCode::EQUAL),
+                    "<=" => Some(OpCode::LTE),
+                    _ => None,
+                };
+
+                if let Some(new_op_code) = replaced {
+                    let payload_size = *payload_size;
+                    if let Some(x) = instructions.get_mut(i) {
+                        x.op_code = new_op_code;
+                        x.payload_size = payload_size;
+                    }
+
+                    if let Some(x) = instructions.get_mut(i + 1) {
+                        x.op_code = OpCode::PASS;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
 
 pub struct ProgramBuilder(Vec<Vec<DenseInstruction>>);
 

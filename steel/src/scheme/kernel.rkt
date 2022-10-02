@@ -23,7 +23,8 @@
 
 (define (new-make-struct struct-name fields . options)
 
-  (define field-count (length fields))
+  ;; Add a field for storing the options - everything else after that is going to be normal
+  (define field-count (+ 1 (length fields)))
 
   (when (not (list? fields))
     (error! "make-struct expects a list of field names, found " fields))
@@ -49,14 +50,11 @@
                 (getter-proto (list-ref prototypes 2))
                 (setter-proto (list-ref prototypes 3)))
 
-              ,(new-make-constructor struct-name)
+              ,(new-make-constructor struct-name fields)
               ,(new-make-predicate struct-name fields)
               ,@(new-make-getters struct-name fields)
               ,@(new-make-setters struct-name fields)
-              void
-))
-        
-        )))
+              void)))))
 
 
 
@@ -107,8 +105,10 @@
                     options
                     ,@fields)))))))
 
-(define (new-make-constructor struct-name)
-  `(set! ,struct-name constructor-proto))
+(define (new-make-constructor struct-name fields)
+  `(set! ,struct-name 
+        (lambda ,fields 
+            (constructor-proto ,(concat-symbols '___ struct-name '-options___) ,@fields))))
 
 ;; Defines the getters for each index. Maps at compile time the getter to the index in the vector
 ;; that contains the value. Take this for example:

@@ -1,6 +1,6 @@
 use crate::{
     compiler::{
-        code_generator::{convert_call_globals, CodeGenerator},
+        // code_generator::{convert_call_globals, CodeGenerator},
         constants::ConstantMap,
         map::SymbolMap,
         passes::{
@@ -46,7 +46,6 @@ use log::{debug, log_enabled};
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{
-    code_generator::loop_condition_local_const_arity_two,
     modules::ModuleManager,
     passes::analysis::{Analysis, CallKind},
     program::RawProgramWithSymbols,
@@ -489,23 +488,23 @@ impl Compiler {
     }
 
     /// Given a program and (optionally) a path to that program, compile and emit the program
-    pub fn compile_program(
-        &mut self,
-        expr_str: &str,
-        path: Option<PathBuf>,
-        constants: ImmutableHashMap<String, SteelVal>,
-    ) -> Result<Program> {
-        // let instructions = self.emit_instructions(expr_str, path, constants)?;
+    // pub fn compile_program(
+    //     &mut self,
+    //     expr_str: &str,
+    //     path: Option<PathBuf>,
+    //     constants: ImmutableHashMap<String, SteelVal>,
+    // ) -> Result<Program> {
+    //     // let instructions = self.emit_instructions(expr_str, path, constants)?;
 
-        let (ast, instructions) = self.emit_instructions_with_ast(expr_str, path, constants)?;
+    //     let (ast, instructions) = self.emit_instructions_with_ast(expr_str, path, constants)?;
 
-        let map = self.map_ast_to_defines(ast);
+    //     let map = self.map_ast_to_defines(ast);
 
-        // TODO Perhaps use a different representation for the constant map
-        // TODO find a way to pass through the AST nicely for the runtime profiling
-        let program = Program::new(instructions, self.constant_map.clone(), map);
-        Ok(program)
-    }
+    //     // TODO Perhaps use a different representation for the constant map
+    //     // TODO find a way to pass through the AST nicely for the runtime profiling
+    //     let program = Program::new(instructions, self.constant_map.clone(), map);
+    //     Ok(program)
+    // }
 
     //
     fn map_ast_to_defines(&self, ast: Vec<ExprKind>) -> HashMap<usize, ExprKind> {
@@ -562,32 +561,32 @@ impl Compiler {
         self.compile_raw_program(parsed, constants, builtin_modules, path)
     }
 
-    pub fn emit_instructions_with_ast(
-        &mut self,
-        expr_str: &str,
-        path: Option<PathBuf>,
-        constants: ImmutableHashMap<String, SteelVal>,
-    ) -> Result<(Vec<ExprKind>, Vec<Vec<DenseInstruction>>)> {
-        let mut intern = HashMap::new();
+    // pub fn emit_instructions_with_ast(
+    //     &mut self,
+    //     expr_str: &str,
+    //     path: Option<PathBuf>,
+    //     constants: ImmutableHashMap<String, SteelVal>,
+    // ) -> Result<(Vec<ExprKind>, Vec<Vec<DenseInstruction>>)> {
+    //     let mut intern = HashMap::new();
 
-        let now = Instant::now();
+    //     let now = Instant::now();
 
-        // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
-            Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
-        } else {
-            Parser::new(expr_str, &mut intern).collect()
-        };
+    //     // Could fail here
+    //     let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
+    //         Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
+    //     } else {
+    //         Parser::new(expr_str, &mut intern).collect()
+    //     };
 
-        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
-        }
+    //     if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+    //         debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+    //     }
 
-        let parsed = parsed?;
+    //     let parsed = parsed?;
 
-        // TODO fix this hack
-        self.emit_instructions_from_exprs(parsed, path, constants)
-    }
+    //     // TODO fix this hack
+    //     self.emit_instructions_from_exprs(parsed, path, constants)
+    // }
 
     // pub fn emit_instructions(
     //     &mut self,
@@ -618,21 +617,21 @@ impl Compiler {
     //         .1)
     // }
 
-    pub fn emit_debug_instructions(
-        &mut self,
-        expr_str: &str,
-        constants: ImmutableHashMap<String, SteelVal>,
-    ) -> Result<Vec<Vec<Instruction>>> {
-        let mut intern = HashMap::new();
+    // pub fn emit_debug_instructions(
+    //     &mut self,
+    //     expr_str: &str,
+    //     constants: ImmutableHashMap<String, SteelVal>,
+    // ) -> Result<Vec<Vec<Instruction>>> {
+    //     let mut intern = HashMap::new();
 
-        // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr_str, &mut intern).collect();
+    //     // Could fail here
+    //     let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+    //         Parser::new(expr_str, &mut intern).collect();
 
-        let parsed = parsed?;
+    //     let parsed = parsed?;
 
-        self.emit_debug_instructions_from_exprs(parsed, constants)
-    }
+    //     self.emit_debug_instructions_from_exprs(parsed, constants)
+    // }
 
     pub fn emit_expanded_ast(
         &mut self,
@@ -774,57 +773,57 @@ impl Compiler {
         Ok(non_structs)
     }
 
-    pub fn generate_dense_instructions(
-        &mut self,
-        expanded_statements: &[ExprKind],
-        results: Vec<Vec<DenseInstruction>>,
-    ) -> Result<Vec<Vec<DenseInstruction>>> {
-        let now = Instant::now();
+    // pub fn generate_dense_instructions(
+    //     &mut self,
+    //     expanded_statements: &[ExprKind],
+    //     results: Vec<Vec<DenseInstruction>>,
+    // ) -> Result<Vec<Vec<DenseInstruction>>> {
+    //     let now = Instant::now();
 
-        let mut results = results;
-        let mut instruction_buffer = Vec::new();
-        let mut index_buffer = Vec::new();
+    //     let mut results = results;
+    //     let mut instruction_buffer = Vec::new();
+    //     let mut index_buffer = Vec::new();
 
-        for expr in expanded_statements {
-            // TODO add printing out the expression as its own special function
-            // println!("{:?}", expr.to_string());
-            // let mut instructions: Vec<Instruction> = Vec::new();
+    //     for expr in expanded_statements {
+    //         // TODO add printing out the expression as its own special function
+    //         // println!("{:?}", expr.to_string());
+    //         // let mut instructions: Vec<Instruction> = Vec::new();
 
-            let mut instructions =
-                CodeGenerator::new(&mut self.constant_map).top_level_compile(expr)?;
+    //         let mut instructions =
+    //             CodeGenerator::new(&mut self.constant_map).top_level_compile(expr)?;
 
-            // TODO double check that arity map doesn't exist anymore
-            // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
+    //         // TODO double check that arity map doesn't exist anymore
+    //         // emit_loop(&expr, &mut instructions, None, &mut self.constant_map)?;
 
-            // instructions.push(Instruction::new_pop());
-            inject_heap_save_to_pop(&mut instructions);
-            index_buffer.push(instructions.len());
-            instruction_buffer.append(&mut instructions);
-        }
+    //         // instructions.push(Instruction::new_pop());
+    //         inject_heap_save_to_pop(&mut instructions);
+    //         index_buffer.push(instructions.len());
+    //         instruction_buffer.append(&mut instructions);
+    //     }
 
-        convert_call_globals(&mut instruction_buffer);
-        replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+    //     convert_call_globals(&mut instruction_buffer);
+    //     replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
 
-        // TODO
-        loop_condition_local_const_arity_two(&mut instruction_buffer);
+    //     // TODO
+    //     loop_condition_local_const_arity_two(&mut instruction_buffer);
 
-        // convert_last_usages(&mut instruction_buffer);
+    //     // convert_last_usages(&mut instruction_buffer);
 
-        for idx in index_buffer {
-            let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
-            // pretty_print_instructions(extracted.as_slice());
+    //     for idx in index_buffer {
+    //         let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
+    //         // pretty_print_instructions(extracted.as_slice());
 
-            // println!("{}", crate::core::instructions::disassemble(&extracted));
+    //         // println!("{}", crate::core::instructions::disassemble(&extracted));
 
-            results.push(densify(extracted));
-        }
+    //         results.push(densify(extracted));
+    //     }
 
-        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            debug!(target: "pipeline_time", "Instruction generation time: {:?}", now.elapsed());
-        }
+    //     if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+    //         debug!(target: "pipeline_time", "Instruction generation time: {:?}", now.elapsed());
+    //     }
 
-        Ok(results)
-    }
+    //     Ok(results)
+    // }
 
     fn generate_instructions_for_executable(
         &mut self,
@@ -860,41 +859,41 @@ impl Compiler {
         Ok(results)
     }
 
-    fn generate_debug_instructions(
-        &mut self,
-        expanded_statements: Vec<ExprKind>,
-        results: Vec<Vec<Instruction>>,
-    ) -> Result<Vec<Vec<Instruction>>> {
-        let mut results = results;
-        let mut instruction_buffer = Vec::new();
-        let mut index_buffer = Vec::new();
+    // fn generate_debug_instructions(
+    //     &mut self,
+    //     expanded_statements: Vec<ExprKind>,
+    //     results: Vec<Vec<Instruction>>,
+    // ) -> Result<Vec<Vec<Instruction>>> {
+    //     let mut results = results;
+    //     let mut instruction_buffer = Vec::new();
+    //     let mut index_buffer = Vec::new();
 
-        for expr in expanded_statements {
-            // TODO add printing out the expression as its own special function
+    //     for expr in expanded_statements {
+    //         // TODO add printing out the expression as its own special function
 
-            let mut instructions =
-                CodeGenerator::new(&mut self.constant_map).top_level_compile(&expr)?;
+    //         let mut instructions =
+    //             CodeGenerator::new(&mut self.constant_map).top_level_compile(&expr)?;
 
-            // instructions.push(Instruction::new_pop());
-            inject_heap_save_to_pop(&mut instructions);
-            index_buffer.push(instructions.len());
-            instruction_buffer.append(&mut instructions);
-        }
+    //         // instructions.push(Instruction::new_pop());
+    //         inject_heap_save_to_pop(&mut instructions);
+    //         index_buffer.push(instructions.len());
+    //         instruction_buffer.append(&mut instructions);
+    //     }
 
-        convert_call_globals(&mut instruction_buffer);
-        replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
+    //     convert_call_globals(&mut instruction_buffer);
+    //     replace_defines_with_debruijn_indices(&mut instruction_buffer, &mut self.symbol_map)?;
 
-        // TODO
-        loop_condition_local_const_arity_two(&mut instruction_buffer);
+    //     // TODO
+    //     loop_condition_local_const_arity_two(&mut instruction_buffer);
 
-        for idx in index_buffer {
-            let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
-            // pretty_print_instructions(extracted.as_slice());
-            results.push(extracted);
-        }
+    //     for idx in index_buffer {
+    //         let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
+    //         // pretty_print_instructions(extracted.as_slice());
+    //         results.push(extracted);
+    //     }
 
-        Ok(results)
-    }
+    //     Ok(results)
+    // }
 
     // TODO
     // figure out how the symbols will work so that a raw program with symbols
@@ -1027,115 +1026,115 @@ impl Compiler {
         Ok(raw_program)
     }
 
-    fn emit_debug_instructions_from_exprs(
-        &mut self,
-        exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<String, SteelVal>,
-    ) -> Result<Vec<Vec<Instruction>>> {
-        let mut results = Vec::new();
+    // fn emit_debug_instructions_from_exprs(
+    //     &mut self,
+    //     exprs: Vec<ExprKind>,
+    //     constants: ImmutableHashMap<String, SteelVal>,
+    // ) -> Result<Vec<Vec<Instruction>>> {
+    //     let mut results = Vec::new();
 
-        let expanded_statements = self.expand_expressions(exprs, None)?;
+    //     let expanded_statements = self.expand_expressions(exprs, None)?;
 
-        if log_enabled!(log::Level::Debug) {
-            debug!(
-                "Generating instructions for the expression: {:?}",
-                expanded_statements
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-            );
-        }
+    //     if log_enabled!(log::Level::Debug) {
+    //         debug!(
+    //             "Generating instructions for the expression: {:?}",
+    //             expanded_statements
+    //                 .iter()
+    //                 .map(|x| x.to_string())
+    //                 .collect::<Vec<_>>()
+    //         );
+    //     }
 
-        let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;
+    //     let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;
 
-        debug!("About to expand defines");
-        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+    //     debug!("About to expand defines");
+    //     let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
-        if log_enabled!(log::Level::Debug) {
-            debug!(
-                "Successfully expanded defines: {:?}",
-                expanded_statements
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-            );
-        }
+    //     if log_enabled!(log::Level::Debug) {
+    //         debug!(
+    //             "Successfully expanded defines: {:?}",
+    //             expanded_statements
+    //                 .iter()
+    //                 .map(|x| x.to_string())
+    //                 .collect::<Vec<_>>()
+    //         );
+    //     }
 
-        // TODO - make sure I want to keep this
-        // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
+    //     // TODO - make sure I want to keep this
+    //     // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
 
-        // TODO
-        let expanded_statements = LambdaLifter::lift(expanded_statements);
+    //     // TODO
+    //     let expanded_statements = LambdaLifter::lift(expanded_statements);
 
-        // TODO - make sure I want to keep this
-        let expanded_statements =
-            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+    //     // TODO - make sure I want to keep this
+    //     let expanded_statements =
+    //         MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
 
-        let statements_without_structs =
-            self.debug_extract_structs(expanded_statements, &mut results)?;
+    //     let statements_without_structs =
+    //         self.debug_extract_structs(expanded_statements, &mut results)?;
 
-        self.generate_debug_instructions(statements_without_structs, results)
-    }
+    //     self.generate_debug_instructions(statements_without_structs, results)
+    // }
 
-    pub fn emit_instructions_from_exprs(
-        &mut self,
-        exprs: Vec<ExprKind>,
-        path: Option<PathBuf>,
-        constants: ImmutableHashMap<String, SteelVal>,
-    ) -> Result<(Vec<ExprKind>, Vec<Vec<DenseInstruction>>)> {
-        let mut results = Vec::new();
+    // pub fn emit_instructions_from_exprs(
+    //     &mut self,
+    //     exprs: Vec<ExprKind>,
+    //     path: Option<PathBuf>,
+    //     constants: ImmutableHashMap<String, SteelVal>,
+    // ) -> Result<(Vec<ExprKind>, Vec<Vec<DenseInstruction>>)> {
+    //     let mut results = Vec::new();
 
-        let now = Instant::now();
+    //     let now = Instant::now();
 
-        let expanded_statements = self.expand_expressions(exprs, path)?;
+    //     let expanded_statements = self.expand_expressions(exprs, path)?;
 
-        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            debug!(target: "pipeline_time", "Macro Expansion Time: {:?}", now.elapsed());
-        }
+    //     if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+    //         debug!(target: "pipeline_time", "Macro Expansion Time: {:?}", now.elapsed());
+    //     }
 
-        if log_enabled!(log::Level::Debug) {
-            debug!(
-                "Generating instructions for the expression: {:?}",
-                expanded_statements
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-            );
-        }
+    //     if log_enabled!(log::Level::Debug) {
+    //         debug!(
+    //             "Generating instructions for the expression: {:?}",
+    //             expanded_statements
+    //                 .iter()
+    //                 .map(|x| x.to_string())
+    //                 .collect::<Vec<_>>()
+    //         );
+    //     }
 
-        // let mut expanded_statements = expanded_statements;
+    //     // let mut expanded_statements = expanded_statements;
 
-        let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;
+    //     let expanded_statements = self.apply_const_evaluation(constants, expanded_statements)?;
 
-        debug!("About to expand defines");
-        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+    //     debug!("About to expand defines");
+    //     let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
-        if log_enabled!(log::Level::Debug) {
-            debug!(
-                "Successfully expanded defines: {:?}",
-                expanded_statements
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-            );
-        }
+    //     if log_enabled!(log::Level::Debug) {
+    //         debug!(
+    //             "Successfully expanded defines: {:?}",
+    //             expanded_statements
+    //                 .iter()
+    //                 .map(|x| x.to_string())
+    //                 .collect::<Vec<_>>()
+    //         );
+    //     }
 
-        // TODO - make sure I want to keep this
-        // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
+    //     // TODO - make sure I want to keep this
+    //     // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
 
-        // TODO
-        let expanded_statements = LambdaLifter::lift(expanded_statements);
+    //     // TODO
+    //     let expanded_statements = LambdaLifter::lift(expanded_statements);
 
-        // TODO - make sure I want to keep this
-        let expanded_statements =
-            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+    //     // TODO - make sure I want to keep this
+    //     let expanded_statements =
+    //         MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
 
-        let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
-        let dense_instructions =
-            self.generate_dense_instructions(&statements_without_structs, results)?;
+    //     let statements_without_structs = self.extract_structs(expanded_statements, &mut results)?;
+    //     let dense_instructions =
+    //         self.generate_dense_instructions(&statements_without_structs, results)?;
 
-        Ok((statements_without_structs, dense_instructions))
-    }
+    //     Ok((statements_without_structs, dense_instructions))
+    // }
 
     fn apply_const_evaluation(
         &mut self,
