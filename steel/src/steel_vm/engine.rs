@@ -7,7 +7,7 @@ use crate::{
     compiler::{
         compiler::Compiler,
         constants::ConstantMap,
-        program::{Executable, Program, RawProgramWithSymbols},
+        program::{Executable, RawProgramWithSymbols},
     },
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
@@ -17,8 +17,7 @@ use crate::{
 };
 use std::{
     collections::HashMap,
-    io::Read,
-    path::{Path, PathBuf},
+    path::{PathBuf},
     rc::Rc,
 };
 

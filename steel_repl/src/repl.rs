@@ -22,7 +22,7 @@ use std::borrow::Cow;
 use steel::steel_vm::engine::Engine;
 
 use std::io::Read;
-use steel::stdlib::{CONTRACTS, DISPLAY, PRELUDE};
+
 
 use std::time::Instant;
 

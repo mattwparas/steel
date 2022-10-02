@@ -16,7 +16,7 @@ fn contract_parses() {
 
 #[cfg(test)]
 fn generate_asserting_machine() -> Engine {
-    let mut vm = Engine::new();
+    let vm = Engine::new();
     // vm.compile_and_run_raw_program(PRELUDE).unwrap();
     // vm.compile_and_run_raw_program(CONTRACTS).unwrap();
     vm

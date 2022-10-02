@@ -6,10 +6,8 @@ use im_lists::list::List;
 
 use crate::{
     parser::ast::ExprKind,
-    rerrs::ErrorKind,
     rvals::Custom,
-    values::port::{SteelPort, CAPTURED_OUTPUT_PORT, DEFAULT_OUTPUT_PORT},
-    SteelErr, SteelVal,
+    values::port::{SteelPort, CAPTURED_OUTPUT_PORT, DEFAULT_OUTPUT_PORT}, SteelVal,
 };
 use crate::{parser::expander::LocalMacroManager, rvals::Result};
 use crate::{parser::parser::ParseError, steel_vm::engine::Engine};

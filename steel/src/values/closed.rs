@@ -8,7 +8,6 @@ use crate::{
     values::{
         contracts::{ContractType, FunctionKind},
         functions::ByteCodeLambda,
-        upvalue::UpValue,
     },
     SteelVal,
 };

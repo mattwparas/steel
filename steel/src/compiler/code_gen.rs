@@ -4,7 +4,7 @@ use crate::{
     },
     core::{
         instructions::Instruction,
-        labels::{fresh, resolve_labels, LabeledInstruction},
+        labels::{resolve_labels, LabeledInstruction},
         opcode::OpCode,
     },
     parser::{
@@ -450,7 +450,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             captured_mutable_arguments.sort_by_key(|x| x.1.stack_offset);
 
-            for (key, var) in captured_mutable_arguments {
+            for (_key, var) in captured_mutable_arguments {
                 self.push(
                     LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap()),
                 );
@@ -754,7 +754,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 mod code_gen_tests {
     use super::*;
 
-    use crate::{parser::parser::Parser, rerrs::ErrorKind};
+    use crate::{parser::parser::Parser};
 
     #[test]
     fn check_function_calls() {

@@ -3,9 +3,8 @@ use std::process::{Child, Command};
 use im_lists::list::List;
 
 use crate::{
-    rvals::{Custom, CustomType, FromSteelVal, IntoSteelVal},
+    rvals::{Custom},
     steel_vm::builtin::BuiltInModule,
-    SteelVal,
 };
 use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
 

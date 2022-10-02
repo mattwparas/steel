@@ -1,10 +1,7 @@
-use super::heap::UpValueHeap;
-
 #[cfg(feature = "jit")]
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
-use crate::values::upvalue::UpValue;
 use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
     compiler::program::Executable,
@@ -14,7 +11,7 @@ use crate::{
 };
 use crate::{compiler::program::OpCodeOccurenceProfiler, values::transducers::Reducer};
 use crate::{
-    compiler::{constants::ConstantMap, program::Program},
+    compiler::{constants::ConstantMap},
     core::{instructions::DenseInstruction, opcode::OpCode},
     rvals::FutureResult,
     values::contracts::ContractedFunction,
@@ -31,11 +28,7 @@ use crate::{
     values::structs::SteelStruct,
 };
 // use std::env::current_exe;
-use std::{
-    cell::RefCell,
-    iter::Iterator,
-    rc::{Rc, Weak},
-};
+use std::{iter::Iterator, rc::Rc};
 
 use super::evaluation_progress::EvaluationProgress;
 
@@ -124,12 +117,10 @@ impl CallStack {
 
 pub struct SteelThread {
     global_env: Env,
-    global_upvalue_heap: UpValueHeap,
     callback: EvaluationProgress,
     stack: Vec<SteelVal>,
     function_stack: CallStack,
     stack_index: Vec<usize>,
-    upvalue_head: Option<Weak<RefCell<UpValue>>>,
     profiler: OpCodeOccurenceProfiler,
     // TODO: make this not as bad
     closure_interner: FnvHashMap<usize, ByteCodeLambda>,
@@ -147,12 +138,10 @@ impl SteelThread {
     pub fn new() -> SteelThread {
         SteelThread {
             global_env: Env::root(),
-            global_upvalue_heap: UpValueHeap::new(),
             callback: EvaluationProgress::new(),
             stack: Vec::with_capacity(256),
             function_stack: CallStack::with_capacity(64),
             stack_index: Vec::with_capacity(64),
-            upvalue_head: None,
             profiler: OpCodeOccurenceProfiler::new(),
             closure_interner: FnvHashMap::default(),
             pure_function_interner: FnvHashMap::default(),
@@ -203,43 +192,6 @@ impl SteelThread {
         // todo!("Initialize structs and build the program");
     }
 
-    // fn vec_exprs_to_map(&mut self, exprs: Vec<ExprKind>) {}
-
-    pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
-        let Program {
-            instructions,
-            constant_map,
-            ast,
-        } = program;
-
-        // TODO come back to this
-        // Don't want to necessarily pre-compile _anything_ yet
-        // #[cfg(feature = "jit")]
-        // {
-        // for (index, expr) in &ast {
-        //     match self.jit.compile(&expr) {
-        //         Ok(ptr) => {
-        //             println!("Found JIT-able function at index: {}!", index)
-        //         }
-        //         Err(_) => {
-        //             println!("Unable to compile function!");
-        //         }
-        //     }
-        // }
-        // }
-
-        // Add the new functions to the hashmap for the JIT
-        self.global_env.add_hashmap(ast);
-
-        instructions
-            .into_iter()
-            .map(|x| self.execute(Rc::from(x.into_boxed_slice()), &constant_map, &[]))
-            .collect()
-
-        // TODO
-        // self.global_env.print_diagnostics();
-    }
-
     pub(crate) fn call_function(
         &mut self,
         constant_map: &ConstantMap,
@@ -252,10 +204,8 @@ impl SteelThread {
             &mut self.global_env,
             constant_map,
             &self.callback,
-            &mut self.global_upvalue_heap,
             &mut self.function_stack,
             &mut self.stack_index,
-            self.upvalue_head.take(),
             &[],
             &mut self.profiler,
             &mut self.closure_interner,
@@ -288,10 +238,8 @@ impl SteelThread {
             &mut self.global_env,
             constant_map,
             &self.callback,
-            &mut self.global_upvalue_heap,
             &mut self.function_stack,
             &mut self.stack_index,
-            self.upvalue_head.take(),
             spans,
             &mut self.profiler,
             &mut self.closure_interner,
@@ -307,7 +255,7 @@ impl SteelThread {
 
         let result = {
             let result = vm_instance.vm();
-            self.upvalue_head = vm_instance.upvalue_head;
+            // self.upvalue_head = vm_instance.upvalue_head;
             result
         };
 
@@ -354,7 +302,6 @@ pub struct Continuation {
     ip: usize,
     pop_count: usize,
     pub(crate) function_stack: CallStack,
-    upvalue_head: Option<Weak<RefCell<UpValue>>>,
 }
 
 pub trait VmContext {
@@ -483,8 +430,6 @@ pub struct VmCore<'a> {
     pub(crate) constants: &'a ConstantMap,
     pub(crate) ip: usize,
     pub(crate) pop_count: usize,
-    pub(crate) upvalue_head: Option<Weak<RefCell<UpValue>>>,
-    pub(crate) upvalue_heap: &'a mut UpValueHeap,
     pub(crate) function_stack: &'a mut CallStack,
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
@@ -503,10 +448,8 @@ impl<'a> VmCore<'a> {
         global_env: &'a mut Env,
         constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
-        upvalue_heap: &'a mut UpValueHeap,
         function_stack: &'a mut CallStack,
         stack_index: &'a mut Vec<usize>,
-        upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
@@ -525,8 +468,6 @@ impl<'a> VmCore<'a> {
             constants,
             ip: 0,
             pop_count: 1,
-            upvalue_head,
-            upvalue_heap,
             function_stack,
             spans,
             profiler,
@@ -545,10 +486,8 @@ impl<'a> VmCore<'a> {
         global_env: &'a mut Env,
         constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
-        upvalue_heap: &'a mut UpValueHeap,
         function_stack: &'a mut CallStack,
         stack_index: &'a mut Vec<usize>,
-        upvalue_head: Option<Weak<RefCell<UpValue>>>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
@@ -571,8 +510,6 @@ impl<'a> VmCore<'a> {
             constants,
             ip: 0,
             pop_count: 1,
-            upvalue_head,
-            upvalue_heap,
             function_stack,
             spans,
             profiler,
@@ -585,116 +522,6 @@ impl<'a> VmCore<'a> {
         })
     }
 
-    // TODO this needs to be a sorted linked list
-    // right now, its not a sorted linked list at all
-    fn capture_upvalue(&mut self, local_idx: usize, offset: usize) -> Weak<RefCell<UpValue>> {
-        let mut prev_up_value: Option<Weak<RefCell<UpValue>>> = None;
-        let mut upvalue = self.upvalue_head.clone();
-
-        // We've already adjusted for the stack index offset,
-        // we want to make sure we're not duplicating work
-        // let unoffset_index = local_idx - self.stack_index.last().copied().unwrap_or(0);
-
-        let local_idx = local_idx + offset;
-
-        while upvalue.is_some()
-            && upvalue
-                .as_ref()
-                .unwrap()
-                .upgrade()
-                .expect("Upvalue freed too early")
-                .borrow()
-                .index()
-                .map(|x| x > local_idx)
-                .unwrap_or(false)
-        {
-            prev_up_value = upvalue.clone();
-            upvalue = upvalue.and_then(|x| {
-                x.upgrade()
-                    .expect("Upvalue freed too early")
-                    .borrow()
-                    .next
-                    .clone()
-            });
-        }
-
-        // println!("Unoffset index: {:?}", unoffset_index);
-
-        if upvalue.is_some()
-            && upvalue
-                .as_ref()
-                .unwrap()
-                .upgrade()
-                .expect("Upvalue freed too early")
-                .borrow()
-                .index()
-                .map(|x| x == local_idx)
-                .unwrap_or(false)
-        {
-            return upvalue.unwrap();
-        }
-
-        let created_up_value: Weak<RefCell<UpValue>> = self.upvalue_heap.new_upvalue(
-            local_idx,
-            upvalue,
-            self.stack.iter().chain(self.global_env.bindings_vec.iter()),
-            self.function_stack.function_iter(),
-        );
-
-        // println!(
-        //     "Creating upvalue: {:?} at index: {:?}",
-        //     created_up_value, local_idx
-        // );
-        // println!("Stack: {:?}", self.stack);
-
-        if prev_up_value.is_none() {
-            self.upvalue_head = Some(created_up_value.clone());
-        } else {
-            let prev_up_value = prev_up_value.unwrap().upgrade().unwrap();
-            prev_up_value
-                .borrow_mut()
-                .set_next(created_up_value.clone());
-        }
-
-        created_up_value
-    }
-
-    fn close_upvalues(&mut self, last: usize) {
-        while self.upvalue_head.is_some()
-            && self
-                .upvalue_head
-                .as_ref()
-                .unwrap()
-                .upgrade()
-                .unwrap()
-                .borrow()
-                .index()
-                .map(|x| x >= last)
-                .unwrap_or(false)
-        {
-            // println!("Closing upvalue");
-            let upvalue = self.upvalue_head.as_ref().unwrap().upgrade().unwrap();
-            // println!("Getting the value");
-
-            // println!("Closing upvalues with stack: {:?}", self.stack);
-            // println!("Upvalue: {:?}", upvalue);
-            let value = upvalue.borrow().get_value(&self.stack);
-
-            upvalue.borrow_mut().set_value(value);
-
-            // Do this scoping nonsense to avoid the borrow problem
-            // let value = { upvalue.borrow().try_get_value(&self.stack) };
-
-            // // TODO come back to this
-            // if let Some(value) = value {
-            //     // let value = upvalue.borrow().get_value(&self.stack);
-            //     upvalue.borrow_mut().set_value(value);
-            // }
-
-            self.upvalue_head = upvalue.borrow_mut().next.clone();
-        }
-    }
-
     // #[inline(always)]
     fn new_continuation_from_state(&self) -> Continuation {
         Continuation {
@@ -705,7 +532,6 @@ impl<'a> VmCore<'a> {
             ip: self.ip,
             pop_count: self.pop_count,
             function_stack: self.function_stack.clone(),
-            upvalue_head: self.upvalue_head.clone(),
         }
     }
 
@@ -718,7 +544,6 @@ impl<'a> VmCore<'a> {
         self.pop_count = continuation.pop_count;
         *self.stack_index = continuation.stack_index;
         *self.function_stack = continuation.function_stack;
-        self.upvalue_head = continuation.upvalue_head;
     }
 
     // #[inline(always)]
@@ -1161,21 +986,7 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => self.handle_set_local(payload_size as usize),
-                DenseInstruction {
-                    op_code: OpCode::READUPVALUE,
-                    payload_size,
-                    ..
-                } => self.handle_upvalue(payload_size as usize),
-                DenseInstruction {
-                    op_code: OpCode::MOVEREADUPVALUE,
-                    payload_size,
-                    ..
-                } => self.handle_move_upvalue(payload_size as usize),
-                DenseInstruction {
-                    op_code: OpCode::SETUPVALUE,
-                    payload_size,
-                    ..
-                } => self.handle_set_upvalue(payload_size as usize),
+
                 DenseInstruction {
                     op_code: OpCode::CLEAR,
                     ..
@@ -1501,15 +1312,15 @@ impl<'a> VmCore<'a> {
 
                     */
                 }
-                DenseInstruction {
-                    op_code: OpCode::POP,
-                    payload_size,
-                    ..
-                } => {
-                    if let Some(r) = self.handle_pop(payload_size) {
-                        return r;
-                    }
-                }
+                // DenseInstruction {
+                //     op_code: OpCode::POP,
+                //     payload_size,
+                //     ..
+                // } => {
+                //     if let Some(r) = self.handle_pop(payload_size) {
+                //         return r;
+                //     }
+                // }
                 DenseInstruction {
                     op_code: OpCode::POP_PURE,
                     payload_size,
@@ -1533,11 +1344,11 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => self.handle_bind(payload_size as usize),
-                DenseInstruction {
-                    op_code: OpCode::SCLOSURE,
-                    payload_size,
-                    ..
-                } => self.handle_start_closure(payload_size as usize),
+                // DenseInstruction {
+                //     op_code: OpCode::SCLOSURE,
+                //     payload_size,
+                //     ..
+                // } => self.handle_start_closure(payload_size as usize),
                 DenseInstruction {
                     op_code: OpCode::NEWSCLOSURE,
                     payload_size,
@@ -1615,7 +1426,7 @@ impl<'a> VmCore<'a> {
             .and_then(|x| x.span)
     }
 
-    fn handle_pop_pure(&mut self, payload: u32) -> Option<Result<SteelVal>> {
+    fn handle_pop_pure(&mut self, _payload: u32) -> Option<Result<SteelVal>> {
         // Check that the amoutn we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
         // assert_eq!(self.pop_count, self.function_stack.len());
@@ -1661,119 +1472,6 @@ impl<'a> VmCore<'a> {
             // Snatch the value to close from the payload size
             // Move forward past the pop
             self.ip += 1;
-
-            // Close remaining values on the stack
-
-            self.stack.truncate(rollback_index);
-            self.stack.push(ret_val);
-
-            // self.stack.drain_range(rollback_index..self.stack.len() - 1);
-
-            // self.stack.truncate(rollback_index + 1);
-            // *self.stack.last_mut().unwrap() = ret_val;
-
-            // if !self
-            //     .instruction_stack
-            //     .last()
-            //     .unwrap()
-            //     .instrs_ref()
-            //     .is_empty()
-            // {
-            let prev_state = self.instruction_stack.pop().unwrap();
-            self.ip = prev_state.0;
-            self.instructions = prev_state.instrs();
-            // }
-
-            None
-        }
-    }
-
-    // #[inline(always)]
-    fn handle_pop(&mut self, payload: u32) -> Option<Result<SteelVal>> {
-        // Check that the amoutn we're looking to pop and the function stack length are equivalent
-        // otherwise we have a problem
-        // assert_eq!(self.pop_count, self.function_stack.len());
-
-        self.pop_count -= 1;
-
-        // unwrap just because we want to see if we have something here
-        // rolling back the function stack
-        self.function_stack.pop();
-
-        if self.pop_count == 0 {
-            let ret_val = self.stack.pop().ok_or_else(|| {
-                // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
-                SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
-                    .with_span(self.current_span())
-            });
-
-            // self.close_upvalues();
-
-            // println!("ROLLING BACK STACK");
-            // println!("BEFORE: {:?}", self.stack);
-            // println!("index: {:?}", self.stack_index);
-
-            // Roll back if needed
-            if let Some(rollback_index) = self.stack_index.pop() {
-                // TODO check if this is better / correct
-                // self.close_upvalues(rollback_index);
-
-                // Snatch the value to close from the payload size
-                let value_count_to_close = payload;
-
-                // Move forward past the pop
-                self.ip += 1;
-
-                for i in 0..value_count_to_close {
-                    let instr = self.instructions[self.ip];
-                    match (instr.op_code, instr.payload_size) {
-                        (OpCode::CLOSEUPVALUE, 1) => {
-                            self.close_upvalues(rollback_index + i as usize);
-                        }
-                        (OpCode::CLOSEUPVALUE, 0) => {
-                            // do nothing explicitly, just a normal pop
-                        }
-                        (op, _) => panic!(
-                            "Closing upvalues failed with instruction: {:?} @ {}",
-                            op, self.ip
-                        ),
-                    }
-                    self.ip += 1;
-                }
-
-                self.stack.truncate(rollback_index);
-            }
-
-            Some(ret_val)
-        } else {
-            let ret_val = self.stack.pop().unwrap();
-
-            // TODO fix this
-            let rollback_index = self.stack_index.pop().unwrap();
-
-            // Snatch the value to close from the payload size
-            let value_count_to_close = payload;
-
-            // Move forward past the pop
-            self.ip += 1;
-
-            for i in 0..value_count_to_close {
-                let instr = self.instructions[self.ip];
-                match (instr.op_code, instr.payload_size) {
-                    (OpCode::CLOSEUPVALUE, 1) => {
-                        self.close_upvalues(rollback_index + i as usize);
-                    }
-                    (OpCode::CLOSEUPVALUE, 0) => {
-                        // do nothing explicitly, just a normal pop
-                    }
-                    (op, _) => panic!(
-                        "Closing upvalues failed with instruction: {:?} @ {}",
-                        op, self.ip
-                    ),
-                }
-                self.ip += 1;
-            }
 
             // Close remaining values on the stack
 
@@ -1909,46 +1607,9 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    // TODO -> this doesn't have to be an opcode
-    // instead make this a built in function
-    // #[inline(always)]
-    // fn handle_read(&mut self) -> Result<()> {
-    //     // this needs to be a string
-    //     let expression_to_parse = self.stack.pop().unwrap();
-
-    //     if let SteelVal::StringV(expr) = expression_to_parse {
-    //         // dummy interning hashmap because the parser is bad
-    //         // please don't judge I'm working on fixing it
-    //         // TODO
-    //         let mut intern = FnvHashMap::new();
-
-    //         let parsed: result::Result<Vec<ExprKind>, ParseError> =
-    //             Parser::new(expr.as_str(), &mut intern).collect();
-
-    //         match parsed {
-    //             Ok(v) => {
-    //                 let converted: Result<List<SteelVal>> =
-    //                     v.into_iter().map(SteelVal::try_from).collect();
-
-    //                 self.stack.push(SteelVal::ListV(converted?));
-    //                 self.ip += 1;
-    //             }
-    //             Err(e) => stop!(Generic => format!("{}", e); self.current_span()),
-    //         }
-    //     } else {
-    //         stop!(TypeMismatch => "read expects a string"; self.current_span())
-    //     }
-    //     Ok(())
-    // }
-
     // #[inline(always)]
     fn handle_set(&mut self, index: usize) -> Result<()> {
         let value_to_assign = self.stack.pop().unwrap();
-
-        // if let SteelVal::Closure(_) = &value_to_assign {
-        //     // println!("Closing upvalue in set");
-        //     self.close_upvalues(*self.stack_index.last().unwrap_or(&0));
-        // }
 
         let value = self.global_env.repl_set_idx(index, value_to_assign)?;
 
@@ -2008,44 +1669,6 @@ impl<'a> VmCore<'a> {
         self.stack.push(value);
         self.ip += 1;
         Ok(())
-    }
-
-    // #[inline(always)]
-    fn handle_upvalue(&mut self, index: usize) {
-        let value = self
-            .function_stack
-            .last()
-            .map(|x| {
-                x.upvalues()[index]
-                    .upgrade()
-                    .expect("Upvalue dropped too early!")
-                    .borrow()
-                    .get_value(&self.stack)
-                // .unwrap_or_else(|| {
-                //     crate::core::instructions::pretty_print_dense_instructions(
-                //         &self.instructions,
-                //     );
-                //     panic!("Known issue")
-                // })
-            })
-            .unwrap();
-
-        // println!("Getting upvalue: {}", value);
-
-        self.stack.push(value);
-        self.ip += 1;
-    }
-
-    // #[inline(always)]
-    fn handle_move_upvalue(&mut self, index: usize) {
-        let value = self.function_stack.last().unwrap().upvalues()[index]
-            .upgrade()
-            .expect("Upvalue dropped too early!")
-            .borrow_mut()
-            .try_move_value(&mut self.stack);
-
-        self.stack.push(value);
-        self.ip += 1;
     }
 
     fn handle_pure_function(&mut self, offset: usize) {
@@ -2115,104 +1738,6 @@ impl<'a> VmCore<'a> {
         };
 
         self.stack.push(SteelVal::Closure(constructed_lambda));
-
-        self.ip = forward_index;
-    }
-
-    // #[inline(always)]
-    fn handle_start_closure(&mut self, offset: usize) {
-        // println!("Hitting start closure");
-
-        // println!("Instruction: {:?}", self.instructions[self.ip]);
-
-        // if self.instructions[self.ip].payload_size == 1 {
-        //     println!("Found multi arity function");
-        // }
-
-        self.ip += 1;
-
-        let is_multi_arity = self.instructions[self.ip].payload_size == 1;
-
-        self.ip += 1;
-
-        // Check whether this is a let or a rooted function
-        let is_let = self.instructions[self.ip].payload_size == 1;
-
-        // if is_multi_arity {
-        //     println!("Found multi arity function");
-        // }
-
-        self.ip += 1;
-
-        // TODO - used to be offset - 2, now 3 with the multi arity
-        let forward_jump = offset - 3;
-
-        // Snag the number of upvalues here
-        let ndefs = self.instructions[self.ip].payload_size;
-        self.ip += 1;
-
-        // TODO preallocate size
-        let mut upvalues = Vec::with_capacity(ndefs as usize);
-
-        // TODO clean this up a bit
-        // hold the spot for where we need to jump aftwards
-        let forward_index = self.ip + forward_jump;
-
-        // Insert metadata
-        for _ in 0..ndefs {
-            let instr = self.instructions[self.ip];
-            match (instr.op_code, instr.payload_size) {
-                (OpCode::FILLUPVALUE, n) => {
-                    upvalues.push(
-                        self.function_stack
-                            .last()
-                            .map(|x| x.upvalues()[n as usize].clone())
-                            .unwrap(),
-                    );
-                }
-                (OpCode::FILLLOCALUPVALUE, n) => {
-                    upvalues.push(
-                        // self.capture_upvalue(self.stack_index.last().unwrap_or(&0) + n as usize),
-                        self.capture_upvalue(
-                            n as usize,
-                            self.stack_index.last().copied().unwrap_or(0),
-                        ),
-                        // self.capture_upvalue(n as usize),
-                    );
-                }
-                (l, _) => {
-                    panic!(
-                        "Something went wrong in closure construction!, found: {:?} @ {}",
-                        l, self.ip,
-                    );
-                }
-            }
-            self.ip += 1;
-        }
-
-        // TODO -> this is probably quite slow
-        // If extraneous lets are lifted, we probably don't need this
-        // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
-
-        // Construct the closure body using the offsets from the payload
-        // used to be - 1, now - 2
-        let closure_body = self.instructions[self.ip..(self.ip + forward_jump - 1)].to_vec();
-
-        // snag the arity from the eclosure instruction
-        let arity = self.instructions[forward_index - 1].payload_size;
-
-        let constructed_lambda = ByteCodeLambda::new(
-            closure_body,
-            arity as usize,
-            upvalues,
-            is_let,
-            is_multi_arity,
-            Vec::new(),
-            Vec::new(),
-        );
-
-        self.stack
-            .push(SteelVal::Closure(Gc::new(constructed_lambda)));
 
         self.ip = forward_index;
     }
@@ -2392,243 +1917,11 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
     }
 
-    // #[inline(always)]
-    fn handle_set_upvalue(&mut self, index: usize) {
-        let new = self.stack.pop().unwrap();
-        let last_func = self.function_stack.last().unwrap();
-        let upvalue = last_func.upvalues()[index].upgrade().unwrap();
-        let value = upvalue.borrow_mut().mutate_value(&mut self.stack, new);
-
-        self.stack.push(value);
-        self.ip += 1;
-    }
-
-    // Walk through a function and find if there are upvalues that need to be closed from it
-    pub fn find_upvalues_to_be_closed(
-        &mut self,
-        rollback_index: usize,
-        function: &Gc<ByteCodeLambda>,
-    ) {
-        // println!("Inside find upvalues to be closed");
-
-        let last_pop = function
-            .body_exp
-            .iter()
-            .rposition(|x| x.op_code == OpCode::POP)
-            .expect("function missing pop instruction");
-
-        // crate::core::instructions::pretty_print_dense_instructions(&function.body_exp);
-
-        // println!("Last pop index: {}", last_pop);
-
-        for (i, instr) in function.body_exp[last_pop + 1..].iter().enumerate() {
-            // println!("INSTRUCTION: {:?}", instr);
-
-            match (instr.op_code, instr.payload_size) {
-                (OpCode::CLOSEUPVALUE, 1) => {
-                    // println!("^^^^^^^^^^^Finding upvalues to be closed^^^^^^^^^^^^^^");
-                    self.close_upvalues(rollback_index + i as usize);
-                    // indices.push(i);
-                }
-                (OpCode::CLOSEUPVALUE, 0) => {
-                    // println!("Found upvalues that do not need to be closed");
-                    // do nothing explicitly, just a normal pop
-                }
-                _ => break,
-            }
-        }
-    }
-
-    // #[inline(always)]
-    fn handle_tail_call_closure(
-        &mut self,
-        closure: &Gc<ByteCodeLambda>,
-        payload_size: usize,
-    ) -> Result<()> {
-        // println!("stack before: {:?}", self.stack);
-        // println!("stack index: {:?}", self.stack_index);
-        // println!(
-        //     "Function stack length before: {}",
-        //     self.function_stack.len()
-        // );
-
-        // closure.increment_call_count();
-
-        // while let Some(current_executing) = self.function_stack.pop() {
-        //     if !current_executing.is_let {}
-        // }
-
-        let mut offset;
-
-        // self.close_upvalues(0);
-
-        // let mut scopes_to_pop = Vec::new();
-
-        loop {
-            // We've already hit the root of our env
-            if self.stack_index.len() == 1 {
-                break;
-            }
-
-            // We've reached the root of wherever we are
-            if let Some(last) = self.function_stack.last() {
-                if !last.is_let {
-                    // println!("Found root");
-                    // self.pop_count -= 1;
-                    // offset = self.stack_index.pop().unwrap_or(0);
-                    break;
-                }
-            } else {
-                break;
-            }
-
-            // println!("Rolling back function");
-            // println!("Pop count: {}", self.pop_count);
-
-            let current_executing = self.function_stack.pop().unwrap();
-
-            // scopes_to_pop.push(current_executing);
-
-            // self.close_upvalues(offset);
-
-            // self.upvalue_heap.profile_heap();
-
-            // if !current_executing.is_let {
-            //     println!("Found root");
-            //     // self.stack_index.pop();
-            //     break;
-            // }
-
-            self.pop_count -= 1;
-            offset = self.stack_index.pop().unwrap();
-            self.instruction_stack.pop();
-
-            self.find_upvalues_to_be_closed(offset, &current_executing.function);
-        }
-
-        offset = self.stack_index.last().copied().unwrap_or(0);
-
-        // println!("Falling back to offset: {}", offset);
-        // println!("Pop count before: {}", self.pop_count);
-
-        // Wipe out the last one
-        let current_executing = self.function_stack.pop().unwrap();
-
-        // if !current_executing
-        //     .map(|x| x.upvalues().is_empty())
-        //     .unwrap_or(true)
-        // {
-        //     println!("CLOSING UPVALUES *******************");
-        //     self.close_upvalues(offset);
-        // }
-
-        self.find_upvalues_to_be_closed(offset, &current_executing.function);
-
-        // TODO
-        self.function_stack
-            .push(CallContext::new(Gc::clone(&closure)));
-
-        // if self.stack_index.len() == STACK_LIMIT {
-        //     // println!("stacks at exit: {:?}", self.stacks);
-        //     crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-        //     println!("tail call - stack frame at exit: {:?}", self.stack);
-        //     stop!(Generic => "stack overflowed!"; self.current_span());
-        // }
-
-        // if closure.arity() != payload_size {
-        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-        // }
-
-        if closure.is_multi_arity {
-            if payload_size < closure.arity() - 1 {
-                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-            }
-
-            // (define (test x . y))
-            // (test 1 2 3 4 5)
-            // in this case, arity = 2 and payload size = 5
-            // pop off the last 4, collect into a list
-            let amount_to_remove = 1 + payload_size - closure.arity();
-
-            let values = self.stack.split_off(self.stack.len() - amount_to_remove);
-
-            let list = SteelVal::ListV(List::from(values));
-
-            self.stack.push(list);
-        } else if closure.arity() != payload_size {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-        }
-
-        // Find the new arity from the payload
-        let new_arity = payload_size;
-
-        // We should have arity at this point, drop the stack up to this point
-        // take the last arity off the stack, go back and replace those in order
-        let back = self.stack.len() - new_arity;
-        for i in 0..new_arity {
-            self.stack[offset + i] = self.stack[back + i].clone();
-        }
-
-        self.stack.truncate(offset + new_arity);
-
-        // self.stack_index.push(offset);
-
-        // println!("stack after: {:?}", self.stack);
-        // println!("stack index: {:?}", self.stack_index);
-        // println!("Pop count after: {}", self.pop_count);
-
-        // println!("Function stack length after: {}", self.function_stack.len());
-
-        // Just collect here and minimize the heap size
-        self.upvalue_heap.collect(
-            self.stack.iter().chain(self.global_env.bindings_vec.iter()),
-            self.function_stack.function_iter(),
-        );
-
-        // self.pop_count -= 1;
-
-        // // TODO
-        // self.heap
-        // .gather_mark_and_sweep_2(&self.global_env, &inner_env);
-
-        // self.heap.collect_garbage();
-
-        // Added this one as well
-        // self.heap.add(Rc::clone(&self.global_env));
-
-        // self.global_env = inner_env;
-        self.instructions = closure.body_exp();
-
-        self.ip = 0;
-        Ok(())
-    }
-
     fn new_handle_tail_call_closure(
         &mut self,
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
-        // println!("stack before: {:?}", self.stack);
-        // println!("stack index: {:?}", self.stack_index);
-        // println!(
-        //     "Function stack length before: {}",
-        //     self.function_stack.len()
-        // );
-
-        // closure.increment_call_count();
-
-        // while let Some(current_executing) = self.function_stack.pop() {
-        //     if !current_executing.is_let {}
-        // }
-
-        // let ;
-
-        // self.close_upvalues(0);
-
-        // let mut scopes_to_pop = Vec::new();
-
-        // println!("Pop count: {}", self.pop_count);
-
         self.function_stack.pop().unwrap();
 
         // self.pop_count -= 1;
@@ -2637,34 +1930,9 @@ impl<'a> VmCore<'a> {
 
         let offset = self.stack_index.last().copied().unwrap_or(0);
 
-        // println!("Falling back to offset: {}", offset);
-        // println!("Pop count before: {}", self.pop_count);
-
-        // Wipe out the last one
-        // let current_executing = self.function_stack.pop().unwrap();
-
-        // if !current_executing
-        //     .map(|x| x.upvalues().is_empty())
-        //     .unwrap_or(true)
-        // {
-        //     println!("CLOSING UPVALUES *******************");
-        //     self.close_upvalues(offset);
-        // }
-
         // TODO
         self.function_stack
             .push(CallContext::new(Gc::clone(&closure)).with_span(self.current_span()));
-
-        // if self.stack_index.len() == STACK_LIMIT {
-        //     // println!("stacks at exit: {:?}", self.stacks);
-        //     crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-        //     println!("tail call - stack frame at exit: {:?}", self.stack);
-        //     stop!(Generic => "stack overflowed!"; self.current_span());
-        // }
-
-        // if closure.arity() != payload_size {
-        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-        // }
 
         let mut new_arity = payload_size;
 
@@ -3276,7 +2544,7 @@ impl<'a> VmCore<'a> {
         &mut self,
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
-        ast_index: usize,
+        _ast_index: usize,
     ) -> Result<()> {
         // Jit profiling
         // closure.increment_call_count();

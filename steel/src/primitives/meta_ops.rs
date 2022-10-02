@@ -5,7 +5,7 @@ use crate::{
     rvals::FutureResult,
 };
 
-use futures::{executor::LocalPool, future::join_all};
+use futures::{future::join_all};
 
 // use async_compat::Compat;
 

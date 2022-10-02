@@ -1,15 +1,15 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashSet},
     convert::TryFrom,
 };
 
 use crate::{
-    parser::{ast::from_list_repr_to_ast, tryfrom_visitor::SyntaxObjectFromExprKind},
+    parser::{ast::from_list_repr_to_ast},
     rvals::Result,
 };
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
-use super::{ast::ExprKind, span::Span, span_visitor::get_span};
+use super::{ast::ExprKind, span_visitor::get_span};
 
 /// The Kernel is an engine context used to evaluate defmacro style macros
 /// It lives inside the compiler, so in theory there could be tiers of kernels

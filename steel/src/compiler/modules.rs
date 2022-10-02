@@ -6,7 +6,6 @@ use crate::{
         parser::{ParseError, Parser, SyntaxObject},
         tokens::TokenType,
     },
-    steel_vm::primitives::ALL_MODULES,
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
@@ -66,7 +65,7 @@ impl ModuleManager {
     pub(crate) fn compile_main(
         &mut self,
         global_macro_map: &mut HashMap<String, SteelMacro>,
-        kernel: &mut Option<Kernel>,
+        _kernel: &mut Option<Kernel>,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {

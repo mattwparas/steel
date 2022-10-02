@@ -7,16 +7,14 @@ use crate::{
             analysis::SemanticAnalysis,
             begin::flatten_begins_and_expand_defines,
             lambda_lifting::LambdaLifter,
-            reader::{ExpandMethodCalls, MultipleArityFunctions},
+            reader::{MultipleArityFunctions},
         },
-        program::Program,
     },
     parser::{ast::AstTools, expand_visitor::expand_kernel, kernel::Kernel},
     steel_vm::{
         builtin::BuiltInModule,
-        contract_checker::{ContractChecker, GlobalContractCollector},
     },
-    values::structs::{StructBuilders, StructFuncBuilderConcrete},
+    values::structs::{StructBuilders},
 };
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
@@ -47,7 +45,7 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{
     modules::ModuleManager,
-    passes::analysis::{Analysis, CallKind},
+    passes::analysis::{Analysis},
     program::RawProgramWithSymbols,
 };
 
@@ -827,7 +825,7 @@ impl Compiler {
 
     fn generate_instructions_for_executable(
         &mut self,
-        mut expanded_statements: Vec<ExprKind>,
+        expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<Vec<Instruction>>> {
         let mut results = Vec::new();
         let mut instruction_buffer = Vec::new();

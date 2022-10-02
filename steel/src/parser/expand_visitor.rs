@@ -92,7 +92,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
+    fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
         // println!("Visiting quote with : {:?}", quote);
         // quote.expr = self.visit(quote.expr)?;
         Ok(ExprKind::Quote(quote))
@@ -203,11 +203,11 @@ impl<'a> KernelExpander<'a> {
 }
 
 fn expand_default_arguments(
-    mut lambda_function: Box<super::ast::LambdaFunction>,
+    lambda_function: Box<super::ast::LambdaFunction>,
 ) -> Result<Box<super::ast::LambdaFunction>> {
     // todo!()
 
-    let args_len = lambda_function.args.len();
+    let _args_len = lambda_function.args.len();
 
     let mut found_pair = false;
     for argument in &lambda_function.args {
@@ -220,7 +220,7 @@ fn expand_default_arguments(
         }
     }
 
-    let non_default_bindings = lambda_function
+    let _non_default_bindings = lambda_function
         .args
         .iter()
         .filter(|x| !matches!(x, ExprKind::List(_)))
@@ -257,7 +257,7 @@ fn expand_default_arguments(
 }
 
 fn expand_keyword_arguments(
-    mut lambda_function: Box<super::ast::LambdaFunction>,
+    _lambda_function: Box<super::ast::LambdaFunction>,
 ) -> Result<Box<super::ast::LambdaFunction>> {
     todo!()
 }

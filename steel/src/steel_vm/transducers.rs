@@ -290,13 +290,13 @@ impl<'global, 'a> VmCore<'a> {
 
                     // todo!()
                 }
-                Transducers::Window(num) => {
+                Transducers::Window(_num) => {
                     todo!()
                 }
-                Transducers::TakeWhile(func) => {
+                Transducers::TakeWhile(_func) => {
                     todo!()
                 }
-                Transducers::DropWhile(func) => {
+                Transducers::DropWhile(_func) => {
                     todo!()
                 }
                 Transducers::Extend(collection) => {

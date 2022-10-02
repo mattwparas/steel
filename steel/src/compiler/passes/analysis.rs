@@ -784,7 +784,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     }
 
     // Quoted values are just constants - lets ignore them for now?
-    fn visit_quote(&mut self, quote: &'a crate::parser::ast::Quote) {
+    fn visit_quote(&mut self, _quote: &'a crate::parser::ast::Quote) {
         return;
     }
 

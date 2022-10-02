@@ -6,7 +6,6 @@ use std::{io::Read, path::PathBuf};
 use helpers::*;
 use steel::PRELUDE;
 use steel::{
-    stdlib::{CONTRACTS, DISPLAY},
     steel_vm::engine::Engine,
 };
 

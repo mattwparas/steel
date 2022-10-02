@@ -7,7 +7,7 @@ use crate::{
         PortOperations, StreamOperations, StringOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
-    rvals::{Custom, FromSteelVal},
+    rvals::{FromSteelVal},
     values::structs::{is_custom_struct, make_struct_type},
 };
 use crate::{

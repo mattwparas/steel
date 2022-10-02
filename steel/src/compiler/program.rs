@@ -8,7 +8,6 @@ use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::parser::{ParseError, Parser},
     stop,
-    values::structs::StructFuncBuilder,
     SteelVal,
 };
 use crate::{core::instructions::DenseInstruction, parser::span::Span};
@@ -16,7 +15,7 @@ use crate::{rvals::Result, values::structs::StructFuncBuilderConcrete};
 use log::{debug, log_enabled};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap},
     convert::{TryFrom, TryInto},
     rc::Rc,
     time::{Instant, SystemTime},
@@ -755,7 +754,7 @@ impl RawProgramWithSymbols {
         self
     }
 
-    pub fn debug_build(mut self, name: String, symbol_map: &mut SymbolMap) -> Result<()> {
+    pub fn debug_build(mut self, _name: String, symbol_map: &mut SymbolMap) -> Result<()> {
         let now = Instant::now();
 
         let mut struct_instructions = Vec::new();
