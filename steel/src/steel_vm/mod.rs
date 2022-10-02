@@ -4,7 +4,7 @@ pub mod contract_checker;
 mod contracts;
 pub mod engine;
 mod evaluation_progress;
-mod heap;
+// mod heap;
 mod lazy_stream;
 mod meta;
 pub mod options;

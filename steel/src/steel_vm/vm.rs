@@ -4,18 +4,18 @@ use crate::jit::code_gen::JIT;
 use crate::jit::sig::JitFunctionPointer;
 use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
+    compiler::constants::ConstantMap,
+    core::{instructions::DenseInstruction, opcode::OpCode},
+    rvals::FutureResult,
+    values::contracts::ContractedFunction,
+};
+use crate::{
     compiler::program::Executable,
     primitives::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive},
     steel_vm::primitives::{equality_primitive, lte_primitive},
     values::transducers::Transducers,
 };
 use crate::{compiler::program::OpCodeOccurenceProfiler, values::transducers::Reducer};
-use crate::{
-    compiler::{constants::ConstantMap},
-    core::{instructions::DenseInstruction, opcode::OpCode},
-    rvals::FutureResult,
-    values::contracts::ContractedFunction,
-};
 
 use crate::{
     env::Env,
@@ -1724,7 +1724,6 @@ impl<'a> VmCore<'a> {
             let constructed_lambda = Gc::new(ByteCodeLambda::new(
                 closure_body,
                 arity as usize,
-                Vec::new(),
                 false,
                 is_multi_arity,
                 Vec::new(),
@@ -1872,7 +1871,6 @@ impl<'a> VmCore<'a> {
             let mut constructed_lambda = ByteCodeLambda::new(
                 closure_body,
                 arity as usize,
-                Vec::new(),
                 false,
                 is_multi_arity,
                 Vec::new(),

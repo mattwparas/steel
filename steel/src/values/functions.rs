@@ -13,7 +13,7 @@ use crate::{
     SteelVal,
 };
 
-use super::{closed::HeapRef, upvalue::UpValue};
+use super::closed::HeapRef;
 
 pub(crate) enum Function {
     BoxedFunction(BoxedFunctionSignature),
@@ -29,7 +29,7 @@ pub struct ByteCodeLambda {
     /// body of the function with identifiers yet to be bound
     pub(crate) body_exp: Rc<[DenseInstruction]>,
     arity: usize,
-    upvalues: Vec<Weak<RefCell<UpValue>>>,
+    // upvalues: Vec<Weak<RefCell<UpValue>>>,
     call_count: Cell<usize>,
     cant_be_compiled: Cell<bool>,
     pub(crate) is_let: bool,
@@ -58,7 +58,6 @@ impl ByteCodeLambda {
     pub fn new(
         body_exp: Vec<DenseInstruction>,
         arity: usize,
-        upvalues: Vec<Weak<RefCell<UpValue>>>,
         is_let: bool,
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
@@ -67,7 +66,6 @@ impl ByteCodeLambda {
         ByteCodeLambda {
             body_exp: Rc::from(body_exp.into_boxed_slice()),
             arity,
-            upvalues,
             call_count: Cell::new(0),
             cant_be_compiled: Cell::new(false),
             is_let,
@@ -94,20 +92,12 @@ impl ByteCodeLambda {
         self.arity
     }
 
-    pub fn upvalues(&self) -> &[Weak<RefCell<UpValue>>] {
-        &self.upvalues
-    }
-
     pub fn heap_allocated(&self) -> &RefCell<Vec<HeapRef>> {
         &self.heap_allocated
     }
 
     pub fn captures(&self) -> &[SteelVal] {
         &self.captures
-    }
-
-    pub(crate) fn debug_upvalues(&self) -> Vec<Rc<RefCell<UpValue>>> {
-        self.upvalues.iter().map(|x| x.upgrade().unwrap()).collect()
     }
 
     pub fn increment_call_count(&self) {

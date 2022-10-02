@@ -15,11 +15,7 @@ use crate::{
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw,
 };
-use std::{
-    collections::HashMap,
-    path::{PathBuf},
-    rc::Rc,
-};
+use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
 use im_rc::HashMap as ImmutableHashMap;
 use itertools::Itertools;
