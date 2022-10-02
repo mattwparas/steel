@@ -5,7 +5,7 @@ use crate::{
     rvals::FutureResult,
 };
 
-use futures::{future::join_all};
+use futures::future::join_all;
 
 // use async_compat::Compat;
 
@@ -76,45 +76,6 @@ impl MetaOperations {
                 Ok(SteelVal::Void)
             } else {
                 panic!("Value given not true!")
-            }
-        })
-    }
-
-    // TODO
-    pub fn new_box() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 1 {
-                stop!(ArityMismatch => "box takes one argument")
-            }
-
-            Ok(SteelVal::BoxV(Gc::new(RefCell::new(args[0].clone()))))
-        })
-    }
-
-    // TODO
-    pub fn unbox() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 1 {
-                stop!(ArityMismatch => "unbox takes one argument")
-            }
-            if let SteelVal::BoxV(inner) = &args[0] {
-                Ok(inner.unwrap().into_inner())
-            } else {
-                stop!(TypeMismatch => "unbox takes a box")
-            }
-        })
-    }
-
-    // TODO
-    pub fn set_box() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "setbox! takes two arguments")
-            }
-            if let SteelVal::BoxV(inner) = &args[0] {
-                Ok(inner.replace(args[1].clone()))
-            } else {
-                stop!(TypeMismatch => "setbox! takes a box")
             }
         })
     }

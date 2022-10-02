@@ -258,7 +258,6 @@ impl TryFrom<&SteelVal> for ExprKind {
             FutureV(_) => Err("Can't convert future to expression!"),
             // Promise(_) => Err("Can't convert from promise to expression!"),
             StreamV(_) => Err("Can't convert from stream to expression!"),
-            BoxV(_) => Err("Can't convert from box to expression!"),
             Contract(_) => Err("Can't convert from contract to expression!"),
             ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
             BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),

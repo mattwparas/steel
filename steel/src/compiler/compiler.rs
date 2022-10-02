@@ -4,17 +4,13 @@ use crate::{
         constants::ConstantMap,
         map::SymbolMap,
         passes::{
-            analysis::SemanticAnalysis,
-            begin::flatten_begins_and_expand_defines,
-            lambda_lifting::LambdaLifter,
-            reader::{MultipleArityFunctions},
+            analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
+            lambda_lifting::LambdaLifter, reader::MultipleArityFunctions,
         },
     },
     parser::{ast::AstTools, expand_visitor::expand_kernel, kernel::Kernel},
-    steel_vm::{
-        builtin::BuiltInModule,
-    },
-    values::structs::{StructBuilders},
+    steel_vm::builtin::BuiltInModule,
+    values::structs::StructBuilders,
 };
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
@@ -43,11 +39,7 @@ use log::{debug, log_enabled};
 
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
-use super::{
-    modules::ModuleManager,
-    passes::analysis::{Analysis},
-    program::RawProgramWithSymbols,
-};
+use super::{modules::ModuleManager, passes::analysis::Analysis, program::RawProgramWithSymbols};
 
 use im_rc::HashMap as ImmutableHashMap;
 
@@ -504,23 +496,22 @@ impl Compiler {
     //     Ok(program)
     // }
 
-    //
-    fn map_ast_to_defines(&self, ast: Vec<ExprKind>) -> HashMap<usize, ExprKind> {
-        let mut hm = HashMap::new();
+    // fn map_ast_to_defines(&self, ast: Vec<ExprKind>) -> HashMap<usize, ExprKind> {
+    //     let mut hm = HashMap::new();
 
-        // Include ast for mapped symbol ->
-        for expr in ast {
-            if let ExprKind::Define(d) = &expr {
-                if let Some(name) = d.name.atom_identifier_or_else(|| unreachable!()).ok() {
-                    if let Ok(idx) = self.symbol_map.get(name) {
-                        hm.insert(idx, expr);
-                    }
-                }
-            }
-        }
+    //     // Include ast for mapped symbol ->
+    //     for expr in ast {
+    //         if let ExprKind::Define(d) = &expr {
+    //             if let Some(name) = d.name.atom_identifier_or_else(|| unreachable!()).ok() {
+    //                 if let Ok(idx) = self.symbol_map.get(name) {
+    //                     hm.insert(idx, expr);
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        hm
-    }
+    //     hm
+    // }
 
     pub fn compile_executable_from_expressions(
         &mut self,

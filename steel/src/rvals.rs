@@ -658,8 +658,6 @@ pub enum SteelVal {
     StreamV(Gc<LazyStream>),
     // Break the cycle somehow
     // EvaluationEnv(Weak<RefCell<Env>>),
-    /// Mutable box - lets you put a value in there and change what it points to
-    BoxV(Gc<RefCell<SteelVal>>),
     /// Contract
     Contract(Gc<ContractType>),
     /// Contracted Function
@@ -705,7 +703,6 @@ impl SteelVal {
             (FutureFunc(l), FutureFunc(r)) => Rc::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
             (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
-            (BoxV(l), BoxV(r)) => Gc::ptr_eq(l, r),
             (Contract(l), Contract(r)) => Gc::ptr_eq(l, r),
             (SteelVal::ContractedFunction(l), SteelVal::ContractedFunction(r)) => Gc::ptr_eq(l, r),
             (BoxedFunction(l), BoxedFunction(r)) => Rc::ptr_eq(l, r),
@@ -748,7 +745,6 @@ impl SteelVal {
             FutureFunc(_) => todo!(),
             FutureV(_) => todo!(),
             StreamV(_) => todo!(),
-            BoxV(_) => todo!(),
             Contract(_) => todo!(),
             SteelVal::ContractedFunction(_) => todo!(),
             BoxedFunction(_) => todo!(),
@@ -1162,7 +1158,6 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         FutureV(_) => write!(f, "#<future>"),
         // Promise(_) => write!(f, "#<promise>"),
         StreamV(_) => write!(f, "#<stream>"),
-        BoxV(b) => write!(f, "#<box {:?}>", b.borrow()),
         Contract(c) => write!(f, "{}", c.to_string()),
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
         BoxedFunction(_) => write!(f, "#<function>"),

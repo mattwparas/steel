@@ -7,7 +7,7 @@ use crate::{
         PortOperations, StreamOperations, StringOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
-    rvals::{FromSteelVal},
+    rvals::FromSteelVal,
     values::structs::{is_custom_struct, make_struct_type},
 };
 use crate::{
@@ -670,9 +670,6 @@ fn sandboxed_meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta".to_string());
     module
         // .register_value("assert!", MetaOperations::assert_truthy())
-        .register_value("box", MetaOperations::new_box())
-        .register_value("unbox", MetaOperations::unbox())
-        .register_value("set-box!", MetaOperations::set_box())
         .register_value("active-object-count", MetaOperations::active_objects())
         .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
         // .register_value("memory-address", MetaOperations::memory_address())
@@ -713,9 +710,6 @@ fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta".to_string());
     module
         .register_value("assert!", MetaOperations::assert_truthy())
-        .register_value("box", MetaOperations::new_box())
-        .register_value("unbox", MetaOperations::unbox())
-        .register_value("set-box!", MetaOperations::set_box())
         .register_value("active-object-count", MetaOperations::active_objects())
         .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
         .register_value("memory-address", MetaOperations::memory_address())
