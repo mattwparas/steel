@@ -37,6 +37,8 @@ use std::{
     task::Context,
 };
 
+use std::vec::IntoIter;
+
 // TODO
 #[macro_export]
 macro_rules! list {
@@ -59,7 +61,7 @@ macro_rules! list {
 
 use SteelVal::*;
 
-use im_rc::{HashMap, HashSet, Vector};
+use im_rc::{vector::ConsumingIter, HashMap, HashSet, Vector};
 
 use futures::FutureExt;
 use futures::{future::Shared, task::noop_waker_ref};
@@ -677,10 +679,41 @@ pub enum SteelVal {
     BuiltIn(BuiltInSignature),
     // Mutable vector
     MutableVector(Gc<RefCell<Vec<SteelVal>>>),
+    // This should delegate to the underlying iterator - can allow for faster raw iteration if possible
+    // Should allow for polling just a raw "next" on underlying elements
+    BoxedIterator(Gc<RefCell<BuiltInDataStructureIterator>>),
 
     SyntaxObject(Gc<Syntax>), // Fixed size vector
                               // FixedSizeVector(Rc<RefCell<[SteelVal]>>)
                               // BoxedIterator(Gc<RefCell<Box<dyn Iterator<Item = SteelVal>>>>),
+}
+
+pub struct Chunks {
+    remaining: IntoIter<char>,
+}
+
+impl Chunks {
+    fn new(s: String) -> Self {
+        Chunks {
+            remaining: s.chars().collect::<Vec<_>>().into_iter(),
+        }
+    }
+}
+
+pub enum BuiltInDataStructureIterator {
+    List(im_lists::list::ConsumingIter<SteelVal>),
+    Vector(ConsumingIter<SteelVal>),
+    String(Chunks),
+}
+
+impl BuiltInDataStructureIterator {
+    pub fn next(&mut self) -> Option<SteelVal> {
+        match self {
+            Self::List(l) => l.next(),
+            Self::Vector(v) => v.next(),
+            Self::String(s) => s.remaining.next().map(SteelVal::CharV),
+        }
+    }
 }
 
 impl SteelVal {
@@ -1190,6 +1223,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         ReducerV(_) => write!(f, "#<reducer>"),
         MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
         SyntaxObject(s) => write!(f, "#<syntax:{:?}:{:?} {:?}>", s.source, s.span, s.syntax),
+        BoxedIterator(_) => write!(f, "#<iterator>"),
         // BoxedIterator(_) => write!(f, "#<boxed-iterator>"),
     }
 }
