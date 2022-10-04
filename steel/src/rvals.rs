@@ -61,7 +61,7 @@ macro_rules! list {
 
 use SteelVal::*;
 
-use im_rc::{vector::ConsumingIter, HashMap, HashSet, Vector};
+use im_rc::{HashMap, HashSet, Vector};
 
 use futures::FutureExt;
 use futures::{future::Shared, task::noop_waker_ref};
@@ -683,9 +683,7 @@ pub enum SteelVal {
     // Should allow for polling just a raw "next" on underlying elements
     BoxedIterator(Gc<RefCell<BuiltInDataStructureIterator>>),
 
-    SyntaxObject(Gc<Syntax>), // Fixed size vector
-                              // FixedSizeVector(Rc<RefCell<[SteelVal]>>)
-                              // BoxedIterator(Gc<RefCell<Box<dyn Iterator<Item = SteelVal>>>>),
+    SyntaxObject(Gc<Syntax>),
 }
 
 pub struct Chunks {
@@ -693,7 +691,7 @@ pub struct Chunks {
 }
 
 impl Chunks {
-    fn new(s: String) -> Self {
+    fn new(s: Rc<str>) -> Self {
         Chunks {
             remaining: s.chars().collect::<Vec<_>>().into_iter(),
         }
@@ -702,17 +700,51 @@ impl Chunks {
 
 pub enum BuiltInDataStructureIterator {
     List(im_lists::list::ConsumingIter<SteelVal>),
-    Vector(ConsumingIter<SteelVal>),
+    Vector(im_rc::vector::ConsumingIter<SteelVal>),
+    Set(im_rc::hashset::ConsumingIter<SteelVal>),
+    Map(im_rc::hashmap::ConsumingIter<(SteelVal, SteelVal)>),
     String(Chunks),
 }
 
 impl BuiltInDataStructureIterator {
-    pub fn next(&mut self) -> Option<SteelVal> {
+    pub fn into_boxed_iterator(self) -> SteelVal {
+        SteelVal::BoxedIterator(Gc::new(RefCell::new(self)))
+    }
+}
+
+impl Iterator for BuiltInDataStructureIterator {
+    type Item = SteelVal;
+
+    fn next(&mut self) -> Option<SteelVal> {
         match self {
             Self::List(l) => l.next(),
             Self::Vector(v) => v.next(),
             Self::String(s) => s.remaining.next().map(SteelVal::CharV),
+            Self::Set(s) => s.next(),
+            Self::Map(s) => s.next().map(|x| SteelVal::ListV(im_lists::list![x.0, x.1])),
         }
+    }
+}
+
+pub fn value_into_iterator(val: SteelVal) -> SteelVal {
+    match val {
+        SteelVal::ListV(l) => BuiltInDataStructureIterator::List(l.into_iter()),
+        SteelVal::VectorV(v) => BuiltInDataStructureIterator::Vector((*v).clone().into_iter()),
+        SteelVal::StringV(s) => BuiltInDataStructureIterator::String(Chunks::new(s)),
+        SteelVal::HashSetV(s) => BuiltInDataStructureIterator::Set((*s).clone().into_iter()),
+        SteelVal::HashMapV(m) => BuiltInDataStructureIterator::Map((*m).clone().into_iter()),
+        _ => panic!("Haven't handled this case yet"),
+    }
+    .into_boxed_iterator()
+}
+
+pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
+    match &args[0] {
+        SteelVal::BoxedIterator(b) => match b.borrow_mut().next() {
+            Some(v) => Ok(v),
+            None => Ok(SteelVal::Void),
+        },
+        _ => stop!(TypeMismatch => "Unexpected argument"),
     }
 }
 

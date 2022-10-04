@@ -687,6 +687,8 @@ fn sandboxed_meta_module() -> BuiltInModule {
         // TODO: @Matt -> implement the traits for modules as well
         // .register_fn("Engine::new", super::meta::EngineWrapper::new)
         .register_fn("eval!", super::meta::eval)
+        .register_fn("value->iterator", crate::rvals::value_into_iterator)
+        .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))
         // .register_fn("run!", super::meta::EngineWrapper::call)
         // .register_fn("get-value", super::meta::EngineWrapper::get_value)
         .register_value(
@@ -738,6 +740,8 @@ fn meta_module() -> BuiltInModule {
         .register_fn("Engine::new", super::meta::EngineWrapper::new)
         // .register_fn("run!", super::meta::EngineWrapper::call)
         // .register_fn("get-value", super::meta::EngineWrapper::get_value)
+        .register_fn("value->iterator", crate::rvals::value_into_iterator)
+        .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))
         .register_value(
             "___magic_struct_symbol___",
             crate::rvals::MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
