@@ -1,12 +1,12 @@
 
 
 
-(define (fake-map func lst)
-    (define (loop func lst accum)
-        (if (empty? lst)
-            accum
-            (loop func (cdr lst) (cons (func (car lst)) accum))))
-    (loop func lst '()))
+; (define (fake-map func lst)
+;     (define (loop func lst accum)
+;         (if (empty? lst)
+;             accum
+;             (loop func (cdr lst) (cons (func (car lst)) accum))))
+;     (loop func lst '()))
 
 
 
@@ -26,13 +26,13 @@
 (loop my-iter)
 
 
-(struct Mapping (func))
+(make-struct Mapping (func))
 
-(struct MappingMultiple (funcs))
+(make-struct MappingMultiple (funcs))
 
-(struct Filtering (func))
-(struct FilterMapping (func))
-(struct FlatMapping (func))
+(make-struct Filtering (func))
+(make-struct FilterMapping (func))
+(make-struct Flatten)
 
 ;; Define mechanism to accumulate from an iterator -- otherwise, this will be tough
 ;; (define (accumulator state next))
@@ -40,7 +40,29 @@
 ;; Push back
 (define build-list cons)
 
-(struct Transducer )
+(make-struct Transducer (operations))
+
+; (%iterator? my-iter )
+
+;; When yielding a sequence, we should just construct 
+; (define (flattening iter)
+
+; )
+
+(define (todo! message) (error! ""))
+
+(define (apply-operations value operations)
+    (let ((next (car operations)))
+        (cond [(Mapping? next) (error! "Should return a single value here")]
+              [(Filtering? next) (error! "Should skip returning a value here")]
+              [(Flattening? next) (error! "Sould return a flatten object here")]
+
+        
+        )
+    
+    )
+
+)
 
 ;; Iterator protocol
 ;; For a transducer, we need to more or less decide - is this thing going to yield something?

@@ -742,6 +742,7 @@ fn meta_module() -> BuiltInModule {
         // .register_fn("get-value", super::meta::EngineWrapper::get_value)
         .register_fn("value->iterator", crate::rvals::value_into_iterator)
         .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))
+        .register_value("%iterator?", gen_pred!(BoxedIterator))
         .register_value(
             "___magic_struct_symbol___",
             crate::rvals::MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
