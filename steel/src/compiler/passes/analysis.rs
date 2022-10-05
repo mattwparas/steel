@@ -474,6 +474,8 @@ struct AnalysisPass<'a> {
     tail_call_eligible: bool,
     escape_analysis: bool,
     defining_context: Option<SyntaxObjectId>,
+    // TODO: Keep stack of contexts
+    defining_context_stack: Vec<SyntaxObjectId>,
     stack_offset: usize,
     function_context: Option<usize>,
 }
@@ -494,6 +496,7 @@ impl<'a> AnalysisPass<'a> {
             tail_call_eligible: false,
             escape_analysis: false,
             defining_context: None,
+            defining_context_stack: Vec::new(),
             stack_offset: 0,
             function_context: None,
         }
@@ -2758,6 +2761,44 @@ mod analysis_pass_tests {
                 "input.rkt",
                 script,
                 format!("let-var"),
+                var.span,
+            );
+        }
+    }
+
+    #[test]
+    fn tail_call_eligible_test_with_let() {
+        let script = r#"
+            (define (loop value accum)
+                ;; This should not get registered as a tail call
+                (loop value (cons value accum))
+                (let ((applesauce 10))
+                    (if #true
+                        (if #true
+                            (loop value (cons value accum))
+                            (loop value (cons value accum)))
+                        (loop value accum))))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+
+        let tail_calls = analysis
+            .analysis
+            .call_info
+            .values()
+            .filter(|x| x.kind == CallKind::SelfTailCall)
+            .collect::<Vec<_>>();
+
+        assert_eq!(tail_calls.len(), 3);
+
+        for var in tail_calls {
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                format!("tail call"),
                 var.span,
             );
         }

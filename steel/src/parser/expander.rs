@@ -210,13 +210,15 @@ impl SteelMacro {
                 if case.recursive_match(expr) {
                     return Ok(case);
                 }
+            } else {
+                println!("Case didn't match: {:?}", case.args);
             }
         }
 
         error!("Macro expansion unable to match case with: {}", expr);
 
         if let Some(ExprKind::Atom(a)) = expr.first() {
-            stop!(BadSyntax => "macro expansion unable to match case"; a.syn.span);
+            stop!(BadSyntax => format!("macro expansion unable to match case: {}", expr); a.syn.span);
         } else {
             unreachable!()
         }
@@ -622,10 +624,18 @@ pub fn collect_bindings(
                 if let ExprKind::List(l) = child {
                     collect_bindings(&children, l, bindings)?;
                 } else {
-                    stop!(BadSyntax => "macro expected a list of values, not including keywords")
+                    println!("Args: {:?}", args);
+                    println!("List: {}", list);
+                    println!("Current pattern: {:?}", arg);
+                    stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
                 }
             }
-            _ => {}
+            // Matching on literals
+            _ => {
+                println!("Skipping pattern literal: {:?}", arg);
+                println!("Argument: {:?}", token_iter.next());
+                // token_iter.next();
+            }
         }
     }
 

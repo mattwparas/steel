@@ -2,9 +2,7 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use steel::{
-    steel_vm::{engine::Engine},
-};
+use steel::steel_vm::engine::Engine;
 use steel_repl::repl::repl_base;
 
 use std::fs;
@@ -45,7 +43,7 @@ fn main() {
 
     builder
         .filter(Some("requires"), LevelFilter::Trace)
-        .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
+        .filter(Some("steel::parser::expander"), LevelFilter::Trace)
         // .filter(Some("steel::steel_vm::contracts"), LevelFilter::Trace)
         .init();
 
