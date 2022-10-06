@@ -187,7 +187,7 @@ impl FunctionInformation {
 pub enum CallKind {
     Normal,
     TailCall,
-    SelfTailCall,
+    SelfTailCall(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -339,9 +339,11 @@ impl Analysis {
                     // Since we're at the top level, care should be taken to actually
                     // refer to the defining context correctly
                     pass.defining_context = define.name_id();
+                    pass.defining_context_depth = 0;
                     // Continue with the rest of the body here
                     pass.visit(&define.body);
                     pass.defining_context = None;
+                    // pass.defining_context_depth = 0;
                 } else {
                     pass.visit_top_level_define_value_without_body(define);
                     pass.visit(&define.body);
@@ -474,8 +476,8 @@ struct AnalysisPass<'a> {
     tail_call_eligible: bool,
     escape_analysis: bool,
     defining_context: Option<SyntaxObjectId>,
-    // TODO: Keep stack of contexts
-    defining_context_stack: Vec<SyntaxObjectId>,
+    // TODO: This should give us the depth (how many things we need to roll back)
+    defining_context_depth: usize,
     stack_offset: usize,
     function_context: Option<usize>,
 }
@@ -496,7 +498,7 @@ impl<'a> AnalysisPass<'a> {
             tail_call_eligible: false,
             escape_analysis: false,
             defining_context: None,
-            defining_context_stack: Vec::new(),
+            defining_context_depth: 0,
             stack_offset: 0,
             function_context: None,
         }
@@ -820,10 +822,23 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         for expr in &l.args[1..] {
             self.visit(expr);
             self.stack_offset += 1;
-            self.escape_analysis = eligibility;
+            // println!("Visiting argument: {}", expr);
+            self.escape_analysis = true;
         }
 
         if !l.is_empty() {
+            // self.tail_call_eligible = eligibility;
+            self.escape_analysis = eligibility;
+
+            if let ExprKind::LambdaFunction(_) = &l.args[0] {
+                self.escape_analysis = false;
+            }
+
+            // println!(
+            //     "Visiting argument: {}, with tail call eligibility: {} and escape: {}",
+            //     &l.args[0], self.tail_call_eligible, self.escape_analysis
+            // );
+
             self.visit(&l.args[0]);
         }
 
@@ -863,7 +878,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     && self.defining_context.is_some()
                     && func_info.refers_to == self.defining_context
                 {
-                    call_site_kind = CallKind::SelfTailCall;
+                    // println!("Escape analysis: {:?}", self.escape_analysis);
+                    println!("Defining context depth: {:?}", self.defining_context_depth);
+                    call_site_kind = CallKind::SelfTailCall(self.defining_context_depth);
                 }
 
                 self.info.call_info.insert(
@@ -903,7 +920,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             if let ExprKind::Define(define) = expr {
                 let define_ctx = self.defining_context.take();
+                let old_depth = self.defining_context_depth;
                 self.defining_context = define.name_id();
+                self.defining_context_depth = 0;
 
                 if define.body.lambda_function().is_some() {
                     // Continue with the rest of the body here
@@ -913,6 +932,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 }
 
                 self.defining_context = define_ctx;
+                self.defining_context_depth = old_depth;
             } else {
                 self.visit(expr);
             }
@@ -1064,6 +1084,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         {
             // TODO: see if this was necessary
             if function_info.escapes {
+                println!("Function escapes!");
                 self.defining_context = None;
             }
 
@@ -1178,8 +1199,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let function_context = self.function_context.take();
         self.function_context = Some(lambda_function.syntax_object_id);
 
+        self.defining_context_depth += 1;
+
         // TODO: Better abstract this pattern - perhaps have the function call be passed in?
         self.visit_with_tail_call_eligibility(&lambda_function.body, true);
+
+        self.defining_context_depth -= 1;
 
         self.function_context = function_context;
 
@@ -1230,10 +1255,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 });
             }
 
+            // info.escapes = self.escape_analysis;
+
             // info.captured_vars = captured_vars;
 
             return;
         } else {
+            // println!("Escape analysis: {:?}", self.escape_analysis);
+
             // Capture the information and store it in the semantic analysis for this individual function
             self.info.function_info.insert(
                 lambda_function.syntax_object_id,
@@ -2788,12 +2817,14 @@ mod analysis_pass_tests {
             .analysis
             .call_info
             .values()
-            .filter(|x| x.kind == CallKind::SelfTailCall)
+            .filter(|x| matches!(x.kind, CallKind::SelfTailCall(_)))
             .collect::<Vec<_>>();
 
         assert_eq!(tail_calls.len(), 3);
 
         for var in tail_calls {
+            println!("{:?}", var);
+
             crate::rerrs::report_info(
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
@@ -2830,7 +2861,7 @@ mod analysis_pass_tests {
             .analysis
             .call_info
             .values()
-            .filter(|x| x.kind == CallKind::SelfTailCall);
+            .filter(|x| matches!(x.kind, CallKind::SelfTailCall(_)));
 
         for var in tail_calls {
             crate::rerrs::report_info(
@@ -3047,15 +3078,15 @@ mod analysis_pass_tests {
 
     #[test]
     fn check_analysis_pass() {
-        let mut builder = Builder::new();
+        // let mut builder = Builder::new();
 
-        builder
-            .is_test(true)
-            .filter(
-                Some("steel::compiler::passes::analysis"),
-                LevelFilter::Trace,
-            )
-            .init();
+        // builder
+        //     .is_test(true)
+        //     .filter(
+        //         Some("steel::compiler::passes::analysis"),
+        //         LevelFilter::Trace,
+        //     )
+        //     .init();
 
         let script = r#"
 

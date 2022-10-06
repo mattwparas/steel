@@ -73,3 +73,5 @@
 ; (define (stream-first iter))
 
 ;; Define an abstraction for tying a struct -> iterable method
+
+; (define (accum x) (let ((y (+ x 1))) (if (equal? y 10) y (accum y))))

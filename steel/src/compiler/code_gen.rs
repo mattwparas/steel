@@ -595,7 +595,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             let op_code = match call_info.kind {
                 Normal => OpCode::FUNC,
                 TailCall => OpCode::TAILCALL,
-                SelfTailCall => {
+                SelfTailCall(_) => {
                     // We don't need to push the function onto the stack if we're doing a self
                     // tail call
                     self.instructions.pop();
@@ -609,6 +609,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     .contents(contents)
                     .payload(pop_len),
             );
+
+            if let SelfTailCall(depth) = call_info.kind {
+                self.push(LabeledInstruction::builder(OpCode::PASS).payload(depth - 1));
+            }
 
             Ok(())
         } else {
@@ -754,7 +758,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 mod code_gen_tests {
     use super::*;
 
-    use crate::{parser::parser::Parser};
+    use crate::parser::parser::Parser;
 
     #[test]
     fn check_function_calls() {

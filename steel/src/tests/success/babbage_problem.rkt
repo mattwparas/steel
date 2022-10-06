@@ -21,4 +21,4 @@
       i
       (babbage (+ i 1))))
 
-(assert! (equal? 25264) (babbage 1))
+(assert! (equal? 25264 (babbage 1)))

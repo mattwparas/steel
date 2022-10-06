@@ -113,6 +113,10 @@ impl CallStack {
     pub fn is_empty(&self) -> bool {
         self.function_stack.is_empty()
     }
+
+    pub fn len(&self) -> usize {
+        self.function_stack.len()
+    }
 }
 
 pub struct SteelThread {
@@ -1132,6 +1136,35 @@ impl<'a> VmCore<'a> {
                     // println!("At tco jump");
 
                     let current_arity = payload_size as usize;
+                    // This is the number of (local) functions we need to pop to get back to the place we want to be at
+                    let depth = self.instructions[self.ip + 1].payload_size as usize;
+
+                    // println!("Depth: {:?}", depth);
+                    // println!("Function stack length: {:?}", self.function_stack.len());
+                    // println!("Stack index: {:?}", self.stack_index);
+                    // println!(
+                    //     "Instruction stack length: {:?}",
+                    //     self.instruction_stack.len()
+                    // );
+
+                    // for function in function_stack {
+
+                    // }
+
+                    for _ in 0..depth {
+                        println!("Popping");
+                        self.function_stack.pop();
+                        self.stack_index.pop();
+                        self.instruction_stack.pop();
+                        self.pop_count -= 1;
+                    }
+
+                    self.instructions = self.function_stack.last().unwrap().body_exp();
+
+                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+
+                    // panic!("Stopping");
+
                     self.ip = 0;
 
                     let closure_arity = self.function_stack.last().unwrap().arity();
