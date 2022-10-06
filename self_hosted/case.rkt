@@ -12,6 +12,13 @@
            (?a1 ?e1 ...)
            ?clause1 ...))))
     ((case-lambda "CLAUSE" ?args ?l 
+      ((?a1 ...) ?e1 ...))
+     (if (= ?l (length '(?a1 ...)))
+         (apply (lambda (?a1 ...) ?e1 ...) ?args)
+         (error! "Arity mismatch")
+         
+         ))
+    ((case-lambda "CLAUSE" ?args ?l 
       ((?a1 ...) ?e1 ...) 
       ?clause1 ...)
      (if (= ?l (length '(?a1 ...)))
@@ -89,13 +96,14 @@
 ;          (case-lambda "CLAUSE" ?args ?l 
 ;            ?clause1 ...)))))
 
-; (define greet
-;     (case-lambda
-;       [(name) (string-append "Hello, " name)]
-;       [(given surname) (list->string "Hello, " given " " surname)]))
+(define greet
+    (case-lambda
+      [(name) (string-append "Hello, " name)]
+      [(given surname) (string-append "Hello, " (string-append given (string-append " " surname)))]))
 
-; (greet "John")
-; (green "John" "Smith")
+(greet "John")
+(greet "John" "Smith")
+; (greet "John" "Smith" "Extra")
 
 (define plus
     (case-lambda 

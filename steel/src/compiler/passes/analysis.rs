@@ -878,8 +878,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     && self.defining_context.is_some()
                     && func_info.refers_to == self.defining_context
                 {
-                    // println!("Escape analysis: {:?}", self.escape_analysis);
-                    println!("Defining context depth: {:?}", self.defining_context_depth);
                     call_site_kind = CallKind::SelfTailCall(self.defining_context_depth);
                 }
 
