@@ -211,7 +211,7 @@ impl SteelMacro {
                     return Ok(case);
                 }
             } else {
-                println!("Case didn't match: {:?}", case.args);
+                // println!("Case didn't match: {:?}", case.args);
             }
         }
 

@@ -41,17 +41,17 @@ impl SymbolMap {
         // idx
 
         if let Some(idx) = self.map.get(ident) {
-            if ident == "b" {
-                println!("Fetching from map: {}", idx);
-            }
+            // if ident == "b" {
+            //     println!("Fetching from map: {}", idx);
+            // }
 
             *idx
         } else {
             let idx = self.map.len();
 
-            if ident == "b" {
-                println!("Adding to map: {}", idx);
-            }
+            // if ident == "b" {
+            //     println!("Adding to map: {}", idx);
+            // }
 
             self.map.insert(ident.to_string(), idx);
 

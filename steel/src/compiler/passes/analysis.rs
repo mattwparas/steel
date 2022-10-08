@@ -1082,7 +1082,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         {
             // TODO: see if this was necessary
             if function_info.escapes {
-                println!("Function escapes!");
+                // println!("Function escapes!");
                 self.defining_context = None;
             }
 

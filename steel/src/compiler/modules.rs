@@ -237,6 +237,14 @@ impl CompiledModule {
         // Include any dependencies here
         body.append(&mut self.requires.clone());
 
+        // TODO: @Matt 10/8/22
+        // Reconsider how to address this expansion.
+        // We really don't want to pollute the module space - perhaps disallow shadowed built-ins so we don't need this?
+        // That would probably be annoying
+        let steel_base = ExprKind::List(List::new(vec![ExprKind::atom("steel/base".to_string())]));
+
+        body.push(steel_base);
+
         // Put the ast nodes inside the macro
         body.append(&mut self.ast.clone());
 
@@ -375,7 +383,7 @@ impl<'a> ModuleBuilder<'a> {
                     if let Some(m) = self.compiled_modules.get(module) {
                         debug!("Getting {:?} from the module cache", module);
                         // println!("Already found in the cache: {:?}", module);
-                        new_exprs.push(m.to_module_ast_node());
+                        // new_exprs.push(m.to_module_ast_node());
                         // No need to do anything
                         continue;
                     }
@@ -494,12 +502,16 @@ impl<'a> ModuleBuilder<'a> {
         // qualified requires should be able to adjust the names of the exported functions
 
         for require in &self.requires {
-            let m = self
-                .compiled_modules
-                .get(require)
-                .unwrap()
-                .to_module_ast_node();
-            requires.push(m);
+            // @Matt 10/8/22
+            // Here, instead of building out the entire AST node, just insert a reference to the module at the top level
+            // Something like: (require <module_name>)
+
+            // let m = self
+            //     .compiled_modules
+            //     .get(require)
+            //     .unwrap()
+            //     .to_module_ast_node();
+            // requires.push(m);
         }
 
         info!(
