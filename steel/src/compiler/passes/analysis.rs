@@ -5,8 +5,8 @@ use itertools::Itertools;
 use quickscope::ScopeMap;
 
 use crate::parser::{
-    ast::{Atom, Define, ExprKind, LambdaFunction, Let, List},
-    parser::{SyntaxObject, SyntaxObjectId},
+    ast::{Atom, Define, ExprKind, LambdaFunction, Let, List, Quote},
+    parser::{RawSyntaxObject, SyntaxObject, SyntaxObjectId},
     span::Span,
     tokens::TokenType,
 };
@@ -1906,6 +1906,130 @@ where
     }
 }
 
+struct RemoveUnusedDefineImports<'a> {
+    analysis: &'a Analysis,
+    depth: usize,
+}
+
+impl<'a> RemoveUnusedDefineImports<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self { analysis, depth: 0 }
+    }
+}
+
+impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
+    fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
+        self.depth += 1;
+        self.visit(&mut lambda_function.body);
+        self.depth -= 1;
+    }
+
+    fn visit_begin(&mut self, begin: &mut crate::parser::ast::Begin) {
+        // Only remove internal definitions here
+        if self.depth > 0 {
+            let mut exprs_to_drop = Vec::new();
+
+            for (idx, expr) in begin.exprs.iter().enumerate() {
+                if let ExprKind::Define(d) = expr {
+                    if d.is_a_builtin_definition() {
+                        if let Some(analysis) =
+                            self.analysis.get(d.name.atom_syntax_object().unwrap())
+                        {
+                            if analysis.usage_count == 0 {
+                                exprs_to_drop.push(idx);
+                            }
+                        }
+                    }
+                }
+            }
+
+            for idx in exprs_to_drop.iter().rev() {
+                // println!("Removing: {:?}", begin.exprs.get(*idx));
+                begin.exprs.remove(*idx);
+            }
+
+            if begin.exprs.is_empty() {
+                begin.exprs.push(ExprKind::Quote(Box::new(Quote::new(
+                    ExprKind::atom("void".to_string()),
+                    RawSyntaxObject::default(TokenType::Quote),
+                ))));
+            }
+
+            // println!("Resulting expr: {:?}", begin);
+        }
+
+        for expr in &mut begin.exprs {
+            self.visit(expr);
+        }
+    }
+}
+
+struct RemovedUnusedImports<'a> {
+    analysis: &'a Analysis,
+}
+
+impl<'a> RemovedUnusedImports<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self { analysis }
+    }
+}
+
+impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
+    fn visit_list(&mut self, l: &mut List) {
+        let mut unused_arguments = Vec::new();
+
+        if l.is_anonymous_function_call() {
+            let argument_count = l.args.len() - 1;
+            if let Some(func) = l.first_func() {
+                if argument_count != func.args.len() {
+                    println!("-- Static arity mismatch -- Should actually error here");
+                } else {
+                    unused_arguments = func
+                        .args
+                        .iter()
+                        .enumerate()
+                        .filter(|x| {
+                            self.analysis
+                                .get(x.1.atom_syntax_object().unwrap())
+                                .unwrap()
+                                .usage_count
+                                == 0
+                        })
+                        .map(|x| x.0)
+                        .filter(|x| match l.args.get(*x) {
+                            Some(ExprKind::List(l)) => l.is_a_builtin_expr(),
+                            Some(ExprKind::Quote(_)) => true,
+                            Some(ExprKind::Atom(a)) => match a.syn.ty {
+                                TokenType::NumberLiteral(_)
+                                | TokenType::IntegerLiteral(_)
+                                | TokenType::BooleanLiteral(_) => true,
+                                _ => false,
+                            },
+                            _ => false,
+                        })
+                        .collect();
+                }
+            }
+        }
+
+        if let Some(func) = l.first_func_mut() {
+            for index in unused_arguments.iter().rev() {
+                func.args.remove(*index);
+            }
+        }
+
+        for index in unused_arguments.iter().rev() {
+            l.args.remove(index + 1);
+        }
+
+        // println!("Resulting expression: {}", l);
+
+        for arg in &mut l.args {
+            self.visit(arg);
+        }
+    }
+}
+
 struct UnusedArguments<'a> {
     analysis: &'a Analysis,
     unused_args: Vec<Span>,
@@ -2662,6 +2786,20 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn flatten_anonymous_functions(&mut self) {
         FlattenAnonymousFunctionCalls::flatten(&self.analysis, &mut self.exprs);
+    }
+
+    pub fn remove_unused_imports(&mut self) {
+        let mut unused = RemovedUnusedImports::new(&self.analysis);
+        for expr in self.exprs.iter_mut() {
+            unused.visit(expr);
+        }
+    }
+
+    pub fn remove_unused_define_imports(&mut self) {
+        let mut unused = RemoveUnusedDefineImports::new(&self.analysis);
+        for expr in self.exprs.iter_mut() {
+            unused.visit(expr);
+        }
     }
 }
 

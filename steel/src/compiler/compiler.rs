@@ -744,6 +744,11 @@ impl Compiler {
             .lift_pure_local_functions();
         // .lift_all_local_functions();
 
+        if std::env::var("STEEL_MINIMIZE").is_ok() {
+            semantic.remove_unused_define_imports();
+            semantic.refresh_variables();
+        }
+
         debug!("About to expand defines");
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
@@ -756,6 +761,21 @@ impl Compiler {
         semantic.flatten_anonymous_functions();
 
         semantic.refresh_variables();
+
+        if std::env::var("STEEL_MINIMIZE").is_ok() {
+            let mut analysis = Analysis::from_exprs(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
+
+            let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+            semantic.remove_unused_imports();
+
+            semantic.refresh_variables();
+        }
+
+        // semantic.remove_unused_imports();
+
+        // semantic.refresh_variables();
 
         if log_enabled!(log::Level::Debug) {
             debug!(

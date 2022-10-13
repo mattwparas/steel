@@ -234,6 +234,8 @@ impl<'a> ExpressionType<'a> {
             }
         }
 
+        println!("Expression types: {:?}", expression_types);
+
         expression_types
     }
 }
@@ -270,6 +272,13 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         .iter()
         .any(|x| matches!(x, ExpressionType::DefineFunction(_)))
     {
+        // let starting_iter = ExprKind::atom("void".to_string())
+
+        // TODO: last expression needs to be something, otherwise this doesn't work
+        // if let Some(last) = expression_types.last() {
+        //     if !last.is_expression() {}
+        // }
+
         // println!("IN HERE");
         // println!("Expression_types")
 
@@ -318,6 +327,8 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         .rev()
         .position(|x| !x.is_expression())
         .expect("Convert exprs to let in define conversion found no trailing expressions in begin");
+
+    println!("Last expression index: {:?}", idx);
 
     let idx = expression_types.len() - 1 - idx;
 

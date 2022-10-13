@@ -241,11 +241,11 @@ impl CompiledModule {
         // Reconsider how to address this expansion.
         // We really don't want to pollute the module space - perhaps disallow shadowed built-ins so we don't need this?
         // That would probably be annoying
-        // let steel_base = ExprKind::List(List::new(vec![ExprKind::atom("steel/base".to_string())]));
+        let steel_base = ExprKind::List(List::new(vec![ExprKind::atom("steel/base".to_string())]));
 
-        self.ast.pretty_print();
+        // self.ast.pretty_print();
 
-        // body.push(steel_base);
+        body.push(steel_base);
 
         // Put the ast nodes inside the macro
         body.append(&mut self.ast.clone());

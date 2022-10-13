@@ -884,8 +884,23 @@ impl List {
         matches!(self.args.get(0), Some(ExprKind::LambdaFunction(_)))
     }
 
+    pub fn is_a_builtin_expr(&self) -> bool {
+        match self.first_ident() {
+            Some(func) if func == "##__module-get" || func == "%module-get%" => true,
+            _ => false,
+        }
+    }
+
     pub fn first_func_mut(&mut self) -> Option<&mut LambdaFunction> {
         if let Some(ExprKind::LambdaFunction(l)) = self.args.get_mut(0) {
+            Some(l)
+        } else {
+            None
+        }
+    }
+
+    pub fn first_func(&self) -> Option<&LambdaFunction> {
+        if let Some(ExprKind::LambdaFunction(l)) = self.args.get(0) {
             Some(l)
         } else {
             None
