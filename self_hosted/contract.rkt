@@ -1,4 +1,8 @@
-
+(provide
+    make-function-contract
+    bind-contract-to-function
+    FlatContract
+    FunctionContract)
 
 (make-struct FlatContract (predicate name))
 
@@ -368,4 +372,4 @@
         (lambda () (level2))
         'level3))
 
-((level3))
+; ((level3))

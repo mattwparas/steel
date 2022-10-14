@@ -105,14 +105,14 @@ impl Heap {
         // TODO -> move destructors to another thread?
         // That way the main thread is not blocked by the dropping of unreachable objects
 
-        println!(
-            "Dropping memory: {:?}",
-            self.memory
-                .iter()
-                .filter(|x| !x.borrow().is_reachable())
-                .map(|x| (Rc::weak_count(&x), x))
-                .collect::<Vec<_>>()
-        );
+        // println!(
+        //     "Dropping memory: {:?}",
+        //     self.memory
+        //         .iter()
+        //         .filter(|x| !x.borrow().is_reachable())
+        //         .map(|x| (Rc::weak_count(&x), x))
+        //         .collect::<Vec<_>>()
+        // );
 
         // sweep
         self.memory.retain(|x| x.borrow().is_reachable());

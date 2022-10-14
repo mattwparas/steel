@@ -1841,16 +1841,38 @@ impl<'a> VmCore<'a> {
                     captures.push(value);
                 }
                 (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
-                    debug_assert!(
-                        (n as usize)
-                            < self
-                                .function_stack
-                                .last()
-                                .unwrap()
-                                .heap_allocated()
-                                .borrow()
-                                .len()
+                    println!("Copying heap capture from index: {}", n);
+                    println!(
+                        "Length of heap allocated of parent: {}",
+                        self.function_stack
+                            .last()
+                            .unwrap()
+                            .heap_allocated()
+                            .borrow()
+                            .len()
                     );
+                    println!(
+                        "heap allocated here: {:?}",
+                        self.function_stack
+                            .last()
+                            .unwrap()
+                            .heap_allocated()
+                            .borrow()
+                            .iter()
+                            .map(|x| x.get())
+                            .collect::<Vec<_>>()
+                    );
+
+                    // debug_assert!(
+                    //     (n as usize)
+                    //         < self
+                    //             .function_stack
+                    //             .last()
+                    //             .unwrap()
+                    //             .heap_allocated()
+                    //             .borrow()
+                    //             .len()
+                    // );
 
                     heap_vars.push(
                         self.function_stack

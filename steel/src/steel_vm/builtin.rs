@@ -43,6 +43,11 @@ impl BuiltInModule {
         }
     }
 
+    pub fn with_module<'a>(mut self, module: BuiltInModule) -> Self {
+        self.values = self.values.union(module.values);
+        self
+    }
+
     pub fn register_type<T: FromSteelVal + IntoSteelVal>(
         &mut self,
         predicate_name: &'static str,
@@ -94,7 +99,7 @@ impl BuiltInModule {
     pub fn to_syntax(&self, prefix: Option<&str>) -> ExprKind {
         let module_name = self.unreadable_name();
 
-        let defines = self
+        let mut defines = self
             .values
             .keys()
             .map(|x| {
@@ -121,6 +126,15 @@ impl BuiltInModule {
                 )))
             })
             .collect::<Vec<_>>();
+
+        defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
+            ExprKind::atom("##__module-get".to_string()),
+            ExprKind::atom("###-builtin-module-".to_string() + "steel/constants"),
+            ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
+                ExprKind::atom("void".to_string()),
+                SyntaxObject::default(TokenType::Quote),
+            ))),
+        ])));
 
         ExprKind::Begin(crate::parser::ast::Begin::new(
             defines,

@@ -219,6 +219,31 @@ thread_local! {
     pub static SYNTAX_MODULE: BuiltInModule = syntax_module();
     pub static SANDBOXED_META_MODULE: BuiltInModule = sandboxed_meta_module();
     pub static SANDBOXED_IO_MODULE: BuiltInModule = sandboxed_io_module();
+    pub static PRELUDE_MODULE: BuiltInModule = prelude();
+}
+
+pub fn prelude() -> BuiltInModule {
+    BuiltInModule::new("steel/base".to_string())
+        .with_module(MAP_MODULE.with(|x| x.clone()))
+        .with_module(SET_MODULE.with(|x| x.clone()))
+        .with_module(LIST_MODULE.with(|x| x.clone()))
+        .with_module(STRING_MODULE.with(|x| x.clone()))
+        .with_module(VECTOR_MODULE.with(|x| x.clone()))
+        .with_module(STREAM_MODULE.with(|x| x.clone()))
+        .with_module(CONTRACT_MODULE.with(|x| x.clone()))
+        .with_module(IDENTITY_MODULE.with(|x| x.clone()))
+        .with_module(NUMBER_MODULE.with(|x| x.clone()))
+        .with_module(EQUALITY_MODULE.with(|x| x.clone()))
+        .with_module(ORD_MODULE.with(|x| x.clone()))
+        .with_module(TRANSDUCER_MODULE.with(|x| x.clone()))
+        .with_module(SYMBOL_MODULE.with(|x| x.clone()))
+        .with_module(IO_MODULE.with(|x| x.clone()))
+        .with_module(FS_MODULE.with(|x| x.clone()))
+        .with_module(PORT_MODULE.with(|x| x.clone()))
+        .with_module(META_MODULE.with(|x| x.clone()))
+        .with_module(JSON_MODULE.with(|x| x.clone()))
+        .with_module(CONSTANTS_MODULE.with(|x| x.clone()))
+        .with_module(SYNTAX_MODULE.with(|x| x.clone()))
 }
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
@@ -247,7 +272,8 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
         .register_module(SANDBOXED_META_MODULE.with(|x| x.clone()))
         .register_module(JSON_MODULE.with(|x| x.clone()))
         .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
-        .register_module(SYNTAX_MODULE.with(|x| x.clone()));
+        .register_module(SYNTAX_MODULE.with(|x| x.clone()))
+        .register_module(PRELUDE_MODULE.with(|x| x.clone()));
 }
 
 pub fn register_builtin_modules(engine: &mut Engine) {
@@ -276,7 +302,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(META_MODULE.with(|x| x.clone()))
         .register_module(JSON_MODULE.with(|x| x.clone()))
         .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
-        .register_module(SYNTAX_MODULE.with(|x| x.clone()));
+        .register_module(SYNTAX_MODULE.with(|x| x.clone()))
+        .register_module(PRELUDE_MODULE.with(|x| x.clone()));
 }
 
 pub static ALL_MODULES: &str = r#"
