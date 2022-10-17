@@ -324,7 +324,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             OpCode::NEWSCLOSURE
         };
 
-        self.push(LabeledInstruction::builder(op_code));
+        // Attach the debug symbols here
+        self.push(LabeledInstruction::builder(op_code).contents(lambda_function.location.clone()));
         self.push(
             LabeledInstruction::builder(OpCode::PASS).payload(if lambda_function.rest {
                 1

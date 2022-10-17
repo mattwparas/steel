@@ -1,8 +1,10 @@
 (provide
     make-function-contract
-    bind-contract-to-function
-    FlatContract
-    FunctionContract)
+    ; bind-contract-to-function
+    ; FlatContract
+    ; FunctionContract
+    
+    )
 
 (make-struct FlatContract (predicate name))
 
@@ -33,17 +35,19 @@
                 ")")]
           [else => (error! "Unexpected value found in contract:" contract)]))
 
+
+(define (split-last lst)
+    (define (loop accum lst)
+        (if (empty? (cdr lst))
+            (list (reverse accum) (car lst))
+            (loop (cons (car lst) accum) (cdr lst))))
+    (loop '() lst))
+
 (define make-function-contract
     (lambda conditions
 
         ;; TODO: consider moving this into a primitive
-        (define (split-last lst)
-            (define (loop accum lst)
-                (if (empty? (cdr lst))
-                    (list (reverse accum) (car lst))
-                    (loop (cons (car lst) accum) (cdr lst))))
-
-            (loop '() lst))
+        
 
         (let ((split (split-last conditions)))
             (FunctionContract (first split) (second split) void void))))
@@ -295,14 +299,14 @@
 
 
 
-(define test-function
-    (bind-contract-to-function 
-        (make-function-contract
-            (FlatContract int? 'int?)
-            (FlatContract int? 'int?)
-            (FlatContract boolean? 'boolean?))
-        (lambda (x y) (equal? (+ x y) 10))
-        'test-function))
+; (define test-function
+;     (bind-contract-to-function 
+;         (make-function-contract
+;             (FlatContract int? 'int?)
+;             (FlatContract int? 'int?)
+;             (FlatContract boolean? 'boolean?))
+;         (lambda (x y) (equal? (+ x y) 10))
+;         'test-function))
 
 ; (test-function "hello world" 10)
 
@@ -338,38 +342,40 @@
 ;         'bar))
 
 
-(define blagh 
-    (bind-contract-to-function
-        (make-function-contract
-            (make-function-contract (FlatContract even? 'even?) (FlatContract odd? 'odd?))
-            (FlatContract even? 'even?)
-            (FlatContract even? 'even?))
-        (lambda (func y) (+ 1 (func y)))
-        'blagh))
+; (define blagh 
+;     (bind-contract-to-function
+;         (make-function-contract
+;             (make-function-contract (FlatContract even? 'even?) (FlatContract odd? 'odd?))
+;             (FlatContract even? 'even?)
+;             (FlatContract even? 'even?))
+;         (lambda (func y) (+ 1 (func y)))
+;         'blagh))
 
 ; (blagh (lambda (x) (+ x 2)) 2)
 
 
-(define (any? x) #true)
-(define level1 
-    (bind-contract-to-function
-        (make-function-contract
-            (make-function-contract (FlatContract int? 'int?)))
-        (lambda () (lambda () 10.2))
-        'level1))
+; (define (any? x) #true)
+; (define level1 
+;     (bind-contract-to-function
+;         (make-function-contract
+;             (make-function-contract (FlatContract int? 'int?)))
+;         (lambda () (lambda () 10.2))
+;         'level1))
 
-(define level2
-    (bind-contract-to-function
-        (make-function-contract
-            (make-function-contract (FlatContract number? 'number?)))
-        (lambda () (level1))
-        'level2))
+; (define level2
+;     (bind-contract-to-function
+;         (make-function-contract
+;             (make-function-contract (FlatContract number? 'number?)))
+;         (lambda () (level1))
+;         'level2))
 
-(define level3
-    (bind-contract-to-function
-        (make-function-contract
-            (make-function-contract (FlatContract any? 'any?)))
-        (lambda () (level2))
-        'level3))
+; (define level3
+;     (bind-contract-to-function
+;         (make-function-contract
+;             (make-function-contract (FlatContract any? 'any?)))
+;         (lambda () (level2))
+;         'level3))
+
+; 10
 
 ; ((level3))

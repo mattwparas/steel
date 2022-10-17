@@ -1385,8 +1385,9 @@ impl<'a> VmCore<'a> {
                 DenseInstruction {
                     op_code: OpCode::NEWSCLOSURE,
                     payload_size,
+                    span_index,
                     ..
-                } => self.handle_new_start_closure(payload_size as usize),
+                } => self.handle_new_start_closure(payload_size as usize, span_index)?,
                 DenseInstruction {
                     op_code: OpCode::PUREFUNC,
                     payload_size,
@@ -1774,7 +1775,7 @@ impl<'a> VmCore<'a> {
         self.ip = forward_index;
     }
 
-    fn handle_new_start_closure(&mut self, offset: usize) {
+    fn handle_new_start_closure(&mut self, offset: usize, span: usize) -> Result<()> {
         // println!("Hitting start closure");
 
         // println!("Instruction: {:?}", self.instructions[self.ip]);
@@ -1863,16 +1864,19 @@ impl<'a> VmCore<'a> {
                             .collect::<Vec<_>>()
                     );
 
-                    // debug_assert!(
-                    //     (n as usize)
-                    //         < self
-                    //             .function_stack
-                    //             .last()
-                    //             .unwrap()
-                    //             .heap_allocated()
-                    //             .borrow()
-                    //             .len()
-                    // );
+                    // if
+
+                    // if (n as usize)
+                    //     < self
+                    //         .function_stack
+                    //         .last()
+                    //         .unwrap()
+                    //         .heap_allocated()
+                    //         .borrow()
+                    //         .len()
+                    // {
+                    //     stop!(Generic => "index out of bounds"; self.spans[span]);
+                    // }
 
                     heap_vars.push(
                         self.function_stack
@@ -1945,6 +1949,7 @@ impl<'a> VmCore<'a> {
             .push(SteelVal::Closure(Gc::new(constructed_lambda)));
 
         self.ip = forward_index;
+        Ok(())
     }
 
     // #[inline(always)]
