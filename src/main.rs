@@ -42,8 +42,8 @@ fn main() {
     let mut builder = Builder::new();
 
     builder
-        .filter(Some("requires"), LevelFilter::Trace)
-        .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
+        // .filter(Some("requires"), LevelFilter::Trace)
+        // .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
         // .filter(Some("steel::parser::expander"), LevelFilter::Trace)
         // .filter(Some("steel::steel_vm::contracts"), LevelFilter::Trace)
         .init();

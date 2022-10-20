@@ -1842,27 +1842,27 @@ impl<'a> VmCore<'a> {
                     captures.push(value);
                 }
                 (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
-                    println!("Copying heap capture from index: {}", n);
-                    println!(
-                        "Length of heap allocated of parent: {}",
-                        self.function_stack
-                            .last()
-                            .unwrap()
-                            .heap_allocated()
-                            .borrow()
-                            .len()
-                    );
-                    println!(
-                        "heap allocated here: {:?}",
-                        self.function_stack
-                            .last()
-                            .unwrap()
-                            .heap_allocated()
-                            .borrow()
-                            .iter()
-                            .map(|x| x.get())
-                            .collect::<Vec<_>>()
-                    );
+                    // println!("Copying heap capture from index: {}", n);
+                    // println!(
+                    //     "Length of heap allocated of parent: {}",
+                    //     self.function_stack
+                    //         .last()
+                    //         .unwrap()
+                    //         .heap_allocated()
+                    //         .borrow()
+                    //         .len()
+                    // );
+                    // println!(
+                    //     "heap allocated here: {:?}",
+                    //     self.function_stack
+                    //         .last()
+                    //         .unwrap()
+                    //         .heap_allocated()
+                    //         .borrow()
+                    //         .iter()
+                    //         .map(|x| x.get())
+                    //         .collect::<Vec<_>>()
+                    // );
 
                     // if
 

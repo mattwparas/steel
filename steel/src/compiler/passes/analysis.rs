@@ -1156,6 +1156,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         value.heap_offset =
                             self.captures.get(key.as_str()).and_then(|x| x.heap_offset);
 
+                        println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+
                         value.read_heap_offset = self
                             .captures
                             .get(key.as_str())
@@ -1168,6 +1170,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     } else {
                         value.heap_offset = Some(index);
                         value.read_heap_offset = Some(index);
+
+                        println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;

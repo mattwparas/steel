@@ -2,6 +2,8 @@
 ; (require "b.rkt")
 ; (require "sort_export.rkt")
 
-(a 10)
+; (a 10)
 ; (b 20)
+
+(capture-func 10)
 

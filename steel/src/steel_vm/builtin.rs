@@ -4,7 +4,7 @@ use crate::{
     parser::{ast::ExprKind, parser::SyntaxObject, tokens::TokenType},
     rvals::{Custom, FromSteelVal, IntoSteelVal, Result, SteelVal},
 };
-use im_rc::HashMap;
+use im_rc::OrdMap;
 
 /// A module to be consumed by the Steel Engine for later on demand access by scripts
 /// to refresh the primitives that are being used. For instance, the VM should have support
@@ -30,7 +30,7 @@ use im_rc::HashMap;
 #[derive(Clone, Debug)]
 pub struct BuiltInModule {
     pub(crate) name: Rc<str>,
-    values: HashMap<String, SteelVal>,
+    values: OrdMap<String, SteelVal>,
 }
 
 impl Custom for BuiltInModule {}
@@ -39,7 +39,7 @@ impl BuiltInModule {
     pub fn new(name: String) -> Self {
         Self {
             name: name.into(),
-            values: HashMap::new(),
+            values: OrdMap::new(),
         }
     }
 
@@ -66,7 +66,7 @@ impl BuiltInModule {
     }
 
     pub(crate) fn unreadable_name(&self) -> String {
-        "###-builtin-module-".to_string() + &self.name
+        "%-builtin-module-".to_string() + &self.name
     }
 
     /// Add a value to the module namespace. This value can be any legal SteelVal, or if you're explicitly attempting
@@ -115,7 +115,7 @@ impl BuiltInModule {
                     // Handling a more complex case of qualifying imports
                     ExprKind::atom(name),
                     ExprKind::List(crate::parser::ast::List::new(vec![
-                        ExprKind::atom("##__module-get".to_string()),
+                        ExprKind::atom("%module-get%".to_string()),
                         ExprKind::atom(module_name.clone()),
                         ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
                             ExprKind::atom(x.to_string()),
@@ -128,8 +128,8 @@ impl BuiltInModule {
             .collect::<Vec<_>>();
 
         defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
-            ExprKind::atom("##__module-get".to_string()),
-            ExprKind::atom("###-builtin-module-".to_string() + "steel/constants"),
+            ExprKind::atom("%module-get%".to_string()),
+            ExprKind::atom("%-builtin-module-".to_string() + "steel/constants"),
             ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
                 ExprKind::atom("void".to_string()),
                 SyntaxObject::default(TokenType::Quote),

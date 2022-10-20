@@ -2,9 +2,14 @@ use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
 use crate::{
     parser::span::Span,
     primitives::{
-        contracts, hashmaps::hashmap_module, hashsets::hashset_module, lists::UnRecoverableResult,
-        nums::quotient, ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations,
-        PortOperations, StreamOperations, StringOperations, SymbolOperations, VectorOperations,
+        contracts,
+        hashmaps::hashmap_module,
+        hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
+        hashsets::hashset_module,
+        lists::UnRecoverableResult,
+        nums::quotient,
+        ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
+        StreamOperations, StringOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
     rvals::FromSteelVal,
@@ -248,6 +253,10 @@ pub fn prelude() -> BuiltInModule {
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
+    engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_value("%proto-hash%", HM_CONSTRUCT);
+    engine.register_value("%proto-hash-insert%", HM_INSERT);
+    engine.register_value("%proto-hash-get%", HM_GET);
     engine.register_value("error!", ControlOperations::error());
 
     engine.register_value("error", ControlOperations::error());
@@ -278,6 +287,10 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
 
 pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
+    engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_value("%proto-hash%", HM_CONSTRUCT);
+    engine.register_value("%proto-hash-insert%", HM_INSERT);
+    engine.register_value("%proto-hash-get%", HM_GET);
     engine.register_value("error!", ControlOperations::error());
 
     engine.register_value("error", ControlOperations::error());
