@@ -1,3 +1,7 @@
+#lang racket
+
 (require "provide.rkt")
 
-(Applesauce 1 2 3)
+(displayln list)
+
+; (Applesauce 1 2 3)

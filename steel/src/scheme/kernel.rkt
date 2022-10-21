@@ -96,7 +96,7 @@
 (define (make-constructor struct-name fields options-map)
   (let ((options-name (concat-symbols '___ struct-name '-options___)))
     (list
-      `(define ,options-name (hash ,@(hash->list options-map)))
+      `(define ,options-name (%proto-hash% ,@(hash->list options-map)))
       `(define ,struct-name
         (let ((options ,options-name))
           (lambda ,fields (mutable-vector

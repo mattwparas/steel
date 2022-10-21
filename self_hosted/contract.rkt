@@ -6,7 +6,7 @@
     
     )
 
-(make-struct FlatContract (predicate name))
+(new-make-struct FlatContract (predicate name))
 
 ;; Alias the name for clarity
 (define make-flat-contract FlatContract)
@@ -14,9 +14,9 @@
 (define %pre-condition-attachment-type 'DOMAIN)
 (define %post-condition-attachment-type 'RANGE)
 
-(make-struct ContractAttachmentLocation (type name))
+(new-make-struct ContractAttachmentLocation (type name))
 
-(make-struct FunctionContract (pre-conditions 
+(new-make-struct FunctionContract (pre-conditions 
                                post-condition 
                                contract-attachment-location 
                                parent))
@@ -54,16 +54,16 @@
 
 
 
-(make-struct DependentPair (argument-name arguments thunk thunk-name))
+(new-make-struct DependentPair (argument-name arguments thunk thunk-name))
 
-(make-struct 
+(new-make-struct 
     DependentContract 
         (arg-positions 
          pre-conditions post-condition
          contract-attachment-location
          parent))
 
-(make-struct ContractViolation (error-message))
+(new-make-struct ContractViolation (error-message))
 
 (define (apply-flat-contract flat-contract arg)
     (if ((FlatContract-predicate flat-contract) arg)
@@ -76,7 +76,7 @@
                         "resulted in a contract violation"))))
 
 
-(make-struct ContractedFunction (contract function name))
+(new-make-struct ContractedFunction (contract function name))
 
 
 (define (apply-parents parent name function arguments span)
@@ -270,7 +270,7 @@
                                         (FunctionContract-post-condition c)
                                         (ContractAttachmentLocation 'DOMAIN name)
                                         (FunctionContract-parent c))]
-                                  [else => (error "Unexpected value found in bind-contract-to-function")])))
+                                  [else => (error "Unexpected value found in bind-contract-to-function" c)])))
                 (into-list)))
 
           (updated-postcondition
@@ -281,7 +281,7 @@
                         (FunctionContract-post-condition post-condition)
                         (ContractAttachmentLocation 'RANGE name)
                         (FunctionContract-parent post-condition))]
-                    [else => (error "Unexpected value found in bind-contract-to-function")])))
+                    [else => (error "Unexpected value found in bind-contract-to-function" post-condition)])))
 
         (displayln "Binding contract to function")
         ; (displayln updated-preconditions)
@@ -375,7 +375,5 @@
 ;             (make-function-contract (FlatContract any? 'any?)))
 ;         (lambda () (level2))
 ;         'level3))
-
-; 10
 
 ; ((level3))

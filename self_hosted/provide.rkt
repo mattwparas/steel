@@ -1,3 +1,7 @@
-(provide Applesauce)
+#lang racket
 
-(make-struct Applesauce (a b c))
+(provide list)
+
+(define list 10)
+
+; (make-struct Applesauce (a b c))
