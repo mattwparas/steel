@@ -910,15 +910,45 @@ impl List {
 
 impl ToDoc for List {
     fn to_doc(&self) -> RcDoc<()> {
-        RcDoc::text("(")
-            .append(
-                RcDoc::intersperse(self.args.iter().map(|x| x.to_doc()), RcDoc::line())
-                    .nest(1)
+        if let Some(func) = self.first_func() {
+            let mut args_iter = self.args.iter();
+            args_iter.next();
+
+            let bindings = func.args.iter().zip(args_iter);
+
+            RcDoc::text("(let")
+                .append(RcDoc::space())
+                .append(RcDoc::text("("))
+                .append(
+                    RcDoc::intersperse(
+                        bindings.map(|x| {
+                            RcDoc::text("(")
+                                .append(x.0.to_doc())
+                                .append(RcDoc::space())
+                                .append(x.1.to_doc())
+                                .append(RcDoc::text(")"))
+                        }),
+                        RcDoc::line(),
+                    )
+                    .nest(2)
                     .group(),
-            )
-            .append(RcDoc::text(")"))
-            .nest(2)
-            .group()
+                )
+                .append(RcDoc::text(")"))
+                .append(RcDoc::line())
+                .append(func.body.to_doc())
+                .append(RcDoc::text(")"))
+                .nest(2)
+        } else {
+            RcDoc::text("(")
+                .append(
+                    RcDoc::intersperse(self.args.iter().map(|x| x.to_doc()), RcDoc::line())
+                        .nest(1)
+                        .group(),
+                )
+                .append(RcDoc::text(")"))
+                .nest(2)
+                .group()
+        }
     }
 }
 

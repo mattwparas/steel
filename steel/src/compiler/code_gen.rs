@@ -641,6 +641,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         let a = s.variable.atom_syntax_object().unwrap();
 
         if let Some(analysis) = self.analysis.get(&a) {
+            // TODO: We really want to fail as early as possible, but lets just try this here:
+            if analysis.builtin {
+                stop!(Generic => "set!: cannot mutate module-required identifier"; s.location.span);
+            }
+
             let op_code = match &analysis.kind {
                 Global => OpCode::SET,
                 Local | LetVar => OpCode::SETLOCAL,
@@ -671,7 +676,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             Ok(())
         } else {
-            stop!(Generic => "Something went wrong with getting the var in set!");
+            stop!(Generic => "Something went wrong with getting the var in set!"; s.location.span);
         }
     }
 

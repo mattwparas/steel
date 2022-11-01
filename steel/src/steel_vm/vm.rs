@@ -1852,6 +1852,10 @@ impl<'a> VmCore<'a> {
                     //         .borrow()
                     //         .len()
                     // );
+
+                    // let last_arg_count = self.function_stack.last().unwrap().arity();
+                    // println!("Last arg count: {}", last_arg_count);
+
                     // println!(
                     //     "heap allocated here: {:?}",
                     //     self.function_stack
@@ -1863,6 +1867,7 @@ impl<'a> VmCore<'a> {
                     //         .map(|x| x.get())
                     //         .collect::<Vec<_>>()
                     // );
+                    // println!("heap vars: {:?}", heap_vars);
 
                     // if
 

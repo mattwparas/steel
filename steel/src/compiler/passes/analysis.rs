@@ -1145,6 +1145,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
                 captured_and_mutated.sort_by_key(|x| x.1.id);
 
+                println!("Captured and mutated: {:?}", captured_and_mutated);
+
                 for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
                     // value.heap_offset = Some(index);
 
@@ -1156,12 +1158,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         value.heap_offset =
                             self.captures.get(key.as_str()).and_then(|x| x.heap_offset);
 
-                        println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+                        // println!("CAPTURING FROM ENCLOSED");
+                        // println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
 
                         value.read_heap_offset = self
                             .captures
                             .get(key.as_str())
                             .and_then(|x| x.read_heap_offset);
+
+                        // println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
@@ -1171,7 +1176,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         value.heap_offset = Some(index);
                         value.read_heap_offset = Some(index);
 
-                        println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+                        // println!("FIRST CAPTURE");
+                        // println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+                        // println!("READ HEAP OFFSET: {}, {:?}", key, value.heap_offset);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
@@ -1252,7 +1259,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             for (var, value) in captured_vars {
                 info.captured_vars.get_mut(var.as_str()).map(|x| {
                     x.captured_from_enclosing = value.captured_from_enclosing;
-                    x.heap_offset = value.heap_offset;
+                    // x.heap_offset = value.heap_offset;
                     x.read_heap_offset = value.read_heap_offset;
                 });
             }
@@ -1342,10 +1349,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     self.info.get_mut(&global_var.id).unwrap().usage_count += 1;
 
-                    let semantic_information =
+                    let mut semantic_information =
                         SemanticInformation::new(IdentifierStatus::Global, depth, a.syn.span)
                             .with_usage_count(1)
                             .refers_to(global_var.id);
+
+                    // TODO: We _really_ should be providing the built-ins in a better way thats not
+                    // passing around a thread local
+                    if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident)) {
+                        semantic_information.mark_builtin()
+                    }
 
                     self.info.insert(&a.syn, semantic_information);
 
@@ -1463,7 +1476,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 }
 
                 if let Some(heap_offset) = captured.read_heap_offset {
-                    semantic_info = semantic_info.with_heap_offset(heap_offset);
+                    // semantic_info = semantic_info.with_heap_offset(heap_offset);
                     semantic_info = semantic_info.with_read_heap_offset(heap_offset);
                 } else {
                     log::warn!("Stack offset missing from local define")
@@ -1530,11 +1543,18 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 return;
             }
 
+            let mut semantic_info =
+                SemanticInformation::new(IdentifierStatus::Free, depth, a.syn.span);
+
+            // TODO: We _really_ should be providing the built-ins in a better way thats not
+            // passing around a thread local
+            if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident)) {
+                semantic_info.mark_builtin();
+                semantic_info.kind = IdentifierStatus::Global
+            }
+
             // Otherwise, we've hit a free variable at this point
-            self.info.insert(
-                &a.syn,
-                SemanticInformation::new(IdentifierStatus::Free, depth, a.syn.span),
-            );
+            self.info.insert(&a.syn, semantic_info);
 
             log::warn!("Found free var: {}", a);
         }

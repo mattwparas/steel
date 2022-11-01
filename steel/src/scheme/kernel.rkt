@@ -98,12 +98,12 @@
     (list
       `(define ,options-name (%proto-hash% ,@(hash->list options-map)))
       `(define ,struct-name
-        (let ((options ,options-name))
+        ; (let ((options ,options-name))
           (lambda ,fields (mutable-vector
                     ___magic_struct_symbol___
                     (quote ,struct-name)
-                    options
-                    ,@fields)))))))
+                    ,options-name
+                    ,@fields))))))
 
 (define (new-make-constructor struct-name fields)
   `(set! ,struct-name 

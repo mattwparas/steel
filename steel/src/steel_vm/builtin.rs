@@ -43,6 +43,10 @@ impl BuiltInModule {
         }
     }
 
+    pub fn contains(&self, ident: &str) -> bool {
+        self.values.contains_key(ident)
+    }
+
     pub fn with_module<'a>(mut self, module: BuiltInModule) -> Self {
         self.values = self.values.union(module.values);
         self

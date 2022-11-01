@@ -6,7 +6,7 @@
     
     )
 
-(new-make-struct FlatContract (predicate name))
+(make-struct FlatContract (predicate name))
 
 ;; Alias the name for clarity
 (define make-flat-contract FlatContract)
@@ -14,9 +14,9 @@
 (define %pre-condition-attachment-type 'DOMAIN)
 (define %post-condition-attachment-type 'RANGE)
 
-(new-make-struct ContractAttachmentLocation (type name))
+(make-struct ContractAttachmentLocation (type name))
 
-(new-make-struct FunctionContract (pre-conditions 
+(make-struct FunctionContract (pre-conditions 
                                post-condition 
                                contract-attachment-location 
                                parent))
@@ -54,16 +54,16 @@
 
 
 
-(new-make-struct DependentPair (argument-name arguments thunk thunk-name))
+(make-struct DependentPair (argument-name arguments thunk thunk-name))
 
-(new-make-struct 
+(make-struct 
     DependentContract 
         (arg-positions 
          pre-conditions post-condition
          contract-attachment-location
          parent))
 
-(new-make-struct ContractViolation (error-message))
+(make-struct ContractViolation (error-message))
 
 (define (apply-flat-contract flat-contract arg)
     (if ((FlatContract-predicate flat-contract) arg)
@@ -76,7 +76,7 @@
                         "resulted in a contract violation"))))
 
 
-(new-make-struct ContractedFunction (contract function name))
+(make-struct ContractedFunction (contract function name))
 
 
 (define (apply-parents parent name function arguments span)
