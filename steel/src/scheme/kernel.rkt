@@ -44,7 +44,7 @@
         ,@(map (lambda (field) `(define ,(concat-symbols 'set- struct-name '- field '!) 'unintialized)) fields)
 
 
-        (let ((prototypes (make-struct-type ,struct-name ,field-count)))
+        (let ((prototypes (make-struct-type (quote ,struct-name) ,field-count)))
           (let ((constructor-proto (list-ref prototypes 0))
                 (predicate-proto (list-ref prototypes 1))
                 (getter-proto (list-ref prototypes 2))

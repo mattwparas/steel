@@ -1145,7 +1145,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
                 captured_and_mutated.sort_by_key(|x| x.1.id);
 
-                println!("Captured and mutated: {:?}", captured_and_mutated);
+                // println!("Captured and mutated: {:?}", captured_and_mutated);
 
                 for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
                     // value.heap_offset = Some(index);
