@@ -399,7 +399,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         TokenType::IntegerLiteral(123),
                     ))));
-                    let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                    let name_prime = atom("_____".to_string() + name + i.to_string().as_str());
                     let set_expr = set(d.name.clone(), name_prime.clone());
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
@@ -416,7 +416,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         TokenType::IntegerLiteral(123),
                     ))));
-                    let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                    let name_prime = atom("_____".to_string() + name + i.to_string().as_str());
                     let set_expr = set(d.name.clone(), name_prime.clone());
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
@@ -444,7 +444,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         TokenType::IntegerLiteral(123),
                     ))));
-                    let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                    let name_prime = atom("_____".to_string() + name + i.to_string().as_str());
 
                     // Make this a (set! x (x'))
                     // Applying the function
@@ -466,17 +466,23 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     panic!("expected define, found: {}", &exprs[i]);
                 };
             }
+            // TODO: Move this down, don't put it with the lets, put it down in order with the set expressions
+            // That way we're not at risk of accidentally goofing up the ordering of the expressions.
+            // If will _only_ go in the right order of assignment
             ExpressionType::Expression => {
-                let expr = atom("#####define-conversion".to_string() + i.to_string().as_str());
-                top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    TokenType::IntegerLiteral(123),
-                ))));
+                // TODO: This is definitly not right
+                // let expr = atom("#####define-conversion".to_string() + i.to_string().as_str());
+                // top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                //     TokenType::IntegerLiteral(123),
+                // ))));
 
-                // This also gets bound in the inner function for now
-                bound_names.push(expr.clone());
+                // // This also gets bound in the inner function for now
+                // bound_names.push(expr.clone());
 
-                top_level_arguments.push(expr);
-                new_args.push(arg);
+                // top_level_arguments.push(expr);
+                // new_args.push(arg);
+
+                set_expressions.push(arg)
             }
         }
     }

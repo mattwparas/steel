@@ -1,18 +1,14 @@
 (provide
     make-function-contract
-    ; bind-contract-to-function
-    ; FlatContract
-    ; FunctionContract
-    
-    )
+    bind-contract-to-function
+    FlatContract
+    FunctionContract)
 
 (new-make-struct FlatContract (predicate name))
 
 ;; Alias the name for clarity
 (define make-flat-contract FlatContract)
 
-(define %pre-condition-attachment-type 'DOMAIN)
-(define %post-condition-attachment-type 'RANGE)
 
 (new-make-struct ContractAttachmentLocation (type name))
 
@@ -58,6 +54,7 @@
 
 (define make-function-contract
     (lambda conditions
+        (displayln split-last)
 
         ;; TODO: consider moving this into a primitive
         
@@ -136,7 +133,10 @@
                     (cond [(FlatContract? contract)
                             => 
                                 (displayln "Applying flat contract in pre condition")
+
                                 (let ((result (apply-flat-contract contract arg)))
+                                    (displayln result)
+                                    (displayln (FunctionContract-contract-attachment-location self-contract))
                                     (if (ContractViolation? result)
                                         (error-with-span span 
                                             "This function call caused an error"
@@ -263,6 +263,9 @@
 
 (define (bind-contract-to-function contract function name . span)
     (define post-condition (FunctionContract-post-condition contract))
+    ; (displayln (FunctionContract-pre-conditions contract))
+    ; (displayln (FunctionContract-post-condition contract))
+    (displayln name)
     (let ((updated-preconditions
             (transduce 
                 (FunctionContract-pre-conditions contract)
@@ -288,11 +291,15 @@
                     [else => (error "Unexpected value found in bind-contract-to-function" post-condition)])))
 
         (displayln "Binding contract to function")
-        ; (displayln updated-preconditions)
-        ; (displayln updated-postcondition)
+        (displayln updated-preconditions)
+        (displayln updated-postcondition)
         (let ((contracted-function 
                     (ContractedFunction
-                        (FunctionContract updated-preconditions updated-postcondition void void)
+                        (FunctionContract 
+                            updated-preconditions 
+                            updated-postcondition 
+                            (ContractAttachmentLocation 'TOPLEVEL name) 
+                            void)
                         function name)))
             
             (lambda args
@@ -303,14 +310,17 @@
 
 
 
-; (define test-function
-;     (bind-contract-to-function 
-;         (make-function-contract
-;             (FlatContract int? 'int?)
-;             (FlatContract int? 'int?)
-;             (FlatContract boolean? 'boolean?))
-;         (lambda (x y) (equal? (+ x y) 10))
-;         'test-function))
+(define test-function
+    (bind-contract-to-function 
+        (make-function-contract
+            (FlatContract int? 'int?)
+            (FlatContract int? 'int?)
+            (FlatContract boolean? 'boolean?))
+        (lambda (x y) (equal? (+ x y) 10))
+        'test-function))
+
+(test-function 5 5)
+; (test-function "applesauce" 5)
 
 ; (test-function "hello world" 10)
 

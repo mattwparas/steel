@@ -1244,6 +1244,11 @@ impl<'a> VmCore<'a> {
                         .borrow()[payload_size as usize]
                         .get();
 
+                    println!(
+                        "Reading heap allocated at index: {} {}",
+                        payload_size, value
+                    );
+
                     self.stack.push(value);
                     self.ip += 1;
                 }
@@ -1842,7 +1847,7 @@ impl<'a> VmCore<'a> {
                     captures.push(value);
                 }
                 (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
-                    // println!("Copying heap capture from index: {}", n);
+                    println!("Copying heap capture from index: {}", n);
                     // println!(
                     //     "Length of heap allocated of parent: {}",
                     //     self.function_stack
@@ -1853,8 +1858,59 @@ impl<'a> VmCore<'a> {
                     //         .len()
                     // );
 
-                    // let last_arg_count = self.function_stack.last().unwrap().arity();
-                    // println!("Last arg count: {}", last_arg_count);
+                    let last_arg_count = self.function_stack.last().unwrap().arity();
+                    println!("Last arg count: {}", last_arg_count);
+
+                    // println!(
+                    //     "heap allocated here: {:?}",
+                    //     self.function_stack
+                    //         .last()
+                    //         .unwrap()
+                    //         .heap_allocated()
+                    //         .borrow()
+                    //         .iter()
+                    //         .map(|x| x.get())
+                    //         .collect::<Vec<_>>()
+                    // );
+                    // println!("heap vars: {:?}", heap_vars);
+
+                    // if
+
+                    // if (n as usize)
+                    //     < self
+                    //         .function_stack
+                    //         .last()
+                    //         .unwrap()
+                    //         .heap_allocated()
+                    //         .borrow()
+                    //         .len()
+                    // {
+                    //     stop!(Generic => "index out of bounds"; self.spans[span]);
+                    // }
+
+                    heap_vars.push(
+                        self.function_stack
+                            .last()
+                            .unwrap()
+                            .heap_allocated()
+                            .borrow()[n as usize]
+                            .clone(),
+                    );
+                }
+                (OpCode::FIRSTCOPYHEAPCAPTURECLOSURE, n) => {
+                    println!("first Copying heap capture from index: {}", n);
+                    // println!(
+                    //     "Length of heap allocated of parent: {}",
+                    //     self.function_stack
+                    //         .last()
+                    //         .unwrap()
+                    //         .heap_allocated()
+                    //         .borrow()
+                    //         .len()
+                    // );
+
+                    let last_arg_count = self.function_stack.last().unwrap().arity();
+                    println!("Last arg count: {}", last_arg_count);
 
                     // println!(
                     //     "heap allocated here: {:?}",
@@ -1902,6 +1958,8 @@ impl<'a> VmCore<'a> {
             self.ip += 1;
         }
 
+        // TODO: Consider moving these captures into the interned closure directly
+        // Its possible we're just doing a lot of extra capturing that way if we repeatedly copy things
         let constructed_lambda = if let Some(prototype) = self.closure_interner.get(&closure_id) {
             log::info!("Fetching closure from cache");
 

@@ -85,6 +85,7 @@ impl UserDefinedStruct {
             }
             Ok(SteelVal::BoolV(match &args[0] {
                 SteelVal::CustomStruct(my_struct) if Rc::ptr_eq(&my_struct.name, &name) => true,
+                // SteelVal::CustomStruct(my_struct) if my_struct.name == name => true,
                 _ => false,
             }))
         };
@@ -104,7 +105,7 @@ impl UserDefinedStruct {
             match (&steel_struct, &idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
                     if !Rc::ptr_eq(&s.name, &name) {
-                        stop!(TypeMismatch => format!("Struct getter expected {}, found {}", name, &s.name));
+                        stop!(TypeMismatch => format!("Struct getter expected {}, found {:p}, {:?}", name, &s, &steel_struct));
                     }
 
                     if *idx < 0 {
@@ -141,7 +142,7 @@ impl UserDefinedStruct {
             match (&steel_struct, &idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
                     if !Rc::ptr_eq(&s.name, &name) {
-                        stop!(TypeMismatch => format!("Struct getter expected {}, found {}", name, &s.name));
+                        stop!(TypeMismatch => format!("Struct setter expected {}, found {}", name, &s.name));
                     }
 
                     if *idx < 0 {

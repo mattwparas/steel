@@ -137,7 +137,7 @@
   (map (lambda (field)
           `(set! ,(concat-symbols struct-name '- (car field))
               (lambda (this) (getter-proto this ,(list-ref field 1)))))
-       (enumerate 0 '() fields)))
+       (enumerate 1 '() fields)))
 
 
 
@@ -160,7 +160,7 @@
   (map (lambda (field)
           `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
               (lambda (this value) (setter-proto this ,(list-ref field 1) value))))
-       (enumerate 0 '() fields)))
+       (enumerate 1 '() fields)))
 
 
 ;; Valid options on make-struct at the moment are:

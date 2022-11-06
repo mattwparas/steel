@@ -392,7 +392,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     if var.mutated {
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYHEAPCAPTURECLOSURE)
-                                .payload(var.heap_offset.unwrap())
+                                .payload(var.parent_heap_offset.unwrap())
                                 .contents(SyntaxObject::default(TokenType::Identifier(
                                     key.to_string(),
                                 ))),
@@ -410,7 +410,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 } else {
                     if var.mutated {
                         self.push(
-                            LabeledInstruction::builder(OpCode::COPYHEAPCAPTURECLOSURE)
+                            LabeledInstruction::builder(OpCode::FIRSTCOPYHEAPCAPTURECLOSURE)
                                 .payload(var.heap_offset.unwrap())
                                 .contents(SyntaxObject::default(TokenType::Identifier(
                                     key.to_string(),
@@ -451,9 +451,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             captured_mutable_arguments.sort_by_key(|x| x.1.stack_offset);
 
-            for (_key, var) in captured_mutable_arguments {
+            for (key, var) in captured_mutable_arguments {
                 self.push(
-                    LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap()),
+                    LabeledInstruction::builder(OpCode::ALLOC)
+                        .payload(var.stack_offset.unwrap())
+                        .contents(SyntaxObject::default(TokenType::Identifier(
+                            key.to_string(),
+                        ))),
                 );
             }
         }

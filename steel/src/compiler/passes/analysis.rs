@@ -393,6 +393,8 @@ pub struct ScopeInfo {
     /// The ID of the variable, this is globally unique
     pub id: SyntaxObjectId,
     /// Whether or not this variable is captured by a scope
+    /// TODO: This needs to actually just mark the depth at which variable was captured, or something to signify
+    /// if a specific scope actually _uses_ the variable
     pub captured: bool,
     /// How many times has this variable been referenced
     pub usage_count: usize,
@@ -414,6 +416,8 @@ pub struct ScopeInfo {
     pub heap_offset: Option<usize>,
     pub read_capture_offset: Option<usize>,
     pub read_heap_offset: Option<usize>,
+    pub parent_heap_offset: Option<usize>,
+    pub local_heap_offset: Option<usize>,
 }
 
 impl ScopeInfo {
@@ -431,6 +435,8 @@ impl ScopeInfo {
             heap_offset: None,
             read_capture_offset: None,
             read_heap_offset: None,
+            parent_heap_offset: None,
+            local_heap_offset: None,
         }
     }
 
@@ -448,16 +454,22 @@ impl ScopeInfo {
             heap_offset: None,
             read_capture_offset: None,
             read_heap_offset: None,
+            parent_heap_offset: None,
+            local_heap_offset: None,
         }
     }
 
-    pub fn new_heap_allocated_var(id: SyntaxObjectId, heap_offset: usize) -> Self {
+    pub fn new_heap_allocated_var(
+        id: SyntaxObjectId,
+        stack_offset: usize,
+        heap_offset: usize,
+    ) -> Self {
         Self {
             id,
             captured: true,
             usage_count: 0,
             last_used: None,
-            stack_offset: None,
+            stack_offset: Some(stack_offset),
             escapes: false,
             capture_offset: None,
             captured_from_enclosing: false,
@@ -465,6 +477,8 @@ impl ScopeInfo {
             heap_offset: Some(heap_offset),
             read_capture_offset: None,
             read_heap_offset: Some(heap_offset),
+            parent_heap_offset: None,
+            local_heap_offset: None,
         }
     }
 }
@@ -480,6 +494,9 @@ struct AnalysisPass<'a> {
     defining_context_depth: usize,
     stack_offset: usize,
     function_context: Option<usize>,
+    contains_lambda_func: bool,
+    vars_used: im_rc::HashSet<String>,
+    total_vars_used: im_rc::HashSet<String>,
 }
 
 fn define_var(scope: &mut ScopeMap<String, ScopeInfo>, define: &crate::parser::ast::Define) {
@@ -501,11 +518,24 @@ impl<'a> AnalysisPass<'a> {
             defining_context_depth: 0,
             stack_offset: 0,
             function_context: None,
+            contains_lambda_func: false,
+            vars_used: im_rc::HashSet::new(),
+            total_vars_used: im_rc::HashSet::new(),
         }
     }
 }
 
 impl<'a> AnalysisPass<'a> {
+    // TODO: This needs to be fixed with interning
+    fn get_possible_captures(&self, let_level_bindings: &[&str]) -> HashSet<String> {
+        self.scope
+            .iter()
+            .filter(|x| !x.1.captured)
+            .filter(|x| !let_level_bindings.contains(&x.0.as_str()))
+            .map(|x| x.0.clone())
+            .collect()
+    }
+
     fn get_captured_vars(&self, let_level_bindings: &[&str]) -> HashMap<String, ScopeInfo> {
         self.scope
             .iter()
@@ -639,6 +669,7 @@ impl<'a> AnalysisPass<'a> {
                     name.to_string(),
                     ScopeInfo::new_heap_allocated_var(
                         id,
+                        index,
                         mut_var_offset + alloc_capture_count.unwrap(),
                     ),
                 );
@@ -1008,6 +1039,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     name.to_string(),
                     ScopeInfo::new_heap_allocated_var(
                         id,
+                        todo!("Need to include the stack offset here!"),
                         mutable_var_offset + alloc_capture_count.unwrap(),
                     ),
                 );
@@ -1068,6 +1100,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
         let stack_offset_rollback = self.stack_offset;
+        let parent_contains_func = self.contains_lambda_func;
 
         // The captures correspond to what variables _this_ scope should decide to capture, and also
         // arbitrarily decide the index for that capture
@@ -1099,12 +1132,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             {
                 let mut sorted_vars = vars.iter_mut().filter(|x| !x.1.mutated).collect::<Vec<_>>();
                 sorted_vars.sort_by_key(|x| x.1.id);
-
-                // let sorted_captures
-
-                // sorted_vars.sort_by_key(|x| x.1.stack_offset);
-
-                // let mut offset = 0;
 
                 // So for now, we sort by id, then map these directly to indices that will live in the
                 // corresponding captured closure
@@ -1145,7 +1172,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
                 captured_and_mutated.sort_by_key(|x| x.1.id);
 
-                // println!("Captured and mutated: {:?}", captured_and_mutated);
+                println!("Captured and mutated: {:?}", captured_and_mutated);
 
                 for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
                     // value.heap_offset = Some(index);
@@ -1155,30 +1182,61 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     if self.captures.contains_key(key.as_str()) {
                         // TODO: If theres weird bugs here, match behavior of the captures from above
                         // i.e. heap offset just patches in the read offset from the parent
-                        value.heap_offset =
-                            self.captures.get(key.as_str()).and_then(|x| x.heap_offset);
+                        value.heap_offset = self
+                            .captures
+                            .get(key.as_str())
+                            .and_then(|x| x.read_heap_offset);
 
-                        // println!("CAPTURING FROM ENCLOSED");
-                        // println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+                        // value.heap_offset = Some(index);
+
+                        println!("CAPTURING FROM ENCLOSED");
+                        println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+                        println!("Theoretical index: {}", index);
 
                         value.read_heap_offset = self
                             .captures
                             .get(key.as_str())
                             .and_then(|x| x.read_heap_offset);
 
-                        // println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
+                        println!(
+                            "PARENT READ HEAP OFFSET: {}, {:?}",
+                            key, value.read_heap_offset
+                        );
+
+                        if value.read_heap_offset != Some(index) {
+                            println!("FOUND A DIFFERENCE");
+                        }
+
+                        value.read_heap_offset = Some(index);
+
+                        value.parent_heap_offset = self
+                            .captures
+                            .get(key.as_str())
+                            .and_then(|x| x.local_heap_offset);
+
+                        value.local_heap_offset = Some(index);
+
+                        println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
 
                         self.captures.define(key.clone(), value);
                     } else {
-                        value.heap_offset = Some(index);
+                        // value.heap_offset = Some(index);
+                        // value.read_heap_offset = Some(index);
+
+                        // value.heap_offset = value.stack_offset.min(Some(index));
+                        value.heap_offset = value.stack_offset;
                         value.read_heap_offset = Some(index);
 
-                        // println!("FIRST CAPTURE");
-                        // println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
-                        // println!("READ HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+                        value.parent_heap_offset = value.stack_offset;
+                        value.local_heap_offset = Some(index);
+
+                        println!("FIRST CAPTURE");
+                        println!("Stack offset: {}, {:?}", key, value.stack_offset);
+                        println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+                        println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
@@ -1189,11 +1247,19 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         //     scope.read_heap_offset = Some(index);
                         // }
 
-                        self.captures.define(key.clone(), value.clone());
+                        self.captures.define(key.clone(), value);
                     }
                 }
             }
         }
+
+        // Before we enter this, these are all of the variables that should be reset after capturing
+        // let uncaptured_from_latest_layer: HashSet<String> = self
+        //     .scope
+        //     .iter_top()
+        //     .filter(|x| x.1.captured)
+        //     .map(|x| x.0.clone())
+        //     .collect();
 
         // We're entering a new scope since we've entered a lambda function
         self.scope.push_layer();
@@ -1210,16 +1276,72 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         self.defining_context_depth += 1;
 
+        // Try to extract the actual variables that are used
+        // Otherwise, we're capturing an insane amount of extra variables
+        // let mut used_vars = im_rc::HashSet::new();
+
+        // Save the state of things that have been used on the way down
+        let mut overall_used_down = self.vars_used.clone();
+
+        // Set the single used to this scope to be a new set
+        self.vars_used = im_rc::HashSet::new();
+
+        // std::mem::swap(&mut self.vars_used, &mut used_vars);
+
+        // These are the possible captures that _could_ happen
+        // let possible_captures = self.get_possible_captures(&let_level_bindings);
+
+        self.contains_lambda_func = false;
+
         // TODO: Better abstract this pattern - perhaps have the function call be passed in?
         self.visit_with_tail_call_eligibility(&lambda_function.body, true);
+
+        let lambda_bottoms_out = !self.contains_lambda_func;
+
+        self.contains_lambda_func = true;
+
+        // Put it back
+        // std::mem::swap(&mut self.vars_used, &mut used_vars);
+
+        // self.vars_used += used_vars.clone();
+
+        for var in &self.vars_used {
+            self.total_vars_used.insert(var.clone());
+        }
 
         self.defining_context_depth -= 1;
 
         self.function_context = function_context;
 
-        // TODO: combine the captured_vars and arguments into one thing
-        // We don't need to generate a hashset and a hashmap - we can just do it once
+        // TODO: @Matt: 11/3/2022 -> Seems like theres kind of a bad problem here.
+        // This map that we're getting is much bigger than expected
+        // Perhaps take the diff of the vars before visiting this, and after? Then reset the state after visiting this tree?
         let mut captured_vars = self.get_captured_vars(&let_level_bindings);
+
+        // println!("Used vars: {:#?}", used_vars);
+
+        // If we're at the bottom of the evaluation tree, we shouldn't need to capture anything more than we actually use
+        // Therefore, just mark those as non captured?
+        // if lambda_bottoms_out {
+        // let before = captured_vars.len();
+        // captured_vars = captured_vars
+        //     .into_iter()
+        //     .filter(|x| self.total_vars_used.contains(&x.0))
+        //     .collect();
+
+        // println!("Captured vars dropped: {}", before - captured_vars.len());
+        // }
+
+        // else {
+        //     for var in used_vars {
+        //         self.vars_used.insert(var);
+        //     }
+
+        //     captured_vars = captured_vars
+        //         .into_iter()
+        //         .filter(|x| self.vars_used.contains(&x.0))
+        //         .collect();
+        // }
 
         for (var, value) in self.captures.iter() {
             captured_vars.get_mut(var.as_str()).map(|x| {
@@ -1258,9 +1380,31 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         {
             for (var, value) in captured_vars {
                 info.captured_vars.get_mut(var.as_str()).map(|x| {
+                    // if !(!x.captured_from_enclosing && value.captured_from_enclosing) {
+                    // if value.captured_from_enclosing {
+                    println!("Before: {}: {:#?}", var, x);
+                    println!("After: {}: {:#?}", var, value);
+
                     x.captured_from_enclosing = value.captured_from_enclosing;
+
+                    // if value.captured_from_enclosing {
+                    // x.read_heap_offset = value.heap_offset;
+                    // } else {
+                    x.heap_offset = value.heap_offset;
+                    // }
+
+                    // x.heap_offset = x.heap_offset.min(value.heap_offset);
                     // x.heap_offset = value.heap_offset;
-                    x.read_heap_offset = value.read_heap_offset;
+                    // x.read_heap_offset = value.read_heap_offset;
+                    // }
+
+                    // }
+
+                    // println!("Before: {}: {:#?}", var, x);
+                    // println!("After: {:#?}", value);
+                    // x.captured_from_enclosing = value.captured_from_enclosing;
+                    // x.heap_offset = value.heap_offset;
+                    // x.read_heap_offset = value.read_heap_offset;
                 });
             }
 
@@ -1301,6 +1445,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         self.visit_with_tail_call_eligibility(&s.expr, false);
 
         if let Some(name) = name {
+            // Mark that we've used this
+            self.vars_used.insert(name.to_string());
+
             // Gather the id of the variable that is in fact mutated
             if let Some(scope_info) = self.scope.get_mut(name) {
                 // Bump the usage count
@@ -1339,6 +1486,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // TODO: Check if this is actually a constant - if it is, mark it accordingly and lift it out
 
         if let Some(ident) = name {
+            // Mark that we've seen this one
+            self.vars_used.insert(ident.to_string());
+
             // Check if its a global var - otherwise, we want to check if its a free
             // identifier
             if let Some(depth) = self.scope.height_of(ident) {
@@ -1478,6 +1628,13 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 if let Some(heap_offset) = captured.read_heap_offset {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
                     semantic_info = semantic_info.with_read_heap_offset(heap_offset);
+                } else {
+                    log::warn!("Stack offset missing from local define")
+                }
+
+                if let Some(heap_offset) = captured.heap_offset {
+                    // semantic_info = semantic_info.with_heap_offset(heap_offset);
+                    semantic_info = semantic_info.with_heap_offset(heap_offset);
                 } else {
                     log::warn!("Stack offset missing from local define")
                 }

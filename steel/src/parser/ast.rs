@@ -662,19 +662,29 @@ impl fmt::Display for LambdaFunction {
 
 impl ToDoc for LambdaFunction {
     fn to_doc(&self) -> RcDoc<()> {
-        RcDoc::text("(λ")
-            .append(RcDoc::space())
-            .append(RcDoc::text("("))
-            .append(
-                RcDoc::intersperse(self.args.iter().map(|x| x.to_doc()), RcDoc::line())
-                    .nest(2)
-                    .group(),
-            )
-            .append(RcDoc::text(")"))
-            .append(RcDoc::line())
-            .append(self.body.to_doc())
-            .append(RcDoc::text(")"))
-            .nest(2)
+        if self.rest && self.args.len() == 1 {
+            RcDoc::text("(λ")
+                .append(RcDoc::space())
+                .append(self.args.first().unwrap().to_doc())
+                .append(RcDoc::line())
+                .append(self.body.to_doc())
+                .append(RcDoc::text(")"))
+                .nest(2)
+        } else {
+            RcDoc::text("(λ")
+                .append(RcDoc::space())
+                .append(RcDoc::text("("))
+                .append(
+                    RcDoc::intersperse(self.args.iter().map(|x| x.to_doc()), RcDoc::line())
+                        .nest(2)
+                        .group(),
+                )
+                .append(RcDoc::text(")"))
+                .append(RcDoc::line())
+                .append(self.body.to_doc())
+                .append(RcDoc::text(")"))
+                .nest(2)
+        }
     }
 }
 
