@@ -1172,7 +1172,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
                 captured_and_mutated.sort_by_key(|x| x.1.id);
 
-                println!("Captured and mutated: {:?}", captured_and_mutated);
+                // println!("Captured and mutated: {:?}", captured_and_mutated);
 
                 for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
                     // value.heap_offset = Some(index);
@@ -1189,23 +1189,23 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                         // value.heap_offset = Some(index);
 
-                        println!("CAPTURING FROM ENCLOSED");
-                        println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
-                        println!("Theoretical index: {}", index);
+                        // println!("CAPTURING FROM ENCLOSED");
+                        // println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+                        // println!("Theoretical index: {}", index);
 
                         value.read_heap_offset = self
                             .captures
                             .get(key.as_str())
                             .and_then(|x| x.read_heap_offset);
 
-                        println!(
-                            "PARENT READ HEAP OFFSET: {}, {:?}",
-                            key, value.read_heap_offset
-                        );
+                        // println!(
+                        //     "PARENT READ HEAP OFFSET: {}, {:?}",
+                        //     key, value.read_heap_offset
+                        // );
 
-                        if value.read_heap_offset != Some(index) {
-                            println!("FOUND A DIFFERENCE");
-                        }
+                        // if value.read_heap_offset != Some(index) {
+                        //     println!("FOUND A DIFFERENCE");
+                        // }
 
                         value.read_heap_offset = Some(index);
 
@@ -1216,7 +1216,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                         value.local_heap_offset = Some(index);
 
-                        println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
+                        // println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
@@ -1233,10 +1233,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         value.parent_heap_offset = value.stack_offset;
                         value.local_heap_offset = Some(index);
 
-                        println!("FIRST CAPTURE");
-                        println!("Stack offset: {}, {:?}", key, value.stack_offset);
-                        println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
-                        println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
+                        // println!("FIRST CAPTURE");
+                        // println!("Stack offset: {}, {:?}", key, value.stack_offset);
+                        // println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+                        // println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
@@ -1322,15 +1322,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         // If we're at the bottom of the evaluation tree, we shouldn't need to capture anything more than we actually use
         // Therefore, just mark those as non captured?
-        // if lambda_bottoms_out {
-        // let before = captured_vars.len();
-        // captured_vars = captured_vars
-        //     .into_iter()
-        //     .filter(|x| self.total_vars_used.contains(&x.0))
-        //     .collect();
+        if lambda_bottoms_out {
+            // let before = captured_vars.len();
+            captured_vars = captured_vars
+                .into_iter()
+                .filter(|x| self.total_vars_used.contains(&x.0))
+                .collect();
 
-        // println!("Captured vars dropped: {}", before - captured_vars.len());
-        // }
+            // println!("Captured vars dropped: {}", before - captured_vars.len());
+        }
 
         // else {
         //     for var in used_vars {
@@ -1382,8 +1382,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 info.captured_vars.get_mut(var.as_str()).map(|x| {
                     // if !(!x.captured_from_enclosing && value.captured_from_enclosing) {
                     // if value.captured_from_enclosing {
-                    println!("Before: {}: {:#?}", var, x);
-                    println!("After: {}: {:#?}", var, value);
+                    // println!("Before: {}: {:#?}", var, x);
+                    // println!("After: {}: {:#?}", var, value);
 
                     x.captured_from_enclosing = value.captured_from_enclosing;
 

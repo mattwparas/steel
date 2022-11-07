@@ -234,7 +234,7 @@ impl<'a> ExpressionType<'a> {
             }
         }
 
-        println!("Expression types: {:?}", expression_types);
+        // println!("Expression types: {:?}", expression_types);
 
         expression_types
     }

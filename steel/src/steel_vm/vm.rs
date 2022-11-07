@@ -1244,10 +1244,10 @@ impl<'a> VmCore<'a> {
                         .borrow()[payload_size as usize]
                         .get();
 
-                    println!(
-                        "Reading heap allocated at index: {} {}",
-                        payload_size, value
-                    );
+                    // println!(
+                    //     "Reading heap allocated at index: {} {}",
+                    //     payload_size, value
+                    // );
 
                     self.stack.push(value);
                     self.ip += 1;
@@ -1847,7 +1847,7 @@ impl<'a> VmCore<'a> {
                     captures.push(value);
                 }
                 (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
-                    println!("Copying heap capture from index: {}", n);
+                    // println!("Copying heap capture from index: {}", n);
                     // println!(
                     //     "Length of heap allocated of parent: {}",
                     //     self.function_stack
@@ -1858,8 +1858,8 @@ impl<'a> VmCore<'a> {
                     //         .len()
                     // );
 
-                    let last_arg_count = self.function_stack.last().unwrap().arity();
-                    println!("Last arg count: {}", last_arg_count);
+                    // let last_arg_count = self.function_stack.last().unwrap().arity();
+                    // println!("Last arg count: {}", last_arg_count);
 
                     // println!(
                     //     "heap allocated here: {:?}",
@@ -1898,7 +1898,7 @@ impl<'a> VmCore<'a> {
                     );
                 }
                 (OpCode::FIRSTCOPYHEAPCAPTURECLOSURE, n) => {
-                    println!("first Copying heap capture from index: {}", n);
+                    // println!("first Copying heap capture from index: {}", n);
                     // println!(
                     //     "Length of heap allocated of parent: {}",
                     //     self.function_stack
@@ -1909,8 +1909,8 @@ impl<'a> VmCore<'a> {
                     //         .len()
                     // );
 
-                    let last_arg_count = self.function_stack.last().unwrap().arity();
-                    println!("Last arg count: {}", last_arg_count);
+                    // let last_arg_count = self.function_stack.last().unwrap().arity();
+                    // println!("Last arg count: {}", last_arg_count);
 
                     // println!(
                     //     "heap allocated here: {:?}",
