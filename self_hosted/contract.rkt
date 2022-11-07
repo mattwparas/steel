@@ -2,6 +2,7 @@
     make-function-contract
     bind-contract-to-function
     FlatContract
+    FlatContract-predicate
     FunctionContract)
 
 (new-make-struct FlatContract (predicate name))
