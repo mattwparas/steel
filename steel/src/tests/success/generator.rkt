@@ -10,7 +10,7 @@
 
 ;; [LISTOF X] -> ( -> X u 'you-fell-off-the-end)
 (define (generate-one-element-at-a-time lst)
-;; Both internal functions are closures over lst
+    ;; Both internal functions are closures over lst
 
     ;; Internal variable/Function which passes the current element in a list
     ;; to its return argument (which is a continuation), or passes an end-of-list marker 

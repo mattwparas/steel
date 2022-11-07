@@ -328,7 +328,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         .position(|x| !x.is_expression())
         .expect("Convert exprs to let in define conversion found no trailing expressions in begin");
 
-    println!("Last expression index: {:?}", idx);
+    // println!("Last expression index: {:?}", idx);
 
     let idx = expression_types.len() - 1 - idx;
 

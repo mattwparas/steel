@@ -665,6 +665,7 @@ impl Compiler {
         let analysis = {
             let mut analysis = Analysis::from_exprs(&expanded_statements);
             analysis.populate_captures(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
             analysis
         };
 

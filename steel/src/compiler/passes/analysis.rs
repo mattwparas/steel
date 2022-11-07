@@ -1281,7 +1281,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // let mut used_vars = im_rc::HashSet::new();
 
         // Save the state of things that have been used on the way down
-        let mut overall_used_down = self.vars_used.clone();
+        // let mut overall_used_down = self.vars_used.clone();
 
         // Set the single used to this scope to be a new set
         self.vars_used = im_rc::HashSet::new();
@@ -1322,19 +1322,19 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         // If we're at the bottom of the evaluation tree, we shouldn't need to capture anything more than we actually use
         // Therefore, just mark those as non captured?
-        if lambda_bottoms_out {
-            // let before = captured_vars.len();
+        // if lambda_bottoms_out {
+        //     // let before = captured_vars.len();
 
-            // println!("Vars used: {:#?}", self.vars_used);
-            // println!("{}", lambda_function);
+        //     // println!("Vars used: {:#?}", self.vars_used);
+        //     // println!("{}", lambda_function);
 
-            captured_vars = captured_vars
-                .into_iter()
-                .filter(|x| self.vars_used.contains(&x.0))
-                .collect();
+        //     captured_vars = captured_vars
+        //         .into_iter()
+        //         .filter(|x| self.vars_used.contains(&x.0))
+        //         .collect();
 
-            // println!("Captured vars dropped: {}", before - captured_vars.len());
-        }
+        //     // println!("Captured vars dropped: {}", before - captured_vars.len());
+        // }
 
         // else {
         //     for var in used_vars {
@@ -1382,6 +1382,32 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .function_info
             .get_mut(&lambda_function.syntax_object_id)
         {
+            let mut slated_for_removal = Vec::new();
+
+            if lambda_bottoms_out {
+                // let before = captured_vars.len();
+
+                // println!("Vars used: {:#?}", self.vars_used);
+                // println!("Captured vars: {:#?}", captured_vars);
+                // println!("{}", lambda_function);
+                captured_vars = captured_vars
+                    .into_iter()
+                    .filter(|x| self.vars_used.contains(&x.0))
+                    .collect();
+
+                for var in info.captured_vars.keys() {
+                    if !captured_vars.contains_key(var) {
+                        slated_for_removal.push(var.clone());
+                    }
+                }
+
+                for var in slated_for_removal {
+                    info.captured_vars.remove(&var);
+                }
+
+                // println!("Captured vars dropped: {}", before - captured_vars.len());
+            }
+
             for (var, value) in captured_vars {
                 info.captured_vars.get_mut(var.as_str()).map(|x| {
                     // if !(!x.captured_from_enclosing && value.captured_from_enclosing) {
@@ -2376,12 +2402,13 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
                     if ident_info.depth > 1 {
                         if !info.captured_vars.is_empty() {
                             log::info!(
-                                    "Found a local function which captures variables: {} - captures vars: {:#?}",
-                                    define.name,
-                                    info.captured_vars
-                                );
+                            target: "lambda-lifting",
+                                "Found a local function which captures variables: {} - captures vars: {:#?}",
+                                define.name,
+                                info.captured_vars
+                            );
                         } else {
-                            log::info!("Found a pure local function: {}", define.name);
+                            log::info!(target: "lambda-lifting", "Found a pure local function: {}", define.name);
                             functions.push((
                                 index,
                                 define.name.atom_identifier().unwrap().to_string(),
