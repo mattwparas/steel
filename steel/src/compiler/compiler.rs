@@ -583,76 +583,76 @@ impl Compiler {
 
     // This only works at the top level
     // structs then cannot work inside nested scoped
-    pub fn extract_structs(
-        &mut self,
-        exprs: Vec<ExprKind>,
-        results: &mut Vec<Vec<DenseInstruction>>,
-    ) -> Result<Vec<ExprKind>> {
-        let mut non_structs = Vec::new();
-        let mut struct_instructions = Vec::new();
-        for expr in exprs {
-            if let ExprKind::Struct(s) = expr {
-                let builder = StructFuncBuilder::generate_from_ast(&s)?;
+    // pub fn extract_structs(
+    //     &mut self,
+    //     exprs: Vec<ExprKind>,
+    //     results: &mut Vec<Vec<DenseInstruction>>,
+    // ) -> Result<Vec<ExprKind>> {
+    //     let mut non_structs = Vec::new();
+    //     let mut struct_instructions = Vec::new();
+    //     for expr in exprs {
+    //         if let ExprKind::Struct(s) = expr {
+    //             let builder = StructFuncBuilder::generate_from_ast(&s)?;
 
-                // Add the eventual function names to the symbol map
-                let indices = self.symbol_map.insert_struct_function_names(&builder);
+    //             // Add the eventual function names to the symbol map
+    //             let indices = self.symbol_map.insert_struct_function_names(&builder);
 
-                // Get the value we're going to add to the constant map for eventual use
-                // Throw the bindings in as well
-                let constant_values = builder.to_constant_val(indices);
-                let idx = self.constant_map.add_or_get(constant_values);
+    //             // Get the value we're going to add to the constant map for eventual use
+    //             // Throw the bindings in as well
+    //             let constant_values = builder.to_constant_val(indices);
+    //             let idx = self.constant_map.add_or_get(constant_values);
 
-                struct_instructions
-                    .push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
-            } else {
-                non_structs.push(expr);
-            }
-        }
+    //             struct_instructions
+    //                 .push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
+    //         } else {
+    //             non_structs.push(expr);
+    //         }
+    //     }
 
-        // TODO -> don't densify the results, push directly onto instruction set
-        for instruction_set in struct_instructions {
-            results.push(densify(instruction_set))
-        }
+    //     // TODO -> don't densify the results, push directly onto instruction set
+    //     for instruction_set in struct_instructions {
+    //         results.push(densify(instruction_set))
+    //     }
 
-        // for instruction in densify(struct_instructions) {
-        //     results.push(vec![instruction])
-        // }
+    //     // for instruction in densify(struct_instructions) {
+    //     //     results.push(vec![instruction])
+    //     // }
 
-        Ok(non_structs)
-    }
+    //     Ok(non_structs)
+    // }
 
-    fn debug_extract_structs(
-        &mut self,
-        exprs: Vec<ExprKind>,
-        results: &mut Vec<Vec<Instruction>>,
-    ) -> Result<Vec<ExprKind>> {
-        let mut non_structs = Vec::new();
-        let mut struct_instructions = Vec::new();
-        for expr in exprs {
-            if let ExprKind::Struct(s) = expr {
-                let builder = StructFuncBuilder::generate_from_ast(&s)?;
+    // fn debug_extract_structs(
+    //     &mut self,
+    //     exprs: Vec<ExprKind>,
+    //     results: &mut Vec<Vec<Instruction>>,
+    // ) -> Result<Vec<ExprKind>> {
+    //     let mut non_structs = Vec::new();
+    //     let mut struct_instructions = Vec::new();
+    //     for expr in exprs {
+    //         if let ExprKind::Struct(s) = expr {
+    //             let builder = StructFuncBuilder::generate_from_ast(&s)?;
 
-                // Add the eventual function names to the symbol map
-                let indices = self.symbol_map.insert_struct_function_names(&builder);
+    //             // Add the eventual function names to the symbol map
+    //             let indices = self.symbol_map.insert_struct_function_names(&builder);
 
-                // Get the value we're going to add to the constant map for eventual use
-                // Throw the bindings in as well
-                let constant_values = builder.to_constant_val(indices);
-                let idx = self.constant_map.add_or_get(constant_values);
+    //             // Get the value we're going to add to the constant map for eventual use
+    //             // Throw the bindings in as well
+    //             let constant_values = builder.to_constant_val(indices);
+    //             let idx = self.constant_map.add_or_get(constant_values);
 
-                struct_instructions
-                    .push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
-            } else {
-                non_structs.push(expr);
-            }
-        }
+    //             struct_instructions
+    //                 .push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
+    //         } else {
+    //             non_structs.push(expr);
+    //         }
+    //     }
 
-        for instruction_set in struct_instructions {
-            results.push(instruction_set)
-        }
+    //     for instruction_set in struct_instructions {
+    //         results.push(instruction_set)
+    //     }
 
-        Ok(non_structs)
-    }
+    //     Ok(non_structs)
+    // }
 
     fn generate_instructions_for_executable(
         &mut self,

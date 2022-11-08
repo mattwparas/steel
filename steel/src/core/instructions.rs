@@ -36,15 +36,6 @@ impl Instruction {
             constant: false,
         }
     }
-
-    pub fn new_struct(idx: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::STRUCT,
-            payload_size: idx,
-            contents: None,
-            constant: true,
-        }
-    }
 }
 
 // Want to turn a steel struct directly into this struct

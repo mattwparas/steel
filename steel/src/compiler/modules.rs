@@ -503,18 +503,18 @@ impl<'a> ModuleBuilder<'a> {
         // TODO -> qualified requires as well
         // qualified requires should be able to adjust the names of the exported functions
 
-        for require in &self.requires {
-            // @Matt 10/8/22
-            // Here, instead of building out the entire AST node, just insert a reference to the module at the top level
-            // Something like: (require <module_name>)
+        // for require in &self.requires {
+        // @Matt 10/8/22
+        // Here, instead of building out the entire AST node, just insert a reference to the module at the top level
+        // Something like: (require <module_name>)
 
-            // let m = self
-            //     .compiled_modules
-            //     .get(require)
-            //     .unwrap()
-            //     .to_module_ast_node();
-            // requires.push(m);
-        }
+        // let m = self
+        //     .compiled_modules
+        //     .get(require)
+        //     .unwrap()
+        //     .to_module_ast_node();
+        // requires.push(m);
+        // }
 
         info!(
             "Into compiled module: provides for syntax: {:?}",

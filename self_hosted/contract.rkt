@@ -10,9 +10,12 @@
 ;; Alias the name for clarity
 (define make-flat-contract FlatContract)
 
-
+;; Contract Attachment - use this for understanding where something happened
 (new-make-struct ContractAttachmentLocation (type name))
 
+;; Function Contract - keep track of preconditions and post conditions, where the contract was attached,
+;; and a pointer to the parent contract. Can probably replace parent with just a list of the parents since it can be shared
+;; directly
 (new-make-struct FunctionContract (pre-conditions 
                                post-condition 
                                contract-attachment-location 

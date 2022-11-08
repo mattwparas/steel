@@ -7,15 +7,14 @@ use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::Instruction, opcode::OpCode},
     parser::parser::{ParseError, Parser},
-    stop,
-    SteelVal,
+    stop, SteelVal,
 };
 use crate::{core::instructions::DenseInstruction, parser::span::Span};
 use crate::{rvals::Result, values::structs::StructFuncBuilderConcrete};
 use log::{debug, log_enabled};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap},
+    collections::HashMap,
     convert::{TryFrom, TryInto},
     rc::Rc,
     time::{Instant, SystemTime},
@@ -759,17 +758,17 @@ impl RawProgramWithSymbols {
 
         let mut struct_instructions = Vec::new();
 
-        for builder in &self.struct_functions {
-            // Add the eventual function names to the symbol map
-            let indices = symbol_map.insert_struct_function_names_from_concrete(builder);
+        // for builder in &self.struct_functions {
+        //     // Add the eventual function names to the symbol map
+        //     let indices = symbol_map.insert_struct_function_names_from_concrete(builder);
 
-            // Get the value we're going to add to the constant map for eventual use
-            // Throw the bindings in as well
-            let constant_values = builder.to_constant_val(indices);
-            let idx = self.constant_map.add_or_get(constant_values);
+        //     // Get the value we're going to add to the constant map for eventual use
+        //     // Throw the bindings in as well
+        //     let constant_values = builder.to_constant_val(indices);
+        //     let idx = self.constant_map.add_or_get(constant_values);
 
-            struct_instructions.push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
-        }
+        //     struct_instructions.push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
+        // }
 
         let mut interner = DebruijnIndicesInterner::default();
 
@@ -824,17 +823,17 @@ impl RawProgramWithSymbols {
 
         let mut struct_instructions = Vec::new();
 
-        for builder in &self.struct_functions {
-            // Add the eventual function names to the symbol map
-            let indices = symbol_map.insert_struct_function_names_from_concrete(builder);
+        // for builder in &self.struct_functions {
+        //     // Add the eventual function names to the symbol map
+        //     let indices = symbol_map.insert_struct_function_names_from_concrete(builder);
 
-            // Get the value we're going to add to the constant map for eventual use
-            // Throw the bindings in as well
-            let constant_values = builder.to_constant_val(indices);
-            let idx = self.constant_map.add_or_get(constant_values);
+        //     // Get the value we're going to add to the constant map for eventual use
+        //     // Throw the bindings in as well
+        //     let constant_values = builder.to_constant_val(indices);
+        //     let idx = self.constant_map.add_or_get(constant_values);
 
-            struct_instructions.push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
-        }
+        //     struct_instructions.push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
+        // }
 
         let mut interner = DebruijnIndicesInterner::default();
 

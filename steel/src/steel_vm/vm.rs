@@ -930,27 +930,27 @@ impl<'a> VmCore<'a> {
                     self.stack.push(SteelVal::Void);
                     self.ip += 1;
                 }
-                DenseInstruction {
-                    op_code: OpCode::STRUCT,
-                    payload_size,
-                    ..
-                } => {
-                    // For now, only allow structs at the top level
-                    // In the future, allow structs to be also available in a nested scope
-                    self.handle_struct(payload_size as usize)?;
-                    self.stack.push(SteelVal::Void);
-                    self.ip += 1;
-                    // return Ok(SteelVal::Void);
-                }
-                DenseInstruction {
-                    op_code: OpCode::INNERSTRUCT,
-                    payload_size,
-                    ..
-                } => {
-                    self.handle_inner_struct(payload_size as usize)?;
-                    self.stack.push(SteelVal::Void);
-                    self.ip += 1;
-                }
+                // DenseInstruction {
+                //     op_code: OpCode::STRUCT,
+                //     payload_size,
+                //     ..
+                // } => {
+                //     // For now, only allow structs at the top level
+                //     // In the future, allow structs to be also available in a nested scope
+                //     self.handle_struct(payload_size as usize)?;
+                //     self.stack.push(SteelVal::Void);
+                //     self.ip += 1;
+                //     // return Ok(SteelVal::Void);
+                // }
+                // DenseInstruction {
+                //     op_code: OpCode::INNERSTRUCT,
+                //     payload_size,
+                //     ..
+                // } => {
+                //     self.handle_inner_struct(payload_size as usize)?;
+                //     self.stack.push(SteelVal::Void);
+                //     self.ip += 1;
+                // }
                 DenseInstruction {
                     op_code: OpCode::SET,
                     payload_size,
@@ -1545,106 +1545,106 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn handle_struct(&mut self, offset: usize) -> Result<()> {
-        let val = self.constants.get(offset);
+    // fn handle_struct(&mut self, offset: usize) -> Result<()> {
+    //     let val = self.constants.get(offset);
 
-        let mut iter = if let SteelVal::ListV(l) = val {
-            l.into_iter()
-        } else {
-            stop!(Generic => "ICE: Struct expected a list");
-        };
+    //     let mut iter = if let SteelVal::ListV(l) = val {
+    //         l.into_iter()
+    //     } else {
+    //         stop!(Generic => "ICE: Struct expected a list");
+    //     };
 
-        // List of indices e.g. '(25 26 27 28) to bind struct functions to
-        let indices = iter.next().unwrap();
+    //     // List of indices e.g. '(25 26 27 28) to bind struct functions to
+    //     let indices = iter.next().unwrap();
 
-        // The name of the struct
-        let name: String = if let SteelVal::StringV(s) = iter.next().unwrap() {
-            s.to_string()
-        } else {
-            stop!( Generic => "ICE: Struct expected a string name")
-        };
+    //     // The name of the struct
+    //     let name: String = if let SteelVal::StringV(s) = iter.next().unwrap() {
+    //         s.to_string()
+    //     } else {
+    //         stop!( Generic => "ICE: Struct expected a string name")
+    //     };
 
-        // The fields of the structs
-        let fields: Vec<Rc<str>> = iter
-            .map(|x| {
-                if let SteelVal::StringV(s) = x {
-                    Ok(s)
-                } else {
-                    stop!(Generic => "ICE: Struct encoded improperly with non string fields")
-                }
-            })
-            .collect::<Result<Vec<_>>>()?;
+    //     // The fields of the structs
+    //     let fields: Vec<Rc<str>> = iter
+    //         .map(|x| {
+    //             if let SteelVal::StringV(s) = x {
+    //                 Ok(s)
+    //             } else {
+    //                 stop!(Generic => "ICE: Struct encoded improperly with non string fields")
+    //             }
+    //         })
+    //         .collect::<Result<Vec<_>>>()?;
 
-        // Get them as &str for now
-        let other_fields: Vec<&str> = fields.iter().map(|x| x.as_ref()).collect();
+    //     // Get them as &str for now
+    //     let other_fields: Vec<&str> = fields.iter().map(|x| x.as_ref()).collect();
 
-        // Generate the functions, but they immediately override them with the names
-        // Store them with the indices
-        let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
+    //     // Generate the functions, but they immediately override them with the names
+    //     // Store them with the indices
+    //     let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
 
-        let index_iter = if let SteelVal::ListV(l) = indices {
-            l.into_iter()
-        } else {
-            stop!(Generic => "ICE: Struct expected a list");
-        };
+    //     let index_iter = if let SteelVal::ListV(l) = indices {
+    //         l.into_iter()
+    //     } else {
+    //         stop!(Generic => "ICE: Struct expected a list");
+    //     };
 
-        for ((_, func), idx) in funcs.into_iter().zip(index_iter) {
-            let idx = if let SteelVal::IntV(idx) = idx {
-                idx as usize
-            } else {
-                stop!(Generic => "Index wrong in structs")
-            };
+    //     for ((_, func), idx) in funcs.into_iter().zip(index_iter) {
+    //         let idx = if let SteelVal::IntV(idx) = idx {
+    //             idx as usize
+    //         } else {
+    //             stop!(Generic => "Index wrong in structs")
+    //         };
 
-            self.global_env.repl_define_idx(idx, func);
-        }
-        Ok(())
-    }
+    //         self.global_env.repl_define_idx(idx, func);
+    //     }
+    //     Ok(())
+    // }
 
     // #[inline(always)]
-    fn handle_inner_struct(&mut self, offset: usize) -> Result<()> {
-        let val = self.constants.get(offset);
+    // fn handle_inner_struct(&mut self, offset: usize) -> Result<()> {
+    //     let val = self.constants.get(offset);
 
-        let mut iter = if let SteelVal::ListV(l) = val {
-            l.into_iter()
-        } else {
-            stop!(Generic => "ICE: Struct expected a list");
-        };
+    //     let mut iter = if let SteelVal::ListV(l) = val {
+    //         l.into_iter()
+    //     } else {
+    //         stop!(Generic => "ICE: Struct expected a list");
+    //     };
 
-        // List of indices e.g. '(25 26 27 28) to bind struct functions to
-        let _ = iter.next().unwrap();
+    //     // List of indices e.g. '(25 26 27 28) to bind struct functions to
+    //     let _ = iter.next().unwrap();
 
-        // The name of the struct
-        let name: String = if let SteelVal::StringV(s) = iter.next().unwrap() {
-            s.to_string()
-        } else {
-            stop!( Generic => "ICE: Struct expected a string name")
-        };
+    //     // The name of the struct
+    //     let name: String = if let SteelVal::StringV(s) = iter.next().unwrap() {
+    //         s.to_string()
+    //     } else {
+    //         stop!( Generic => "ICE: Struct expected a string name")
+    //     };
 
-        // The fields of the structs
-        let fields: Vec<Rc<str>> = iter
-            .map(|x| {
-                if let SteelVal::StringV(s) = x {
-                    Ok(s)
-                } else {
-                    stop!(Generic => "ICE: Struct encoded improperly with non string fields")
-                }
-            })
-            .collect::<Result<Vec<_>>>()?;
+    //     // The fields of the structs
+    //     let fields: Vec<Rc<str>> = iter
+    //         .map(|x| {
+    //             if let SteelVal::StringV(s) = x {
+    //                 Ok(s)
+    //             } else {
+    //                 stop!(Generic => "ICE: Struct encoded improperly with non string fields")
+    //             }
+    //         })
+    //         .collect::<Result<Vec<_>>>()?;
 
-        // Get them as &str for now
-        let other_fields: Vec<&str> = fields.iter().map(|x| x.as_ref()).collect();
+    //     // Get them as &str for now
+    //     let other_fields: Vec<&str> = fields.iter().map(|x| x.as_ref()).collect();
 
-        // Generate the functions, but they immediately override them with the names
-        // Store them with the indices
-        let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
+    //     // Generate the functions, but they immediately override them with the names
+    //     // Store them with the indices
+    //     let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
 
-        // We've mapped in the compiler _where_ locals are going to be (on the stack), just put them there
-        for (_, func) in funcs {
-            self.stack.push(func);
-        }
+    //     // We've mapped in the compiler _where_ locals are going to be (on the stack), just put them there
+    //     for (_, func) in funcs {
+    //         self.stack.push(func);
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     // #[inline(always)]
     fn handle_set(&mut self, index: usize) -> Result<()> {
@@ -1763,7 +1763,6 @@ impl<'a> VmCore<'a> {
             let constructed_lambda = Gc::new(ByteCodeLambda::new(
                 closure_body,
                 arity as usize,
-                false,
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),
@@ -1824,11 +1823,18 @@ impl<'a> VmCore<'a> {
         let forward_index = self.ip + forward_jump;
 
         // Insert metadata
+        // TODO: We probably can get a bit better than this.
+        // A lot of the captures are static, I'm not quite sure we necessarily need to patch down _every_ single one
+        // each time, especially since each lambda is a standalone instance of this.
+
+        let guard = self.function_stack.last().unwrap();
+        let stack_index = self.stack_index.last().copied().unwrap_or(0);
+
         for _ in 0..ndefs {
             let instr = self.instructions[self.ip];
             match (instr.op_code, instr.payload_size) {
                 (OpCode::COPYCAPTURESTACK, n) => {
-                    let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let offset = stack_index;
                     let value = self.stack[n as usize + offset].clone();
                     captures.push(value);
                 }
@@ -1838,115 +1844,21 @@ impl<'a> VmCore<'a> {
                         "Trying to capture from closure that doesn't exist",
                     );
 
-                    debug_assert!(
-                        (n as usize) < self.function_stack.last().unwrap().captures().len()
-                    );
+                    debug_assert!((n as usize) < guard.captures().len());
 
-                    let value = self.function_stack.last().unwrap().captures()[n as usize].clone();
+                    let value = guard.captures()[n as usize].clone();
 
                     captures.push(value);
                 }
+                // TODO: Try adding these to the cache. i.e. -> if we're doing a copyheapcaptureclosure, we actually just don't
+                // need to do this step at all each time.
+                // Looks like all COPYHEAPCAPTURECLOSURE(s) happen at the start. So we should be able to store those
+                // Directly
                 (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
-                    // println!("Copying heap capture from index: {}", n);
-                    // println!(
-                    //     "Length of heap allocated of parent: {}",
-                    //     self.function_stack
-                    //         .last()
-                    //         .unwrap()
-                    //         .heap_allocated()
-                    //         .borrow()
-                    //         .len()
-                    // );
-
-                    // let last_arg_count = self.function_stack.last().unwrap().arity();
-                    // println!("Last arg count: {}", last_arg_count);
-
-                    // println!(
-                    //     "heap allocated here: {:?}",
-                    //     self.function_stack
-                    //         .last()
-                    //         .unwrap()
-                    //         .heap_allocated()
-                    //         .borrow()
-                    //         .iter()
-                    //         .map(|x| x.get())
-                    //         .collect::<Vec<_>>()
-                    // );
-                    // println!("heap vars: {:?}", heap_vars);
-
-                    // if
-
-                    // if (n as usize)
-                    //     < self
-                    //         .function_stack
-                    //         .last()
-                    //         .unwrap()
-                    //         .heap_allocated()
-                    //         .borrow()
-                    //         .len()
-                    // {
-                    //     stop!(Generic => "index out of bounds"; self.spans[span]);
-                    // }
-
-                    heap_vars.push(
-                        self.function_stack
-                            .last()
-                            .unwrap()
-                            .heap_allocated()
-                            .borrow()[n as usize]
-                            .clone(),
-                    );
+                    heap_vars.push(guard.heap_allocated().borrow()[n as usize].clone());
                 }
                 (OpCode::FIRSTCOPYHEAPCAPTURECLOSURE, n) => {
-                    // println!("first Copying heap capture from index: {}", n);
-                    // println!(
-                    //     "Length of heap allocated of parent: {}",
-                    //     self.function_stack
-                    //         .last()
-                    //         .unwrap()
-                    //         .heap_allocated()
-                    //         .borrow()
-                    //         .len()
-                    // );
-
-                    // let last_arg_count = self.function_stack.last().unwrap().arity();
-                    // println!("Last arg count: {}", last_arg_count);
-
-                    // println!(
-                    //     "heap allocated here: {:?}",
-                    //     self.function_stack
-                    //         .last()
-                    //         .unwrap()
-                    //         .heap_allocated()
-                    //         .borrow()
-                    //         .iter()
-                    //         .map(|x| x.get())
-                    //         .collect::<Vec<_>>()
-                    // );
-                    // println!("heap vars: {:?}", heap_vars);
-
-                    // if
-
-                    // if (n as usize)
-                    //     < self
-                    //         .function_stack
-                    //         .last()
-                    //         .unwrap()
-                    //         .heap_allocated()
-                    //         .borrow()
-                    //         .len()
-                    // {
-                    //     stop!(Generic => "index out of bounds"; self.spans[span]);
-                    // }
-
-                    heap_vars.push(
-                        self.function_stack
-                            .last()
-                            .unwrap()
-                            .heap_allocated()
-                            .borrow()[n as usize]
-                            .clone(),
-                    );
+                    heap_vars.push(guard.heap_allocated().borrow()[n as usize].clone());
                 }
                 (l, _) => {
                     panic!(
@@ -1993,7 +1905,6 @@ impl<'a> VmCore<'a> {
             let mut constructed_lambda = ByteCodeLambda::new(
                 closure_body,
                 arity as usize,
-                false,
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),

@@ -32,7 +32,6 @@ pub struct ByteCodeLambda {
     // upvalues: Vec<Weak<RefCell<UpValue>>>,
     call_count: Cell<usize>,
     cant_be_compiled: Cell<bool>,
-    pub(crate) is_let: bool,
     pub(crate) is_multi_arity: bool,
     captures: Vec<SteelVal>,
     pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
@@ -58,7 +57,6 @@ impl ByteCodeLambda {
     pub fn new(
         body_exp: Vec<DenseInstruction>,
         arity: usize,
-        is_let: bool,
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
         heap_allocated: Vec<HeapRef>,
@@ -68,7 +66,6 @@ impl ByteCodeLambda {
             arity,
             call_count: Cell::new(0),
             cant_be_compiled: Cell::new(false),
-            is_let,
             is_multi_arity,
             captures,
             // TODO: Allocated the necessary size right away <- we're going to index into it
