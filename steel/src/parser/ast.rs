@@ -51,6 +51,21 @@ pub enum ExprKind {
     // CallCC(Box<CallCC>),
 }
 
+#[macro_export]
+macro_rules! expr_list {
+    () => { $crate::parser::ast::ExprKind::List($crate::parser::ast::List::new(vec![])) };
+
+    ( $($x:expr),* ) => {{
+        $crate::parser::ast::ExprKind::List($crate::parser::ast::List::new(vec![$(
+            $x,
+        ) *]))
+    }};
+
+    ( $($x:expr ,)* ) => {{
+        $crate::parser::ast::ExprKind::List($crate::parser::ast::List::new(vec![$($x, )*]))
+    }};
+}
+
 impl ExprKind {
     pub fn empty() -> ExprKind {
         ExprKind::List(List::new(Vec::new()))
@@ -67,6 +82,33 @@ impl ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
             name,
         ))))
+    }
+
+    pub fn ident(name: &str) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+            name.to_string(),
+        ))))
+    }
+
+    pub fn string_lit(input: String) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::StringLiteral(
+            input,
+        ))))
+    }
+
+    pub fn bool_lit(b: bool) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::BooleanLiteral(
+            b,
+        ))))
+    }
+
+    pub fn default_if(test: ExprKind, then: ExprKind, els: ExprKind) -> ExprKind {
+        ExprKind::If(Box::new(If::new(
+            test,
+            then,
+            els,
+            SyntaxObject::default(TokenType::If),
+        )))
     }
 
     pub fn atom_syntax_object(&self) -> Option<&SyntaxObject> {

@@ -1,10 +1,15 @@
-use crate::parser::parser::SyntaxObject;
+use itertools::Itertools;
+
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
 use crate::rvals::Result;
+use crate::{expr_list, parser::parser::SyntaxObject};
 use crate::{parser::ast::ExprKind, steel_vm::builtin::BuiltInModule};
 
-use super::{ast::Atom, kernel::Kernel};
+use super::{
+    ast::{Atom, If, LambdaFunction, List, Quote},
+    kernel::Kernel,
+};
 
 use std::collections::HashMap;
 
@@ -257,9 +262,162 @@ fn expand_default_arguments(
 }
 
 fn expand_keyword_arguments(
-    _lambda_function: Box<super::ast::LambdaFunction>,
+    lambda_function: Box<super::ast::LambdaFunction>,
 ) -> Result<Box<super::ast::LambdaFunction>> {
-    todo!()
+    // todo!()
+
+    // TODO: Can partition these directly into the two groups
+    let keyword_args: Vec<&ExprKind> = lambda_function
+        .args
+        .iter()
+        .skip_while(|x| {
+            !matches!(
+                x,
+                ExprKind::Atom(Atom {
+                    syn: SyntaxObject {
+                        ty: TokenType::Keyword(_),
+                        ..
+                    }
+                })
+            )
+        })
+        .collect();
+
+    // Bail out if theres no keyword args
+    if keyword_args.is_empty() {
+        return Ok(lambda_function);
+    }
+
+    if keyword_args.len() % 2 != 0 {
+        stop!(Generic => "keyword arguments malformed - each option requires a value"; lambda_function.location.span)
+    }
+
+    let mut non_keyword_args: Vec<ExprKind> = lambda_function
+        .args
+        .iter()
+        .take_while(|x| {
+            !matches!(
+                x,
+                ExprKind::Atom(Atom {
+                    syn: SyntaxObject {
+                        ty: TokenType::Keyword(_),
+                        ..
+                    }
+                })
+            )
+        })
+        .cloned()
+        .collect();
+
+    // From the keyword args, group them into pairs
+    let keyword_map = keyword_args
+        .into_iter()
+        .chunks(2)
+        .into_iter()
+        .map(|mut x| (x.next().unwrap(), x.next().unwrap()))
+        .collect::<Vec<_>>();
+
+    if !keyword_map.iter().map(|x| x.0).all(|x| {
+        matches!(
+            x,
+            ExprKind::Atom(Atom {
+                syn: SyntaxObject {
+                    ty: TokenType::Keyword(_),
+                    ..
+                }
+            })
+        )
+    }) {
+        stop!(Generic => "Non keyword arguments found after the first keyword argument"; lambda_function.location.span)
+    }
+
+    let bindings = keyword_map
+        .into_iter()
+        .map(|x| {
+            let keyword = x.0;
+            let original_var_name = x.1;
+
+            // This is a bit wasteful... come back to this
+            let (var_name, expr) = if let ExprKind::List(l) = original_var_name {
+                (l[0].clone(), l[1].clone())
+            } else {
+                (original_var_name.clone(), original_var_name.clone())
+            };
+
+            println!("{:?}", original_var_name);
+
+            // TODO: Go here to implement default arguments
+            let expression = ExprKind::default_if(
+                expr_list![
+                    ExprKind::ident("hash-contains?"),
+                    ExprKind::ident("!!dummy-rest-arg!!"),
+                    ExprKind::Quote(Box::new(Quote::new(
+                        keyword.clone(),
+                        lambda_function.location.clone(),
+                    ))),
+                ],
+                var_name.clone(),
+                ExprKind::default_if(
+                    ExprKind::bool_lit(matches!(original_var_name, ExprKind::List(_))),
+                    expr,
+                    expr_list![
+                        ExprKind::ident("error!"),
+                        ExprKind::string_lit(format!(
+                            "Function application missing required keyword argument: {}",
+                            keyword
+                        ))
+                    ],
+                ),
+            );
+
+            let func = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                vec![var_name.clone()],
+                expression,
+                SyntaxObject::default(TokenType::Lambda),
+            )));
+
+            let application = expr_list![
+                func,
+                expr_list![
+                    ExprKind::ident("hash-try-get"),
+                    ExprKind::ident("!!dummy-rest-arg!!"),
+                    ExprKind::Quote(Box::new(Quote::new(
+                        keyword.clone(),
+                        lambda_function.location.clone(),
+                    ))),
+                ],
+            ];
+
+            (var_name, application)
+        })
+        .collect::<Vec<_>>();
+
+    non_keyword_args.push(ExprKind::ident("!!dummy-rest-arg!!"));
+
+    let mut inner_application = vec![ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+        bindings.iter().map(|x| x.0.clone()).collect(),
+        lambda_function.body.clone(),
+        SyntaxObject::default(TokenType::Lambda),
+    )))];
+
+    inner_application.extend(bindings.iter().map(|x| x.1.clone()));
+
+    Ok(Box::new(LambdaFunction::new_with_rest_arg(
+        non_keyword_args,
+        expr_list![
+            ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+                vec![ExprKind::ident("!!dummy-rest-arg!!")],
+                ExprKind::List(List::new(inner_application)),
+                SyntaxObject::default(TokenType::Lambda),
+            ))),
+            expr_list![
+                ExprKind::ident("apply"),
+                ExprKind::ident("hash"),
+                ExprKind::ident("!!dummy-rest-arg!!"),
+            ],
+        ],
+        SyntaxObject::default(TokenType::Lambda),
+    )))
 }
 
 impl<'a> ConsumingVisitor for KernelExpander<'a> {
@@ -287,6 +445,9 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         // There needs to be
 
         lambda_function.body = self.visit(lambda_function.body)?;
+
+        // Expand keyword arguments if we can
+        lambda_function = expand_keyword_arguments(lambda_function)?;
 
         // Expand default arguments here
 

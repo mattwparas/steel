@@ -38,6 +38,15 @@
    (combine-local-and-parent-fields fields parents)
    methods))
 
+(define (Make-Class 
+               name 
+               #:fields (fields '())  
+               #:methods (methods '())
+               #:parents (parents '()) 
+               #:interfaces (interfaces '()))
+    (Class name parents interfaces fields methods))
+
+
 (define (contains-duplicates? lst)
   (not
    (equal? (hashset-length (apply hashset lst))
@@ -231,3 +240,12 @@
                     (hash
                      'smelly (lambda (self) "Smelly!")
                      'icky (lambda (self) "Icky!"))))
+
+
+(define New-Worm (Make-Class 'Worm
+                    #:parents (list Dog)
+                    #:interfaces (list Stinky)
+                    #:methods 
+                      (hash
+                        'smelly (lambda (self) "Smelly!")
+                        'icky (lambda (self) "Icky!"))))

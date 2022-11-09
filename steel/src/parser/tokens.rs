@@ -261,7 +261,7 @@ impl fmt::Display for TokenType {
             NumberLiteral(x) => write!(f, "{:?}", x),
             IntegerLiteral(x) => write!(f, "{}", x),
             StringLiteral(x) => write!(f, "\"{}\"", x),
-            Keyword(x) => write!(f, "#:{}", x),
+            Keyword(x) => write!(f, "{}", x),
             QuoteTick => write!(f, "'"),
             Unquote => write!(f, ","),
             QuasiQuote => write!(f, "`"),

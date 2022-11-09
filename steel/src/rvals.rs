@@ -1213,7 +1213,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         }
         Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
         StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
-        CustomStruct(s) => write!(f, "#<{:p}: {:?}>", s, s),
+        CustomStruct(s) => write!(f, "#<{:p}: {:#?}>", s, s),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
         HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),

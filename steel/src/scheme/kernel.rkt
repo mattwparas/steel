@@ -311,21 +311,28 @@
     (when (not (all keyword? (hash-keys->list keyword-map)))
       (error! "Non keyword arguments found after the first keyword argument"))
 
-    (define bindings (transduce 
-                      keyword-map
-                       (mapping (lambda (x)
-                            (let* ((keyword (list-ref x 0))
-                                   (original-var-name (list-ref x 1))
-                                   (expr (if (pair? original-var-name) (list-ref original-var-name 1) original-var-name))
-                                   (var-name (if (pair? original-var-name) (list-ref original-var-name 0) original-var-name)))
+    (define bindings 
+      (transduce 
+            keyword-map
+            (mapping (lambda (x)
+                (let* ((keyword (list-ref x 0))
+                        (original-var-name (list-ref x 1))
+                        (expr (if (pair? original-var-name) 
+                                  (list-ref original-var-name 1) 
+                                  original-var-name))
+                        (var-name (if (pair? original-var-name) 
+                                  (list-ref original-var-name 0) 
+                                  original-var-name)))
 
-                                `(,var-name (let ((,var-name (hash-try-get !!dummy-rest-arg!! (quote ,keyword))))
-                                              (if (hash-contains? !!dummy-rest-arg!! (quote ,keyword))
-                                                  ,var-name
-                                                  (if 
-                                                    ,(pair? original-var-name) 
-                                                    ,expr 
-                                                    (error! "Function application missing required keyword argument: " (quote ,keyword)))))))))
+                    `(,var-name (let ((,var-name (hash-try-get !!dummy-rest-arg!! (quote ,keyword))))
+                                  (if (hash-contains? !!dummy-rest-arg!! (quote ,keyword))
+                                      ,var-name
+                                      (if 
+                                        ,(pair? original-var-name) 
+                                        ,expr 
+                                        (error! 
+                                          "Function application missing required keyword argument: " 
+                                          (quote ,keyword)))))))))
                        (into-list)))
 
     `(lambda (,@non-keyword-args . !!dummy-rest-arg!!)

@@ -1969,10 +1969,10 @@ impl<'a> VmCore<'a> {
         let mut new_arity = payload_size;
 
         if closure.is_multi_arity {
-            println!(
-                "multi closure function, multi arity, arity: {:?}",
-                closure.arity()
-            );
+            // println!(
+            //     "multi closure function, multi arity, arity: {:?}",
+            //     closure.arity()
+            // );
 
             if payload_size < closure.arity() - 1 {
                 stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
@@ -1992,7 +1992,7 @@ impl<'a> VmCore<'a> {
 
             new_arity = closure.arity();
 
-            println!("Stack after list conversion: {:?}", self.stack);
+            // println!("Stack after list conversion: {:?}", self.stack);
         } else if closure.arity() != payload_size {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
         }
