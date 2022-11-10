@@ -2497,7 +2497,7 @@ impl<'a> VmCore<'a> {
         // }
 
         if closure.is_multi_arity {
-            println!("Arity: {}", closure.arity());
+            // println!("Arity: {}", closure.arity());
 
             if payload_size < closure.arity() - 1 {
                 stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());

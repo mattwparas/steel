@@ -23,6 +23,7 @@ impl ContractedFunction {
         {
             let mut parent = self.contract.parent();
             while let Some(p) = parent {
+                println!("Applying parents");
                 p.apply(&self.name, &self.function, &arguments, cur_inst_span, ctx)?;
 
                 parent = p.parent()
