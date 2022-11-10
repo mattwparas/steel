@@ -49,8 +49,7 @@ pub fn zipping(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     match &args[0] {
-        VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | StructV(_) | HashSetV(_)
-        | HashMapV(_) => {
+        VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
             let mut transducer = Transducer::new();
             transducer.push(Transducers::Zipping(args[0].clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
@@ -67,8 +66,7 @@ pub fn interleaving(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     match &args[0] {
-        VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | StructV(_) | HashSetV(_)
-        | HashMapV(_) => {
+        VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
             let mut transducer = Transducer::new();
             transducer.push(Transducers::Interleaving(args[0].clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
@@ -105,8 +103,7 @@ pub fn extending(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     match &args[0] {
-        VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | StructV(_) | HashSetV(_)
-        | HashMapV(_) => {
+        VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
             let mut transducer = Transducer::new();
             transducer.push(Transducers::Extend(args[0].clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))

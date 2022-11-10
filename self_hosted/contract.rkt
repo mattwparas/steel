@@ -220,6 +220,7 @@
     ; (displayln "Calling apply - Applying function")
     ; (displayln function)
     ; (displayln validated-arguments)
+    (displayln "Calling the function itself!")
     (let ((output (apply function validated-arguments))
           (self-contract contract)
           (self-contract-attachment-location (FunctionContract-contract-attachment-location contract))
@@ -227,19 +228,23 @@
       (cond [(FlatContract? contract)
              =>
              (displayln "applying flat contract in post condition")
-             (displayln contract)
-             (displayln function)
+             (displayln (FlatContract-name contract))
+            ;  (displayln function)
 
              (let ((result (apply-flat-contract contract output)))
-               (displayln "OUTPUT")
+               (displayln "Flat contract OUTPUT")
                (displayln output)
+               (displayln result)
                (if (ContractViolation? result)
                    (let ((blame-location
                           (if (void? self-contract-attachment-location)
                               name
                               self-contract-attachment-location)))
 
-                    ;  (displayln self-contract-attachment-location)
+                     (displayln "GETTING HERE")
+
+                     (displayln self-contract-attachment-location)
+                     (displayln (void? blame-location))
 
                      (cond [(void? blame-location) =>
                                                    (error-with-span
@@ -248,11 +253,12 @@
                                                     (contract->string self-contract) (ContractViolation-error-message result) "blaming: None - broke its own contract")]
 
                            [else =>
+                                 (displayln "Inside here!")
                                  (error-with-span
                                   span
                                   "this function call resulted in an error - occurred in the range position of this contract: "
                                   (contract->string self-contract) (ContractViolation-error-message result) "blaming: "
-                                  (ContractAttachmentLocation-name blame-location))
+                                  blame-location)
 
                                  ]
 
@@ -344,7 +350,9 @@
             (FunctionContract
              updated-preconditions
              updated-postcondition
-             (ContractAttachmentLocation 'TOPLEVEL name)
+            ;  void
+            ;  (ContractAttachmentLocation 'TOPLEVEL name)
+             void
              (FunctionContract-parents contract))
             function name)))
 
@@ -416,46 +424,46 @@
 ; (blagh (lambda (x) (+ x 2)) 2)
 
 
-; (define (any? x) #true)
-; (define level1 
-;     (bind-contract-to-function
-;         (make-function-contract
-;             (make-function-contract (FlatContract int? 'int?)))
-;         (lambda () (lambda () (displayln "---------------------------------------") 10.2))
-;         'level1))
-
-; (define level2
-;     (bind-contract-to-function
-;         (make-function-contract
-;             (make-function-contract (FlatContract number? 'number?)))
-;         (lambda () (level1))
-;         'level2))
-
-; (define level3
-;     (bind-contract-to-function
-;         (make-function-contract
-;             (make-function-contract (FlatContract any? 'any?)))
-;         (lambda () (level2))
-;         'level3))
-
-; ((level3))
-
-(define x 0)
-
-(define plain-function (lambda () (displayln "CALLING PLAIN FUNCTION") 10.2))
-
+(define (any? x) #true)
 (define level1 
     (bind-contract-to-function
-        (make-function-contract (make-function-contract (FlatContract number? 'number?))
-                                (make-function-contract (FlatContract number? 'number?)))
-    (lambda (func) func)
-    'level1))
+        (make-function-contract
+            (make-function-contract (FlatContract int? 'int?)))
+        (lambda () (lambda () (displayln "---------------------------------------") 10.2))
+        'level1))
 
 (define level2
     (bind-contract-to-function
-        (make-function-contract (make-function-contract (FlatContract number? 'number?))
-                                (make-function-contract (FlatContract number? 'number?)))
-    (lambda (func) func)
-    'level2))
+        (make-function-contract
+            (make-function-contract (FlatContract number? 'number?)))
+        (lambda () (level1))
+        'level2))
 
-((level2 (level2 (level1 plain-function))))
+(define level3
+    (bind-contract-to-function
+        (make-function-contract
+            (make-function-contract (FlatContract any? 'any?)))
+        (lambda () (level2))
+        'level3))
+
+((level3))
+
+
+
+; (define plain-function (lambda () (displayln "CALLING PLAIN FUNCTION") 10.2))
+
+; (define level1 
+;     (bind-contract-to-function
+;         (make-function-contract (make-function-contract (FlatContract number? 'number?))
+;                                 (make-function-contract (FlatContract number? 'number?)))
+;     (lambda (func) func)
+;     'level1))
+
+; (define level2
+;     (bind-contract-to-function
+;         (make-function-contract (make-function-contract (FlatContract int? 'int?))
+;                                 (make-function-contract (FlatContract int? 'int?)))
+;     (lambda (func) func)
+;     'level2))
+
+; ((level2 (level2 (level1 plain-function))))

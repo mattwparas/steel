@@ -1,4 +1,5 @@
 use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
+use crate::rvals::IntoSteelVal;
 use crate::{
     parser::span::Span,
     primitives::{
@@ -14,10 +15,6 @@ use crate::{
     rerrs::ErrorKind,
     rvals::FromSteelVal,
     values::structs::{is_custom_struct, make_struct_type},
-};
-use crate::{
-    rvals::IntoSteelVal,
-    values::structs::{struct_ref, struct_to_list, struct_to_vector},
 };
 use crate::{
     rvals::{Result, SteelVal},
@@ -455,7 +452,7 @@ fn identity_module() -> BuiltInModule {
         .register_value("string?", gen_pred!(StringV))
         .register_value("symbol?", gen_pred!(SymbolV))
         .register_value("vector?", gen_pred!(VectorV))
-        .register_value("struct?", gen_pred!(StructV))
+        // .register_value("struct?", gen_pred!(StructV))
         .register_value("list?", gen_pred!(ListV))
         .register_value("hash?", gen_pred!(HashMapV))
         .register_value("mutable-vector?", gen_pred!(MutableVector))
@@ -717,9 +714,9 @@ fn sandboxed_meta_module() -> BuiltInModule {
         // .register_value("poll!", MetaOperations::poll_value())
         // .register_value("block-on", MetaOperations::block_on())
         // .register_value("join!", MetaOperations::join_futures())
-        .register_value("struct-ref", struct_ref())
-        .register_value("struct->list", struct_to_list())
-        .register_value("struct->vector", struct_to_vector())
+        // .register_value("struct-ref", struct_ref())
+        // .register_value("struct->list", struct_to_list())
+        // .register_value("struct->vector", struct_to_vector())
         .register_fn("value->string", super::meta::value_to_string)
         // .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
         // .register_value("read!", SteelVal::FuncV(super::meta::read))
@@ -759,9 +756,9 @@ fn meta_module() -> BuiltInModule {
         .register_value("poll!", MetaOperations::poll_value())
         .register_value("block-on", MetaOperations::block_on())
         .register_value("join!", MetaOperations::join_futures())
-        .register_value("struct-ref", struct_ref())
-        .register_value("struct->list", struct_to_list())
-        .register_value("struct->vector", struct_to_vector())
+        // .register_value("struct-ref", struct_ref())
+        // .register_value("struct->list", struct_to_list())
+        // .register_value("struct->vector", struct_to_vector())
         .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
         .register_value("read!", SteelVal::FuncV(super::meta::read))
         .register_value(

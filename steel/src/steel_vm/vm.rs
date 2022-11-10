@@ -25,7 +25,6 @@ use crate::{
     rvals::{Result, SteelVal},
     stop,
     values::functions::ByteCodeLambda,
-    values::structs::SteelStruct,
 };
 // use std::env::current_exe;
 use std::{iter::Iterator, rc::Rc};

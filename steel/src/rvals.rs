@@ -9,7 +9,7 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
-    values::structs::{SteelStruct, UserDefinedStruct},
+    values::structs::UserDefinedStruct,
     values::{
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
@@ -632,7 +632,7 @@ pub enum SteelVal {
     // Embedded HashSet
     HashSetV(Gc<HashSet<SteelVal>>),
     /// Represents a scheme-only struct
-    StructV(Gc<SteelStruct>),
+    // StructV(Gc<SteelStruct>),
     /// Alternative implementation of a scheme-only struct
     CustomStruct(Gc<UserDefinedStruct>),
     // Represents a special rust closure
@@ -760,7 +760,6 @@ impl SteelVal {
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
             (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(l, r),
             (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(l, r),
-            (StructV(l), StructV(r)) => Gc::ptr_eq(l, r),
             (PortV(l), PortV(r)) => Gc::ptr_eq(l, r),
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
@@ -803,7 +802,6 @@ impl SteelVal {
                 .iter()
                 .any(|x| self.other_contains_self(x.0) || self.other_contains_self(x.1)),
             HashSetV(hs) => hs.iter().any(|x| self.other_contains_self(x)),
-            StructV(s) => s.iter().any(|x| self.other_contains_self(x)),
             Closure(_) => todo!(),
             IterV(_) => todo!(),
             ReducerV(_) => todo!(),
@@ -897,7 +895,6 @@ impl Hash for SteelVal {
                 // format!("symbol: {}")
             }
             Custom(_) => unimplemented!(),
-            StructV(_) => unimplemented!(),
             // StructClosureV(_) => unimplemented!(),
             PortV(_) => unimplemented!(),
             Closure(b) => b.hash(state),
@@ -1083,15 +1080,15 @@ impl SteelVal {
     //     }
     // }
 
-    pub fn struct_or_else<E, F: FnOnce() -> E>(
-        &self,
-        err: F,
-    ) -> std::result::Result<&SteelStruct, E> {
-        match self {
-            Self::StructV(v) => Ok(v),
-            _ => Err(err()),
-        }
-    }
+    // pub fn struct_or_else<E, F: FnOnce() -> E>(
+    //     &self,
+    //     err: F,
+    // ) -> std::result::Result<&SteelStruct, E> {
+    //     match self {
+    //         Self::StructV(v) => Ok(v),
+    //         _ => Err(err()),
+    //     }
+    // }
 
     pub fn closure_arity(&self) -> Option<usize> {
         if let SteelVal::Closure(c) = self {
@@ -1127,7 +1124,6 @@ impl PartialEq for SteelVal {
             // (Pair(_), Pair(_)) => collect_pair_into_vector(self) == collect_pair_into_vector(other),
             (HashSetV(l), HashSetV(r)) => l == r,
             (HashMapV(l), HashMapV(r)) => l == r,
-            (StructV(l), StructV(r)) => l == r,
             (Closure(l), Closure(r)) => l == r,
             (ContractedFunction(l), ContractedFunction(r)) => l == r,
             (Contract(l), Contract(r)) => l == r,
@@ -1212,8 +1208,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, ")")
         }
         Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
-        StructV(s) => write!(f, "#<{}>", s.pretty_print()), // TODO
-        CustomStruct(s) => write!(f, "#<{:p}: {:#?}>", s, s),
+        CustomStruct(s) => write!(f, "({} {:?})", s.name, s.fields.borrow()),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
         HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),

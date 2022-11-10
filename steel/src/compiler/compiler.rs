@@ -1,3 +1,4 @@
+use crate::core::{instructions::Instruction, opcode::OpCode};
 use crate::{
     compiler::{
         // code_generator::{convert_call_globals, CodeGenerator},
@@ -10,11 +11,7 @@ use crate::{
     },
     parser::{ast::AstTools, expand_visitor::expand_kernel, kernel::Kernel},
     steel_vm::builtin::BuiltInModule,
-    values::structs::StructBuilders,
-};
-use crate::{
-    core::{instructions::Instruction, opcode::OpCode},
-    values::structs::StructFuncBuilder,
+    // values::structs::StructBuilders,
 };
 
 use std::iter::Iterator;
@@ -802,10 +799,10 @@ impl Compiler {
         let expanded_statements =
             MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
 
-        let mut struct_builders = StructBuilders::new();
+        // let mut struct_builders = StructBuilders::new();
 
-        let expanded_statements =
-            struct_builders.extract_structs_for_executable(expanded_statements)?;
+        // let expanded_statements =
+        // struct_builders.extract_structs_for_executable(expanded_statements)?;
 
         // Pretty print the expressions to see what we're working with here
         // expanded_statements.pretty_print();
@@ -828,7 +825,6 @@ impl Compiler {
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
 
         let mut raw_program = RawProgramWithSymbols::new(
-            struct_builders.builders,
             instructions,
             self.constant_map.clone(),
             "0.1.0".to_string(),

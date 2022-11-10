@@ -289,7 +289,6 @@ impl TryFrom<&SteelVal> for ExprKind {
             CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 CharacterLiteral(*x),
             )))),
-            StructV(_) => Err("Can't convert from Struct to expression!"),
             // StructClosureV(_) => Err("Can't convert from struct-function to expression!"),
             PortV(_) => Err("Can't convert from port to expression!"),
             Closure(_) => Err("Can't convert from bytecode closure to expression"),

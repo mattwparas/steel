@@ -3,6 +3,7 @@ use crate::parser::{
     parser::{RawSyntaxObject, SyntaxObject},
     tokens::TokenType,
 };
+use crate::rvals::Result;
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::Instruction, opcode::OpCode},
@@ -10,7 +11,6 @@ use crate::{
     stop, SteelVal,
 };
 use crate::{core::instructions::DenseInstruction, parser::span::Span};
-use crate::{rvals::Result, values::structs::StructFuncBuilderConcrete};
 use log::{debug, log_enabled};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -372,7 +372,7 @@ impl Program {
 // ConstantMap needs to get passed in to the run time to execute the program
 // This way, the VM knows where to look up values
 pub struct RawProgramWithSymbols {
-    struct_functions: Vec<StructFuncBuilderConcrete>,
+    // struct_functions: Vec<StructFuncBuilderConcrete>,
     instructions: Vec<Vec<Instruction>>,
     constant_map: ConstantMap,
     version: String, // TODO -> this should be semver
@@ -380,7 +380,7 @@ pub struct RawProgramWithSymbols {
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializableRawProgramWithSymbols {
-    struct_functions: Vec<StructFuncBuilderConcrete>,
+    // struct_functions: Vec<StructFuncBuilderConcrete>,
     instructions: Vec<Vec<Instruction>>,
     constant_map: Vec<u8>,
     version: String,
@@ -412,7 +412,7 @@ impl SerializableRawProgramWithSymbols {
     pub fn into_raw_program(self) -> RawProgramWithSymbols {
         let constant_map = ConstantMap::from_bytes(&self.constant_map).unwrap();
         RawProgramWithSymbols {
-            struct_functions: self.struct_functions,
+            // struct_functions: self.struct_functions,
             instructions: self.instructions,
             constant_map,
             version: self.version,
@@ -570,13 +570,13 @@ impl OpCodeOccurenceProfiler {
 
 impl RawProgramWithSymbols {
     pub fn new(
-        struct_functions: Vec<StructFuncBuilderConcrete>,
+        // struct_functions: Vec<StructFuncBuilderConcrete>,
         instructions: Vec<Vec<Instruction>>,
         constant_map: ConstantMap,
         version: String,
     ) -> Self {
         Self {
-            struct_functions,
+            // struct_functions,
             instructions,
             constant_map,
             version,
@@ -710,7 +710,6 @@ impl RawProgramWithSymbols {
         instruction_set.push(instructions);
 
         Ok(Self::new(
-            Vec::new(),
             instruction_set,
             constant_map,
             "0.0.1".to_string(),
@@ -721,7 +720,6 @@ impl RawProgramWithSymbols {
         Ok(SerializableRawProgramWithSymbols {
             instructions: self.instructions,
             constant_map: self.constant_map.to_bytes()?,
-            struct_functions: self.struct_functions,
             version: self.version,
         })
     }

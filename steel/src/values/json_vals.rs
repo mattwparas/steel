@@ -154,7 +154,7 @@ impl TryFrom<SteelVal> for Value {
                     .map(|x| x.clone().try_into())
                     .collect::<Result<Vec<_>>>()?,
             )),
-            SteelVal::StructV(_) => stop!(Generic => "built in struct not serializable yet"),
+            // SteelVal::StructV(_) => stop!(Generic => "built in struct not serializable yet"),
             _ => stop!(Generic => "type not serializable"),
             // SteelVal::StructClosureV(_, _) => {}
             // SteelVal::PortV(_) => {}

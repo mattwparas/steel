@@ -120,7 +120,7 @@ impl<'global, 'a> VmCore<'a> {
             ))),
             SteelVal::StringV(s) => Ok(Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x))))),
             SteelVal::ListV(l) => Ok(Box::new(l.into_iter().cloned().map(Ok))),
-            SteelVal::StructV(s) => Ok(Box::new(s.iter().cloned().map(Ok))),
+            // SteelVal::StructV(s) => Ok(Box::new(s.iter().cloned().map(Ok))),
             SteelVal::HashSetV(hs) => Ok(Box::new(hs.iter().cloned().map(Ok))),
             SteelVal::HashMapV(hm) => {
                 Ok(Box::new(hm.iter().map(|x| {
@@ -234,9 +234,9 @@ impl<'global, 'a> VmCore<'a> {
                                                 SteelVal::ListV(l) => {
                                                     Box::new(l.into_iter().map(Ok))
                                                 }
-                                                SteelVal::StructV(s) => {
-                                                    Box::new(s.unwrap().fields.into_iter().map(Ok))
-                                                }
+                                                // SteelVal::StructV(s) => {
+                                                //     Box::new(s.unwrap().fields.into_iter().map(Ok))
+                                                // }
                                                 els => {
                                                     let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {}", els)).with_span(*cur_inst_span);
 
@@ -272,9 +272,9 @@ impl<'global, 'a> VmCore<'a> {
                                                 .into_iter(),
                                         ),
                                         SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
-                                        SteelVal::StructV(s) => {
-                                            Box::new(s.unwrap().fields.into_iter().map(Ok))
-                                        }
+                                        // SteelVal::StructV(s) => {
+                                        //     Box::new(s.unwrap().fields.into_iter().map(Ok))
+                                        // }
                                         els => {
                                             let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {}", els)).with_span(*cur_inst_span);
 
@@ -312,7 +312,7 @@ impl<'global, 'a> VmCore<'a> {
                                 .into_iter(),
                         ),
                         SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
-                        SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
+                        // SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
                         els => {
                             let err = SteelErr::new(
                                 ErrorKind::TypeMismatch,
@@ -350,7 +350,7 @@ impl<'global, 'a> VmCore<'a> {
                                 .into_iter(),
                         ),
                         SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
-                        SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
+                        // SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
                         els => {
                             let err = SteelErr::new(
                                 ErrorKind::TypeMismatch,
@@ -378,7 +378,7 @@ impl<'global, 'a> VmCore<'a> {
                                 .into_iter(),
                         ),
                         SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
-                        SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
+                        // SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
                         els => {
                             let err = SteelErr::new(
                                 ErrorKind::TypeMismatch,
