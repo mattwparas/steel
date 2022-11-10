@@ -791,6 +791,11 @@ impl<'a> Iterator for Parser<'a> {
         // self.quote_stack = Vec::new();
 
         self.tokenizer.next().map(|res| match res.ty {
+            // Collect the comment until theres something to attach to
+            // TokenType::Comment => {
+            //     todo!()
+            // }
+
             // Err(e) => Err(ParseError::TokenError(e)),
             TokenType::QuoteTick => {
                 // See if this does the job

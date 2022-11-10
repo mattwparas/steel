@@ -2,7 +2,6 @@
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
-use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::DenseInstruction, opcode::OpCode},
@@ -16,6 +15,10 @@ use crate::{
     values::transducers::Transducers,
 };
 use crate::{compiler::program::OpCodeOccurenceProfiler, values::transducers::Reducer};
+use crate::{
+    core::utils::arity_check,
+    values::{closed::Heap, contracts::ContractType},
+};
 
 use crate::{
     env::Env,
@@ -2873,4 +2876,51 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
     }
 
     Ok(continuation)
+}
+
+fn backtrace<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(backtrace, args, 0);
+
+    // let ctx.function_stack.function_stack.iter()
+
+    // TODO: Go backwards through the stack trace, trying to resolve the following:
+    //  * The file name where the error occurred, the line number, the offset (if possible)
+    //  * A snippet of the code that actually caused the problem, something like this for java:
+    //
+    // java.lang.Exception: Stack trace
+    //     at java.lang.Thread.dumpStack(Thread.java:1336)
+    //     at Main.demo3(Main.java:15)
+    //     at Main.demo2(Main.java:12)
+    //     at Main.demo1(Main.java:9)
+    //     at Main.demo(Main.java:6)
+    //     at Main.main(Main.java:3)
+    //
+    // Or this for Python:
+    //     Traceback (most recent call last):
+    //   File "tb.py", line 15, in <module>
+    //     a()
+    //   File "tb.py", line 3, in a
+    //     j = b(i)
+    //   File "tb.py", line 9, in b
+    //     c()
+    //   File "tb.py", line 13, in c
+    //     error()
+    // NameError: name 'error' is not defined
+
+    Ok(SteelVal::Void)
+
+    // let mut arg_iter = args.into_iter();
+    // let arg1 = arg_iter.next().unwrap();
+    // let arg2 = arg_iter.next().unwrap();
+
+    // if let SteelVal::ListV(l) = arg2 {
+    //     if arg1.is_function() {
+    //         // println!("Calling apply with args: {:?}, {:?}", arg1, arg2);
+    //         ctx.call_function_many_args(&arg1, l.clone())
+    //     } else {
+    //         stop!(TypeMismatch => "apply expected a function, found: {}", arg1);
+    //     }
+    // } else {
+    //     stop!(TypeMismatch => "apply expects a list, found: {}", arg2);
+    // }
 }
