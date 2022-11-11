@@ -163,6 +163,10 @@ impl SteelErr {
         }
     }
 
+    pub fn span(&self) -> Option<Span> {
+        self.repr.span
+    }
+
     pub fn has_span(&self) -> bool {
         self.repr.span.is_some()
     }

@@ -74,6 +74,11 @@ impl Span {
     }
 
     #[inline]
+    pub const fn source_id(&self) -> Option<SourceId> {
+        self.source_id
+    }
+
+    #[inline]
     pub const fn merge(start: Self, end: Self) -> Span {
         // TODO: If this doesn't seem to make sense with macros, we can revisit
         Self::new(start.start, end.end, start.source_id)

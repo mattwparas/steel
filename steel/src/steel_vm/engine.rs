@@ -12,8 +12,9 @@ use crate::{
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser, Sources},
+    rerrs::report_error,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
-    stop, throw,
+    stop, throw, SteelErr,
 };
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
@@ -611,6 +612,28 @@ impl Engine {
     /// ```
     pub fn extract<T: FromSteelVal>(&self, name: &str) -> Result<T> {
         T::from_steelval(&self.extract_value(name)?)
+    }
+
+    pub fn raise_error(&self, error: SteelErr) {
+        if let Some(span) = error.span() {
+            if let Some(source_id) = span.source_id() {
+                let file_name = self.sources.get_path(&source_id);
+
+                if let Some(file_content) = self.sources.get(source_id) {
+                    error.emit_result(
+                        file_name.and_then(|x| x.to_str()).unwrap_or(""),
+                        file_content,
+                    )
+                }
+            }
+
+            return;
+        }
+
+        println!(
+            "Unable to locate source and span information for this error: {}",
+            error
+        );
     }
 
     /// Execute a program given as the `expr`, and computes a `Vec<SteelVal>` corresponding to the output of each expression given.

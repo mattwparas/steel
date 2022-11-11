@@ -55,6 +55,10 @@ impl Sources {
     pub fn get(&self, source_id: SourceId) -> Option<&String> {
         self.sources.get(source_id.0)
     }
+
+    pub fn get_path(&self, source_id: &SourceId) -> Option<&PathBuf> {
+        self.paths.get(source_id)
+    }
 }
 
 pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);

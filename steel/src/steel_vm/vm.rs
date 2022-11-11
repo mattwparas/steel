@@ -46,7 +46,6 @@ const _JIT_THRESHOLD: usize = 100;
 #[derive(Debug, Clone)]
 pub struct CallContext {
     span: Option<Span>,
-    source: Option<usize>, // TODO intern file names
     function: Gc<ByteCodeLambda>,
 }
 
@@ -54,18 +53,12 @@ impl CallContext {
     pub fn new(function: Gc<ByteCodeLambda>) -> Self {
         Self {
             span: None,
-            source: None,
             function,
         }
     }
 
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = Some(span);
-        self
-    }
-
-    pub fn with_source(mut self, source: usize) -> Self {
-        self.source = Some(source);
         self
     }
 }
