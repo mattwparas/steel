@@ -3,7 +3,7 @@ use crate::{
     parser::{
         ast::{AstTools, Atom, ExprKind, List},
         kernel::Kernel,
-        parser::{ParseError, Parser, SyntaxObject},
+        parser::{ParseError, Parser, Sources, SyntaxObject},
         tokens::TokenType,
     },
 };
@@ -66,6 +66,7 @@ impl ModuleManager {
         &mut self,
         global_macro_map: &mut HashMap<String, SteelMacro>,
         _kernel: &mut Option<Kernel>,
+        sources: &mut Sources,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
@@ -85,6 +86,7 @@ impl ModuleManager {
             &mut self.compiled_modules,
             &mut self.visited,
             &mut self.file_metadata,
+            sources,
         )?;
 
         let mut module_statements = module_builder.compile()?;
@@ -274,6 +276,7 @@ struct ModuleBuilder<'a> {
     compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
     visited: &'a mut HashSet<PathBuf>,
     file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+    sources: &'a mut Sources,
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -283,6 +286,7 @@ impl<'a> ModuleBuilder<'a> {
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
         visited: &'a mut HashSet<PathBuf>,
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+        sources: &'a mut Sources,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -307,6 +311,7 @@ impl<'a> ModuleBuilder<'a> {
             compiled_modules,
             visited,
             file_metadata,
+            sources,
         })
     }
 
@@ -396,6 +401,7 @@ impl<'a> ModuleBuilder<'a> {
                     &mut self.compiled_modules,
                     &mut self.visited,
                     &mut self.file_metadata,
+                    &mut self.sources,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -450,6 +456,7 @@ impl<'a> ModuleBuilder<'a> {
                     &mut self.compiled_modules,
                     &mut self.visited,
                     &mut self.file_metadata,
+                    &mut self.sources,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -788,8 +795,10 @@ impl<'a> ModuleBuilder<'a> {
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
         visited: &'a mut HashSet<PathBuf>,
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+        sources: &'a mut Sources,
     ) -> Result<Self> {
-        ModuleBuilder::raw(name, compiled_modules, visited, file_metadata).parse_builtin(input)
+        ModuleBuilder::raw(name, compiled_modules, visited, file_metadata, sources)
+            .parse_builtin(input)
     }
 
     fn new_from_path(
@@ -797,8 +806,10 @@ impl<'a> ModuleBuilder<'a> {
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
         visited: &'a mut HashSet<PathBuf>,
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+        sources: &'a mut Sources,
     ) -> Result<Self> {
-        ModuleBuilder::raw(name, compiled_modules, visited, file_metadata).parse_from_path()
+        ModuleBuilder::raw(name, compiled_modules, visited, file_metadata, sources)
+            .parse_from_path()
     }
 
     fn raw(
@@ -806,6 +817,7 @@ impl<'a> ModuleBuilder<'a> {
         compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
         visited: &'a mut HashSet<PathBuf>,
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+        sources: &'a mut Sources,
     ) -> Self {
         ModuleBuilder {
             name,
@@ -820,13 +832,14 @@ impl<'a> ModuleBuilder<'a> {
             compiled_modules,
             visited,
             file_metadata,
+            sources,
         }
     }
 
     fn parse_builtin(mut self, input: &str) -> Result<Self> {
         let mut intern = HashMap::new();
 
-        let parsed = Parser::new_from_source(input, &mut intern, self.name.clone())
+        let parsed = Parser::new_from_source(input, &mut intern, self.name.clone(), None)
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;
@@ -847,9 +860,15 @@ impl<'a> ModuleBuilder<'a> {
 
         file.read_to_string(&mut exprs)?;
 
+        let id = self.sources.add_source(exprs, Some(self.name.clone()));
+
+        // Fetch the exprs after adding them to the sources
+        // We did _just_ add it, so its fine to unwrap
+        let exprs = self.sources.get(id).unwrap();
+
         let mut intern = HashMap::new();
 
-        let parsed = Parser::new_from_source(&exprs, &mut intern, self.name.clone())
+        let parsed = Parser::new_from_source(&exprs, &mut intern, self.name.clone(), Some(id))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;

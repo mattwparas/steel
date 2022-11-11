@@ -198,7 +198,7 @@ impl SteelErr {
 
         let file = SimpleFile::new(file_name, file_content);
 
-        let error_span = Span::new(0, 0);
+        let error_span = Span::new(0, 0, None);
 
         let report = self.report(file_name, file_content, error_span);
         term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
@@ -216,7 +216,7 @@ impl SteelErr {
 
         let file = SimpleFile::new(file_name, file_content);
 
-        let error_span = Span::new(0, 0);
+        let error_span = Span::new(0, 0, None);
 
         let report = self.report(file_name, file_content, error_span);
         term::emit(&mut writer, &config, &file, &report).unwrap(); // TODO come back

@@ -261,14 +261,24 @@ impl Engine {
 
     pub fn emit_raw_program_no_path(&mut self, expr: &str) -> Result<RawProgramWithSymbols> {
         let constants = self.constants();
-        self.compiler
-            .compile_executable(expr, None, constants, self.modules.clone())
+        self.compiler.compile_executable(
+            expr,
+            None,
+            constants,
+            self.modules.clone(),
+            &mut self.sources,
+        )
     }
 
     pub fn emit_raw_program(&mut self, expr: &str, path: PathBuf) -> Result<RawProgramWithSymbols> {
         let constants = self.constants();
-        self.compiler
-            .compile_executable(expr, Some(path), constants, self.modules.clone())
+        self.compiler.compile_executable(
+            expr,
+            Some(path),
+            constants,
+            self.modules.clone(),
+            &mut self.sources,
+        )
     }
 
     pub fn debug_print_build(
@@ -339,9 +349,13 @@ impl Engine {
         path: PathBuf,
     ) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
-        let program =
-            self.compiler
-                .compile_executable(exprs, Some(path), constants, self.modules.clone())?;
+        let program = self.compiler.compile_executable(
+            exprs,
+            Some(path),
+            constants,
+            self.modules.clone(),
+            &mut self.sources,
+        )?;
 
         // program.profile_instructions();
 
@@ -357,15 +371,20 @@ impl Engine {
             exprs,
             self.modules.clone(),
             constants,
+            &mut self.sources,
         )?;
         self.run_raw_program(program)
     }
 
     pub fn compile_and_run_raw_program(&mut self, exprs: &str) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
-        let program =
-            self.compiler
-                .compile_executable(exprs, None, constants, self.modules.clone())?;
+        let program = self.compiler.compile_executable(
+            exprs,
+            None,
+            constants,
+            self.modules.clone(),
+            &mut self.sources,
+        )?;
 
         // program.profile_instructions();
 
@@ -395,14 +414,15 @@ impl Engine {
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
         let constants = self.constants();
-        self.compiler.emit_expanded_ast(expr, constants, path)
+        self.compiler
+            .emit_expanded_ast(expr, constants, path, &mut self.sources)
     }
 
     /// Emit the unexpanded AST
     pub fn emit_ast_to_string(expr: &str) -> Result<String> {
         let mut intern = HashMap::new();
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr, &mut intern).collect();
+            Parser::new(expr, &mut intern, None).collect();
         let parsed = parsed?;
         Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
@@ -416,7 +436,7 @@ impl Engine {
         let constants = self.constants();
         Ok(self
             .compiler
-            .emit_expanded_ast(expr, constants, path)?
+            .emit_expanded_ast(expr, constants, path, &mut self.sources)?
             .into_iter()
             .map(|x| x.to_pretty(60))
             .join("\n\n"))

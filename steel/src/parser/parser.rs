@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
-pub struct SourceId(usize);
+pub struct SourceId(pub(crate) usize);
 
 pub struct Sources {
     paths: HashMap<SourceId, PathBuf>,
@@ -50,6 +50,10 @@ impl Sources {
         }
 
         id
+    }
+
+    pub fn get(&self, source_id: SourceId) -> Option<&String> {
+        self.sources.get(source_id.0)
     }
 }
 
@@ -92,7 +96,7 @@ pub struct RawSyntaxObject<T> {
     pub(crate) ty: T,
     pub(crate) span: Span,
     pub(crate) source: Option<Rc<PathBuf>>,
-    pub(crate) metadata: Option<IdentifierMetadata>,
+    // pub(crate) metadata: Option<IdentifierMetadata>,
     pub(crate) syntax_object_id: SyntaxObjectId,
 }
 
@@ -102,7 +106,7 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
             ty: self.ty.clone(),
             span: self.span.clone(),
             source: self.source.clone(),
-            metadata: self.metadata.clone(),
+            // metadata: self.metadata.clone(),
             syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
@@ -141,7 +145,6 @@ impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.ty.hash(state);
         self.span.hash(state);
-        self.metadata.hash(state);
     }
 }
 
@@ -166,7 +169,6 @@ impl SyntaxObject {
             ty,
             span,
             source: None,
-            metadata: None,
             syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
@@ -176,7 +178,6 @@ impl SyntaxObject {
             ty,
             span,
             source,
-            metadata: None,
             syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
@@ -184,9 +185,8 @@ impl SyntaxObject {
     pub fn default(ty: TokenType) -> Self {
         SyntaxObject {
             ty,
-            span: Span::new(0, 0),
+            span: Span::new(0, 0, None),
             source: None,
-            metadata: None,
             syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
@@ -200,7 +200,6 @@ impl SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
             source: source.as_ref().map(Rc::clone),
-            metadata: None,
             syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
@@ -323,6 +322,7 @@ pub struct Parser<'a> {
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
     context: Vec<ParsingContext>,
+    source_id: Option<SourceId>,
 }
 
 #[derive(Debug)]
@@ -349,7 +349,7 @@ impl<'a> Parser<'a> {
     // #[cfg(test)]
     pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {
         let mut intern = HashMap::new();
-        Parser::new(expr, &mut intern).collect()
+        Parser::new(expr, &mut intern, None).collect()
     }
 }
 
@@ -370,14 +370,19 @@ fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str, intern: &'a mut HashMap<String, Rc<TokenType>>) -> Self {
+    pub fn new(
+        input: &'a str,
+        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        source_id: Option<SourceId>,
+    ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, true),
+            tokenizer: TokenStream::new(input, true, source_id),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: None,
             context: Vec::new(),
+            source_id,
         }
     }
 
@@ -385,14 +390,16 @@ impl<'a> Parser<'a> {
         input: &'a str,
         intern: &'a mut HashMap<String, Rc<TokenType>>,
         source_name: PathBuf,
+        source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, true),
+            tokenizer: TokenStream::new(input, true, source_id),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: Some(Rc::from(source_name)),
             context: Vec::new(),
+            source_id,
         }
     }
 
@@ -926,26 +933,26 @@ mod parser_tests {
 
     fn parses(s: &str) {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
-        let a: Result<Vec<_>> = Parser::new(s, &mut cache).collect();
+        let a: Result<Vec<_>> = Parser::new(s, &mut cache, None).collect();
         a.unwrap();
     }
 
     fn assert_parse(s: &str, result: &[ExprKind]) {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         let a = a.unwrap();
         assert_eq!(a.as_slice(), result);
     }
 
     fn assert_parse_err(s: &str, err: ParseError) {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         assert_eq!(a, Err(err));
     }
 
     fn assert_parse_is_err(s: &str) {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         assert!(a.is_err());
     }
 

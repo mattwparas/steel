@@ -1963,7 +1963,7 @@ mod display_tests {
 
     fn parse(expr: &str) -> ExprKind {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
         let a = a.unwrap()[0].clone();
         a
     }
@@ -2136,7 +2136,7 @@ mod pretty_print_tests {
 
     fn parse(expr: &str) -> ExprKind {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
         let a = a.unwrap()[0].clone();
         a
     }

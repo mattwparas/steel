@@ -608,113 +608,113 @@ impl RawProgramWithSymbols {
     }
 
     // Definitely can be improved
-    pub fn parse_from_self_hosted_file<P>(file: P) -> Result<Self>
-    where
-        P: AsRef<Path>,
-    {
-        let mut lines = read_lines(file)?;
+    // pub fn parse_from_self_hosted_file<P>(file: P) -> Result<Self>
+    // where
+    //     P: AsRef<Path>,
+    // {
+    //     let mut lines = read_lines(file)?;
 
-        // First line should be the constant map label
-        // let constant_map =
+    //     // First line should be the constant map label
+    //     // let constant_map =
 
-        if let Some(constant_map_label) = lines.next() {
-            if constant_map_label? != "'ConstantMap" {
-                stop!(Generic => "Compiled file expected constant map label")
-            }
-        } else {
-            stop!(Generic => "Missing constant map label")
-        }
+    //     if let Some(constant_map_label) = lines.next() {
+    //         if constant_map_label? != "'ConstantMap" {
+    //             stop!(Generic => "Compiled file expected constant map label")
+    //         }
+    //     } else {
+    //         stop!(Generic => "Missing constant map label")
+    //     }
 
-        // Temportary interner
-        let mut intern = HashMap::new();
+    //     // Temportary interner
+    //     let mut intern = HashMap::new();
 
-        let constant_map = if let Some(constant_map) = lines.next() {
-            let constant_map = constant_map?;
+    //     let constant_map = if let Some(constant_map) = lines.next() {
+    //         let constant_map = constant_map?;
 
-            let constant_map = constant_map
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .split(',')
-                .map(|x| {
-                    // Parse the input
-                    let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-                        Parser::new(&x, &mut intern).collect();
-                    let parsed = parsed?;
+    //         let constant_map = constant_map
+    //             .trim_start_matches('[')
+    //             .trim_end_matches(']')
+    //             .split(',')
+    //             .map(|x| {
+    //                 // Parse the input
+    //                 let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+    //                     Parser::new(&x, &mut intern).collect();
+    //                 let parsed = parsed?;
 
-                    Ok(SteelVal::try_from(parsed[0].clone()).unwrap())
-                })
-                .collect::<Result<Vec<_>>>()
-                .map(ConstantMap::from_vec)?;
+    //                 Ok(SteelVal::try_from(parsed[0].clone()).unwrap())
+    //             })
+    //             .collect::<Result<Vec<_>>>()
+    //             .map(ConstantMap::from_vec)?;
 
-            constant_map
-        } else {
-            stop!(Generic => "Missing constant map")
-        };
+    //         constant_map
+    //     } else {
+    //         stop!(Generic => "Missing constant map")
+    //     };
 
-        if let Some(instructions_label) = lines.next() {
-            if instructions_label? != "'Instructions" {
-                stop!(Generic => "Compiled file expected instructions label")
-            }
-        } else {
-            stop!(Generic => "Missing instructions label")
-        }
+    //     if let Some(instructions_label) = lines.next() {
+    //         if instructions_label? != "'Instructions" {
+    //             stop!(Generic => "Compiled file expected instructions label")
+    //         }
+    //     } else {
+    //         stop!(Generic => "Missing instructions label")
+    //     }
 
-        let mut instruction_set = Vec::new();
+    //     let mut instruction_set = Vec::new();
 
-        let mut instructions = Vec::new();
+    //     let mut instructions = Vec::new();
 
-        // Skip past the first 'Expression
-        lines.next();
+    //     // Skip past the first 'Expression
+    //     lines.next();
 
-        for instruction_string in lines {
-            let instruction_string = instruction_string?;
+    //     for instruction_string in lines {
+    //         let instruction_string = instruction_string?;
 
-            if instruction_string == "'Expression" {
-                // instructions = Vec::new();
-                // if instruction_set.is_empty() {
-                instruction_set.push(instructions);
-                instructions = Vec::new();
-                // }
+    //         if instruction_string == "'Expression" {
+    //             // instructions = Vec::new();
+    //             // if instruction_set.is_empty() {
+    //             instruction_set.push(instructions);
+    //             instructions = Vec::new();
+    //             // }
 
-                continue;
-            }
+    //             continue;
+    //         }
 
-            let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-                Parser::new(&instruction_string, &mut intern).collect();
-            let parsed = parsed?;
+    //         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+    //             Parser::new(&instruction_string, &mut intern).collect();
+    //         let parsed = parsed?;
 
-            let value = SteelVal::try_from(parsed[0].clone()).unwrap();
+    //         let value = SteelVal::try_from(parsed[0].clone()).unwrap();
 
-            if let SteelVal::ListV(v) = value {
-                // Get the op code here
-                let op_code =
-                    OpCode::from_str(v.get(1).unwrap().symbol_or_else(|| unreachable!()).unwrap());
+    //         if let SteelVal::ListV(v) = value {
+    //             // Get the op code here
+    //             let op_code =
+    //                 OpCode::from_str(v.get(1).unwrap().symbol_or_else(|| unreachable!()).unwrap());
 
-                // Get the payload
-                let payload = v.get(2).unwrap().int_or_else(|| unreachable!()).unwrap() as usize;
+    //             // Get the payload
+    //             let payload = v.get(2).unwrap().int_or_else(|| unreachable!()).unwrap() as usize;
 
-                // Get the contents
-                // If I can't parse the object, just move on
-                let contents = ExprKind::try_from(v.get(3).unwrap())
-                    .ok()
-                    .and_then(|x| x.atom_syntax_object().cloned());
+    //             // Get the contents
+    //             // If I can't parse the object, just move on
+    //             let contents = ExprKind::try_from(v.get(3).unwrap())
+    //                 .ok()
+    //                 .and_then(|x| x.atom_syntax_object().cloned());
 
-                let instruction = Instruction::new_from_parts(op_code, payload, contents);
+    //             let instruction = Instruction::new_from_parts(op_code, payload, contents);
 
-                instructions.push(instruction)
-            } else {
-                stop!(Generic => "Instruction serialized incorrectly")
-            }
-        }
+    //             instructions.push(instruction)
+    //         } else {
+    //             stop!(Generic => "Instruction serialized incorrectly")
+    //         }
+    //     }
 
-        instruction_set.push(instructions);
+    //     instruction_set.push(instructions);
 
-        Ok(Self::new(
-            instruction_set,
-            constant_map,
-            "0.0.1".to_string(),
-        ))
-    }
+    //     Ok(Self::new(
+    //         instruction_set,
+    //         constant_map,
+    //         "0.0.1".to_string(),
+    //     ))
+    // }
 
     pub fn into_serializable_program(self) -> Result<SerializableRawProgramWithSymbols> {
         Ok(SerializableRawProgramWithSymbols {

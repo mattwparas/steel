@@ -81,7 +81,7 @@ fn begin_vec_strategy(
     prop::collection::vec(inner.clone(), 0..10).prop_map(|x| {
         ExprKind::Begin(Begin::new(
             x,
-            SyntaxObject::new(TokenType::Begin, Span::new(0, 0)),
+            SyntaxObject::new(TokenType::Begin, Span::new(0, 0, None)),
         ))
     })
 }
@@ -182,6 +182,6 @@ prop_compose! {
     fn syntax_object_strategy()(
         token_type in tokentype_strategy()
     ) -> SyntaxObject {
-        SyntaxObject::new(token_type, Span::new(0, 0))
+        SyntaxObject::new(token_type, Span::new(0, 0, None))
     }
 }

@@ -12,6 +12,8 @@ use std::str::FromStr;
 use std::convert::TryFrom;
 use std::num::ParseIntError;
 
+use crate::parser::parser::SourceId;
+
 fn gen_bool(lex: &mut Lexer<TokenType>) -> Option<bool> {
     let slice = lex.slice();
     match slice {
@@ -294,11 +296,16 @@ pub struct Token<'a> {
 }
 
 impl<'a> Token<'a> {
-    pub const fn new(ty: TokenType, source: &'a str, range: ops::Range<usize>) -> Self {
+    pub const fn new(
+        ty: TokenType,
+        source: &'a str,
+        range: ops::Range<usize>,
+        source_id: Option<SourceId>,
+    ) -> Self {
         Self {
             ty,
             source,
-            span: Span::new(range.start, range.end),
+            span: Span::new(range.start, range.end, source_id),
         }
     }
 

@@ -71,7 +71,7 @@ impl ConstantMap {
             .map(|x| {
                 // Parse the input
                 let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-                    Parser::new(&x, &mut intern).collect();
+                    Parser::new(&x, &mut intern, None).collect();
                 let parsed = parsed?;
 
                 Ok(SteelVal::try_from(parsed[0].clone()).unwrap())

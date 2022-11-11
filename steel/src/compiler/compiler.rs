@@ -1,4 +1,3 @@
-use crate::core::{instructions::Instruction, opcode::OpCode};
 use crate::{
     compiler::{
         // code_generator::{convert_call_globals, CodeGenerator},
@@ -12,6 +11,10 @@ use crate::{
     parser::{ast::AstTools, expand_visitor::expand_kernel, kernel::Kernel},
     steel_vm::builtin::BuiltInModule,
     // values::structs::StructBuilders,
+};
+use crate::{
+    core::{instructions::Instruction, opcode::OpCode},
+    parser::parser::Sources,
 };
 
 use std::iter::Iterator;
@@ -28,7 +31,7 @@ use crate::parser::parser::SyntaxObject;
 use crate::parser::parser::{ParseError, Parser};
 use crate::parser::tokens::TokenType;
 
-use crate::core::instructions::{densify, DenseInstruction};
+// use crate::core::instructions::{densify, DenseInstruction};
 
 use crate::stop;
 
@@ -479,8 +482,9 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         builtin_modules: ImmutableHashMap<String, BuiltInModule>,
         constants: ImmutableHashMap<String, SteelVal>,
+        sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
-        self.compile_raw_program(exprs, constants, builtin_modules, None)
+        self.compile_raw_program(exprs, constants, builtin_modules, None, sources)
     }
 
     pub fn compile_executable(
@@ -489,16 +493,19 @@ impl Compiler {
         path: Option<PathBuf>,
         constants: ImmutableHashMap<String, SteelVal>,
         builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         let mut intern = HashMap::new();
 
         let now = Instant::now();
 
+        let id = sources.add_source(expr_str.to_string(), path.clone());
+
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
-            Parser::new_from_source(expr_str, &mut intern, p.clone()).collect()
+            Parser::new_from_source(expr_str, &mut intern, p.clone(), Some(id)).collect()
         } else {
-            Parser::new(expr_str, &mut intern).collect()
+            Parser::new(expr_str, &mut intern, Some(id)).collect()
         };
 
         if log_enabled!(target: "pipeline_time", log::Level::Debug) {
@@ -508,7 +515,7 @@ impl Compiler {
         let parsed = parsed?;
 
         // TODO fix this hack
-        self.compile_raw_program(parsed, constants, builtin_modules, path)
+        self.compile_raw_program(parsed, constants, builtin_modules, path, sources)
     }
 
     pub fn emit_expanded_ast(
@@ -516,16 +523,19 @@ impl Compiler {
         expr_str: &str,
         constants: ImmutableHashMap<String, SteelVal>,
         path: Option<PathBuf>,
+        sources: &mut Sources,
     ) -> Result<Vec<ExprKind>> {
         let mut intern = HashMap::new();
 
+        let id = sources.add_source(expr_str.to_string(), path.clone());
+
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr_str, &mut intern).collect();
+            Parser::new(expr_str, &mut intern, Some(id)).collect();
 
         let parsed = parsed?;
 
-        let expanded_statements = self.expand_expressions(parsed, path)?;
+        let expanded_statements = self.expand_expressions(parsed, path, sources)?;
 
         let mut expanded_statements = expanded_statements;
 
@@ -562,11 +572,13 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
+        sources: &mut Sources,
     ) -> Result<Vec<ExprKind>> {
         #[cfg(feature = "modules")]
         return self.module_manager.compile_main(
             &mut self.macro_env,
             &mut self.kernel,
+            sources,
             exprs,
             path,
         );
@@ -695,8 +707,9 @@ impl Compiler {
         constants: ImmutableHashMap<String, SteelVal>,
         builtin_modules: ImmutableHashMap<String, BuiltInModule>,
         path: Option<PathBuf>,
+        sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
-        let mut expanded_statements = self.expand_expressions(exprs, path)?;
+        let mut expanded_statements = self.expand_expressions(exprs, path, sources)?;
 
         if log_enabled!(log::Level::Debug) {
             debug!(

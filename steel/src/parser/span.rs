@@ -6,10 +6,13 @@ use crate::{list, rvals::FromSteelVal, rvals::IntoSteelVal};
 
 use crate::rvals::SteelVal;
 
+use super::parser::SourceId;
+
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 pub struct Span {
     start: usize,
     end: usize,
+    source_id: Option<SourceId>,
 }
 
 impl IntoSteelVal for Span {
@@ -28,6 +31,7 @@ impl FromSteelVal for Span {
             Ok(Span {
                 start: usize::from_steelval(l.get(0).unwrap())?,
                 end: usize::from_steelval(l.get(1).unwrap())?,
+                source_id: Some(SourceId(usize::from_steelval(l.get(2).unwrap())?)),
             })
         } else {
             stop!(ConversionError => "cannot convert to a span object: {}", val)
@@ -37,15 +41,20 @@ impl FromSteelVal for Span {
 
 impl Span {
     #[inline]
-    pub const fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
+    pub const fn new(start: usize, end: usize, source_id: Option<SourceId>) -> Self {
+        Self {
+            start,
+            end,
+            source_id,
+        }
     }
 
     #[inline]
-    pub const fn double(span: usize) -> Self {
+    pub const fn double(span: usize, source_id: Option<SourceId>) -> Self {
         Self {
             start: span,
             end: span,
+            source_id,
         }
     }
 
@@ -66,7 +75,8 @@ impl Span {
 
     #[inline]
     pub const fn merge(start: Self, end: Self) -> Span {
-        Self::new(start.start, end.end)
+        // TODO: If this doesn't seem to make sense with macros, we can revisit
+        Self::new(start.start, end.end, start.source_id)
     }
 
     #[inline]
@@ -80,15 +90,15 @@ impl Span {
             let mut span = *span;
             for s in spans {
                 if s.start() < span.start() {
-                    span = Span::new(s.start(), span.end());
+                    span = Span::new(s.start(), span.end(), s.source_id);
                 }
                 if s.end() > span.end() {
-                    span = Span::new(s.start(), s.end());
+                    span = Span::new(s.start(), s.end(), s.source_id);
                 }
             }
             span
         } else {
-            Span::new(0, 0)
+            Span::new(0, 0, None)
         }
     }
 }
@@ -100,15 +110,15 @@ impl fmt::Debug for Span {
     }
 }
 
-impl From<Range<usize>> for Span {
-    #[inline]
-    fn from(range: Range<usize>) -> Self {
-        Self {
-            start: range.start,
-            end: range.end,
-        }
-    }
-}
+// impl From<Range<usize>> for Span {
+//     #[inline]
+//     fn from(range: Range<usize>) -> Self {
+//         Self {
+//             start: range.start,
+//             end: range.end,
+//         }
+//     }
+// }
 
 impl Into<Range<usize>> for Span {
     #[inline]
@@ -117,15 +127,15 @@ impl Into<Range<usize>> for Span {
     }
 }
 
-impl From<(usize, usize)> for Span {
-    #[inline]
-    fn from(range: (usize, usize)) -> Self {
-        Self {
-            start: range.0,
-            end: range.1,
-        }
-    }
-}
+// impl From<(usize, usize)> for Span {
+//     #[inline]
+//     fn from(range: (usize, usize)) -> Self {
+//         Self {
+//             start: range.0,
+//             end: range.1,
+//         }
+//     }
+// }
 
 impl Into<(usize, usize)> for Span {
     #[inline]
@@ -134,15 +144,15 @@ impl Into<(usize, usize)> for Span {
     }
 }
 
-impl From<[usize; 2]> for Span {
-    #[inline]
-    fn from(range: [usize; 2]) -> Self {
-        Self {
-            start: range[0],
-            end: range[1],
-        }
-    }
-}
+// impl From<[usize; 2]> for Span {
+//     #[inline]
+//     fn from(range: [usize; 2]) -> Self {
+//         Self {
+//             start: range[0],
+//             end: range[1],
+//         }
+//     }
+// }
 
 impl Into<[usize; 2]> for Span {
     #[inline]

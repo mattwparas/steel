@@ -1046,7 +1046,7 @@ mod macro_case_expand_test {
         ])
         .into();
 
-        let output = case.expand(input, Span::new(0, 0)).unwrap();
+        let output = case.expand(input, Span::new(0, 0, None)).unwrap();
 
         assert_eq!(output, expected);
     }
