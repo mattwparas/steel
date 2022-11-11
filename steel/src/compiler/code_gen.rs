@@ -899,7 +899,7 @@ mod code_gen_tests {
     }
 
     // #[test]
-    fn check_let_output() {
+    fn _check_let_output() {
         let expr = r#"
             (%plain-let ((a 10) (b 20))
                 (+ a b))

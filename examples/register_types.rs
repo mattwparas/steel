@@ -55,10 +55,6 @@ impl ExternalStruct {
     }
 }
 
-fn test_registration(_foo: usize, _other: &ExternalStruct) -> usize {
-    10
-}
-
 pub fn main() {
     let mut vm = Engine::new();
 

@@ -7,4 +7,4 @@
             (set! loop loop-prime))
     (loop 0)))
 
-; (assert! (= (test) 10000))
+(assert! (= (test) 10000))
