@@ -1,5 +1,8 @@
-use crate::parser::lexer::TokenStream;
-use crate::parser::tokens::{Token, TokenType, TokenType::*};
+use crate::{parser::lexer::TokenStream, rvals::IntoSteelVal};
+use crate::{
+    parser::tokens::{Token, TokenType, TokenType::*},
+    rvals::FromSteelVal,
+};
 
 use std::rc::Rc;
 use std::result;
@@ -25,6 +28,22 @@ use std::sync::atomic::{AtomicUsize, Ordering};
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
 pub struct SourceId(pub(crate) usize);
+
+impl IntoSteelVal for SourceId {
+    fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
+        self.0.into_steelval()
+    }
+}
+
+impl FromSteelVal for SourceId {
+    fn from_steelval<'a>(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::IntV(v) = val {
+            Ok(SourceId(*v as usize))
+        } else {
+            stop!(TypeMismatch => "Unable to convert steelval: {} into source id", val)
+        }
+    }
+}
 
 pub struct Sources {
     paths: HashMap<SourceId, PathBuf>,

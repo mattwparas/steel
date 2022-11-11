@@ -17,14 +17,14 @@ pub struct Span {
 
 impl IntoSteelVal for Span {
     fn into_steelval(self) -> crate::rvals::Result<crate::SteelVal> {
-        Ok(list![self.start, self.end])
+        Ok(list![self.start, self.end, self.source_id])
     }
 }
 
 impl FromSteelVal for Span {
     fn from_steelval<'a>(val: &'a crate::SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::ListV(l) = val {
-            if l.len() != 2 {
+            if l.len() != 3 {
                 stop!(ConversionError => "cannot convert to a span object: {}", val);
             }
 

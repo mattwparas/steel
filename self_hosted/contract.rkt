@@ -468,7 +468,7 @@
     (lambda (func) func)
     'level2))
 
-((level1 (level1 (level1 (level1 plain-function)))))
+((level2 (level1 (level1 (level1 plain-function)))))
 
 
 ; (define (int-checker? x) (displayln "***** CHECKING INT? ******") (integer? x))

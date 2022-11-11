@@ -43,6 +43,38 @@ use crate::rvals::IntoSteelVal;
 const STACK_LIMIT: usize = 1000;
 const _JIT_THRESHOLD: usize = 100;
 
+#[derive(Clone, Debug, Copy, PartialEq)]
+pub struct DehydratedCallContext {
+    span: Option<Span>,
+}
+
+impl DehydratedCallContext {
+    pub fn span(&self) -> &Option<Span> {
+        &self.span
+    }
+}
+
+impl DehydratedCallContext {
+    pub fn new(span: Option<Span>) -> Self {
+        DehydratedCallContext { span }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DehydratedStackTrace {
+    stack_trace: Vec<DehydratedCallContext>,
+}
+
+impl DehydratedStackTrace {
+    fn new(stack_trace: Vec<DehydratedCallContext>) -> Self {
+        Self { stack_trace }
+    }
+
+    pub fn trace(&self) -> &[DehydratedCallContext] {
+        &self.stack_trace
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CallContext {
     span: Option<Span>,
@@ -111,6 +143,15 @@ impl CallStack {
 
     pub fn len(&self) -> usize {
         self.function_stack.len()
+    }
+
+    pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
+        DehydratedStackTrace::new(
+            self.function_stack
+                .iter()
+                .map(|x| DehydratedCallContext::new(x.span))
+                .collect(),
+        )
     }
 }
 
@@ -256,7 +297,8 @@ impl SteelThread {
             let result = vm_instance.vm();
             // self.upvalue_head = vm_instance.upvalue_head;
             result
-        };
+        }
+        .map_err(|error| error.with_stack_trace(self.function_stack.snapshot_stack_trace()));
 
         // self.profiler.report();
         // self.profiler.report_time_spend();

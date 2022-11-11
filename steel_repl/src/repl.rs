@@ -132,6 +132,7 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
             _ => println!("{} {}", "=>".bright_blue().bold(), x),
         }),
         Err(e) => {
+            println!("Getting here?");
             vm.raise_error(e);
 
             // e.emit_result("repl.stl", line.as_str());

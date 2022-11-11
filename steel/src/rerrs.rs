@@ -1,4 +1,4 @@
-use crate::parser::parser::ParseError;
+use crate::{parser::parser::ParseError, steel_vm::vm::DehydratedStackTrace};
 use std::{convert::Infallible, fmt::Formatter, path::PathBuf};
 use thiserror::Error;
 
@@ -18,6 +18,7 @@ struct Repr {
     pub message: String,
     pub span: Option<Span>,
     pub source: Option<Rc<PathBuf>>,
+    pub stack_trace: Option<DehydratedStackTrace>,
 }
 
 impl Repr {
@@ -79,6 +80,7 @@ impl From<std::io::Error> for Repr {
             message: v.to_string(),
             span: None,
             source: None,
+            stack_trace: None,
         }
     }
 }
@@ -102,6 +104,7 @@ impl From<Infallible> for Repr {
             message: v.to_string(),
             span: None,
             source: None,
+            stack_trace: None,
         }
     }
 }
@@ -128,6 +131,7 @@ impl From<ParseError> for Repr {
             message: v.to_string(),
             span,
             source: source.clone(),
+            stack_trace: None,
         }
     }
 }
@@ -159,6 +163,7 @@ impl SteelErr {
                 message,
                 span: None,
                 source: None,
+                stack_trace: None,
             },
         }
     }
@@ -194,6 +199,15 @@ impl SteelErr {
         self
     }
 
+    pub fn with_stack_trace(mut self, stack_trace: DehydratedStackTrace) -> Self {
+        self.repr.stack_trace = Some(stack_trace);
+        self
+    }
+
+    pub fn stack_trace(&self) -> &Option<DehydratedStackTrace> {
+        &self.repr.stack_trace
+    }
+
     pub fn emit_result(&self, file_name: &str, file_content: &str) {
         // let opts = Opts::();
         // let config = codespan_reporting::term::Config::default();
@@ -205,6 +219,7 @@ impl SteelErr {
         let error_span = Span::new(0, 0, None);
 
         let report = self.report(file_name, file_content, error_span);
+
         term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
 
         // for diagnostic in errors.iter().map(Error::report) {
@@ -295,6 +310,17 @@ pub fn report_info(
     let report = Diagnostic::note()
         .with_code(error_code)
         .with_labels(vec![Label::primary((), span).with_message(message)]);
+
+    term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
+}
+
+pub fn back_trace(file_name: &str, file_content: &str, span: Span) {
+    let writer = StandardStream::stderr(ColorChoice::Always);
+    let config = codespan_reporting::term::Config::default();
+
+    let file = SimpleFile::new(file_name, file_content);
+
+    let report = Diagnostic::note().with_labels(vec![Label::primary((), span)]);
 
     term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
 }

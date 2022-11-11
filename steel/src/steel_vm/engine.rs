@@ -12,7 +12,7 @@ use crate::{
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser, Sources},
-    rerrs::report_error,
+    rerrs::{back_trace, report_error},
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw, SteelErr,
 };
@@ -620,14 +620,43 @@ impl Engine {
                 let file_name = self.sources.get_path(&source_id);
 
                 if let Some(file_content) = self.sources.get(source_id) {
+                    // Build stack trace if we have it:
+                    if let Some(trace) = error.stack_trace() {
+                        for dehydrated_context in trace.trace().iter() {
+                            // Report a call stack with whatever we actually have,
+                            if let Some(span) = dehydrated_context.span() {
+                                if let Some(id) = span.source_id() {
+                                    if let Some(source) = self.sources.get(id) {
+                                        let trace_line_file_name = self.sources.get_path(&id);
+
+                                        back_trace(
+                                            trace_line_file_name
+                                                .and_then(|x| x.to_str())
+                                                .unwrap_or(""),
+                                            source,
+                                            *span,
+                                        );
+
+                                        // let slice = &source.as_str()[span.range()];
+
+                                        // println!("{}", slice);
+
+                                        // todo!()
+                                    }
+                                }
+                            }
+
+                            // source = self.sources.get(dehydrated_context.)
+                        }
+                    }
+
                     error.emit_result(
                         file_name.and_then(|x| x.to_str()).unwrap_or(""),
                         file_content,
-                    )
+                    );
+                    return;
                 }
             }
-
-            return;
         }
 
         println!(
