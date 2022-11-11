@@ -23,7 +23,6 @@ use steel::steel_vm::engine::Engine;
 
 use std::io::Read;
 
-
 use std::time::Instant;
 
 impl Completer for RustylineHelper {
@@ -95,7 +94,7 @@ fn display_help() {
 }
 
 fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
-    let file_name = path.to_str().unwrap().to_string();
+    // let file_name = path.to_str().unwrap().to_string();
 
     let res = vm.compile_and_run_raw_program_with_path(exprs.as_str(), path);
 
@@ -110,8 +109,9 @@ fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
             _ => println!("{} {}", "=>".bright_blue().bold(), x),
         }),
         Err(e) => {
-            e.emit_result(file_name.as_str(), exprs.as_str());
-            eprintln!("{}", e.to_string().bright_red());
+            vm.raise_error(e);
+            // e.emit_result(file_name.as_str(), exprs.as_str());
+            // eprintln!("{}", e.to_string().bright_red());
         }
     }
 }
@@ -132,7 +132,9 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
             _ => println!("{} {}", "=>".bright_blue().bold(), x),
         }),
         Err(e) => {
-            e.emit_result("repl.stl", line.as_str());
+            vm.raise_error(e);
+
+            // e.emit_result("repl.stl", line.as_str());
         }
     }
 
