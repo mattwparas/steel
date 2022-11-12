@@ -498,6 +498,10 @@ impl<'a> Parser<'a> {
             match self.tokenizer.next() {
                 Some(token) => {
                     match token.ty {
+                        TokenType::Comment => {
+                            // Internal comments, we're gonna skip for now
+                            continue;
+                        }
                         TokenType::Error => return Err(tokentype_error_to_parse_error(&token)), // TODO
                         TokenType::QuoteTick => {
                             // quote_count += 1;
@@ -823,7 +827,10 @@ impl<'a> Iterator for Parser<'a> {
         self.tokenizer.next().map(|res| match res.ty {
             // Collect the comment until theres something to attach to
             // TokenType::Comment => {
-            //     todo!()
+            //     // todo!()
+
+            //     println!("Found a comment!");
+
             // }
 
             // Err(e) => Err(ParseError::TokenError(e)),

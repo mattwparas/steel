@@ -19,7 +19,6 @@
 ;; function when adding the methods.
 (define/contract (Class name parents interfaces fields methods)
   (->/c symbol? (listof Class-Object?) (listof Interface?) (listof symbol?) hash? Class-Object?)
-
   (unless (list-subset?
            ;; Collect the list of required methods for the given interfaces
            (transduce interfaces
