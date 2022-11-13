@@ -422,10 +422,10 @@
 ; (blagh (lambda (x) (+ x 2)) 2)
 
 
-(define (any? x) (displayln "***** CHECKING ANY? *****") #true)
+; (define (any? x) (displayln "***** CHECKING ANY? *****") #true)
 
-(define (int-checker? x) (displayln "***** CHECKING INT? ******") (int? x))
-(define (number-checker? x) (displayln "***** CHECKING NUMBER? ******") (number? x))
+; (define (int-checker? x) (displayln "***** CHECKING INT? ******") (int? x))
+; (define (number-checker? x) (displayln "***** CHECKING NUMBER? ******") (number? x))
 
 ; (define level1 
 ;     (bind-contract-to-function
@@ -452,23 +452,23 @@
 
 
 
-(define plain-function (lambda () (displayln "----CALLING PLAIN FUNCTION----") 10.2))
+; (define plain-function (lambda () (displayln "----CALLING PLAIN FUNCTION----") 10.2))
 
-(define level1 
-    (bind-contract-to-function
-        (make-function-contract (make-function-contract (FlatContract number-checker? 'number-checker?))
-                                (make-function-contract (FlatContract number-checker? 'number-checker?)))
-    (lambda (func) func)
-    'level1))
+; (define level1 
+;     (bind-contract-to-function
+;         (make-function-contract (make-function-contract (FlatContract number-checker? 'number-checker?))
+;                                 (make-function-contract (FlatContract number-checker? 'number-checker?)))
+;     (lambda (func) func)
+;     'level1))
 
-(define level2
-    (bind-contract-to-function
-        (make-function-contract (make-function-contract (FlatContract int-checker? 'int-checker?))
-                                (make-function-contract (FlatContract int-checker? 'int-checker?)))
-    (lambda (func) func)
-    'level2))
+; (define level2
+;     (bind-contract-to-function
+;         (make-function-contract (make-function-contract (FlatContract int-checker? 'int-checker?))
+;                                 (make-function-contract (FlatContract int-checker? 'int-checker?)))
+;     (lambda (func) func)
+;     'level2))
 
-((level2 (level1 (level1 (level1 plain-function)))))
+; ((level2 (level1 (level1 (level1 plain-function)))))
 
 
 ; (define (int-checker? x) (displayln "***** CHECKING INT? ******") (integer? x))

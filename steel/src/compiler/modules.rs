@@ -580,10 +580,10 @@ impl<'a> ModuleBuilder<'a> {
                 // Check to see if its in the cache first
                 // Otherwise go ahead and compile
                 // If we already have compiled this module, get it from the cache
-                if let Some(m) = self.compiled_modules.get(module) {
+                if let Some(_m) = self.compiled_modules.get(module) {
                     debug!("Getting {:?} from the module cache", module);
                     // println!("Already found in the cache: {:?}", module);
-                    new_exprs.push(m.to_module_ast_node());
+                    // new_exprs.push(m.to_module_ast_node());
                     // No need to do anything
                     continue;
                 }
