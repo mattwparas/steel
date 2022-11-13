@@ -1,7 +1,8 @@
 use crate::{
     compiler::passes::mangle::mangle_vars_with_prefix,
+    expr_list,
     parser::{
-        ast::{AstTools, Atom, ExprKind, List},
+        ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
         kernel::Kernel,
         parser::{ParseError, Parser, Sources, SyntaxObject},
         tokens::TokenType,
@@ -24,6 +25,11 @@ use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
 use itertools::Itertools;
 use log::{debug, info, log_enabled};
+
+use super::passes::{
+    mangle::{collect_globals, NameMangler},
+    VisitorMutRefUnit,
+};
 
 const OPTION: &str = include_str!("../scheme/modules/option.rkt");
 const OPTION_NAME: &str = "std::option";
@@ -100,6 +106,36 @@ impl ModuleManager {
             .map(|x| expand(x, global_macro_map))
             .collect::<Result<Vec<_>>>()?;
 
+        let mut require_defines = Vec::new();
+
+        for path in &module_builder.requires {
+            let module = module_builder.compiled_modules.get(path).unwrap();
+
+            for provide_expr in &module.provides {
+                // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
+                for provide in &provide_expr.list().unwrap().args[1..] {
+                    println!("{}", provide);
+
+                    let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
+
+                    let define = ExprKind::Define(Box::new(Define::new(
+                        provide.clone(),
+                        expr_list![
+                            ExprKind::ident("hash-get"),
+                            ExprKind::atom("__module-".to_string() + &other_module_prefix),
+                            ExprKind::Quote(Box::new(Quote::new(
+                                provide.clone(),
+                                SyntaxObject::default(TokenType::Quote)
+                            ))),
+                        ],
+                        SyntaxObject::default(TokenType::Define),
+                    )));
+
+                    require_defines.push(define);
+                }
+            }
+        }
+
         let mut mangled_asts = Vec::new();
 
         for require_for_syntax in &module_builder.requires_for_syntax {
@@ -165,6 +201,9 @@ impl ModuleManager {
         // Include the mangled asts in the resulting asts returned
         module_statements.append(&mut mangled_asts);
 
+        // Include the defines from the modules now imported
+        module_statements.append(&mut require_defines);
+
         // The next two lines here expand _all_ of the source code with the top level macros
         // This is necessary because of the std library macros, although this should be able to be
         // solved with scoped imports of the standard library explicitly
@@ -194,7 +233,8 @@ impl ModuleManager {
 pub struct CompiledModule {
     name: PathBuf,
     provides: Vec<ExprKind>,
-    requires: Vec<ExprKind>,
+    // TODO: Change this to be an ID instead of a string directly
+    requires: Vec<PathBuf>,
     provides_for_syntax: Vec<String>,
     macro_map: HashMap<String, SteelMacro>,
     ast: Vec<ExprKind>,
@@ -207,7 +247,7 @@ impl CompiledModule {
     pub fn new(
         name: PathBuf,
         provides: Vec<ExprKind>,
-        requires: Vec<ExprKind>,
+        requires: Vec<PathBuf>,
         provides_for_syntax: Vec<String>,
         macro_map: HashMap<String, SteelMacro>,
         ast: Vec<ExprKind>,
@@ -220,6 +260,111 @@ impl CompiledModule {
             macro_map,
             ast,
         }
+    }
+
+    fn to_top_level_module(&self, modules: &HashMap<PathBuf, CompiledModule>) -> ExprKind {
+        let mut globals = collect_globals(&self.ast);
+
+        let mut exprs = self.ast.clone();
+        let mut provide_definitions = Vec::new();
+
+        let prefix = "mangler".to_string() + self.name.to_str().unwrap();
+
+        // Now we should be able to set up a series of requires with the right style
+        // ;; Refresh the module definition in this namespace
+        // (define a-module.rkt-b (hash-get 'b b-module.rkt-b))
+
+        for path in &self.requires {
+            let module = modules.get(path).unwrap();
+
+            for provide_expr in &module.provides {
+                // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
+                for provide in &provide_expr.list().unwrap().args[1..] {
+                    println!("{}", provide);
+                    let provide_ident = provide.atom_identifier().unwrap();
+
+                    // Since this is now bound to be in the scope of the current working module, we also want
+                    // this to be mangled. In the event we do something like, qualify the import, then we might
+                    // have to mangle this differently
+                    globals.insert(provide_ident.to_string());
+
+                    let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
+
+                    let define = ExprKind::Define(Box::new(Define::new(
+                        ExprKind::atom(prefix.clone() + provide_ident),
+                        expr_list![
+                            ExprKind::ident("hash-get"),
+                            ExprKind::atom("__module-".to_string() + &other_module_prefix),
+                            ExprKind::Quote(Box::new(Quote::new(
+                                provide.clone(),
+                                SyntaxObject::default(TokenType::Quote)
+                            )))
+                        ],
+                        SyntaxObject::default(TokenType::Define),
+                    )));
+
+                    provide_definitions.push(define);
+                }
+
+                // exprs.push(define);
+
+                // todo!()
+            }
+        }
+
+        // Mangle all of the variables that are either:
+        // 1. Defined locally in this file
+        // 2. Required by another file
+        let mut name_mangler = NameMangler::new(globals, prefix.clone());
+        name_mangler.mangle_vars(&mut exprs);
+
+        // let mut hash_builder = Vec::new();
+
+        // These are gonna be the pairs
+        // hash_builder.push(());
+
+        // Construct the series of provides as well, we'll want these to refer to the correct values
+        let mut provides: Vec<_> = self
+            .provides
+            .iter()
+            .flat_map(|x| &x.list().unwrap().args[1..])
+            .cloned()
+            .collect();
+
+        // We want one without the mangled version, for the actual provides
+        let un_mangled = provides.clone();
+
+        name_mangler.mangle_vars(&mut provides);
+
+        let mut hash_body = vec![ExprKind::ident("hash")];
+
+        hash_body.extend(
+            un_mangled
+                .into_iter()
+                .map(|x| {
+                    ExprKind::Quote(Box::new(Quote::new(
+                        x,
+                        SyntaxObject::default(TokenType::Quote),
+                    )))
+                })
+                .interleave(provides),
+        );
+
+        let module_define = ExprKind::Define(Box::new(Define::new(
+            ExprKind::atom("__module-".to_string() + &prefix),
+            ExprKind::List(List::new(hash_body)),
+            SyntaxObject::default(TokenType::Quote),
+        )));
+
+        exprs.push(module_define);
+
+        // Construct the overall definition
+        provide_definitions.append(&mut exprs);
+
+        ExprKind::Begin(Begin::new(
+            provide_definitions,
+            SyntaxObject::default(TokenType::Begin),
+        ))
     }
 
     // Turn the module into the AST node that represents the macro module in the stdlib
@@ -237,7 +382,7 @@ impl CompiledModule {
         body.append(&mut self.provides.clone());
 
         // Include any dependencies here
-        body.append(&mut self.requires.clone());
+        // body.append(&mut self.requires.clone());
 
         // TODO: @Matt 10/8/22
         // Reconsider how to address this expansion.
@@ -387,7 +532,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Otherwise go ahead and compile
                 if !should_recompile {
                     // If we already have compiled this module, get it from the cache
-                    if let Some(m) = self.compiled_modules.get(module) {
+                    if let Some(_m) = self.compiled_modules.get(module) {
                         debug!("Getting {:?} from the module cache", module);
                         // println!("Already found in the cache: {:?}", module);
                         // new_exprs.push(m.to_module_ast_node());
@@ -485,6 +630,8 @@ impl<'a> ModuleBuilder<'a> {
             }
         }
 
+        // Define the actual
+
         // println!("compiling: {}", self.name);
 
         // println!(
@@ -505,7 +652,8 @@ impl<'a> ModuleBuilder<'a> {
         // let mut ast = self.source_ast.clone();
         // let provides = self.provides.clone();
 
-        let mut requires = Vec::new();
+        // Clone the requires... I suppose
+        let mut requires = self.requires.clone();
 
         // TODO -> qualified requires as well
         // qualified requires should be able to adjust the names of the exported functions
@@ -602,7 +750,10 @@ impl<'a> ModuleBuilder<'a> {
             mangled_asts,
         );
 
-        let result = module.to_module_ast_node();
+        // let result = module.to_module_ast_node();
+
+        let result = module.to_top_level_module(&self.compiled_modules);
+
         // println!(
         //     "Into compiled module inserted into the cache: {:?}",
         //     self.name

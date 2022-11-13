@@ -4,6 +4,7 @@ use crate::parser::{
 };
 
 use super::VisitorMutRefUnit;
+use std::collections::HashSet;
 
 /*
 Steps for doing having scoped macros
@@ -15,19 +16,19 @@ Steps for doing having scoped macros
     - Copy the code for B, mangle it and then include it in A directly
 */
 
-pub fn collect_globals(exprs: &[ExprKind]) -> Vec<String> {
-    let mut global_defs = Vec::new();
+pub fn collect_globals(exprs: &[ExprKind]) -> HashSet<String> {
+    let mut global_defs = HashSet::new();
 
     for expr in exprs {
         match expr {
             ExprKind::Define(d) => {
                 if let Some(name) = d.name.atom_identifier() {
-                    global_defs.push(name.to_string());
+                    global_defs.insert(name.to_string());
                 }
             }
             ExprKind::Begin(b) => {
-                let mut collected_defs = collect_globals(&b.exprs);
-                global_defs.append(&mut collected_defs);
+                let collected_defs = collect_globals(&b.exprs);
+                global_defs.extend(collected_defs);
             }
             _ => {}
         }
@@ -37,8 +38,20 @@ pub fn collect_globals(exprs: &[ExprKind]) -> Vec<String> {
 }
 
 pub struct NameMangler {
-    globals: Vec<String>,
+    globals: HashSet<String>,
     prefix: String,
+}
+
+impl NameMangler {
+    pub fn new(globals: HashSet<String>, prefix: String) -> Self {
+        Self { globals, prefix }
+    }
+
+    pub fn mangle_vars(&mut self, exprs: &mut [ExprKind]) {
+        for expr in exprs {
+            self.visit(expr);
+        }
+    }
 }
 
 pub fn mangle_vars_with_prefix(prefix: String, exprs: &mut [ExprKind]) {

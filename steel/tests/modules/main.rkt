@@ -1,5 +1,5 @@
 (require "a.rkt")
-; (require "b.rkt")
+(require "b.rkt")
 ; (require "sort_export.rkt")
 
 (a 10)

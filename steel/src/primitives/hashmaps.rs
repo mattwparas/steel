@@ -105,7 +105,7 @@ pub fn hm_get(args: &[SteelVal]) -> Result<SteelVal> {
             None => stop!(Generic => "hash map key not found!"),
         }
     } else {
-        stop!(TypeMismatch => "hm-get takes a hashmap")
+        stop!(TypeMismatch => "hm-get takes a hashmap, found: {}", hashmap)
     }
 }
 
