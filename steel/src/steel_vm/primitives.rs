@@ -9,6 +9,7 @@ use crate::{
         hashsets::hashset_module,
         lists::UnRecoverableResult,
         nums::quotient,
+        process::process_module,
         ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
         StreamOperations, StringOperations, SymbolOperations, VectorOperations,
     },
@@ -221,6 +222,7 @@ thread_local! {
     pub static SYNTAX_MODULE: BuiltInModule = syntax_module();
     pub static SANDBOXED_META_MODULE: BuiltInModule = sandboxed_meta_module();
     pub static SANDBOXED_IO_MODULE: BuiltInModule = sandboxed_io_module();
+    pub static PROCESS_MODULE: BuiltInModule = process_module();
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
 }
 
@@ -246,6 +248,7 @@ pub fn prelude() -> BuiltInModule {
         .with_module(JSON_MODULE.with(|x| x.clone()))
         .with_module(CONSTANTS_MODULE.with(|x| x.clone()))
         .with_module(SYNTAX_MODULE.with(|x| x.clone()))
+        .with_module(PROCESS_MODULE.with(|x| x.clone()))
 }
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
@@ -313,6 +316,7 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(JSON_MODULE.with(|x| x.clone()))
         .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
         .register_module(SYNTAX_MODULE.with(|x| x.clone()))
+        .register_module(PROCESS_MODULE.with(|x| x.clone()))
         .register_module(PRELUDE_MODULE.with(|x| x.clone()));
 }
 
@@ -337,6 +341,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/json)
     (require-builtin steel/constants)
     (require-builtin steel/syntax)
+    (require-builtin steel/process)
 "#;
 
 pub static SANDBOXED_MODULES: &str = r#"

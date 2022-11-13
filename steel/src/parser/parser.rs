@@ -345,7 +345,6 @@ pub struct Parser<'a> {
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
     context: Vec<ParsingContext>,
-    source_id: Option<SourceId>,
 }
 
 #[derive(Debug)]
@@ -405,7 +404,6 @@ impl<'a> Parser<'a> {
             shorthand_quote_stack: Vec::new(),
             source_name: None,
             context: Vec::new(),
-            source_id,
         }
     }
 
@@ -422,7 +420,6 @@ impl<'a> Parser<'a> {
             shorthand_quote_stack: Vec::new(),
             source_name: Some(Rc::from(source_name)),
             context: Vec::new(),
-            source_id,
         }
     }
 

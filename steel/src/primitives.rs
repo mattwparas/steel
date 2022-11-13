@@ -8,7 +8,7 @@ pub mod lists;
 mod meta_ops;
 pub mod nums;
 mod ports;
-mod process;
+pub mod process;
 mod streams;
 mod strings;
 mod symbols;

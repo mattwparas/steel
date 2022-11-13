@@ -7,7 +7,7 @@ use crate::{expr_list, parser::parser::SyntaxObject};
 use crate::{parser::ast::ExprKind, steel_vm::builtin::BuiltInModule};
 
 use super::{
-    ast::{Atom, If, LambdaFunction, List, Quote},
+    ast::{Atom, LambdaFunction, List, Quote},
     kernel::Kernel,
 };
 
@@ -207,7 +207,7 @@ impl<'a> KernelExpander<'a> {
     }
 }
 
-fn expand_default_arguments(
+fn _expand_default_arguments(
     lambda_function: Box<super::ast::LambdaFunction>,
 ) -> Result<Box<super::ast::LambdaFunction>> {
     // todo!()

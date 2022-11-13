@@ -14,7 +14,15 @@ use std::fmt;
 pub struct InternedString(Spur);
 
 impl InternedString {
-    pub fn from_string(ident: &str) -> Self {
+    pub fn from_static(ident: &'static str) -> Self {
+        Self(
+            INTERNER
+                .get_or_init(|| ThreadedRodeo::new())
+                .get_or_intern_static(ident),
+        )
+    }
+
+    pub fn from_string(ident: String) -> Self {
         Self(
             INTERNER
                 .get_or_init(|| ThreadedRodeo::new())
@@ -40,15 +48,15 @@ impl InternedString {
     }
 }
 
-impl From<&str> for InternedString {
-    fn from(ident: &str) -> Self {
-        Self::from_string(&ident)
-    }
-}
+// impl From<&str> for InternedString {
+//     fn from(ident: &str) -> Self {
+//         Self::from_string(&ident)
+//     }
+// }
 
 impl From<String> for InternedString {
     fn from(ident: String) -> Self {
-        Self::from_string(&ident)
+        Self::from_string(ident)
     }
 }
 
@@ -85,13 +93,13 @@ fn test_initialization() {
     println!("resolved string: {:?}", resolved_string);
 }
 
-fn intern(key: String) -> Spur {
-    INTERNER.get().unwrap().get_or_intern(key)
-}
+// fn intern(key: String) -> Spur {
+//     INTERNER.get().unwrap().get_or_intern(key)
+// }
 
-fn intern_static(key: &'static str) -> Spur {
-    INTERNER.get().unwrap().get_or_intern_static(key)
-}
+// fn intern_static(key: &'static str) -> Spur {
+//     INTERNER.get().unwrap().get_or_intern_static(key)
+// }
 
 fn resolve<'a>(key: &'a Spur) -> &'a str {
     INTERNER.get().unwrap().resolve(&key)
