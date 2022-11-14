@@ -155,6 +155,17 @@ impl CallStack {
     }
 }
 
+// This should be the go to thing for handling basically everything we need
+// Then - do I want to always reference the last one, or just refer to the current one?
+
+struct StackFrame {
+    index: usize,
+    handler: Option<Gc<ByteCodeLambda>>,
+    span: Option<Span>,
+    function: Gc<ByteCodeLambda>,
+    instruction_pointer: InstructionPointer,
+}
+
 pub struct SteelThread {
     global_env: Env,
     callback: EvaluationProgress,
@@ -170,6 +181,8 @@ pub struct SteelThread {
     // If contracts are set to off - contract construction results in a no-op, so we don't
     // need generics on the thread
     contracts_on: bool,
+    // Bit of a funky way of handling things that we probably could do with delimited continuations
+    // directly, but it could work
     #[cfg(feature = "jit")]
     jit: JIT,
 }
@@ -299,6 +312,22 @@ impl SteelThread {
             result
         }
         .map_err(|error| error.with_stack_trace(self.function_stack.snapshot_stack_trace()));
+
+        // TODO: This is where we would unwind the stack
+        /*
+        If we did something like this:
+
+        while let Some(last) = self.function_stack.pop() {
+            // roll back the stack somehow with the stack index
+            if last.is_exception_handler {
+                self.function_stack.push(function)
+                self.stack.push(error-object) // <- Somehow create an error object that we can meaningfully interact with, probably
+                                              // just a runtime representation of a SteelErr
+                                              // And then we can just pick up execution here, and loop running through the vm instance again.
+            }
+        }
+
+        */
 
         // self.profiler.report();
         // self.profiler.report_time_spend();
@@ -2360,6 +2389,8 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
+    // TODO: See if calling continuations can be implemented in terms of the core ABI
+    // That way, we dont need a special "continuation" function
     fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
         let last = self
             .stack
@@ -2913,49 +2944,49 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
     Ok(continuation)
 }
 
-fn backtrace<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(backtrace, args, 0);
+// fn backtrace<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
+//     arity_check!(backtrace, args, 0);
 
-    // let ctx.function_stack.function_stack.iter()
+//     // let ctx.function_stack.function_stack.iter()
 
-    // TODO: Go backwards through the stack trace, trying to resolve the following:
-    //  * The file name where the error occurred, the line number, the offset (if possible)
-    //  * A snippet of the code that actually caused the problem, something like this for java:
-    //
-    // java.lang.Exception: Stack trace
-    //     at java.lang.Thread.dumpStack(Thread.java:1336)
-    //     at Main.demo3(Main.java:15)
-    //     at Main.demo2(Main.java:12)
-    //     at Main.demo1(Main.java:9)
-    //     at Main.demo(Main.java:6)
-    //     at Main.main(Main.java:3)
-    //
-    // Or this for Python:
-    //     Traceback (most recent call last):
-    //   File "tb.py", line 15, in <module>
-    //     a()
-    //   File "tb.py", line 3, in a
-    //     j = b(i)
-    //   File "tb.py", line 9, in b
-    //     c()
-    //   File "tb.py", line 13, in c
-    //     error()
-    // NameError: name 'error' is not defined
+//     // TODO: Go backwards through the stack trace, trying to resolve the following:
+//     //  * The file name where the error occurred, the line number, the offset (if possible)
+//     //  * A snippet of the code that actually caused the problem, something like this for java:
+//     //
+//     // java.lang.Exception: Stack trace
+//     //     at java.lang.Thread.dumpStack(Thread.java:1336)
+//     //     at Main.demo3(Main.java:15)
+//     //     at Main.demo2(Main.java:12)
+//     //     at Main.demo1(Main.java:9)
+//     //     at Main.demo(Main.java:6)
+//     //     at Main.main(Main.java:3)
+//     //
+//     // Or this for Python:
+//     //     Traceback (most recent call last):
+//     //   File "tb.py", line 15, in <module>
+//     //     a()
+//     //   File "tb.py", line 3, in a
+//     //     j = b(i)
+//     //   File "tb.py", line 9, in b
+//     //     c()
+//     //   File "tb.py", line 13, in c
+//     //     error()
+//     // NameError: name 'error' is not defined
 
-    Ok(SteelVal::Void)
+//     Ok(SteelVal::Void)
 
-    // let mut arg_iter = args.into_iter();
-    // let arg1 = arg_iter.next().unwrap();
-    // let arg2 = arg_iter.next().unwrap();
+//     // let mut arg_iter = args.into_iter();
+//     // let arg1 = arg_iter.next().unwrap();
+//     // let arg2 = arg_iter.next().unwrap();
 
-    // if let SteelVal::ListV(l) = arg2 {
-    //     if arg1.is_function() {
-    //         // println!("Calling apply with args: {:?}, {:?}", arg1, arg2);
-    //         ctx.call_function_many_args(&arg1, l.clone())
-    //     } else {
-    //         stop!(TypeMismatch => "apply expected a function, found: {}", arg1);
-    //     }
-    // } else {
-    //     stop!(TypeMismatch => "apply expects a list, found: {}", arg2);
-    // }
-}
+//     // if let SteelVal::ListV(l) = arg2 {
+//     //     if arg1.is_function() {
+//     //         // println!("Calling apply with args: {:?}, {:?}", arg1, arg2);
+//     //         ctx.call_function_many_args(&arg1, l.clone())
+//     //     } else {
+//     //         stop!(TypeMismatch => "apply expected a function, found: {}", arg1);
+//     //     }
+//     // } else {
+//     //     stop!(TypeMismatch => "apply expects a list, found: {}", arg2);
+//     // }
+// }

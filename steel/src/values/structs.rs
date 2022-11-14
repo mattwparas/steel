@@ -1,13 +1,14 @@
-use crate::stop;
-use crate::throw;
-use crate::{gc::Gc, parser::ast::ExprKind};
+use crate::{gc::Gc, parser::ast::ExprKind, steel_vm::register_fn::RegisterFn};
 use crate::{primitives::VectorOperations, rvals::MAGIC_STRUCT_SYMBOL};
+use crate::{rvals::Custom, throw};
 use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
+use crate::{steel_vm::builtin::BuiltInModule, stop};
 use std::{cell::RefCell, fmt::write, rc::Rc};
 
+use im_rc::hashmap;
 use serde::{Deserialize, Serialize};
 
 use crate::parser::ast::Struct;
@@ -135,6 +136,35 @@ impl UserDefinedStruct {
         SteelVal::BoxedFunction(Rc::new(f))
     }
 
+    fn getter_prototype_index(name: Rc<str>, index: usize) -> SteelVal {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "struct-ref expected two arguments");
+            }
+
+            let steel_struct = &args[0].clone();
+
+            match &steel_struct {
+                SteelVal::CustomStruct(s) => {
+                    if !Rc::ptr_eq(&s.name, &name) {
+                        stop!(TypeMismatch => format!("Struct getter expected {}, found {:p}, {:?}", name, &s, &steel_struct));
+                    }
+
+                    Ok(s.fields.borrow()[index as usize].clone())
+                }
+                _ => {
+                    let error_message = format!(
+                        "struct-ref expected a struct and an int, found: {} and {}",
+                        steel_struct, index
+                    );
+                    stop!(TypeMismatch => error_message)
+                }
+            }
+        };
+
+        SteelVal::BoxedFunction(Rc::new(f))
+    }
+
     fn setter_prototype(name: Rc<str>) -> SteelVal {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
@@ -214,6 +244,81 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
         getter_prototype,
         setter_prototype
     ]))
+}
+
+#[derive(Debug, Clone)]
+struct AlternativeOk(SteelVal);
+
+impl AlternativeOk {
+    pub fn new(value: SteelVal) -> Self {
+        Self(value)
+    }
+
+    pub fn value(&self) -> SteelVal {
+        self.0.clone()
+    }
+}
+
+impl Custom for AlternativeOk {}
+
+#[derive(Debug, Clone)]
+struct AlternativeErr(SteelVal);
+
+impl AlternativeErr {
+    pub fn new(value: SteelVal) -> Self {
+        Self(value)
+    }
+
+    pub fn value(&self) -> SteelVal {
+        self.0.clone()
+    }
+}
+
+impl Custom for AlternativeErr {}
+
+pub(crate) fn build_result_structs() -> BuiltInModule {
+    // Build module
+    let mut module = BuiltInModule::new("steel/result".to_string());
+
+    {
+        let name = Rc::from("Ok");
+
+        // Don't put any options in it?
+        let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
+        let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
+
+        // Build the getter for the first index
+        let getter = UserDefinedStruct::getter_prototype_index(Rc::clone(&name), 0);
+
+        module
+            .register_value("Ok", constructor)
+            .register_value("Ok?", predicate)
+            .register_value("Ok->value", getter);
+    }
+
+    {
+        let name = Rc::from("Err");
+        let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
+        let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
+
+        // Build the getter for the first index
+        let getter = UserDefinedStruct::getter_prototype_index(Rc::clone(&name), 0);
+
+        module
+            .register_value("Err", constructor)
+            .register_value("Err?", predicate)
+            .register_value("Err->value", getter);
+    }
+
+    module
+        .register_type::<AlternativeOk>("Alternative-Ok?")
+        .register_type::<AlternativeErr>("Alternative-Err?")
+        .register_fn("Alternative-Ok", AlternativeOk::new)
+        .register_fn("Alternative-Err", AlternativeErr::new)
+        .register_fn("Alternative-Ok->value", AlternativeOk::value)
+        .register_fn("Alternative-Err->value", AlternativeErr::value);
+
+    module
 }
 
 // / An instance of an immutable struct in Steel
