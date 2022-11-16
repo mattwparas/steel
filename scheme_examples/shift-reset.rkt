@@ -31,3 +31,11 @@
                                 (reset (k v)))))))))
 
 (* 2 (reset (+ 1 (shift k (k 5)))))
+
+;; In theory, this seems to work for our shift and reset business
+;; Now, its not performant, but you seem to only pay the price only if you use the code
+(let () 
+    (reset
+        (call-with-exception-handler (lambda (x) (displayln x) (shift k (k void))) 
+            (lambda () (+ 10 20 (error "oops!")))))
+    (displayln "hi"))

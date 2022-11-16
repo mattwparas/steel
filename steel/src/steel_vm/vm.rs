@@ -75,17 +75,114 @@ impl DehydratedStackTrace {
     }
 }
 
+// #[derive(Debug, Clone)]
+// pub struct CallContext {
+//     span: Option<Span>,
+//     function: Gc<ByteCodeLambda>,
+// }
+
+// impl CallContext {
+//     pub fn new(function: Gc<ByteCodeLambda>) -> Self {
+//         Self {
+//             span: None,
+//             function,
+//         }
+//     }
+
+//     pub fn with_span(mut self, span: Span) -> Self {
+//         self.span = Some(span);
+//         self
+//     }
+// }
+
+// #[derive(Default, Clone, Debug)]
+// pub struct CallStack {
+//     function_stack: Vec<CallContext>,
+// }
+
+// impl CallStack {
+//     pub fn new() -> Self {
+//         Self {
+//             function_stack: Vec::new(),
+//         }
+//     }
+
+//     pub fn with_capacity(capacity: usize) -> Self {
+//         Self {
+//             function_stack: Vec::with_capacity(capacity),
+//         }
+//     }
+
+//     pub fn push(&mut self, call: CallContext) {
+//         self.function_stack.push(call)
+//     }
+
+//     pub fn pop(&mut self) -> Option<CallContext> {
+//         self.function_stack.pop()
+//     }
+
+//     pub fn function_iter(&self) -> impl Iterator<Item = &Gc<ByteCodeLambda>> {
+//         self.function_stack.iter().map(|x| &x.function)
+//     }
+
+//     pub fn last(&self) -> Option<&Gc<ByteCodeLambda>> {
+//         self.function_stack.last().map(|x| &x.function)
+//     }
+
+//     pub fn last_mut(&mut self) -> Option<&mut Gc<ByteCodeLambda>> {
+//         self.function_stack.last_mut().map(|x| &mut x.function)
+//     }
+
+//     pub fn clear(&mut self) {
+//         self.function_stack.clear()
+//     }
+
+//     pub fn is_empty(&self) -> bool {
+//         self.function_stack.is_empty()
+//     }
+
+//     pub fn len(&self) -> usize {
+//         self.function_stack.len()
+//     }
+
+//     pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
+//         DehydratedStackTrace::new(
+//             self.function_stack
+//                 .iter()
+//                 .map(|x| DehydratedCallContext::new(x.span))
+//                 .collect(),
+//         )
+//     }
+// }
+
+// This should be the go to thing for handling basically everything we need
+// Then - do I want to always reference the last one, or just refer to the current one?
+// TODO: We'll need to add these functions to the GC as well
+
 #[derive(Debug, Clone)]
-pub struct CallContext {
+pub struct StackFrame {
+    index: usize,
+    // This kind of by definition _does_ have to be a function. But for now, we'll just leave it as a
+    // generic steel value
+    handler: Option<SteelVal>,
     span: Option<Span>,
-    function: Gc<ByteCodeLambda>,
+    // This should get added to the GC as well
+    pub(crate) function: Gc<ByteCodeLambda>,
+    instruction_pointer: InstructionPointer,
 }
 
-impl CallContext {
-    pub fn new(function: Gc<ByteCodeLambda>) -> Self {
+impl StackFrame {
+    pub fn new(
+        stack_index: usize,
+        function: Gc<ByteCodeLambda>,
+        instruction_pointer: InstructionPointer,
+    ) -> Self {
         Self {
-            span: None,
+            index: stack_index,
             function,
+            instruction_pointer,
+            span: None,
+            handler: None,
         }
     }
 
@@ -93,94 +190,41 @@ impl CallContext {
         self.span = Some(span);
         self
     }
-}
 
-#[derive(Default, Clone, Debug)]
-pub struct CallStack {
-    function_stack: Vec<CallContext>,
-}
-
-impl CallStack {
-    pub fn new() -> Self {
-        Self {
-            function_stack: Vec::new(),
-        }
+    pub fn set_function(&mut self, function: Gc<ByteCodeLambda>) {
+        self.function = function;
     }
 
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            function_stack: Vec::with_capacity(capacity),
-        }
+    pub fn set_span(&mut self, span: Span) {
+        self.span = Some(span);
     }
 
-    pub fn push(&mut self, call: CallContext) {
-        self.function_stack.push(call)
+    pub fn attach_handler(&mut self, handler: SteelVal) {
+        self.handler = Some(handler);
     }
 
-    pub fn pop(&mut self) -> Option<CallContext> {
-        self.function_stack.pop()
+    pub fn with_handler(mut self, handler: SteelVal) -> Self {
+        self.handler = Some(handler);
+        self
     }
-
-    pub fn function_iter(&self) -> impl Iterator<Item = &Gc<ByteCodeLambda>> {
-        self.function_stack.iter().map(|x| &x.function)
-    }
-
-    pub fn last(&self) -> Option<&Gc<ByteCodeLambda>> {
-        self.function_stack.last().map(|x| &x.function)
-    }
-
-    pub fn last_mut(&mut self) -> Option<&mut Gc<ByteCodeLambda>> {
-        self.function_stack.last_mut().map(|x| &mut x.function)
-    }
-
-    pub fn clear(&mut self) {
-        self.function_stack.clear()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.function_stack.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.function_stack.len()
-    }
-
-    pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
-        DehydratedStackTrace::new(
-            self.function_stack
-                .iter()
-                .map(|x| DehydratedCallContext::new(x.span))
-                .collect(),
-        )
-    }
-}
-
-// This should be the go to thing for handling basically everything we need
-// Then - do I want to always reference the last one, or just refer to the current one?
-
-struct StackFrame {
-    index: usize,
-    handler: Option<Gc<ByteCodeLambda>>,
-    span: Option<Span>,
-    function: Gc<ByteCodeLambda>,
-    instruction_pointer: InstructionPointer,
 }
 
 pub struct SteelThread {
     global_env: Env,
     callback: EvaluationProgress,
     stack: Vec<SteelVal>,
-    function_stack: CallStack,
-    stack_index: Vec<usize>,
+    // function_stack: CallStack,
+    // stack_index: Vec<usize>,
     profiler: OpCodeOccurenceProfiler,
     // TODO: make this not as bad
     closure_interner: FnvHashMap<usize, ByteCodeLambda>,
     pure_function_interner: FnvHashMap<usize, Gc<ByteCodeLambda>>,
+
     heap: Heap,
-    // constants: ConstantMap,
-    // If contracts are set to off - contract construction results in a no-op, so we don't
-    // need generics on the thread
+    // If contracts are set to off - contract construction results in a no-op,
+    // so we don't need generics on the thread
     contracts_on: bool,
+    stack_frames: Vec<StackFrame>,
     // Bit of a funky way of handling things that we probably could do with delimited continuations
     // directly, but it could work
     #[cfg(feature = "jit")]
@@ -193,14 +237,14 @@ impl SteelThread {
             global_env: Env::root(),
             callback: EvaluationProgress::new(),
             stack: Vec::with_capacity(256),
-            function_stack: CallStack::with_capacity(64),
-            stack_index: Vec::with_capacity(64),
+            // function_stack: CallStack::with_capacity(64),
+            // stack_index: Vec::with_capacity(64),
             profiler: OpCodeOccurenceProfiler::new(),
             closure_interner: FnvHashMap::default(),
             pure_function_interner: FnvHashMap::default(),
             heap: Heap::new(),
-            // constants: ConstantMap::new(),
             contracts_on: true,
+            stack_frames: Vec::with_capacity(64),
             #[cfg(feature = "jit")]
             jit: JIT::default(),
         }
@@ -257,8 +301,9 @@ impl SteelThread {
             &mut self.global_env,
             constant_map,
             &self.callback,
-            &mut self.function_stack,
-            &mut self.stack_index,
+            // &mut self.function_stack,
+            // &mut self.stack_index,
+            &mut self.stack_frames,
             &[],
             &mut self.profiler,
             &mut self.closure_interner,
@@ -291,8 +336,9 @@ impl SteelThread {
             &mut self.global_env,
             constant_map,
             &self.callback,
-            &mut self.function_stack,
-            &mut self.stack_index,
+            // &mut self.function_stack,
+            // &mut self.stack_index,
+            &mut self.stack_frames,
             spans,
             &mut self.profiler,
             &mut self.closure_interner,
@@ -303,44 +349,131 @@ impl SteelThread {
             Some(&mut self.jit),
         )?;
 
-        // TODO: @Matt -> move the profiler out into the vm core type parameter and an argument
-        // that way theres 0 cost to including a profiler vs not including a profiler
+        // This is our pseudo "dynamic unwind"
+        // If we need to, we'll walk back on the stack and find any handlers to pop
+        'outer: loop {
+            // TODO: @Matt -> move the profiler out into the vm core type parameter and an argument
+            // that way theres 0 cost to including a profiler vs not including a profiler
 
-        let result = {
-            let result = vm_instance.vm();
-            // self.upvalue_head = vm_instance.upvalue_head;
-            result
-        }
-        .map_err(|error| error.with_stack_trace(self.function_stack.snapshot_stack_trace()));
+            let result = {
+                println!("Executing vm loop");
 
-        // TODO: This is where we would unwind the stack
-        /*
-        If we did something like this:
+                let result = vm_instance.vm();
+                // self.upvalue_head = vm_instance.upvalue_head;
+                result
+            }
+            .map_err(|error| error.with_stack_trace(vm_instance.snapshot_stack_trace()));
 
-        while let Some(last) = self.function_stack.pop() {
-            // roll back the stack somehow with the stack index
-            if last.is_exception_handler {
-                self.function_stack.push(function)
-                self.stack.push(error-object) // <- Somehow create an error object that we can meaningfully interact with, probably
-                                              // just a runtime representation of a SteelErr
-                                              // And then we can just pick up execution here, and loop running through the vm instance again.
+            // TODO: This is where we would unwind the stack
+            /*
+            If we did something like this:
+
+            while let Some(last) = self.function_stack.pop() {
+                // roll back the stack somehow with the stack index
+                if last.is_exception_handler {
+                    self.function_stack.push(function)
+                    self.stack.push(error-object) // <- Somehow create an error object that we can meaningfully interact with, probably
+                                                  // just a runtime representation of a SteelErr
+                                                  // And then we can just pick up execution here, and loop running through the vm instance again.
+                }
+            }
+
+            */
+
+            println!("Result: {:?}", result);
+
+            // (let () (call-with-exception-handler (lambda (x) (displayln x)) (lambda () (+ 10 20 (error "oops!")))) (displayln "hi"))
+
+            if result.is_err() {
+                while let Some(last) = vm_instance.stack_frames.pop() {
+                    // Drop the pop count along with everything else we're doing
+                    vm_instance.pop_count -= 1;
+
+                    if let Some(handler) = last.handler.clone() {
+                        // Drop the stack BACK to where it was on this level
+                        vm_instance.stack.truncate(last.index);
+
+                        vm_instance
+                            .stack
+                            .push(SteelVal::StringV(Rc::from("APPLESAUCE")));
+
+                        println!("Found handler!");
+
+                        // println!("Stack here: {:?}", vm_instance.stack_frames);
+                        // println!("pop count: {}", vm_instance.pop_count);
+
+                        // panic!("Stopping");
+
+                        // vm_instance.stack_frames.push(last);
+
+                        // If we're at the top level, we need to handle this _slightly_ differently
+                        // if vm_instance.stack_frames.is_empty() {
+                        // Somehow update the main instruction group to _just_ be the new group
+                        match handler {
+                            SteelVal::Closure(closure) => {
+                                if vm_instance.stack_frames.is_empty() {
+                                    // Push on a dummy stack frame if we're at the top
+                                    vm_instance.stack_frames.push(StackFrame::new(
+                                        last.index,
+                                        Gc::clone(&closure),
+                                        InstructionPointer::new(0, Rc::from([])),
+                                    ));
+                                }
+
+                                // vm_instance.pop_count += 1;
+
+                                vm_instance.instructions = closure.body_exp();
+                                // ctx.function_stack
+                                //     .push(CallContext::new(closure).with_span(ctx.current_span()));
+
+                                vm_instance.ip = 0;
+                            }
+                            _ => todo!("Unsupported"),
+                        }
+
+                        // } else {
+
+                        // }
+
+                        // This works, it just seems to then continue into the other function, which we don't want
+                        // vm_instance
+                        //     .stack
+                        //     .push(SteelVal::StringV(Rc::from("APPLESAUCE")));
+
+                        // // This is definitely wrong
+                        // vm_instance.handle_function_call(handler, 1)?;
+
+                        continue 'outer;
+
+                        // todo!("Actually call the function handler")
+                    }
+                }
+
+                return result;
+            } else {
+                // self.profiler.report();
+                // self.profiler.report_time_spend();
+                // self.profiler.report_basic_blocks();
+
+                // self.upvalue_head = vm_instance.upvalue_head;
+
+                // Clean up
+                self.stack.clear();
+                // self.stack_index.clear();
+                // self.function_stack.clear();
+
+                return result;
             }
         }
+    }
 
-        */
-
-        // self.profiler.report();
-        // self.profiler.report_time_spend();
-        // self.profiler.report_basic_blocks();
-
-        // self.upvalue_head = vm_instance.upvalue_head;
-
-        // Clean up
-        self.stack.clear();
-        self.stack_index.clear();
-        self.function_stack.clear();
-
-        result
+    pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
+        DehydratedStackTrace::new(
+            self.stack_frames
+                .iter()
+                .map(|x| DehydratedCallContext::new(x.span))
+                .collect(),
+        )
     }
 }
 
@@ -367,11 +500,12 @@ impl InstructionPointer {
 pub struct Continuation {
     pub(crate) stack: Vec<SteelVal>,
     instructions: Rc<[DenseInstruction]>,
-    instruction_stack: Vec<InstructionPointer>,
-    stack_index: Vec<usize>,
+    // instruction_stack: Vec<InstructionPointer>,
+    // stack_index: Vec<usize>,
+    pub(crate) stack_frames: Vec<StackFrame>,
     ip: usize,
     pop_count: usize,
-    pub(crate) function_stack: CallStack,
+    // pub(crate) function_stack: CallStack,
 }
 
 pub trait VmContext {
@@ -494,13 +628,14 @@ pub struct VmCore<'a> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: &'a mut Vec<SteelVal>,
     pub(crate) global_env: &'a mut Env,
-    pub(crate) instruction_stack: Vec<InstructionPointer>,
-    pub(crate) stack_index: &'a mut Vec<usize>,
+    // pub(crate) instruction_stack: Vec<InstructionPointer>,
+    // pub(crate) stack_index: &'a mut Vec<usize>,
+    pub(crate) stack_frames: &'a mut Vec<StackFrame>,
     pub(crate) callback: &'a EvaluationProgress,
     pub(crate) constants: &'a ConstantMap,
     pub(crate) ip: usize,
     pub(crate) pop_count: usize,
-    pub(crate) function_stack: &'a mut CallStack,
+    // pub(crate) function_stack: &'a mut CallStack,
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
     pub(crate) closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
@@ -518,8 +653,9 @@ impl<'a> VmCore<'a> {
         global_env: &'a mut Env,
         constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
-        function_stack: &'a mut CallStack,
-        stack_index: &'a mut Vec<usize>,
+        // function_stack: &'a mut CallStack,
+        // stack_index: &'a mut Vec<usize>,
+        stack_frames: &'a mut Vec<StackFrame>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
@@ -532,13 +668,14 @@ impl<'a> VmCore<'a> {
             instructions: Rc::clone(&instructions),
             stack,
             global_env,
-            instruction_stack: Vec::new(),
-            stack_index,
+            // instruction_stack: Vec::new(),
+            // stack_index,
+            stack_frames,
             callback,
             constants,
             ip: 0,
             pop_count: 1,
-            function_stack,
+            // function_stack,
             spans,
             profiler,
             closure_interner,
@@ -556,8 +693,9 @@ impl<'a> VmCore<'a> {
         global_env: &'a mut Env,
         constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
-        function_stack: &'a mut CallStack,
-        stack_index: &'a mut Vec<usize>,
+        // function_stack: &'a mut CallStack,
+        // stack_index: &'a mut Vec<usize>,
+        stack_frames: &'a mut Vec<StackFrame>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
         closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
@@ -574,13 +712,14 @@ impl<'a> VmCore<'a> {
             instructions: Rc::clone(&instructions),
             stack,
             global_env,
-            instruction_stack: Vec::new(),
-            stack_index,
+            // instruction_stack: Vec::new(),
+            // stack_index,
+            stack_frames,
             callback,
             constants,
             ip: 0,
             pop_count: 1,
-            function_stack,
+            // function_stack,
             spans,
             profiler,
             closure_interner,
@@ -597,23 +736,34 @@ impl<'a> VmCore<'a> {
         Continuation {
             stack: self.stack.clone(),
             instructions: Rc::clone(&self.instructions),
-            instruction_stack: self.instruction_stack.clone(),
-            stack_index: self.stack_index.clone(),
+            // instruction_stack: self.instruction_stack.clone(),
+            // stack_index: self.stack_index.clone(),
+            stack_frames: self.stack_frames.clone(),
             ip: self.ip,
             pop_count: self.pop_count,
-            function_stack: self.function_stack.clone(),
+            // function_stack: self.function_stack.clone(),
         }
+    }
+
+    pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
+        DehydratedStackTrace::new(
+            self.stack_frames
+                .iter()
+                .map(|x| DehydratedCallContext::new(x.span))
+                .collect(),
+        )
     }
 
     // #[inline(always)]
     fn set_state_from_continuation(&mut self, continuation: Continuation) {
         *self.stack = continuation.stack;
         self.instructions = continuation.instructions;
-        self.instruction_stack = continuation.instruction_stack;
+        // self.instruction_stack = continuation.instruction_stack;
         self.ip = continuation.ip;
         self.pop_count = continuation.pop_count;
-        *self.stack_index = continuation.stack_index;
-        *self.function_stack = continuation.function_stack;
+        // *self.stack_index = continuation.stack_index;
+        *self.stack_frames = continuation.stack_frames;
+        // *self.function_stack = continuation.function_stack;
     }
 
     // #[inline(always)]
@@ -759,7 +909,14 @@ impl<'a> VmCore<'a> {
         // println!("Multi arity: {:?}", closure.is_multi_arity);
 
         let prev_length = self.stack.len();
-        self.stack_index.push(prev_length);
+        // self.stack_index.push(prev_length);
+
+        // TODO:
+        self.stack_frames.push(StackFrame::new(
+            prev_length,
+            Gc::clone(&closure),
+            InstructionPointer::new(0, Rc::from([])),
+        ));
 
         let mut argument_count = 0;
         for arg in args {
@@ -789,8 +946,8 @@ impl<'a> VmCore<'a> {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), argument_count); self.current_span());
         }
 
-        self.function_stack
-            .push(CallContext::new(Gc::clone(closure)));
+        // self.function_stack
+        // .push(CallContext::new(Gc::clone(closure)));
         let result = self.call_with_instructions_and_reset_state(closure.body_exp());
 
         result
@@ -804,11 +961,18 @@ impl<'a> VmCore<'a> {
         arg2: SteelVal,
     ) -> Result<SteelVal> {
         let prev_length = self.stack.len();
-        self.stack_index.push(prev_length);
+        // self.stack_index.push(prev_length);
+
+        self.stack_frames.push(StackFrame::new(
+            prev_length,
+            Gc::clone(&closure),
+            InstructionPointer::new(0, Rc::from([])),
+        ));
+
         self.stack.push(arg1);
         self.stack.push(arg2);
-        self.function_stack
-            .push(CallContext::new(Gc::clone(closure)));
+        // self.function_stack
+        //     .push(CallContext::new(Gc::clone(closure)));
 
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
@@ -821,12 +985,18 @@ impl<'a> VmCore<'a> {
     ) -> Result<SteelVal> {
         let prev_length = self.stack.len();
 
+        self.stack_frames.push(StackFrame::new(
+            prev_length,
+            Gc::clone(&closure),
+            InstructionPointer::new(0, Rc::from([])),
+        ));
+
         // println!("PUSHING NEW STACK INDEX ON");
 
-        self.stack_index.push(prev_length);
+        // self.stack_index.push(prev_length);
         self.stack.push(arg);
-        self.function_stack
-            .push(CallContext::new(Gc::clone(closure)));
+        // self.function_stack
+        //     .push(CallContext::new(Gc::clone(closure)));
 
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
@@ -857,7 +1027,7 @@ impl<'a> VmCore<'a> {
                 let push_const = &self.instructions[self.ip + 1];
 
                 // get the local
-                let offset = self.stack_index.last().copied().unwrap_or(0);
+                let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                 let local_value = self.stack[read_local.payload_size as usize + offset].clone();
 
                 // get the const
@@ -916,7 +1086,7 @@ impl<'a> VmCore<'a> {
                     let read_local = &self.instructions[self.ip + 1];
 
                     // get the local
-                    let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let local_value = self.stack[read_local.payload_size as usize + offset].clone();
 
                     let result = match subtract_primitive(&[local_value, SteelVal::IntV(1)]) {
@@ -1096,7 +1266,7 @@ impl<'a> VmCore<'a> {
                     let func = self.global_env.repl_lookup_idx(payload_size as usize);
 
                     // get the local
-                    let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let local_value = self.stack[read_local.payload_size as usize + offset].clone();
 
                     // get the const
@@ -1116,7 +1286,7 @@ impl<'a> VmCore<'a> {
                     let func = self.global_env.repl_lookup_idx(payload_size as usize);
 
                     // get the local by moving its position
-                    let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let local_value = std::mem::replace(
                         &mut self.stack[move_read_local.payload_size as usize + offset],
                         SteelVal::Void,
@@ -1219,13 +1389,16 @@ impl<'a> VmCore<'a> {
 
                     for _ in 0..depth {
                         println!("Popping");
-                        self.function_stack.pop();
-                        self.stack_index.pop();
-                        self.instruction_stack.pop();
+                        // self.function_stack.pop();
+                        // self.stack_index.pop();
+                        self.stack_frames.pop();
+                        // self.instruction_stack.pop();
                         self.pop_count -= 1;
                     }
 
-                    self.instructions = self.function_stack.last().unwrap().body_exp();
+                    let last_stack_frame = self.stack_frames.last().unwrap();
+
+                    self.instructions = last_stack_frame.function.body_exp();
 
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
@@ -1233,7 +1406,7 @@ impl<'a> VmCore<'a> {
 
                     self.ip = 0;
 
-                    let closure_arity = self.function_stack.last().unwrap().arity();
+                    let closure_arity = last_stack_frame.function.arity();
 
                     if current_arity != closure_arity {
                         stop!(ArityMismatch => format!("tco: function expected {} arguments, found {}", closure_arity, current_arity));
@@ -1244,7 +1417,8 @@ impl<'a> VmCore<'a> {
                     // TODO collect here
                     // self.heap.collect_garbage();
                     // }
-                    let offset = self.stack_index.last().copied().unwrap_or(0);
+                    // let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
 
                     // We should have arity at this point, drop the stack up to this point
                     // take the last arity off the stack, go back and replace those in order
@@ -1287,9 +1461,10 @@ impl<'a> VmCore<'a> {
                     let value_to_assign = self.stack.pop().unwrap();
 
                     let old_value = self
-                        .function_stack
+                        .stack_frames
                         .last()
                         .unwrap()
+                        .function
                         .heap_allocated()
                         .borrow_mut()[payload_size as usize]
                         .set(value_to_assign);
@@ -1303,9 +1478,10 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     let value = self
-                        .function_stack
+                        .stack_frames
                         .last()
                         .unwrap()
+                        .function
                         .heap_allocated()
                         .borrow()[payload_size as usize]
                         .get();
@@ -1323,19 +1499,19 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    let offset =
-                        self.stack_index.last().copied().unwrap_or(0) + payload_size as usize;
+                    let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
 
                     let allocated_var = self.heap.allocate(
                         self.stack[offset].clone(), // TODO: Could actually move off of the stack entirely
                         self.stack.iter(),
-                        self.function_stack.function_iter(),
+                        self.stack_frames.iter().map(|x| &x.function),
                         self.global_env.roots(),
                     );
 
-                    self.function_stack
+                    self.stack_frames
                         .last_mut()
                         .unwrap()
+                        .function
                         .heap_allocated
                         .borrow_mut()
                         .push(allocated_var);
@@ -1350,7 +1526,7 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     let beginning_scope = payload_size as usize;
-                    let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
 
                     // Move to the pop
                     self.ip += 1;
@@ -1525,10 +1701,7 @@ impl<'a> VmCore<'a> {
     }
 
     fn enclosing_span(&self) -> Option<Span> {
-        self.function_stack
-            .function_stack
-            .last()
-            .and_then(|x| x.span)
+        self.stack_frames.last().and_then(|x| x.span)
     }
 
     fn handle_pop_pure(&mut self, _payload: u32) -> Option<Result<SteelVal>> {
@@ -1540,7 +1713,9 @@ impl<'a> VmCore<'a> {
 
         // unwrap just because we want to see if we have something here
         // rolling back the function stack
-        self.function_stack.pop();
+        // self.function_stack.pop();
+
+        let last = self.stack_frames.pop();
 
         if self.pop_count == 0 {
             let ret_val = self.stack.pop().ok_or_else(|| {
@@ -1556,23 +1731,27 @@ impl<'a> VmCore<'a> {
             // println!("BEFORE: {:?}", self.stack);
             // println!("index: {:?}", self.stack_index);
 
+            let rollback_index = last.map(|x| x.index).unwrap_or(0);
+
             // Roll back if needed
-            if let Some(rollback_index) = self.stack_index.pop() {
-                // TODO check if this is better / correct
-                // self.close_upvalues(rollback_index);
+            // if let Some(rollback_index) = self.stack_index.pop() {
+            // TODO check if this is better / correct
+            // self.close_upvalues(rollback_index);
 
-                // Move forward past the pop
-                self.ip += 1;
+            // Move forward past the pop
+            self.ip += 1;
 
-                self.stack.truncate(rollback_index);
-            }
+            self.stack.truncate(rollback_index);
+            // }
 
             Some(ret_val)
         } else {
+            let last = last.unwrap();
             let ret_val = self.stack.pop().unwrap();
 
             // TODO fix this
-            let rollback_index = self.stack_index.pop().unwrap();
+            // let rollback_index = self.stack_index.pop().unwrap();
+            let rollback_index = last.index;
 
             // Snatch the value to close from the payload size
             // Move forward past the pop
@@ -1595,7 +1774,7 @@ impl<'a> VmCore<'a> {
             //     .instrs_ref()
             //     .is_empty()
             // {
-            let prev_state = self.instruction_stack.pop().unwrap();
+            let prev_state = last.instruction_pointer;
             self.ip = prev_state.0;
             self.instructions = prev_state.instrs();
             // }
@@ -1609,108 +1788,6 @@ impl<'a> VmCore<'a> {
         let error_message = self.stack.pop().unwrap();
         stop!(Generic => error_message.to_string(); span);
     }
-
-    // #[inline(always)]
-    // fn handle_struct(&mut self, offset: usize) -> Result<()> {
-    //     let val = self.constants.get(offset);
-
-    //     let mut iter = if let SteelVal::ListV(l) = val {
-    //         l.into_iter()
-    //     } else {
-    //         stop!(Generic => "ICE: Struct expected a list");
-    //     };
-
-    //     // List of indices e.g. '(25 26 27 28) to bind struct functions to
-    //     let indices = iter.next().unwrap();
-
-    //     // The name of the struct
-    //     let name: String = if let SteelVal::StringV(s) = iter.next().unwrap() {
-    //         s.to_string()
-    //     } else {
-    //         stop!( Generic => "ICE: Struct expected a string name")
-    //     };
-
-    //     // The fields of the structs
-    //     let fields: Vec<Rc<str>> = iter
-    //         .map(|x| {
-    //             if let SteelVal::StringV(s) = x {
-    //                 Ok(s)
-    //             } else {
-    //                 stop!(Generic => "ICE: Struct encoded improperly with non string fields")
-    //             }
-    //         })
-    //         .collect::<Result<Vec<_>>>()?;
-
-    //     // Get them as &str for now
-    //     let other_fields: Vec<&str> = fields.iter().map(|x| x.as_ref()).collect();
-
-    //     // Generate the functions, but they immediately override them with the names
-    //     // Store them with the indices
-    //     let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
-
-    //     let index_iter = if let SteelVal::ListV(l) = indices {
-    //         l.into_iter()
-    //     } else {
-    //         stop!(Generic => "ICE: Struct expected a list");
-    //     };
-
-    //     for ((_, func), idx) in funcs.into_iter().zip(index_iter) {
-    //         let idx = if let SteelVal::IntV(idx) = idx {
-    //             idx as usize
-    //         } else {
-    //             stop!(Generic => "Index wrong in structs")
-    //         };
-
-    //         self.global_env.repl_define_idx(idx, func);
-    //     }
-    //     Ok(())
-    // }
-
-    // #[inline(always)]
-    // fn handle_inner_struct(&mut self, offset: usize) -> Result<()> {
-    //     let val = self.constants.get(offset);
-
-    //     let mut iter = if let SteelVal::ListV(l) = val {
-    //         l.into_iter()
-    //     } else {
-    //         stop!(Generic => "ICE: Struct expected a list");
-    //     };
-
-    //     // List of indices e.g. '(25 26 27 28) to bind struct functions to
-    //     let _ = iter.next().unwrap();
-
-    //     // The name of the struct
-    //     let name: String = if let SteelVal::StringV(s) = iter.next().unwrap() {
-    //         s.to_string()
-    //     } else {
-    //         stop!( Generic => "ICE: Struct expected a string name")
-    //     };
-
-    //     // The fields of the structs
-    //     let fields: Vec<Rc<str>> = iter
-    //         .map(|x| {
-    //             if let SteelVal::StringV(s) = x {
-    //                 Ok(s)
-    //             } else {
-    //                 stop!(Generic => "ICE: Struct encoded improperly with non string fields")
-    //             }
-    //         })
-    //         .collect::<Result<Vec<_>>>()?;
-
-    //     // Get them as &str for now
-    //     let other_fields: Vec<&str> = fields.iter().map(|x| x.as_ref()).collect();
-
-    //     // Generate the functions, but they immediately override them with the names
-    //     // Store them with the indices
-    //     let funcs = SteelStruct::generate_from_name_fields(name.as_str(), &other_fields)?;
-
-    //     // We've mapped in the compiler _where_ locals are going to be (on the stack), just put them there
-    //     for (_, func) in funcs {
-    //         self.stack.push(func);
-    //     }
-
-    //     Ok(())
-    // }
 
     // #[inline(always)]
     fn handle_set(&mut self, index: usize) -> Result<()> {
@@ -1751,7 +1828,7 @@ impl<'a> VmCore<'a> {
         // println!("Stack index: {:?}", self.stack_index);
         // println!("Stack index value: {:?}", index);
         // println!("Stack: {:?}", self.stack);
-        let offset = self.stack_index.last().copied().unwrap_or(0);
+        let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let value = self.stack[index + offset].clone();
         self.stack.push(value);
         self.ip += 1;
@@ -1759,7 +1836,7 @@ impl<'a> VmCore<'a> {
     }
 
     fn handle_read_captures(&mut self, index: usize) -> Result<()> {
-        let value = self.function_stack.last().unwrap().captures()[index].clone();
+        let value = self.stack_frames.last().unwrap().function.captures()[index].clone();
 
         self.stack.push(value);
         self.ip += 1;
@@ -1768,7 +1845,7 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn handle_move_local(&mut self, index: usize) -> Result<()> {
-        let offset = self.stack_index.last().copied().unwrap_or(0);
+        let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let value = std::mem::replace(&mut self.stack[index + offset], SteelVal::Void);
 
         self.stack.push(value);
@@ -1893,8 +1970,9 @@ impl<'a> VmCore<'a> {
         // A lot of the captures are static, I'm not quite sure we necessarily need to patch down _every_ single one
         // each time, especially since each lambda is a standalone instance of this.
 
-        let guard = self.function_stack.last().unwrap();
-        let stack_index = self.stack_index.last().copied().unwrap_or(0);
+        let guard = self.stack_frames.last().unwrap();
+        // let stack_index = self.stack_index.last().copied().unwrap_or(0);
+        let stack_index = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
 
         for _ in 0..ndefs {
             let instr = self.instructions[self.ip];
@@ -1906,13 +1984,13 @@ impl<'a> VmCore<'a> {
                 }
                 (OpCode::COPYCAPTURECLOSURE, n) => {
                     debug_assert!(
-                        !self.function_stack.is_empty(),
+                        !self.stack_frames.is_empty(),
                         "Trying to capture from closure that doesn't exist",
                     );
 
-                    debug_assert!((n as usize) < guard.captures().len());
+                    debug_assert!((n as usize) < guard.function.captures().len());
 
-                    let value = guard.captures()[n as usize].clone();
+                    let value = guard.function.captures()[n as usize].clone();
 
                     captures.push(value);
                 }
@@ -1921,10 +1999,10 @@ impl<'a> VmCore<'a> {
                 // Looks like all COPYHEAPCAPTURECLOSURE(s) happen at the start. So we should be able to store those
                 // Directly
                 (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
-                    heap_vars.push(guard.heap_allocated().borrow()[n as usize].clone());
+                    heap_vars.push(guard.function.heap_allocated().borrow()[n as usize].clone());
                 }
                 (OpCode::FIRSTCOPYHEAPCAPTURECLOSURE, n) => {
-                    heap_vars.push(guard.heap_allocated().borrow()[n as usize].clone());
+                    heap_vars.push(guard.function.heap_allocated().borrow()[n as usize].clone());
                 }
                 (l, _) => {
                     panic!(
@@ -2003,7 +2081,7 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn handle_set_local(&mut self, index: usize) {
         let value_to_set = self.stack.pop().unwrap();
-        let offset = self.stack_index.last().copied().unwrap_or(0);
+        let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
 
         let old_index = index + offset;
         let old_value = self.stack[old_index].clone();
@@ -2020,17 +2098,32 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
-        self.function_stack.pop().unwrap();
+        // Something like:
+        // let last_func = self.function_stack.last_mut().unwrap();
+        // last_func.set_function(Gc::clone(&closure));
+        // last_func.set_span(self.current_span());
+        // let offset = last_func.index;
+
+        // let last = self.stack_frames.pop().unwrap();
 
         // self.pop_count -= 1;
         // let offset = self.stack_index.pop().unwrap();
         // self.instruction_stack.pop();
 
-        let offset = self.stack_index.last().copied().unwrap_or(0);
+        let current_span = self.current_span();
+
+        let last = self.stack_frames.last_mut().unwrap();
+
+        last.set_function(Gc::clone(closure));
+        last.set_span(current_span);
+
+        let offset = last.index;
+
+        // self.stack_frames.last_mut().unwrap().set_function(function)
 
         // TODO
-        self.function_stack
-            .push(CallContext::new(Gc::clone(&closure)).with_span(self.current_span()));
+        // self.function_stack
+        // .push(CallContext::new(Gc::clone(&closure)).with_span(self.current_span()));
 
         let mut new_arity = payload_size;
 
@@ -2107,8 +2200,8 @@ impl<'a> VmCore<'a> {
             // Closure(closure) => self.handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             _ => {
-                println!("{:?}", self.stack);
-                println!("{:?}", self.stack_index);
+                // println!("{:?}", self.stack);
+                // println!("{:?}", self.stack_index);
                 crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                 stop!(BadSyntax => format!("TailCall - Application not a procedure or function type not supported: {}", stack_func); self.current_span());
             }
@@ -2415,9 +2508,20 @@ impl<'a> VmCore<'a> {
         // push them onto the stack if we need to
         self.stack.push(local);
         self.stack.push(const_value);
+
+        // Push new stack frame
+        self.stack_frames.push(
+            StackFrame::new(
+                self.stack.len() - 2,
+                Gc::clone(closure),
+                InstructionPointer::new(self.ip + 4, Rc::clone(&self.instructions)),
+            )
+            .with_span(self.current_span()),
+        );
+
         // Push on the function stack so we have access to it later
-        self.function_stack
-            .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
+        // self.function_stack
+        //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
 
         if closure.is_multi_arity {
             panic!("Calling lazy closure with multi arity");
@@ -2429,23 +2533,23 @@ impl<'a> VmCore<'a> {
 
         // self.current_arity = Some(closure.arity());
 
-        if self.stack_index.len() == STACK_LIMIT {
+        if self.stack_frames.len() == STACK_LIMIT {
             crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
             println!("lazy - stack frame at exit: {:?}", self.stack);
             stop!(Generic => "lazy closure: stack overflowed!"; self.current_span());
         }
 
-        self.stack_index.push(self.stack.len() - 2);
+        // self.stack_index.push(self.stack.len() - 2);
 
         // TODO use new heap
         // self.heap
         //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
         // self.heap.collect_garbage();
 
-        self.instruction_stack.push(InstructionPointer::new(
-            self.ip + 4,
-            Rc::clone(&self.instructions),
-        ));
+        // self.instruction_stack.push(InstructionPointer::new(
+        //     self.ip + 4,
+        //     Rc::clone(&self.instructions),
+        // ));
         self.pop_count += 1;
 
         // Move args into the stack, push stack onto stacks
@@ -2557,9 +2661,18 @@ impl<'a> VmCore<'a> {
             closure.increment_call_count();
         }
 
+        self.stack_frames.push(
+            StackFrame::new(
+                self.stack.len() - closure.arity(),
+                Gc::clone(closure),
+                InstructionPointer::new(self.ip + 1, Rc::clone(&self.instructions)),
+            )
+            .with_span(self.current_span()),
+        );
+
         // Push on the function stack so we have access to it laters
-        self.function_stack
-            .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
+        // self.function_stack
+        //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
 
         // if closure.arity() != payload_size {
         //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
@@ -2589,23 +2702,23 @@ impl<'a> VmCore<'a> {
 
         // self.current_arity = Some(closure.arity());
 
-        if self.stack_index.len() == STACK_LIMIT {
+        if self.stack_frames.len() == STACK_LIMIT {
             crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
             println!("function call - stack frame at exit: {:?}", self.stack);
             stop!(Generic => "function call closure: stack overflowed!"; self.current_span());
         }
 
-        self.stack_index.push(self.stack.len() - closure.arity());
+        // self.stack_index.push(self.stack.len() - closure.arity());
 
         // TODO use new heap
         // self.heap
         //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
         // self.heap.collect_garbage();
 
-        self.instruction_stack.push(InstructionPointer::new(
-            self.ip + 1,
-            Rc::clone(&self.instructions),
-        ));
+        // self.instruction_stack.push(InstructionPointer::new(
+        //     self.ip + 1,
+        //     Rc::clone(&self.instructions),
+        // ));
         self.pop_count += 1;
 
         // Move args into the stack, push stack onto stacks
@@ -2685,8 +2798,8 @@ impl<'a> VmCore<'a> {
 
         // Push on the function stack so we have access to it later
         ;
-        self.function_stack
-            .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
+        // self.function_stack
+        //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
 
         // TODO - this is unclear - need to pop values off of the stack, collect them as a list, then push it back in
         // If this is a multi arity function
@@ -2713,16 +2826,26 @@ impl<'a> VmCore<'a> {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
         }
 
+        // Do this _after_ the multi arity business
+        self.stack_frames.push(
+            StackFrame::new(
+                self.stack.len() - closure.arity(),
+                Gc::clone(closure),
+                InstructionPointer::new(self.ip + 1, Rc::clone(&self.instructions)),
+            )
+            .with_span(self.current_span()),
+        );
+
         // self.current_arity = Some(closure.arity());
 
-        if self.stack_index.len() == STACK_LIMIT {
+        if self.stack_frames.len() == STACK_LIMIT {
             crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
             println!("stack frame at exit: {:?}", self.stack);
             stop!(Generic => "function call closure jit: stack overflowed!"; self.current_span());
         }
 
         // closure arity here is the number of true arguments
-        self.stack_index.push(self.stack.len() - closure.arity());
+        // self.stack_index.push(self.stack.len() - closure.arity());
 
         // TODO use new heap
         // self.heap
@@ -2731,10 +2854,10 @@ impl<'a> VmCore<'a> {
 
         // std::mem::replace(x, y)
 
-        self.instruction_stack.push(InstructionPointer::new(
-            self.ip + 1,
-            Rc::clone(&self.instructions),
-        ));
+        // self.instruction_stack.push(InstructionPointer::new(
+        //     self.ip + 1,
+        //     Rc::clone(&self.instructions),
+        // ));
         self.pop_count += 1;
 
         // Move args into the stack, push stack onto stacks
@@ -2856,6 +2979,73 @@ pub fn current_function_span<'a, 'b>(
     }
 }
 
+pub fn call_with_exception_handler<'a, 'b>(
+    ctx: &'a mut VmCore<'b>,
+    args: &[SteelVal],
+) -> Result<SteelVal> {
+    if args.len() != 2 {
+        stop!(ArityMismatch => format!("with-handler expects one argument, found: {}", args.len()); ctx.current_span());
+    }
+
+    let handler = args[0].clone();
+    let thunk = args[1].clone();
+
+    // let guard = ctx.stack_frames.last_mut().unwrap();
+    // guard.attach_handler(handler);
+
+    match thunk {
+        SteelVal::Closure(closure) => {
+            if ctx.stack_frames.len() == STACK_LIMIT {
+                println!("stack frame at exit: {:?}", ctx.stack);
+                stop!(Generic => "call/cc: stack overflowed!"; ctx.current_span());
+            }
+
+            if closure.arity() != 0 {
+                stop!(Generic => "call-with-exception-handler expects a thunk with arity 0");
+            }
+
+            // Roll back one level
+            ctx.ip -= 1;
+
+            // Push the previous state on
+            ctx.stack_frames.push(
+                StackFrame::new(
+                    ctx.stack.len(),
+                    Gc::clone(&closure),
+                    InstructionPointer::new(ctx.ip + 1, Rc::clone(&ctx.instructions)),
+                )
+                .with_span(ctx.current_span())
+                .with_handler(handler),
+            );
+
+            // ctx.stack_index.push(ctx.stack.len());
+
+            // Put the continuation as the argument
+            // Previously we put the continuation directly on the stack ourselves, but instead we now return as an argument
+            // ctx.stack.push(continuation);
+
+            // self.global_env = inner_env;
+            // ctx.instruction_stack.push(InstructionPointer::new(
+            //     ctx.ip + 1,
+            //     Rc::clone(&ctx.instructions),
+            // ));
+            ctx.pop_count += 1;
+
+            ctx.instructions = closure.body_exp();
+            // ctx.function_stack
+            //     .push(CallContext::new(closure).with_span(ctx.current_span()));
+
+            ctx.ip = 0;
+        }
+
+        _ => {
+            stop!(TypeMismatch => format!("call-with-exception-handler expects a thunk as an argument, found: {}", thunk); ctx.current_span())
+        }
+    }
+
+    Ok(SteelVal::Void)
+}
+
 pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
     /*
     - Construct the continuation
@@ -2902,7 +3092,7 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
 
     match function {
         SteelVal::Closure(closure) => {
-            if ctx.stack_index.len() == STACK_LIMIT {
+            if ctx.stack_frames.len() == STACK_LIMIT {
                 println!("stack frame at exit: {:?}", ctx.stack);
                 stop!(Generic => "call/cc: stack overflowed!"; ctx.current_span());
             }
@@ -2911,22 +3101,31 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
                 stop!(Generic => "call/cc expects a function with arity 1");
             }
 
-            ctx.stack_index.push(ctx.stack.len());
+            ctx.stack_frames.push(
+                StackFrame::new(
+                    ctx.stack.len(),
+                    Gc::clone(&closure),
+                    InstructionPointer::new(ctx.ip + 1, Rc::clone(&ctx.instructions)),
+                )
+                .with_span(ctx.current_span()),
+            );
+
+            // ctx.stack_index.push(ctx.stack.len());
 
             // Put the continuation as the argument
             // Previously we put the continuation directly on the stack ourselves, but instead we now return as an argument
             // ctx.stack.push(continuation);
 
             // self.global_env = inner_env;
-            ctx.instruction_stack.push(InstructionPointer::new(
-                ctx.ip + 1,
-                Rc::clone(&ctx.instructions),
-            ));
+            // ctx.instruction_stack.push(InstructionPointer::new(
+            //     ctx.ip + 1,
+            //     Rc::clone(&ctx.instructions),
+            // ));
             ctx.pop_count += 1;
 
             ctx.instructions = closure.body_exp();
-            ctx.function_stack
-                .push(CallContext::new(closure).with_span(ctx.current_span()));
+            // ctx.function_stack
+            //     .push(CallContext::new(closure).with_span(ctx.current_span()));
 
             ctx.ip = 0;
         }

@@ -777,6 +777,10 @@ fn meta_module() -> BuiltInModule {
         .register_value("error-with-span", error_with_src_loc())
         .register_value("call/cc", SteelVal::BuiltIn(super::vm::call_cc))
         .register_value(
+            "call-with-exception-handler",
+            SteelVal::BuiltIn(super::vm::call_with_exception_handler),
+        )
+        .register_value(
             "call-with-current-continuation",
             SteelVal::BuiltIn(super::vm::call_cc),
         )

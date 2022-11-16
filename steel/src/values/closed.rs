@@ -226,7 +226,7 @@ fn traverse(val: &SteelVal) {
                 traverse(root);
             }
 
-            for function in c.function_stack.function_iter() {
+            for function in c.stack_frames.iter().map(|x| &x.function) {
                 for heap_ref in function.heap_allocated.borrow().iter() {
                     mark_heap_ref(&heap_ref.strong_ptr())
                 }

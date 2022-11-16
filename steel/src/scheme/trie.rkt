@@ -1,4 +1,4 @@
-(struct trie (char children end-word? word-up-to))
+(make-struct trie (char children end-word? word-up-to))
 
 ;; Rename functions for the sake of compatibility
 (define empty (list))
