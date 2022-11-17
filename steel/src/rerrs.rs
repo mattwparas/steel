@@ -1,4 +1,4 @@
-use crate::{parser::parser::ParseError, steel_vm::vm::DehydratedStackTrace};
+use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
 use std::{convert::Infallible, fmt::Formatter, path::PathBuf};
 use thiserror::Error;
 
@@ -32,6 +32,8 @@ impl fmt::Display for Repr {
         write!(f, "Error: {:?}: {}", self.kind, self.message)
     }
 }
+
+impl Custom for Repr {}
 
 #[derive(Clone, Debug, PartialEq, Copy)]
 pub enum ErrorKind {
@@ -146,6 +148,8 @@ impl fmt::Display for SteelErr {
         write!(f, "{}", self.repr)
     }
 }
+
+impl Custom for SteelErr {}
 
 impl SteelErr {
     fn _new(repr: Repr) -> Self {

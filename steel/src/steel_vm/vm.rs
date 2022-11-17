@@ -2984,7 +2984,7 @@ pub fn call_with_exception_handler<'a, 'b>(
     args: &[SteelVal],
 ) -> Result<SteelVal> {
     if args.len() != 2 {
-        stop!(ArityMismatch => format!("with-handler expects one argument, found: {}", args.len()); ctx.current_span());
+        stop!(ArityMismatch => format!("with-handler expects two arguments, found: {}", args.len()); ctx.current_span());
     }
 
     let handler = args[0].clone();

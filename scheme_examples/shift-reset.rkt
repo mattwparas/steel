@@ -34,8 +34,35 @@
 
 ;; In theory, this seems to work for our shift and reset business
 ;; Now, its not performant, but you seem to only pay the price only if you use the code
-(let () 
-    (reset
-        (call-with-exception-handler (lambda (x) (displayln x) (shift k (k void))) 
-            (lambda () (+ 10 20 (error "oops!")))))
-    (displayln "hi"))
+; (let () 
+;     (reset
+;         (call-with-exception-handler (lambda (x) (displayln x) (shift k (k void))) 
+;             (lambda () (+ 10 20 (error "oops!")))))
+;     (displayln "hi"))
+
+
+(define-syntax with-handler
+    (syntax-rules ()
+        [(with-handler handler expr)
+         (reset (call-with-exception-handler (lambda (err) (handler err) (shift k (k void)))
+                    (lambda () expr)))]))
+
+; (with-handler
+;     (lambda (err) 
+;         (displayln err) 
+;         (displayln "Going back to the main thread of execution..."))
+;     (+ 10 20 30 "blagh"))
+
+; (displayln "I made it out")
+
+; ; (let ()
+(with-handler
+    (lambda (err) 
+        (displayln err) 
+        (error "Going back to the main thread of execution..."))
+    (let ()
+        (with-handler (lambda (err) (displayln "inner error!") (error "applesauce"))
+            (+ 10 20 (error "uh oh")))))
+
+; (displayln "outside the loop")
+
