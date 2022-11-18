@@ -47,22 +47,22 @@
          (reset (call-with-exception-handler (lambda (err) (handler err) (shift k (k void)))
                     (lambda () expr)))]))
 
-; (with-handler
-;     (lambda (err) 
-;         (displayln err) 
-;         (displayln "Going back to the main thread of execution..."))
-;     (+ 10 20 30 "blagh"))
+(with-handler
+    (lambda (err) 
+        (displayln err) 
+        (displayln "Going back to the main thread of execution..."))
+    (+ 10 20 30 "blagh"))
 
 ; (displayln "I made it out")
 
 ; ; (let ()
-(with-handler
-    (lambda (err) 
-        (displayln err) 
-        (error "Going back to the main thread of execution..."))
-    (let ()
-        (with-handler (lambda (err) (displayln "inner error!") (error "applesauce"))
-            (+ 10 20 (error "uh oh")))))
+; (with-handler
+;     (lambda (err) 
+;         (displayln err) 
+;         (error "Going back to the main thread of execution..."))
+;     (let ()
+;         (with-handler (lambda (err) (displayln "inner error!") (error "applesauce"))
+;             (+ 10 20 (error "uh oh")))))
 
 ; (displayln "outside the loop")
 

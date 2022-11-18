@@ -355,36 +355,13 @@ impl SteelThread {
             // TODO: @Matt -> move the profiler out into the vm core type parameter and an argument
             // that way theres 0 cost to including a profiler vs not including a profiler
 
-            let result = {
-                println!("Executing vm loop");
-
-                let result = vm_instance.vm();
-                // self.upvalue_head = vm_instance.upvalue_head;
-                result
-            }
-            .map_err(|error| error.with_stack_trace(vm_instance.snapshot_stack_trace()));
-
-            // TODO: This is where we would unwind the stack
-            /*
-            If we did something like this:
-
-            while let Some(last) = self.function_stack.pop() {
-                // roll back the stack somehow with the stack index
-                if last.is_exception_handler {
-                    self.function_stack.push(function)
-                    self.stack.push(error-object) // <- Somehow create an error object that we can meaningfully interact with, probably
-                                                  // just a runtime representation of a SteelErr
-                                                  // And then we can just pick up execution here, and loop running through the vm instance again.
-                }
-            }
-
-            */
-
-            println!("Result: {:?}", result);
+            let result = vm_instance
+                .vm()
+                .map_err(|error| error.with_stack_trace(vm_instance.snapshot_stack_trace()));
 
             // (let () (call-with-exception-handler (lambda (x) (displayln x)) (lambda () (+ 10 20 (error "oops!")))) (displayln "hi"))
 
-            if result.is_err() {
+            if let Err(e) = result {
                 while let Some(last) = vm_instance.stack_frames.pop() {
                     // Drop the pop count along with everything else we're doing
                     vm_instance.pop_count -= 1;
@@ -393,9 +370,11 @@ impl SteelThread {
                         // Drop the stack BACK to where it was on this level
                         vm_instance.stack.truncate(last.index);
 
-                        vm_instance
-                            .stack
-                            .push(SteelVal::StringV(Rc::from("APPLESAUCE")));
+                        vm_instance.stack.push(e.into_steelval()?);
+
+                        // vm_instance
+                        //     .stack
+                        //     .push(SteelVal::StringV(Rc::from("APPLESAUCE")));
 
                         println!("Found handler!");
 
@@ -449,7 +428,7 @@ impl SteelThread {
                     }
                 }
 
-                return result;
+                return Err(e);
             } else {
                 // self.profiler.report();
                 // self.profiler.report_time_spend();
