@@ -346,3 +346,47 @@
 
 (define (code-gen-v2)
   (set-env-var! "CODE_GEN_V2" "true"))
+
+(define-syntax reset 
+    (syntax-rules ()
+        ((reset ?e) (*reset (lambda () ?e)))))
+
+(define-syntax shift 
+    (syntax-rules ()
+        ((shift ?k ?e) (*shift (lambda (?k) ?e)))))
+
+;; TODO: This should be boxed at some point, we don't want it
+;; to be globally accessible directly (I think)
+(define (*meta-continuation* v)
+    (error "You forgot the top-level reset..."))
+
+(define (*abort thunk) 
+    (let ((v (thunk)))
+        (*meta-continuation* v)))
+
+(define (*reset thunk)
+    (let ((mc *meta-continuation*))
+        (call/cc (lambda (k)
+            (begin
+                (set! *meta-continuation*
+                        (lambda (v)
+                            (set! *meta-continuation* mc) 
+                            (k v)))
+                (*abort thunk))))))
+
+(define (*shift f)
+    (call/cc
+        (lambda (k)
+            (*abort (lambda ()
+                        (f (lambda (v)
+                                (reset (k v)))))))))
+
+(define-syntax with-handler
+    (syntax-rules ()
+        [(with-handler handler expr)
+         (reset (call-with-exception-handler (lambda (err) (handler err) (shift k (k void)))
+                    (lambda () expr)))]
+        [(with-handler handler expr ...)
+         (reset (call-with-exception-handler (lambda (err) (handler err) (shift k (k void)))
+                    (lambda () expr ...)))]))
+

@@ -45,7 +45,10 @@
     (syntax-rules ()
         [(with-handler handler expr)
          (reset (call-with-exception-handler (lambda (err) (handler err) (shift k (k void)))
-                    (lambda () expr)))]))
+                    (lambda () expr)))]
+        [(with-handler handler expr ...)
+         (reset (call-with-exception-handler (lambda (err) (handler err) (shift k (k void)))
+                    (lambda () expr ...)))]))
 
 (with-handler
     (lambda (err) 

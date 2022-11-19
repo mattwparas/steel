@@ -199,7 +199,7 @@ impl ModuleManager {
         }
 
         // Include the mangled asts in the resulting asts returned
-        module_statements.append(&mut mangled_asts);
+        // module_statements.append(&mut mangled_asts);
 
         // Include the defines from the modules now imported
         module_statements.append(&mut require_defines);
