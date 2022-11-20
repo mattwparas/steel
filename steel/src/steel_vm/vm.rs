@@ -1844,7 +1844,6 @@ impl<'a> VmCore<'a> {
     fn handle_local(&mut self, index: usize) -> Result<()> {
         // println!("Stack index: {:?}", self.stack_index);
         // println!("Stack index value: {:?}", index);
-        println!("Stack: {:?}", self.stack);
         let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let value = self.stack[index + offset].clone();
         self.stack.push(value);
@@ -2687,8 +2686,6 @@ impl<'a> VmCore<'a> {
             closure.increment_call_count();
         }
 
-        println!("Function Call Closure!");
-
         // Push on the function stack so we have access to it laters
         // self.function_stack
         //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
@@ -2830,8 +2827,8 @@ impl<'a> VmCore<'a> {
         //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
 
         println!("Calling function");
-        println!("Multi arity: {}", closure.is_multi_arity);
-        crate::core::instructions::pretty_print_dense_instructions(&closure.body_exp);
+        // println!("Multi arity: {}", closure.is_multi_arity);
+        // crate::core::instructions::pretty_print_dense_instructions(&closure.body_exp);
 
         // TODO - this is unclear - need to pop values off of the stack, collect them as a list, then push it back in
         // If this is a multi arity function

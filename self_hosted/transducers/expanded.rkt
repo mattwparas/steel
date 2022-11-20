@@ -101,7 +101,7 @@
 
 (define rcons
   (λ args
-    (displayln "Calling rcons!")
+    ; (displayln "Calling rcons!")
     (let ((l (length args)))
       (if (= l (length (quote ())))
         (apply (λ () (quote ())) args)
@@ -176,6 +176,7 @@
            (λ (xform f coll)
              (displayln f)
              (displayln (multi-arity? f))
+             (displayln list-transduce)
              (list-transduce xform f (f) coll))
            args)
         (if (= l (length (quote (xform f init coll))))

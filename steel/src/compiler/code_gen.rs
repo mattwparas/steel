@@ -603,8 +603,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 SelfTailCall(_) => {
                     // We don't need to push the function onto the stack if we're doing a self
                     // tail call
-                    self.instructions.pop();
-                    // println!("Found a self tail call: {:?}", l);
+                    // self.instructions.pop();
                     // OpCode::TCOJMP
                     OpCode::TAILCALL
                 }
