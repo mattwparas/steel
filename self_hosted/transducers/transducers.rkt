@@ -243,15 +243,15 @@
        (reducer result (f input))))))
 
 
-; (define (tfilter pred)
-;   (lambda (reducer)
-;     (case-lambda
-;       (() (reducer))
-;       ((result) (reducer result))
-;       ((result input)
-;        (if (pred input)
-;            (reducer result input)
-;            result)))))
+(define (tfilter pred)
+  (lambda (reducer)
+    (case-lambda
+      (() (reducer))
+      ((result) (reducer result))
+      ((result input)
+       (if (pred input)
+           (reducer result input)
+           result)))))
 
 
 ; (define (tremove pred)
@@ -527,3 +527,5 @@
 
 
 (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
+
+(list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
