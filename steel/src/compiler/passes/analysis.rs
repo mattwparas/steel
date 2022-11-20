@@ -851,10 +851,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let stack_offset = self.stack_offset;
 
         for expr in &l.args[1..] {
+            self.escape_analysis = true;
             self.visit(expr);
             self.stack_offset += 1;
             // println!("Visiting argument: {}", expr);
-            self.escape_analysis = true;
+            // self.escape_analysis = true;
         }
 
         if !l.is_empty() {
@@ -909,6 +910,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     && self.defining_context.is_some()
                     && func_info.refers_to == self.defining_context
                 {
+                    println!("Eligibility: {}", eligibility);
                     call_site_kind = CallKind::SelfTailCall(self.defining_context_depth);
                 }
 
@@ -3173,6 +3175,52 @@ mod analysis_pass_tests {
         for var in tail_calls {
             println!("{:?}", var);
 
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                format!("tail call"),
+                var.span,
+            );
+        }
+    }
+
+    #[test]
+    fn tail_call_eligible_test_apply() {
+        let script = r#"
+        (define list-transduce
+            (λ args
+              (displayln args)
+              (let ((l (length args)))
+                (if (= l (length (quote (xform f coll))))
+                  (apply
+                     (λ (xform f coll)
+                       (displayln f)
+                       (displayln (multi-arity? f))
+                       (displayln list-transduce)
+                       (list-transduce xform f (f) coll))
+                     args)
+                  (if (= l (length (quote (xform f init coll))))
+                    (apply
+                       (λ (xform f init coll)
+                         (let ((xf (xform f)))
+                           (let ((result (list-reduce xf init coll)))
+                             (xf result))))
+                       args)
+                    (error! "Arity mismatch"))))))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+
+        let tail_calls = analysis
+            .analysis
+            .call_info
+            .values()
+            .filter(|x| matches!(x.kind, CallKind::SelfTailCall(_)));
+
+        for var in tail_calls {
             crate::rerrs::report_info(
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
