@@ -50,14 +50,15 @@ macro_rules! generate_drop {
 pub(crate) const TRANSDUCE: SteelVal = SteelVal::BuiltIn(transduce);
 
 // figure out if nested transducers works
-fn transduce<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
+fn transduce<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() < 2 {
-        stop!(ArityMismatch => format!("transduce expects at least 2 arguments, found {}", args.len()))
+        builtin_stop!(ArityMismatch => format!("transduce expects at least 2 arguments, found {}", args.len()))
     }
 
     let (reducer, args) = args
         .split_last()
-        .ok_or_else(throw!(ArityMismatch => "transduce expects 3 arguments, found none"))?;
+        .ok_or_else(throw!(ArityMismatch => "transduce expects 3 arguments, found none"))
+        .unwrap();
 
     let mut arg_iter = args.into_iter();
     let collection = arg_iter.next().unwrap();
@@ -71,7 +72,8 @@ fn transduce<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Steel
                 stop!(TypeMismatch => format!("transduce expects a transducer, found: {}", x))
             }
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>>>()
+        .unwrap();
 
     let transducers = transducers
         .into_iter()
@@ -81,9 +83,9 @@ fn transduce<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Steel
     if let SteelVal::ReducerV(r) = &reducer {
         // TODO get rid of this unwrap
         // just pass a reference instead
-        ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None)
+        Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
     } else {
-        stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {}", reducer))
+        builtin_stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {}", reducer))
     }
 }
 

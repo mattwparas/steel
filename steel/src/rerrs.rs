@@ -368,6 +368,25 @@ macro_rules! stop {
 }
 
 #[macro_export]
+macro_rules! builtin_stop {
+    // ($type:ident) => {
+    //     return Err(SteelErr::new(ErrorKind::$type, None));
+    // };
+    ($type:ident => $fmt:expr, $($arg:tt)+) => {
+        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+))))
+    };
+    ($type:ident => $thing:expr) => {
+        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string())))
+    };
+    ($type:ident => $thing:expr; $span:expr) => {
+        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span)))
+    };
+    ($type:ident => $thing:expr; $span:expr; $source:expr) => {
+        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source)))
+    };
+}
+
+#[macro_export]
 macro_rules! throw {
     // ($type:ident) => {
     //     || SteelErr::$type

@@ -1,4 +1,4 @@
-use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn};
+use super::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn, vm::apply};
 use crate::{
     parser::span::Span,
     primitives::{
@@ -372,6 +372,8 @@ pub static SANDBOXED_MODULES: &str = r#"
 // static MAP_MODULE: Lazy<BuiltInModule> = Lazy::new(hashmap);
 // static SET_MODULE: Lazy<BuiltInModule> = Lazy::new(hashset);
 
+pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
+
 fn list_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/lists".to_string());
     module
@@ -392,9 +394,9 @@ fn list_module() -> BuiltInModule {
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
         .register_value("pair?", crate::primitives::lists::PAIR)
         // .register_value("test-push-back", crate::primitives::alternative_list::PU)
-        .register_value("test-map", crate::primitives::lists::TEST_MAP)
+        // .register_value("test-map", crate::primitives::lists::TEST_MAP)
         // TODO move this to somewhere better than here
-        .register_value("apply", crate::primitives::lists::TEST_APPLY)
+        .register_value("apply", TEST_APPLY)
         // .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         // .register_value("execute", crate::steel_vm::transducers::EXECUTE)
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
@@ -754,6 +756,14 @@ fn arity(value: SteelVal) -> UnRecoverableResult {
     }
 }
 
+// Only works with fixed size arity functions
+fn is_multi_arity(value: SteelVal) -> UnRecoverableResult {
+    match value {
+        SteelVal::Closure(c) => Ok(SteelVal::BoolV(c.is_multi_arity)).into(),
+        _ => steelerr!(TypeMismatch => "Unable to find the arity for the given function").into(),
+    }
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta".to_string());
     module
@@ -801,6 +811,7 @@ fn meta_module() -> BuiltInModule {
         .register_fn("env-var", get_environment_variable)
         .register_fn("set-env-var!", set_environment_variable)
         .register_fn("arity?", arity)
+        .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type));
     module
 }

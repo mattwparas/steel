@@ -1,5 +1,5 @@
-use crate::stop;
 use crate::values::contracts::*;
+use crate::{builtin_stop, stop};
 use crate::{
     rvals::{Result, SteelVal},
     steel_vm::vm::VmCore,
@@ -74,19 +74,21 @@ pub fn make_function_contract(args: &[SteelVal]) -> Result<SteelVal> {
 pub fn bind_contract_to_function<'a, 'b>(
     ctx: &'a mut VmCore<'b>,
     args: &[SteelVal],
-) -> Result<SteelVal> {
+) -> Option<Result<SteelVal>> {
     if args.len() < 2 || args.len() > 4 {
-        stop!(ArityMismatch => "bind/c requires 2 arguments, a contract and a function")
+        builtin_stop!(ArityMismatch => "bind/c requires 2 arguments, a contract and a function")
     }
 
     let contract = args[0].clone();
     let function = args[1].clone();
 
     if !ctx.use_contracts {
-        return Ok(function);
+        return Some(Ok(function));
     }
 
     let name = args.get(2).map(|x| x.clone());
 
-    ContractedFunction::new_from_steelvals(contract, function, name)
+    Some(ContractedFunction::new_from_steelvals(
+        contract, function, name,
+    ))
 }

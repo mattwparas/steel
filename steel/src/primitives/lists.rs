@@ -36,8 +36,7 @@ declare_const_mut_ref_functions! {
     PUSH_BACK => push_back,
 }
 
-pub(crate) const TEST_MAP: SteelVal = SteelVal::BuiltIn(test_map);
-pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
+// pub(crate) const TEST_MAP: SteelVal = SteelVal::BuiltIn(test_map);
 
 // TODO replace all usages with const
 // const LENGTH: SteelVal = SteelVal::FuncV(length);
@@ -95,30 +94,6 @@ fn test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelV
         }
     } else {
         stop!(TypeMismatch => "test-map expects a list")
-    }
-}
-
-// TODO: This apply does not respect tail position
-// Something like this: (define (loop) (apply loop '()))
-// _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.
-// Similarly, care should be taken to check out transduce, because nested calls to that will
-// result in a stack overflow with sufficient depth on the recursive calls
-fn apply<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(apply, args, 2);
-
-    let mut arg_iter = args.into_iter();
-    let arg1 = arg_iter.next().unwrap();
-    let arg2 = arg_iter.next().unwrap();
-
-    if let SteelVal::ListV(l) = arg2 {
-        if arg1.is_function() {
-            // println!("Calling apply with args: {:?}, {:?}", arg1, arg2);
-            ctx.call_function_many_args(&arg1, l.clone())
-        } else {
-            stop!(TypeMismatch => "apply expected a function, found: {}", arg1);
-        }
-    } else {
-        stop!(TypeMismatch => "apply expects a list, found: {}", arg2);
     }
 }
 

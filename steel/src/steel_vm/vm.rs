@@ -155,6 +155,13 @@ impl DehydratedStackTrace {
 //     }
 // }
 
+// Eventually expand this to other kinds of continuations
+#[derive(Debug, Clone, Copy)]
+pub enum ContinuationMark {
+    Default,
+    Transducer,
+}
+
 // This should be the go to thing for handling basically everything we need
 // Then - do I want to always reference the last one, or just refer to the current one?
 // TODO: We'll need to add these functions to the GC as well
@@ -169,6 +176,7 @@ pub struct StackFrame {
     // This should get added to the GC as well
     pub(crate) function: Gc<ByteCodeLambda>,
     instruction_pointer: InstructionPointer,
+    // continuation_mark: ContinuationMark,
 }
 
 impl StackFrame {
@@ -183,6 +191,7 @@ impl StackFrame {
             instruction_pointer,
             span: None,
             handler: None,
+            // continuation_mark: ContinuationMark::Default,
         }
     }
 
@@ -363,6 +372,11 @@ impl SteelThread {
 
             if let Err(e) = result {
                 while let Some(last) = vm_instance.stack_frames.pop() {
+                    // For whatever reason - if we're at the top, we shouldn't go down below 0
+                    if vm_instance.pop_count == 0 {
+                        return Err(e);
+                    }
+
                     // Drop the pop count along with everything else we're doing
                     vm_instance.pop_count -= 1;
 
@@ -520,7 +534,8 @@ pub trait VmContext {
 
 // These reference the current existing thread
 // TODO: Change this to refer directly to SteelThread in some way
-pub type BuiltInSignature = for<'a, 'b> fn(&'a mut VmCore<'b>, &[SteelVal]) -> Result<SteelVal>;
+pub type BuiltInSignature =
+    for<'a, 'b> fn(&'a mut VmCore<'b>, &[SteelVal]) -> Option<Result<SteelVal>>;
 
 impl<'a> VmContext for VmCore<'a> {
     fn call_function_one_arg(&mut self, function: &SteelVal, arg: SteelVal) -> Result<SteelVal> {
@@ -763,6 +778,7 @@ impl<'a> VmCore<'a> {
         // let old_stack_index = self.stack_index;
 
         self.ip = 0;
+        // Force the execution to be done earlier
         self.pop_count = 1;
 
         let res = self.vm();
@@ -770,6 +786,8 @@ impl<'a> VmCore<'a> {
         self.ip = old_ip;
         self.instructions = old_instructions;
         self.pop_count = old_pop_count;
+
+        // self.stack_frames.pop();
 
         res
     }
@@ -799,10 +817,10 @@ impl<'a> VmCore<'a> {
                 let mut arg_vec: Vec<_> = vec![arg];
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            SteelVal::BuiltIn(func) => {
-                let arg_vec = [arg];
-                func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
-            }
+            // SteelVal::BuiltIn(func) => {
+            //     let arg_vec = [arg];
+            //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+            // }
             SteelVal::Closure(closure) => self.call_with_one_arg(closure, arg),
             _ => Err(err()),
         }
@@ -834,10 +852,10 @@ impl<'a> VmCore<'a> {
                 let mut arg_vec: Vec<_> = vec![arg1, arg2];
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            SteelVal::BuiltIn(func) => {
-                let arg_vec = [arg1, arg2];
-                func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
-            }
+            // SteelVal::BuiltIn(func) => {
+            //     let arg_vec = [arg1, arg2];
+            //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+            // }
             SteelVal::Closure(closure) => self.call_with_two_args(closure, arg1, arg2),
             _ => Err(err()),
         }
@@ -868,10 +886,10 @@ impl<'a> VmCore<'a> {
                 let mut arg_vec: Vec<_> = args.into_iter().collect();
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            SteelVal::BuiltIn(func) => {
-                let arg_vec: Vec<_> = args.into_iter().collect();
-                func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
-            }
+            // SteelVal::BuiltIn(func) => {
+            //     let arg_vec: Vec<_> = args.into_iter().collect();
+            //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+            // }
             SteelVal::Closure(closure) => self.call_with_args(closure, args),
             _ => Err(err()),
         }
@@ -883,12 +901,14 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         args: impl IntoIterator<Item = SteelVal>,
     ) -> Result<SteelVal> {
-        // println!("Call with args");
+        println!("Call with args");
         // println!("Arity: {:?}", closure.arity());
         // println!("Multi arity: {:?}", closure.is_multi_arity);
 
         let prev_length = self.stack.len();
         // self.stack_index.push(prev_length);
+
+        // if self.stack_frames
 
         // TODO:
         self.stack_frames.push(StackFrame::new(
@@ -1388,7 +1408,7 @@ impl<'a> VmCore<'a> {
                     let closure_arity = last_stack_frame.function.arity();
 
                     if current_arity != closure_arity {
-                        stop!(ArityMismatch => format!("tco: function expected {} arguments, found {}", closure_arity, current_arity));
+                        stop!(ArityMismatch => format!("tco: function expected {} arguments, found {}", closure_arity, current_arity); self.current_span());
                     }
 
                     // HACK COME BACK TO THIS
@@ -1684,9 +1704,24 @@ impl<'a> VmCore<'a> {
     }
 
     fn handle_pop_pure(&mut self, _payload: u32) -> Option<Result<SteelVal>> {
-        // Check that the amoutn we're looking to pop and the function stack length are equivalent
+        // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
-        // assert_eq!(self.pop_count, self.function_stack.len());
+
+        // if self.pop_count - 1 != self.stack_frames.len() {
+        //     println!("{:?}", self.stack);
+        //     println!("Pop count: {}", self.pop_count);
+        //     println!("{:?}", self.stack_frames.len());
+
+        //     panic!("Pop count and stack frames aren't aligned");
+        // }
+
+        // assert_eq!(self.pop_count - 1, self.stack_frames.len());
+
+        // println!(
+        //     "Pop count: {}, stack frames: {}",
+        //     self.pop_count,
+        //     self.stack_frames.len()
+        // );
 
         self.pop_count -= 1;
 
@@ -1696,7 +1731,10 @@ impl<'a> VmCore<'a> {
 
         let last = self.stack_frames.pop();
 
-        if self.pop_count == 0 {
+        // let should_return = self.stack_frames.is_empty();
+        let should_return = self.pop_count == 0;
+
+        if should_return {
             let ret_val = self.stack.pop().ok_or_else(|| {
                 // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
@@ -1806,7 +1844,7 @@ impl<'a> VmCore<'a> {
     fn handle_local(&mut self, index: usize) -> Result<()> {
         // println!("Stack index: {:?}", self.stack_index);
         // println!("Stack index value: {:?}", index);
-        // println!("Stack: {:?}", self.stack);
+        println!("Stack: {:?}", self.stack);
         let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let value = self.stack[index + offset].clone();
         self.stack.push(value);
@@ -2279,18 +2317,27 @@ impl<'a> VmCore<'a> {
 
         // TODO: Don't do this - just read directly from the stack
         let args = self.stack.split_off(self.stack.len() - payload_size);
-        let result = func(self, &args).map_err(|x| {
-            // TODO: @Matt 4/24/2022 -> combine this into one function probably
-            if x.has_span() {
-                x
-            } else {
-                x.set_span_if_none(self.current_span())
-            }
-            // x.set_span_if_none(self.current_span())
-        })?;
+        let result = func(self, &args).map(|x| {
+            x.map_err(|x| {
+                // TODO: @Matt 4/24/2022 -> combine this into one function probably
+                if x.has_span() {
+                    x
+                } else {
+                    x.set_span_if_none(self.current_span())
+                }
+                // x.set_span_if_none(self.current_span())
+            })
+        });
 
-        self.stack.push(result);
-        Ok(())
+        if let Some(result) = result {
+            self.stack.push(result?);
+            Ok(())
+        } else {
+            Ok(())
+        }
+
+        // self.stack.push(result);
+        // Ok(())
     }
 
     // #[inline(always)]
@@ -2608,16 +2655,16 @@ impl<'a> VmCore<'a> {
 
                 self.ip += 4;
             }
-            BuiltIn(func) => {
-                let args = [local, const_value];
-                let result =
-                    func(self, &args).map_err(|x| x.set_span_if_none(self.current_span()))?;
-                self.stack.push(result);
-                self.ip += 4;
-            }
+            // BuiltIn(func) => {
+            //     let args = [local, const_value];
+            //     let result =
+            //         func(self, &args).map_err(|x| x.set_span_if_none(self.current_span()))?;
+            //     self.stack.push(result);
+            //     self.ip += 4;
+            // }
             _ => {
                 println!("{:?}", stack_func);
-                stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported, {}", stack_func); self.current_span());
             }
         }
         Ok(())
@@ -2640,14 +2687,7 @@ impl<'a> VmCore<'a> {
             closure.increment_call_count();
         }
 
-        self.stack_frames.push(
-            StackFrame::new(
-                self.stack.len() - closure.arity(),
-                Gc::clone(closure),
-                InstructionPointer::new(self.ip + 1, Rc::clone(&self.instructions)),
-            )
-            .with_span(self.current_span()),
-        );
+        println!("Function Call Closure!");
 
         // Push on the function stack so we have access to it laters
         // self.function_stack
@@ -2658,7 +2698,7 @@ impl<'a> VmCore<'a> {
         // }
 
         if closure.is_multi_arity {
-            // println!("Arity: {}", closure.arity());
+            println!("Arity: {}", closure.arity());
 
             if payload_size < closure.arity() - 1 {
                 stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
@@ -2678,6 +2718,15 @@ impl<'a> VmCore<'a> {
         } else if closure.arity() != payload_size {
             stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
         }
+
+        self.stack_frames.push(
+            StackFrame::new(
+                self.stack.len() - closure.arity(),
+                Gc::clone(closure),
+                InstructionPointer::new(self.ip + 1, Rc::clone(&self.instructions)),
+            )
+            .with_span(self.current_span()),
+        );
 
         // self.current_arity = Some(closure.arity());
 
@@ -2753,38 +2802,42 @@ impl<'a> VmCore<'a> {
 
         // TODO take this out
 
-        #[cfg(feature = "jit")]
-        {
-            // if closure.call_count() > JIT_THRESHOLD && !closure.has_attempted_to_be_compiled() {
-            //     // unimplemented!();
-            //     if let Some(jit) = &mut self.jit {
-            //         if let Some(function_ast) = self.global_env.get_expr(ast_index) {
-            //             if let Ok(compiled_func) = jit.compile(function_ast) {
-            //                 self.global_env.repl_define_idx(
-            //                     ast_index,
-            //                     SteelVal::CompiledFunction(compiled_func.clone()),
-            //                 );
+        // #[cfg(feature = "jit")]
+        // {
+        // if closure.call_count() > JIT_THRESHOLD && !closure.has_attempted_to_be_compiled() {
+        //     // unimplemented!();
+        //     if let Some(jit) = &mut self.jit {
+        //         if let Some(function_ast) = self.global_env.get_expr(ast_index) {
+        //             if let Ok(compiled_func) = jit.compile(function_ast) {
+        //                 self.global_env.repl_define_idx(
+        //                     ast_index,
+        //                     SteelVal::CompiledFunction(compiled_func.clone()),
+        //                 );
 
-            //                 return self.call_compiled_function(&compiled_func, payload_size, span);
-            //             } else {
-            //                 // Mark this function as being unable to be compiled
-            //                 closure.set_cannot_be_compiled();
-            //             }
-            //         }
-            //     }
-            // }
-        }
+        //                 return self.call_compiled_function(&compiled_func, payload_size, span);
+        //             } else {
+        //                 // Mark this function as being unable to be compiled
+        //                 closure.set_cannot_be_compiled();
+        //             }
+        //         }
+        //     }
+        // }
+        // }
 
         // Push on the function stack so we have access to it later
-        ;
+
         // self.function_stack
         //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
+
+        println!("Calling function");
+        println!("Multi arity: {}", closure.is_multi_arity);
+        crate::core::instructions::pretty_print_dense_instructions(&closure.body_exp);
 
         // TODO - this is unclear - need to pop values off of the stack, collect them as a list, then push it back in
         // If this is a multi arity function
         // then we should just
         if closure.is_multi_arity {
-            // println!("Calling multi arity function");
+            println!("Calling multi arity function");
 
             if payload_size < closure.arity() - 1 {
                 stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
@@ -2947,23 +3000,23 @@ impl<'a> VmCore<'a> {
 pub fn current_function_span<'a, 'b>(
     ctx: &'a mut VmCore<'b>,
     args: &[SteelVal],
-) -> Result<SteelVal> {
+) -> Option<Result<SteelVal>> {
     if !args.is_empty() {
-        stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
+        builtin_stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
     }
 
     match ctx.enclosing_span() {
-        Some(s) => Span::into_steelval(s),
-        None => Ok(SteelVal::Void),
+        Some(s) => Some(Span::into_steelval(s)),
+        None => Some(Ok(SteelVal::Void)),
     }
 }
 
 pub fn call_with_exception_handler<'a, 'b>(
     ctx: &'a mut VmCore<'b>,
     args: &[SteelVal],
-) -> Result<SteelVal> {
+) -> Option<Result<SteelVal>> {
     if args.len() != 2 {
-        stop!(ArityMismatch => format!("with-handler expects two arguments, found: {}", args.len()); ctx.current_span());
+        builtin_stop!(ArityMismatch => format!("with-handler expects two arguments, found: {}", args.len()); ctx.current_span());
     }
 
     let handler = args[0].clone();
@@ -2976,11 +3029,11 @@ pub fn call_with_exception_handler<'a, 'b>(
         SteelVal::Closure(closure) => {
             if ctx.stack_frames.len() == STACK_LIMIT {
                 println!("stack frame at exit: {:?}", ctx.stack);
-                stop!(Generic => "call/cc: stack overflowed!"; ctx.current_span());
+                builtin_stop!(Generic => "call/cc: stack overflowed!"; ctx.current_span());
             }
 
             if closure.arity() != 0 {
-                stop!(Generic => "call-with-exception-handler expects a thunk with arity 0");
+                builtin_stop!(Generic => "call-with-exception-handler expects a thunk with arity 0");
             }
 
             // Roll back one level
@@ -3018,14 +3071,14 @@ pub fn call_with_exception_handler<'a, 'b>(
         }
 
         _ => {
-            stop!(TypeMismatch => format!("call-with-exception-handler expects a thunk as an argument, found: {}", thunk); ctx.current_span())
+            builtin_stop!(TypeMismatch => format!("call-with-exception-handler expects a thunk as an argument, found: {}", thunk); ctx.current_span())
         }
     }
 
-    Ok(SteelVal::Void)
+    Some(Ok(SteelVal::Void))
 }
 
-pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
+pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     /*
     - Construct the continuation
     - Get the function that has been passed in (off the stack)
@@ -3040,7 +3093,7 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
     // }
 
     if args.len() != 1 {
-        stop!(ArityMismatch => format!("call/cc expects one argument, found: {}", args.len()); ctx.current_span());
+        builtin_stop!(ArityMismatch => format!("call/cc expects one argument, found: {}", args.len()); ctx.current_span());
     }
 
     // let function = ctx.stack.pop().unwrap();
@@ -3052,12 +3105,12 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
     match &function {
         SteelVal::Closure(c) => {
             if c.arity() != 1 {
-                stop!(Generic => "function arity in call/cc must be 1"; ctx.current_span())
+                builtin_stop!(Generic => "function arity in call/cc must be 1"; ctx.current_span())
             }
         }
         SteelVal::ContinuationFunction(_) => {}
         _ => {
-            stop!(Generic => format!("call/cc expects a function, found: {}", function); ctx.current_span())
+            builtin_stop!(Generic => format!("call/cc expects a function, found: {}", function); ctx.current_span())
         }
     }
 
@@ -3073,11 +3126,11 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
         SteelVal::Closure(closure) => {
             if ctx.stack_frames.len() == STACK_LIMIT {
                 println!("stack frame at exit: {:?}", ctx.stack);
-                stop!(Generic => "call/cc: stack overflowed!"; ctx.current_span());
+                builtin_stop!(Generic => "call/cc: stack overflowed!"; ctx.current_span());
             }
 
             if closure.arity() != 1 {
-                stop!(Generic => "call/cc expects a function with arity 1");
+                builtin_stop!(Generic => "call/cc expects a function with arity 1");
             }
 
             ctx.stack_frames.push(
@@ -3115,11 +3168,11 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
         }
 
         _ => {
-            stop!(Generic => format!("call/cc expects a function, found: {}", function));
+            builtin_stop!(Generic => format!("call/cc expects a function, found: {}", function));
         }
     }
 
-    Ok(continuation)
+    Some(Ok(continuation))
 }
 
 // fn backtrace<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
@@ -3168,3 +3221,60 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Ste
 //     //     stop!(TypeMismatch => "apply expects a list, found: {}", arg2);
 //     // }
 // }
+
+// TODO: This apply does not respect tail position
+// Something like this: (define (loop) (apply loop '()))
+// _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.
+// Similarly, care should be taken to check out transduce, because nested calls to that will
+// result in a stack overflow with sufficient depth on the recursive calls
+pub(crate) fn apply<'a, 'b>(
+    ctx: &'a mut VmCore<'b>,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    // arity_check!(apply, args, 2);
+
+    ctx.ip -= 1;
+
+    if args.len() != 2 {
+        builtin_stop!(ArityMismatch => "apply expected 2 arguments");
+    }
+
+    let mut arg_iter = args.into_iter();
+    let arg1 = arg_iter.next().unwrap();
+    let arg2 = arg_iter.next().unwrap();
+
+    if let SteelVal::ListV(l) = arg2 {
+        if arg1.is_function() {
+            // println!("Calling apply with args: {:?}, {:?}", arg1, arg2);
+            // ctx.call_function_many_args(&arg1, l.clone())
+
+            match arg1 {
+                SteelVal::Closure(closure) => {
+                    for arg in l {
+                        ctx.stack.push(arg.clone());
+                    }
+
+                    // TODO: Fix this unwrap
+                    ctx.handle_function_call_closure(closure, l.len()).unwrap();
+
+                    None
+                }
+                SteelVal::ContinuationFunction(cc) => {
+                    ctx.set_state_from_continuation(cc.unwrap());
+                    ctx.ip += 1;
+
+                    None
+                    // ctx.stack.push(continuation);
+                }
+
+                _ => {
+                    builtin_stop!(Generic => format!("apply expects a function, found: {}", arg1));
+                }
+            }
+        } else {
+            builtin_stop!(TypeMismatch => "apply expected a function, found: {}", arg1);
+        }
+    } else {
+        builtin_stop!(TypeMismatch => "apply expects a list, found: {}", arg2);
+    }
+}

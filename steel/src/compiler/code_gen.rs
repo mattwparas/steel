@@ -605,7 +605,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     // tail call
                     self.instructions.pop();
                     // println!("Found a self tail call: {:?}", l);
-                    OpCode::TCOJMP
+                    // OpCode::TCOJMP
+                    OpCode::TAILCALL
                 }
             };
 
