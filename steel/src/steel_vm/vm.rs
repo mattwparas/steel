@@ -3263,6 +3263,13 @@ pub(crate) fn apply<'a, 'b>(
                     None
                     // ctx.stack.push(continuation);
                 }
+                SteelVal::FuncV(f) => {
+                    let args = l.into_iter().cloned().collect::<Vec<_>>();
+
+                    let result = f(&args).map_err(|e| e.set_span_if_none(ctx.current_span()));
+
+                    Some(result)
+                }
 
                 _ => {
                     builtin_stop!(Generic => format!("apply expects a function, found: {}", arg1));

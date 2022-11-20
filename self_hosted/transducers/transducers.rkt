@@ -524,3 +524,6 @@
 ;           (log-function result input)
 ;           (reducer result input)))))))
 
+
+
+(list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
