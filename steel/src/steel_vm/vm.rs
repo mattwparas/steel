@@ -3240,6 +3240,8 @@ pub(crate) fn apply<'a, 'b>(
     let arg1 = arg_iter.next().unwrap();
     let arg2 = arg_iter.next().unwrap();
 
+    println!("{:?}", &[arg1, arg2]);
+
     if let SteelVal::ListV(l) = arg2 {
         if arg1.is_function() {
             // println!("Calling apply with args: {:?}, {:?}", arg1, arg2);

@@ -910,7 +910,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     && self.defining_context.is_some()
                     && func_info.refers_to == self.defining_context
                 {
-                    println!("Eligibility: {}", eligibility);
                     call_site_kind = CallKind::SelfTailCall(self.defining_context_depth);
                 }
 
@@ -1143,11 +1142,31 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
-                    if self.captures.contains_key(key.as_str()) {
-                        value.capture_offset = self
-                            .captures
-                            .get(key.as_str())
-                            .and_then(|x| x.read_capture_offset);
+                    if let Some(captured_var) = self.captures.get(key.as_str()) {
+                        // TODO: If the key already exists, we need to check if we're shadowing
+                        // the variable - I think we can do this by checking what the variable shadows?
+
+                        // Check if this variable shadows another one. If so, we defer to the
+                        // notion that this is a fresh variable
+                        // if let Some(analysis) = self.captures.contains_key_at_top(key) {
+                        if self.captures.depth_of(key.as_str()).unwrap() > 1 {
+                            // todo!()
+
+                            // if analysis.shadows.is_some() {
+                            println!("Found a shadowed var!: {}", key);
+
+                            value.capture_offset = Some(index);
+                            value.read_capture_offset = Some(index);
+                            let mut value = value.clone();
+                            value.captured_from_enclosing = false;
+
+                            self.captures.define(key.clone(), value);
+
+                            continue;
+                            // }
+                        }
+
+                        value.capture_offset = captured_var.read_capture_offset;
 
                         value.read_capture_offset = Some(index);
 

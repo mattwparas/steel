@@ -368,15 +368,15 @@
 
 ; ;; Flattens everything and passes each value through the reducer
 ; ;; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8))) => (1 2 3 4 5 6 7 8)
-; (define tflatten
-;   (lambda (reducer)
-;     (case-lambda
-;       (() '())
-;       ((result) (reducer result))
-;       ((result input)
-;        (if (list? input)
-;            (list-reduce (preserving-reduced (tflatten reducer)) result input)
-;            (reducer result input))))))
+(define tflatten
+  (lambda (reducer)
+    (case-lambda
+      (() '())
+      ((result) (reducer result))
+      ((result input)
+       (if (list? input)
+           (list-reduce (preserving-reduced (tflatten reducer)) result input)
+           (reducer result input))))))
 
 
 
@@ -397,6 +397,60 @@
 ;                   (set! prev input)
 ;                   (reducer result input))))))))))
 
+;; TODO: This seems to fail - COPYCAPTURECLOSURE of args seems to be off
+;; and args is not mapping to the right thing.
+; 71     NDEFS                       : 4        
+; 72     COPYCAPTURECLOSURE          : 0        equality-pred?
+; 73     COPYCAPTURECLOSURE          : 1        reducer
+; 74     COPYHEAPCAPTURECLOSURE      : 0        prev
+; 75     COPYCAPTURECLOSURE          : 0        args ;; Should be copy capture stack
+(define tdelete-neighbor-duplicates
+  (λ args
+    (let ((l (length args)))
+      (if (= l (length (quote ())))
+        (apply
+           (λ ()
+             (tdelete-neighbor-duplicates equal?))
+           args)
+        (if (= l (length (quote (equality-pred?))))
+          (apply
+             (λ (equality-pred?)
+               (λ (reducer)
+                 (let ((prev nothing))
+                   (λ args
+                     (let ((l (length args)))
+                       (if (= l (length (quote ())))
+                         (apply (λ () (reducer)) args)
+                         (if (=
+                              l
+                              (length (quote (result))))
+                           (apply
+                              (λ (result)
+                                (reducer result))
+                              args)
+                           (if (=
+                                l
+                                (length
+                                   (quote
+                                     (result input))))
+                             (begin 
+                              (displayln args)
+                              (apply
+                                  (λ (result input)
+                                    (if (equality-pred?
+                                        prev
+                                        input)
+                                      result
+                                      (begin
+                                            (set! prev input)
+                                            (reducer
+                                              result
+                                              input))))
+                                  args))
+                             (error!
+                                "Arity mismatch")))))))))
+             args)
+          (error! "Arity mismatch"))))))
 
 ;; Deletes all duplicates that passes through.
 ; (define tdelete-duplicates
@@ -526,6 +580,10 @@
 
 
 
-(list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
+; (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
 
-(list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
+; (list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
+
+; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
+
+(list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
