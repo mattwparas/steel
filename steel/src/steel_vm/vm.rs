@@ -2345,7 +2345,7 @@ impl<'a> VmCore<'a> {
         f: &fn(&mut [SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
-        // println!("Stack: {:?}", self.stack);
+        println!("Stack: {:?}", self.stack);
 
         let last_index = self.stack.len() - payload_size;
 

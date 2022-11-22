@@ -254,15 +254,15 @@
            result)))))
 
 
-; (define (tremove pred)
-;   (lambda (reducer)
-;     (case-lambda
-;       (() (reducer))
-;       ((result) (reducer result))
-;       ((result input)
-;        (if (not (pred input))
-;            (reducer result input)
-;            result)))))
+(define (tremove pred)
+  (lambda (reducer)
+    (case-lambda
+      (() (reducer))
+      ((result) (reducer result))
+      ((result input)
+       (if (not (pred input))
+           (reducer result input)
+           result)))))
 
 
 ; (define (tfilter-map f) 
@@ -525,21 +525,23 @@
 ;           (reducer result input)))))))
 
 
-
+;; rcons here seems to be... slow
+;; investigate tmap or rcons and see why / how its used with the input
 (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
 
-(list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
 
-(list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
+; (list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
 
-(list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
+; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
 
-(list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
+; (list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
 
-(list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
+; (list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
 
-(list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10))
+; (list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
 
-(list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
+; (list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10))
 
-(list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
+; (list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
+
+; (list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
