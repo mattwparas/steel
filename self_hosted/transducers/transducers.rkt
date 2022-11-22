@@ -316,49 +316,50 @@
 ;                (reducer result input))))))))
 
 
-; (define (ttake n)
-;   (lambda (reducer)
-;     ;; we need to reset new-n for every new transduction
-;     (let ((new-n n))
-;       (case-lambda
-;         (() (reducer))
-;         ((result) (reducer result))
-;         ((result input)
-;          (let ((result (if (positive? new-n)
-;                            (reducer result input)
-;                            result)))
-;            (set! new-n (- new-n 1))
-;            (if (not (positive? new-n))
-;                (ensure-reduced result)
-;                result)))))))
+
+(define (ttake n)
+  (define (positive? x) (> x 0))
+  (lambda (reducer)
+    ;; we need to reset new-n for every new transduction
+    (let ((new-n n))
+      (case-lambda
+        (() (reducer))
+        ((result) (reducer result))
+        ((result input)
+         (let ((result (if (positive? new-n)
+                           (reducer result input)
+                           result)))
+           (set! new-n (- new-n 1))
+           (if (not (positive? new-n))
+               (ensure-reduced result)
+               result)))))))
+
+
+(define ttake-while
+  (case-lambda
+    ((pred) (ttake-while pred (lambda (result input) result)))
+    ((pred retf)
+     (lambda (reducer)
+       (let ((take? #t))
+         (case-lambda
+           (() (reducer))
+           ((result) (reducer result))
+           ((result input)
+            (if (and take? (pred input))
+                (reducer result input)
+                (begin
+                  (set! take? #f)
+                  (ensure-reduced (retf result input)))))))))))
 
 
 
-; (define ttake-while
-;   (case-lambda
-;     ((pred) (ttake-while pred (lambda (result input) result)))
-;     ((pred retf)
-;      (lambda (reducer)
-;        (let ((take? #t))
-;          (case-lambda
-;            (() (reducer))
-;            ((result) (reducer result))
-;            ((result input)
-;             (if (and take? (pred input))
-;                 (reducer result input)
-;                 (begin
-;                   (set! take? #f)
-;                   (ensure-reduced (retf result input)))))))))))
-
-
-
-; (define (tconcatenate reducer)
-;   (let ((preserving-reducer (preserving-reduced reducer)))
-;     (case-lambda
-;       (() (reducer))
-;       ((result) (reducer result))
-;       ((result input)
-;        (list-reduce preserving-reducer result input)))))
+(define (tconcatenate reducer)
+  (let ((preserving-reducer (preserving-reduced reducer)))
+    (case-lambda
+      (() (reducer))
+      ((result) (reducer result))
+      ((result input)
+       (list-reduce preserving-reducer result input)))))
 
 
 ; (define (tappend-map f)
@@ -381,76 +382,21 @@
 
 
 ;; removes duplicate consecutive elements
-; (define tdelete-neighbor-duplicates
-;   (case-lambda
-;     (() (tdelete-neighbor-duplicates equal?))
-;     ((equality-pred?) 
-;      (lambda (reducer)
-;        (let ((prev nothing))
-;          (case-lambda
-;            (() (reducer))
-;            ((result) (reducer result))
-;            ((result input)
-;             (if (equality-pred? prev input)
-;                 result
-;                 (begin
-;                   (set! prev input)
-;                   (reducer result input))))))))))
-
-;; TODO: This seems to fail - COPYCAPTURECLOSURE of args seems to be off
-;; and args is not mapping to the right thing.
-; 71     NDEFS                       : 4        
-; 72     COPYCAPTURECLOSURE          : 0        equality-pred?
-; 73     COPYCAPTURECLOSURE          : 1        reducer
-; 74     COPYHEAPCAPTURECLOSURE      : 0        prev
-; 75     COPYCAPTURECLOSURE          : 0        args ;; Should be copy capture stack
 (define tdelete-neighbor-duplicates
-  (λ args
-    (let ((l (length args)))
-      (if (= l (length (quote ())))
-        (apply
-           (λ ()
-             (tdelete-neighbor-duplicates equal?))
-           args)
-        (if (= l (length (quote (equality-pred?))))
-          (apply
-             (λ (equality-pred?)
-               (λ (reducer)
-                 (let ((prev nothing))
-                   (λ args
-                     (let ((l (length args)))
-                       (if (= l (length (quote ())))
-                         (apply (λ () (reducer)) args)
-                         (if (=
-                              l
-                              (length (quote (result))))
-                           (apply
-                              (λ (result)
-                                (reducer result))
-                              args)
-                           (if (=
-                                l
-                                (length
-                                   (quote
-                                     (result input))))
-                             (begin 
-                              (displayln args)
-                              (apply
-                                  (λ (result input)
-                                    (if (equality-pred?
-                                        prev
-                                        input)
-                                      result
-                                      (begin
-                                            (set! prev input)
-                                            (reducer
-                                              result
-                                              input))))
-                                  args))
-                             (error!
-                                "Arity mismatch")))))))))
-             args)
-          (error! "Arity mismatch"))))))
+  (case-lambda
+    (() (tdelete-neighbor-duplicates equal?))
+    ((equality-pred?) 
+     (lambda (reducer)
+       (let ((prev nothing))
+         (case-lambda
+           (() (reducer))
+           ((result) (reducer result))
+           ((result input)
+            (if (equality-pred? prev input)
+                result
+                (begin
+                  (set! prev input)
+                  (reducer result input))))))))))
 
 ;; Deletes all duplicates that passes through.
 ; (define tdelete-duplicates
@@ -532,38 +478,38 @@
 
 
 ;; Interposes element between each value pushed through the transduction.
-; (define (tadd-between elem)
-;   (lambda (reducer)
-;     (let ((send-elem? #f))
-;       (case-lambda
-;         (() (reducer))
-;         ((result)
-;          (reducer result))
-;         ((result input)
-;          (if send-elem?
-;              (let ((result (reducer result elem)))
-;                (if (reduced? result)
-;                    result
-;                    (reducer result input)))
-;              (begin
-;                (set! send-elem? #t)
-;                (reducer result input))))))))
+(define (tadd-between elem)
+  (lambda (reducer)
+    (let ((send-elem? #f))
+      (case-lambda
+        (() (reducer))
+        ((result)
+         (reducer result))
+        ((result input)
+         (if send-elem?
+             (let ((result (reducer result elem)))
+               (if (reduced? result)
+                   result
+                   (reducer result input)))
+             (begin
+               (set! send-elem? #t)
+               (reducer result input))))))))
 
 
 ;; indexes every value passed through in a cons pair as in (index . value). By default starts at 0
-; (define tenumerate
-;   (case-lambda
-;     (() (tenumerate 0))
-;     ((n)
-;      (lambda (reducer)
-;        (let ((n n))
-;          (case-lambda
-;            (() (reducer))
-;            ((result) (reducer result))
-;            ((result input)
-;             (let ((input (cons n input)))
-;               (set! n (+ n 1))
-;               (reducer result input)))))))))
+(define tenumerate
+  (case-lambda
+    (() (tenumerate 0))
+    ((n)
+     (lambda (reducer)
+       (let ((n n))
+         (case-lambda
+           (() (reducer))
+           ((result) (reducer result))
+           ((result input)
+            (let ((input (cons n input)))
+              (set! n (+ n 1))
+              (reducer result input)))))))))
 
 
 ; (define tlog
@@ -580,10 +526,20 @@
 
 
 
-; (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
+(list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
 
-; (list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
+(list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
 
-; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
+(list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
 
 (list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
+
+(list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
+
+(list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
+
+(list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10))
+
+(list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
+
+(list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))

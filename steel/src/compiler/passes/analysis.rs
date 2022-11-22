@@ -1153,7 +1153,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                             // todo!()
 
                             // if analysis.shadows.is_some() {
-                            println!("Found a shadowed var!: {}", key);
+                            // println!("Found a shadowed var!: {}", key);
 
                             value.capture_offset = Some(index);
                             value.read_capture_offset = Some(index);
@@ -1201,6 +1201,38 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
                     if self.captures.contains_key(key.as_str()) {
+                        if self.captures.depth_of(key.as_str()).unwrap() > 1 {
+                            // todo!()
+
+                            // if analysis.shadows.is_some() {
+                            // println!("Found a shadowed var!: {}", key);
+
+                            value.heap_offset = value.stack_offset;
+                            value.read_heap_offset = Some(index);
+
+                            value.parent_heap_offset = value.stack_offset;
+                            value.local_heap_offset = Some(index);
+
+                            // println!("FIRST CAPTURE");
+                            // println!("Stack offset: {}, {:?}", key, value.stack_offset);
+                            // println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
+                            // println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
+
+                            let mut value = value.clone();
+                            value.captured_from_enclosing = false;
+
+                            // If this is at the top of the scope we're patching in from
+                            // mark that this is where you get it from
+                            // if let Some(scope) = self.scope.get_mut(key.as_str()) {
+                            //     scope.read_heap_offset = Some(index);
+                            // }
+
+                            self.captures.define(key.clone(), value);
+
+                            continue;
+                            // }
+                        }
+
                         // TODO: If theres weird bugs here, match behavior of the captures from above
                         // i.e. heap offset just patches in the read offset from the parent
                         value.heap_offset = self

@@ -1387,7 +1387,7 @@ impl<'a> VmCore<'a> {
                     // }
 
                     for _ in 0..depth {
-                        println!("Popping");
+                        // println!("Popping");
                         // self.function_stack.pop();
                         // self.stack_index.pop();
                         self.stack_frames.pop();
@@ -2695,7 +2695,7 @@ impl<'a> VmCore<'a> {
         // }
 
         if closure.is_multi_arity {
-            println!("Arity: {}", closure.arity());
+            // println!("Arity: {}", closure.arity());
 
             if payload_size < closure.arity() - 1 {
                 stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
@@ -2826,7 +2826,7 @@ impl<'a> VmCore<'a> {
         // self.function_stack
         //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
 
-        println!("Calling function");
+        // println!("Calling function");
         // println!("Multi arity: {}", closure.is_multi_arity);
         // crate::core::instructions::pretty_print_dense_instructions(&closure.body_exp);
 
@@ -2834,7 +2834,7 @@ impl<'a> VmCore<'a> {
         // If this is a multi arity function
         // then we should just
         if closure.is_multi_arity {
-            println!("Calling multi arity function");
+            // println!("Calling multi arity function");
 
             if payload_size < closure.arity() - 1 {
                 stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
@@ -3239,8 +3239,6 @@ pub(crate) fn apply<'a, 'b>(
     let mut arg_iter = args.into_iter();
     let arg1 = arg_iter.next().unwrap();
     let arg2 = arg_iter.next().unwrap();
-
-    println!("{:?}", &[arg1, arg2]);
 
     if let SteelVal::ListV(l) = arg2 {
         if arg1.is_function() {
