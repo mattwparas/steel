@@ -7,7 +7,8 @@ use im_lists::list::List;
 use crate::{
     parser::ast::ExprKind,
     rvals::Custom,
-    values::port::{SteelPort, CAPTURED_OUTPUT_PORT, DEFAULT_OUTPUT_PORT}, SteelVal,
+    values::port::{SteelPort, CAPTURED_OUTPUT_PORT, DEFAULT_OUTPUT_PORT},
+    SteelVal,
 };
 use crate::{parser::expander::LocalMacroManager, rvals::Result};
 use crate::{parser::parser::ParseError, steel_vm::engine::Engine};
@@ -254,16 +255,16 @@ pub fn eval(program: String) -> List<SteelVal> {
     match res {
         Ok(v) => im_lists::list![
             SteelVal::ListV(v.into()),
-            SteelVal::StringV(Rc::from(drain_custom_output_port())),
-            SteelVal::StringV(Rc::from(""))
+            SteelVal::StringV(drain_custom_output_port().into()),
+            SteelVal::StringV("".into())
         ],
         Err(e) => {
             let report = e.emit_result_to_string("input.stl", &program);
 
             im_lists::list![
                 SteelVal::ListV(List::new()),
-                SteelVal::StringV(Rc::from(drain_custom_output_port())),
-                SteelVal::StringV(Rc::from(report))
+                SteelVal::StringV(drain_custom_output_port().into()),
+                SteelVal::StringV(report.into())
             ]
 
             // Err(e)

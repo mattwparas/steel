@@ -38,7 +38,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
         // TokenType::Identifier(s) => env.borrow().lookup(&s),
         TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
-        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
+        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
@@ -431,11 +431,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
-        let pop_op_code = if op_code == OpCode::SCLOSURE {
-            OpCode::POPNEW
-        } else {
-            OpCode::POP_PURE
-        };
+        let pop_op_code = OpCode::POP_PURE;
 
         body_instructions
             .push(LabeledInstruction::builder(pop_op_code).payload(lambda_function.args.len()));
@@ -565,9 +561,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     // then, specialize accordingly.
     fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
         // TODO: Come back to call specialization
-        // if let Some(op) = self.should_specialize_call(l) {
-        //     return self.specialize_call(l, op);
-        // }
+        if let Some(op) = self.should_specialize_call(l) {
+            return self.specialize_call(l, op);
+        }
 
         if l.args.is_empty() {
             stop!(BadSyntax => "function application empty");

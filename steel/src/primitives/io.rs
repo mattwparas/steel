@@ -5,8 +5,8 @@ use crate::{
     rvals::{Result, SteelVal},
     values::port::DEFAULT_OUTPUT_PORT,
 };
-use std::io;
 use std::io::Write;
+use std::{io, rc::Rc};
 // use std::rc::Rc;
 
 // mod primitives;
@@ -91,13 +91,13 @@ impl IoFunctions {
                 let color = &args[1];
 
                 match (&print_val, &color) {
-                    (SteelVal::StringV(s), SteelVal::SymbolV(c)) => match c.as_ref() {
+                    (SteelVal::StringV(s), SteelVal::SymbolV(c)) => match c.as_str() {
                         "green" | "Green" => print!("{}", s.to_string().bright_green()),
                         "blue" | "Blue" => print!("{}", s.to_string().bright_blue()),
                         "red" | "Red" => print!("{}", s.to_string().red()),
                         _ => print!("{}", s),
                     },
-                    (_, SteelVal::StringV(c)) | (_, SteelVal::SymbolV(c)) => match c.as_ref() {
+                    (_, SteelVal::StringV(c)) | (_, SteelVal::SymbolV(c)) => match c.as_str() {
                         "green" | "Green" => print!("{}", print_val.to_string().bright_green()),
                         "blue" | "Blue" => print!("{}", print_val.to_string().bright_blue()),
                         "red" | "Red" => print!("{}", print_val.to_string().red()),

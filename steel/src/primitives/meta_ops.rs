@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::rvals::{poll_future, Result, SteelVal};
 use crate::stop;
 use crate::{

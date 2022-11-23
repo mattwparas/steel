@@ -85,6 +85,7 @@ impl ByteCodeLambda {
         Rc::clone(&self.body_exp)
     }
 
+    #[inline]
     pub fn arity(&self) -> usize {
         self.arity
     }

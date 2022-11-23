@@ -45,7 +45,7 @@ its important that structs are treated differently than vectors on their own
 
 #[derive(Clone, Debug)]
 pub struct UserDefinedStruct {
-    pub(crate) name: Rc<str>,
+    pub(crate) name: Rc<String>,
     pub(crate) fields: Rc<RefCell<Vec<SteelVal>>>,
 }
 
@@ -56,11 +56,11 @@ pub struct UserDefinedStruct {
 // }
 
 impl UserDefinedStruct {
-    fn new(name: Rc<str>, fields: Rc<RefCell<Vec<SteelVal>>>) -> Self {
+    fn new(name: Rc<String>, fields: Rc<RefCell<Vec<SteelVal>>>) -> Self {
         Self { name, fields }
     }
 
-    fn constructor(name: Rc<str>, len: usize) -> SteelVal {
+    fn constructor(name: Rc<String>, len: usize) -> SteelVal {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != len {
                 let error_message = format!(
@@ -80,10 +80,10 @@ impl UserDefinedStruct {
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
     }
 
-    fn predicate(name: Rc<str>) -> SteelVal {
+    fn predicate(name: Rc<String>) -> SteelVal {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 let error_message =
@@ -97,10 +97,10 @@ impl UserDefinedStruct {
             }))
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
     }
 
-    fn getter_prototype(name: Rc<str>) -> SteelVal {
+    fn getter_prototype(name: Rc<String>) -> SteelVal {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
                 stop!(ArityMismatch => "struct-ref expected two arguments");
@@ -133,10 +133,10 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
     }
 
-    fn getter_prototype_index(name: Rc<str>, index: usize) -> SteelVal {
+    fn getter_prototype_index(name: Rc<String>, index: usize) -> SteelVal {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
                 stop!(ArityMismatch => "struct-ref expected two arguments");
@@ -162,10 +162,10 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
     }
 
-    fn setter_prototype(name: Rc<str>) -> SteelVal {
+    fn setter_prototype(name: Rc<String>) -> SteelVal {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
                 stop!(ArityMismatch => "struct-ref expected two arguments");
@@ -210,7 +210,7 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
     }
 }
 
@@ -281,7 +281,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/result".to_string());
 
     {
-        let name = Rc::from("Ok");
+        let name = Rc::new("Ok".into());
 
         // Don't put any options in it?
         let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
@@ -297,7 +297,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
     }
 
     {
-        let name = Rc::from("Err");
+        let name = Rc::new("Err".into());
         let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
         let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
 

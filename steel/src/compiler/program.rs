@@ -28,7 +28,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
         // TokenType::Identifier(s) => env.borrow().lookup(&s),
         TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
-        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
+        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed

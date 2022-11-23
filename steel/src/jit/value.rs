@@ -213,10 +213,10 @@ mod value_tests {
 
     #[test]
     fn test_pointer_converstion() {
-        let value = Gc::new(SteelVal::StringV(Rc::from("hello world")));
+        let value = Gc::new(SteelVal::StringV("hello world".into()));
         let coerced = to_encoded_double(&value);
         let result = unsafe { get_ref_from_double(coerced) };
-        assert_eq!(result, SteelVal::StringV(Rc::from("hello world")));
+        assert_eq!(result, SteelVal::StringV("hello world".into()));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-use std::env::current_dir;
 use std::path::Path;
+use std::{env::current_dir, rc::Rc};
 
 pub struct FsFunctions {}
 impl FsFunctions {
@@ -56,7 +56,7 @@ impl FsFunctions {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
                     Ok(SteelVal::StringV(
-                        Path::new(s.as_ref())
+                        Path::new(s.as_str())
                             .file_name()
                             .and_then(|x| x.to_str())
                             .unwrap_or("")

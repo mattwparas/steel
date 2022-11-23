@@ -195,6 +195,7 @@ impl StackFrame {
         }
     }
 
+    #[inline(always)]
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = Some(span);
         self
@@ -911,7 +912,6 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         args: impl IntoIterator<Item = SteelVal>,
     ) -> Result<SteelVal> {
-        println!("Call with args");
         // println!("Arity: {:?}", closure.arity());
         // println!("Multi arity: {:?}", closure.is_multi_arity);
 
@@ -1620,15 +1620,6 @@ impl<'a> VmCore<'a> {
                     }
                 }
                 DenseInstruction {
-                    op_code: OpCode::POPNEW,
-                    payload_size,
-                    ..
-                } => {
-                    if let Some(r) = self.handle_pop_pure(payload_size) {
-                        return r;
-                    }
-                }
-                DenseInstruction {
                     op_code: OpCode::BIND,
                     payload_size,
                     ..
@@ -1789,22 +1780,9 @@ impl<'a> VmCore<'a> {
             self.stack.truncate(rollback_index);
             self.stack.push(ret_val);
 
-            // self.stack.drain_range(rollback_index..self.stack.len() - 1);
-
-            // self.stack.truncate(rollback_index + 1);
-            // *self.stack.last_mut().unwrap() = ret_val;
-
-            // if !self
-            //     .instruction_stack
-            //     .last()
-            //     .unwrap()
-            //     .instrs_ref()
-            //     .is_empty()
-            // {
             let prev_state = last.instruction_pointer;
             self.ip = prev_state.0;
             self.instructions = prev_state.instrs();
-            // }
 
             None
         }
@@ -2353,7 +2331,7 @@ impl<'a> VmCore<'a> {
         f: &fn(&mut [SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
-        println!("Stack: {:?}", self.stack);
+        // println!("Stack: {:?}", self.stack);
 
         let last_index = self.stack.len() - payload_size;
 
@@ -2951,9 +2929,9 @@ impl<'a> VmCore<'a> {
     fn handle_function_call_on_stack(&mut self, payload_size: usize) -> Result<()> {
         use SteelVal::*;
         match self.stack.last().unwrap().clone() {
-            BoxedFunction(f) => self.call_boxed_func_on_stack(f, payload_size)?,
+            BoxedFunction(f) => self.call_boxed_func_on_stack(*f, payload_size)?,
             FuncV(f) => self.call_primitive_func_on_stack(f, payload_size)?,
-            FutureFunc(f) => self.call_future_func_on_stack(f, payload_size)?,
+            FutureFunc(f) => self.call_future_func_on_stack(*f, payload_size)?,
             // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
             // ContinuationFunction(cc) => self.call_continuation(&cc)?,
             // Closure(closure) => self.handle_function_call_closure(&closure, payload_size)?,

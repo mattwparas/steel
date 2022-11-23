@@ -184,6 +184,8 @@ pub fn list_to_hashset(args: &[SteelVal]) -> Result<SteelVal> {
 
 #[cfg(test)]
 mod hashset_tests {
+    use crate::rvals::SteelString;
+
     use super::*;
     use std::rc::Rc;
 
@@ -310,11 +312,11 @@ mod hashset_tests {
         // pull out the vectors and sort them
         // let unwrapped_expected: SteelVal = (*expected).clone();
 
-        let mut res_vec_string: Vec<Rc<str>> = if let SteelVal::VectorV(v) = res.unwrap() {
+        let mut res_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = res.unwrap() {
             v.iter()
                 .map(|x| {
                     if let SteelVal::StringV(ref s) = x {
-                        std::rc::Rc::clone(s)
+                        s.clone()
                     } else {
                         panic!("test failed")
                     }
@@ -324,11 +326,11 @@ mod hashset_tests {
             panic!("test failed")
         };
 
-        let mut expected_vec_string: Vec<Rc<str>> = if let SteelVal::VectorV(v) = expected {
+        let mut expected_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = expected {
             v.iter()
                 .map(|x| {
                     if let SteelVal::StringV(ref s) = x {
-                        std::rc::Rc::clone(s)
+                        s.clone()
                     } else {
                         panic!("test failed")
                     }

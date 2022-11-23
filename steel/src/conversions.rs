@@ -202,6 +202,8 @@ impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
 
 #[cfg(test)]
 mod conversion_tests {
+    use std::rc::Rc;
+
     use super::*;
     use im_lists::list;
     use im_rc::vector;

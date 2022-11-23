@@ -77,9 +77,9 @@ pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type MutFunctionSignature = fn(&mut [SteelVal]) -> Result<SteelVal>;
 // pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
-pub type BoxedFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>;
+pub type BoxedFunctionSignature = Box<Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>>;
 
-pub type BoxedAsyncFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>;
+pub type BoxedAsyncFunctionSignature = Box<Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>;
 
 // Do something like this:
 // vector of async functions
@@ -435,7 +435,7 @@ impl<T: CustomType + 'static> AsRefMutSteelVal for T {
 pub(crate) fn create_result_ok_struct(ok: SteelVal) -> SteelVal {
     SteelVal::MutableVector(Gc::new(RefCell::new(vec![
         MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
-        SteelVal::SymbolV(Rc::from("Ok")),
+        SteelVal::SymbolV("Ok".into()),
         SteelVal::HashMapV(Gc::new({
             let mut hm = im_rc::HashMap::new();
             hm.insert(
@@ -449,7 +449,7 @@ pub(crate) fn create_result_ok_struct(ok: SteelVal) -> SteelVal {
 }
 
 thread_local! {
-    pub static MAGIC_STRUCT_SYMBOL: SteelVal = SteelVal::ListV(im_lists::list![SteelVal::SymbolV(Rc::from("StructMarker"))]);
+    pub static MAGIC_STRUCT_SYMBOL: SteelVal = SteelVal::ListV(im_lists::list![SteelVal::SymbolV("StructMarker".into())]);
 }
 
 // TODO: Replace this with RawSyntaxObject<SteelVal>
@@ -619,12 +619,11 @@ pub enum SteelVal {
     /// Void return value
     Void,
     /// Represents strings
-    // TODO: make this Rc<str> directly instead of Rc<String>
-    StringV(Rc<str>),
+    StringV(SteelString),
     /// Represents built in rust functions
     FuncV(FunctionSignature),
     /// Represents a symbol, internally represented as `String`s
-    SymbolV(Rc<str>),
+    SymbolV(SteelString),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Gc<RefCell<Box<dyn CustomType>>>),
     // Embedded HashMap
@@ -670,7 +669,7 @@ pub enum SteelVal {
     ContinuationFunction(Gc<Continuation>),
     // Function Pointer
     #[cfg(feature = "jit")]
-    CompiledFunction(JitFunctionPointer),
+    CompiledFunction(Box<JitFunctionPointer>),
     // List
     ListV(List<SteelVal>),
     // Mutable functions
@@ -686,12 +685,58 @@ pub enum SteelVal {
     SyntaxObject(Gc<Syntax>),
 }
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SteelString(Rc<String>);
+
+impl Deref for SteelString {
+    type Target = Rc<String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<&str> for SteelString {
+    fn from(val: &str) -> Self {
+        SteelString(Rc::new(val.to_string()))
+    }
+}
+
+impl From<&String> for SteelString {
+    fn from(val: &String) -> Self {
+        SteelString(Rc::new(val.to_owned()))
+    }
+}
+
+impl From<String> for SteelString {
+    fn from(val: String) -> Self {
+        SteelString(Rc::new(val))
+    }
+}
+
+impl std::fmt::Display for SteelString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::fmt::Debug for SteelString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+#[test]
+fn check_size() {
+    println!("{:?}", std::mem::size_of::<SteelVal>());
+}
+
 pub struct Chunks {
     remaining: IntoIter<char>,
 }
 
 impl Chunks {
-    fn new(s: Rc<str>) -> Self {
+    fn new(s: SteelString) -> Self {
         Chunks {
             remaining: s.chars().collect::<Vec<_>>().into_iter(),
         }

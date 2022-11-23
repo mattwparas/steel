@@ -259,7 +259,7 @@ mod hashmap_tests {
     use im_rc::hashmap;
     use std::rc::Rc;
 
-    use crate::rvals::SteelVal::*;
+    use crate::rvals::{SteelString, SteelVal::*};
 
     #[test]
     fn hm_construct_normal() {
@@ -410,11 +410,11 @@ mod hashmap_tests {
         // let unwrapped_res: SteelVal = (*res.unwrap()).clone();
         // let unwrapped_expected: SteelVal = (*expected).clone();
 
-        let mut res_vec_string: Vec<Rc<str>> = if let SteelVal::VectorV(v) = res.unwrap() {
+        let mut res_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = res.unwrap() {
             v.iter()
                 .map(|x| {
                     if let SteelVal::StringV(ref s) = x {
-                        std::rc::Rc::clone(s)
+                        s.clone()
                     } else {
                         panic!("test failed")
                     }
@@ -424,11 +424,11 @@ mod hashmap_tests {
             panic!("test failed")
         };
 
-        let mut expected_vec_string: Vec<Rc<str>> = if let SteelVal::VectorV(v) = expected {
+        let mut expected_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = expected {
             v.iter()
                 .map(|x| {
                     if let SteelVal::StringV(ref s) = x {
-                        std::rc::Rc::clone(s)
+                        s.clone()
                     } else {
                         panic!("test failed")
                     }
@@ -464,11 +464,11 @@ mod hashmap_tests {
 
         // pull out the vectors and sort them
 
-        let mut res_vec_string: Vec<Rc<str>> = if let SteelVal::VectorV(v) = res.unwrap() {
+        let mut res_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = res.unwrap() {
             v.iter()
                 .map(|x| {
                     if let SteelVal::StringV(ref s) = x {
-                        std::rc::Rc::clone(s)
+                        s.clone()
                     } else {
                         panic!("test failed")
                     }
@@ -478,11 +478,11 @@ mod hashmap_tests {
             panic!("test failed")
         };
 
-        let mut expected_vec_string: Vec<Rc<str>> = if let SteelVal::VectorV(v) = expected {
+        let mut expected_vec_string: Vec<SteelString> = if let SteelVal::VectorV(v) = expected {
             v.iter()
                 .map(|x| {
                     if let SteelVal::StringV(ref s) = x {
-                        std::rc::Rc::clone(s)
+                        s.clone()
                     } else {
                         panic!("test failed")
                     }

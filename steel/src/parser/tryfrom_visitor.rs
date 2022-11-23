@@ -86,7 +86,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
             // self.visit(quote.expr)
 
             Ok(SteelVal::ListV(im_lists::list![
-                SteelVal::SymbolV(std::rc::Rc::from("quote")),
+                SteelVal::SymbolV("quote".into()),
                 self.visit(quote.expr)?
             ]))
         } else {
@@ -253,7 +253,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
             Ok(Syntax::new_with_source(
                 SteelVal::ListV(im_lists::list![
-                    SteelVal::SymbolV(std::rc::Rc::from("quote")),
+                    SteelVal::SymbolV("quote".into()),
                     self.visit(quote.expr)?
                 ]),
                 span,

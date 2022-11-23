@@ -1442,9 +1442,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             if lambda_bottoms_out {
                 // let before = captured_vars.len();
 
-                println!("Vars used: {:#?}", self.vars_used);
-                println!("Captured vars: {:#?}", captured_vars);
-                println!("{}", lambda_function);
+                // println!("Vars used: {:#?}", self.vars_used);
+                // println!("Captured vars: {:#?}", captured_vars);
+                // println!("{}", lambda_function);
                 captured_vars = captured_vars
                     .into_iter()
                     .filter(|x| self.vars_used.contains(&x.0))

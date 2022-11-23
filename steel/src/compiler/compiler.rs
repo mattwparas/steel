@@ -603,7 +603,7 @@ impl Compiler {
             analysis
         };
 
-        expanded_statements.pretty_print();
+        // expanded_statements.pretty_print();
 
         for expr in expanded_statements {
             let mut instructions =

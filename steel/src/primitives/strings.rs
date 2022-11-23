@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use im_lists::list::List;
 
 use crate::rvals::{Result, SteelVal};
@@ -31,7 +33,7 @@ impl StringOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::SymbolV(std::rc::Rc::clone(s)))
+                    Ok(SteelVal::SymbolV(s.clone()))
                 } else {
                     stop!(TypeMismatch => "string->int expected a string")
                 }

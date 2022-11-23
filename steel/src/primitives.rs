@@ -211,7 +211,7 @@ impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for Result<T, E> {
                 let inner = lock.get(3);
 
                 if let Some(SteelVal::SymbolV(name)) = name {
-                    match name.as_ref() {
+                    match name.as_str() {
                         "Ok" => Ok(Ok(T::from_steelval(inner.unwrap())?)),
                         "Err" => Ok(Err(E::from_steelval(inner.unwrap())?)),
                         _ => {
@@ -353,6 +353,8 @@ impl From<FunctionSignature> for SteelVal {
 
 #[cfg(test)]
 mod try_from_tests {
+
+    use std::rc::Rc;
 
     use super::*;
 
