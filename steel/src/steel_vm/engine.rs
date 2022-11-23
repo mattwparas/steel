@@ -775,17 +775,20 @@ impl Engine {
     // people registering new functions that shadow the original one
     fn constants(&mut self) -> ImmutableHashMap<String, SteelVal> {
         if let Some(hm) = self.constants.clone() {
-            hm
-        } else {
-            let mut hm = ImmutableHashMap::new();
-            for constant in CONSTANTS {
-                if let Ok(v) = self.extract_value(constant) {
-                    hm.insert(constant.to_string(), v);
-                }
+            if !hm.is_empty() {
+                return hm;
             }
-            self.constants = Some(hm.clone());
-            hm
         }
+
+        let mut hm = ImmutableHashMap::new();
+        for constant in CONSTANTS {
+            if let Ok(v) = self.extract_value(constant) {
+                hm.insert(constant.to_string(), v);
+            }
+        }
+        self.constants = Some(hm.clone());
+
+        hm
     }
 }
 

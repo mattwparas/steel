@@ -852,14 +852,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // the function call.
         let stack_offset = self.stack_offset;
 
-        let mut last_used_vars = HashSet::new();
-
-        // Find each variable that is actually referenced in this tail position
         // let mut last_used_vars = HashSet::new();
-        std::mem::swap(
-            &mut self.ids_referenced_in_tail_position,
-            &mut last_used_vars,
-        );
+
+        // // Find each variable that is actually referenced in this tail position
+        // // let mut last_used_vars = HashSet::new();
+        // std::mem::swap(
+        //     &mut self.ids_referenced_in_tail_position,
+        //     &mut last_used_vars,
+        // );
 
         for expr in &l.args[1..] {
             self.escape_analysis = true;
@@ -885,12 +885,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             self.visit(&l.args[0]);
         }
 
-        std::mem::swap(
-            &mut self.ids_referenced_in_tail_position,
-            &mut last_used_vars,
-        );
+        // std::mem::swap(
+        //     &mut self.ids_referenced_in_tail_position,
+        //     &mut last_used_vars,
+        // );
 
-        self.ids_referenced_in_tail_position = HashSet::new();
+        // self.ids_referenced_in_tail_position = HashSet::new();
 
         self.stack_offset = stack_offset;
         self.tail_call_eligible = eligibility;
@@ -909,9 +909,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 //     self.info.get_mut(&id).unwrap().last_usage = true;
                 // }
 
-                for id in last_used_vars {
-                    self.info.get_mut(&id).unwrap().last_usage = true;
-                }
+                // for id in last_used_vars {
+                //     self.info.get_mut(&id).unwrap().last_usage = true;
+                // }
 
                 CallKind::TailCall
             } else {
@@ -1124,7 +1124,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
         let stack_offset_rollback = self.stack_offset;
-        let parent_contains_func = self.contains_lambda_func;
 
         // The captures correspond to what variables _this_ scope should decide to capture, and also
         // arbitrarily decide the index for that capture
@@ -1394,6 +1393,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Perhaps take the diff of the vars before visiting this, and after? Then reset the state after visiting this tree?
         let mut captured_vars = self.get_captured_vars(&let_level_bindings);
 
+        // println!("{:?}", )
+
         for (var, value) in self.captures.iter() {
             captured_vars.get_mut(var.as_str()).map(|x| {
                 x.captured_from_enclosing = value.captured_from_enclosing;
@@ -1438,9 +1439,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             if lambda_bottoms_out {
                 // let before = captured_vars.len();
 
-                // println!("Vars used: {:#?}", self.vars_used);
-                // println!("Captured vars: {:#?}", captured_vars);
-                // println!("{}", lambda_function);
+                println!("Vars used: {:#?}", self.vars_used);
+                println!("Captured vars: {:#?}", captured_vars);
+                println!("{}", lambda_function);
                 captured_vars = captured_vars
                     .into_iter()
                     .filter(|x| self.vars_used.contains(&x.0))
@@ -1755,7 +1756,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // If this _is_ in fact a locally defined function, we don't want to capture it
                     // This is something that is going to get lifted to the top environment anyway
                     if local_define.kind == IdentifierStatus::LocallyDefinedFunction {
-                        is_captured.captured = false;
+                        // is_captured.captured = false;
                         identifier_status = IdentifierStatus::LocallyDefinedFunction;
                     }
                 }
@@ -3076,6 +3077,46 @@ mod analysis_pass_tests {
     use crate::{parser::parser::Parser, rerrs::ErrorKind};
 
     use super::*;
+
+    #[test]
+    fn local_defines() {
+        let script = r#"
+        (define (generate-one-element-at-a-time lst)
+            (define (control-state return)
+                (for-each 
+                    (lambda (element)
+                            (set! return (call/cc
+                                            (lambda (resume-here)
+                                                ;; Grab the current continuation
+                                                (set! control-state resume-here)
+                                                (displayln element)
+                                                (return element))))) ;; (return element) evaluates to next return
+                    lst)
+                (return 'you-fell-off-the-end))
+
+            (define (generator)
+                (call/cc control-state))
+
+            ;; Return the generator 
+            generator)
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+
+        // analysis.
+
+        // for var in analysis.last_usages() {
+        //     crate::rerrs::report_info(
+        //         ErrorKind::FreeIdentifier.to_error_code(),
+        //         "input.rkt",
+        //         script,
+        //         format!("last usage"),
+        //         var.span,
+        //     );
+        // }
+    }
 
     #[test]
     fn transducer_last_usages() {

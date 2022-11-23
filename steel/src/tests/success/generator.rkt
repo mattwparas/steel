@@ -52,21 +52,3 @@
 (assert! (equal? 'you-fell-off-the-end (generate-digit))) ;; you-fell-off-the-end
 
 
-; (let ((control-state 123) (generator 123))
-;   (let ((#####control-state0 (λ (return)
-;         (begin
-;          (for-each
-;              (λ (element)
-;                (set! return
-;                  (call/cc
-;                    (λ (resume-here)
-;                      (begin
-;                       (set! control-state resume-here)
-;                        (return element))))))
-;              lst)
-;           (return (quote you-fell-off-the-end)))))
-;       (#####generator1 (λ () (call/cc control-state))))
-;     (begin
-;       (set! control-state #####control-state0)
-;       (set! generator #####generator1)
-;       generator)))
