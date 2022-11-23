@@ -4,11 +4,14 @@ use fnv::FnvHashMap;
 use itertools::Itertools;
 use quickscope::ScopeMap;
 
-use crate::parser::{
-    ast::{Atom, Define, ExprKind, LambdaFunction, Let, List, Quote},
-    parser::{RawSyntaxObject, SyntaxObject, SyntaxObjectId},
-    span::Span,
-    tokens::TokenType,
+use crate::{
+    parser::{
+        ast::{Atom, Define, ExprKind, LambdaFunction, Let, List, Quote},
+        parser::{RawSyntaxObject, SyntaxObject, SyntaxObjectId},
+        span::Span,
+        tokens::TokenType,
+    },
+    throw, SteelErr,
 };
 
 use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
@@ -2632,6 +2635,28 @@ impl<'a> SemanticAnalysis<'a> {
         query_top_level_define(&self.exprs, name)
     }
 
+    // Takes the function call, and inlines it at the call sites. In theory, with constant evaluation and
+    // dead code elimination, this should help streamline some of the more complex cases. This is also just a start.
+    pub fn inline_function_call<A: AsRef<str>>(&mut self, name: A) -> Result<(), SteelErr> {
+        // find_call_sites_and_mutate_with
+
+        // TODO: Cloning here is expensive. We should strive to make these trees somehow share the nodes a bit more elegantly.
+        // As it stands, each time we close a syntax tree, we're going to do a deep clone of the whole thing, which we really don't
+        // want to do.
+        let top_level_define_body = self.query_top_level_define(name.as_ref()).ok_or_else(
+            throw!(TypeMismatch => format!("Cannot inline free identifier!: {}", name.as_ref())),
+        )?.body.lambda_function().ok_or_else(throw!(TypeMismatch => format!("Cannot inline non function for: {}", name.as_ref())))?.clone();
+
+        self.find_call_sites_and_modify_with(
+            name.as_ref(),
+            |analysis: &Analysis, lst: &mut crate::parser::ast::List| {
+                lst.args[0] = ExprKind::LambdaFunction(Box::new(top_level_define_body.clone()));
+            },
+        );
+
+        Ok(())
+    }
+
     pub fn get_global_id<A: AsRef<str>>(&self, name: A) -> Option<SyntaxObjectId> {
         self.query_top_level_define(name)?
             .name
@@ -3074,36 +3099,31 @@ mod analysis_pass_tests {
     use env_logger::Builder;
     use log::LevelFilter;
 
-    use crate::{parser::parser::Parser, rerrs::ErrorKind};
+    use crate::{
+        parser::{ast::AstTools, parser::Parser},
+        rerrs::ErrorKind,
+    };
 
     use super::*;
 
     #[test]
     fn local_defines() {
         let script = r#"
-        (define (generate-one-element-at-a-time lst)
-            (define (control-state return)
-                (for-each 
-                    (lambda (element)
-                            (set! return (call/cc
-                                            (lambda (resume-here)
-                                                ;; Grab the current continuation
-                                                (set! control-state resume-here)
-                                                (displayln element)
-                                                (return element))))) ;; (return element) evaluates to next return
-                    lst)
-                (return 'you-fell-off-the-end))
+        (define (applesauce x y z) (list x y z))
 
-            (define (generator)
-                (call/cc control-state))
+        (define (bananas blegh) (applesauce blegh 10 20))
 
-            ;; Return the generator 
-            generator)
         "#;
 
         let mut exprs = Parser::parse(script).unwrap();
         let mut analysis = SemanticAnalysis::new(&mut exprs);
         analysis.populate_captures();
+
+        // Inline top level definition -> naively just replace the value with the updated value
+        // This should allow constant propagation to take place. TODO: Log optimization misses
+        analysis.inline_function_call("applesauce").unwrap();
+
+        analysis.exprs.pretty_print();
 
         // analysis.
 
