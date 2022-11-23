@@ -30,13 +30,13 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 // use std::env::current_exe;
-use std::{iter::Iterator, rc::Rc};
+use std::{iter::Iterator, rc::Rc, time::Instant};
 
 use super::evaluation_progress::EvaluationProgress;
 
 use fnv::FnvHashMap;
 use im_lists::list::List;
-use log::error;
+use log::{debug, error, log_enabled};
 
 use crate::rvals::IntoSteelVal;
 
@@ -339,6 +339,8 @@ impl SteelThread {
     ) -> Result<SteelVal> {
         self.profiler.reset();
 
+        let execution_time = Instant::now();
+
         let mut vm_instance = VmCore::new(
             instructions,
             &mut self.stack,
@@ -454,6 +456,14 @@ impl SteelThread {
                 self.stack.clear();
                 // self.stack_index.clear();
                 // self.function_stack.clear();
+
+                if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+                    debug!(
+                        target: "pipeline_time",
+                        "VM Evaluation Time: {:?}",
+                        execution_time.elapsed()
+                    );
+                };
 
                 return result;
             }

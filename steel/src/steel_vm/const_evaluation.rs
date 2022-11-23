@@ -437,13 +437,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         // Resolve the arguments - if they're all constants, we have a chance to do constant evaluation
         if let Some(arguments) = self.all_to_constant(&args) {
-            println!("Found all constant arguments!");
-
             if let ExprKind::Atom(_) = &func_expr {
                 // let span = get_span(&func_expr);
-
-                println!("Found an atom argument");
-                println!("{:#?}", self.bindings.borrow().bindings);
 
                 if let Some(evaluated_func) = self.to_constant(&func_expr) {
                     debug!(
@@ -451,11 +446,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                         &func_expr, arguments
                     );
                     return self.eval_function(evaluated_func, func_expr, args, &arguments);
-                } else {
-                    println!(
-                        "Unable to find func expression in the environment: {}",
-                        func_expr
-                    );
                 }
                 // return self.eval_function(func_expr, span, &arguments);
             }
