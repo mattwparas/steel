@@ -2330,11 +2330,9 @@ impl<'a> VmCore<'a> {
 
         if let Some(result) = result {
             self.stack.push(result?);
-            Ok(())
-        } else {
-            Ok(())
         }
 
+        Ok(())
         // self.stack.push(result);
         // Ok(())
     }
@@ -3248,6 +3246,7 @@ pub(crate) fn apply<'a, 'b>(
             match arg1 {
                 SteelVal::Closure(closure) => {
                     for arg in l {
+                        println!("Arg: {:?}", arg);
                         ctx.stack.push(arg.clone());
                     }
 

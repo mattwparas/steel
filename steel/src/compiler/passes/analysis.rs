@@ -497,6 +497,7 @@ struct AnalysisPass<'a> {
     contains_lambda_func: bool,
     vars_used: im_rc::HashSet<String>,
     total_vars_used: im_rc::HashSet<String>,
+    ids_referenced_in_tail_position: HashSet<SyntaxObjectId>,
 }
 
 fn define_var(scope: &mut ScopeMap<String, ScopeInfo>, define: &crate::parser::ast::Define) {
@@ -521,6 +522,7 @@ impl<'a> AnalysisPass<'a> {
             contains_lambda_func: false,
             vars_used: im_rc::HashSet::new(),
             total_vars_used: im_rc::HashSet::new(),
+            ids_referenced_in_tail_position: HashSet::new(),
         }
     }
 }
@@ -850,6 +852,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // the function call.
         let stack_offset = self.stack_offset;
 
+        let mut last_used_vars = HashSet::new();
+
+        // Find each variable that is actually referenced in this tail position
+        // let mut last_used_vars = HashSet::new();
+        std::mem::swap(
+            &mut self.ids_referenced_in_tail_position,
+            &mut last_used_vars,
+        );
+
         for expr in &l.args[1..] {
             self.escape_analysis = true;
             self.visit(expr);
@@ -874,6 +885,13 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             self.visit(&l.args[0]);
         }
 
+        std::mem::swap(
+            &mut self.ids_referenced_in_tail_position,
+            &mut last_used_vars,
+        );
+
+        self.ids_referenced_in_tail_position = HashSet::new();
+
         self.stack_offset = stack_offset;
         self.tail_call_eligible = eligibility;
         self.escape_analysis = escape;
@@ -885,6 +903,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         if !l.is_empty() {
             // Mark the call site - see what happens
             let mut call_site_kind = if eligibility && self.scope.depth() > 1 {
+                // Update the last usage of any of these variables now...
+                // TODO: This doesn't seem like it will work.
+                // for id in self.scope.iter().map(|x| x.1).filter_map(|x| x.last_used) {
+                //     self.info.get_mut(&id).unwrap().last_usage = true;
+                // }
+
+                for id in last_used_vars {
+                    self.info.get_mut(&id).unwrap().last_usage = true;
+                }
+
                 CallKind::TailCall
             } else {
                 CallKind::Normal
@@ -898,11 +926,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // Assuming this information is here, otherwise we'll panic for whatever reason the symbol is missing
                 // But this shouldn't happen given that we're checking this _after_ we visit the function
                 let func_info = self.info.get(func).unwrap();
-
-                // println!("Visiting: {:?}", l);
-                // println!("Call site kind: {:?}", call_site_kind);
-                // println!("Defining context: {:?}", self.defining_context);
-                // println!("Refers to: {:?}", func_info.refers_to);
 
                 // If we've managed to resolve this call site to the definition, then we should be able
                 // to identify if this refers to the correct definition
@@ -1371,35 +1394,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Perhaps take the diff of the vars before visiting this, and after? Then reset the state after visiting this tree?
         let mut captured_vars = self.get_captured_vars(&let_level_bindings);
 
-        // println!("Used vars: {:#?}", used_vars);
-
-        // If we're at the bottom of the evaluation tree, we shouldn't need to capture anything more than we actually use
-        // Therefore, just mark those as non captured?
-        // if lambda_bottoms_out {
-        //     // let before = captured_vars.len();
-
-        //     // println!("Vars used: {:#?}", self.vars_used);
-        //     // println!("{}", lambda_function);
-
-        //     captured_vars = captured_vars
-        //         .into_iter()
-        //         .filter(|x| self.vars_used.contains(&x.0))
-        //         .collect();
-
-        //     // println!("Captured vars dropped: {}", before - captured_vars.len());
-        // }
-
-        // else {
-        //     for var in used_vars {
-        //         self.vars_used.insert(var);
-        //     }
-
-        //     captured_vars = captured_vars
-        //         .into_iter()
-        //         .filter(|x| self.vars_used.contains(&x.0))
-        //         .collect();
-        // }
-
         for (var, value) in self.captures.iter() {
             captured_vars.get_mut(var.as_str()).map(|x| {
                 x.captured_from_enclosing = value.captured_from_enclosing;
@@ -1420,6 +1414,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // println!("Captures: {:#?}", self.captures.iter().collect::<Vec<_>>());
 
         // Mark the last usage of the variable after the values go out of scope
+        // TODO: This should get moved to every tail call -> if its a tail call, mark
+        // the last usage of the variables there. That way, all exit points of the function
+        // actually get marked
+
         for id in arguments.values().filter_map(|x| x.last_used) {
             self.info.get_mut(&id).unwrap().last_usage = true;
         }
@@ -1571,6 +1569,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         if let Some(ident) = name {
             // Mark that we've seen this one
             self.vars_used.insert(ident.to_string());
+            // Mark that this was perhaps used in tail position
+            self.ids_referenced_in_tail_position.insert(current_id);
 
             // Check if its a global var - otherwise, we want to check if its a free
             // identifier
@@ -3076,6 +3076,42 @@ mod analysis_pass_tests {
     use crate::{parser::parser::Parser, rerrs::ErrorKind};
 
     use super::*;
+
+    #[test]
+    fn transducer_last_usages() {
+        let script = r#"
+        
+        (define tmap
+            (λ (f)
+              (λ (reducer)
+                (λ args
+                  (let ((l (length args)))
+                    (if (= l (length (quote ())))
+                      (apply (λ () (reducer)) args)
+                      (if (= l (length (quote (result))))
+                        (apply (λ (result) (reducer result)) args)
+                        (if (= l (length (quote (result input))))
+                          (apply
+                             (λ (result input)
+                               (reducer result (f input)))
+                             args)
+                          (error! "Arity mismatch")))))))))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+
+        for var in analysis.last_usages() {
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                format!("last usage"),
+                var.span,
+            );
+        }
+    }
 
     #[test]
     fn escaping_functions() {
