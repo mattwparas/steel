@@ -75,86 +75,6 @@ impl DehydratedStackTrace {
     }
 }
 
-// #[derive(Debug, Clone)]
-// pub struct CallContext {
-//     span: Option<Span>,
-//     function: Gc<ByteCodeLambda>,
-// }
-
-// impl CallContext {
-//     pub fn new(function: Gc<ByteCodeLambda>) -> Self {
-//         Self {
-//             span: None,
-//             function,
-//         }
-//     }
-
-//     pub fn with_span(mut self, span: Span) -> Self {
-//         self.span = Some(span);
-//         self
-//     }
-// }
-
-// #[derive(Default, Clone, Debug)]
-// pub struct CallStack {
-//     function_stack: Vec<CallContext>,
-// }
-
-// impl CallStack {
-//     pub fn new() -> Self {
-//         Self {
-//             function_stack: Vec::new(),
-//         }
-//     }
-
-//     pub fn with_capacity(capacity: usize) -> Self {
-//         Self {
-//             function_stack: Vec::with_capacity(capacity),
-//         }
-//     }
-
-//     pub fn push(&mut self, call: CallContext) {
-//         self.function_stack.push(call)
-//     }
-
-//     pub fn pop(&mut self) -> Option<CallContext> {
-//         self.function_stack.pop()
-//     }
-
-//     pub fn function_iter(&self) -> impl Iterator<Item = &Gc<ByteCodeLambda>> {
-//         self.function_stack.iter().map(|x| &x.function)
-//     }
-
-//     pub fn last(&self) -> Option<&Gc<ByteCodeLambda>> {
-//         self.function_stack.last().map(|x| &x.function)
-//     }
-
-//     pub fn last_mut(&mut self) -> Option<&mut Gc<ByteCodeLambda>> {
-//         self.function_stack.last_mut().map(|x| &mut x.function)
-//     }
-
-//     pub fn clear(&mut self) {
-//         self.function_stack.clear()
-//     }
-
-//     pub fn is_empty(&self) -> bool {
-//         self.function_stack.is_empty()
-//     }
-
-//     pub fn len(&self) -> usize {
-//         self.function_stack.len()
-//     }
-
-//     pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
-//         DehydratedStackTrace::new(
-//             self.function_stack
-//                 .iter()
-//                 .map(|x| DehydratedCallContext::new(x.span))
-//                 .collect(),
-//         )
-//     }
-// }
-
 // Eventually expand this to other kinds of continuations
 #[derive(Debug, Clone, Copy)]
 pub enum ContinuationMark {
@@ -601,46 +521,15 @@ impl<'a> VmContext for VmCore<'a> {
     }
 }
 
-// This is the state that the VM should spin up and tear down at each invocation
-// of the vm loop
-struct InstructionState {
-    instruction_stack: Vec<InstructionPointer>,
-    instructions: Rc<[DenseInstruction]>,
-    ip: usize,
-    // TODO: this shouldn't be necessary - it should just be the count of the stack
-    // eventually get rid of this I think
-    pop_count: usize,
-}
-
-impl InstructionState {
-    pub fn new(instructions: Rc<[DenseInstruction]>) -> Self {
-        Self {
-            instruction_stack: Vec::new(),
-            instructions,
-            ip: 0,
-            pop_count: 1,
-        }
-    }
-}
-
-impl Default for InstructionState {
-    fn default() -> Self {
-        Self::new(Rc::new([]))
-    }
-}
-
 pub struct VmCore<'a> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
     pub(crate) stack: &'a mut Vec<SteelVal>,
     pub(crate) global_env: &'a mut Env,
-    // pub(crate) instruction_stack: Vec<InstructionPointer>,
-    // pub(crate) stack_index: &'a mut Vec<usize>,
     pub(crate) stack_frames: &'a mut Vec<StackFrame>,
     pub(crate) callback: &'a EvaluationProgress,
     pub(crate) constants: &'a ConstantMap,
     pub(crate) ip: usize,
     pub(crate) pop_count: usize,
-    // pub(crate) function_stack: &'a mut CallStack,
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
     pub(crate) closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
@@ -658,8 +547,6 @@ impl<'a> VmCore<'a> {
         global_env: &'a mut Env,
         constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
-        // function_stack: &'a mut CallStack,
-        // stack_index: &'a mut Vec<usize>,
         stack_frames: &'a mut Vec<StackFrame>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
@@ -673,14 +560,11 @@ impl<'a> VmCore<'a> {
             instructions: Rc::clone(&instructions),
             stack,
             global_env,
-            // instruction_stack: Vec::new(),
-            // stack_index,
             stack_frames,
             callback,
             constants,
             ip: 0,
             pop_count: 1,
-            // function_stack,
             spans,
             profiler,
             closure_interner,
@@ -698,8 +582,6 @@ impl<'a> VmCore<'a> {
         global_env: &'a mut Env,
         constants: &'a ConstantMap,
         callback: &'a EvaluationProgress,
-        // function_stack: &'a mut CallStack,
-        // stack_index: &'a mut Vec<usize>,
         stack_frames: &'a mut Vec<StackFrame>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
@@ -717,14 +599,11 @@ impl<'a> VmCore<'a> {
             instructions: Rc::clone(&instructions),
             stack,
             global_env,
-            // instruction_stack: Vec::new(),
-            // stack_index,
             stack_frames,
             callback,
             constants,
             ip: 0,
             pop_count: 1,
-            // function_stack,
             spans,
             profiler,
             closure_interner,
@@ -741,12 +620,9 @@ impl<'a> VmCore<'a> {
         Continuation {
             stack: self.stack.clone(),
             instructions: Rc::clone(&self.instructions),
-            // instruction_stack: self.instruction_stack.clone(),
-            // stack_index: self.stack_index.clone(),
             stack_frames: self.stack_frames.clone(),
             ip: self.ip,
             pop_count: self.pop_count,
-            // function_stack: self.function_stack.clone(),
         }
     }
 
@@ -923,7 +799,7 @@ impl<'a> VmCore<'a> {
         // TODO:
         self.stack_frames.push(StackFrame::new(
             prev_length,
-            Gc::clone(&closure),
+            Gc::clone(closure),
             InstructionPointer::new(0, Rc::from([])),
         ));
 
@@ -974,7 +850,7 @@ impl<'a> VmCore<'a> {
 
         self.stack_frames.push(StackFrame::new(
             prev_length,
-            Gc::clone(&closure),
+            Gc::clone(closure),
             InstructionPointer::new(0, Rc::from([])),
         ));
 
@@ -996,7 +872,7 @@ impl<'a> VmCore<'a> {
 
         self.stack_frames.push(StackFrame::new(
             prev_length,
-            Gc::clone(&closure),
+            Gc::clone(closure),
             InstructionPointer::new(0, Rc::from([])),
         ));
 
@@ -1053,6 +929,8 @@ impl<'a> VmCore<'a> {
             }};
         }
 
+        // let mut frame = self.stack_frames.last().unwrap();
+
         while self.ip < self.instructions.len() {
             // Process the op code
             // self.profiler.process_opcode(
@@ -1095,6 +973,7 @@ impl<'a> VmCore<'a> {
                     let read_local = &self.instructions[self.ip + 1];
 
                     // get the local
+                    // let offset = frame.index;
                     let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let local_value = self.stack[read_local.payload_size as usize + offset].clone();
 
@@ -1235,13 +1114,6 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => self.handle_set_local(payload_size as usize),
-
-                DenseInstruction {
-                    op_code: OpCode::CLEAR,
-                    ..
-                } => {
-                    self.ip += 1;
-                }
                 DenseInstruction {
                     op_code: OpCode::LOADINT0,
                     ..
@@ -1737,38 +1609,22 @@ impl<'a> VmCore<'a> {
 
         if should_return {
             let ret_val = self.stack.pop().ok_or_else(|| {
-                // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
                 SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
                     .with_span(self.current_span())
             });
 
-            // self.close_upvalues();
-
-            // println!("ROLLING BACK STACK");
-            // println!("BEFORE: {:?}", self.stack);
-            // println!("index: {:?}", self.stack_index);
-
             let rollback_index = last.map(|x| x.index).unwrap_or(0);
-
-            // Roll back if needed
-            // if let Some(rollback_index) = self.stack_index.pop() {
-            // TODO check if this is better / correct
-            // self.close_upvalues(rollback_index);
 
             // Move forward past the pop
             self.ip += 1;
 
             self.stack.truncate(rollback_index);
-            // }
 
             Some(ret_val)
         } else {
             let last = last.unwrap();
             let ret_val = self.stack.pop().unwrap();
 
-            // TODO fix this
-            // let rollback_index = self.stack_index.pop().unwrap();
             let rollback_index = last.index;
 
             // Snatch the value to close from the payload size
@@ -3158,53 +3014,6 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Res
     Some(Ok(continuation))
 }
 
-// fn backtrace<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
-//     arity_check!(backtrace, args, 0);
-
-//     // let ctx.function_stack.function_stack.iter()
-
-//     // TODO: Go backwards through the stack trace, trying to resolve the following:
-//     //  * The file name where the error occurred, the line number, the offset (if possible)
-//     //  * A snippet of the code that actually caused the problem, something like this for java:
-//     //
-//     // java.lang.Exception: Stack trace
-//     //     at java.lang.Thread.dumpStack(Thread.java:1336)
-//     //     at Main.demo3(Main.java:15)
-//     //     at Main.demo2(Main.java:12)
-//     //     at Main.demo1(Main.java:9)
-//     //     at Main.demo(Main.java:6)
-//     //     at Main.main(Main.java:3)
-//     //
-//     // Or this for Python:
-//     //     Traceback (most recent call last):
-//     //   File "tb.py", line 15, in <module>
-//     //     a()
-//     //   File "tb.py", line 3, in a
-//     //     j = b(i)
-//     //   File "tb.py", line 9, in b
-//     //     c()
-//     //   File "tb.py", line 13, in c
-//     //     error()
-//     // NameError: name 'error' is not defined
-
-//     Ok(SteelVal::Void)
-
-//     // let mut arg_iter = args.into_iter();
-//     // let arg1 = arg_iter.next().unwrap();
-//     // let arg2 = arg_iter.next().unwrap();
-
-//     // if let SteelVal::ListV(l) = arg2 {
-//     //     if arg1.is_function() {
-//     //         // println!("Calling apply with args: {:?}, {:?}", arg1, arg2);
-//     //         ctx.call_function_many_args(&arg1, l.clone())
-//     //     } else {
-//     //         stop!(TypeMismatch => "apply expected a function, found: {}", arg1);
-//     //     }
-//     // } else {
-//     //     stop!(TypeMismatch => "apply expects a list, found: {}", arg2);
-//     // }
-// }
-
 // TODO: This apply does not respect tail position
 // Something like this: (define (loop) (apply loop '()))
 // _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.
@@ -3222,7 +3031,7 @@ pub(crate) fn apply<'a, 'b>(
         builtin_stop!(ArityMismatch => "apply expected 2 arguments");
     }
 
-    let mut arg_iter = args.into_iter();
+    let mut arg_iter = args.iter();
     let arg1 = arg_iter.next().unwrap();
     let arg2 = arg_iter.next().unwrap();
 

@@ -43,11 +43,11 @@ fn main() {
 
     builder
         // .filter(Some("requires"), LevelFilter::Trace)
-        .filter(
-            Some("steel::steel_vm::const_evaluation"),
-            LevelFilter::Trace,
-        )
-        .filter(Some("lambda-lifting"), LevelFilter::Trace)
+        // .filter(
+        //     Some("steel::steel_vm::const_evaluation"),
+        //     LevelFilter::Trace,
+        // )
+        // .filter(Some("lambda-lifting"), LevelFilter::Trace)
         .filter(Some("pipeline_time"), LevelFilter::Trace)
         // .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
         // .filter(Some("steel::parser::expander"), LevelFilter::Trace)
