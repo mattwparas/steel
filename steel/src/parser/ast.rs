@@ -753,6 +753,10 @@ impl LambdaFunction {
     pub fn arguments(&self) -> Option<Vec<&str>> {
         self.args.iter().map(|x| x.atom_identifier()).collect()
     }
+
+    pub fn arguments_mut(&mut self) -> impl Iterator<Item = &mut String> {
+        self.args.iter_mut().filter_map(|x| x.atom_identifier_mut())
+    }
 }
 
 impl From<LambdaFunction> for ExprKind {

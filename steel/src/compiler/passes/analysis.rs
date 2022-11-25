@@ -2649,7 +2649,7 @@ impl<'a> SemanticAnalysis<'a> {
 
         self.find_call_sites_and_modify_with(
             name.as_ref(),
-            |analysis: &Analysis, lst: &mut crate::parser::ast::List| {
+            |_: &Analysis, lst: &mut crate::parser::ast::List| {
                 lst.args[0] = ExprKind::LambdaFunction(Box::new(top_level_define_body.clone()));
             },
         );

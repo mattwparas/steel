@@ -4,6 +4,7 @@ pub mod lambda_lifting;
 pub mod manager;
 pub mod mangle;
 pub mod reader;
+pub mod shadow;
 
 use std::ops::ControlFlow;
 
