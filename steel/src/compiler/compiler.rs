@@ -6,6 +6,7 @@ use crate::{
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
             lambda_lifting::LambdaLifter, reader::MultipleArityFunctions,
+            shadow::RenameShadowedVariables,
         },
     },
     parser::{ast::AstTools, expand_visitor::expand_kernel, kernel::Kernel},
@@ -670,6 +671,8 @@ impl Compiler {
         let mut expanded_statements =
             self.apply_const_evaluation(constants, expanded_statements)?;
 
+        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+
         let mut analysis = Analysis::from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
@@ -744,7 +747,7 @@ impl Compiler {
         // struct_builders.extract_structs_for_executable(expanded_statements)?;
 
         // Pretty print the expressions to see what we're working with here
-        // expanded_statements.pretty_print();
+        expanded_statements.pretty_print();
 
         // TODO: Contract/Type Checking goes here
         // println!("---------------------------------------");

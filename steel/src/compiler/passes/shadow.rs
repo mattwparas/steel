@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use quickscope::{ScopeMap, ScopeSet};
 
-use crate::parser::ast::Atom;
+use crate::parser::ast::{Atom, ExprKind};
 
 use super::VisitorMutRefUnit;
 
@@ -9,6 +11,7 @@ pub struct RenameShadowedVariables {
     scope: ScopeSet<String>,
     // Modify the variable with the depth
     shadows: ScopeMap<String, usize>,
+    str_modifiers: HashMap<usize, String>,
 }
 
 impl RenameShadowedVariables {
@@ -17,6 +20,14 @@ impl RenameShadowedVariables {
             scope: ScopeSet::new(),
             shadows: ScopeMap::new(),
             modified: false,
+            str_modifiers: HashMap::new(),
+        }
+    }
+
+    pub fn rename_shadowed_vars(exprs: &mut Vec<ExprKind>) {
+        let mut renamer = Self::new();
+        for expr in exprs.iter_mut() {
+            renamer.visit(expr);
         }
     }
 }
@@ -32,7 +43,15 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
             if self.scope.contains(variable) {
                 let modifier = self.scope.depth();
                 self.shadows.define(variable.to_string(), modifier);
-                variable.push(std::char::from_digit(modifier as u32, 10).unwrap())
+
+                if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
+                    variable.push(char_modifier);
+                } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
+                    variable.push_str(str_modifier);
+                } else {
+                    self.str_modifiers.insert(modifier, modifier.to_string());
+                    variable.push_str(self.str_modifiers.get(&modifier).unwrap());
+                }
             }
 
             self.scope.define(variable.to_string());
@@ -49,7 +68,16 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
             if let Some(modifier) = self.shadows.get(ident.as_str()) {
                 // Append the variable with the depth it occurs at.
                 // Now, shadowing shouldn't actually _be_ a problem
-                ident.push(std::char::from_digit(*modifier as u32, 10).unwrap());
+                // ident.push(char::from_digit(*modifier as u32, 10).unwrap());
+
+                if let Some(char_modifier) = char::from_digit(*modifier as u32, 10) {
+                    ident.push(char_modifier)
+                } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
+                    ident.push_str(str_modifier)
+                } else {
+                    panic!("The modifier should be defined by now")
+                }
+
                 self.modified = true;
             }
         }
