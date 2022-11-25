@@ -127,8 +127,8 @@ fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
     match (args[0].clone(), &mut args[1]) {
         (left, SteelVal::ListV(right)) => {
-            // println!("Consing {:?} to list {:?}", left, right);
-            // println!("Strong count: {:?}", right.strong_count());
+            println!("Consing {:?} to list {:?}", left, right);
+            println!("Strong count: {:?}", right.strong_count());
             right.cons_mut(left);
             Ok(SteelVal::ListV(right.clone()))
         }

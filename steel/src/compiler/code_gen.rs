@@ -561,9 +561,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     // then, specialize accordingly.
     fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
         // TODO: Come back to call specialization
-        if let Some(op) = self.should_specialize_call(l) {
-            return self.specialize_call(l, op);
-        }
+        // if let Some(op) = self.should_specialize_call(l) {
+        //     return self.specialize_call(l, op);
+        // }
 
         if l.args.is_empty() {
             stop!(BadSyntax => "function application empty");

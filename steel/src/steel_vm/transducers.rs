@@ -168,6 +168,7 @@ impl<'global, 'a> VmCore<'a> {
                 Transducers::Map(stack_func) => {
                     let vm_copy = Rc::clone(&vm);
 
+                    // TODO: Probably should just capture a continuation here?
                     let switch_statement = move |arg| {
                         vm_copy.borrow_mut().call_func_or_else(
                             stack_func,

@@ -27,15 +27,56 @@
           (reduced return)
           return))))
 
+;; Rewrite list-reduce to abuse some internal optimizations
+;; if v is in the tail position, then it will be the last used
+(define (list-reduce2 f identity lst v)
+  (cond [(null? lst) identity]
+        [(reduced? v) (unreduce v)]
+        [else (list-reduce2 f v (cdr lst) (f identity (car lst)))]))
 
+;; TODO: Original implementation here
 ;; This is where the magic tofu is cooked
+; (define (list-reduce f identity lst)
+;   (if (null? lst)
+;       identity
+;       (let ((v (f identity (car lst))))
+;         (if (reduced? v)
+;             (unreduce v)
+;             (list-reduce f v (cdr lst))))))
+
+
 (define (list-reduce f identity lst)
   (if (null? lst)
       identity
-      (let ((v (f identity (car lst))))
+      (let ((remaining (cdr lst))
+            (v (f identity (car lst))))
         (if (reduced? v)
             (unreduce v)
-            (list-reduce f v (cdr lst))))))
+            (list-reduce f v remaining)))))
+
+; (define (list-reduce f identity lst)
+;   (other-list-reduce f lst identity))
+
+; (define (other-list-reduce f lst identity)
+;   (if (null? lst)
+;       identity
+;       (let ((v (f identity (car lst))))
+;         (if (reduced? v)
+;             (unreduce v)
+;             (other-list-reduce f (cdr lst) v)))))
+
+; (define (list-reduce f identity lst)
+;   (if (null? lst)
+;       identity
+;       (let ((v (f identity (car lst))))
+;         (if (reduced? v)
+;             (unreduce v)
+;             (list-reduce2 f identity (cdr lst) v)))))
+
+(define (test-map func lst accum)
+  (if (empty? lst)
+      (reverse accum)
+      (test-map func (cdr lst) (cons (func (car lst)) accum))))
 
 ;; TODO: Come back to this when there is a better understanding
 ;; of how to implement let loop

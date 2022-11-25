@@ -639,12 +639,9 @@ impl<'a> VmCore<'a> {
     fn set_state_from_continuation(&mut self, continuation: Continuation) {
         *self.stack = continuation.stack;
         self.instructions = continuation.instructions;
-        // self.instruction_stack = continuation.instruction_stack;
         self.ip = continuation.ip;
         self.pop_count = continuation.pop_count;
-        // *self.stack_index = continuation.stack_index;
         *self.stack_frames = continuation.stack_frames;
-        // *self.function_stack = continuation.function_stack;
     }
 
     // #[inline(always)]
@@ -2187,7 +2184,7 @@ impl<'a> VmCore<'a> {
         f: &fn(&mut [SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
-        // println!("Stack: {:?}", self.stack);
+        println!("Stack: {:?}", self.stack);
 
         let last_index = self.stack.len() - payload_size;
 
@@ -3043,7 +3040,7 @@ pub(crate) fn apply<'a, 'b>(
             match arg1 {
                 SteelVal::Closure(closure) => {
                     for arg in l {
-                        println!("Arg: {:?}", arg);
+                        // println!("Arg: {:?}", arg);
                         ctx.stack.push(arg.clone());
                     }
 
