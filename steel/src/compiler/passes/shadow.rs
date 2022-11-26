@@ -87,12 +87,36 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
         self.scope.push_layer();
         self.shadows.push_layer();
 
+        for variable in l
+            .bindings
+            .iter_mut()
+            .filter_map(|x| x.0.atom_identifier_mut())
+        {
+            if self.scope.contains(variable) {
+                let modifier = self.scope.depth();
+                self.shadows.define(variable.to_string(), modifier);
+
+                if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
+                    variable.push(char_modifier);
+                } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
+                    variable.push_str(str_modifier);
+                } else {
+                    self.str_modifiers.insert(modifier, modifier.to_string());
+                    variable.push_str(self.str_modifiers.get(&modifier).unwrap());
+                }
+            }
+
+            self.scope.define(variable.to_string());
+        }
+
+        //
+        l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
+        self.visit(&mut l.body_expr);
+
         // TODO: Insert the code here to mark these variables as in scope
 
         self.scope.pop_layer();
         self.shadows.pop_layer();
-
-        todo!()
     }
 }
 

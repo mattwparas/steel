@@ -1227,35 +1227,18 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // TODO: If there is shadowing, this might not work?
                     if self.captures.contains_key(key.as_str()) {
                         if self.captures.depth_of(key.as_str()).unwrap() > 1 {
-                            // todo!()
-
-                            // if analysis.shadows.is_some() {
-                            // println!("Found a shadowed var!: {}", key);
-
                             value.heap_offset = value.stack_offset;
                             value.read_heap_offset = Some(index);
 
                             value.parent_heap_offset = value.stack_offset;
                             value.local_heap_offset = Some(index);
 
-                            // println!("FIRST CAPTURE");
-                            // println!("Stack offset: {}, {:?}", key, value.stack_offset);
-                            // println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
-                            // println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
-
                             let mut value = value.clone();
                             value.captured_from_enclosing = false;
-
-                            // If this is at the top of the scope we're patching in from
-                            // mark that this is where you get it from
-                            // if let Some(scope) = self.scope.get_mut(key.as_str()) {
-                            //     scope.read_heap_offset = Some(index);
-                            // }
 
                             self.captures.define(key.clone(), value);
 
                             continue;
-                            // }
                         }
 
                         // TODO: If theres weird bugs here, match behavior of the captures from above
@@ -1265,25 +1248,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                             .get(key.as_str())
                             .and_then(|x| x.read_heap_offset);
 
-                        // value.heap_offset = Some(index);
-
-                        // println!("CAPTURING FROM ENCLOSED");
-                        // println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
-                        // println!("Theoretical index: {}", index);
-
                         value.read_heap_offset = self
                             .captures
                             .get(key.as_str())
                             .and_then(|x| x.read_heap_offset);
-
-                        // println!(
-                        //     "PARENT READ HEAP OFFSET: {}, {:?}",
-                        //     key, value.read_heap_offset
-                        // );
-
-                        // if value.read_heap_offset != Some(index) {
-                        //     println!("FOUND A DIFFERENCE");
-                        // }
 
                         value.read_heap_offset = Some(index);
 
@@ -1294,36 +1262,19 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                         value.local_heap_offset = Some(index);
 
-                        // println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
-
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
 
                         self.captures.define(key.clone(), value);
                     } else {
-                        // value.heap_offset = Some(index);
-                        // value.read_heap_offset = Some(index);
-
-                        // value.heap_offset = value.stack_offset.min(Some(index));
                         value.heap_offset = value.stack_offset;
                         value.read_heap_offset = Some(index);
 
                         value.parent_heap_offset = value.stack_offset;
                         value.local_heap_offset = Some(index);
 
-                        // println!("FIRST CAPTURE");
-                        // println!("Stack offset: {}, {:?}", key, value.stack_offset);
-                        // println!("HEAP OFFSET: {}, {:?}", key, value.heap_offset);
-                        // println!("READ HEAP OFFSET: {}, {:?}", key, value.read_heap_offset);
-
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
-
-                        // If this is at the top of the scope we're patching in from
-                        // mark that this is where you get it from
-                        // if let Some(scope) = self.scope.get_mut(key.as_str()) {
-                        //     scope.read_heap_offset = Some(index);
-                        // }
 
                         self.captures.define(key.clone(), value);
                     }
@@ -1440,11 +1391,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             let mut slated_for_removal = Vec::new();
 
             if lambda_bottoms_out {
-                // let before = captured_vars.len();
-
-                // println!("Vars used: {:#?}", self.vars_used);
-                // println!("Captured vars: {:#?}", captured_vars);
-                // println!("{}", lambda_function);
                 captured_vars = captured_vars
                     .into_iter()
                     .filter(|x| self.vars_used.contains(&x.0))
@@ -1465,42 +1411,13 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             for (var, value) in captured_vars {
                 info.captured_vars.get_mut(var.as_str()).map(|x| {
-                    // if !(!x.captured_from_enclosing && value.captured_from_enclosing) {
-                    // if value.captured_from_enclosing {
-                    // println!("Before: {}: {:#?}", var, x);
-                    // println!("After: {}: {:#?}", var, value);
-
                     x.captured_from_enclosing = value.captured_from_enclosing;
-
-                    // if value.captured_from_enclosing {
-                    // x.read_heap_offset = value.heap_offset;
-                    // } else {
                     x.heap_offset = value.heap_offset;
-                    // }
-
-                    // x.heap_offset = x.heap_offset.min(value.heap_offset);
-                    // x.heap_offset = value.heap_offset;
-                    // x.read_heap_offset = value.read_heap_offset;
-                    // }
-
-                    // }
-
-                    // println!("Before: {}: {:#?}", var, x);
-                    // println!("After: {:#?}", value);
-                    // x.captured_from_enclosing = value.captured_from_enclosing;
-                    // x.heap_offset = value.heap_offset;
-                    // x.read_heap_offset = value.read_heap_offset;
                 });
             }
 
-            // info.escapes = self.escape_analysis;
-
-            // info.captured_vars = captured_vars;
-
             return;
         } else {
-            // println!("Escape analysis: {:?}", self.escape_analysis);
-
             // Capture the information and store it in the semantic analysis for this individual function
             self.info.function_info.insert(
                 lambda_function.syntax_object_id,
