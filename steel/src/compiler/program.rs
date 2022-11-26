@@ -559,6 +559,7 @@ impl OpCodeOccurenceProfiler {
         counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
 
         println!("------- Profiling Report -------");
+        println!("Total instructions executed: {}", total);
         for row in counts {
             println!("{:?} => {:.2}%", row.0, row.1);
         }

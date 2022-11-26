@@ -2,7 +2,8 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use steel::steel_vm::engine::Engine;
+use dlopen_derive::WrapperApi;
+use steel::steel_vm::{builtin::BuiltInModule, engine::Engine};
 use steel_repl::repl::repl_base;
 
 use std::fs;
@@ -13,6 +14,8 @@ use clap::Parser;
 
 use env_logger::Builder;
 use log::LevelFilter;
+
+use dlopen::wrapper::{Container, WrapperApi};
 
 /// Steel Interpreter Client
 #[derive(Parser, Debug)]
@@ -34,6 +37,11 @@ enum EmitAction {
     Ast,
     /// Enter the repl with the given file loaded
     Interactive,
+}
+
+#[derive(WrapperApi)]
+struct ModuleApi {
+    generate_module: fn() -> BuiltInModule,
 }
 
 fn main() {
@@ -85,6 +93,13 @@ fn main() {
     //     .init();
 
     let mut vm = configure_engine();
+
+    // Load in the dylib
+    let cont: Container<ModuleApi> = unsafe { Container::load("libexample_dylib.so") }
+        .expect("Could not open library or load symbols");
+
+    // Register the module
+    vm.register_module(cont.generate_module());
 
     // if clap_args.default_file.is_none() {
     //     finish(repl_base(vm));

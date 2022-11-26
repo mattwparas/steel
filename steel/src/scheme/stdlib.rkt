@@ -400,7 +400,7 @@
       (?a1 ?e1 ...) 
       ?clause1 ...)
      (lambda args
-       (let ((l (length args)))
+       (%plain-let ((l (length args)))
          (case-lambda "CLAUSE" args l 
            (?a1 ?e1 ...)
            ?clause1 ...))))
@@ -426,7 +426,7 @@
     ((case-lambda "CLAUSE" ?args ?l 
       (?a1 ?e1 ...)
       )
-     (let ((?a1 ?args))
+     (%plain-let ((?a1 ?args))
        ?e1 ...))
     ((case-lambda "CLAUSE" ?args ?l)
      (error "Wrong number of arguments to CASE-LAMBDA."))

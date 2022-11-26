@@ -19,6 +19,8 @@ steel_repl = { path = "./steel_repl" }
 env_logger = "0.9"
 log = "0.4.14"
 clap = { version = "3.1.17", features = ["derive"] }
+dlopen = "0.1"
+dlopen_derive = "0.1.4"
 
 # [[bin]]
 # name = "main"
@@ -35,6 +37,7 @@ members = [
     "steel",
     "steel_derive",
     "steel_repl",
+    "example-dylib"
 ]
 
 [profile.release]

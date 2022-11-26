@@ -367,7 +367,7 @@ impl SteelThread {
 
                 return Err(e);
             } else {
-                // self.profiler.report();
+                self.profiler.report();
                 // self.profiler.report_time_spend();
                 // self.profiler.report_basic_blocks();
 
@@ -930,10 +930,10 @@ impl<'a> VmCore<'a> {
 
         while self.ip < self.instructions.len() {
             // Process the op code
-            // self.profiler.process_opcode(
-            //     &self.instructions[self.ip].op_code,
-            //     self.instructions[self.ip].payload_size as usize,
-            // );
+            self.profiler.process_opcode(
+                &self.instructions[self.ip].op_code,
+                self.instructions[self.ip].payload_size as usize,
+            );
 
             // println!("{:?}", self.instructions[self.ip]);
 
@@ -2184,7 +2184,7 @@ impl<'a> VmCore<'a> {
         f: &fn(&mut [SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
-        println!("Stack: {:?}", self.stack);
+        // println!("Stack: {:?}", self.stack);
 
         let last_index = self.stack.len() - payload_size;
 

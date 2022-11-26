@@ -36,42 +36,13 @@
 
 ;; TODO: Original implementation here
 ;; This is where the magic tofu is cooked
-; (define (list-reduce f identity lst)
-;   (if (null? lst)
-;       identity
-;       (let ((v (f identity (car lst))))
-;         (if (reduced? v)
-;             (unreduce v)
-;             (list-reduce f v (cdr lst))))))
-
-
 (define (list-reduce f identity lst)
   (if (null? lst)
       identity
-      (let ((remaining (cdr lst))
-            (v (f identity (car lst))))
+      (%plain-let ((v (f identity (car lst))))
         (if (reduced? v)
             (unreduce v)
-            (list-reduce f v remaining)))))
-
-; (define (list-reduce f identity lst)
-;   (other-list-reduce f lst identity))
-
-; (define (other-list-reduce f lst identity)
-;   (if (null? lst)
-;       identity
-;       (let ((v (f identity (car lst))))
-;         (if (reduced? v)
-;             (unreduce v)
-;             (other-list-reduce f (cdr lst) v)))))
-
-; (define (list-reduce f identity lst)
-;   (if (null? lst)
-;       identity
-;       (let ((v (f identity (car lst))))
-;         (if (reduced? v)
-;             (unreduce v)
-;             (list-reduce2 f identity (cdr lst) v)))))
+            (list-reduce f v (cdr lst))))))
 
 (define (test-map func lst accum)
   (if (empty? lst)
@@ -570,19 +541,18 @@
 ;; investigate tmap or rcons and see why / how its used with the input
 (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
 
+(list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
 
-; (list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
+(list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
 
-; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
+(list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
 
-; (list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
+(list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
 
-; (list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
+(list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
 
-; (list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
+(list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10))
 
-; (list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10))
+(list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
 
-; (list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
-
-; (list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
+(list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))

@@ -894,8 +894,8 @@ mod code_gen_tests {
         code_gen.visit(&exprs[0]).unwrap();
     }
 
-    // #[test]
-    fn _check_let_output() {
+    #[test]
+    fn check_let_output() {
         let expr = r#"
             (%plain-let ((a 10) (b 20))
                 (+ a b))
@@ -919,7 +919,7 @@ mod code_gen_tests {
             (OpCode::READLOCAL, 1),   // Corresponds to index 1
             (OpCode::PUSH, 0), // + is a global, that is late bound and the index is resolved later
             (OpCode::FUNC, 2), // Function call with 2 arguments
-            (OpCode::LETENDSCOPE, 0), // Exit the let scope and drop the vars and anything above it
+            (OpCode::LETENDSCOPE, 2), // Exit the let scope and drop the vars and anything above it
         ];
 
         let found = code_gen
