@@ -1,7 +1,8 @@
-use crate::parser::parser::ParseError;
-use crate::parser::parser::SyntaxObject;
-use crate::parser::tokens::TokenType;
-use crate::parser::tokens::TokenType::*;
+use crate::parser::{
+    parser::{ParseError, SyntaxObject},
+    tokens::TokenType::{self, *},
+    tryfrom_visitor::TryFromExprKindForSteelVal,
+};
 
 use std::{convert::TryFrom, sync::atomic::Ordering};
 
@@ -11,11 +12,10 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::Deref;
 
-use crate::rerrs::SteelErr;
-use crate::rvals::SteelVal;
-use crate::rvals::SteelVal::*;
-
-use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
+use crate::{
+    rerrs::SteelErr,
+    rvals::SteelVal::{self, *},
+};
 
 use super::{
     parser::{SyntaxObjectId, SYNTAX_OBJECT_ID},
@@ -48,7 +48,6 @@ pub enum ExprKind {
     List(List),
     Set(Box<Set>),
     Require(Require),
-    // CallCC(Box<CallCC>),
 }
 
 #[macro_export]
