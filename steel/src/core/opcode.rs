@@ -67,6 +67,7 @@ pub enum OpCode {
     READALLOC,
     SETCAPTURED,
     SETALLOC,
+    GIMMICK,
 }
 
 impl OpCode {

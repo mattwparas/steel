@@ -367,7 +367,7 @@ impl SteelThread {
 
                 return Err(e);
             } else {
-                self.profiler.report();
+                // self.profiler.report();
                 // self.profiler.report_time_spend();
                 // self.profiler.report_basic_blocks();
 
@@ -536,6 +536,7 @@ pub struct VmCore<'a> {
     pub(crate) pure_function_interner: &'a mut FnvHashMap<usize, Gc<ByteCodeLambda>>,
     pub(crate) heap: &'a mut Heap,
     pub(crate) use_contracts: bool,
+    pub(crate) depth: usize,
     #[cfg(feature = "jit")]
     pub(crate) jit: Option<&'a mut JIT>,
 }
@@ -571,6 +572,7 @@ impl<'a> VmCore<'a> {
             pure_function_interner,
             heap,
             use_contracts,
+            depth: 0,
             #[cfg(feature = "jit")]
             jit,
         }
@@ -610,6 +612,7 @@ impl<'a> VmCore<'a> {
             pure_function_interner,
             heap,
             use_contracts,
+            depth: 0,
             #[cfg(feature = "jit")]
             jit,
         })
@@ -665,7 +668,11 @@ impl<'a> VmCore<'a> {
         // Force the execution to be done earlier
         self.pop_count = 1;
 
+        self.depth += 1;
+
         let res = self.vm();
+
+        self.depth -= 1;
 
         self.ip = old_ip;
         self.instructions = old_instructions;
@@ -886,6 +893,10 @@ impl<'a> VmCore<'a> {
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
         // let mut cur_inst;
 
+        if self.depth > 64 {
+            stop!(Generic => "stack overflow! The rust call stack is currently used for transducers, so we impose a hard recursion limit of 64"; self.current_span());
+        }
+
         macro_rules! inline_primitive {
             ($name:tt, $payload_size:expr) => {{
                 let last_index = self.stack.len() - $payload_size as usize;
@@ -930,10 +941,10 @@ impl<'a> VmCore<'a> {
 
         while self.ip < self.instructions.len() {
             // Process the op code
-            self.profiler.process_opcode(
-                &self.instructions[self.ip].op_code,
-                self.instructions[self.ip].payload_size as usize,
-            );
+            // self.profiler.process_opcode(
+            //     &self.instructions[self.ip].op_code,
+            //     self.instructions[self.ip].payload_size as usize,
+            // );
 
             // println!("{:?}", self.instructions[self.ip]);
 
@@ -1045,33 +1056,38 @@ impl<'a> VmCore<'a> {
                 }
 
                 DenseInstruction {
+                    op_code: OpCode::GIMMICK,
+                    payload_size,
+                    ..
+                } => {
+                    // Handle the local
+                    self.handle_local(payload_size as usize)?;
+
+                    // Load the int
+                    self.stack.push(SteelVal::INT_TWO);
+                    self.ip += 1;
+
+                    let payload = self.instructions[self.ip].payload_size;
+
+                    inline_primitive!(lte_primitive, payload);
+
+                    let payload_size = self.instructions[self.ip].payload_size;
+
+                    // Handle the if
+                    if self.stack.pop().unwrap().is_truthy() {
+                        self.ip += 1;
+                    } else {
+                        self.ip = payload_size as usize;
+                    }
+                }
+
+                DenseInstruction {
                     op_code: OpCode::VOID,
                     ..
                 } => {
                     self.stack.push(SteelVal::Void);
                     self.ip += 1;
                 }
-                // DenseInstruction {
-                //     op_code: OpCode::STRUCT,
-                //     payload_size,
-                //     ..
-                // } => {
-                //     // For now, only allow structs at the top level
-                //     // In the future, allow structs to be also available in a nested scope
-                //     self.handle_struct(payload_size as usize)?;
-                //     self.stack.push(SteelVal::Void);
-                //     self.ip += 1;
-                //     // return Ok(SteelVal::Void);
-                // }
-                // DenseInstruction {
-                //     op_code: OpCode::INNERSTRUCT,
-                //     payload_size,
-                //     ..
-                // } => {
-                //     self.handle_inner_struct(payload_size as usize)?;
-                //     self.stack.push(SteelVal::Void);
-                //     self.ip += 1;
-                // }
                 DenseInstruction {
                     op_code: OpCode::SET,
                     payload_size,
@@ -1224,22 +1240,11 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    // println!("If payload: {}", payload_size);
-                    // println!(
-                    //     "Jump payload: {}",
-                    //     self.instructions[self.ip + 1].payload_size
-                    // );
-
                     // change to truthy...
                     if self.stack.pop().unwrap().is_truthy() {
-                        // TODO: Come back here
-                        // println!("Current ip: {} - jump ip: {}", self.ip, payload_size);
-                        // self.ip = payload_size as usize;
                         self.ip += 1;
                     } else {
                         self.ip = payload_size as usize;
-                        // self.ip = self.instructions[self.ip + 1].payload_size as usize
-                        // self.ip += 1;
                     }
                 }
                 DenseInstruction {
@@ -1683,8 +1688,6 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn handle_local(&mut self, index: usize) -> Result<()> {
-        // println!("Stack index: {:?}", self.stack_index);
-        // println!("Stack index value: {:?}", index);
         let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let value = self.stack[index + offset].clone();
         self.stack.push(value);

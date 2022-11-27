@@ -40,6 +40,51 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     }
 }
 
+pub fn gimmick_super_instruction(instructions: &mut [Instruction]) {
+    for i in 0..instructions.len() {
+        let read_local = instructions.get(i);
+        let load_int = instructions.get(i + 1);
+        let lte = instructions.get(i + 2);
+        let pass_instr = instructions.get(i + 3);
+        let if_instr = instructions.get(i + 4);
+
+        match (read_local, load_int, lte, pass_instr, if_instr) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::READLOCAL,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::LOADINT2,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::LTE,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::PASS,
+                    ..
+                }),
+                // HAS to be arity 2 in this case
+                Some(Instruction {
+                    op_code: OpCode::IF,
+                    ..
+                }),
+            ) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::GIMMICK;
+                }
+
+                instructions[i + 1].op_code = OpCode::PASS;
+                instructions[i + 2].op_code = OpCode::PASS;
+                instructions[i + 4].op_code = OpCode::PASS;
+            }
+            _ => {}
+        }
+    }
+}
+
 // Often, there may be a loop condition with something like (= x 10000)
 // this identifies these and lazily applies the function, only pushing on to the stack
 // until it absolutely needs to
@@ -491,6 +536,7 @@ impl OpCodeOccurenceProfiler {
 
         match opcode {
             OpCode::JMP
+            | OpCode::IF
             | OpCode::CALLGLOBAL
             | OpCode::CALLGLOBALTAIL
             | OpCode::TAILCALL
@@ -745,9 +791,11 @@ impl RawProgramWithSymbols {
         for instructions in &mut self.instructions {
             inline_num_operations(instructions);
             convert_call_globals(instructions);
+
+            gimmick_super_instruction(instructions);
+
             // loop_condition_local_const_arity_two(instructions);
         }
-        // }
 
         self
     }
@@ -822,26 +870,11 @@ impl RawProgramWithSymbols {
 
         let mut struct_instructions = Vec::new();
 
-        // for builder in &self.struct_functions {
-        //     // Add the eventual function names to the symbol map
-        //     let indices = symbol_map.insert_struct_function_names_from_concrete(builder);
-
-        //     // Get the value we're going to add to the constant map for eventual use
-        //     // Throw the bindings in as well
-        //     let constant_values = builder.to_constant_val(indices);
-        //     let idx = self.constant_map.add_or_get(constant_values);
-
-        //     struct_instructions.push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
-        // }
-
         let mut interner = DebruijnIndicesInterner::default();
 
         for expression in &mut self.instructions {
             interner.collect_first_pass_defines(expression, symbol_map)?
         }
-
-        // let mut first_pass_defines = HashSet::new();
-        // let mut second_pass_defines = HashSet::new();
 
         // TODO -> the instructions need to be combined into a flat array
         // representing each expression, otherwise this will error out on a free identifier
@@ -859,6 +892,7 @@ impl RawProgramWithSymbols {
             // TODO: Re-enable optimizations
             // loop_condition_local_const_arity_two(instructions);
             specialize_constants(instructions)?;
+            gimmick_super_instruction(instructions);
         }
         // }
 

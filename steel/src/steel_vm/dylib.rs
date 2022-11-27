@@ -29,7 +29,7 @@ impl DylibContainers {
         for path in paths {
             let path = path.unwrap().path();
 
-            if path.extension().unwrap() != "so" {
+            if path.extension().unwrap() != "so" || path.extension().unwrap() != "dylib" {
                 continue;
             }
 
