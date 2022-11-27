@@ -7,7 +7,6 @@ use crate::rvals::Result;
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::Instruction, opcode::OpCode},
-    parser::parser::{ParseError, Parser},
     stop, SteelVal,
 };
 use crate::{core::instructions::DenseInstruction, parser::span::Span};
@@ -15,7 +14,7 @@ use log::{debug, log_enabled};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    convert::{TryFrom, TryInto},
+    convert::TryInto,
     rc::Rc,
     time::{Instant, SystemTime},
 };

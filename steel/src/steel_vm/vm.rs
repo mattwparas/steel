@@ -143,13 +143,10 @@ pub struct SteelThread {
     global_env: Env,
     callback: EvaluationProgress,
     stack: Vec<SteelVal>,
-    // function_stack: CallStack,
-    // stack_index: Vec<usize>,
     profiler: OpCodeOccurenceProfiler,
     // TODO: make this not as bad
     closure_interner: FnvHashMap<usize, ByteCodeLambda>,
     pure_function_interner: FnvHashMap<usize, Gc<ByteCodeLambda>>,
-
     heap: Heap,
     // If contracts are set to off - contract construction results in a no-op,
     // so we don't need generics on the thread

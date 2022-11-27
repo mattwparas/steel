@@ -26,10 +26,7 @@ use crate::parser::expand_visitor::{expand, extract_macro_defs};
 use itertools::Itertools;
 use log::{debug, info, log_enabled};
 
-use super::passes::{
-    mangle::{collect_globals, NameMangler},
-    VisitorMutRefUnit,
-};
+use super::passes::mangle::{collect_globals, NameMangler};
 
 const OPTION: &str = include_str!("../scheme/modules/option.rkt");
 const OPTION_NAME: &str = "std::option";
@@ -64,8 +61,39 @@ impl ModuleManager {
         }
     }
 
+    pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
+        &self.compiled_modules
+    }
+
     pub(crate) fn default() -> Self {
         Self::new(HashMap::new(), HashMap::new())
+    }
+
+    // Add the module directly to the compiled module cache
+    pub(crate) fn add_module(
+        &mut self,
+        path: PathBuf,
+        global_macro_map: &mut HashMap<String, SteelMacro>,
+        _kernel: &mut Option<Kernel>,
+        sources: &mut Sources,
+    ) -> Result<()> {
+        // todo!()
+
+        self.visited.clear();
+
+        // TODO: Expand macros on the fly when visiting a module. Don't wait till the end
+        // Macro expansion should happen as we enter a module.
+        let mut module_builder = ModuleBuilder::new_from_path(
+            path,
+            &mut self.compiled_modules,
+            &mut self.visited,
+            &mut self.file_metadata,
+            sources,
+        )?;
+
+        module_builder.compile()?;
+
+        Ok(())
     }
 
     pub(crate) fn compile_main(

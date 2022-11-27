@@ -798,6 +798,8 @@ fn meta_module() -> BuiltInModule {
         .register_fn("value->string", super::meta::value_to_string)
         // TODO: @Matt -> implement the traits for modules as well
         .register_fn("Engine::new", super::meta::EngineWrapper::new)
+        .register_fn("Engine::add-module", super::meta::EngineWrapper::add_module)
+        .register_fn("Engine::modules->list", super::meta::EngineWrapper::modules)
         // .register_fn("run!", super::meta::EngineWrapper::call)
         // .register_fn("get-value", super::meta::EngineWrapper::get_value)
         .register_fn("value->iterator", crate::rvals::value_into_iterator)

@@ -2,8 +2,7 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use dlopen_derive::WrapperApi;
-use steel::steel_vm::{builtin::BuiltInModule, engine::Engine};
+use steel::steel_vm::engine::Engine;
 use steel_repl::repl::repl_base;
 
 use std::fs;
@@ -14,8 +13,6 @@ use clap::Parser;
 
 use env_logger::Builder;
 use log::LevelFilter;
-
-use dlopen::wrapper::{Container, WrapperApi};
 
 /// Steel Interpreter Client
 #[derive(Parser, Debug)]
@@ -39,65 +36,22 @@ enum EmitAction {
     Interactive,
 }
 
-#[derive(WrapperApi)]
-struct ModuleApi {
-    generate_module: fn() -> BuiltInModule,
-}
-
 fn main() {
     // env_logger::init();
 
     let mut builder = Builder::new();
 
-    builder
-        // .filter(Some("requires"), LevelFilter::Trace)
-        // .filter(
-        //     Some("steel::steel_vm::const_evaluation"),
-        //     LevelFilter::Trace,
-        // )
-        // .filter(Some("lambda-lifting"), LevelFilter::Trace)
-        .filter(Some("pipeline_time"), LevelFilter::Trace)
-        .filter(Some("dylibs"), LevelFilter::Trace)
-        // .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
-        // .filter(Some("steel::parser::expander"), LevelFilter::Trace)
-        // .filter(Some("steel::steel_vm::contracts"), LevelFilter::Trace)
-        .init();
+    let log_targets = ["pipeline_time", "dylibs"];
 
-    // builder
-    //     .filter(
-    //         Some("steel::compiler::passes::analysis"),
-    //         LevelFilter::Trace,
-    //     )
-    //     // .filter(Some("steel::steel_vm::vm"), LevelFilter::Trace)
-    //     .init();
+    for target in log_targets {
+        builder.filter(Some(target), LevelFilter::Trace);
+    }
+
+    builder.init();
 
     let clap_args = Args::parse();
 
-    // println!("{:?}", clap_args);
-
-    // let mut builder = Builder::new();
-
-    // builder
-    //     .filter(Some("pipeline_time"), LevelFilter::Trace)
-    //     .filter(Some("steel::compiler::compiler"), LevelFilter::Error)
-    //     .filter(
-    //         Some("steel::steel_vm::contract_checker"),
-    //         LevelFilter::Trace,
-    //     )
-    //     // .filter(Some("reader-macros"), LevelFilter::Trace)
-    //     // .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
-    //     // .filter(Some("steel::parser::replace_idents"), LevelFilter::Trace)
-    //     .init();
-
-    // builder
-    //     .filter(Some("steel::compiler::code_generator"), LevelFilter::Trace)
-    //     .init();
-
     let mut vm = configure_engine();
-
-    // if clap_args.default_file.is_none() {
-    //     finish(repl_base(vm));
-    // }
 
     match clap_args {
         Args {

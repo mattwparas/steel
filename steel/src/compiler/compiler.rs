@@ -40,7 +40,11 @@ use log::{debug, log_enabled};
 
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
-use super::{modules::ModuleManager, passes::analysis::Analysis, program::RawProgramWithSymbols};
+use super::{
+    modules::{CompiledModule, ModuleManager},
+    passes::analysis::Analysis,
+    program::RawProgramWithSymbols,
+};
 
 use im_rc::HashMap as ImmutableHashMap;
 
@@ -567,6 +571,15 @@ impl Compiler {
         Ok(LambdaLifter::lift(expanded_statements))
 
         // self.emit_debug_instructions_from_exprs(parsed)
+    }
+
+    pub fn compile_module(&mut self, path: PathBuf, sources: &mut Sources) -> Result<()> {
+        self.module_manager
+            .add_module(path, &mut self.macro_env, &mut self.kernel, sources)
+    }
+
+    pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
+        self.module_manager.modules()
     }
 
     pub fn expand_expressions(

@@ -5,9 +5,8 @@ use crate::{
     rvals::{Result, SteelVal},
     values::port::DEFAULT_OUTPUT_PORT,
 };
+use std::io;
 use std::io::Write;
-use std::{io, rc::Rc};
-// use std::rc::Rc;
 
 // mod primitives;
 

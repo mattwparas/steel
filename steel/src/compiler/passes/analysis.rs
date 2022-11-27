@@ -532,7 +532,7 @@ impl<'a> AnalysisPass<'a> {
 
 impl<'a> AnalysisPass<'a> {
     // TODO: This needs to be fixed with interning
-    fn get_possible_captures(&self, let_level_bindings: &[&str]) -> HashSet<String> {
+    fn _get_possible_captures(&self, let_level_bindings: &[&str]) -> HashSet<String> {
         self.scope
             .iter()
             .filter(|x| !x.1.captured)

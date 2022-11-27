@@ -23,6 +23,21 @@ impl EngineWrapper {
         EngineWrapper(Rc::new(RefCell::new(Engine::new())))
     }
 
+    pub(crate) fn add_module(self, path: String) -> Result<()> {
+        self.0.borrow_mut().add_module(path)?;
+        Ok(())
+    }
+
+    //
+    pub(crate) fn modules(self) -> List<String> {
+        self.0
+            .borrow()
+            .modules()
+            .iter()
+            .map(|x| x.0.to_str().unwrap().to_string())
+            .collect()
+    }
+
     // TODO: Warning, here be dragons
     pub(crate) fn call_fn(self, function_name: SteelVal, args: SteelVal) -> Result<SteelVal> {
         let function = match function_name {
@@ -118,7 +133,7 @@ impl Custom for EngineWrapper {}
 
 impl std::fmt::Debug for EngineWrapper {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "#<SteelEngine>")
+        write!(f, "SteelEngine")
     }
 }
 

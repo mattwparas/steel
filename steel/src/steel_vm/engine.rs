@@ -8,12 +8,12 @@ use crate::{
     compiler::{
         compiler::Compiler,
         constants::ConstantMap,
-        program::{Executable, RawProgramWithSymbols},
+        program::{Executable, RawProgramWithSymbols}, modules::CompiledModule,
     },
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
     parser::parser::{ParseError, Parser, Sources},
-    rerrs::{back_trace, report_error},
+    rerrs::back_trace,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw, SteelErr,
 };
@@ -806,6 +806,14 @@ impl Engine {
         self.constants = Some(hm.clone());
 
         hm
+    }
+
+    pub fn add_module(&mut self, path: String) -> Result<()> {
+        self.compiler.compile_module(path.into(), &mut self.sources)
+    }
+
+    pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
+        self.compiler.modules()
     }
 }
 
