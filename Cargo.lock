@@ -1921,6 +1921,7 @@ dependencies = [
  "cranelift-module",
  "criterion",
  "dlopen",
+ "dlopen_derive",
  "env_logger",
  "fnv",
  "futures",

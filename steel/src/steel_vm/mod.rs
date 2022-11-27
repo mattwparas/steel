@@ -5,6 +5,7 @@ mod contracts;
 pub mod engine;
 mod evaluation_progress;
 // mod heap;
+pub mod dylib;
 mod lazy_stream;
 mod meta;
 pub mod options;

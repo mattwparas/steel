@@ -57,6 +57,7 @@ fn main() {
         // )
         // .filter(Some("lambda-lifting"), LevelFilter::Trace)
         .filter(Some("pipeline_time"), LevelFilter::Trace)
+        .filter(Some("dylibs"), LevelFilter::Trace)
         // .filter(Some("steel::compiler::modules"), LevelFilter::Trace)
         // .filter(Some("steel::parser::expander"), LevelFilter::Trace)
         // .filter(Some("steel::steel_vm::contracts"), LevelFilter::Trace)
@@ -93,35 +94,6 @@ fn main() {
     //     .init();
 
     let mut vm = configure_engine();
-
-    let home = std::env::var("STEEL_HOME").unwrap();
-
-    let paths = std::fs::read_dir(home).unwrap();
-
-    let mut containers = Vec::new();
-
-    for path in paths {
-        let path = path.unwrap().path();
-
-        // if path.exists() {
-        if path.extension().unwrap() != "so" {
-            continue;
-        }
-
-        let path = path.file_name().and_then(|x| x.to_str()).unwrap();
-        println!("Loading dylib: {}", path);
-        // Load in the dylib
-        let cont: Container<ModuleApi> =
-            unsafe { Container::load(path) }.expect("Could not open library or load symbols");
-
-        // Register the module
-        vm.register_module(cont.generate_module());
-
-        // Keep the container alive for the duration of the program
-        // This should probably just get wrapped up with the engine as well, when registering modules, directly
-        // register an external dylib
-        containers.push(cont);
-    }
 
     // if clap_args.default_file.is_none() {
     //     finish(repl_base(vm));

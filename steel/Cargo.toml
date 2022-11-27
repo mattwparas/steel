@@ -37,6 +37,7 @@ lasso = { version = "0.6.0", features = ["multi-threaded"] }
 once_cell = "1.10.0"
 fnv = "1.0.3"
 dlopen = "0.1"
+dlopen_derive = "0.1.4"
 
 [dev-dependencies]
 proptest = "1.0.0"

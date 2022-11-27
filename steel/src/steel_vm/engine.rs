@@ -1,5 +1,6 @@
 use super::{
     builtin::BuiltInModule,
+    dylib::DylibContainers,
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::SteelThread,
 };
@@ -27,6 +28,7 @@ pub struct Engine {
     constants: Option<ImmutableHashMap<String, SteelVal>>,
     modules: ImmutableHashMap<String, BuiltInModule>,
     sources: Sources,
+    dylibs: DylibContainers,
 }
 
 impl Engine {
@@ -42,6 +44,7 @@ impl Engine {
             constants: None,
             modules: ImmutableHashMap::new(),
             sources: Sources::new(),
+            dylibs: DylibContainers::new(),
         };
 
         register_builtin_modules(&mut vm);
@@ -83,6 +86,7 @@ impl Engine {
             constants: None,
             modules: ImmutableHashMap::new(),
             sources: Sources::new(),
+            dylibs: DylibContainers::new(),
         }
     }
 
@@ -107,6 +111,16 @@ impl Engine {
 
         vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
             .unwrap();
+
+        vm.dylibs.load_modules();
+
+        let modules = vm.dylibs.modules().collect::<Vec<_>>();
+
+        for module in modules {
+            vm.register_module(module);
+        }
+
+        // vm.dylibs.load_modules(&mut vm);
 
         vm
     }
