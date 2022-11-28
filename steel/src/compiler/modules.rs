@@ -178,43 +178,13 @@ impl ModuleManager {
 
         let mut mangled_asts = Vec::new();
 
+        // TODO: Move this to the lower level as well
+        // It seems we're only doing this expansion at the top level, but we _should_ do this at the lower level as well
         for require_for_syntax in &module_builder.requires_for_syntax {
-            let module = self
-                .compiled_modules
-                .get(require_for_syntax)
-                .expect("Module missing!");
-
-            let mut module_ast = module.ast.clone();
-
-            mangle_vars_with_prefix(
-                "##mangler##".to_string() + module.name.to_str().unwrap(),
-                &mut module_ast,
-            );
-
-            mangled_asts.append(&mut module_ast);
-
-            // let provided_macros = module.provides_for
-
-            // let expander = Expander::new(&module.macro_map);
-
-            // TODO
-            // expand expressions one by one
-            // if expansion with _just_ public macros from the required module doesn't do anything, stop
-            // if it _does_ change, do another pass with all of the macros in scope
-            // do this for each of the expressions in the file in this loop
-
-            // TODO -> try not cloning this
-            // TODO -> do this in the module expansion as well
-            let in_scope_macros = module
-                .provides_for_syntax
-                .iter()
-                .filter_map(|x| module.macro_map.get(x).map(|m| (x.to_string(), m.clone()))) // TODO -> fix this unwrap
-                .collect::<HashMap<_, _>>();
-
-            // Check what macros are in scope here
-            debug!(
-                "In scope macros: {:#?}",
-                in_scope_macros.keys().collect::<Vec<_>>()
+            let (module, in_scope_macros) = Self::find_in_scope_macros(
+                &self.compiled_modules,
+                require_for_syntax,
+                &mut mangled_asts,
             );
 
             // ast = ast.into_iter().map(|x| )
@@ -253,6 +223,42 @@ impl ModuleManager {
             .into_iter()
             .map(|x| expand(x, global_macro_map))
             .collect::<Result<_>>()
+    }
+
+    fn find_in_scope_macros<'a>(
+        compiled_modules: &'a HashMap<PathBuf, CompiledModule>,
+        require_for_syntax: &'a PathBuf,
+        mangled_asts: &'a mut Vec<ExprKind>,
+    ) -> (&'a CompiledModule, HashMap<String, SteelMacro>) {
+        let module = compiled_modules
+            .get(require_for_syntax)
+            .expect("Module missing!");
+        let mut module_ast = module.ast.clone();
+        mangle_vars_with_prefix(
+            "##mangler##".to_string() + module.name.to_str().unwrap(),
+            &mut module_ast,
+        );
+        mangled_asts.append(&mut module_ast);
+        // let provided_macros = module.provides_for
+        // let expander = Expander::new(&module.macro_map);
+        // TODO
+        // expand expressions one by one
+        // if expansion with _just_ public macros from the required module doesn't do anything, stop
+        // if it _does_ change, do another pass with all of the macros in scope
+        // do this for each of the expressions in the file in this loop
+        // TODO -> try not cloning this
+        // TODO -> do this in the module expansion as well
+        let in_scope_macros = module
+            .provides_for_syntax
+            .iter()
+            .filter_map(|x| module.macro_map.get(x).map(|m| (x.to_string(), m.clone()))) // TODO -> fix this unwrap
+            .collect::<HashMap<_, _>>();
+        // Check what macros are in scope here
+        debug!(
+            "In scope macros: {:#?}",
+            in_scope_macros.keys().collect::<Vec<_>>()
+        );
+        (module, in_scope_macros)
     }
 
     #[cfg(not(feature = "modules"))]
@@ -744,27 +750,28 @@ impl<'a> ModuleBuilder<'a> {
 
         // Look for the modules in the requires for syntax
         for require_for_syntax in &self.requires_for_syntax {
-            // TODO -> better error handling here
-            let module = self
-                .compiled_modules
-                .get(require_for_syntax)
-                .expect("Module missing!");
-
-            let mut module_ast = module.ast.clone();
-
-            // TODO
-            mangle_vars_with_prefix(
-                "##mangler##".to_string() + module.name.to_str().unwrap(),
-                &mut module_ast,
+            let (module, in_scope_macros) = ModuleManager::find_in_scope_macros(
+                &self.compiled_modules,
+                require_for_syntax,
+                &mut mangled_asts,
             );
 
-            mangled_asts.append(&mut module_ast);
-
-            // TODO -> actually expand the ast with macros from the other while respecting visibility rules
-            // Do a first pass expansion with the public macros, then expand witih the mangled macros
             ast = ast
                 .into_iter()
-                .map(|x| expand(x, &module.macro_map))
+                .map(|x| {
+                    // First expand the in scope macros
+                    // These are macros
+                    let mut expander = Expander::new(&in_scope_macros);
+                    let first_round_expanded = expander.expand(x)?;
+
+                    if expander.changed {
+                        expand(first_round_expanded, &module.macro_map)
+                    } else {
+                        Ok(first_round_expanded)
+                    }
+
+                    // expand(x, &module.macro_map)
+                })
                 .collect::<Result<_>>()?;
         }
 
@@ -774,23 +781,6 @@ impl<'a> ModuleBuilder<'a> {
 
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
-
-        // let module = CompiledModule {
-        //     name: self.name.clone(),
-        //     provides,
-        //     requires,
-        //     ast: mangled_asts,
-        //     provides_for_syntax: self
-        //         .provides_for_syntax
-        //         .iter()
-        //         .map(|x| x.atom_identifier().unwrap().to_string())
-        //         .collect(),
-        //     // ast
-        //     //     .into_iter()
-        //     //     .map(|x| expand(x, &self.macro_map))
-        //     //     .collect::<Result<Vec<_>>>()?,
-        //     macro_map: std::mem::take(&mut self.macro_map),
-        // };
 
         let module = CompiledModule::new(
             self.name.clone(),
