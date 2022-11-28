@@ -529,6 +529,7 @@ impl Compiler {
         constants: ImmutableHashMap<String, SteelVal>,
         path: Option<PathBuf>,
         sources: &mut Sources,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
     ) -> Result<Vec<ExprKind>> {
         let mut intern = HashMap::new();
 
@@ -540,7 +541,8 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        let expanded_statements = self.expand_expressions(parsed, path, sources)?;
+        let expanded_statements =
+            self.expand_expressions(parsed, path, sources, builtin_modules.clone())?;
 
         let mut expanded_statements = expanded_statements;
 
@@ -573,9 +575,19 @@ impl Compiler {
         // self.emit_debug_instructions_from_exprs(parsed)
     }
 
-    pub fn compile_module(&mut self, path: PathBuf, sources: &mut Sources) -> Result<()> {
-        self.module_manager
-            .add_module(path, &mut self.macro_env, &mut self.kernel, sources)
+    pub fn compile_module(
+        &mut self,
+        path: PathBuf,
+        sources: &mut Sources,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+    ) -> Result<()> {
+        self.module_manager.add_module(
+            path,
+            &mut self.macro_env,
+            &mut self.kernel,
+            sources,
+            builtin_modules,
+        )
     }
 
     pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
@@ -587,6 +599,7 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
         sources: &mut Sources,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
     ) -> Result<Vec<ExprKind>> {
         #[cfg(feature = "modules")]
         return self.module_manager.compile_main(
@@ -595,6 +608,7 @@ impl Compiler {
             sources,
             exprs,
             path,
+            builtin_modules,
         );
 
         #[cfg(not(feature = "modules"))]
@@ -648,7 +662,8 @@ impl Compiler {
         path: Option<PathBuf>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
-        let mut expanded_statements = self.expand_expressions(exprs, path, sources)?;
+        let mut expanded_statements =
+            self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
 
         if log_enabled!(log::Level::Debug) {
             debug!(

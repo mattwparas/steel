@@ -3,10 +3,12 @@ use crate::{
     expr_list,
     parser::{
         ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
+        expand_visitor::expand_kernel,
         kernel::Kernel,
         parser::{ParseError, Parser, Sources, SyntaxObject},
         tokens::TokenType,
     },
+    steel_vm::builtin::BuiltInModule,
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
@@ -27,6 +29,8 @@ use itertools::Itertools;
 use log::{debug, info, log_enabled};
 
 use super::passes::mangle::{collect_globals, NameMangler};
+
+use im_rc::HashMap as ImmutableHashMap;
 
 const OPTION: &str = include_str!("../scheme/modules/option.rkt");
 const OPTION_NAME: &str = "std::option";
@@ -74,8 +78,9 @@ impl ModuleManager {
         &mut self,
         path: PathBuf,
         global_macro_map: &mut HashMap<String, SteelMacro>,
-        _kernel: &mut Option<Kernel>,
+        kernel: &mut Option<Kernel>,
         sources: &mut Sources,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
     ) -> Result<()> {
         // todo!()
 
@@ -89,9 +94,13 @@ impl ModuleManager {
             &mut self.visited,
             &mut self.file_metadata,
             sources,
+            kernel,
+            builtin_modules,
         )?;
 
         module_builder.compile()?;
+
+        println!("{:#?}", self.compiled_modules);
 
         Ok(())
     }
@@ -99,10 +108,11 @@ impl ModuleManager {
     pub(crate) fn compile_main(
         &mut self,
         global_macro_map: &mut HashMap<String, SteelMacro>,
-        _kernel: &mut Option<Kernel>,
+        kernel: &mut Option<Kernel>,
         sources: &mut Sources,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
@@ -121,6 +131,8 @@ impl ModuleManager {
             &mut self.visited,
             &mut self.file_metadata,
             sources,
+            kernel,
+            builtin_modules,
         )?;
 
         let mut module_statements = module_builder.compile()?;
@@ -308,7 +320,7 @@ impl CompiledModule {
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
                 for provide in &provide_expr.list().unwrap().args[1..] {
-                    println!("{}", provide);
+                    // println!("{}", provide);
                     let provide_ident = provide.atom_identifier().unwrap();
 
                     // Since this is now bound to be in the scope of the current working module, we also want
@@ -450,6 +462,8 @@ struct ModuleBuilder<'a> {
     visited: &'a mut HashSet<PathBuf>,
     file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
     sources: &'a mut Sources,
+    kernel: &'a mut Option<Kernel>,
+    builtin_modules: ImmutableHashMap<String, BuiltInModule>,
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -460,6 +474,8 @@ impl<'a> ModuleBuilder<'a> {
         visited: &'a mut HashSet<PathBuf>,
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
+        kernel: &'a mut Option<Kernel>,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -485,6 +501,8 @@ impl<'a> ModuleBuilder<'a> {
             visited,
             file_metadata,
             sources,
+            kernel,
+            builtin_modules,
         })
     }
 
@@ -575,6 +593,8 @@ impl<'a> ModuleBuilder<'a> {
                     &mut self.visited,
                     &mut self.file_metadata,
                     &mut self.sources,
+                    &mut self.kernel,
+                    self.builtin_modules.clone(),
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -630,6 +650,8 @@ impl<'a> ModuleBuilder<'a> {
                     &mut self.visited,
                     &mut self.file_metadata,
                     &mut self.sources,
+                    &mut self.kernel,
+                    self.builtin_modules.clone(),
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -711,7 +733,11 @@ impl<'a> ModuleBuilder<'a> {
         // Expand first with the macros from *this* module
         ast = ast
             .into_iter()
-            .map(|x| expand(x, &self.macro_map))
+            .map(|x| {
+                expand(x, &self.macro_map).and_then(|x| {
+                    expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
+                })
+            })
             .collect::<Result<Vec<_>>>()?;
 
         let mut mangled_asts = Vec::new();
@@ -975,9 +1001,19 @@ impl<'a> ModuleBuilder<'a> {
         visited: &'a mut HashSet<PathBuf>,
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
+        kernel: &'a mut Option<Kernel>,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
     ) -> Result<Self> {
-        ModuleBuilder::raw(name, compiled_modules, visited, file_metadata, sources)
-            .parse_builtin(input)
+        ModuleBuilder::raw(
+            name,
+            compiled_modules,
+            visited,
+            file_metadata,
+            sources,
+            kernel,
+            builtin_modules,
+        )
+        .parse_builtin(input)
     }
 
     fn new_from_path(
@@ -986,9 +1022,19 @@ impl<'a> ModuleBuilder<'a> {
         visited: &'a mut HashSet<PathBuf>,
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
+        kernel: &'a mut Option<Kernel>,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
     ) -> Result<Self> {
-        ModuleBuilder::raw(name, compiled_modules, visited, file_metadata, sources)
-            .parse_from_path()
+        ModuleBuilder::raw(
+            name,
+            compiled_modules,
+            visited,
+            file_metadata,
+            sources,
+            kernel,
+            builtin_modules,
+        )
+        .parse_from_path()
     }
 
     fn raw(
@@ -997,6 +1043,8 @@ impl<'a> ModuleBuilder<'a> {
         visited: &'a mut HashSet<PathBuf>,
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
+        kernel: &'a mut Option<Kernel>,
+        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
     ) -> Self {
         ModuleBuilder {
             name,
@@ -1012,6 +1060,8 @@ impl<'a> ModuleBuilder<'a> {
             visited,
             file_metadata,
             sources,
+            kernel,
+            builtin_modules,
         }
     }
 

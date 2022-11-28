@@ -8,7 +8,8 @@ use crate::{
     compiler::{
         compiler::Compiler,
         constants::ConstantMap,
-        program::{Executable, RawProgramWithSymbols}, modules::CompiledModule,
+        modules::CompiledModule,
+        program::{Executable, RawProgramWithSymbols},
     },
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
@@ -429,8 +430,13 @@ impl Engine {
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
         let constants = self.constants();
-        self.compiler
-            .emit_expanded_ast(expr, constants, path, &mut self.sources)
+        self.compiler.emit_expanded_ast(
+            expr,
+            constants,
+            path,
+            &mut self.sources,
+            self.modules.clone(),
+        )
     }
 
     /// Emit the unexpanded AST
@@ -451,7 +457,13 @@ impl Engine {
         let constants = self.constants();
         Ok(self
             .compiler
-            .emit_expanded_ast(expr, constants, path, &mut self.sources)?
+            .emit_expanded_ast(
+                expr,
+                constants,
+                path,
+                &mut self.sources,
+                self.modules.clone(),
+            )?
             .into_iter()
             .map(|x| x.to_pretty(60))
             .join("\n\n"))
@@ -809,7 +821,8 @@ impl Engine {
     }
 
     pub fn add_module(&mut self, path: String) -> Result<()> {
-        self.compiler.compile_module(path.into(), &mut self.sources)
+        self.compiler
+            .compile_module(path.into(), &mut self.sources, self.modules.clone())
     }
 
     pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
