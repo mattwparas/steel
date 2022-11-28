@@ -8,7 +8,7 @@
 
 (new-make-struct Dylib (name version path git))
 
-(define (dylib #:name name 
+(define (dylib #:name name
                #:version version 
                #:path (path void) 
                #:git (git void))
