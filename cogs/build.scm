@@ -1,4 +1,4 @@
-(new-make-struct Cog (name version path git))
+(struct Cog (name version path git))
 
 (define (cog #:name name 
              #:version version 
@@ -6,7 +6,7 @@
              #:git (git void))
     (Cog name version path git))
 
-(new-make-struct Dylib (name version path git))
+(struct Dylib (name version path git))
 
 (define (dylib #:name name
                #:version version 

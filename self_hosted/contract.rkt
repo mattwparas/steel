@@ -5,18 +5,18 @@
     FlatContract-predicate
     FunctionContract)
 
-(new-make-struct FlatContract (predicate name))
+(struct FlatContract (predicate name))
 
 ;; Alias the name for clarity
 (define make-flat-contract FlatContract)
 
 ;; Contract Attachment - use this for understanding where something happened
-(new-make-struct ContractAttachmentLocation (type name))
+(struct ContractAttachmentLocation (type name))
 
 ;; Function Contract - keep track of preconditions and post conditions, where the contract was attached,
 ;; and a pointer to the parent contract. Can probably replace parent with just a list of the parents since it can be shared
 ;; directly
-(new-make-struct FunctionContract (pre-conditions
+(struct FunctionContract (pre-conditions
                                    post-condition
                                    contract-attachment-location
                                    parents))
@@ -30,16 +30,16 @@
                               #:parents (parents '())) ;; TODO: so this parents business isn't even practical -> it can get removed safely, maybe revisited later
     (FunctionContract pre-conditions post-condition contract-attachment-location parents))
 
-(new-make-struct DependentPair (argument-name arguments thunk thunk-name))
+(struct DependentPair (argument-name arguments thunk thunk-name))
 
-(new-make-struct DependentContract (arg-positions
+(struct DependentContract (arg-positions
                                     pre-conditions post-condition
                                     contract-attachment-location
                                     parent))
 
-(new-make-struct ContractViolation (error-message))
+(struct ContractViolation (error-message))
 
-(new-make-struct ContractedFunction (contract function name))
+(struct ContractedFunction (contract function name))
 
 (define (contract->string contract)
   (cond [(FlatContract? contract) => (symbol->string (FlatContract-name contract))]

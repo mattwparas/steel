@@ -286,6 +286,12 @@
 ;; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
 (define member (lambda (obj lst)     (fold (mem-helper (curry equal? obj) id) #f lst)))
 
+(define (contains? pred? lst)
+    ; (displayln lst)
+    (cond [(empty? lst) #f]
+          [(pred? (car lst)) #t]
+          [else (contains? pred? (cdr lst))]))
+
 ;; TODO come back to this
 ; (define assq (lambda (obj alist)     (fold (mem-helper (curry eq? obj) car) #f alist)))
 

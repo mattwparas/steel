@@ -285,7 +285,6 @@ impl TryFrom<SyntaxObject> for SteelVal {
             DefineSyntax => Ok(SymbolV("define-syntax".into())),
             SyntaxRules => Ok(SymbolV("syntax-rules".into())),
             Ellipses => Ok(SymbolV("...".into())),
-            Struct => Ok(SymbolV("struct".into())),
             // Apply => Ok(SymbolV("apply".into())),
             Set => Ok(SymbolV("set!".into())),
             Require => Ok(SymbolV("require".into())),

@@ -1,8 +1,8 @@
 ;; ---------------------------- Class Object definitions --------------------------------------------
 
-(make-struct Class-Object (name parents interfaces fields methods))
-(make-struct Interface (name methods))
-(make-struct Class-Instance (class-object fields))
+(struct Class-Object (name parents interfaces fields methods))
+(struct Interface (name methods))
+(struct Class-Instance (class-object fields))
 
 
 (define (list-subset? left right)

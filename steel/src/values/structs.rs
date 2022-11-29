@@ -80,6 +80,30 @@ impl std::fmt::Display for UserDefinedStruct {
     }
 }
 
+enum StructBacking {
+    Immutable(ImmutableMaybeHeapVec),
+    Mutable(MaybeHeapVec),
+}
+
+impl StructBacking {
+    fn get(&self, index: usize) -> Option<SteelVal> {
+        match self {
+            Self::Immutable(v) => v.get(index),
+            Self::Mutable(v) => v.get(index),
+        }
+    }
+}
+
+#[test]
+fn check_sizes() {
+    println!("MaybeHeapVec: {}", std::mem::size_of::<MaybeHeapVec>());
+    println!(
+        "ImmutableMaybeHeapVec: {}",
+        std::mem::size_of::<ImmutableMaybeHeapVec>()
+    );
+    println!("StructBacking: {}", std::mem::size_of::<StructBacking>());
+}
+
 /// Array backed fixed size vector
 /// Structs should be fixed size - they don't need to grow once they are created, and for
 /// unit or single values, they shouldn't need to allocate an array at all. For structs up to
@@ -125,15 +149,15 @@ impl MaybeHeapVec {
     }
 
     #[inline(always)]
-    pub fn get(&self, index: usize) -> SteelVal {
+    pub fn get(&self, index: usize) -> Option<SteelVal> {
         match self {
-            MaybeHeapVec::Unit => panic!("Tried to get the 0th index of a unit struct"),
-            MaybeHeapVec::One(v) => v.borrow().clone(),
-            MaybeHeapVec::Two(a) => a.borrow()[index].clone(),
-            MaybeHeapVec::Three(a) => a.borrow()[index].clone(),
-            MaybeHeapVec::Four(a) => a.borrow()[index].clone(),
-            MaybeHeapVec::Five(a) => a.borrow()[index].clone(),
-            MaybeHeapVec::Spilled(a) => a.borrow()[index].clone(),
+            MaybeHeapVec::Unit => None,
+            MaybeHeapVec::One(v) => Some(v.borrow().clone()),
+            MaybeHeapVec::Two(a) => Some(a.borrow()[index].clone()),
+            MaybeHeapVec::Three(a) => Some(a.borrow()[index].clone()),
+            MaybeHeapVec::Four(a) => Some(a.borrow()[index].clone()),
+            MaybeHeapVec::Five(a) => Some(a.borrow()[index].clone()),
+            MaybeHeapVec::Spilled(a) => Some(a.borrow()[index].clone()),
         }
     }
 
@@ -172,6 +196,57 @@ impl MaybeHeapVec {
                 std::mem::swap(&mut guard[index], &mut value);
                 value
             }
+        }
+    }
+}
+
+// TODO: This is an immutable struct, which can has sole ownership of the values
+// underneath. Could be useful to separate mutable structs vs immutable structs, since
+// that way we can safely access this stuff
+pub(crate) enum ImmutableMaybeHeapVec {
+    Unit,
+    One(SteelVal),
+    Two(Rc<[SteelVal; 2]>),
+    Three(Rc<[SteelVal; 3]>),
+    Four(Rc<[SteelVal; 4]>),
+    Five(Rc<[SteelVal; 5]>),
+    Spilled(Rc<[SteelVal]>),
+}
+
+impl ImmutableMaybeHeapVec {
+    pub fn from_slice(args: &[SteelVal]) -> Self {
+        match &args {
+            &[] => Self::Unit,
+            &[one] => Self::One(one.clone()),
+            &[one, two] => Self::Two(Rc::new([one.clone(), two.clone()])),
+            &[one, two, three] => Self::Three(Rc::new([one.clone(), two.clone(), three.clone()])),
+            &[one, two, three, four] => Self::Four(Rc::new([
+                one.clone(),
+                two.clone(),
+                three.clone(),
+                four.clone(),
+            ])),
+            &[one, two, three, four, five] => Self::Five(Rc::new([
+                one.clone(),
+                two.clone(),
+                three.clone(),
+                four.clone(),
+                five.clone(),
+            ])),
+            _ => Self::Spilled(args.iter().cloned().collect()),
+        }
+    }
+
+    #[inline(always)]
+    pub fn get(&self, index: usize) -> Option<SteelVal> {
+        match self {
+            ImmutableMaybeHeapVec::Unit => None,
+            ImmutableMaybeHeapVec::One(v) => Some(v.clone()),
+            ImmutableMaybeHeapVec::Two(a) => Some(a[index].clone()),
+            ImmutableMaybeHeapVec::Three(a) => Some(a[index].clone()),
+            ImmutableMaybeHeapVec::Four(a) => Some(a[index].clone()),
+            ImmutableMaybeHeapVec::Five(a) => Some(a[index].clone()),
+            ImmutableMaybeHeapVec::Spilled(a) => Some(a[index].clone()),
         }
     }
 }
@@ -249,11 +324,10 @@ impl UserDefinedStruct {
                     if *idx < 0 {
                         stop!(Generic => "struct-ref expected a non negative index");
                     }
-                    if *idx as usize >= s.len {
-                        stop!(Generic => "struct-ref: index out of bounds");
-                    }
 
-                    Ok(s.fields.get(*idx as usize))
+                    s.fields
+                        .get(*idx as usize)
+                        .ok_or_else(throw!(Generic => "struct-ref: index out of bounds"))
                 }
                 _ => {
                     let error_message = format!(
@@ -282,7 +356,9 @@ impl UserDefinedStruct {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:p}, {:?}", name, &s, &steel_struct));
                     }
 
-                    Ok(s.fields.get(0))
+                    s.fields
+                        .get(index)
+                        .ok_or_else(throw!(Generic => "struct-ref: index out of bounds"))
                 }
                 _ => {
                     let error_message = format!(
@@ -320,7 +396,11 @@ impl UserDefinedStruct {
                         stop!(Generic => "struct-ref: index out of bounds");
                     }
 
+                    // if let StructBacking::Mutable(m) = s.fields {
                     Ok(s.fields.set(0, arg.clone()))
+                    // } else {
+                    // stop!(TypeMismatch => "attempted to set an immutable struct fields")
+                    // }
 
                     // Ok(s.fields[*idx as usize].clone())
 

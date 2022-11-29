@@ -1,12 +1,6 @@
-use std::{
-    collections::{HashSet},
-    convert::TryFrom,
-};
+use std::{collections::HashSet, convert::TryFrom};
 
-use crate::{
-    parser::{ast::from_list_repr_to_ast},
-    rvals::Result,
-};
+use crate::{parser::ast::from_list_repr_to_ast, rvals::Result};
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
 use super::{ast::ExprKind, span_visitor::get_span};
@@ -30,14 +24,8 @@ impl Kernel {
         engine.compile_and_run_raw_program(KERNEL).unwrap();
 
         let mut macros = HashSet::new();
-        macros.insert("make-struct".to_string());
         macros.insert("%better-lambda%".to_string());
-        macros.insert("new-make-struct".to_string());
-
-        // macros.insert("%lam%".to_string());
-
-        // let mut aliases = HashMap::new();
-        // aliases.insert("lambda".to_string(), "%lambda%".to_string());
+        macros.insert("struct".to_string());
 
         Kernel {
             macros,

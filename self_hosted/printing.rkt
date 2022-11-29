@@ -25,6 +25,6 @@
       x)))
 
 
-(make-struct Applesauce (a b c))
+(struct Applesauce (a b c))
 
 (println (Applesauce 1 2 3))

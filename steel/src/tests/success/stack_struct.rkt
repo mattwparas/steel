@@ -34,7 +34,7 @@
     (def-method struct-name (define/method (a this b ...) body ...))]))
 
 
-(make-struct Stack (lst) #:transparent #true)
+(struct Stack (lst) #:transparent)
 (impl Stack
     ;; Change this to be something like (define/method)
     ;; as to disambiguate it from the base define

@@ -1,6 +1,6 @@
 
 
-(make-struct SyntaxRules (name syntaxes patterns) #:transparent #true)
+(struct SyntaxRules (name syntaxes patterns) #:transparent)
 
 (define (check-first expression symbol)
     (equal? (first expression) symbol))

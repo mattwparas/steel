@@ -12,15 +12,6 @@
   (->/c custom-struct? boolean?)
   (hash-try-get (mut-vector-ref s 2) ':transparent))
 
-; (define (displayln . rest)
-;   (transduce rest
-;              (into-for-each (lambda (x) (display " "))))
-;   (newline))
-
-; (displayln "hello" "world" "this" "is" "multiple" "values")
-
-; (make-struct Applesauce (a b c))
-
 (define (println x)
   (displayln 
     (if (custom-struct? x)

@@ -5,7 +5,7 @@
 ;   reduced?
 ;   (val unreduce))
 
-(new-make-struct reduced (val))
+(struct reduced (val))
 
 (define unreduce reduced-val)
 
@@ -106,7 +106,7 @@
 ;   (make-nothing)
 ;   nothing?)
 
-(new-make-struct <Nothing> ())
+(struct <Nothing> ())
 
 (define nothing (<Nothing>))
 (define nothing? <Nothing>?)

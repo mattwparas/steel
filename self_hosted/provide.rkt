@@ -9,4 +9,4 @@
 (define (mutate-apple)
     (set! apple (lambda () 100)))
 
-; (make-struct Applesauce (a b c))
+(struct Applesauce (a b c) #:mutable)

@@ -1,4 +1,4 @@
-(make-struct node (datum children))
+(struct node (datum children))
 
 (define (parse expr)
 (parse-helper expr '() '()))

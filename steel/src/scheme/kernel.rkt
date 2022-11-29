@@ -20,11 +20,22 @@
              (flattening)
              (into-list)))
 
+(define (mutable-keyword? x) (equal? x '#:mutable))
+(define (transparent-keyword? x) (equal? x '#:transparent))
 
-(define (new-make-struct struct-name fields . options)
+(define (struct struct-name fields . options)
 
   ;; Add a field for storing the options - everything else after that is going to be normal
   (define field-count (+ 1 (length fields)))
+  (define mutable? (contains? mutable-keyword? fields))
+  (define transparent? (contains? transparent-keyword? fields))
+  (define options-without-single-keywords
+    (transduce options 
+              (filtering (lambda (x) (not (mutable-keyword? x))))
+              (filtering (lambda (x) (not (transparent-keyword? x))))
+              (into-list)))
+
+  (define extra-options (hash '#:mutable mutable? '#:transparent transparent? '#:fields fields))
 
   (when (not (list? fields))
     (error! "make-struct expects a list of field names, found " fields))
@@ -32,19 +43,21 @@
   (when (not (symbol? struct-name))
     (error! "make-struct expects an identifier as the first argument, found " struct-name))
 
-  (when (odd? (length options))
+  (when (odd? (length options-without-single-keywords))
     (error! "make-struct options are malformed - each option requires a value"))
 
   ;; Update the options-map to have the fields included
-  (let* ((options-map (apply hash options))
-         (options-map (hash-insert options-map '#:fields fields)))
+  (let* ((options-map (apply hash options-without-single-keywords))
+         (options-map (hash-union options-map extra-options)))
     `(begin
         (define ,(concat-symbols '___ struct-name '-options___) (hash ,@(hash->list options-map)))
         (define ,struct-name 'unintialized)
         (define ,(concat-symbols struct-name '?) 'uninitialized)
         ,@(map (lambda (field) `(define ,(concat-symbols struct-name '- field) 'uninitialized)) fields)
-        ,@(map (lambda (field) `(define ,(concat-symbols 'set- struct-name '- field '!) 'unintialized)) fields)
-
+        ;; If we're mutable, set up the identifiers to later be `set!` below in the same scope
+        ,@(if mutable? 
+              (map (lambda (field) `(define ,(concat-symbols 'set- struct-name '- field '!) 'unintialized)) fields)
+              (list))
 
         (let ((prototypes (make-struct-type (quote ,struct-name) ,field-count)))
           (let ((constructor-proto (list-ref prototypes 0))
@@ -55,85 +68,18 @@
               ,(new-make-constructor struct-name fields)
               ,(new-make-predicate struct-name fields)
               ,@(new-make-getters struct-name fields)
-              ,@(new-make-setters struct-name fields)
+              ,@(if mutable? (new-make-setters struct-name fields) (list)) ;; If this is a mutable struct, generate the setters
               void)))))
-
-
-
-
-
-;; ------------ Structs ---------------
-;; Mutable structs in Steel are just implemented as fixed-size vectors, but with a little bit of magic.
-;; The model is as follows:
-;; (mutable-vector ___magic_struct_symbol___ 'struct-name fields ...)
-;;
-;; TODO: There is also room to implement traits in the struct field. Traits _themselves_ can be implemented as structs, and trait
-;; resolution can be done with an index lookup on the struct with some layers of indirection.
-
-;; Defines the predicate with the form `struct-name?`
-(define (make-predicate struct-name fields)
-  `(define ,(concat-symbols struct-name '?)
-     (bind/c (make-function/c (make/c any/c 'any/c) (make/c boolean? 'boolean?))
-             (lambda (this) (if (mutable-vector? this)
-                                (if (eq? (mut-vector-ref this 0) ___magic_struct_symbol___)
-                                    (equal? (mut-vector-ref this 1) (quote ,struct-name))
-                                    #f)
-                                #f))
-             (quote ,(concat-symbols struct-name '?)))))
 
 
 (define (new-make-predicate struct-name fields)
   `(set! ,(concat-symbols struct-name '?) predicate-proto))
 
 
-
-;; Defines the constructor with the form `struct-name`
-;; There is room here for a lot more custom fields to increase the functionality
-;; of structs. The first one would be the custom printing method.
-;; 
-;; TODO: lift options out of the struct itself into a singleton. Every constructor doesn't need
-;; to have to reconstruct the options map on each instance. Probably some sort of
-;; internal vtable would be a good place to store it, or just make some sort of namespaced
-;; options that the later instances can reference.
-(define (make-constructor struct-name fields options-map)
-  (let ((options-name (concat-symbols '___ struct-name '-options___)))
-    (list
-      `(define ,options-name (%proto-hash% ,@(hash->list options-map)))
-      `(define ,struct-name
-        ; (let ((options ,options-name))
-          (lambda ,fields (mutable-vector
-                    ___magic_struct_symbol___
-                    (quote ,struct-name)
-                    ,options-name
-                    ,@fields))))))
-
 (define (new-make-constructor struct-name fields)
   `(set! ,struct-name 
         (lambda ,fields 
             (constructor-proto ,(concat-symbols '___ struct-name '-options___) ,@fields))))
-
-;; Defines the getters for each index. Maps at compile time the getter to the index in the vector
-;; that contains the value. Take this for example:
-;;
-;;     (make-struct Applesauce (a b c))
-;;
-;; Once constructed like so: `(Applesauce 10 20 30),
-;; under the hood, this is represented by a vector like so:
-;; [___magic_struct_symbol___ 'Applesauce 10 20 30]
-;;
-;; With this, the function (Applesauce-a instance) maps to a simple index lookup in
-;; the underlying vector, i.e. (mut-vector-ref instance 2)
-(define (make-getters struct-name fields)
-  (map (lambda (field)
-         (let ((function-name (concat-symbols struct-name '- (car field)))
-               (pred-name (concat-symbols struct-name '?)))
-           `(define ,function-name
-              (bind/c (make-function/c
-                       (make/c ,pred-name (quote ,pred-name))
-                       (make/c any/c 'any/c))
-                      (lambda (this) (mut-vector-ref this ,(car (cdr field))))
-                      (quote ,function-name)))))
-       (enumerate 3 '() fields)))
 
 (define (new-make-getters struct-name fields)
   (map (lambda (field)
@@ -141,54 +87,12 @@
               (lambda (this) (getter-proto this ,(list-ref field 1)))))
        (enumerate 0 '() fields)))
 
-
-
-;; Pretty much the same as the above, just now accepts a value to update
-;; in the underlying struct.
-(define (make-setters struct-name fields)
-  (map (lambda (field)
-         (let ((function-name (concat-symbols 'set- struct-name '- (car field) '!))
-               (pred-name (concat-symbols struct-name '?)))
-           `(define ,function-name
-              (bind/c (make-function/c
-                       (make/c ,pred-name (quote ,pred-name))
-                       (make/c any/c 'any/c)
-                       (make/c any/c 'any/c))
-                      (lambda (this value) (vector-set! this ,(car (cdr field)) value))
-                      (quote ,function-name)))))
-       (enumerate 3 '() fields)))
-
 (define (new-make-setters struct-name fields)
   (map (lambda (field)
           `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
               (lambda (this value) (setter-proto this ,(list-ref field 1) value))))
        (enumerate 0 '() fields)))
 
-
-;; Valid options on make-struct at the moment are:
-;; :transparent, default #false
-;; :printer, default doesn't exist
-;; These will just be stored in a hash map at the back of the struct.
-(define (make-struct struct-name fields . options)
-  (when (not (list? fields))
-    (error! "make-struct expects a list of field names, found " fields))
-
-  (when (not (symbol? struct-name))
-    (error! "make-struct expects an identifier as the first argument, found " struct-name))
-
-  (when (odd? (length options))
-    (error! "make-struct options are malformed - each option requires a value"))
-
-  (let ((options-map (apply hash options)))
-    `(begin
-       ;; Constructor
-       ,@(make-constructor struct-name fields options-map)
-       ;; Predicate
-       ,(make-predicate struct-name fields)
-       ;; Getters here
-       ,@(make-getters struct-name fields)
-       ;; Setters
-       ,@(make-setters struct-name fields))))
 
 ;; TODO: This is going to fail simply because when re-reading in the body of expanded functions
 ;; The parser is unable to parse already made un-parseable items. In this case, we should not

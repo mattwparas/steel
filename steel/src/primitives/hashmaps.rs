@@ -23,6 +23,7 @@ declare_const_ref_functions!(
     HM_VALUES_TO_VEC => values_to_vector,
     HM_CLEAR => clear,
     HM_EMPTY => hm_empty,
+    HM_UNION => hm_union,
 );
 
 pub(crate) fn hashmap_module() -> BuiltInModule {
@@ -39,7 +40,8 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_value("hash-values->list", HM_VALUES_TO_LIST)
         .register_value("hash-values->vector", HM_VALUES_TO_VEC)
         .register_value("hash-clear", HM_CLEAR)
-        .register_value("hash-empty?", HM_EMPTY);
+        .register_value("hash-empty?", HM_EMPTY)
+        .register_value("hash-union", HM_UNION);
     module
 }
 
@@ -253,11 +255,31 @@ pub fn hm_empty(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+pub fn hm_union(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 2 {
+        stop!(ArityMismatch => "hash-union takes 2 arguments")
+    }
+
+    let left = &args[0];
+    let right = &args[1];
+
+    if let SteelVal::HashMapV(hml) = left {
+        if let SteelVal::HashMapV(hmr) = right {
+            let hml = hml.unwrap();
+            let hmr = hmr.unwrap();
+            Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr))))
+        } else {
+            stop!(TypeMismatch => "hash-union takes a hashmap, found {}", right)
+        }
+    } else {
+        stop!(TypeMismatch => "hash-union takes a hashmap, found: {}", left)
+    }
+}
+
 #[cfg(test)]
 mod hashmap_tests {
     use super::*;
     use im_rc::hashmap;
-    use std::rc::Rc;
 
     use crate::rvals::{SteelString, SteelVal::*};
 
