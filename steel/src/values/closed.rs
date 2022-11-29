@@ -5,6 +5,7 @@ use std::{
 
 use crate::{
     gc::Gc,
+    rvals::{AsRefSteelVal, SRef},
     values::{
         contracts::{ContractType, FunctionKind},
         functions::ByteCodeLambda,
@@ -141,8 +142,27 @@ impl HeapRef {
         ret
     }
 
+    pub(crate) fn set_interior_mut(&self, value: SteelVal) -> SteelVal {
+        let inner = self.inner.upgrade().unwrap();
+
+        let ret = { inner.borrow().value.clone() };
+
+        inner.borrow_mut().value = value;
+        ret
+    }
+
     fn strong_ptr(&self) -> Rc<RefCell<HeapAllocated>> {
         self.inner.upgrade().unwrap()
+    }
+}
+
+impl AsRefSteelVal for HeapRef {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> crate::rvals::Result<SRef<'b, Self>> {
+        if let SteelVal::Boxed(s) = val {
+            Ok(SRef::Temporary(s))
+        } else {
+            stop!(TypeMismatch => "Value cannot be referenced as a syntax object")
+        }
     }
 }
 

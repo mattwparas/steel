@@ -5,7 +5,7 @@ pub mod hashmaps;
 pub mod hashsets;
 mod io;
 pub mod lists;
-mod meta_ops;
+pub mod meta_ops;
 pub mod nums;
 mod ports;
 pub mod process;

@@ -14,7 +14,10 @@ use crate::{
     },
     rerrs::ErrorKind,
     rvals::FromSteelVal,
-    values::structs::{is_custom_struct, make_struct_type, UserDefinedStruct},
+    values::{
+        closed::HeapRef,
+        structs::{is_custom_struct, make_struct_type, UserDefinedStruct},
+    },
 };
 use crate::{rvals::IntoSteelVal, values::structs::build_result_structs};
 use crate::{
@@ -815,7 +818,13 @@ fn meta_module() -> BuiltInModule {
         .register_fn("arity?", arity)
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
-        .register_fn("struct-properties", UserDefinedStruct::properties);
+        .register_fn("struct-properties", UserDefinedStruct::properties)
+        .register_value(
+            "box",
+            SteelVal::BuiltIn(crate::primitives::meta_ops::steel_box),
+        )
+        .register_fn("unbox", HeapRef::get)
+        .register_fn("set-box!", HeapRef::set_interior_mut);
     module
 }
 

@@ -9,7 +9,7 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
-    values::structs::UserDefinedStruct,
+    values::{closed::HeapRef, structs::UserDefinedStruct},
     values::{
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
@@ -683,6 +683,9 @@ pub enum SteelVal {
     BoxedIterator(Gc<RefCell<BuiltInDataStructureIterator>>),
 
     SyntaxObject(Gc<Syntax>),
+
+    // Mutable storage, with Gc backing
+    Boxed(HeapRef),
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1296,6 +1299,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
         SyntaxObject(s) => write!(f, "#<syntax:{:?}:{:?} {:?}>", s.source, s.span, s.syntax),
         BoxedIterator(_) => write!(f, "#<iterator>"),
+        Boxed(b) => write!(f, "'#&{}", b.get()),
         // BoxedIterator(_) => write!(f, "#<boxed-iterator>"),
     }
 }

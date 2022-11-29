@@ -1,10 +1,13 @@
 use std::rc::Rc;
 
-use crate::rvals::{poll_future, Result, SteelVal};
-use crate::stop;
+use crate::{builtin_stop, stop};
 use crate::{
     gc::{get_object_count, Gc},
     rvals::FutureResult,
+};
+use crate::{
+    rvals::{poll_future, Result, SteelVal},
+    steel_vm::vm::VmCore,
 };
 
 use futures::future::join_all;
@@ -182,4 +185,25 @@ impl MetaOperations {
             )))))
         })
     }
+}
+
+pub(crate) fn steel_box<'a, 'b>(
+    ctx: &'a mut VmCore<'b>,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    if args.len() != 1 {
+        builtin_stop!(ArityMismatch => "box takes one argument, found: {}", args.len())
+    }
+
+    let arg = args[0].clone();
+
+    // Allocate the variable directly on the heap
+    let allocated_var = ctx.heap.allocate(
+        arg,
+        ctx.stack.iter(),
+        ctx.stack_frames.iter().map(|x| &x.function),
+        ctx.global_env.roots(),
+    );
+
+    Some(Ok(SteelVal::Boxed(allocated_var)))
 }
