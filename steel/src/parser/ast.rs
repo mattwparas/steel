@@ -42,7 +42,6 @@ pub enum ExprKind {
     Begin(Begin),
     Return(Box<Return>),
     Quote(Box<Quote>),
-    Struct(Box<Struct>),
     Macro(Macro),
     SyntaxRules(SyntaxRules),
     List(List),
@@ -330,7 +329,6 @@ impl ToDoc for ExprKind {
             ExprKind::Return(r) => r.to_doc(),
             ExprKind::Let(l) => l.to_doc(),
             ExprKind::Quote(q) => q.to_doc(),
-            ExprKind::Struct(s) => s.to_doc(),
             ExprKind::Macro(m) => m.to_doc(),
             ExprKind::SyntaxRules(s) => s.to_doc(),
             ExprKind::List(l) => l.to_doc(),
@@ -359,7 +357,6 @@ impl fmt::Display for ExprKind {
             ExprKind::Return(r) => write!(f, "{}", r),
             ExprKind::Let(l) => write!(f, "{}", l),
             ExprKind::Quote(q) => write!(f, "{}", q),
-            ExprKind::Struct(s) => write!(f, "{}", s),
             ExprKind::Macro(m) => write!(f, "{}", m),
             ExprKind::SyntaxRules(s) => write!(f, "{}", s),
             ExprKind::List(l) => write!(f, "{}", l),
@@ -1037,58 +1034,6 @@ impl IntoIterator for List {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Struct {
-    pub name: ExprKind,
-    pub fields: Vec<ExprKind>,
-    pub location: SyntaxObject,
-}
-
-impl fmt::Display for Struct {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "(struct {} ({}))",
-            self.name,
-            self.fields.iter().map(|x| x.to_string()).join(" ")
-        )
-    }
-}
-
-impl ToDoc for Struct {
-    fn to_doc(&self) -> RcDoc<()> {
-        RcDoc::text("(struct")
-            .append(RcDoc::space())
-            .append(self.name.to_doc())
-            .append(RcDoc::line())
-            .append(RcDoc::text("("))
-            .append(
-                RcDoc::intersperse(self.fields.iter().map(|x| x.to_doc()), RcDoc::line())
-                    .nest(2)
-                    .group(),
-            )
-            .append(RcDoc::text(")"))
-            .append(RcDoc::text(")"))
-            .nest(2)
-    }
-}
-
-impl Struct {
-    pub fn new(name: ExprKind, fields: Vec<ExprKind>, location: SyntaxObject) -> Self {
-        Struct {
-            name,
-            fields,
-            location,
-        }
-    }
-}
-
-impl From<Struct> for ExprKind {
-    fn from(val: Struct) -> Self {
-        ExprKind::Struct(Box::new(val))
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Quote {
     pub expr: ExprKind,
     pub location: SyntaxObject,
@@ -1685,34 +1630,6 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                         TokenType::Set => parse_set(&a, value),
                         TokenType::Identifier(expr) if expr == "set!" => parse_set(&a, value),
-
-                        // TODO: Deprecate
-                        TokenType::Struct => {
-                            let syn = a.syn.clone();
-
-                            if value.len() != 3 {
-                                return Err(ParseError::ArityMismatch(
-                                    format!(
-                                        "struct expects a name and a list of fields, found {} arguments instead", value.len()
-                                    ), syn.span, None
-                                ));
-                            }
-
-                            let mut value_iter = value.into_iter();
-                            value_iter.next();
-                            let name = value_iter.next().unwrap();
-                            let args = value_iter.next().unwrap();
-
-                            if let ExprKind::List(l) = args {
-                                Ok(ExprKind::Struct(Box::new(Struct::new(name, l.args, syn))))
-                            } else {
-                                Err(ParseError::SyntaxError(
-                                    "struct expected a list of field names".to_string(),
-                                    syn.span,
-                                    None,
-                                ))
-                            }
-                        }
 
                         TokenType::Begin => parse_begin(&a, value),
                         TokenType::Identifier(expr) if expr == "begin" => parse_begin(&a, value),

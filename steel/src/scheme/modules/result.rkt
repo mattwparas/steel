@@ -6,8 +6,8 @@
     (contract/out map-ok (->/c Result? (->/c any/c any/c) Result?))
     (contract/out map-err (->/c Result? (->/c any/c any/c) Result?)))
 
-(make-struct Ok (value))
-(make-struct Err (value))
+(make-struct Ok (value) #:transparent #t)
+(make-struct Err (value) #:transparent #t)
 
 (define (Result? value)
     (or (Ok? value) (Err? value)))

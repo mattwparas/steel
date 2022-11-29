@@ -1,63 +1,197 @@
-use crate::{gc::Gc, parser::ast::ExprKind, steel_vm::register_fn::RegisterFn};
-use crate::{primitives::VectorOperations, rvals::MAGIC_STRUCT_SYMBOL};
+use crate::rvals::MAGIC_STRUCT_SYMBOL;
+use crate::{
+    gc::Gc,
+    parser::ast::ExprKind,
+    rvals::{AsRefSteelVal, SRef, SteelString},
+    steel_vm::register_fn::RegisterFn,
+};
 use crate::{rvals::Custom, throw};
 use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
-use std::{cell::RefCell, fmt::write, rc::Rc};
-
-use im_rc::hashmap;
-use serde::{Deserialize, Serialize};
-
-use crate::parser::ast::Struct;
-
-/*
-A vtable would need to be consulted to understand how to go from struct instance -> interface invocation
-
-That could easily live in the VM state -> consulting the VM context for class information would be like:
-
-(define-interface
-    (define method1)
-    (define method2)
-    (define method3))
-
-(implement interface for StructName
-    (define method1 ...)
-    (define method2 ...)
-    (define method3 ...))
-
-Register struct/class definition with the runtime, consult the vtable to map the method name + struct -> method call
-
-functions for structs should be registered separately -> function name + struct together
-
-TODO: structs should actually just be implemented as vectors in Steel
-Make a defmacro style macro that expands into the necessary code to do so
-
-Also attempt to create wrapper object that obfuscates the type of an object, so that vector
-operations don't work explicitly on structs
-
-i.e. Implement a tagged pointer to delineate the type of the object for the struct
-its important that structs are treated differently than vectors on their own
-
-*/
+use std::{cell::RefCell, rc::Rc};
 
 #[derive(Clone, Debug)]
 pub struct UserDefinedStruct {
     pub(crate) name: Rc<String>,
-    pub(crate) fields: Rc<RefCell<Vec<SteelVal>>>,
+    pub(crate) fields: MaybeHeapVec,
+    pub(crate) len: usize,
+    pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
 }
 
-// impl std::fmt::Display for UserDefinedStruct {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write(f, "UserDefinedStruct {}", )
-//     }
-// }
+impl AsRefSteelVal for UserDefinedStruct {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
+        if let SteelVal::CustomStruct(s) = val {
+            Ok(SRef::Temporary(s))
+        } else {
+            stop!(TypeMismatch => format!("Value cannot be referenced as a struct: {}", val))
+        }
+    }
+}
+
+impl std::fmt::Display for UserDefinedStruct {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self
+            .properties
+            .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
+            .is_some()
+        {
+            match &self.fields {
+                MaybeHeapVec::Unit => write!(f, "({})", self.name),
+                MaybeHeapVec::One(v) => write!(f, "({} {})", self.name, v.borrow()),
+                MaybeHeapVec::Two(a) => {
+                    let guard = a.borrow();
+                    write!(f, "({} {} {})", self.name, guard[0], guard[1])
+                }
+                MaybeHeapVec::Three(a) => {
+                    let guard = a.borrow();
+                    write!(f, "({} {} {} {})", self.name, guard[0], guard[1], guard[2])
+                }
+                MaybeHeapVec::Four(a) => {
+                    let guard = a.borrow();
+                    write!(
+                        f,
+                        "({} {} {} {} {})",
+                        self.name, guard[0], guard[1], guard[2], guard[3]
+                    )
+                }
+                MaybeHeapVec::Five(a) => {
+                    let guard = a.borrow();
+                    write!(
+                        f,
+                        "({} {} {} {} {} {})",
+                        self.name, guard[0], guard[1], guard[2], guard[3], guard[4]
+                    )
+                }
+                MaybeHeapVec::Spilled(v) => {
+                    let guard = v.borrow();
+                    write!(f, "({})", self.name)?;
+                    for item in guard.iter() {
+                        write!(f, "{}", item)?;
+                    }
+                    write!(f, ")")
+                }
+            }
+        } else {
+            write!(f, "({})", self.name)
+        }
+    }
+}
+
+/// Array backed fixed size vector
+/// Structs should be fixed size - they don't need to grow once they are created, and for
+/// unit or single values, they shouldn't need to allocate an array at all. For structs up to
+/// length 6, we keep these as individual enum variants, so that we can simple switch on the kind.
+/// beyond length 6, we spill into a normal vector.
+#[derive(Clone, Debug)]
+pub(crate) enum MaybeHeapVec {
+    Unit,
+    One(Rc<RefCell<SteelVal>>),
+    Two(Rc<RefCell<[SteelVal; 2]>>),
+    Three(Rc<RefCell<[SteelVal; 3]>>),
+    Four(Rc<RefCell<[SteelVal; 4]>>),
+    Five(Rc<RefCell<[SteelVal; 5]>>),
+    Spilled(Rc<RefCell<Vec<SteelVal>>>),
+}
+
+impl MaybeHeapVec {
+    pub fn from_slice(args: &[SteelVal]) -> Self {
+        match &args {
+            &[] => Self::Unit,
+            &[one] => Self::One(Rc::new(RefCell::new(one.clone()))),
+            &[one, two] => Self::Two(Rc::new(RefCell::new([one.clone(), two.clone()]))),
+            &[one, two, three] => Self::Three(Rc::new(RefCell::new([
+                one.clone(),
+                two.clone(),
+                three.clone(),
+            ]))),
+            &[one, two, three, four] => Self::Four(Rc::new(RefCell::new([
+                one.clone(),
+                two.clone(),
+                three.clone(),
+                four.clone(),
+            ]))),
+            &[one, two, three, four, five] => Self::Five(Rc::new(RefCell::new([
+                one.clone(),
+                two.clone(),
+                three.clone(),
+                four.clone(),
+                five.clone(),
+            ]))),
+            _ => Self::Spilled(Rc::new(RefCell::new(args.iter().cloned().collect()))),
+        }
+    }
+
+    #[inline(always)]
+    pub fn get(&self, index: usize) -> SteelVal {
+        match self {
+            MaybeHeapVec::Unit => panic!("Tried to get the 0th index of a unit struct"),
+            MaybeHeapVec::One(v) => v.borrow().clone(),
+            MaybeHeapVec::Two(a) => a.borrow()[index].clone(),
+            MaybeHeapVec::Three(a) => a.borrow()[index].clone(),
+            MaybeHeapVec::Four(a) => a.borrow()[index].clone(),
+            MaybeHeapVec::Five(a) => a.borrow()[index].clone(),
+            MaybeHeapVec::Spilled(a) => a.borrow()[index].clone(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn set(&self, index: usize, mut value: SteelVal) -> SteelVal {
+        match self {
+            MaybeHeapVec::Unit => panic!("Tried to get the 0th index of a unit struct"),
+            MaybeHeapVec::One(v) => {
+                let mut guard = v.borrow_mut();
+                let old = guard.clone();
+                *guard = value;
+                old
+            }
+            MaybeHeapVec::Two(a) => {
+                let mut guard = a.borrow_mut();
+                std::mem::swap(&mut guard[index], &mut value);
+                value
+            }
+            MaybeHeapVec::Three(a) => {
+                let mut guard = a.borrow_mut();
+                std::mem::swap(&mut guard[index], &mut value);
+                value
+            }
+            MaybeHeapVec::Four(a) => {
+                let mut guard = a.borrow_mut();
+                std::mem::swap(&mut guard[index], &mut value);
+                value
+            }
+            MaybeHeapVec::Five(a) => {
+                let mut guard = a.borrow_mut();
+                std::mem::swap(&mut guard[index], &mut value);
+                value
+            }
+            MaybeHeapVec::Spilled(a) => {
+                let mut guard = a.borrow_mut();
+                std::mem::swap(&mut guard[index], &mut value);
+                value
+            }
+        }
+    }
+}
 
 impl UserDefinedStruct {
-    fn new(name: Rc<String>, fields: Rc<RefCell<Vec<SteelVal>>>) -> Self {
-        Self { name, fields }
+    fn new(name: Rc<String>, fields: &[SteelVal]) -> Result<Self> {
+        let (options, rest) = fields.split_first().ok_or_else(
+            throw!(ArityMismatch => "struct constructor expects at least one argument"),
+        )?;
+
+        if let SteelVal::HashMapV(properties) = options.clone() {
+            Ok(Self {
+                name,
+                fields: MaybeHeapVec::from_slice(rest),
+                len: fields.len(),
+                properties,
+            })
+        } else {
+            stop!(TypeMismatch => format!("struct constructor expected a hashmap, found: {}", options))
+        }
     }
 
     fn constructor(name: Rc<String>, len: usize) -> SteelVal {
@@ -72,10 +206,7 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
 
-            let fields = args.into_iter().cloned().collect::<Vec<_>>();
-
-            let new_struct =
-                UserDefinedStruct::new(Rc::clone(&name), Rc::new(RefCell::new(fields)));
+            let new_struct = UserDefinedStruct::new(Rc::clone(&name), args)?;
 
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         };
@@ -118,10 +249,11 @@ impl UserDefinedStruct {
                     if *idx < 0 {
                         stop!(Generic => "struct-ref expected a non negative index");
                     }
-                    if *idx as usize >= s.fields.borrow().len() {
+                    if *idx as usize >= s.len {
                         stop!(Generic => "struct-ref: index out of bounds");
                     }
-                    Ok(s.fields.borrow()[*idx as usize].clone())
+
+                    Ok(s.fields.get(*idx as usize))
                 }
                 _ => {
                     let error_message = format!(
@@ -150,7 +282,7 @@ impl UserDefinedStruct {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:p}, {:?}", name, &s, &steel_struct));
                     }
 
-                    Ok(s.fields.borrow()[index as usize].clone())
+                    Ok(s.fields.get(0))
                 }
                 _ => {
                     let error_message = format!(
@@ -184,18 +316,12 @@ impl UserDefinedStruct {
                     if *idx < 0 {
                         stop!(Generic => "struct-ref expected a non negative index");
                     }
-                    if *idx as usize >= s.fields.borrow().len() {
+                    if *idx as usize >= s.len {
                         stop!(Generic => "struct-ref: index out of bounds");
                     }
 
-                    let old_value = {
-                        let mut guard = s.fields.borrow_mut();
-                        let old = guard[*idx as usize].clone();
-                        guard[*idx as usize] = arg.clone();
-                        old
-                    };
+                    Ok(s.fields.set(0, arg.clone()))
 
-                    Ok(old_value)
                     // Ok(s.fields[*idx as usize].clone())
 
                     // s.fields.borrow_mut()[*idx as usize] = arg.clone();
@@ -211,6 +337,10 @@ impl UserDefinedStruct {
         };
 
         SteelVal::BoxedFunction(Box::new(Rc::new(f)))
+    }
+
+    pub fn properties(&self) -> SteelVal {
+        SteelVal::HashMapV(self.properties.clone())
     }
 }
 
@@ -321,387 +451,6 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
     module
 }
 
-// / An instance of an immutable struct in Steel
-// / In order to override the display of this struct, the struct definition would need to have
-// / a generic marker on it to call with the value
-// #[derive(Clone, Debug, PartialEq)]
-// pub struct SteelStruct {
-//     pub(crate) name: Rc<str>,
-//     pub(crate) fields: Vec<SteelVal>,
-// }
-
-// impl SteelStruct {
-//     pub fn iter(&self) -> impl Iterator<Item = &SteelVal> {
-//         self.fields.iter()
-//     }
-// }
-
-// pub struct StructBuilders {
-//     pub builders: Vec<StructFuncBuilderConcrete>,
-// }
-
-// impl StructBuilders {
-//     pub fn new() -> Self {
-//         Self {
-//             builders: Vec::new(),
-//         }
-//     }
-
-//     pub fn extract_structs_for_executable(
-//         &mut self,
-//         exprs: Vec<ExprKind>,
-//     ) -> Result<Vec<ExprKind>> {
-//         let mut non_structs = Vec::new();
-//         // let mut struct_instructions = Vec::new();
-//         for expr in exprs {
-//             if let ExprKind::Struct(s) = expr {
-//                 let builder = StructFuncBuilder::generate_from_ast(&s)?.into_concrete();
-
-//                 self.builders.push(builder);
-
-//                 // // Add the eventual function names to the symbol map
-//                 // let indices = self.symbol_map.insert_struct_function_names(&builder);
-
-//                 // // Get the value we're going to add to the constant map for eventual use
-//                 // // Throw the bindings in as well
-//                 // let constant_values = builder.to_constant_val(indices);
-//                 // let idx = self.constant_map.add_or_get(constant_values);
-
-//                 // struct_instructions
-//                 //     .push(vec![Instruction::new_struct(idx), Instruction::new_pop()]);
-//             } else {
-//                 non_structs.push(expr);
-//             }
-//         }
-
-//         // for instruction_set in struct_instructions {
-//         //     results.push(instruction_set)
-//         // }
-
-//         Ok(non_structs)
-//     }
-// }
-
-// #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-// pub struct StructFuncBuilderConcrete {
-//     pub name: String,
-//     pub fields: Vec<String>,
-// }
-
-// impl StructFuncBuilderConcrete {
-//     pub fn new(name: String, fields: Vec<String>) -> Self {
-//         Self { name, fields }
-//     }
-
-//     pub fn to_struct_function_names(&self) -> Vec<String> {
-//         StructFuncBuilder::new(&self.name, self.fields.iter().map(|x| x.as_str()).collect())
-//             .to_struct_function_names()
-//     }
-
-//     pub fn to_constant_val(&self, indices: Vec<usize>) -> SteelVal {
-//         StructFuncBuilder::new(&self.name, self.fields.iter().map(|x| x.as_str()).collect())
-//             .to_constant_val(indices)
-//     }
-
-//     // pub fn
-// }
-
-// #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-// pub struct StructFuncBuilder<'a> {
-//     pub name: &'a str,
-//     pub fields: Vec<&'a str>,
-// }
-
-// impl<'a> StructFuncBuilder<'a> {
-//     pub fn generate_from_ast(s: &Struct) -> Result<StructFuncBuilder> {
-//         let name = s.name.atom_identifier_or_else(throw!(TypeMismatch => "struct definition expected an identifier as the first argument"))?;
-
-//         let field_names_as_strs: Vec<&str> = s
-//             .fields
-//             .iter()
-//             .map(|x| {
-//                 x.atom_identifier_or_else(throw!(TypeMismatch => "struct expected identifiers"))
-//             })
-//             .collect::<Result<_>>()?;
-
-//         Ok(StructFuncBuilder::new(name, field_names_as_strs))
-//     }
-
-//     pub fn into_concrete(self) -> StructFuncBuilderConcrete {
-//         StructFuncBuilderConcrete::new(
-//             self.name.to_string(),
-//             self.fields.into_iter().map(|x| x.to_string()).collect(),
-//         )
-//     }
-
-//     pub fn new(name: &'a str, fields: Vec<&'a str>) -> Self {
-//         StructFuncBuilder { name, fields }
-//     }
-
-//     pub fn to_struct_function_names(&self) -> Vec<String> {
-//         // collect the functions
-//         // for each field there are going to be 2 functions
-//         // add 2 for the constructor and the predicate
-//         let mut func_names = Vec::with_capacity(&self.fields.len() * 2 + 2);
-//         // generate constructor
-//         // let cons = constructor(name, field_names_as_strs.len());
-//         // generate predicate
-//         func_names.push((&self.name).to_string());
-//         func_names.push(format!("{}?", &self.name));
-//         // generate getters and setters
-//         for field in &self.fields {
-//             func_names.push(format!("{}-{}", &self.name, field));
-//             func_names.push(format!("set-{}-{}!", &self.name, field));
-//         }
-//         func_names
-//     }
-
-//     // This needs to return something that can be consumed at runtime from the constant map
-//     // Effectively, we need a list with the form '(name fields ...)
-//     // Let's make it happen
-//     pub fn to_constant_val(&self, indices: Vec<usize>) -> SteelVal {
-//         let indices: Vec<_> = indices
-//             .into_iter()
-//             .map(|x| SteelVal::IntV(x as isize))
-//             .collect();
-
-//         let mut name = vec![
-//             SteelVal::ListV(indices.into_iter().collect()),
-//             SteelVal::StringV(self.name.into()),
-//         ];
-
-//         let fields: Vec<_> = self
-//             .fields
-//             .iter()
-//             .map(|x| SteelVal::StringV((*x).into()))
-//             .collect();
-
-//         name.extend(fields);
-
-//         // TODO who knows if this actually works
-//         SteelVal::ListV(name.into())
-//     }
-
-//     pub fn to_func_vec(&self) -> Result<Vec<(String, SteelVal)>> {
-//         SteelStruct::generate_from_name_fields(self.name, &self.fields)
-//     }
-// }
-
-// impl SteelStruct {
-//     pub fn new(name: Rc<str>, fields: Vec<SteelVal>) -> Self {
-//         SteelStruct { name, fields }
-//     }
-
-//     // This will blow up the stack with a sufficiently large recursive struct
-//     pub fn pretty_print(&self) -> String {
-//         format!("{}", self.name)
-//     }
-// }
-
-// impl SteelStruct {
-//     pub fn generate_from_name_fields(
-//         name: &str,
-//         field_names_as_strs: &[&str],
-//     ) -> Result<Vec<(String, SteelVal)>> {
-//         // collect the functions
-//         // for each field there are going to be 2 functions
-//         // add 2 for the constructor and the predicate
-//         let mut funcs = Vec::with_capacity(field_names_as_strs.len() * 2 + 2);
-//         let name = Rc::from(name);
-//         // generate constructor
-//         let cons = constructor(Rc::clone(&name), field_names_as_strs.len());
-//         funcs.push((name.to_string(), cons));
-//         // generate predicate
-//         funcs.push((format!("{}?", name), predicate(Rc::clone(&name))));
-//         // generate getters and setters
-//         for (idx, field) in field_names_as_strs.iter().enumerate() {
-//             funcs.push((format!("{}-{}", name, field), getter(Rc::clone(&name), idx)));
-//             funcs.push((
-//                 format!("set-{}-{}!", name, field),
-//                 setter(Rc::clone(&name), idx),
-//             ));
-//         }
-//         Ok(funcs)
-//     }
-// }
-
-// initialize hashmap to be field_names -> void
-// just do arity check before inserting to make sure things check out
-// that way field names as a vec are no longer necessary
-// fn constructor(name: Rc<str>, len: usize) -> SteelVal {
-//     let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//         if args.len() != len {
-//             let error_message = format!(
-//                 "{} expected {} arguments, found {}",
-//                 name.clone(),
-//                 args.len(),
-//                 len
-//             );
-//             stop!(ArityMismatch => error_message);
-//         }
-
-//         let mut new_struct = SteelStruct::new(Rc::clone(&name), vec![SteelVal::Void; len]);
-
-//         for (idx, arg) in args.iter().enumerate() {
-//             let key = new_struct
-//                 .fields
-//                 .get_mut(idx)
-//                 .ok_or_else(throw!(TypeMismatch => "Couldn't find that field in the struct"))?;
-//             *key = arg.clone();
-//         }
-
-//         Ok(SteelVal::StructV(Gc::new(new_struct)))
-//     };
-
-//     SteelVal::BoxedFunction(Rc::new(f))
-// }
-
-// fn predicate(name: Rc<str>) -> SteelVal {
-//     let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//         if args.len() != 1 {
-//             let error_message = format!("{}? expected one argument, found {}", name, args.len());
-//             stop!(ArityMismatch => error_message);
-//         }
-//         Ok(SteelVal::BoolV(match &args[0] {
-//             SteelVal::StructV(my_struct) if my_struct.name.as_ref() == name.as_ref() => true,
-//             _ => false,
-//         }))
-//     };
-
-//     SteelVal::BoxedFunction(Rc::new(f))
-// }
-
-// fn getter(name: Rc<str>, idx: usize) -> SteelVal {
-//     let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//         if args.len() != 1 {
-//             let error_message = format!(
-//                 "{} getter expected one argument, found {}",
-//                 name,
-//                 args.len()
-//             );
-//             stop!(ArityMismatch => error_message);
-//         }
-
-//         let my_struct = args[0].struct_or_else(throw!(TypeMismatch => "expected struct"))?;
-
-//         if &my_struct.name != &name {
-//             stop!(TypeMismatch => format!("Struct getter expected {}, found {}", name, &my_struct.name));
-//         }
-
-//         if let Some(ret_val) = my_struct.fields.get(idx) {
-//             Ok(ret_val.clone())
-//         } else {
-//             stop!(TypeMismatch => "Couldn't find that field in the struct")
-//         }
-//     };
-
-//     SteelVal::BoxedFunction(Rc::new(f))
-// }
-
-// fn setter(name: Rc<str>, idx: usize) -> SteelVal {
-//     let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-//         if args.len() != 2 {
-//             let error_message = format!(
-//                 "{} setter expected two arguments, found {}",
-//                 name,
-//                 args.len()
-//             );
-//             stop!(ArityMismatch => error_message);
-//         }
-
-//         let my_struct = args[0].struct_or_else(throw!(TypeMismatch => "expected struct"))?;
-
-//         if &my_struct.name != &name {
-//             stop!(TypeMismatch => format!("Struct setter expected {}, found {}", name, &my_struct.name));
-//         }
-
-//         let value = args[1].clone();
-
-//         let mut new_struct = my_struct.clone();
-//         let key = new_struct
-//             .fields
-//             .get_mut(idx)
-//             .ok_or_else(throw!(TypeMismatch => "Couldn't find that field in the struct"))?;
-//         *key = value;
-//         Ok(SteelVal::StructV(Gc::new(new_struct)))
-//     };
-
-//     SteelVal::BoxedFunction(Rc::new(f))
-// }
-
-// pub fn struct_ref() -> SteelVal {
-//     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-//         if args.len() != 2 {
-//             stop!(ArityMismatch => "struct-ref expected two arguments");
-//         }
-
-//         let steel_struct = &args[0].clone();
-//         let idx = &args[1].clone();
-
-//         match (&steel_struct, &idx) {
-//             (SteelVal::StructV(s), SteelVal::IntV(idx)) => {
-//                 if *idx < 0 {
-//                     stop!(Generic => "struct-ref expected a non negative index");
-//                 }
-//                 if *idx as usize >= s.fields.len() {
-//                     stop!(Generic => "struct-ref: index out of bounds");
-//                 }
-//                 Ok(s.fields[*idx as usize].clone())
-//             }
-//             _ => {
-//                 let error_message = format!(
-//                     "struct-ref expected a struct and an int, found: {} and {}",
-//                     steel_struct, idx
-//                 );
-//                 stop!(TypeMismatch => error_message)
-//             }
-//         }
-//     })
-// }
-
-// pub fn struct_to_list() -> SteelVal {
-//     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-//         if args.len() != 1 {
-//             stop!(ArityMismatch => "struct->list expected one argument");
-//         }
-
-//         let steel_struct = &args[0].clone();
-
-//         if let SteelVal::StructV(s) = &steel_struct {
-//             let name = SteelVal::SymbolV(s.name.to_string().into());
-
-//             Ok(SteelVal::ListV(
-//                 std::iter::once(name)
-//                     .chain(s.fields.iter().cloned())
-//                     .collect(),
-//             ))
-//         } else {
-//             let e = format!("struct->list expected a struct, found: {}", steel_struct);
-//             stop!(TypeMismatch => e);
-//         }
-//     })
-// }
-
-// pub fn struct_to_vector() -> SteelVal {
-//     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-//         if args.len() != 1 {
-//             stop!(ArityMismatch => "struct->list expected one argument");
-//         }
-
-//         let steel_struct = &args[0].clone();
-
-//         if let SteelVal::StructV(s) = &steel_struct {
-//             let name = SteelVal::SymbolV(s.name.to_string().into());
-//             VectorOperations::vec_construct_iter_normal(
-//                 vec![name].into_iter().chain(s.fields.iter().cloned()),
-//             )
-//         } else {
-//             let e = format!("struct->list expected a struct, found: {}", steel_struct);
-//             stop!(TypeMismatch => e);
-//         }
-//     })
-// }
-
 pub(crate) fn is_custom_struct() -> SteelVal {
     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
         if args.len() != 1 {
@@ -723,29 +472,6 @@ pub(crate) fn is_custom_struct() -> SteelVal {
         }
     })
 }
-
-// pub(crate) fn get_struct_name() -> SteelVal {
-//     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-//         if args.len() != 1 {
-//             stop!(ArityMismatch => "get-struct-name? expected one argument");
-//         }
-
-//         let steel_struct = &args[0].clone();
-
-//         if let SteelVal::MutableVector(v) = &steel_struct {
-//             if let Some(magic_value) = v.borrow().get(0) {
-//                 Ok(SteelVal::BoolV(
-//                     magic_value.ptr_eq(&MAGIC_STRUCT_SYMBOL.with(|x| x.clone())),
-//                 ))
-//             } else {
-//                 Ok(SteelVal::BoolV(false))
-//             }
-//         } else {
-//             let e = format!("struct? expected a struct, found: {}", steel_struct);
-//             stop!(TypeMismatch => e);
-//         }
-//     })
-// }
 
 // #[cfg(test)]
 // mod struct_tests {

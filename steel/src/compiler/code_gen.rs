@@ -507,10 +507,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         Ok(())
     }
 
-    fn visit_struct(&mut self, s: &crate::parser::ast::Struct) -> Self::Output {
-        stop!(Generic => "structs are going to be deprecated, please stop using them"; s.location.span)
-    }
-
     fn visit_macro(&mut self, m: &crate::parser::ast::Macro) -> Self::Output {
         stop!(BadSyntax => "unexpected macro definition"; m.location.span)
     }

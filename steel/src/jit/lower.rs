@@ -186,10 +186,6 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
         None
     }
 
-    fn visit_struct(&mut self, _s: &ast::Struct) -> Self::Output {
-        None
-    }
-
     fn visit_macro(&mut self, _m: &ast::Macro) -> Self::Output {
         None
     }

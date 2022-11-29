@@ -28,7 +28,6 @@ pub trait Folder {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -92,11 +91,6 @@ pub trait Folder {
     }
 
     #[inline]
-    fn visit_struct(&mut self, s: Box<Struct>) -> ExprKind {
-        ExprKind::Struct(s)
-    }
-
-    #[inline]
     fn visit_macro(&mut self, m: Macro) -> ExprKind {
         ExprKind::Macro(m)
     }
@@ -139,7 +133,6 @@ pub trait VisitorMutUnit {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -191,9 +184,6 @@ pub trait VisitorMutUnit {
     }
 
     #[inline]
-    fn visit_struct(&mut self, _s: &Struct) {}
-
-    #[inline]
     fn visit_macro(&mut self, _m: &Macro) {}
 
     #[inline]
@@ -228,7 +218,6 @@ pub trait VisitorMutControlFlow {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -297,11 +286,6 @@ pub trait VisitorMutControlFlow {
     }
 
     #[inline]
-    fn visit_struct(&mut self, _s: &Struct) -> ControlFlow<()> {
-        ControlFlow::Continue(())
-    }
-
-    #[inline]
     fn visit_macro(&mut self, _m: &Macro) -> ControlFlow<()> {
         ControlFlow::Continue(())
     }
@@ -348,7 +332,6 @@ pub trait VisitorMutUnitRef<'a> {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -401,9 +384,6 @@ pub trait VisitorMutUnitRef<'a> {
     }
 
     #[inline]
-    fn visit_struct(&mut self, _s: &'a Struct) {}
-
-    #[inline]
     fn visit_macro(&mut self, _m: &'a Macro) {}
 
     #[inline]
@@ -438,7 +418,6 @@ pub trait VisitorMutRefUnit {
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -492,9 +471,6 @@ pub trait VisitorMutRefUnit {
     fn visit_quote(&mut self, quote: &mut Quote) {
         self.visit(&mut quote.expr);
     }
-
-    #[inline]
-    fn visit_struct(&mut self, _s: &mut Struct) {}
 
     #[inline]
     fn visit_macro(&mut self, _m: &mut Macro) {}

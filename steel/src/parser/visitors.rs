@@ -13,7 +13,6 @@ pub trait VisitorMut {
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -29,7 +28,6 @@ pub trait VisitorMut {
     fn visit_begin(&mut self, begin: &Begin) -> Self::Output;
     fn visit_return(&mut self, r: &Return) -> Self::Output;
     fn visit_quote(&mut self, quote: &Quote) -> Self::Output;
-    fn visit_struct(&mut self, s: &Struct) -> Self::Output;
     fn visit_macro(&mut self, m: &Macro) -> Self::Output;
     fn visit_atom(&mut self, a: &Atom) -> Self::Output;
     fn visit_list(&mut self, l: &List) -> Self::Output;
@@ -52,7 +50,6 @@ pub trait VisitorMutResult {
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -68,7 +65,6 @@ pub trait VisitorMutResult {
     fn visit_begin(&mut self, begin: &Begin) -> Result<Self::Output>;
     fn visit_return(&mut self, r: &Return) -> Result<Self::Output>;
     fn visit_quote(&mut self, quote: &Quote) -> Result<Self::Output>;
-    fn visit_struct(&mut self, s: &Struct) -> Result<Self::Output>;
     fn visit_macro(&mut self, m: &Macro) -> Result<Self::Output>;
     fn visit_atom(&mut self, e: &Atom) -> Result<Self::Output>;
     fn visit_list(&mut self, l: &List) -> Result<Self::Output>;
@@ -90,7 +86,6 @@ pub trait Visitor {
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -106,7 +101,6 @@ pub trait Visitor {
     fn visit_begin(&self, begin: &Begin) -> Self::Output;
     fn visit_return(&self, r: &Return) -> Self::Output;
     fn visit_quote(&self, quote: &Quote) -> Self::Output;
-    fn visit_struct(&self, s: &Struct) -> Self::Output;
     fn visit_macro(&self, m: &Macro) -> Self::Output;
     fn visit_atom(&self, a: &Atom) -> Self::Output;
     fn visit_list(&self, l: &List) -> Self::Output;
@@ -127,7 +121,6 @@ pub trait ConsumingVisitor {
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -143,7 +136,6 @@ pub trait ConsumingVisitor {
     fn visit_begin(&mut self, begin: Begin) -> Self::Output;
     fn visit_return(&mut self, r: Box<Return>) -> Self::Output;
     fn visit_quote(&mut self, quote: Box<Quote>) -> Self::Output;
-    fn visit_struct(&mut self, s: Box<Struct>) -> Self::Output;
     fn visit_macro(&mut self, m: Macro) -> Self::Output;
     fn visit_atom(&mut self, a: Atom) -> Self::Output;
     fn visit_list(&mut self, l: List) -> Self::Output;
@@ -164,7 +156,6 @@ pub trait ConsumingVisitorRef {
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -180,7 +171,6 @@ pub trait ConsumingVisitorRef {
     fn visit_begin(&self, begin: Begin) -> Self::Output;
     fn visit_return(&self, r: Box<Return>) -> Self::Output;
     fn visit_quote(&self, quote: Box<Quote>) -> Self::Output;
-    fn visit_struct(&self, s: Box<Struct>) -> Self::Output;
     fn visit_macro(&self, m: Macro) -> Self::Output;
     fn visit_atom(&self, a: Atom) -> Self::Output;
     fn visit_list(&self, l: List) -> Self::Output;
@@ -202,7 +192,6 @@ pub trait VisitorMutRef {
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Quote(q) => self.visit_quote(q),
-            ExprKind::Struct(s) => self.visit_struct(s),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => self.visit_list(l),
@@ -218,7 +207,6 @@ pub trait VisitorMutRef {
     fn visit_begin(&mut self, begin: &mut Begin) -> Self::Output;
     fn visit_return(&mut self, r: &mut Return) -> Self::Output;
     fn visit_quote(&mut self, quote: &mut Quote) -> Self::Output;
-    fn visit_struct(&mut self, s: &mut Struct) -> Self::Output;
     fn visit_macro(&mut self, m: &mut Macro) -> Self::Output;
     fn visit_atom(&mut self, a: &mut Atom) -> Self::Output;
     fn visit_list(&mut self, l: &mut List) -> Self::Output;

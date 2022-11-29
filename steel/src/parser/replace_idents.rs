@@ -275,16 +275,6 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_struct(&mut self, mut s: Box<super::ast::Struct>) -> Self::Output {
-        s.name = self.visit(s.name)?;
-        s.fields = s
-            .fields
-            .into_iter()
-            .map(|e| self.visit(e))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(ExprKind::Struct(s))
-    }
-
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
         stop!(Generic => "unexpected macro definition"; m.location.span)
     }
@@ -406,17 +396,6 @@ impl ConsumingVisitor for RewriteSpan {
         quote.expr = self.visit(quote.expr)?;
         quote.location.set_span(self.span);
         Ok(ExprKind::Quote(quote))
-    }
-
-    fn visit_struct(&mut self, mut s: Box<super::ast::Struct>) -> Self::Output {
-        s.name = self.visit(s.name)?;
-        s.fields = s
-            .fields
-            .into_iter()
-            .map(|e| self.visit(e))
-            .collect::<Result<Vec<_>>>()?;
-        s.location.set_span(self.span);
-        Ok(ExprKind::Struct(s))
     }
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {

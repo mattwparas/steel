@@ -166,8 +166,6 @@ pub enum TokenType {
     DefineSyntax,
     #[token("...")]
     Ellipses,
-    #[token("struct")]
-    Struct,
 
     // #[token("apply")]
     // Apply,
@@ -281,7 +279,6 @@ impl fmt::Display for TokenType {
             DefineSyntax => write!(f, "define-syntax"),
             SyntaxRules => write!(f, "syntax-rules"),
             Ellipses => write!(f, "..."),
-            Struct => write!(f, "struct"),
             Set => write!(f, "set!"),
             Require => write!(f, "require"),
         }

@@ -103,10 +103,6 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_struct(&mut self, s: Box<super::ast::Struct>) -> Self::Output {
-        Ok(ExprKind::Struct(s))
-    }
-
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
         stop!(Generic => "unexpected macro definition"; m.location.span)
     }
@@ -491,10 +487,6 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
     fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
         quote.expr = self.visit(quote.expr)?;
         Ok(ExprKind::Quote(quote))
-    }
-
-    fn visit_struct(&mut self, s: Box<super::ast::Struct>) -> Self::Output {
-        Ok(ExprKind::Struct(s))
     }
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {

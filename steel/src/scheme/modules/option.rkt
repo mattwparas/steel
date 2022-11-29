@@ -7,8 +7,8 @@
     (contract/out unwrap-or (->/c Option? any/c any/c))
     Option/c)
 
-(make-struct Some (value))
-(make-struct None ())
+(new-make-struct Some (value) #:transparent #t)
+(new-make-struct None ())
 
 ;; Contracts for option
 (define (Option/c pred)

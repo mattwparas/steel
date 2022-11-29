@@ -97,22 +97,6 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         }
     }
 
-    fn visit_struct(&mut self, s: Box<super::ast::Struct>) -> Self::Output {
-        let fields = s
-            .fields
-            .into_iter()
-            .map(|x| self.visit(x))
-            .collect::<Result<List<_>>>()?;
-
-        let expr = [
-            SteelVal::try_from(s.location)?,
-            self.visit(s.name)?,
-            SteelVal::ListV(fields),
-        ];
-
-        Ok(SteelVal::ListV(expr.into_iter().collect()))
-    }
-
     fn visit_macro(&mut self, _m: super::ast::Macro) -> Self::Output {
         // TODO
         stop!(Generic => "internal compiler error - could not translate macro to steel value")
@@ -266,28 +250,6 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
             self.inside_quote = false;
             res
         }
-    }
-
-    fn visit_struct(&mut self, s: Box<super::ast::Struct>) -> Self::Output {
-        let span = s.location.span.clone();
-        let source = s.location.source.clone();
-
-        let fields = s
-            .fields
-            .into_iter()
-            .map(|x| self.visit(x))
-            .collect::<Result<List<_>>>()?;
-
-        let expr = [
-            SteelVal::try_from(s.location)?,
-            self.visit(s.name)?,
-            SteelVal::ListV(fields),
-        ];
-
-        Ok(
-            Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span, source)
-                .into(),
-        )
     }
 
     fn visit_macro(&mut self, _m: super::ast::Macro) -> Self::Output {

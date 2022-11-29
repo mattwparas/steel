@@ -148,7 +148,12 @@ impl ModuleManager {
 
         let mut require_defines = Vec::new();
 
-        for path in &module_builder.requires {
+        for path in module_builder
+            .requires
+            .iter()
+            .chain(module_builder.built_ins.iter())
+        {
+            println!("{:?}", path);
             let module = module_builder.compiled_modules.get(path).unwrap();
 
             for provide_expr in &module.provides {
@@ -156,22 +161,84 @@ impl ModuleManager {
                 for provide in &provide_expr.list().unwrap().args[1..] {
                     println!("{}", provide);
 
+                    println!("Top level provide handler");
+
+                    // Would be nice if this could be handled by some macro expansion...
+                    // See if contract/out
+
                     let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
 
-                    let define = ExprKind::Define(Box::new(Define::new(
-                        provide.clone(),
-                        expr_list![
-                            ExprKind::ident("hash-get"),
-                            ExprKind::atom("__module-".to_string() + &other_module_prefix),
-                            ExprKind::Quote(Box::new(Quote::new(
-                                provide.clone(),
-                                SyntaxObject::default(TokenType::Quote)
-                            ))),
-                        ],
-                        SyntaxObject::default(TokenType::Define),
-                    )));
+                    // TODO: Expand the contract out into something we expect
+                    // Otherwise, this is going to blow up
+                    match provide {
+                        ExprKind::List(l) => {
+                            if let Some(qualifier) = l.first_ident() {
+                                match qualifier {
+                                    "contract/out" => {
+                                        // Directly expand into define/contract, but with the value just being the hash get below
 
-                    require_defines.push(define);
+                                        // (bind/c contract name 'name)
+
+                                        let name = l.args.get(1).unwrap();
+                                        let contract = l.args.get(2).unwrap();
+
+                                        let hash_get = expr_list![
+                                            ExprKind::ident("hash-get"),
+                                            ExprKind::atom(
+                                                "__module-".to_string() + &other_module_prefix
+                                            ),
+                                            ExprKind::Quote(Box::new(Quote::new(
+                                                name.clone(),
+                                                SyntaxObject::default(TokenType::Quote)
+                                            ))),
+                                        ];
+
+                                        let define = ExprKind::Define(Box::new(Define::new(
+                                            name.clone(),
+                                            expr_list![
+                                                ExprKind::ident("bind/c"),
+                                                contract.clone(),
+                                                hash_get,
+                                                ExprKind::Quote(Box::new(Quote::new(
+                                                    name.clone(),
+                                                    SyntaxObject::default(TokenType::Quote)
+                                                ))),
+                                            ],
+                                            SyntaxObject::default(TokenType::Define),
+                                        )));
+
+                                        require_defines.push(define);
+                                    }
+                                    _ => {
+                                        stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                    }
+                                }
+                            } else {
+                                stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)")
+                            }
+                        }
+                        ExprKind::Atom(_) => {
+                            let hash_get = expr_list![
+                                ExprKind::ident("hash-get"),
+                                ExprKind::atom("__module-".to_string() + &other_module_prefix),
+                                ExprKind::Quote(Box::new(Quote::new(
+                                    provide.clone(),
+                                    SyntaxObject::default(TokenType::Quote)
+                                ))),
+                            ];
+
+                            let define = ExprKind::Define(Box::new(Define::new(
+                                provide.clone(),
+                                hash_get,
+                                SyntaxObject::default(TokenType::Define),
+                            )));
+
+                            require_defines.push(define);
+                        }
+                        _ => {
+                            stop!(TypeMismatch => "provide expression needs to either be a `contract/out` form or an identifier")
+                        }
+                    }
                 }
             }
         }
@@ -308,7 +375,7 @@ impl CompiledModule {
         }
     }
 
-    fn to_top_level_module(&self, modules: &HashMap<PathBuf, CompiledModule>) -> ExprKind {
+    fn to_top_level_module(&self, modules: &HashMap<PathBuf, CompiledModule>) -> Result<ExprKind> {
         let mut globals = collect_globals(&self.ast);
 
         let mut exprs = self.ast.clone();
@@ -320,36 +387,98 @@ impl CompiledModule {
         // ;; Refresh the module definition in this namespace
         // (define a-module.rkt-b (hash-get 'b b-module.rkt-b))
 
+        // TODO: This is the same as the top level, they should be merged
         for path in &self.requires {
+            println!("{:?}", path);
+            println!("{:?}", modules.keys().collect::<Vec<_>>());
             let module = modules.get(path).unwrap();
+
+            let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
 
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
                 for provide in &provide_expr.list().unwrap().args[1..] {
-                    // println!("{}", provide);
-                    let provide_ident = provide.atom_identifier().unwrap();
+                    match provide {
+                        ExprKind::List(l) => {
+                            if let Some(qualifier) = l.first_ident() {
+                                match qualifier {
+                                    "contract/out" => {
+                                        // Directly expand into define/contract, but with the value just being the hash get below
 
-                    // Since this is now bound to be in the scope of the current working module, we also want
-                    // this to be mangled. In the event we do something like, qualify the import, then we might
-                    // have to mangle this differently
-                    globals.insert(provide_ident.to_string());
+                                        // (bind/c contract name 'name)
 
-                    let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
+                                        let name = l.args.get(1).unwrap();
+                                        let contract = l.args.get(2).unwrap();
 
-                    let define = ExprKind::Define(Box::new(Define::new(
-                        ExprKind::atom(prefix.clone() + provide_ident),
-                        expr_list![
-                            ExprKind::ident("hash-get"),
-                            ExprKind::atom("__module-".to_string() + &other_module_prefix),
-                            ExprKind::Quote(Box::new(Quote::new(
-                                provide.clone(),
-                                SyntaxObject::default(TokenType::Quote)
-                            )))
-                        ],
-                        SyntaxObject::default(TokenType::Define),
-                    )));
+                                        // Since this is now bound to be in the scope of the current working module, we also want
+                                        // this to be mangled. In the event we do something like, qualify the import, then we might
+                                        // have to mangle this differently
+                                        globals.insert(name.atom_identifier().unwrap().to_string());
 
-                    provide_definitions.push(define);
+                                        let hash_get = expr_list![
+                                            ExprKind::ident("hash-get"),
+                                            ExprKind::atom(
+                                                "__module-".to_string() + &other_module_prefix
+                                            ),
+                                            ExprKind::Quote(Box::new(Quote::new(
+                                                name.clone(),
+                                                SyntaxObject::default(TokenType::Quote)
+                                            ))),
+                                        ];
+
+                                        let define = ExprKind::Define(Box::new(Define::new(
+                                            ExprKind::atom(
+                                                prefix.clone() + name.atom_identifier().unwrap(),
+                                            ),
+                                            expr_list![
+                                                ExprKind::ident("bind/c"),
+                                                contract.clone(),
+                                                hash_get,
+                                                ExprKind::Quote(Box::new(Quote::new(
+                                                    name.clone(),
+                                                    SyntaxObject::default(TokenType::Quote)
+                                                ))),
+                                            ],
+                                            SyntaxObject::default(TokenType::Define),
+                                        )));
+
+                                        provide_definitions.push(define);
+                                    }
+                                    _ => {
+                                        stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                    }
+                                }
+                            } else {
+                                stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)")
+                            }
+                        }
+                        ExprKind::Atom(_) => {
+                            let provide_ident = provide.atom_identifier().unwrap();
+
+                            // Since this is now bound to be in the scope of the current working module, we also want
+                            // this to be mangled. In the event we do something like, qualify the import, then we might
+                            // have to mangle this differently
+                            globals.insert(provide_ident.to_string());
+
+                            let define = ExprKind::Define(Box::new(Define::new(
+                                ExprKind::atom(prefix.clone() + provide_ident),
+                                expr_list![
+                                    ExprKind::ident("hash-get"),
+                                    ExprKind::atom("__module-".to_string() + &other_module_prefix),
+                                    ExprKind::Quote(Box::new(Quote::new(
+                                        provide.clone(),
+                                        SyntaxObject::default(TokenType::Quote)
+                                    )))
+                                ],
+                                SyntaxObject::default(TokenType::Define),
+                            )));
+
+                            provide_definitions.push(define);
+                        }
+                        _ => {
+                            stop!(TypeMismatch => "provide expression needs to either be a `contract/out` form or an identifier")
+                        }
+                    }
                 }
 
                 // exprs.push(define);
@@ -364,18 +493,48 @@ impl CompiledModule {
         let mut name_mangler = NameMangler::new(globals, prefix.clone());
         name_mangler.mangle_vars(&mut exprs);
 
+        // The provide definitions should also be mangled
+        name_mangler.mangle_vars(&mut provide_definitions);
+
         // let mut hash_builder = Vec::new();
 
         // These are gonna be the pairs
         // hash_builder.push(());
 
         // Construct the series of provides as well, we'll want these to refer to the correct values
+        //
         let mut provides: Vec<_> = self
             .provides
             .iter()
             .flat_map(|x| &x.list().unwrap().args[1..])
             .cloned()
             .collect();
+
+        for provide in &mut provides {
+            match provide {
+                ExprKind::List(l) => {
+                    if let Some(qualifier) = l.first_ident() {
+                        match qualifier {
+                            "contract/out" => {
+                                // Update the item to point to just the name
+                                *provide = l.get(1).unwrap().clone();
+                            }
+                            _ => {
+                                stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                            }
+                        }
+                    } else {
+                        stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)")
+                    }
+                }
+                ExprKind::Atom(_) => {
+                    continue;
+                }
+                _ => {
+                    stop!(TypeMismatch => "provide expression needs to either be a `contract/out` form or an identifier")
+                }
+            }
+        }
 
         // We want one without the mangled version, for the actual provides
         let un_mangled = provides.clone();
@@ -405,12 +564,13 @@ impl CompiledModule {
         exprs.push(module_define);
 
         // Construct the overall definition
+        // TODO: Perhaps mangle these as well, especially if they have contracts associated with them
         provide_definitions.append(&mut exprs);
 
-        ExprKind::Begin(Begin::new(
+        Ok(ExprKind::Begin(Begin::new(
             provide_definitions,
             SyntaxObject::default(TokenType::Begin),
-        ))
+        )))
     }
 
     // Turn the module into the AST node that represents the macro module in the stdlib
@@ -559,13 +719,70 @@ impl<'a> ModuleBuilder<'a> {
         let mut new_exprs = Vec::new();
 
         // TODO include built ins here
-        if self.requires.is_empty() && !self.main {
+        if self.requires.is_empty() && self.built_ins.is_empty() && !self.main {
             // We're at a leaf, put into the cache
             // println!("putting {:?} in the cache", self.name);
             if !self.provides.is_empty() {
                 new_exprs.push(self.into_compiled_module()?);
             }
         } else {
+            // TODO come back for parsing built ins
+            for module in &self.built_ins {
+                // We've established nothing has changed with this file
+                // Check to see if its in the cache first
+                // Otherwise go ahead and compile
+                // If we already have compiled this module, get it from the cache
+                if let Some(_m) = self.compiled_modules.get(module) {
+                    debug!("Getting {:?} from the module cache", module);
+                    // println!("Already found in the cache: {:?}", module);
+                    // new_exprs.push(m.to_module_ast_node());
+                    // No need to do anything
+                    continue;
+                }
+
+                // TODO this is some bad crap here don't do this
+                let input = BUILT_INS
+                    .iter()
+                    .find(|x| x.0 == module.to_str().unwrap())
+                    .unwrap()
+                    .1;
+
+                let mut new_module = ModuleBuilder::new_built_in(
+                    module.clone(),
+                    input,
+                    &mut self.compiled_modules,
+                    &mut self.visited,
+                    &mut self.file_metadata,
+                    &mut self.sources,
+                    &mut self.kernel,
+                    self.builtin_modules.clone(),
+                )?;
+
+                // Walk the tree and compile any dependencies
+                // This will eventually put the module in the cache
+                let mut module_exprs = new_module.compile()?;
+
+                debug!("Inside {:?} - append {:?}", self.name, module);
+                if log_enabled!(log::Level::Debug) {
+                    debug!(
+                        "appending with {:?}",
+                        module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
+                    );
+                }
+
+                new_exprs.append(&mut module_exprs);
+
+                // TODO evaluate this
+
+                // let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
+                // ast.append(&mut module_exprs);
+                // new_module.source_ast = ast;
+
+                if !new_module.provides.is_empty() {
+                    new_exprs.push(new_module.into_compiled_module()?);
+                }
+            }
+
             // At this point, requires should be fully qualified (absolute) paths
             for module in &self.requires {
                 let last_modified = std::fs::metadata(module)?.modified()?;
@@ -627,63 +844,6 @@ impl<'a> ModuleBuilder<'a> {
                     new_exprs.push(new_module.into_compiled_module()?);
                 }
             }
-
-            // TODO come back for parsing built ins
-            for module in &self.built_ins {
-                // We've established nothing has changed with this file
-                // Check to see if its in the cache first
-                // Otherwise go ahead and compile
-                // If we already have compiled this module, get it from the cache
-                if let Some(_m) = self.compiled_modules.get(module) {
-                    debug!("Getting {:?} from the module cache", module);
-                    // println!("Already found in the cache: {:?}", module);
-                    // new_exprs.push(m.to_module_ast_node());
-                    // No need to do anything
-                    continue;
-                }
-
-                // TODO this is some bad crap here don't do this
-                let input = BUILT_INS
-                    .iter()
-                    .find(|x| x.0 == module.to_str().unwrap())
-                    .unwrap()
-                    .1;
-
-                let mut new_module = ModuleBuilder::new_built_in(
-                    module.clone(),
-                    input,
-                    &mut self.compiled_modules,
-                    &mut self.visited,
-                    &mut self.file_metadata,
-                    &mut self.sources,
-                    &mut self.kernel,
-                    self.builtin_modules.clone(),
-                )?;
-
-                // Walk the tree and compile any dependencies
-                // This will eventually put the module in the cache
-                let mut module_exprs = new_module.compile()?;
-
-                debug!("Inside {:?} - append {:?}", self.name, module);
-                if log_enabled!(log::Level::Debug) {
-                    debug!(
-                        "appending with {:?}",
-                        module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
-                    );
-                }
-
-                new_exprs.append(&mut module_exprs);
-
-                // TODO evaluate this
-
-                // let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
-                // ast.append(&mut module_exprs);
-                // new_module.source_ast = ast;
-
-                if !new_module.provides.is_empty() {
-                    new_exprs.push(new_module.into_compiled_module()?);
-                }
-            }
         }
 
         // Define the actual
@@ -710,6 +870,10 @@ impl<'a> ModuleBuilder<'a> {
 
         // Clone the requires... I suppose
         let mut requires = self.requires.clone();
+
+        println!("built ins: {:?}", self.built_ins);
+
+        requires.append(&mut self.built_ins.clone());
 
         // TODO -> qualified requires as well
         // qualified requires should be able to adjust the names of the exported functions
@@ -796,7 +960,7 @@ impl<'a> ModuleBuilder<'a> {
 
         // let result = module.to_module_ast_node();
 
-        let result = module.to_top_level_module(&self.compiled_modules);
+        let result = module.to_top_level_module(&self.compiled_modules)?;
 
         // println!(
         //     "Into compiled module inserted into the cache: {:?}",

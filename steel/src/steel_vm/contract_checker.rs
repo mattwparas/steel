@@ -564,10 +564,6 @@ impl<'a> VisitorMut for ContractChecker<'a> {
         }
     }
 
-    fn visit_struct(&mut self, _s: &crate::parser::ast::Struct) -> Self::Output {
-        panic!("Unexpected struct")
-    }
-
     fn visit_macro(&mut self, _m: &crate::parser::ast::Macro) -> Self::Output {
         panic!("Unexpected macro")
     }

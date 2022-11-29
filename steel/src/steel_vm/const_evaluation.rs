@@ -317,7 +317,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
     fn visit_define(&mut self, define: Box<crate::parser::ast::Define>) -> Self::Output {
         let identifier = &define.name.atom_identifier_or_else(
-            throw!(BadSyntax => "Define expects an identifier"; define.location.span),
+            throw!(BadSyntax => format!("Define expects an identifier, found: {}", define.name); define.location.span),
         )?;
 
         let body = self.visit(define.body)?;
@@ -375,10 +375,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
     fn visit_quote(&mut self, quote: Box<crate::parser::ast::Quote>) -> Self::Output {
         Ok(ExprKind::Quote(quote))
-    }
-
-    fn visit_struct(&mut self, s: Box<crate::parser::ast::Struct>) -> Self::Output {
-        Ok(ExprKind::Struct(s))
     }
 
     fn visit_macro(&mut self, _m: crate::parser::ast::Macro) -> Self::Output {
@@ -665,8 +661,6 @@ impl<'a> VisitorMut for CollectSet<'a> {
     }
 
     fn visit_quote(&mut self, _quote: &Quote) -> Self::Output {}
-
-    fn visit_struct(&mut self, _s: &crate::parser::ast::Struct) -> Self::Output {}
 
     fn visit_macro(&mut self, _m: &crate::parser::ast::Macro) -> Self::Output {}
 

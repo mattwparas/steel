@@ -41,7 +41,7 @@ fn main() {
 
     let mut builder = Builder::new();
 
-    let log_targets = ["pipeline_time", "dylibs"];
+    let log_targets = ["pipeline_time", "dylibs", "steel::compiler::modules"];
 
     for target in log_targets {
         builder.filter(Some(target), LevelFilter::Trace);

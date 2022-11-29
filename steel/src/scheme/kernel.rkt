@@ -15,7 +15,7 @@
                         (if (symbol? (car pair))
                             ;; TODO: @Matt - this causes a parser error
                             ;; (cons `(quote ,(car x)) (cdr x))
-                            (cons (list 'quote (car pair)) (cdr pair))
+                            (list (list 'quote (car pair)) (list 'quote (cadr pair)))
                             pair)))
              (flattening)
              (into-list)))
@@ -35,7 +35,9 @@
   (when (odd? (length options))
     (error! "make-struct options are malformed - each option requires a value"))
 
-  (let ((options-map (apply hash options)))
+  ;; Update the options-map to have the fields included
+  (let* ((options-map (apply hash options))
+         (options-map (hash-insert options-map '#:fields fields)))
     `(begin
         (define ,(concat-symbols '___ struct-name '-options___) (hash ,@(hash->list options-map)))
         (define ,struct-name 'unintialized)
@@ -137,7 +139,7 @@
   (map (lambda (field)
           `(set! ,(concat-symbols struct-name '- (car field))
               (lambda (this) (getter-proto this ,(list-ref field 1)))))
-       (enumerate 1 '() fields)))
+       (enumerate 0 '() fields)))
 
 
 
@@ -160,7 +162,7 @@
   (map (lambda (field)
           `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
               (lambda (this value) (setter-proto this ,(list-ref field 1) value))))
-       (enumerate 1 '() fields)))
+       (enumerate 0 '() fields)))
 
 
 ;; Valid options on make-struct at the moment are:
