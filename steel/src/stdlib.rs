@@ -16,7 +16,7 @@ pub const COMPILER: &str = include_str!("scheme/nanopass.rkt");
 #[cfg(not(target_os = "windows"))]
 pub const DISPLAY: &str = include_str!("scheme/display.rkt");
 #[cfg(not(target_os = "windows"))]
-pub const KERNEL: &str = include_str!("scheme/kernel.rkt");
+pub const KERNEL: &str = include_str!("scheme/kernel.scm");
 
 #[cfg(target_os = "windows")]
 pub const PRELUDE: &str = include_str!(r#"scheme\stdlib.rkt"#);
@@ -33,4 +33,4 @@ pub const COMPILER: &str = include_str!(r#"scheme\nanopass.rkt"#);
 #[cfg(target_os = "windows")]
 pub const DISPLAY: &str = include_str!(r#"scheme\display.rkt"#);
 #[cfg(target_os = "windows")]
-pub const KERNEL: &str = include_str!(r#"scheme\kernel.rkt"#);
+pub const KERNEL: &str = include_str!(r#"scheme\kernel.scm"#);

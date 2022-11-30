@@ -1,3 +1,3 @@
 (require "require.scm")
-(require "std::option")
+(require "steel/option")
 

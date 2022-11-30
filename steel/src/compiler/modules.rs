@@ -32,11 +32,11 @@ use super::passes::mangle::{collect_globals, NameMangler};
 
 use im_rc::HashMap as ImmutableHashMap;
 
-const OPTION: &str = include_str!("../scheme/modules/option.rkt");
-const OPTION_NAME: &str = "std::option";
+const OPTION: &str = include_str!("../scheme/modules/option.scm");
+const OPTION_NAME: &str = "steel/option";
 
-const RESULT: &str = include_str!("../scheme/modules/result.rkt");
-const RESULT_NAME: &str = "std::result";
+const RESULT: &str = include_str!("../scheme/modules/result.scm");
+const RESULT_NAME: &str = "steel/result";
 
 // const DICT: &str = include_str!("../scheme/modules/test.rkt");
 // const TEST_NAME: &str = "std::test";

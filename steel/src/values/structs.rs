@@ -1,7 +1,6 @@
-use crate::rvals::MAGIC_STRUCT_SYMBOL;
+use crate::{core::utils::Boxed, rvals::MAGIC_STRUCT_SYMBOL};
 use crate::{
     gc::Gc,
-    parser::ast::ExprKind,
     rvals::{AsRefSteelVal, SRef, SteelString},
     steel_vm::register_fn::RegisterFn,
 };
@@ -124,26 +123,24 @@ impl MaybeHeapVec {
     pub fn from_slice(args: &[SteelVal]) -> Self {
         match &args {
             &[] => Self::Unit,
-            &[one] => Self::One(Rc::new(RefCell::new(one.clone()))),
-            &[one, two] => Self::Two(Rc::new(RefCell::new([one.clone(), two.clone()]))),
-            &[one, two, three] => Self::Three(Rc::new(RefCell::new([
-                one.clone(),
-                two.clone(),
-                three.clone(),
-            ]))),
-            &[one, two, three, four] => Self::Four(Rc::new(RefCell::new([
-                one.clone(),
-                two.clone(),
-                three.clone(),
-                four.clone(),
-            ]))),
-            &[one, two, three, four, five] => Self::Five(Rc::new(RefCell::new([
-                one.clone(),
-                two.clone(),
-                three.clone(),
-                four.clone(),
-                five.clone(),
-            ]))),
+            &[one] => Self::One(one.clone().rc_refcell()),
+            &[one, two] => Self::Two([one.clone(), two.clone()].rc_refcell()),
+            &[one, two, three] => {
+                Self::Three([one.clone(), two.clone(), three.clone()].rc_refcell())
+            }
+            &[one, two, three, four] => {
+                Self::Four([one.clone(), two.clone(), three.clone(), four.clone()].rc_refcell())
+            }
+            &[one, two, three, four, five] => Self::Five(
+                [
+                    one.clone(),
+                    two.clone(),
+                    three.clone(),
+                    four.clone(),
+                    five.clone(),
+                ]
+                .rc_refcell(),
+            ),
             _ => Self::Spilled(Rc::new(RefCell::new(args.iter().cloned().collect()))),
         }
     }

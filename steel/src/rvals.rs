@@ -652,10 +652,7 @@ pub enum SteelVal {
     FutureFunc(BoxedAsyncFunctionSignature),
     // Boxed Future Result
     FutureV(Gc<FutureResult>),
-    // Mutable Box
-    // Functions that want to operate by reference must move the value into a mutable box
-    // This deep clones the value but then the value can be mutably snatched
-    // MutableBox(Gc<RefCell<SteelVal>>),
+
     StreamV(Gc<LazyStream>),
     // Break the cycle somehow
     // EvaluationEnv(Weak<RefCell<Env>>),

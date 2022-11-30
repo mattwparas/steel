@@ -1,4 +1,4 @@
-(require "std::option")
+(require "steel/option")
 (provide (contract/out foo (->/c string? any/c)))
 
 (define *internal* (None))
