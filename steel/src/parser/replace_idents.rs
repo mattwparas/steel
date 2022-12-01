@@ -4,7 +4,6 @@ use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 
 use super::ast::Atom;
@@ -107,6 +106,7 @@ impl<'a> ReplaceExpressions<'a> {
                     syn: SyntaxObject { ty, .. },
                 }) = test_expr
                 {
+                    // TODO -> what happens if reserved tokens are in here
                     match ty {
                         TokenType::BooleanLiteral(_)
                         | TokenType::IntegerLiteral(_)
@@ -118,6 +118,8 @@ impl<'a> ReplaceExpressions<'a> {
                                 syn: SyntaxObject { ty, .. },
                             })) = self.bindings.get(s)
                             {
+                                log::debug!("Syntax const if resolved to: {:?}", ty);
+
                                 if matches!(
                                     ty,
                                     TokenType::BooleanLiteral(_)
@@ -191,6 +193,15 @@ impl<'a> ReplaceExpressions<'a> {
     }
 }
 
+fn reserved_token_type_to_ident(token: &mut TokenType) {
+    match token {
+        TokenType::Define => {
+            *token = TokenType::Identifier("define".to_string());
+        }
+        _ => {}
+    }
+}
+
 // TODO replace spans on all of the nodes and atoms
 impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
     type Output = Result<ExprKind>;
@@ -224,6 +235,23 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
             .map(|e| self.visit(e))
             .collect::<Result<Vec<_>>>()?;
         lambda_function.body = self.visit(lambda_function.body)?;
+
+        // TODO: @Matt - 2/28/12 -> clean up this
+        // This mangles the values
+        lambda_function.args.iter_mut().for_each(|x| {
+            if let ExprKind::Atom(Atom {
+                syn: SyntaxObject { ty: t, .. },
+            }) = x
+            {
+                log::debug!("Checking if expression needs to be rewritten: {:?}", t);
+                reserved_token_type_to_ident(t);
+            }
+
+            if let ExprKind::Define(d) = x {
+                log::debug!("Found a define to be rewritten: {:?}", d);
+            }
+        });
+
         Ok(ExprKind::LambdaFunction(lambda_function))
     }
 
@@ -242,60 +270,13 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_apply(&mut self, mut apply: Box<super::ast::Apply>) -> Self::Output {
-        apply.func = self.visit(apply.func)?;
-        apply.list = self.visit(apply.list)?;
-        Ok(ExprKind::Apply(apply))
-    }
-
-    fn visit_panic(&mut self, mut p: Box<super::ast::Panic>) -> Self::Output {
-        p.message = self.visit(p.message)?;
-        Ok(ExprKind::Panic(p))
-    }
-
-    fn visit_transduce(&mut self, mut transduce: Box<super::ast::Transduce>) -> Self::Output {
-        transduce.transducer = self.visit(transduce.transducer)?;
-        transduce.func = self.visit(transduce.func)?;
-        transduce.initial_value = self.visit(transduce.initial_value)?;
-        transduce.iterable = self.visit(transduce.iterable)?;
-        Ok(ExprKind::Transduce(transduce))
-    }
-
-    fn visit_read(&mut self, mut read: Box<super::ast::Read>) -> Self::Output {
-        read.expr = self.visit(read.expr)?;
-        Ok(ExprKind::Read(read))
-    }
-
-    fn visit_execute(&mut self, mut execute: Box<super::ast::Execute>) -> Self::Output {
-        execute.transducer = self.visit(execute.transducer)?;
-        execute.collection = self.visit(execute.collection)?;
-        execute.output_type = execute.output_type.map(|x| self.visit(x)).transpose()?;
-        Ok(ExprKind::Execute(execute))
-    }
-
     fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
         quote.expr = self.visit(quote.expr)?;
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_struct(&mut self, mut s: Box<super::ast::Struct>) -> Self::Output {
-        s.name = self.visit(s.name)?;
-        s.fields = s
-            .fields
-            .into_iter()
-            .map(|e| self.visit(e))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(ExprKind::Struct(s))
-    }
-
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
         stop!(Generic => "unexpected macro definition"; m.location.span)
-    }
-
-    fn visit_eval(&mut self, mut e: Box<super::ast::Eval>) -> Self::Output {
-        // todo!()
-        e.expr = self.visit(e.expr)?;
-        Ok(ExprKind::Eval(e))
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
@@ -334,9 +315,21 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
     }
 
-    fn visit_callcc(&mut self, mut cc: Box<super::ast::CallCC>) -> Self::Output {
-        cc.expr = self.visit(cc.expr)?;
-        Ok(ExprKind::CallCC(cc))
+    fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
+        let mut visited_bindings = Vec::new();
+
+        let (bindings, exprs): (Vec<_>, Vec<_>) = l.bindings.iter().cloned().unzip();
+
+        let bindings = self.expand_ellipses(bindings)?;
+
+        for (binding, expr) in bindings.into_iter().zip(exprs) {
+            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+        }
+
+        l.bindings = visited_bindings;
+        l.body_expr = self.visit(l.body_expr)?;
+
+        Ok(ExprKind::Let(l))
     }
 }
 
@@ -399,68 +392,14 @@ impl ConsumingVisitor for RewriteSpan {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_apply(&mut self, mut apply: Box<super::ast::Apply>) -> Self::Output {
-        apply.func = self.visit(apply.func)?;
-        apply.list = self.visit(apply.list)?;
-        apply.location.set_span(self.span);
-        Ok(ExprKind::Apply(apply))
-    }
-
-    fn visit_panic(&mut self, mut p: Box<super::ast::Panic>) -> Self::Output {
-        p.message = self.visit(p.message)?;
-        p.location.set_span(self.span);
-        Ok(ExprKind::Panic(p))
-    }
-
-    fn visit_transduce(&mut self, mut transduce: Box<super::ast::Transduce>) -> Self::Output {
-        transduce.transducer = self.visit(transduce.transducer)?;
-        transduce.func = self.visit(transduce.func)?;
-        transduce.initial_value = self.visit(transduce.initial_value)?;
-        transduce.iterable = self.visit(transduce.iterable)?;
-        transduce.location.set_span(self.span);
-        Ok(ExprKind::Transduce(transduce))
-    }
-
-    fn visit_read(&mut self, mut read: Box<super::ast::Read>) -> Self::Output {
-        read.expr = self.visit(read.expr)?;
-        read.location.set_span(self.span);
-        Ok(ExprKind::Read(read))
-    }
-
-    fn visit_execute(&mut self, mut execute: Box<super::ast::Execute>) -> Self::Output {
-        execute.transducer = self.visit(execute.transducer)?;
-        execute.collection = self.visit(execute.collection)?;
-        execute.output_type = execute.output_type.map(|x| self.visit(x)).transpose()?;
-        execute.location.set_span(self.span);
-        Ok(ExprKind::Execute(execute))
-    }
-
     fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
         quote.expr = self.visit(quote.expr)?;
         quote.location.set_span(self.span);
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_struct(&mut self, mut s: Box<super::ast::Struct>) -> Self::Output {
-        s.name = self.visit(s.name)?;
-        s.fields = s
-            .fields
-            .into_iter()
-            .map(|e| self.visit(e))
-            .collect::<Result<Vec<_>>>()?;
-        s.location.set_span(self.span);
-        Ok(ExprKind::Struct(s))
-    }
-
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
         stop!(Generic => "unexpected macro definition"; m.location.span)
-    }
-
-    fn visit_eval(&mut self, mut e: Box<super::ast::Eval>) -> Self::Output {
-        // todo!()
-        e.expr = self.visit(e.expr)?;
-        e.location.set_span(self.span);
-        Ok(ExprKind::Eval(e))
     }
 
     fn visit_atom(&mut self, mut a: Atom) -> Self::Output {
@@ -493,15 +432,23 @@ impl ConsumingVisitor for RewriteSpan {
         stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
     }
 
-    fn visit_callcc(&mut self, mut cc: Box<super::ast::CallCC>) -> Self::Output {
-        cc.expr = self.visit(cc.expr)?;
-        Ok(ExprKind::CallCC(cc))
+    fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
+        let mut visited_bindings = Vec::new();
+
+        for (binding, expr) in l.bindings {
+            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+        }
+
+        l.bindings = visited_bindings;
+        l.body_expr = self.visit(l.body_expr)?;
+
+        Ok(ExprKind::Let(l))
     }
 }
 
 #[cfg(test)]
 mod replace_expressions_tests {
-    use crate::parser::ast::{If, LambdaFunction, List, Transduce};
+    use crate::parser::ast::{LambdaFunction, List};
 
     use super::*;
 
@@ -523,50 +470,52 @@ mod replace_expressions_tests {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Ellipses)))
     }
 
-    fn atom_int(n: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            n,
-        ))))
-    }
+    // TODO -> move this to ExprKind
+    // fn atom_int(n: isize) -> ExprKind {
+    //     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
+    //         n,
+    //     ))))
+    // }
 
-    #[test]
-    fn test_expand_atom() {
-        let bindings = map! {
-            "apples" => atom_identifier("x"),
-            "bananas" => atom_identifier("y"),
-            "number" => atom_int(1),
-        };
+    // TODO replace this test with something that doesn't use transduce
+    // #[test]
+    // fn test_expand_atom() {
+    //     let bindings = map! {
+    //         "apples" => atom_identifier("x"),
+    //         "bananas" => atom_identifier("y"),
+    //         "number" => atom_int(1),
+    //     };
 
-        let expr = ExprKind::If(Box::new(If::new(
-            atom_identifier("test-condition"),
-            ExprKind::Transduce(Box::new(Transduce::new(
-                atom_identifier("apples"),
-                atom_identifier("bananas"),
-                atom_identifier("number"),
-                atom_identifier("z"),
-                SyntaxObject::default(TokenType::Transduce),
-            ))),
-            atom_identifier("else-condition"),
-            SyntaxObject::default(TokenType::If),
-        )));
+    //     let expr = ExprKind::If(Box::new(If::new(
+    //         atom_identifier("test-condition"),
+    //         ExprKind::Transduce(Box::new(Transduce::new(
+    //             atom_identifier("apples"),
+    //             atom_identifier("bananas"),
+    //             atom_identifier("number"),
+    //             atom_identifier("z"),
+    //             SyntaxObject::default(TokenType::Transduce),
+    //         ))),
+    //         atom_identifier("else-condition"),
+    //         SyntaxObject::default(TokenType::If),
+    //     )));
 
-        let post_condition = ExprKind::If(Box::new(If::new(
-            atom_identifier("test-condition"),
-            ExprKind::Transduce(Box::new(Transduce::new(
-                atom_identifier("x"),
-                atom_identifier("y"),
-                atom_int(1),
-                atom_identifier("z"),
-                SyntaxObject::default(TokenType::Transduce),
-            ))),
-            atom_identifier("else-condition"),
-            SyntaxObject::default(TokenType::If),
-        )));
+    //     let post_condition = ExprKind::If(Box::new(If::new(
+    //         atom_identifier("test-condition"),
+    //         ExprKind::Transduce(Box::new(Transduce::new(
+    //             atom_identifier("x"),
+    //             atom_identifier("y"),
+    //             atom_int(1),
+    //             atom_identifier("z"),
+    //             SyntaxObject::default(TokenType::Transduce),
+    //         ))),
+    //         atom_identifier("else-condition"),
+    //         SyntaxObject::default(TokenType::If),
+    //     )));
 
-        let output = ReplaceExpressions::new(&bindings).visit(expr).unwrap();
+    //     let output = ReplaceExpressions::new(&bindings).visit(expr).unwrap();
 
-        assert_eq!(output, post_condition);
-    }
+    //     assert_eq!(output, post_condition);
+    // }
 
     #[test]
     fn test_expand_datum_syntax() {

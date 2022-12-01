@@ -12,19 +12,19 @@
 
 ;; Contracts for <
 (define (</c n)
-    (make/c (fn (x) (< x n)) '</c))
+    (make/c (fn (x) (< x n)) (list '</c n)))
 
 ;; Contracts for >
 (define (>/c n)
-    (make/c (fn (x) (> x n)) '>/c))
+    (make/c (fn (x) (> x n)) (list '>/c n)))
 
 ;; Contracts for <=
 (define (<=/c n)
-    (make/c (fn (x) (<= x n)) '<=/c))
+    (make/c (fn (x) (<= x n)) (list '<=/c n)))
 
 ;; Contracts for >=
 (define (>=/c n)
-    (make/c (fn (x) (>= x n)) '>=/c))
+    (make/c (fn (x) (>= x n)) (list '>=/c n)))
 
 ;; Satisfies any single value
 (define (any/c x)

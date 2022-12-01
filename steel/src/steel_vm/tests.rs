@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod call_cc_tests {
     use crate::steel_vm::engine::Engine;
-    use crate::steel_vm::register_fn::RegisterAsyncFn;
+    use crate::steel_vm::register_fn::RegisterFn;
 
     #[test]
     fn test_async() {
@@ -16,7 +16,7 @@ mod call_cc_tests {
         let mut vm = Engine::new();
 
         // You can even register async finctions
-        vm.register_async_fn("test", test_function);
+        vm.register_fn("test", test_function);
 
         let contents = r#"
         ; *thread-queue* : list[continuation]
@@ -27,9 +27,9 @@ mod call_cc_tests {
 
         ; current-continuation : -> continuation
         (define (current-continuation)
-        (call/cc
-        (lambda (cc)
-            (cc cc))))
+            (call/cc
+                (lambda (cc)
+                    (cc cc))))
 
         ; await : future -> value
         ; yield the current thread and loop until the value is completed
@@ -110,7 +110,7 @@ mod call_cc_tests {
         (start-threads)
         "#;
 
-        vm.run(contents).unwrap();
+        vm.compile_and_run_raw_program(contents).unwrap();
 
         assert_eq!(vm.extract::<isize>("counter").unwrap(), -1);
     }
@@ -170,12 +170,14 @@ mod register_fn_tests {
         vm.register_fn("adding-one", add_one);
         vm.register_fn("always-true", always_true);
 
-        vm.run(
+        vm.compile_and_run_raw_program(
             r#"
         (define foo (external-function 10 25))
         (define bar (option-function "applesauce"))
         (define baz (result-function "bananas"))
-        (define res (transduce (taking 5) external-function 0 (range 0 10)))
+        (define res (transduce (range 0 10) 
+                               (taking 5) 
+                               (into-reducer external-function 0)))
         (assert! (equal? (map adding-one '(0 1 2 3)) '(1 2 3 4)))
         (assert! (equal? (filter always-true '(0 1 2 3)) '(0 1 2 3)))
         (empty-function)
@@ -190,8 +192,8 @@ mod register_fn_tests {
         let bar: String = vm.extract("bar").unwrap();
         assert_eq!("applesauce".to_string(), bar);
 
-        let baz: String = vm.extract("baz").unwrap();
-        assert_eq!("bananas".to_string(), baz);
+        let baz: Result<String, String> = vm.extract("baz").unwrap();
+        assert_eq!("bananas".to_string(), baz.unwrap());
 
         let res: usize = vm.extract("res").unwrap();
         assert_eq!(10, res);
@@ -253,7 +255,7 @@ mod register_type_tests {
             .unwrap();
 
         let _ = vm
-            .run(
+            .compile_and_run_raw_program(
                 r#"
             (define new-external-struct (set-foo external-struct 100))
             (define get-output (method-by-value external-struct))
@@ -282,37 +284,37 @@ mod register_type_tests {
     }
 }
 
-#[cfg(test)]
-mod stream_tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
+// #[cfg(test)]
+// mod stream_tests {
+//     use std::cell::RefCell;
+//     use std::rc::Rc;
 
-    use crate::parser::span::Span;
-    use crate::steel_vm::evaluation_progress::EvaluationProgress;
-    use crate::steel_vm::lazy_stream::LazyStreamIter;
-    use crate::steel_vm::options::ApplyContract;
-    use crate::steel_vm::options::UseCallback;
-    use crate::values::lazy_stream::LazyStream;
-    use crate::{compiler::constants::ConstantMap, env::Env};
+//     use crate::parser::span::Span;
+//     use crate::steel_vm::evaluation_progress::EvaluationProgress;
+//     use crate::steel_vm::lazy_stream::LazyStreamIter;
+//     use crate::steel_vm::options::ApplyContract;
+//     use crate::steel_vm::options::UseCallback;
+//     use crate::values::lazy_stream::LazyStream;
+//     use crate::{compiler::constants::ConstantMap, env::Env};
 
-    #[test]
-    fn test_empty_stream_creates_no_iter() {
-        let constants = ConstantMap::new();
-        let cur_inst_span = Span::new(0, 0);
-        let callback = EvaluationProgress::new();
-        let mut global_env = Env::root();
-        let mut mut_ref = &mut global_env;
+//     // #[test]
+//     // fn test_empty_stream_creates_no_iter() {
+//     //     let constants = ConstantMap::new();
+//     //     let cur_inst_span = Span::new(0, 0);
+//     //     let callback = EvaluationProgress::new();
+//     //     let mut global_env = Env::root();
+//     //     let mut mut_ref = &mut global_env;
 
-        let lazy_iter = LazyStreamIter::new(
-            LazyStream::new_empty_stream(),
-            &constants,
-            &cur_inst_span,
-            &callback,
-            Rc::new(RefCell::new(&mut mut_ref)),
-            UseCallback,
-            ApplyContract,
-        );
+//     //     let lazy_iter = LazyStreamIter::new(
+//     //         LazyStream::new_empty_stream(),
+//     //         &constants,
+//     //         &cur_inst_span,
+//     //         &callback,
+//     //         Rc::new(RefCell::new(&mut mut_ref)),
+//     //         UseCallback,
+//     //         ApplyContract,
+//     //     );
 
-        assert!(lazy_iter.into_iter().next().is_none());
-    }
-}
+//     //     assert!(lazy_iter.into_iter().next().is_none());
+//     // }
+// }

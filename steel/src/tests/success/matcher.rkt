@@ -121,7 +121,7 @@
 
 ;; Should succed with x y z bound to 1 2 3
 (test "Nested patterns match"
-      (match '(?x (?y ?z)) '(1 '(2 3)))
+      (match '(?x (?y ?z)) '(1 (2 3)))
       (hash '?x 1 '?y 2 '?z 3))
 
 ;; Also should work

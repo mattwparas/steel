@@ -48,8 +48,8 @@
     (if (number? (node-datum tree))
         (node-datum tree)
         ((function-named-by (node-datum tree))
-        (compute (car (node-children tree)))
-        (compute (cadr (node-children tree))))))
+            (compute (car (node-children tree)))
+            (compute (cadr (node-children tree))))))
 
 (define (function-named-by oper)
     (cond ((equal? oper '+) +)
@@ -58,5 +58,6 @@
             ((equal? oper '/) /)
             (else (error! "no such operator as" oper))))
 
+; (define expr (parse '(1 + 2)))
 
 (assert! (equal? 10 (compute (parse '(1 + 2 + 3 + 4))))) ;; => 10

@@ -23,7 +23,9 @@
   (if existing-value
       (if (equal? existing-value value)
           hm
-          #f)
+          #f
+          ;; (error! "Duplicate bindings found for variable: " key)
+          )
       (hash-insert hm key value)))
 
 (define (collect-until-last-p input collected)
@@ -38,31 +40,35 @@
 
 ;; Bindings or #false if there is not a match
 (define (match-p pattern input bindings)
-  (cond [(and (list? pattern)
-              (not (null? pattern))
-              (many? (car pattern)))
-         (if (null? (cdr pattern))
-             (equal-or-insert bindings (car pattern) input)
-             (let ((collected (collect-until-last input)))
-               (define remainder (car collected))
-               (define collected-list (reverse (car (cdr collected))))
-               (if (null? (cdr (cdr pattern)))
-                   (let ((remainder-bound
-                          (equal-or-insert bindings
-                                           (car (cdr pattern)) remainder)))
-                     (equal-or-insert remainder-bound (car pattern) collected-list))
-                   #f)))]
-        [(var? pattern) (equal-or-insert bindings pattern input)]
-        [(ignore? pattern) bindings]
-        [(atom? pattern) (if (equal? pattern input) bindings #f)]
-        [(null? pattern) (if (null? input) bindings #f)]
-        [(null? input) #f]
-        [(and (list? pattern) (not (list? input))) #f]
-        [else
-         (define remaining (match-p (cdr pattern) (cdr input) bindings))
-         (if remaining
-             (match-p (car pattern) (car input) remaining)
-             #f)]))
+  (cond
+    ;; If its a struct, immediately do the conversion
+    ;; TODO bug arity check is not happening here
+    [(and (list? pattern) (struct? input)) (match-p pattern (struct->list input) bindings)]
+    [(and (list? pattern)
+          (not (null? pattern))
+          (many? (car pattern)))
+     (if (null? (cdr pattern))
+         (equal-or-insert bindings (car pattern) input)
+         (let ((collected (collect-until-last input)))
+           (define remainder (car collected))
+           (define collected-list (reverse (car (cdr collected))))
+           (if (null? (cdr (cdr pattern)))
+               (let ((remainder-bound
+                      (equal-or-insert bindings
+                                       (car (cdr pattern)) remainder)))
+                 (equal-or-insert remainder-bound (car pattern) collected-list))
+               #f)))]
+    [(var? pattern) (equal-or-insert bindings pattern input)]
+    [(ignore? pattern) bindings]
+    [(atom? pattern) (if (equal? pattern input) bindings #f)]
+    [(null? pattern) (if (null? input) bindings #f)]
+    [(null? input) #f]
+    [(and (list? pattern) (not (list? input))) #f]
+    [else
+     (define remaining (match-p (cdr pattern) (cdr input) bindings))
+     (if remaining
+         (match-p (car pattern) (car input) remaining)
+         #f)]))
 
 (define (match pattern input)
   (match-p pattern input (hash)))
@@ -338,63 +344,206 @@
       (+ 1 3 4))
 
 
+(define-syntax begin-scope
+  (syntax-rules ()
+    ((begin-scope body ...)
+     ((fn () body ...)))))
 
-;; ;; Ambiguous matches will take the first one that matches
-;; (match! (list (list 1 2) 3 (list 4 5))
-;;         (() (displayln "Empty pattern!"))
-;;         ((?x) (displayln ?x))
-;;         ((?x ?y) (displayln (+ ?x ?y)))
-;;         (((?x ?y) ?z (?foo ?bar)) (displayln (list ?x ?y ?z ?foo ?bar)))
-;;         ((?x ?y ?z...) (displayln ?z...))
-;;         (else (displayln "didn't match!")))
+(test "Struct matching"
+      (begin-scope
+         (struct Apples (a b c))
+         (match! (Apples 10 30 50)
+                 ((Apples ?x ?y ?z) (+ ?x ?y ?z))))
+      (+ 10 30 50))
 
 
-;; (define (budget-map func lst)
-;;   (define (loop lst accum)
-;;     (match! lst
-;;             (() accum)
-;;             ((?x ?xs...)
-;;              (loop ?xs...
-;;                    (cons (func ?x) accum)))))
-;;   (reverse (loop lst '())))
+(test "Nested struct matching"
+      (begin-scope
+        (struct Apples (a b c))
+        (match! (Apples (Apples (Apples 10 30 50) 1 2) 3 4)
+                ((Apples (Apples (Apples ?x ?y ?z) _ _) _ _)
+                 (+ ?x ?y ?z))))
+      (+ 10 30 50))
+
+
+(struct Add (l r))
+(struct Sub (l r))
+(struct Num (n))
+(struct String (s))
+
+(define (calculate expr)
+  (match! expr
+          ((Num ?n) ?n)
+          ((Sub ?l ?r) (- (calculate ?l) (calculate ?r)))
+          ((Add ?l ?r) (+ (calculate ?l) (calculate ?r)))))
+
+;; TODO provide stack trace on errors for debug builds
+;; collecting stack trace should just be:
+;; Go to function stack: Print out last executing functions with their spans
+;; Map spans to file + call site - print out underneath the function information
+;; Will help with errors inside functions, the callstack will tell me where things actually
+;; went wrong
+
+
+;; (displayln (calculate (Add (Add (Num 10) (Num 25)) (Sub (Num 100) (Num 300)))))
+
+; (struct Some (type inner))
+; (struct None (type))
+
+
+; (struct tuple (inner))
+; (displayln (t
+
+;; TODO multi arity functions - how do implement those? just turn everything inside into a list? maybe?
+
+; (displayln (apply list '(1 2 3 4 5 6)))
+
+
+; (struct Tuple (inner))
+
+; (define-syntax tuple
+;   (syntax-rules ()
+;     [(tuple arg ...) (Tuple (vector arg ...))]))
+
+
+
+; (displayln (tuple 1 2 3 4 5))
+
+
+
+
+; (define-syntax case-lambda
+;   (syntax-rules ()
+;     ((case-lambda)
+;      (lambda args
+;        (error "CASE-LAMBDA without any clauses.")))
+;     ((case-lambda 
+;       (?a1 ?e1 ...) 
+;       ?clause1 ...)
+;      (lambda args
+;        (let ((l (length args)))
+;          (case-lambda "CLAUSE" args l 
+;            (?a1 ?e1 ...)
+;            ?clause1 ...))))
+;     ((case-lambda "CLAUSE" ?args ?l 
+;       ((?a1 ...) ?e1 ...) 
+;       ?clause1 ...)
+;      (if (= ?l (length '(?a1 ...)))
+;          (apply (lambda (?a1 ...) ?e1 ...) ?args)
+;          (case-lambda "CLAUSE" ?args ?l 
+;            ?clause1 ...)))
+;     ((case-lambda "CLAUSE" ?args ?l
+;       ((?a1 . ?ar) ?e1 ...) 
+;       ?clause1 ...)
+;      (case-lambda "IMPROPER" ?args ?l 1 (?a1 . ?ar) (?ar ?e1 ...) 
+;        ?clause1 ...))
+;     ((case-lambda "CLAUSE" ?args ?l 
+;       (?a1 ?e1 ...)
+;       ?clause1 ...)
+;      (let ((?a1 ?args))
+;        ?e1 ...))
+;     ((case-lambda "CLAUSE" ?args ?l)
+;      (error "Wrong number of arguments to CASE-LAMBDA."))
+;     ((case-lambda "IMPROPER" ?args ?l ?k ?al ((?a1 . ?ar) ?e1 ...)
+;       ?clause1 ...)
+;      (case-lambda "IMPROPER" ?args ?l (+ ?k 1) ?al (?ar ?e1 ...) 
+;       ?clause1 ...))
+;     ((case-lambda "IMPROPER" ?args ?l ?k ?al (?ar ?e1 ...) 
+;       ?clause1 ...)
+;      (if (>= ?l ?k)
+;          (apply (lambda ?al ?e1 ...) ?args)
+;          (case-lambda "CLAUSE" ?args ?l 
+;            ?clause1 ...)))))
+  
+; (define plus
+;       (case-lambda 
+;             (() 0)
+;             ((x) x)
+;             ((x y) (+ x y))
+;             ((x y z) (+ (+ x y) z))
+;             (args (apply + args))))
+
+; (plus)                     
+; (plus 1)                   
+; (plus 1 2 3)
+
+
+;; (test "Matching duplicate names fails"
+;;       (match! (list 1 2 3 4 5)
+;;               ((?x ?x ?x ?x ?x) 'should-fail))
+;;       #f)
+
+
+;; match struct
+;; given a value, destruct it into each variables positions
+
+;; (struct Apple ())
+;; (struct Banana ())
+;; (struct Fruit ())
+;; (struct Burger ())
+
+;; (displayln (struct-ref (Apple) 2))
+
+
+;; (define (which-struct? s)
+;;   (cond [(Apple? s) 'Apple]
+;;         [(Banana? s) 'Banana]
+;;         [(Fruit? s) 'Fruit]
+;;         [else 'Unknown]))
+
+;; (displayln (which-struct? (Apple)))
+;; (displayln (which-struct? (Banana)))
+;; (displayln (which-struct? (Fruit)))
+;; (displayln (which-struct? (Burger)))
+
+;; When its a struct, we want to pop off the first pattern
+;; Keywords inside quotes expressions do not work properly
+; (displayln (match (quote (Apple y z)) '(x y z)))
+
+
+;; (displayln (match '(?x y z) (list 10 'y 'z)))
+
+
+; '(Apple 1 2 3)
+
+;; (struct Applesauce (a b c))
+
+;; (define (struct-pattern->indices pat)
+;;       (define (loop pat accum seed)
+;;             (if (null? pat)
+;;                   accum
+;;                   (let ((next-index (+ 1 seed)))
+;;                         (loop (cdr pat) (cons next-index accum) next-index))))
+;;       (reverse (loop (cdr pat) '() -1)))
+
+;; (displayln (struct-pattern->indices '(Applesauce ?x ?y z)))
+;; (displayln (struct-pattern->indices '(Unit-Struct)))
+
+
+;; (displayln (struct->list (Applesauce 10 45 90)))
 
 ;; (displayln
-;;  (budget-map (fn (x) (+ x 1))
-;;             (list 1 2 3 4 5))) ;; => '(2 3 4 5 6)
+;;  (match '(Applesauce ?x ?y ?z)
+;;    (struct->list (Applesauce (Applesauce 10 20 30) 45 90))))
 
 
+;; (displayln
+;;  (match! (Applesauce (Applesauce 10 20 30) 2 3)
+;;          ((Applesauce (Applesauce ?x ?y ?z) 2 3) (+ ?x ?y ?z))
+;;          (else 'no-match)))
 
-;; (match! (list 1 2 3 4)
-;;         ((?x ?y) (displayln "Shouldn't get here!"))
-;;         ((?x 2 ?y 4)
-;;          (displayln ?x)
-;;          (displayln ?y)))
-
-
-
-
-
-
-
-
-
-
-;; TODO fix bug where using (quote <expr>) instead of '<expr>
-;; leads to a parsing error
-;; (define-syntax deck
+;; (define-syntax match-struct
 ;;   (syntax-rules ()
-;;     [(deck (var1))
-;;         (begin
-;;         (display "Found a one element list ")
-;;         (displayln '(var1)))]
-;;     [(deck (var1 var2 ...))
-;;         (begin
-;;         (display "Popping off value: ")
-;;         (displayln 'var1)
-;;         (deck (var2 ...)))]
-;;     [(deck var)
-;;      (begin
-;;        (display "Found a single expr ")
-;;        (displayln 'var))]))
+;;     [(match-struct struct-name pattern expr)
+;;      (if ((datum->syntax struct-name?) expr)
+;;          (match (cdr pattern) (struct->list expr)))]))
 
-;; (deck (?x ?y ?z))
+
+; (define (match-struct pattern struct bindings)
+      
+
+
+; )
+
+
+;; (define (match-wrapper pattern expr

@@ -6,15 +6,144 @@ use crate::parser::tokens::TokenType;
 
 use crate::parser::span::Span;
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{Read, Write},
+    iter::FromIterator,
+    path::{Path, PathBuf},
+};
 
 use log::{debug, error, info};
+use serde::{Deserialize, Serialize};
 
-use super::ast::Quote;
+use super::{ast::Quote, parser::Parser};
 
-#[derive(Clone, Debug, PartialEq)]
+// Given path, update the extension
+fn update_extension(mut path: PathBuf, extension: &str) -> PathBuf {
+    path.set_extension(extension);
+    path
+}
+
+// Prepend the given path with the working directory
+pub fn path_from_working_dir<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf> {
+    let mut working_dir = std::env::current_dir()?;
+    working_dir.push(path);
+    Ok(working_dir)
+}
+
+// #[test]
+// fn try_initialize() {
+//     let path = path_from_working_dir("src/compiled_macros/test.rkt").unwrap();
+
+//     println!("Path exists: {:?}", path.exists());
+
+//     let manager = LocalMacroManager::initialize(path, true).unwrap();
+// }
+
+/// Manages macros for a single namespace
+#[derive(Default, Serialize, Deserialize, Debug)]
+pub struct LocalMacroManager {
+    macros: HashMap<String, SteelMacro>,
+}
+
+impl LocalMacroManager {
+    /// Look to see if it exists on disk, otherwise parse from the associated file
+    pub fn initialize_from_path(path: PathBuf, force_update: bool) -> Result<Self> {
+        let raw_path = update_extension(path.clone(), "rkt");
+        let compiled_path = update_extension(path, "macro");
+
+        // println!("Raw path: {:?}", raw_path);
+        // println!("Compiled path: {:?}", compiled_path);
+
+        if compiled_path.exists() && !force_update {
+            Self::from_file(compiled_path)
+        } else if raw_path.exists() {
+            let parsed = Self::from_expression_file(raw_path)?;
+            parsed.write_to_file(compiled_path)?;
+
+            Ok(parsed)
+        } else {
+            stop!(Generic => "path to macro file does not exist")
+        }
+    }
+
+    fn write_to_file(&self, path: PathBuf) -> Result<()> {
+        let mut file = File::create(path)?;
+
+        match bincode::serialize(self) {
+            Ok(bytes) => {
+                file.write_all(&bytes)?;
+                Ok(())
+            }
+            Err(e) => stop!(Generic => format!("Unable to write macro to file: {:?}", e)),
+        }
+    }
+
+    /// Expand the expressions according to the macros in the current scope
+    pub fn expand(&self, exprs: impl IntoIterator<Item = ExprKind>) -> Result<Vec<ExprKind>> {
+        exprs
+            .into_iter()
+            .map(|expr| crate::parser::expand_visitor::expand(expr, &self.macros))
+            .collect()
+    }
+
+    /// Read in a file of expressions containing macros, parse then, and create the data struture
+    fn from_expression_file(path: PathBuf) -> Result<Self> {
+        let mut file = File::open(path)?;
+        let mut raw_exprs = String::new();
+        file.read_to_string(&mut raw_exprs)?;
+        let parsed_exprs = Parser::parse(&raw_exprs)?;
+        Self::from_exprs(parsed_exprs)
+    }
+
+    /// After serializing the macro manager to a file and read from that file
+    fn from_file(path: PathBuf) -> Result<Self> {
+        let mut file = File::open(path)?;
+        let mut buffer = Vec::new();
+        let _ = file.read_to_end(&mut buffer)?;
+        match bincode::deserialize(&buffer) {
+            Ok(inner) => Ok(inner),
+            Err(e) => {
+                stop!(Generic => format!("Unable to deserialize local macro manager from file: {:?}", e))
+            }
+        }
+    }
+
+    /// Initialize the macro manager from a vec of macro expressions
+    /// Note: this will fail if passed other expressions
+    pub fn from_exprs(exprs: impl IntoIterator<Item = ExprKind>) -> Result<Self> {
+        exprs
+            .into_iter()
+            .map(|x| {
+                if let ExprKind::Macro(m) = x {
+                    SteelMacro::parse_from_ast_macro(m)
+                } else {
+                    stop!(Generic => "Unexpected non-macro definition")
+                }
+            })
+            .collect()
+    }
+}
+
+impl FromIterator<SteelMacro> for LocalMacroManager {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = SteelMacro>,
+    {
+        Self {
+            macros: iter.into_iter().map(|x| (x.name.clone(), x)).collect(),
+        }
+    }
+}
+
+// Global macro manager, manages macros across modules
+pub struct GlobalMacroManager {
+    _scopes: HashMap<PathBuf, HashMap<String, SteelMacro>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SteelMacro {
     name: String,
     special_forms: Vec<String>,
@@ -81,13 +210,15 @@ impl SteelMacro {
                 if case.recursive_match(expr) {
                     return Ok(case);
                 }
+            } else {
+                // println!("Case didn't match: {:?}", case.args);
             }
         }
 
         error!("Macro expansion unable to match case with: {}", expr);
 
         if let Some(ExprKind::Atom(a)) = expr.first() {
-            stop!(BadSyntax => "macro expansion unable to match case"; a.syn.span);
+            stop!(BadSyntax => format!("macro expansion unable to match case: {}", expr); a.syn.span);
         } else {
             unreachable!()
         }
@@ -105,7 +236,7 @@ impl SteelMacro {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MacroCase {
     args: Vec<MacroPattern>,
     body: ExprKind,
@@ -132,8 +263,7 @@ impl MacroCase {
 
         let args_str: Vec<&str> = args
             .iter()
-            .map(|x| x.deconstruct_without_syntax())
-            .flatten()
+            .flat_map(|x| x.deconstruct_without_syntax())
             .collect();
 
         // let syntaxes: Vec<&str> = args
@@ -176,7 +306,7 @@ impl MacroCase {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum MacroPattern {
     Single(String),
     Syntax(String),
@@ -295,7 +425,7 @@ impl MacroPattern {
             Self::Syntax(s) => vec![&s],
             Self::Single(s) => vec![&s],
             Self::Many(s) => vec![&s],
-            Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
+            Self::Nested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
             _ => vec![],
         }
     }
@@ -304,7 +434,7 @@ impl MacroPattern {
         match self {
             Self::Single(s) => vec![&s],
             Self::Many(s) => vec![&s],
-            Self::Nested(v) => v.iter().map(|x| x.deconstruct()).flatten().collect(),
+            Self::Nested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
             _ => vec![],
         }
     }
@@ -494,10 +624,18 @@ pub fn collect_bindings(
                 if let ExprKind::List(l) = child {
                     collect_bindings(&children, l, bindings)?;
                 } else {
-                    stop!(BadSyntax => "macro expected a list of values, not including keywords")
+                    println!("Args: {:?}", args);
+                    println!("List: {}", list);
+                    println!("Current pattern: {:?}", arg);
+                    stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
                 }
             }
-            _ => {}
+            // Matching on literals
+            _ => {
+                println!("Skipping pattern literal: {:?}", arg);
+                println!("Argument: {:?}", token_iter.next());
+                // token_iter.next();
+            }
         }
     }
 
@@ -908,7 +1046,7 @@ mod macro_case_expand_test {
         ])
         .into();
 
-        let output = case.expand(input, Span::new(0, 0)).unwrap();
+        let output = case.expand(input, Span::new(0, 0, None)).unwrap();
 
         assert_eq!(output, expected);
     }

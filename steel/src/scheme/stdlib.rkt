@@ -1,17 +1,16 @@
+(define-syntax steel/base
+  (syntax-rules ()
+    [(steel/base) 
+      (require-builtin steel/base)]))
+
 (define-syntax quasiquote
   (syntax-rules (unquote unquote-splicing)
+    ((quasiquote (unquote x))                         x)
     ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
-    ((quasiquote ((unquote-splicing x)))        (append (list x) '()))
+    ((quasiquote ((unquote-splicing x)))        (append x '()))
     ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
-    ((quasiquote (unquote x))                 x)
-    ((quasiquote (x))                          '(x))
     ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
     ((quasiquote x)                           'x)))
-
-(define-syntax lambda-hash
-  (syntax-rules ()
-    [(lambda-hash (x ...)) (lambda (v) (x ... v))]))
-
 
 (define-syntax or
   (syntax-rules ()
@@ -39,11 +38,17 @@
      (if a void (begin b ...))]))
 
 (define-syntax cond
-  (syntax-rules (else)
+  (syntax-rules (else =>)
+    [(cond [else => e1 ...])
+     (begin e1 ...)]
     [(cond [else e1 ...])
      (begin e1 ...)]
     [(cond [e1 e2 ...])
      (when e1 e2 ...)]
+    [(cond [e1 => e2 ...] c1 ...)
+     (if e1
+         (begin e2 ...)
+         (cond c1 ...))]
     [(cond [e1 e2 ...] c1 ...)
      (if e1
          (begin e2 ...)
@@ -156,7 +161,12 @@
     [(define/contract (name args ...)
        contract
        body ...)
-     (define name (bind/c contract (lambda (args ...) body ...) 'name))]
+     (begin
+        (define name (lambda (args ...) body ...))
+        (set! name (bind/c contract name 'name)))
+    ;  (define name (bind/c contract (lambda (args ...) body ...) 'name))
+     
+     ]
     [(define/contract name contract expr)
      (define name ((bind/c
                       (make-function/c (make/c contract 'contract))
@@ -172,31 +182,32 @@
             (module gen-defines name ids ...))]
         
         ;; in the contract case, ignore the contract in the hash
-        [(module provide (contract/out name contract)) (hash 'name name)]
+        [(module provide (contract/out name contract)) (%proto-hash% 'name name)]
         ;; Normal case
-        [(module provide name) (hash 'name name)]
+        [(module provide name) (%proto-hash% 'name name)]
 
         ;; in the contract case, ignore the contract in the hash
         [(module provide (contract/out name contract) rest ...)
-         (hash-insert (module provide rest ...) 'name name)]
+         (%proto-hash-insert% (module provide rest ...) 'name name)]
 
         ;; Normal case
         [(module provide name rest ...)
-         (hash-insert (module provide rest ...) 'name name)]
+         (%proto-hash-insert% (module provide rest ...) 'name name)]
 
         ;; Module contract provides
         [(module gen-defines mod (contract/out name contract))
-         (define (datum->syntax name) (bind/c contract (hash-get mod 'name)))]
+         (define (datum->syntax name) (bind/c contract (%proto-hash-get% mod 'name)))]
         [(module gen-defines mod (contract/out name contract) rest ...)
-         (begin (define (datum->syntax name) (bind/c contract (hash-get mod 'name)))
+         (begin (define (datum->syntax name) (bind/c contract (%proto-hash-get% mod 'name)))
             (module gen-defines mod rest ...))]
 
         ;; Normal provides
-        [(module gen-defines mod name) (define (datum->syntax name) (hash-get mod 'name))]
+        [(module gen-defines mod name) (define (datum->syntax name) (%proto-hash-get% mod 'name))]
         [(module gen-defines mod name rest ...)
-         (begin (define (datum->syntax name) (hash-get mod 'name))
+         (begin (define (datum->syntax name) (%proto-hash-get% mod 'name))
             (module gen-defines mod rest ...))]))
 
+;; TODO: Replace some of these with just list ref to abuse the underlying implementation
 (define caar (lambda (pair) (car (car pair))))
 (define cadr (lambda (pair) (car (cdr pair))))
 (define cdar (lambda (pair) (cdr (car pair))))
@@ -248,7 +259,7 @@
 (define (map func lst)
   (if (null? lst) 
       '() 
-      (execute (mapping func) lst)))
+      (transduce lst (mapping func) (into-list))))
 
 
 (define foldr (lambda (func accum lst)
@@ -275,6 +286,12 @@
 ;; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
 (define member (lambda (obj lst)     (fold (mem-helper (curry equal? obj) id) #f lst)))
 
+(define (contains? pred? lst)
+    ; (displayln lst)
+    (cond [(empty? lst) #f]
+          [(pred? (car lst)) #t]
+          [else (contains? pred? (cdr lst))]))
+
 ;; TODO come back to this
 ; (define assq (lambda (obj alist)     (fold (mem-helper (curry eq? obj) car) #f alist)))
 
@@ -294,7 +311,7 @@
 (define (filter pred lst)
   (if (empty? lst) 
       '() 
-      (execute (filtering pred) lst)))
+      (transduce lst (filtering pred) (into-list))))
 
 ; (define (fact n)
 ;   (define factorial-tail (lambda (n acc) 
@@ -331,3 +348,101 @@
 (define (slice l offset n)
   (take (drop l offset) n))
 ;;; Macros go here:
+
+
+(define (code-gen-v2)
+  (set-env-var! "CODE_GEN_V2" "true"))
+
+(define-syntax reset 
+    (syntax-rules ()
+        ((reset ?e) (*reset (lambda () ?e)))))
+
+(define-syntax shift 
+    (syntax-rules ()
+        ((shift ?k ?e) (*shift (lambda (?k) ?e)))))
+
+;; TODO: This should be boxed at some point, we don't want it
+;; to be globally accessible directly (I think)
+(define (*meta-continuation* v)
+    (error "You forgot the top-level reset..."))
+
+(define (*abort thunk) 
+    (let ((v (thunk)))
+        (*meta-continuation* v)))
+
+(define (*reset thunk)
+    (let ((mc *meta-continuation*))
+        (call/cc (lambda (k)
+            (begin
+                (set! *meta-continuation*
+                        (lambda (v)
+                            (set! *meta-continuation* mc) 
+                            (k v)))
+                (*abort thunk))))))
+
+(define (*shift f)
+    (call/cc
+        (lambda (k)
+            (*abort (lambda ()
+                        (f (lambda (v)
+                                (reset (k v)))))))))
+
+(define-syntax with-handler
+    (syntax-rules ()
+        [(with-handler handler expr)
+         (reset (call-with-exception-handler (lambda (err) (handler err) (shift k (k void)))
+                    (lambda () expr)))]
+        [(with-handler handler expr ...)
+         (reset (call-with-exception-handler (lambda (err) (handler err) (shift k (k void)))
+                    (lambda () expr ...)))]))
+
+
+(define-syntax case-lambda
+  (syntax-rules ()
+    ((case-lambda)
+     (lambda args
+       (error "CASE-LAMBDA without any clauses.")))
+    ((case-lambda 
+      (?a1 ?e1 ...) 
+      ?clause1 ...)
+     (lambda args
+       (%plain-let ((l (length args)))
+         (case-lambda "CLAUSE" args l 
+           (?a1 ?e1 ...)
+           ?clause1 ...))))
+    ((case-lambda "CLAUSE" ?args ?l 
+      ((?a1 ...) ?e1 ...))
+     (if (= ?l (length '(?a1 ...)))
+         (apply (lambda (?a1 ...) ?e1 ...) ?args)
+         (error! "Arity mismatch")
+         
+         ))
+    ((case-lambda "CLAUSE" ?args ?l 
+      ((?a1 ...) ?e1 ...) 
+      ?clause1 ...)
+     (if (= ?l (length '(?a1 ...)))
+         (apply (lambda (?a1 ...) ?e1 ...) ?args)
+         (case-lambda "CLAUSE" ?args ?l 
+           ?clause1 ...)))
+    ((case-lambda "CLAUSE" ?args ?l
+      ((?a1 . ?ar) ?e1 ...) 
+      ?clause1 ...)
+     (case-lambda "IMPROPER" ?args ?l 1 (?a1 . ?ar) (?ar ?e1 ...) 
+       ?clause1 ...))
+    ((case-lambda "CLAUSE" ?args ?l 
+      (?a1 ?e1 ...)
+      )
+     (%plain-let ((?a1 ?args))
+       ?e1 ...))
+    ((case-lambda "CLAUSE" ?args ?l)
+     (error "Wrong number of arguments to CASE-LAMBDA."))
+    ((case-lambda "IMPROPER" ?args ?l ?k ?al ((?a1 . ?ar) ?e1 ...)
+      ?clause1 ...)
+     (case-lambda "IMPROPER" ?args ?l (+ ?k 1) ?al (?ar ?e1 ...) 
+      ?clause1 ...))
+    ((case-lambda "IMPROPER" ?args ?l ?k ?al (?ar ?e1 ...) 
+      ?clause1 ...)
+     (if (>= ?l ?k)
+         (apply (lambda ?al ?e1 ...) ?args)
+         (case-lambda "CLAUSE" ?args ?l 
+           ?clause1 ...)))))

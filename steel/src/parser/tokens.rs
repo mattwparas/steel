@@ -12,6 +12,8 @@ use std::str::FromStr;
 use std::convert::TryFrom;
 use std::num::ParseIntError;
 
+use crate::parser::parser::SourceId;
+
 fn gen_bool(lex: &mut Lexer<TokenType>) -> Option<bool> {
     let slice = lex.slice();
     match slice {
@@ -133,8 +135,6 @@ pub enum TokenType {
     Unquote,
     #[token(",@")]
     UnquoteSplice,
-    #[token("#")]
-    Hash,
 
     #[token("if")]
     If,
@@ -142,17 +142,20 @@ pub enum TokenType {
     Define,
     #[token("let")]
     Let,
-    #[token("transduce")]
-    Transduce,
-    #[token("execute")]
-    Execute,
+
+    #[token("%plain-let")]
+    TestLet,
+    // #[token("transduce")]
+    // Transduce,
+    // #[token("execute")]
+    // Execute,
     #[token("return!")]
     Return,
     #[token("begin")]
     Begin,
-    #[token("panic!")]
-    Panic,
-    #[regex("(lambda)|(fn)|(λ)")]
+    // #[token("panic!")]
+    // Panic,
+    #[regex("(lambda)|(fn)|(λ)|(#%plain-lambda)")]
     Lambda,
     #[token("quote")]
     Quote,
@@ -163,26 +166,14 @@ pub enum TokenType {
     DefineSyntax,
     #[token("...")]
     Ellipses,
-    #[token("struct")]
-    Struct,
 
-    #[token("apply")]
-    Apply,
-
+    // #[token("apply")]
+    // Apply,
     #[token("set!")]
     Set,
 
-    #[token("read")]
-    Read,
-
-    #[token("eval")]
-    Eval,
-
     #[token("require")]
     Require,
-
-    #[token("call/cc")]
-    CallCC,
 
     #[token("#\\SPACE", |_| Some(' '))]
     #[token("#\\space", |_| Some(' '))]
@@ -215,6 +206,9 @@ pub enum TokenType {
     #[regex(r#"[_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#, callback = |lex| lex.slice().parse())]
     // "
     Identifier(String),
+
+    #[regex(r#"#:[_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#, callback = |lex| lex.slice().parse())]
+    Keyword(String),
 
     // #[token("inf")]
     // #[token("NaN")]
@@ -267,33 +261,26 @@ impl fmt::Display for TokenType {
             NumberLiteral(x) => write!(f, "{:?}", x),
             IntegerLiteral(x) => write!(f, "{}", x),
             StringLiteral(x) => write!(f, "\"{}\"", x),
+            Keyword(x) => write!(f, "{}", x),
             QuoteTick => write!(f, "'"),
             Unquote => write!(f, ","),
             QuasiQuote => write!(f, "`"),
             UnquoteSplice => write!(f, ",@"),
             Error => write!(f, "error"),
             Comment => write!(f, ""),
-            Hash => write!(f, "#"),
             If => write!(f, "if"),
             Define => write!(f, "define"),
             Let => write!(f, "let"),
-            Transduce => write!(f, "transduce"),
-            Execute => write!(f, "execute"),
+            TestLet => write!(f, "test-let"),
             Return => write!(f, "return!"),
             Begin => write!(f, "begin"),
-            Panic => write!(f, "panic!"),
             Lambda => write!(f, "lambda"),
-            Apply => write!(f, "apply"),
             Quote => write!(f, "quote"),
             DefineSyntax => write!(f, "define-syntax"),
             SyntaxRules => write!(f, "syntax-rules"),
             Ellipses => write!(f, "..."),
-            Struct => write!(f, "struct"),
             Set => write!(f, "set!"),
-            Read => write!(f, "read"),
-            Eval => write!(f, "eval"),
             Require => write!(f, "require"),
-            CallCC => write!(f, "call/cc"),
         }
     }
 }
@@ -306,11 +293,16 @@ pub struct Token<'a> {
 }
 
 impl<'a> Token<'a> {
-    pub const fn new(ty: TokenType, source: &'a str, range: ops::Range<usize>) -> Self {
+    pub const fn new(
+        ty: TokenType,
+        source: &'a str,
+        range: ops::Range<usize>,
+        source_id: Option<SourceId>,
+    ) -> Self {
         Self {
             ty,
             source,
-            span: Span::new(range.start, range.end),
+            span: Span::new(range.start, range.end, source_id),
         }
     }
 

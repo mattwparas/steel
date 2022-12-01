@@ -10,9 +10,13 @@ pub mod rerrs;
 pub mod rvals;
 pub mod stdlib;
 #[macro_use]
-pub(crate) mod gc;
+pub mod gc;
 mod conversions;
-pub(crate) mod parser;
+
+#[cfg(feature = "jit")]
+pub mod jit;
+
+pub mod parser;
 pub mod steel_vm;
 #[cfg(test)]
 mod tests;

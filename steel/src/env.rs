@@ -1,4 +1,9 @@
-use crate::rvals::{Result, SteelVal};
+use std::collections::HashMap;
+
+use crate::{
+    parser::ast::ExprKind,
+    rvals::{Result, SteelVal},
+};
 
 // TODO
 pub const fn _new_void() -> SteelVal {
@@ -15,13 +20,11 @@ pub const fn _new_false() -> SteelVal {
     SteelVal::BoolV(false)
 }
 
+#[allow(unused)]
 #[derive(Debug)]
 pub struct Env {
     pub(crate) bindings_vec: Vec<SteelVal>,
-}
-
-pub trait MacroEnv {
-    fn validate_identifier(&self, name: &str) -> bool;
+    pub(crate) ast_map: HashMap<usize, ExprKind>,
 }
 
 impl Env {
@@ -33,7 +36,30 @@ impl Env {
     pub fn root() -> Self {
         Env {
             bindings_vec: Vec::new(),
+            ast_map: HashMap::new(),
         }
+    }
+
+    pub(crate) fn _print_diagnostics(&self) {
+        for (idx, value) in self.bindings_vec.iter().enumerate() {
+            if let SteelVal::Closure(b) = value {
+                let count = b.call_count();
+                if count > 0 {
+                    println!("Function: {} - Count: {}", idx, b.call_count());
+                }
+            }
+        }
+    }
+
+    // Appends the values from the map into the other
+    pub(crate) fn _add_hashmap(&mut self, map: HashMap<usize, ExprKind>) {
+        for (key, value) in map {
+            self.ast_map.insert(key, value);
+        }
+    }
+
+    pub(crate) fn _get_expr(&mut self, idx: usize) -> Option<&ExprKind> {
+        self.ast_map.get(&idx)
     }
 
     /// Search starting from the current environment
@@ -43,8 +69,13 @@ impl Env {
     ///
     /// Otherwise, error with `FreeIdentifier`
     // #[inline]
-    pub fn repl_lookup_idx(&self, idx: usize) -> Result<SteelVal> {
-        Ok(self.bindings_vec[idx].clone())
+    pub fn repl_lookup_idx(&self, idx: usize) -> SteelVal {
+        self.bindings_vec[idx].clone()
+    }
+
+    /// Get the value located at that index
+    pub fn _repl_get_idx(&self, idx: usize) -> &SteelVal {
+        &self.bindings_vec[idx]
     }
 
     #[inline]
@@ -67,5 +98,9 @@ impl Env {
     pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
         // self.bindings_map.insert(idx, val);
         self.repl_define_idx(idx, val);
+    }
+
+    pub fn roots(&self) -> impl Iterator<Item = &SteelVal> {
+        self.bindings_vec.iter()
     }
 }

@@ -1,34 +1,75 @@
 use super::{
-    options::{ApplyContract, DoNotApplyContracts, DoNotUseCallback, UseCallback},
-    primitives::{embed_primitives, embed_primitives_without_io, CONSTANTS},
-    vm::VirtualMachineCore,
+    builtin::BuiltInModule,
+    dylib::DylibContainers,
+    primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
+    vm::SteelThread,
 };
 use crate::{
-    compiler::{compiler::Compiler, constants::ConstantMap, program::Program},
+    compiler::{
+        compiler::Compiler,
+        constants::ConstantMap,
+        modules::CompiledModule,
+        program::{Executable, RawProgramWithSymbols},
+    },
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
-    parser::parser::{ParseError, Parser},
-    rerrs::{ErrorKind, SteelErr},
+    parser::parser::{ParseError, Parser, Sources},
+    rerrs::back_trace,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
-    stop, throw,
+    stop, throw, SteelErr,
 };
-use std::{
-    collections::HashMap,
-    io::Read,
-    path::{Path, PathBuf},
-    rc::Rc,
-};
+use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
 use im_rc::HashMap as ImmutableHashMap;
 use itertools::Itertools;
 
 pub struct Engine {
-    virtual_machine: VirtualMachineCore,
+    virtual_machine: SteelThread,
     compiler: Compiler,
     constants: Option<ImmutableHashMap<String, SteelVal>>,
+    modules: ImmutableHashMap<String, BuiltInModule>,
+    sources: Sources,
+    dylibs: DylibContainers,
 }
 
 impl Engine {
+    /// Function to access a kernel level execution environment
+    /// Has access to primitives and syntax rules, but will not defer to a child
+    /// kernel in the compiler
+    pub(crate) fn new_kernel() -> Self {
+        log::info!(target:"kernel", "Instantiating a new kernel");
+
+        let mut vm = Engine {
+            virtual_machine: SteelThread::new(),
+            compiler: Compiler::default(),
+            constants: None,
+            modules: ImmutableHashMap::new(),
+            sources: Sources::new(),
+            dylibs: DylibContainers::new(),
+        };
+
+        register_builtin_modules(&mut vm);
+
+        vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
+            .unwrap();
+
+        log::info!(target:"kernel", "Registered modules in the kernel!");
+
+        // embed_primitives(&mut vm);
+
+        let core_libraries = [
+            crate::stdlib::PRELUDE,
+            crate::stdlib::CONTRACTS,
+            crate::stdlib::DISPLAY,
+        ];
+
+        for core in core_libraries.into_iter() {
+            vm.compile_and_run_raw_program(core).unwrap();
+        }
+
+        vm
+    }
+
     /// Instantiates a raw engine instance. Includes no primitives or prelude.
     ///
     /// # Examples
@@ -41,9 +82,12 @@ impl Engine {
     /// ```
     pub fn new_raw() -> Self {
         Engine {
-            virtual_machine: VirtualMachineCore::new(),
-            compiler: Compiler::default(),
+            virtual_machine: SteelThread::new(),
+            compiler: Compiler::default_with_kernel(),
             constants: None,
+            modules: ImmutableHashMap::new(),
+            sources: Sources::new(),
+            dylibs: DylibContainers::new(),
         }
     }
 
@@ -63,22 +107,68 @@ impl Engine {
     pub fn new_base() -> Self {
         let mut vm = Engine::new_raw();
         // Embed any primitives that we want to use
-        embed_primitives(&mut vm);
+
+        register_builtin_modules(&mut vm);
+
+        vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
+            .unwrap();
+
+        vm.dylibs.load_modules();
+
+        let modules = vm.dylibs.modules().collect::<Vec<_>>();
+
+        for module in modules {
+            vm.register_module(module);
+        }
+
+        // vm.dylibs.load_modules(&mut vm);
+
         vm
+    }
+
+    pub fn with_contracts(&mut self, contracts: bool) -> &mut Self {
+        self.virtual_machine.with_contracts(contracts);
+        self
     }
 
     #[inline]
     pub fn new_sandboxed() -> Self {
         let mut vm = Engine::new_raw();
-        embed_primitives_without_io(&mut vm);
 
-        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::CONTRACTS];
+        register_builtin_modules_without_io(&mut vm);
 
-        for core in std::array::IntoIter::new(core_libraries) {
-            vm.parse_and_execute_without_optimizations(core).unwrap();
+        vm.compile_and_run_raw_program(crate::steel_vm::primitives::SANDBOXED_MODULES)
+            .unwrap();
+
+        let core_libraries = [
+            crate::stdlib::PRELUDE,
+            crate::stdlib::CONTRACTS,
+            crate::stdlib::DISPLAY,
+        ];
+
+        for core in core_libraries.into_iter() {
+            vm.compile_and_run_raw_program(core).unwrap();
         }
 
         vm
+    }
+
+    pub fn call_printing_method_in_context(&mut self, argument: SteelVal) -> Result<SteelVal> {
+        let function = self.extract_value("println")?;
+        self.call_function_with_args(function, vec![argument])
+    }
+
+    pub(crate) fn call_function_with_args(
+        &mut self,
+        function: SteelVal,
+        arguments: Vec<SteelVal>,
+    ) -> Result<SteelVal> {
+        self.virtual_machine
+            .call_function(&self.compiler.constant_map, function, arguments)
+    }
+
+    pub fn run(&mut self, input: &str) -> Result<Vec<SteelVal>> {
+        self.compile_and_run_raw_program(input)
     }
 
     /// Instantiates a new engine instance with all the primitive functions enabled.
@@ -102,8 +192,8 @@ impl Engine {
             crate::stdlib::CONTRACTS,
         ];
 
-        for core in std::array::IntoIter::new(core_libraries) {
-            vm.parse_and_execute_without_optimizations(core).unwrap();
+        for core in core_libraries.into_iter() {
+            vm.compile_and_run_raw_program(core).unwrap();
         }
 
         vm
@@ -128,7 +218,7 @@ impl Engine {
         ];
 
         for core in core_libraries {
-            self.parse_and_execute_without_optimizations(core)?;
+            self.compile_and_run_raw_program(core)?;
         }
 
         Ok(self)
@@ -154,35 +244,87 @@ impl Engine {
         ];
 
         for core in core_libraries {
-            self.parse_and_execute_without_optimizations(core)?;
+            self.compile_and_run_raw_program(core)?;
         }
 
         Ok(self)
     }
 
-    /// Emits a program with path information embedded for error messaging.
-    pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
-        let constants = self.constants();
-        self.compiler.compile_program(expr, Some(path), constants)
+    // Registers the given module into the virtual machine
+    pub fn register_module(&mut self, module: BuiltInModule) -> &mut Self {
+        // Add the module to the map
+        self.modules.insert(module.name.to_string(), module.clone());
+        // Register the actual module itself as a value to make the virtual machine capable of reading from it
+        self.register_value(
+            module.unreadable_name().as_str(),
+            module.into_steelval().unwrap(),
+        );
+
+        self
     }
 
+    // /// Emits a program with path information embedded for error messaging.
+    // pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
+    //     let constants = self.constants();
+    //     self.compiler.compile_program(expr, Some(path), constants)
+    // }
+
     /// Emits a program for a given `expr` directly without providing any error messaging for the path.
-    pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
+    // pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
+    //     let constants = self.constants();
+    //     self.compiler.compile_program(expr, None, constants)
+    // }
+
+    pub fn emit_raw_program_no_path(&mut self, expr: &str) -> Result<RawProgramWithSymbols> {
         let constants = self.constants();
-        self.compiler.compile_program(expr, None, constants)
+        self.compiler.compile_executable(
+            expr,
+            None,
+            constants,
+            self.modules.clone(),
+            &mut self.sources,
+        )
+    }
+
+    pub fn emit_raw_program(&mut self, expr: &str, path: PathBuf) -> Result<RawProgramWithSymbols> {
+        let constants = self.constants();
+        self.compiler.compile_executable(
+            expr,
+            Some(path),
+            constants,
+            self.modules.clone(),
+            &mut self.sources,
+        )
+    }
+
+    pub fn debug_print_build(
+        &mut self,
+        name: String,
+        program: RawProgramWithSymbols,
+    ) -> Result<()> {
+        program.debug_build(name, &mut self.compiler.symbol_map)
     }
 
     // Attempts to disassemble the given expression into a series of bytecode dumps
-    pub fn disassemble(&mut self, expr: &str) -> Result<String> {
-        let constants = self.constants();
-        self.compiler
-            .emit_debug_instructions(expr, constants)
-            .map(|x| {
-                x.into_iter()
-                    .map(|i| crate::core::instructions::disassemble(&i))
-                    .join("\n\n")
-            })
-    }
+    // pub fn disassemble(&mut self, expr: &str) -> Result<String> {
+    //     let constants = self.constants();
+    //     self.compiler
+    //         .emit_debug_instructions(expr, constants)
+    //         .map(|x| {
+    //             x.into_iter()
+    //                 .map(|i| crate::core::instructions::disassemble(&i))
+    //                 .join("\n\n")
+    //         })
+    // }
+
+    // pub fn execute_without_callbacks(
+    //     &mut self,
+    //     bytecode: Rc<[DenseInstruction]>,
+    //     constant_map: &ConstantMap,
+    // ) -> Result<SteelVal> {
+    //     self.virtual_machine
+    //         .execute::<DoNotUseCallback>(bytecode, constant_map, &[])
+    // }
 
     /// Execute bytecode with a constant map directly.
     pub fn execute(
@@ -190,48 +332,138 @@ impl Engine {
         bytecode: Rc<[DenseInstruction]>,
         constant_map: &ConstantMap,
     ) -> Result<SteelVal> {
-        self.virtual_machine
-            .execute(bytecode, constant_map, UseCallback, ApplyContract)
+        self.virtual_machine.execute(bytecode, constant_map, &[])
     }
 
     /// Emit the bytecode directly, with a path provided.
-    pub fn emit_instructions_with_path(
+    // pub fn emit_instructions_with_path(
+    //     &mut self,
+    //     exprs: &str,
+    //     path: PathBuf,
+    // ) -> Result<Vec<Vec<DenseInstruction>>> {
+    //     let constants = self.constants();
+    //     self.compiler
+    //         .emit_instructions(exprs, Some(path), constants)
+    // }
+
+    // /// Emit instructions directly, without a path for error messaging.
+    // pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
+    //     let constants = self.constants();
+    //     self.compiler.emit_instructions(exprs, None, constants)
+    // }
+
+    /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
+    // pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
+    //     self.virtual_machine
+    //         .execute_program::<UseCallback, ApplyContract>(program)
+    // }
+
+    // TODO -> clean up this API a lot
+    pub fn compile_and_run_raw_program_with_path(
         &mut self,
         exprs: &str,
         path: PathBuf,
-    ) -> Result<Vec<Vec<DenseInstruction>>> {
+    ) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
-        self.compiler
-            .emit_instructions(exprs, Some(path), constants)
+        let program = self.compiler.compile_executable(
+            exprs,
+            Some(path),
+            constants,
+            self.modules.clone(),
+            &mut self.sources,
+        )?;
+
+        // program.profile_instructions();
+
+        self.run_raw_program(program)
     }
 
-    /// Emit instructions directly, without a path for error messaging.
-    pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
+    pub(crate) fn _run_raw_program_from_exprs(
+        &mut self,
+        exprs: Vec<ExprKind>,
+    ) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
-        self.compiler.emit_instructions(exprs, None, constants)
+        let program = self.compiler.compile_executable_from_expressions(
+            exprs,
+            self.modules.clone(),
+            constants,
+            &mut self.sources,
+        )?;
+        self.run_raw_program(program)
     }
 
-    /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
-    pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
-        self.virtual_machine
-            .execute_program(program, UseCallback, ApplyContract)
+    pub fn compile_and_run_raw_program(&mut self, exprs: &str) -> Result<Vec<SteelVal>> {
+        let constants = self.constants();
+        let program = self.compiler.compile_executable(
+            exprs,
+            None,
+            constants,
+            self.modules.clone(),
+            &mut self.sources,
+        )?;
+
+        // program.profile_instructions();
+
+        self.run_raw_program(program)
+    }
+
+    pub fn raw_program_to_executable(
+        &mut self,
+        program: RawProgramWithSymbols,
+    ) -> Result<Executable> {
+        program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)
+    }
+
+    pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
+        let executable = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)?;
+        self.virtual_machine.run_executable(&executable)
+    }
+
+    pub fn run_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
+        self.virtual_machine.run_executable(executable)
+    }
+
+    /// Directly emit the expanded ast
+    pub fn emit_expanded_ast(
+        &mut self,
+        expr: &str,
+        path: Option<PathBuf>,
+    ) -> Result<Vec<ExprKind>> {
+        let constants = self.constants();
+        self.compiler.emit_expanded_ast(
+            expr,
+            constants,
+            path,
+            &mut self.sources,
+            self.modules.clone(),
+        )
     }
 
     /// Emit the unexpanded AST
     pub fn emit_ast_to_string(expr: &str) -> Result<String> {
         let mut intern = HashMap::new();
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr, &mut intern).collect();
+            Parser::new(expr, &mut intern, None).collect();
         let parsed = parsed?;
         Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
 
     /// Emit the fully expanded AST
-    pub fn emit_fully_expanded_ast_to_string(&mut self, expr: &str) -> Result<String> {
+    pub fn emit_fully_expanded_ast_to_string(
+        &mut self,
+        expr: &str,
+        path: Option<PathBuf>,
+    ) -> Result<String> {
         let constants = self.constants();
         Ok(self
             .compiler
-            .emit_expanded_ast(expr, constants)?
+            .emit_expanded_ast(
+                expr,
+                constants,
+                path,
+                &mut self.sources,
+                self.modules.clone(),
+            )?
             .into_iter()
             .map(|x| x.to_pretty(60))
             .join("\n\n"))
@@ -319,10 +551,15 @@ impl Engine {
                 stop!(ArityMismatch => format!("{} expected 1 argument, got {}", predicate_name, args.len()));
             }
 
-            Ok(SteelVal::BoolV(T::from_steelval(args[0].clone()).is_ok()))
+            assert!(args.len() == 1);
+
+            Ok(SteelVal::BoolV(T::from_steelval(&args[0]).is_ok()))
         };
 
-        self.register_value(predicate_name, SteelVal::BoxedFunction(Rc::new(f)))
+        self.register_value(
+            predicate_name,
+            SteelVal::BoxedFunction(Box::new(Rc::new(f))),
+        )
     }
 
     /// Registers a callback function. If registered, this callback will be called on every instruction
@@ -403,7 +640,58 @@ impl Engine {
     /// assert_eq!(vm.extract::<usize>("a").unwrap(), 10);
     /// ```
     pub fn extract<T: FromSteelVal>(&self, name: &str) -> Result<T> {
-        T::from_steelval(self.extract_value(name)?)
+        T::from_steelval(&self.extract_value(name)?)
+    }
+
+    pub fn raise_error(&self, error: SteelErr) {
+        if let Some(span) = error.span() {
+            if let Some(source_id) = span.source_id() {
+                let file_name = self.sources.get_path(&source_id);
+
+                if let Some(file_content) = self.sources.get(source_id) {
+                    // Build stack trace if we have it:
+                    if let Some(trace) = error.stack_trace() {
+                        for dehydrated_context in trace.trace().iter() {
+                            // Report a call stack with whatever we actually have,
+                            if let Some(span) = dehydrated_context.span() {
+                                if let Some(id) = span.source_id() {
+                                    if let Some(source) = self.sources.get(id) {
+                                        let trace_line_file_name = self.sources.get_path(&id);
+
+                                        back_trace(
+                                            trace_line_file_name
+                                                .and_then(|x| x.to_str())
+                                                .unwrap_or(""),
+                                            source,
+                                            *span,
+                                        );
+
+                                        // let slice = &source.as_str()[span.range()];
+
+                                        // println!("{}", slice);
+
+                                        // todo!()
+                                    }
+                                }
+                            }
+
+                            // source = self.sources.get(dehydrated_context.)
+                        }
+                    }
+
+                    error.emit_result(
+                        file_name.and_then(|x| x.to_str()).unwrap_or(""),
+                        file_content,
+                    );
+                    return;
+                }
+            }
+        }
+
+        println!(
+            "Unable to locate source and span information for this error: {}",
+            error
+        );
     }
 
     /// Execute a program given as the `expr`, and computes a `Vec<SteelVal>` corresponding to the output of each expression given.
@@ -422,73 +710,72 @@ impl Engine {
     /// let output = vm.run("(+ 1 2) (* 5 5) (- 10 5)").unwrap();
     /// assert_eq!(output, vec![SteelVal::IntV(3), SteelVal::IntV(25), SteelVal::IntV(5)]);
     /// ```
-    pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine
-            .execute_program(program, UseCallback, ApplyContract)
-    }
+    // pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, None, constants)?;
+    //     self.virtual_machine.execute_program(program)
+    // }
 
     /// Execute a program, however do not run any callbacks as registered with `on_progress`.
-    pub fn run_without_callbacks(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine
-            .execute_program(program, DoNotUseCallback, ApplyContract)
-    }
+    // pub fn run_without_callbacks(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, None, constants)?;
+    //     self.virtual_machine
+    //         .execute_program::<DoNotUseCallback, ApplyContract>(program)
+    // }
 
-    /// Execute a program (as per [`run`](crate::steel_vm::engine::Engine::run)), however do not enforce any contracts. Any contracts that are added are not
-    /// enforced.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # extern crate steel;
-    /// # use steel::steel_vm::engine::Engine;
-    /// use steel::rvals::SteelVal;
-    /// let mut vm = Engine::new();
-    /// let output = vm.run_without_contracts(r#"
-    ///        (define/contract (foo x)
-    ///           (->/c integer? any/c)
-    ///           "hello world")
-    ///
-    ///        (foo "bad-input")
-    /// "#).unwrap();
-    /// ```
-    pub fn run_without_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine
-            .execute_program(program, UseCallback, DoNotApplyContracts)
-    }
+    // TODO: Come back to this
+    /*
+    // / Execute a program (as per [`run`](crate::steel_vm::engine::Engine::run)), however do not enforce any contracts. Any contracts that are added are not
+    // / enforced.
+    // /
+    // / # Examples
+    // /
+    // / ```
+    // / # extern crate steel;
+    // / # use steel::steel_vm::engine::Engine;
+    // / use steel::rvals::SteelVal;
+    // / let mut vm = Engine::new();
+    // / let output = vm.run_without_contracts(r#"
+    // /        (define/contract (foo x)
+    // /           (->/c integer? any/c)
+    // /           "hello world")
+    // /
+    // /        (foo "bad-input")
+    // / "#).unwrap();
+    // / ```
+    // pub fn run_without_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, None, constants)?;
+    //     self.virtual_machine.execute_program::<UseCallback>(program)
+    // }
+     */
 
     /// Execute a program without invoking any callbacks, or enforcing any contract checking
-    pub fn run_without_callbacks_or_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine
-            .execute_program(program, DoNotUseCallback, DoNotApplyContracts)
-    }
+    // pub fn run_without_callbacks_or_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, None, constants)?;
+    //     self.virtual_machine
+    //         .execute_program::<DoNotUseCallback, DoNotApplyContracts>(program)
+    // }
 
     /// Similar to [`run`](crate::steel_vm::engine::Engine::run), however it includes path information
     /// for error reporting purposes.
-    pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, Some(path), constants)?;
-        self.virtual_machine
-            .execute_program(program, UseCallback, ApplyContract)
-    }
+    // pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, Some(path), constants)?;
+    //     self.virtual_machine.execute_program(program)
+    // }
 
-    pub fn parse_and_execute_without_optimizations(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_program(expr, None, constants)?;
-        self.virtual_machine
-            .execute_program(program, UseCallback, ApplyContract)
-    }
+    // pub fn compile_and_run_raw_program(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     let constants = self.constants();
+    //     let program = self.compiler.compile_program(expr, None, constants)?;
+    //     self.virtual_machine.execute_program(program)
+    // }
 
-    pub fn parse_and_execute(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-        self.parse_and_execute_without_optimizations(expr)
-    }
+    // pub fn compile_and_run_raw_program(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
+    //     self.compile_and_run_raw_program(expr)
+    // }
 
     // Read in the file from the given path and execute accordingly
     // Loads all the functions in from the given env
@@ -499,76 +786,90 @@ impl Engine {
     //     let mut file = std::fs::File::open(path)?;
     //     let mut exprs = String::new();
     //     file.read_to_string(&mut exprs)?;
-    //     self.parse_and_execute(exprs.as_str(), )
+    //     self.compile_and_run_raw_program(exprs.as_str(), )
     // }
 
-    pub fn parse_and_execute_from_path<P: AsRef<Path>>(
-        &mut self,
-        path: P,
-    ) -> Result<Vec<SteelVal>> {
-        let path_buf = PathBuf::from(path.as_ref());
-        let mut file = std::fs::File::open(path)?;
-        let mut exprs = String::new();
-        file.read_to_string(&mut exprs)?;
-        self.run_with_path(exprs.as_str(), path_buf)
-    }
+    // pub fn parse_and_execute_from_path<P: AsRef<Path>>(
+    //     &mut self,
+    //     path: P,
+    // ) -> Result<Vec<SteelVal>> {
+    //     let path_buf = PathBuf::from(path.as_ref());
+    //     let mut file = std::fs::File::open(path)?;
+    //     let mut exprs = String::new();
+    //     file.read_to_string(&mut exprs)?;
+    //     self.run_with_path(exprs.as_str(), path_buf)
+    // }
 
     // TODO this does not take into account the issues with
     // people registering new functions that shadow the original one
     fn constants(&mut self) -> ImmutableHashMap<String, SteelVal> {
         if let Some(hm) = self.constants.clone() {
-            hm
-        } else {
-            let mut hm = ImmutableHashMap::new();
-            for constant in CONSTANTS {
-                if let Ok(v) = self.extract_value(constant) {
-                    hm.insert(constant.to_string(), v);
-                }
+            if !hm.is_empty() {
+                return hm;
             }
-            self.constants = Some(hm.clone());
-            hm
         }
-    }
-}
 
-#[cfg(test)]
-mod on_progress_tests {
-    use super::*;
-    use std::cell::Cell;
-    use std::rc::Rc;
-
-    #[test]
-    fn count_every_thousand() {
-        let mut vm = Engine::new();
-
-        let external_count = Rc::new(Cell::new(0));
-        let embedded_count = Rc::clone(&external_count);
-
-        vm.on_progress(move |count| {
-            // parameter is 'usize' - number of instructions performed up to this point
-            if count % 1000 == 0 {
-                // print out a progress log every 1000 operations
-                println!("Number of instructions up to this point: {}", count);
-                embedded_count.set(embedded_count.get() + 1);
-
-                // Returning false here would quit the evaluation of the function
-                return true;
+        let mut hm = ImmutableHashMap::new();
+        for constant in CONSTANTS {
+            if let Ok(v) = self.extract_value(constant) {
+                hm.insert(constant.to_string(), v);
             }
-            true
-        });
+        }
+        self.constants = Some(hm.clone());
 
-        // This should end with "Number of instructions up to this point: 4000"
-        vm.run(
-            r#"
-            (define (loop x)
-                (if (equal? x 1000)
-                    x
-                    (loop (+ x 1))))
-            (displayln (loop 0))
-        "#,
-        )
-        .unwrap();
+        hm
+    }
 
-        assert_eq!(external_count.get(), 4);
+    pub fn add_module(&mut self, path: String) -> Result<()> {
+        self.compiler
+            .compile_module(path.into(), &mut self.sources, self.modules.clone())
+    }
+
+    pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
+        self.compiler.modules()
     }
 }
+
+// #[cfg(test)]
+// mod on_progress_tests {
+//     use super::*;
+//     use std::cell::Cell;
+//     use std::rc::Rc;
+
+//     // TODO: At the moment the on progress business is turned off
+
+//     // #[test]
+//     // fn count_every_thousand() {
+//     //     let mut vm = Engine::new();
+
+//     //     let external_count = Rc::new(Cell::new(0));
+//     //     let embedded_count = Rc::clone(&external_count);
+
+//     //     vm.on_progress(move |count| {
+//     //         // parameter is 'usize' - number of instructions performed up to this point
+//     //         if count % 1000 == 0 {
+//     //             // print out a progress log every 1000 operations
+//     //             println!("Number of instructions up to this point: {}", count);
+//     //             embedded_count.set(embedded_count.get() + 1);
+
+//     //             // Returning false here would quit the evaluation of the function
+//     //             return true;
+//     //         }
+//     //         true
+//     //     });
+
+//     //     // This should end with "Number of instructions up to this point: 4000"
+//     //     vm.run(
+//     //         r#"
+//     //         (define (loop x)
+//     //             (if (equal? x 1000)
+//     //                 x
+//     //                 (loop (+ x 1))))
+//     //         (displayln (loop 0))
+//     //     "#,
+//     //     )
+//     //     .unwrap();
+
+//     //     assert_eq!(external_count.get(), 4);
+//     // }
+// }

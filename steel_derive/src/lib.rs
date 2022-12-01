@@ -11,14 +11,18 @@ use syn::{Data, DeriveInput};
 pub fn derive_steel(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
-    if let Data::Struct(_) = &input.data {
-        let gen = quote! {
-            impl steel::rvals::Custom for #name {}
-        };
 
-        return gen.into();
-    };
+    match &input.data {
+        Data::Struct(_) | Data::Enum(_) => {
+            let gen = quote! {
+                impl steel::rvals::Custom for #name {}
+            };
 
-    let output = quote! { #input };
-    output.into()
+            return gen.into();
+        }
+        _ => {
+            let output = quote! { #input };
+            output.into()
+        }
+    }
 }

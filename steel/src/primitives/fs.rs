@@ -1,5 +1,3 @@
-use crate::primitives::lists::ListOperations;
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use std::env::current_dir;
@@ -11,7 +9,7 @@ impl FsFunctions {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::BoolV(Path::new(s).exists()))
+                    Ok(SteelVal::BoolV(Path::new(s.as_ref()).exists()))
                 } else {
                     stop!(TypeMismatch => "path-exists? expects a string")
                 }
@@ -27,9 +25,9 @@ impl FsFunctions {
                 // let path =
 
                 if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::BoolV(Path::new(s).is_file()))
+                    Ok(SteelVal::BoolV(Path::new(s.as_ref()).is_file()))
                 } else {
-                    stop!(TypeMismatch => "is-file? expects a string")
+                    stop!(TypeMismatch => format!("is-file? expects a string, found: {}", &args[0]))
                 }
             } else {
                 stop!(ArityMismatch => "is-file? takes one argument")
@@ -43,7 +41,7 @@ impl FsFunctions {
                 // let path =
 
                 if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::BoolV(Path::new(s).is_dir()))
+                    Ok(SteelVal::BoolV(Path::new(&s.to_string()).is_dir()))
                 } else {
                     stop!(TypeMismatch => "is-dir? expects a string")
                 }
@@ -58,15 +56,14 @@ impl FsFunctions {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
                     Ok(SteelVal::StringV(
-                        Path::new(s)
+                        Path::new(s.as_str())
                             .file_name()
-                            .map(|x| x.to_str())
-                            .flatten()
+                            .and_then(|x| x.to_str())
                             .unwrap_or("")
                             .into(),
                     ))
                 } else {
-                    stop!(TypeMismatch => "is-dir? expects a string")
+                    stop!(TypeMismatch => "file-name expects a string")
                 }
             } else {
                 stop!(ArityMismatch => "file-name takes one argument")
@@ -80,18 +77,18 @@ impl FsFunctions {
                 // let path =
 
                 if let SteelVal::StringV(s) = &args[0] {
-                    let p = Path::new(s);
+                    let p = Path::new(s.as_ref());
                     if p.is_dir() {
                         let iter = p.read_dir();
                         match iter {
-                            Ok(i) => {
-                                ListOperations::built_in_list_normal_iter(i.into_iter().map(|x| {
-                                    match x?.path().to_str() {
+                            Ok(i) => Ok(SteelVal::ListV(
+                                i.into_iter()
+                                    .map(|x| match x?.path().to_str() {
                                         Some(s) => Ok(SteelVal::StringV(s.into())),
                                         None => Ok(SteelVal::BoolV(false)),
-                                    }
-                                }))
-                            }
+                                    })
+                                    .collect::<Result<_>>()?,
+                            )),
                             Err(e) => stop!(Generic => e.to_string()),
                         }
                     } else {

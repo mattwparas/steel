@@ -11,7 +11,7 @@ use steel::steel_vm::engine::Engine;
 pub fn main() {
     let mut vm = Engine::new();
 
-    vm.run(
+    vm.compile_and_run_raw_program(
         r#"
         (require "examples/modules/sort_export.rkt")
 

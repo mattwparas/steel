@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::cell::Cell;
 
 pub type Callback = Box<dyn Fn(usize) -> bool>;

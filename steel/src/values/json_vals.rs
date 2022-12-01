@@ -1,10 +1,10 @@
 use crate::{
     gc::Gc,
-    primitives::ListOperations,
-    rerrs::{ErrorKind, SteelErr},
+    rerrs::SteelErr,
     rvals::{Result, SteelVal},
     throw,
 };
+use im_lists::list::List;
 use im_rc::HashMap;
 use serde_json::{Map, Number, Value};
 use std::convert::{TryFrom, TryInto};
@@ -18,8 +18,9 @@ pub fn string_to_jsexpr() -> SteelVal {
         } else {
             let arg =
                 &args[0].string_or_else(throw!(TypeMismatch => "string->jsexpr takes a string"))?;
-            let unescaped = unescape(arg);
-            let res: std::result::Result<Value, _> = serde_json::from_str(unescaped.as_str());
+            // let unescaped = unescape(arg);
+            // let res: std::result::Result<Value, _> = serde_json::from_str(unescaped.as_str());
+            let res: std::result::Result<Value, _> = serde_json::from_str(&arg);
             match res {
                 Ok(res) => res.try_into(),
                 Err(e) => stop!(Generic => format!("string->jsexpr failed: {}", e.to_string())),
@@ -42,6 +43,7 @@ pub fn serialize_val_to_string() -> SteelVal {
 }
 
 // required to parse each string
+#[allow(unused)]
 fn unescape(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars();
@@ -89,9 +91,11 @@ impl TryFrom<Value> for SteelVal {
             Value::Bool(t) => Ok(SteelVal::BoolV(t)),
             Value::Number(n) => <SteelVal>::try_from(n),
             Value::String(s) => Ok(SteelVal::StringV(s.into())),
-            Value::Array(v) => {
-                ListOperations::built_in_list_func_iter_result(v.into_iter().map(|x| x.try_into()))
-            }
+            Value::Array(v) => Ok(SteelVal::ListV(
+                v.into_iter()
+                    .map(|x| <SteelVal>::try_from(x))
+                    .collect::<Result<List<SteelVal>>>()?,
+            )),
             Value::Object(m) => m.try_into(),
         }
     }
@@ -117,8 +121,13 @@ impl TryFrom<SteelVal> for Value {
             SteelVal::NumV(n) => Ok(Value::Number(Number::from_f64(n).unwrap())),
             SteelVal::IntV(n) => Ok(Value::Number(Number::from(n))),
             SteelVal::CharV(c) => Ok(Value::String(c.to_string())),
-            SteelVal::Pair(_) => Ok(Value::Array(
-                SteelVal::iter(val)
+            // SteelVal::Pair(_) => Ok(Value::Array(
+            //     SteelVal::iter(val)
+            //         .map(|x| x.try_into())
+            //         .collect::<Result<Vec<_>>>()?,
+            // )),
+            SteelVal::ListV(l) => Ok(Value::Array(
+                l.into_iter()
                     .map(|x| x.try_into())
                     .collect::<Result<Vec<_>>>()?,
             )),
@@ -128,11 +137,11 @@ impl TryFrom<SteelVal> for Value {
                     .collect::<Result<Vec<_>>>()?,
             )),
             SteelVal::Void => stop!(Generic => "void not serializable"),
-            SteelVal::StringV(s) => Ok(Value::String(s.unwrap())),
+            SteelVal::StringV(s) => Ok(Value::String(s.to_string())),
             SteelVal::FuncV(_) => stop!(Generic => "function not serializable"),
             // SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
             // SteelVal::MacroV(_) => stop!(Generic => "macro not serializable"),
-            SteelVal::SymbolV(s) => Ok(Value::String(s.unwrap())),
+            SteelVal::SymbolV(s) => Ok(Value::String(s.to_string())),
             SteelVal::Custom(_) => stop!(Generic => "generic struct not serializable"),
             SteelVal::HashMapV(hm) => {
                 let mut map: Map<String, Value> = Map::new();
@@ -146,7 +155,7 @@ impl TryFrom<SteelVal> for Value {
                     .map(|x| x.clone().try_into())
                     .collect::<Result<Vec<_>>>()?,
             )),
-            SteelVal::StructV(_) => stop!(Generic => "built in struct not serializable yet"),
+            // SteelVal::StructV(_) => stop!(Generic => "built in struct not serializable yet"),
             _ => stop!(Generic => "type not serializable"),
             // SteelVal::StructClosureV(_, _) => {}
             // SteelVal::PortV(_) => {}

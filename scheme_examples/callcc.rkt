@@ -25,7 +25,7 @@
                               (lambda (resume-here)
                                 ;; Grab the current continuation
                                (set! control-state resume-here)
-                               (displayln "GETTING HERE")
+                              ;  (displayln "GETTING HERE")
                                (return element))))) ;; (return element) evaluates to next return
      lst)
     ;; TODO
@@ -35,20 +35,46 @@
 
   ;; (-> X u 'you-fell-off-the-end)
   ;; This is the actual generator, producing one item from a-list at a time.
-  (define (generator)
-    (call/cc control-state))
+  ; (define (generator)
+  ;   (call/cc control-state))
+
+  (lambda () (call/cc control-state)))
+
+;; TODO: don't use IDs for ordering - find something (depth + stack offset or arg position) that will better identify the position of a variable. The fact is that certain variables are created later, which means the offsets are all goofy.
+; (define generate-one-element-at-a-time
+;   (λ (lst)
+;     ((λ (control-state)
+;          ((λ (control-state0)
+;               (begin
+;                (set! control-state control-state0)
+;                 (λ ()
+;                   (call/cc control-state))))
+;             (λ (return)
+;               (begin
+;                (for-each
+;                    (λ (element)
+;                      (set! return
+;                        (call/cc
+;                           (λ (resume-here)
+;                             (begin
+;                              (set! control-state
+;                                 resume-here)
+;                               (return element))))))
+;                    lst)
+;                 (return (quote you-fell-off-the-end))))))
+;        123)))
 
   ;; Return the generator 
-  generator)
+  ; generator)
 
 (define generate-digit
   (generate-one-element-at-a-time '(0 1 2)))
 
-(generate-digit) ;; 0
-(generate-digit) ;; 1
-(generate-digit) ;; 2
-(generate-digit) ;; you-fell-off-the-end
-(generate-digit) ;; you-fell-off-the-end
+; (generate-digit) ;; 0
+; (generate-digit) ;; 1
+; (generate-digit) ;; 2
+; (generate-digit) ;; you-fell-off-the-end
+; (generate-digit) ;; you-fell-off-the-end
 
 ; (equal? 0 (generate-digit)) ;; 0
 ; (equal? 1 (generate-digit)) ;; 1

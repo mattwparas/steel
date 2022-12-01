@@ -1,13 +1,12 @@
 use crate::core::opcode::OpCode;
 use crate::parser::parser::SyntaxObject;
-use crate::parser::span::Span;
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 
 /// Instruction loaded with lots of information prior to being condensed
 /// Includes the opcode and the payload size, plus some information
 /// used for locating spans and pretty error messages
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Instruction {
     pub op_code: OpCode,
     pub payload_size: usize,
@@ -16,79 +15,15 @@ pub struct Instruction {
 }
 
 impl Instruction {
-    pub fn new(
+    pub fn new_from_parts(
         op_code: OpCode,
         payload_size: usize,
-        contents: SyntaxObject,
-        constant: bool,
+        contents: Option<SyntaxObject>,
     ) -> Instruction {
         Instruction {
             op_code,
             payload_size,
-            contents: Some(contents),
-            constant,
-        }
-    }
-
-    pub fn new_panic(span: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::PANIC,
-            payload_size: 0,
-            contents: Some(span),
-            constant: false,
-        }
-    }
-
-    pub fn new_apply(span: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::APPLY,
-            payload_size: 0,
-            contents: Some(span),
-            constant: false,
-        }
-    }
-
-    pub fn new_clear() -> Instruction {
-        Instruction {
-            op_code: OpCode::CLEAR,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_push_const(idx: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::PUSHCONST,
-            payload_size: idx,
-            contents: None,
-            constant: true,
-        }
-    }
-
-    pub fn new_eval() -> Instruction {
-        Instruction {
-            op_code: OpCode::EVAL,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_ndef(payload_size: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::NDEFS,
-            payload_size,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_func(arity: usize, contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::FUNC,
-            payload_size: arity,
-            contents: Some(contents),
+            contents,
             constant: false,
         }
     }
@@ -101,241 +36,19 @@ impl Instruction {
             constant: false,
         }
     }
-
-    pub fn new_pop_with_upvalue(idx: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::POP,
-            payload_size: idx,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_if(true_jump: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::IF,
-            payload_size: true_jump,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_jmp(jump: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::JMP,
-            payload_size: jump,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_tco_jmp() -> Instruction {
-        Instruction {
-            op_code: OpCode::TCOJMP,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_sclosure() -> Instruction {
-        Instruction {
-            op_code: OpCode::SCLOSURE,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_eclosure(arity: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::ECLOSURE,
-            payload_size: arity,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_bind(contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::BIND,
-            payload_size: 0,
-            contents: Some(contents),
-            constant: false,
-        }
-    }
-
-    pub fn new_sdef() -> Instruction {
-        Instruction {
-            op_code: OpCode::SDEF,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_edef() -> Instruction {
-        Instruction {
-            op_code: OpCode::EDEF,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_void() -> Instruction {
-        Instruction {
-            op_code: OpCode::VOID,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_pass(arity: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::PASS,
-            payload_size: arity,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_set() -> Instruction {
-        Instruction {
-            op_code: OpCode::SET,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_collect() -> Instruction {
-        Instruction {
-            op_code: OpCode::COLLECT,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_collect_to() -> Instruction {
-        Instruction {
-            op_code: OpCode::COLLECTTO,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_transduce() -> Instruction {
-        Instruction {
-            op_code: OpCode::TRANSDUCE,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_read() -> Instruction {
-        Instruction {
-            op_code: OpCode::READ,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_struct(idx: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::STRUCT,
-            payload_size: idx,
-            contents: None,
-            constant: true,
-        }
-    }
-
-    pub fn new_inner_struct(idx: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::INNERSTRUCT,
-            payload_size: idx,
-            contents: None,
-            constant: true,
-        }
-    }
-
-    pub fn new_call_cc() -> Instruction {
-        Instruction {
-            op_code: OpCode::CALLCC,
-            payload_size: 0,
-            contents: None,
-            constant: true,
-        }
-    }
-
-    pub fn new_local(idx: usize, contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::READLOCAL,
-            payload_size: idx,
-            contents: Some(contents),
-            constant: false,
-        }
-    }
-
-    pub fn new_set_local(idx: usize, contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::SETLOCAL,
-            payload_size: idx,
-            contents: Some(contents),
-            constant: false,
-        }
-    }
-
-    pub fn new_read_upvalue(idx: usize, contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::READUPVALUE,
-            payload_size: idx,
-            contents: Some(contents),
-            constant: false,
-        }
-    }
-
-    pub fn new_set_upvalue(idx: usize, contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::SETUPVALUE,
-            payload_size: idx,
-            contents: Some(contents),
-            constant: false,
-        }
-    }
-
-    pub fn new_local_upvalue(idx: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::FILLLOCALUPVALUE,
-            payload_size: idx,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_upvalue(idx: usize) -> Instruction {
-        Instruction {
-            op_code: OpCode::FILLUPVALUE,
-            payload_size: idx,
-            contents: None,
-            constant: false,
-        }
-    }
-
-    pub fn new_close_upvalue(flag: usize, contents: SyntaxObject) -> Instruction {
-        Instruction {
-            op_code: OpCode::CLOSEUPVALUE,
-            payload_size: flag,
-            contents: Some(contents),
-            constant: false,
-        }
-    }
 }
+
+// Want to turn a steel struct directly into this struct
+// If we values themselves can be mapped
+// impl TryFrom<SteelStruct> for Instruction {
+//     type Error = crate::SteelErr;
+
+//     fn try_from(value: SteelStruct) -> Result<Self, Self::Error> {
+//         if value.name == "Instruction" {
+
+//         }
+//     }
+// }
 
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
     instructions.into_iter().map(|x| x.into()).collect()
@@ -406,15 +119,27 @@ pub fn disassemble(instructions: &[Instruction]) -> String {
 pub struct DenseInstruction {
     pub op_code: OpCode,
     pub payload_size: u32,
-    pub span: Span,
+    pub span_index: usize,
 }
 
 impl DenseInstruction {
-    pub fn new(op_code: OpCode, payload_size: u32, span: Span) -> DenseInstruction {
+    pub fn new(op_code: OpCode, payload_size: u32) -> DenseInstruction {
         DenseInstruction {
             op_code,
             payload_size,
-            span,
+            span_index: 0,
+        }
+    }
+
+    pub fn new_with_index(
+        op_code: OpCode,
+        payload_size: u32,
+        span_index: usize,
+    ) -> DenseInstruction {
+        DenseInstruction {
+            op_code,
+            payload_size,
+            span_index,
         }
     }
 }
@@ -424,14 +149,6 @@ impl DenseInstruction {
 // generate an equivalent
 impl From<Instruction> for DenseInstruction {
     fn from(val: Instruction) -> DenseInstruction {
-        DenseInstruction::new(
-            val.op_code,
-            val.payload_size.try_into().unwrap(),
-            if let Some(syn) = val.contents {
-                syn.span
-            } else {
-                Span::new(0, 0)
-            },
-        )
+        DenseInstruction::new(val.op_code, val.payload_size.try_into().unwrap())
     }
 }

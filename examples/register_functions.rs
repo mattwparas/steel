@@ -1,8 +1,6 @@
 use steel::steel_vm::engine::Engine;
 use steel::steel_vm::register_fn::RegisterFn;
 
-use steel::steel_vm::register_fn::RegisterAsyncFn;
-
 fn external_function(arg1: usize, arg2: usize) -> usize {
     arg1 + arg2
 }
@@ -40,13 +38,19 @@ pub fn main() {
     vm.register_fn("result-function", result_function);
 
     // You can even register async finctions
-    vm.register_async_fn("test", test_function);
+    vm.register_fn("test", test_function);
 
-    vm.run(
+    // vm.register_fn(
+    //     "unwrap-or",
+    //     std::result::Result::<String, String>::unwrap_or,
+    // );
+
+    vm.compile_and_run_raw_program(
         r#"
         (define foo (external-function 10 25))
         (define bar (option-function "applesauce"))
         (define baz (result-function "bananas"))
+        ;; (define res (unwrap-or baz "default"))
     "#,
     )
     .unwrap();
@@ -60,7 +64,10 @@ pub fn main() {
     println!("bar: {}", bar);
     assert_eq!("applesauce".to_string(), bar);
 
-    let baz: String = vm.extract("baz").unwrap();
-    println!("baz: {}", baz);
-    assert_eq!("bananas".to_string(), baz);
+    let baz: Result<String, String> = vm.extract("baz").unwrap();
+    println!("baz: {:?}", baz.clone());
+    assert_eq!("bananas".to_string(), baz.unwrap());
+
+    // let res: SteelVal = vm.extract("res").unwrap();
+    // println!("res: {}", res);
 }

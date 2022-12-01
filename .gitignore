@@ -3,3 +3,4 @@
 Cargo.lock
 /scratch
 docs/book
+.vscode/

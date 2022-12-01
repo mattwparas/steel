@@ -3,19 +3,21 @@ use logos::{Lexer, Logos};
 use std::fmt;
 use std::iter::Iterator;
 
+use super::parser::SourceId;
+
 #[derive(Clone)]
 pub struct TokenStream<'a> {
     lexer: Lexer<'a, TokenType>,
     skip_comments: bool,
-    // skip_doc_comments: bool,
+    source_id: Option<SourceId>, // skip_doc_comments: bool,
 }
 
 impl<'a> TokenStream<'a> {
-    pub fn new(input: &'a str, skip_comments: bool) -> Self {
+    pub fn new(input: &'a str, skip_comments: bool, source_id: Option<SourceId>) -> Self {
         Self {
             lexer: TokenType::lexer(input),
             skip_comments,
-            // skip_doc_comments,
+            source_id, // skip_doc_comments,
         }
     }
 }
@@ -25,7 +27,7 @@ impl<'a> Iterator for TokenStream<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.lexer.next().and_then(|token| {
-            let token = Token::new(token, self.lexer.slice(), self.lexer.span());
+            let token = Token::new(token, self.lexer.slice(), self.lexer.span(), self.source_id);
             match token.ty {
                 // TokenType::Space => self.next(),
                 TokenType::Comment if self.skip_comments => self.next(),
@@ -56,14 +58,14 @@ mod tests {
 
     #[test]
     fn test_chars() {
-        let mut s = TokenStream::new("#\\a #\\b #\\λ", true);
+        let mut s = TokenStream::new("#\\a #\\b #\\λ", true, None);
 
         assert_eq!(
             s.next(),
             Some(Token {
                 ty: CharacterLiteral('a'),
                 source: "#\\a",
-                span: Span::new(0, 3)
+                span: Span::new(0, 3, None)
             })
         );
         assert_eq!(
@@ -71,7 +73,7 @@ mod tests {
             Some(Token {
                 ty: CharacterLiteral('b'),
                 source: "#\\b",
-                span: Span::new(4, 7)
+                span: Span::new(4, 7, None)
             })
         );
         assert_eq!(
@@ -79,20 +81,20 @@ mod tests {
             Some(Token {
                 ty: CharacterLiteral('λ'),
                 source: "#\\λ",
-                span: Span::new(8, 12)
+                span: Span::new(8, 12, None)
             })
         );
     }
 
     #[test]
     fn test_unexpected_char() {
-        let mut s = TokenStream::new("($)", true);
+        let mut s = TokenStream::new("($)", true, None);
         assert_eq!(
             s.next(),
             Some(Token {
                 ty: OpenParen,
                 source: "(",
-                span: Span::new(0, 1)
+                span: Span::new(0, 1, None)
             })
         );
         assert_eq!(
@@ -100,7 +102,7 @@ mod tests {
             Some(Token {
                 ty: Error,
                 source: "$",
-                span: Span::new(1, 2)
+                span: Span::new(1, 2, None)
             })
         );
         assert_eq!(
@@ -108,21 +110,21 @@ mod tests {
             Some(Token {
                 ty: CloseParen,
                 source: ")",
-                span: Span::new(2, 3)
+                span: Span::new(2, 3, None)
             })
         );
     }
 
     #[test]
     fn test_words() {
-        let mut s = TokenStream::new("foo FOO _123_ Nil #f #t", true);
+        let mut s = TokenStream::new("foo FOO _123_ Nil #f #t", true, None);
 
         assert_eq!(
             s.next(),
             Some(Token {
                 ty: Identifier("foo".to_owned()),
                 source: "foo",
-                span: Span::new(0, 3)
+                span: Span::new(0, 3, None)
             })
         );
 
@@ -131,7 +133,7 @@ mod tests {
             Some(Token {
                 ty: Identifier("FOO".to_owned()),
                 source: "FOO",
-                span: Span::new(4, 7)
+                span: Span::new(4, 7, None)
             })
         );
 
@@ -140,7 +142,7 @@ mod tests {
             Some(Token {
                 ty: Identifier("_123_".to_owned()),
                 source: "_123_",
-                span: Span::new(8, 13)
+                span: Span::new(8, 13, None)
             })
         );
 
@@ -149,7 +151,7 @@ mod tests {
             Some(Token {
                 ty: Identifier("Nil".to_owned()),
                 source: "Nil",
-                span: Span::new(14, 17)
+                span: Span::new(14, 17, None)
             })
         );
 
@@ -158,7 +160,7 @@ mod tests {
             Some(Token {
                 ty: BooleanLiteral(false),
                 source: "#f",
-                span: Span::new(18, 20)
+                span: Span::new(18, 20, None)
             })
         );
 
@@ -167,7 +169,7 @@ mod tests {
             Some(Token {
                 ty: BooleanLiteral(true),
                 source: "#t",
-                span: Span::new(21, 23)
+                span: Span::new(21, 23, None)
             })
         );
 
@@ -176,13 +178,13 @@ mod tests {
 
     #[test]
     fn test_number() {
-        let mut s = TokenStream::new("0 -0 -1.2 +2.3 999 1.", true);
+        let mut s = TokenStream::new("0 -0 -1.2 +2.3 999 1.", true, None);
         assert_eq!(
             s.next(),
             Some(Token {
                 ty: IntegerLiteral(0),
                 source: "0",
-                span: Span::new(0, 1),
+                span: Span::new(0, 1, None),
             })
         );
 
@@ -191,7 +193,7 @@ mod tests {
             Some(Token {
                 ty: IntegerLiteral(0),
                 source: "-0",
-                span: Span::new(2, 4),
+                span: Span::new(2, 4, None),
             })
         );
 
@@ -200,7 +202,7 @@ mod tests {
             Some(Token {
                 ty: NumberLiteral(-1.2),
                 source: "-1.2",
-                span: Span::new(5, 9),
+                span: Span::new(5, 9, None),
             })
         );
 
@@ -209,7 +211,7 @@ mod tests {
             Some(Token {
                 ty: NumberLiteral(2.3),
                 source: "+2.3",
-                span: Span::new(10, 14),
+                span: Span::new(10, 14, None),
             })
         );
 
@@ -218,7 +220,7 @@ mod tests {
             Some(Token {
                 ty: IntegerLiteral(999),
                 source: "999",
-                span: Span::new(15, 18),
+                span: Span::new(15, 18, None),
             })
         );
 
@@ -227,7 +229,7 @@ mod tests {
             Some(Token {
                 ty: NumberLiteral(1.0),
                 source: "1.",
-                span: Span::new(19, 21),
+                span: Span::new(19, 21, None),
             })
         );
 
@@ -236,14 +238,14 @@ mod tests {
 
     #[test]
     fn test_string() {
-        let mut s = TokenStream::new(r#" "" "Foo bar" "\"\\" "#, true);
+        let mut s = TokenStream::new(r#" "" "Foo bar" "\"\\" "#, true, None);
 
         assert_eq!(
             s.next(),
             Some(Token {
                 ty: StringLiteral("".to_owned()),
                 source: "\"\"",
-                span: Span::new(1, 3),
+                span: Span::new(1, 3, None),
             })
         );
 
@@ -252,7 +254,7 @@ mod tests {
             Some(Token {
                 ty: StringLiteral("Foo bar".to_owned()),
                 source: "\"Foo bar\"",
-                span: Span::new(4, 13),
+                span: Span::new(4, 13, None),
             })
         );
 
@@ -270,7 +272,7 @@ mod tests {
             Some(Token {
                 ty: Error,
                 source: "\"\\\"",
-                span: Span::new(14, 17),
+                span: Span::new(14, 17, None),
             })
         );
 
@@ -279,80 +281,80 @@ mod tests {
 
     #[test]
     fn test_comment() {
-        let mut s = TokenStream::new(";!/usr/bin/gate\n   ; foo\n", true);
+        let mut s = TokenStream::new(";!/usr/bin/gate\n   ; foo\n", true, None);
         assert_eq!(s.next(), None);
     }
 
     #[test]
     fn scheme_statement() {
-        let s = TokenStream::new("(apples (function a b) (+ a b))", true);
+        let s = TokenStream::new("(apples (function a b) (+ a b))", true, None);
         let res: Vec<Token> = s.collect();
 
         let expected: Vec<Token> = vec![
             Token {
                 ty: OpenParen,
                 source: "(",
-                span: Span::new(0, 1),
+                span: Span::new(0, 1, None),
             },
             Token {
                 ty: Identifier("apples".to_string()),
                 source: "apples",
-                span: Span::new(1, 7),
+                span: Span::new(1, 7, None),
             },
             Token {
                 ty: OpenParen,
                 source: "(",
-                span: Span::new(8, 9),
+                span: Span::new(8, 9, None),
             },
             Token {
                 ty: Identifier("function".to_string()),
                 source: "function",
-                span: Span::new(9, 17),
+                span: Span::new(9, 17, None),
             },
             Token {
                 ty: Identifier("a".to_string()),
                 source: "a",
-                span: Span::new(18, 19),
+                span: Span::new(18, 19, None),
             },
             Token {
                 ty: Identifier("b".to_string()),
                 source: "b",
-                span: Span::new(20, 21),
+                span: Span::new(20, 21, None),
             },
             Token {
                 ty: CloseParen,
                 source: ")",
-                span: Span::new(21, 22),
+                span: Span::new(21, 22, None),
             },
             Token {
                 ty: OpenParen,
                 source: "(",
-                span: Span::new(23, 24),
+                span: Span::new(23, 24, None),
             },
             Token {
                 ty: Identifier("+".to_string()),
                 source: "+",
-                span: Span::new(24, 25),
+                span: Span::new(24, 25, None),
             },
             Token {
                 ty: Identifier("a".to_string()),
                 source: "a",
-                span: Span::new(26, 27),
+                span: Span::new(26, 27, None),
             },
             Token {
                 ty: Identifier("b".to_string()),
                 source: "b",
-                span: Span::new(28, 29),
+                span: Span::new(28, 29, None),
             },
             Token {
                 ty: CloseParen,
                 source: ")",
-                span: Span::new(29, 30),
+                span: Span::new(29, 30, None),
             },
             Token {
                 ty: CloseParen,
                 source: ")",
-                span: Span::new(30, 31),
+                span: Span::new(30, 31, None),
             },
         ];
 

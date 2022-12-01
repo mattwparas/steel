@@ -1,5 +1,3 @@
-use crate::gc::Gc;
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
@@ -14,7 +12,7 @@ impl SymbolOperations {
                     new_symbol.push_str(quoted_value.as_ref());
                 } else {
                     let error_message =
-                        format!("concat-symbol expected only symbols, found {}", arg);
+                        format!("concat-symbol expected only symbols, found {:?}", args);
                     stop!(TypeMismatch => error_message);
                 }
             }
@@ -27,7 +25,7 @@ impl SymbolOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::SymbolV(quoted_value) = &args[0] {
-                    return Ok(SteelVal::StringV(Gc::clone(&quoted_value)));
+                    return Ok(SteelVal::StringV(quoted_value.clone()));
                 } else {
                     let error_message =
                         format!("symbol->string expected a symbol, found {}", &args[0]);

@@ -1,5 +1,6 @@
+use std::cell::RefCell;
+
 use crate::gc::Gc;
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
@@ -10,6 +11,157 @@ impl VectorOperations {
     pub fn vec_construct() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             Ok(SteelVal::VectorV(Gc::new(args.iter().cloned().collect())))
+        })
+    }
+
+    // TODO
+    pub fn mut_vec_construct() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            Ok(SteelVal::MutableVector(Gc::new(RefCell::new(
+                args.iter().cloned().collect(),
+            ))))
+        })
+    }
+
+    pub fn vec_length() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "vector-length expects one argument found: {:?}", args.len());
+            }
+
+            let vec = args[0].clone();
+
+            if let SteelVal::VectorV(v) = vec {
+                Ok(SteelVal::IntV(v.len() as isize))
+            } else {
+                stop!(TypeMismatch => "vector-length expects a mutable vector, found: {:?}", vec);
+            }
+        })
+    }
+
+    pub fn mut_vec_length() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "mut-vec-length expects one argument found: {:?}", args.len());
+            }
+
+            let vec = args[0].clone();
+
+            if let SteelVal::MutableVector(v) = vec {
+                Ok(SteelVal::IntV(v.borrow().len() as isize))
+            } else {
+                stop!(TypeMismatch => "mut-vec-length expects a mutable vector, found: {:?}", vec);
+            }
+        })
+    }
+
+    // (vector-set! vec pos value)
+    pub fn mut_vec_set() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 3 {
+                stop!(ArityMismatch => "vector-set! takes three arguments, found: {:?}", args.len())
+            }
+
+            let vec = args[0].clone();
+            let pos = args[1].clone();
+
+            if let SteelVal::MutableVector(v) = &vec {
+                if let SteelVal::IntV(i) = pos {
+                    if i < 0 {
+                        stop!(Generic => "vector-set! expects a positive integer, found: {:?}", vec);
+                    }
+
+                    if i as usize > v.borrow().len() {
+                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, v.borrow().len());
+                    }
+
+                    // TODO: disallow cyclical references on construction
+
+                    // Update the vector position
+                    v.borrow_mut()[i as usize] = args[2].clone();
+
+                    Ok(SteelVal::Void)
+                } else {
+                    stop!(TypeMismatch => "vector-set! expects an integer, found: {:?}", pos);
+                }
+            } else {
+                stop!(TypeMismatch => "vector-set! expects a vector, found: {:?}", vec);
+            }
+        })
+    }
+
+    pub fn mut_vec_get() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "mut-vector-ref takes two arguments, found: {:?}", args.len())
+            }
+
+            let vec = args[0].clone();
+            let pos = args[1].clone();
+
+            if let SteelVal::MutableVector(v) = &vec {
+                if let SteelVal::IntV(i) = pos {
+                    if i < 0 {
+                        stop!(Generic => "mut-vector-ref expects a positive integer, found: {:?}", vec);
+                    }
+
+                    if i as usize >= v.borrow().len() {
+                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, v.borrow().len());
+                    }
+
+                    // Grab the value out of the vector
+                    Ok(v.borrow()[i as usize].clone())
+                } else {
+                    stop!(TypeMismatch => "mut-vector-ref expects an integer, found: {:?}", pos);
+                }
+            } else {
+                stop!(TypeMismatch => "mut-vector-ref expects a vector, found: {:?}", vec);
+            }
+        })
+    }
+
+    pub fn mut_vec_push() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "vector-push! takes two arguments, found: {:?}", args.len())
+            }
+
+            let vec = &args[0];
+
+            if let SteelVal::MutableVector(v) = vec {
+                // TODO -> make sure this is the correct thing
+                // if vec.other_contains_self(&args[1]) {
+                //     stop!(Generic => "vector push would create a cyclical reference, which would cause a memory leak")
+                // }
+
+                // TODO: disallow cyclical references on construction
+                v.borrow_mut().push(args[1].clone());
+                Ok(SteelVal::Void)
+            } else {
+                stop!(TypeMismatch => "vector-push! expects a vector, found: {:?}", vec);
+            }
+        })
+    }
+
+    pub fn mut_vec_append() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "vector-append! takes two arguments, found: {:?}", args.len())
+            }
+
+            let vec = args[0].clone();
+            let other_vec = args[1].clone();
+
+            if let SteelVal::MutableVector(left) = vec {
+                if let SteelVal::MutableVector(right) = other_vec {
+                    left.borrow_mut().append(&mut right.borrow_mut());
+                    Ok(SteelVal::Void)
+                } else {
+                    stop!(TypeMismatch => "vetor-append! expects a vector in the second position, found: {:?}", other_vec);
+                }
+            } else {
+                stop!(TypeMismatch => "vector-append! expects a vector in the first position, found: {:?}", vec);
+            }
         })
     }
 
@@ -61,6 +213,36 @@ impl VectorOperations {
                 .flatten()
                 .collect();
             Ok(SteelVal::VectorV(Gc::new(lsts)))
+        })
+    }
+
+    pub fn vec_ref() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => "vector-ref takes two arguments");
+            }
+            let mut args = args.iter();
+            match (args.next(), args.next()) {
+                (Some(vec), Some(idx)) => {
+                    if let (VectorV(vec), IntV(idx)) = (vec, idx) {
+                        if idx < &0 {
+                            stop!(TypeMismatch => "vector-ref expected a positive integer");
+                        }
+
+                        let idx: usize = *idx as usize;
+
+                        if idx < vec.len() {
+                            Ok(vec[idx].clone())
+                        } else {
+                            let e = format!("Index out of bounds - attempted to access index: {} with length: {}", idx, vec.len());
+                            stop!(Generic => e);
+                        }
+                    } else {
+                        stop!(TypeMismatch => format!("vector-ref expected a vector and a number, found: {} and {}", vec, idx))
+                    }
+                }
+                _ => stop!(ArityMismatch => "vector-ref takes two arguments"),
+            }
         })
     }
 
@@ -190,6 +372,7 @@ impl VectorOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 match &args[0] {
+                    SteelVal::ListV(l) => Ok(l.is_empty().into()),
                     SteelVal::VectorV(v) => Ok(v.is_empty().into()),
                     _ => Ok(SteelVal::BoolV(false)),
                 }

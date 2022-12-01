@@ -6,4 +6,4 @@
 
 (assert! 
     (equal? 10
-            (transduce (taking 5) + 0 (integers 0))))
+            (transduce (integers 0) (taking 5) (into-reducer + 0))))

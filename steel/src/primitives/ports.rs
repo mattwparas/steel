@@ -1,5 +1,4 @@
 use crate::gc::Gc;
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::values::port::SteelPort;
@@ -17,6 +16,21 @@ impl PortOperations {
                 }
             } else {
                 stop!(ArityMismatch => "open-input-file expected one argument")
+            }
+        })
+    }
+
+    pub fn open_output_file() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() == 1 {
+                if let SteelVal::StringV(path) = &args[0] {
+                    let new_port = SteelPort::new_textual_file_output(&*path)?;
+                    Ok(SteelVal::PortV(Gc::new(new_port)))
+                } else {
+                    stop!(TypeMismatch => "open-output-file expects a path")
+                }
+            } else {
+                stop!(ArityMismatch => "open-output-file expected one argument")
             }
         })
     }
@@ -62,6 +76,27 @@ impl PortOperations {
                 }
             } else {
                 stop!(ArityMismatch => "read-line-to-string expected one argument")
+            }
+        })
+    }
+
+    pub fn write_line() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() == 2 {
+                if let SteelVal::PortV(port) = &args[0] {
+                    let line = args[1].to_string();
+                    let res = port.write_string_line(line.as_str());
+
+                    if res.is_ok() {
+                        Ok(SteelVal::Void)
+                    } else {
+                        stop!(Generic => "unable to write string to file");
+                    }
+                } else {
+                    stop!(TypeMismatch => "write-line expects a port")
+                }
+            } else {
+                stop!(ArityMismatch => "write-line expects one argument")
             }
         })
     }

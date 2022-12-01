@@ -1,5 +1,4 @@
 use crate::gc::Gc;
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 
@@ -65,7 +64,7 @@ impl StreamOperations {
             if let SteelVal::StreamV(s) = &args[0] {
                 Ok(s.stream_thunk())
             } else {
-                stop!(TypeMismatch => "stream-cdr takes a stream")
+                stop!(TypeMismatch => format!("stream-cdr takes a stream, found: {}", &args[0]))
             }
         })
     }

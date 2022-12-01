@@ -8,7 +8,6 @@ use std::io::{BufReader, BufWriter, Stdin, Stdout};
 // use utils::chars::Chars;
 // use utils::{new_rc_ref_cell, RcRefCell};
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::Result;
 
 // use crate::rvals::{new_rc_ref_cell, RcRefSteelVal};
@@ -23,14 +22,23 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
     Rc::new(RefCell::new(x))
 }
 
+thread_local! {
+    // TODO: This needs to be per engine, not global, and functions should accept the port they use
+    // Probably by boxing up the port that gets used
+    pub static DEFAULT_OUTPUT_PORT: RcRefCell<SteelPort> = new_rc_ref_cell(SteelPort::StdOutput(new_rc_ref_cell(io::stdout())));
+    pub static CAPTURED_OUTPUT_PORT: RcRefCell<BufWriter<Vec<u8>>> = new_rc_ref_cell(BufWriter::new(Vec::new()));
+
+    // pub static STANDARD_OUT: SteelPort = SteelPort::StringOutput(Rc::new(RefCell::new(BufWriter::new(Vec::new()))));
+}
+
 #[derive(Debug, Clone)]
 pub enum SteelPort {
     FileInput(String, RcRefCell<BufReader<File>>),
     FileOutput(String, RcRefCell<BufWriter<File>>),
     StdInput(RcRefCell<Stdin>),
     StdOutput(RcRefCell<Stdout>),
-    // StringInput(String, RcRefCell<BufReader<&[u8]>>),
-    // StringOutput(String, RcRefCell<BufWriter<&[u8]>>),
+    // StringInput(RcRefCell<BufReader<&[u8]>>),
+    StringOutput(RcRefCell<BufWriter<Vec<u8>>>),
     Closed,
 }
 
@@ -92,12 +100,16 @@ impl SteelPort {
     }
 
     pub fn new_textual_file_output(path: &str) -> Result<SteelPort> {
-        let file = OpenOptions::new().create_new(true).write(true).open(path)?;
+        let file = OpenOptions::new().truncate(true).write(true).open(path)?;
 
         Ok(SteelPort::FileOutput(
             path.to_string(),
             new_rc_ref_cell(BufWriter::new(file)),
         ))
+    }
+
+    pub fn new_output_port() -> SteelPort {
+        SteelPort::StringOutput(Rc::new(RefCell::new(BufWriter::new(Vec::new()))))
     }
 
     // pub fn new_binary_file_input(path: &str) -> Result<SteelPort> {
@@ -209,6 +221,24 @@ impl SteelPort {
             ($br: ident) => {{
                 let br = &mut *$br.borrow_mut();
                 write!(br, "{}", string)?;
+                br.flush()?;
+            }};
+        );
+
+        match self {
+            SteelPort::FileOutput(_, br) => write_string!(br),
+            SteelPort::StdOutput(br) => write_string!(br),
+            _x => stop!(Generic => "write-string"),
+        };
+
+        Ok(())
+    }
+
+    pub fn write_string_line(&self, string: &str) -> Result<()> {
+        macro_rules! write_string(
+            ($br: ident) => {{
+                let br = &mut *$br.borrow_mut();
+                write!(br, "{}\n", string)?;
                 br.flush()?;
             }};
         );

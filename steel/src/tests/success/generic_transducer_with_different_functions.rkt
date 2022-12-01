@@ -5,5 +5,5 @@
 (define reduce-func (lambda (accum next) (+ accum next)))
 (assert! 
     (equal? 
-        (transduce xf reduce-func 0 (range 0 100)) ;; => 210
+        (transduce (range 0 100) xf (into-reducer reduce-func 0)) ;; => 210
         210))

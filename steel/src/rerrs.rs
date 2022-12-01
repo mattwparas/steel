@@ -1,4 +1,4 @@
-use crate::parser::parser::ParseError;
+use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
 use std::{convert::Infallible, fmt::Formatter, path::PathBuf};
 use thiserror::Error;
 
@@ -18,6 +18,7 @@ struct Repr {
     pub message: String,
     pub span: Option<Span>,
     pub source: Option<Rc<PathBuf>>,
+    pub stack_trace: Option<DehydratedStackTrace>,
 }
 
 impl Repr {
@@ -31,6 +32,8 @@ impl fmt::Display for Repr {
         write!(f, "Error: {:?}: {}", self.kind, self.message)
     }
 }
+
+impl Custom for Repr {}
 
 #[derive(Clone, Debug, PartialEq, Copy)]
 pub enum ErrorKind {
@@ -48,7 +51,7 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
-    fn to_error_code(&self) -> &str {
+    pub fn to_error_code(&self) -> &str {
         use ErrorKind::*;
         match self {
             ArityMismatch => "E01",
@@ -79,6 +82,7 @@ impl From<std::io::Error> for Repr {
             message: v.to_string(),
             span: None,
             source: None,
+            stack_trace: None,
         }
     }
 }
@@ -102,6 +106,7 @@ impl From<Infallible> for Repr {
             message: v.to_string(),
             span: None,
             source: None,
+            stack_trace: None,
         }
     }
 }
@@ -128,6 +133,7 @@ impl From<ParseError> for Repr {
             message: v.to_string(),
             span,
             source: source.clone(),
+            stack_trace: None,
         }
     }
 }
@@ -142,6 +148,8 @@ impl fmt::Display for SteelErr {
         write!(f, "{}", self.repr)
     }
 }
+
+impl Custom for SteelErr {}
 
 impl SteelErr {
     fn _new(repr: Repr) -> Self {
@@ -159,12 +167,29 @@ impl SteelErr {
                 message,
                 span: None,
                 source: None,
+                stack_trace: None,
             },
         }
     }
 
+    pub fn span(&self) -> Option<Span> {
+        self.repr.span
+    }
+
+    pub fn has_span(&self) -> bool {
+        self.repr.span.is_some()
+    }
+
     pub fn set_span(mut self, span: Span) -> Self {
         self.repr.set_span(span);
+        self
+    }
+
+    pub fn set_span_if_none(mut self, span: Span) -> Self {
+        if self.repr.span.is_none() {
+            self.repr.set_span(span);
+        }
+
         self
     }
 
@@ -178,6 +203,15 @@ impl SteelErr {
         self
     }
 
+    pub fn with_stack_trace(mut self, stack_trace: DehydratedStackTrace) -> Self {
+        self.repr.stack_trace = Some(stack_trace);
+        self
+    }
+
+    pub fn stack_trace(&self) -> &Option<DehydratedStackTrace> {
+        &self.repr.stack_trace
+    }
+
     pub fn emit_result(&self, file_name: &str, file_content: &str) {
         // let opts = Opts::();
         // let config = codespan_reporting::term::Config::default();
@@ -186,9 +220,10 @@ impl SteelErr {
 
         let file = SimpleFile::new(file_name, file_content);
 
-        let error_span = Span::new(0, 0);
+        let error_span = Span::new(0, 0, None);
 
         let report = self.report(file_name, file_content, error_span);
+
         term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
 
         // for diagnostic in errors.iter().map(Error::report) {
@@ -204,7 +239,7 @@ impl SteelErr {
 
         let file = SimpleFile::new(file_name, file_content);
 
-        let error_span = Span::new(0, 0);
+        let error_span = Span::new(0, 0, None);
 
         let report = self.report(file_name, file_content, error_span);
         term::emit(&mut writer, &config, &file, &report).unwrap(); // TODO come back
@@ -226,22 +261,128 @@ impl SteelErr {
     }
 }
 
+pub fn report_warning(
+    error_code: &str,
+    file_name: &str,
+    file_content: &str,
+    message: String,
+    span: Span,
+) {
+    let writer = StandardStream::stderr(ColorChoice::Always);
+    let config = codespan_reporting::term::Config::default();
+
+    let file = SimpleFile::new(file_name, file_content);
+
+    let report = Diagnostic::warning()
+        .with_code(error_code)
+        .with_labels(vec![Label::primary((), span).with_message(message)]);
+
+    term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
+}
+
+pub fn report_error(
+    error_code: &str,
+    file_name: &str,
+    file_content: &str,
+    message: String,
+    span: Span,
+) {
+    let writer = StandardStream::stderr(ColorChoice::Always);
+    let config = codespan_reporting::term::Config::default();
+
+    let file = SimpleFile::new(file_name, file_content);
+
+    let report = Diagnostic::error()
+        .with_code(error_code)
+        .with_labels(vec![Label::primary((), span).with_message(message)]);
+
+    term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
+}
+
+pub fn report_info(
+    error_code: &str,
+    file_name: &str,
+    file_content: &str,
+    message: String,
+    span: Span,
+) {
+    let writer = StandardStream::stderr(ColorChoice::Always);
+    let config = codespan_reporting::term::Config::default();
+
+    let file = SimpleFile::new(file_name, file_content);
+
+    let report = Diagnostic::note()
+        .with_code(error_code)
+        .with_labels(vec![Label::primary((), span).with_message(message)]);
+
+    term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
+}
+
+pub fn back_trace(file_name: &str, file_content: &str, span: Span) {
+    let writer = StandardStream::stderr(ColorChoice::Always);
+    let config = codespan_reporting::term::Config::default();
+
+    let file = SimpleFile::new(file_name, file_content);
+
+    let report = Diagnostic::note().with_labels(vec![Label::primary((), span)]);
+
+    term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
+}
+
+#[macro_export]
+macro_rules! steelerr {
+    // ($type:ident) => {
+    //     return Err(SteelErr::new(ErrorKind::$type, None));
+    // };
+    ($type:ident => $fmt:expr, $($arg:tt)+) => {
+        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+)))
+    };
+    ($type:ident => $thing:expr) => {
+        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()))
+    };
+    ($type:ident => $thing:expr; $span:expr) => {
+        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
+    };
+    ($type:ident => $thing:expr; $span:expr; $source:expr) => {
+        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source))
+    };
+}
+
 #[macro_export]
 macro_rules! stop {
     // ($type:ident) => {
     //     return Err(SteelErr::new(ErrorKind::$type, None));
     // };
     ($type:ident => $fmt:expr, $($arg:tt)+) => {
-        return Err(SteelErr::new(ErrorKind::$type, format!($fmt, $($arg)+)));
+        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+)))
     };
     ($type:ident => $thing:expr) => {
-        return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()));
+        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()))
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span));
+        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
     };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
-        return Err(SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source));
+        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source))
+    };
+}
+
+#[macro_export]
+macro_rules! builtin_stop {
+    // ($type:ident) => {
+    //     return Err(SteelErr::new(ErrorKind::$type, None));
+    // };
+    ($type:ident => $fmt:expr, $($arg:tt)+) => {
+        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+))))
+    };
+    ($type:ident => $thing:expr) => {
+        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string())))
+    };
+    ($type:ident => $thing:expr; $span:expr) => {
+        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span)))
+    };
+    ($type:ident => $thing:expr; $span:expr; $source:expr) => {
+        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source)))
     };
 }
 
@@ -251,12 +392,12 @@ macro_rules! throw {
     //     || SteelErr::$type
     // };
     ($type:ident => $fmt:expr, $($arg:tt)+) => {
-        || SteelErr::new(ErrorKind::$type, format!($fmt, $($arg)+))
+        || $crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+))
     };
     ($type:ident => $thing:expr) => {
-        || SteelErr::new(ErrorKind::$type, ($thing).to_string())
+        || $crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string())
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        || SteelErr::new(ErrorKind::$type, ($thing).to_string()).with_span($span)
+        || $crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span)
     };
 }

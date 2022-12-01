@@ -1,8 +1,7 @@
-use crate::rerrs::{ErrorKind, SteelErr};
+use im_lists::list::List;
+
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-
-use crate::primitives::lists::ListOperations;
 
 macro_rules! ok_string {
     ($string:expr) => {
@@ -16,11 +15,11 @@ impl StringOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 2 {
                 if let (SteelVal::StringV(l), SteelVal::StringV(r)) = (&args[0], &args[1]) {
-                    let new_string: String = l.as_str().to_string() + r.as_str();
+                    let new_string: String = l.to_string() + r;
                     ok_string!(new_string)
                 // Ok(Gc::new(SteelVal::StringV(new_string)))
                 } else {
-                    stop!(TypeMismatch => "string-append expected two strings")
+                    stop!(TypeMismatch => format!("string-append expected two strings, found {} and {}", &args[0], &args[1]))
                 }
             } else {
                 stop!(ArityMismatch => "string-append takes two arguments")
@@ -32,7 +31,7 @@ impl StringOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::SymbolV(crate::gc::Gc::clone(s)))
+                    Ok(SteelVal::SymbolV(s.clone()))
                 } else {
                     stop!(TypeMismatch => "string->int expected a string")
                 }
@@ -80,8 +79,7 @@ impl StringOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
-                    let chars: Vec<SteelVal> = s.chars().map(SteelVal::CharV).collect();
-                    ListOperations::built_in_list_func_flat(&chars)
+                    Ok(s.chars().map(SteelVal::CharV).collect::<List<_>>().into())
                 } else {
                     stop!(TypeMismatch => "string->list expected a string")
                 }
@@ -175,11 +173,11 @@ impl StringOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
-                    let split: Vec<SteelVal> = s
+                    let split: List<SteelVal> = s
                         .split_whitespace()
                         .map(|x| SteelVal::StringV(x.into()))
                         .collect();
-                    ListOperations::built_in_list_func()(&split)
+                    Ok(split.into())
                 } else {
                     stop!(TypeMismatch => "split-whitespace expected a string")
                 }
@@ -208,7 +206,7 @@ impl StringOperations {
             if args.len() == 2 {
                 match (&args[0], &args[1]) {
                     (SteelVal::StringV(s), SteelVal::StringV(p)) => {
-                        Ok(SteelVal::BoolV(s.starts_with(&p.as_str())))
+                        Ok(SteelVal::BoolV(s.starts_with(p.as_ref())))
                     }
                     _ => {
                         stop!(ArityMismatch => "starts-with? takes two arguments")
@@ -225,14 +223,14 @@ impl StringOperations {
             if args.len() == 2 {
                 match (&args[0], &args[1]) {
                     (SteelVal::StringV(s), SteelVal::StringV(p)) => {
-                        Ok(SteelVal::BoolV(s.ends_with(&p.as_str())))
+                        Ok(SteelVal::BoolV(s.ends_with(p.as_ref())))
                     }
                     _ => {
-                        stop!(ArityMismatch => "starts-with? takes two arguments")
+                        stop!(ArityMismatch => "ends-with? takes two arguments")
                     }
                 }
             } else {
-                stop!(ArityMismatch => "starts-with? takes two arguments")
+                stop!(ArityMismatch => "ends-with? takes two arguments")
             }
         })
     }
@@ -241,11 +239,11 @@ impl StringOperations {
 #[cfg(test)]
 mod string_operation_tests {
     use super::*;
-    use crate::gc::Gc;
+    // use crate::gc::Gc;
     use crate::rerrs::ErrorKind;
-    use crate::rvals::ConsCell;
+    // use crate::rvals::ConsCell;
     use crate::throw;
-    use im_rc::Vector;
+    use im_lists::list;
 
     // TODO combine these 3 macros into one
     macro_rules! apply_tests_arity_too_many {
@@ -405,13 +403,11 @@ mod string_operation_tests {
         let args = vec![SteelVal::StringV("foo".into())];
         let res = apply_function(StringOperations::string_to_list(), args);
 
-        let expected = SteelVal::Pair(Gc::new(ConsCell::new(
+        let expected = SteelVal::ListV(list![
             SteelVal::CharV('f'),
-            Some(Gc::new(ConsCell::new(
-                SteelVal::CharV('o'),
-                Some(Gc::new(ConsCell::new(SteelVal::CharV('o'), None))),
-            ))),
-        )));
+            SteelVal::CharV('o'),
+            SteelVal::CharV('o')
+        ]);
 
         assert_eq!(res.unwrap(), expected);
     }
@@ -420,7 +416,7 @@ mod string_operation_tests {
     fn string_to_list_empty() {
         let args = vec![SteelVal::StringV("".into())];
         let res = apply_function(StringOperations::string_to_list(), args);
-        let expected = SteelVal::VectorV(Gc::new(Vector::new()));
+        let expected = SteelVal::ListV(List::new());
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -477,10 +473,9 @@ mod string_operation_tests {
     fn split_whitespace_no_whitespace() {
         let args = vec![SteelVal::StringV("foo".into())];
         let res = apply_function(StringOperations::split_whitespace(), args);
-        let expected = SteelVal::Pair(Gc::new(ConsCell::new(
-            SteelVal::StringV("foo".into()),
-            None,
-        )));
+
+        let expected = SteelVal::ListV(list![SteelVal::StringV("foo".into())]);
+
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -488,16 +483,12 @@ mod string_operation_tests {
     fn split_whitespace_some_whitespace() {
         let args = vec![SteelVal::StringV("foo bar baz".into())];
         let res = apply_function(StringOperations::split_whitespace(), args);
-        let expected = SteelVal::Pair(Gc::new(ConsCell::new(
+
+        let expected = SteelVal::ListV(list![
             SteelVal::StringV("foo".into()),
-            Some(Gc::new(ConsCell::new(
-                SteelVal::StringV("bar".into()),
-                Some(Gc::new(ConsCell::new(
-                    SteelVal::StringV("baz".into()),
-                    None,
-                ))),
-            ))),
-        )));
+            SteelVal::StringV("bar".into()),
+            SteelVal::StringV("baz".into())
+        ]);
         assert_eq!(res.unwrap(), expected);
     }
 }

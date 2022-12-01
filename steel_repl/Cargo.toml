@@ -2,15 +2,15 @@
 name = "steel_repl"
 version = "0.1.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rustyline = "6.2.0"
-rustyline-derive = "0.2.0"
-colored = "1.9"
+rustyline = "9.1.2"
+rustyline-derive = "0.6.0"
+colored = "2.0"
+# steel = { path = "../steel", features = ["modules", "jit"] }
 steel = { path = "../steel", features = ["modules"] }
-tokio = { version = "1.3.0", features = ["signal", "rt", "rt-multi-thread", "sync"] }
+ctrlc = "3.2.2"
 futures = "0.3.13"
-once_cell = "1.5.2"

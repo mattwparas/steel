@@ -1,9 +1,11 @@
+use log::{debug, log_enabled};
+
 use crate::parser::tokens::TokenType;
 use crate::parser::{
     ast::{Atom, Begin, ExprKind, LambdaFunction, List, Set},
     parser::SyntaxObject,
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Instant};
 
 use super::{Folder, VisitorMutUnit};
 
@@ -27,7 +29,7 @@ impl Folder for FlattenBegin {
         let flattened_exprs = begin
             .exprs
             .into_iter()
-            .map(|x| {
+            .flat_map(|x| {
                 if let ExprKind::Begin(b) = x {
                     b.exprs
                         .into_iter()
@@ -37,7 +39,6 @@ impl Folder for FlattenBegin {
                     vec![self.visit(x)]
                 }
             })
-            .flatten()
             .collect::<Vec<_>>();
 
         if flattened_exprs.len() == 1 {
@@ -49,12 +50,23 @@ impl Folder for FlattenBegin {
 }
 
 pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> {
-    // println!("###################################################");
-    exprs
+    let flatten_begins_and_expand_defines_time = Instant::now();
+
+    let res = exprs
         .into_iter()
-        .map(|x| FlattenBegin::flatten(x))
-        .map(|x| ConvertDefinesToLets::convert_defines(x))
-        .collect()
+        .map(FlattenBegin::flatten)
+        .map(ConvertDefinesToLets::convert_defines)
+        .collect();
+
+    if log_enabled!(log::Level::Debug) {
+        debug!(
+            target: "pipeline_time",
+            "Flatten begins and expand defines time: {:?}",
+            flatten_begins_and_expand_defines_time.elapsed()
+        );
+    }
+
+    res
 }
 
 struct DefinedVars<'a> {
@@ -125,7 +137,22 @@ impl Folder for ConvertDefinesToLets {
                     l.args = l.args.into_iter().map(|x| self.visit(x)).collect();
                     ExprKind::List(l)
                 }
-                _ => panic!("Something went wrong in define conversion"),
+                ExprKind::Let(mut l) => {
+                    let mut visited_bindings = Vec::new();
+
+                    for (binding, expr) in l.bindings {
+                        visited_bindings.push((self.visit(binding), self.visit(expr)));
+                    }
+
+                    l.bindings = visited_bindings;
+                    l.body_expr = self.visit(l.body_expr);
+
+                    ExprKind::Let(l)
+                }
+                other => panic!(
+                    "Something went wrong in define conversion, found: {:?}",
+                    other
+                ),
             }
         } else {
             // println!("Ignoring begin");
@@ -135,7 +162,7 @@ impl Folder for ConvertDefinesToLets {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum ExpressionType<'a> {
     DefineConst(&'a str),
     DefineFlat(&'a str),
@@ -207,6 +234,8 @@ impl<'a> ExpressionType<'a> {
             }
         }
 
+        // println!("Expression types: {:?}", expression_types);
+
         expression_types
     }
 }
@@ -234,12 +263,62 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
     let expression_types = ExpressionType::generate_expression_types(&begin.exprs);
 
-    // Go ahead and quit if there are
+    // Go ahead and quit if there are only expressions here
     if expression_types.iter().all(|x| x.is_expression()) {
         return ExprKind::Begin(begin);
     }
 
-    let exprs = begin.exprs.clone();
+    if !expression_types
+        .iter()
+        .any(|x| matches!(x, ExpressionType::DefineFunction(_)))
+    {
+        // let starting_iter = ExprKind::atom("void".to_string())
+
+        // TODO: last expression needs to be something, otherwise this doesn't work
+        // if let Some(last) = expression_types.last() {
+        //     if !last.is_expression() {}
+        // }
+
+        // println!("IN HERE");
+        // println!("Expression_types")
+
+        return begin
+            .exprs
+            .into_iter()
+            .rev()
+            .reduce(|accum, expr| {
+                // println!("Accum: {:?}, Expr: {:?}", accum, expr);
+
+                match expr {
+                    ExprKind::Define(d) => {
+                        // let constructed_function =
+
+                        let constructed_function = ExprKind::LambdaFunction(
+                            LambdaFunction::new(
+                                vec![d.name],
+                                accum,
+                                SyntaxObject::default(TokenType::Lambda),
+                            )
+                            .into(),
+                        );
+
+                        let application =
+                            ExprKind::List(List::new(vec![constructed_function, d.body]));
+
+                        application
+                    }
+                    other => ExprKind::Begin(Begin::new(
+                        vec![other, accum],
+                        SyntaxObject::default(TokenType::Begin),
+                    )),
+                }
+            })
+            .expect("Empty expression");
+
+        // return todo!();
+    }
+
+    let mut exprs = begin.exprs.clone();
 
     // let mut last_expression = expression_types.len();
 
@@ -249,10 +328,9 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
         .position(|x| !x.is_expression())
         .expect("Convert exprs to let in define conversion found no trailing expressions in begin");
 
-    let idx = expression_types.len() - 1 - idx;
+    // println!("Last expression index: {:?}", idx);
 
-    // TODO
-    let mut exprs = exprs.clone();
+    let idx = expression_types.len() - 1 - idx;
 
     let mut body = exprs.split_off(idx + 1);
 
@@ -299,6 +377,16 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
     let mut new_args = Vec::new();
 
+    // println!("{:#?}", expression_types);
+
+    // TODO:
+    // If there are functions at all, go through this weird path
+    // Otherwise, we should do the following transformation:
+    //
+    // If there are no functions at all, just do a series of lets, similar to let*
+
+    // TODO: Move this up so we don't have to use raw_exprs anymore
+
     for ((i, expression), arg) in expression_types[0..idx + 1]
         .into_iter()
         .enumerate()
@@ -311,7 +399,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         TokenType::IntegerLiteral(123),
                     ))));
-                    let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                    let name_prime = atom("_____".to_string() + name + i.to_string().as_str());
                     let set_expr = set(d.name.clone(), name_prime.clone());
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
@@ -328,7 +416,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         TokenType::IntegerLiteral(123),
                     ))));
-                    let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                    let name_prime = atom("_____".to_string() + name + i.to_string().as_str());
                     let set_expr = set(d.name.clone(), name_prime.clone());
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
@@ -356,7 +444,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         TokenType::IntegerLiteral(123),
                     ))));
-                    let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                    let name_prime = atom("_____".to_string() + name + i.to_string().as_str());
 
                     // Make this a (set! x (x'))
                     // Applying the function
@@ -378,29 +466,28 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     panic!("expected define, found: {}", &exprs[i]);
                 };
             }
+            // TODO: Move this down, don't put it with the lets, put it down in order with the set expressions
+            // That way we're not at risk of accidentally goofing up the ordering of the expressions.
+            // If will _only_ go in the right order of assignment
             ExpressionType::Expression => {
-                let expr = atom("#####define-conversion".to_string() + i.to_string().as_str());
-                top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    TokenType::IntegerLiteral(123),
-                ))));
+                // TODO: This is definitly not right
+                // let expr = atom("#####define-conversion".to_string() + i.to_string().as_str());
+                // top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                //     TokenType::IntegerLiteral(123),
+                // ))));
 
-                // This also gets bound in the inner function for now
-                bound_names.push(expr.clone());
+                // // This also gets bound in the inner function for now
+                // bound_names.push(expr.clone());
 
-                top_level_arguments.push(expr);
-                new_args.push(arg);
+                // top_level_arguments.push(expr);
+                // new_args.push(arg);
+
+                set_expressions.push(arg)
             }
         }
     }
 
-    // let mut top_level_dummy_args = vec![
-    //     ExprKind::Atom(Atom::new(SyntaxObject::default(
-    //         TokenType::IntegerLiteral(123)
-    //     )));
-    //     top_level_arguments.len()
-    // ];
-
-    // Append the body instructions to the set!
+    // // Append the body instructions to the set!
     set_expressions.append(&mut body);
 
     let inner_lambda = LambdaFunction::new(
@@ -424,7 +511,46 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
     top_level_dummy_args.insert(0, ExprKind::LambdaFunction(Box::new(outer_lambda)));
 
-    ExprKind::List(List::new(top_level_dummy_args))
+    let result = ExprKind::List(List::new(top_level_dummy_args));
+
+    // println!("{}", result.to_pretty(60));
+
+    result
+
+    // TODO: This is the real transformation that needs to take place once lets are fixed
+    // follow-up - let rec is going to be completely broken
+
+    // let pairs = bound_names
+    //     .into_iter()
+    //     .zip(new_args.into_iter())
+    //     .collect::<Vec<_>>();
+
+    // let inner_let = Let::new(
+    //     pairs,
+    //     ExprKind::Begin(Begin::new(
+    //         set_expressions,
+    //         SyntaxObject::default(TokenType::Begin),
+    //     )),
+    //     SyntaxObject::default(TokenType::Let),
+    // );
+
+    // let outer_pairs = top_level_arguments
+    //     .into_iter()
+    //     .zip(top_level_dummy_args.into_iter())
+    //     .collect::<Vec<_>>();
+
+    // let outer_let = Let::new(
+    //     outer_pairs,
+    //     ExprKind::Let(Box::new(inner_let)),
+    //     SyntaxObject::default(TokenType::Let),
+    // );
+
+    // let output = ExprKind::Let(Box::new(outer_let));
+
+    // println!("-----------------");
+    // println!("{}", output.to_pretty(60));
+
+    // output
 }
 
 #[cfg(test)]
@@ -438,73 +564,61 @@ mod flatten_begin_test {
     use crate::parser::tokens::TokenType;
     use crate::parser::tokens::TokenType::*;
 
+    // #[test]
+    // fn defines_translates_to_simple_let() {
+    //     let expr = r#"
+    //     (lambda ()
+    //         (begin
+    //             (define x 10)
+    //             (define y 20)
+    //             (define z 30)
+    //             (+ x y z)))"#;
+
+    //     let expected = r#"
+    //     (lambda () ((lambda (x y z) ((lambda () (begin (+ x y z))))) 10 20 30))
+    //     "#;
+
+    //     let parsed = Parser::parse(expr).unwrap();
+    //     let expected_parsed = Parser::parse(expected).unwrap();
+
+    //     let result = flatten_begins_and_expand_defines(parsed);
+
+    //     assert_eq!(result, expected_parsed);
+    // }
+
+    fn atom(ident: &str) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+            ident.to_string(),
+        ))))
+    }
+
+    fn int(num: isize) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(num))))
+    }
+
     #[test]
     fn basic_flatten_one_level() {
         let expr = ExprKind::Begin(Begin::new(
             vec![
                 ExprKind::Begin(Begin::new(
                     vec![ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "x".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                        atom("+"),
+                        atom("x"),
+                        int(10),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
                 )),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "y".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "z".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(30)))),
-                ])),
+                ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
+                ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
         ));
 
         let expected = ExprKind::Begin(Begin::new(
             vec![
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "x".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "y".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "z".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(30)))),
-                ])),
+                ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
+                ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
+                ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
         ));
@@ -518,37 +632,25 @@ mod flatten_begin_test {
             vec![
                 ExprKind::Begin(Begin::new(
                     vec![ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "x".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                        atom("+"),
+                        atom("x"),
+                        int(10),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
                 )),
                 ExprKind::Begin(Begin::new(
                     vec![ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "y".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
+                        atom("+"),
+                        atom("y"),
+                        int(20),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
                 )),
                 ExprKind::Begin(Begin::new(
                     vec![ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "z".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(30)))),
+                        atom("+"),
+                        atom("z"),
+                        int(30),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
                 )),
@@ -558,33 +660,9 @@ mod flatten_begin_test {
 
         let expected = ExprKind::Begin(Begin::new(
             vec![
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "x".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "y".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "z".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(30)))),
-                ])),
+                ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
+                ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
+                ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
         ));

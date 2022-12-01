@@ -1,8 +1,21 @@
 # Steel
+<div align="center">
+    <img width="150px" src="images/styled.png">
+</div>
 
-![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) [![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
+<div align="center">
 
-An embedded scheme interpreter in Rust.
+An embeddable and extensible scheme dialect built in Rust.
+
+![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) 
+[![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
+
+<a href="https://mattwparas.github.io/steel-playground/dev">
+    <b>Try it on the Playground</b>
+</a>
+
+
+</div>
 
 ## Getting Started
 
@@ -143,27 +156,27 @@ Inspired by clojure's transducers, `Steel` has a similar object that is somewher
     (taking 15)) ;; => <#iterator>
 ```
 
-Each of these expressions emit an `<#iterator>` object, which means they're compatible with `execute` and `transduce`. Execute takes a transducer (i.e. `<#iterator>`) and a collection that can be iterated (`list`, `vector`, or `stream`) and applies the transducer.
+Each of these expressions emit an `<#iterator>` object, which means they're compatible with `execute` and `transduce`. Execute takes a transducer (i.e. `<#iterator>`) and a collection that can be iterated (`list`, `vector`, `stream`, `hashset`, `hashmap`, `string`, `struct`) and applies the transducer.
 
 ```scheme
 ;; Accepts lists
-(execute (mapping (lambda (x) (+ x 1))) (list 1 2 3 4 5)) ;; => '(2 3 4 5 6)
+(transduce (list 1 2 3 4 5) (mapping (lambda (x) (+ x 1))) (into-list)) ;; => '(2 3 4 5 6)
 
 ;; Accepts vectors
-(execute (mapping (lambda (x) (+ x 1))) (vector 1 2 3 4 5)) ;; '#(2 3 4 5 6)
+(transduce (vector 1 2 3 4 5) (mapping (lambda (x) (+ x 1))) (into-vector)) ;; '#(2 3 4 5 6)
 
 ;; Even accepts streams!
 (define (integers n)
     (stream-cons n (lambda () (integers (+ 1 n)))))
 
-(execute (taking 5) (integers 0)) ;; => '(0 1 2 3 4)
+(transduce (integers 0) (taking 5) (into-list)) ;; => '(0 1 2 3 4)
 ```
 
-Transduce is just `reduce` with more bells and whistles and works similarly:
+Transduce accepts a reducer function as well. Above we used `into-list` and `into-vector`, but below we can use any arbitrary reducer:
 
 ```scheme
 ;; (-> transducer reducing-function initial-value iterable)
-(transduce (mapping (lambda (x) (+ x 1))) + 0 (list 0 1 2 3)) ;; => 10
+(transduce (list 0 1 2 3) (mapping (lambda (x) (+ x 1))) (into-reducer + 0)) ;; => 10
 ```
 
 Compose just combines the iterator functions and lets us avoid intermediate allocation. The composition works left to right - it chains each value through the functions and then accumulates into the output type. See the following:
@@ -175,23 +188,7 @@ Compose just combines the iterator functions and lets us avoid intermediate allo
         (filtering odd?)
         (taking 5)))
 
-(execute xf (range 0 100)) ;; => '(1 3 5 7 9)
-```
-
-By default, execute outputs to the same type that was passed in. In other words, if you `execute` a `list`, it will return a `list`. However, if you so choose, you can pass in a symbol specifying the output type of your choosing like so:
-
-```scheme
-(define xf 
-    (compose 
-        (mapping add1)
-        (filtering odd?)
-        (taking 5)))
-
-;; Takes a list and returns a vector
-(execute xf (range 0 100) 'vector) ;; => '#(1 3 5 7 9)
-
-;; Takes a vector and returns a list
-(execute xf (vector 0 1 2 3 4 5 6 7 8 9 10) 'list) ;; => '(1 3 5 7 9)
+(transduce (range 0 100) xf (into-list)) ;; => '(1 3 5 7 9)
 ```
 
 ## Syntax Choices
@@ -247,6 +244,15 @@ A few notes on modules:
 * Cyclical dependencies are not allowed
 * Modules will be only compiled once and used across multiple files. If `A` requires `B` and `C`, and `B` requires `C`, `C` will be compiled once and shared between `A` and `B`. 
 * Modules will be recompiled when changed, and any dependent files will also be recompiled as necessary
+
+## Performance
+
+Preliminary benchmarks show the following on my machine:
+
+| Benchmark | Steel    | Python   |
+| --------- | -------- | -------- |
+| (fib 28)  | 63.383ms | 65.10 ms |
+| (ack 3 3) | 0.303 ms | 0.195 ms |
 
 ## Examples of embedding Rust values in the virtual machine
 

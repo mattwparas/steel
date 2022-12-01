@@ -4,7 +4,6 @@ use crate::parser::{
     tokens::TokenType,
     tryfrom_visitor::TryFromExprKindForSteelVal,
 };
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
@@ -165,7 +164,7 @@ fn steelval_to_atom(value: &SteelVal) -> Option<TokenType> {
         SteelVal::NumV(n) => Some(TokenType::NumberLiteral(*n)),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
         SteelVal::IntV(i) => Some(TokenType::IntegerLiteral(*i)),
-        SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.unwrap())),
+        SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_string())),
         _ => None,
     }
 }
@@ -318,7 +317,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
     fn visit_define(&mut self, define: Box<crate::parser::ast::Define>) -> Self::Output {
         let identifier = &define.name.atom_identifier_or_else(
-            throw!(BadSyntax => "Define expects an identifier"; define.location.span),
+            throw!(BadSyntax => format!("Define expects an identifier, found: {}", define.name); define.location.span),
         )?;
 
         let body = self.visit(define.body)?;
@@ -343,7 +342,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         for arg in &lambda_function.args {
             let identifier = arg.atom_identifier_or_else(
-                throw!(BadSyntax => "lambda expects an identifier for the arguments"; lambda_function.location.span),
+                throw!(BadSyntax => format!("lambda expects an identifier for the arguments, found: {}", arg); lambda_function.location.span),
             )?;
             new_env.bind_non_constant(identifier);
         }
@@ -374,55 +373,12 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         Ok(ExprKind::Return(r))
     }
 
-    fn visit_apply(&mut self, mut apply: Box<crate::parser::ast::Apply>) -> Self::Output {
-        apply.func = self.visit(apply.func)?;
-        apply.list = self.visit(apply.list)?;
-        Ok(ExprKind::Apply(apply))
-    }
-
-    fn visit_panic(&mut self, mut p: Box<crate::parser::ast::Panic>) -> Self::Output {
-        p.message = self.visit(p.message)?;
-        Ok(ExprKind::Panic(p))
-    }
-
-    fn visit_transduce(
-        &mut self,
-        mut transduce: Box<crate::parser::ast::Transduce>,
-    ) -> Self::Output {
-        transduce.transducer = self.visit(transduce.transducer)?;
-        transduce.func = self.visit(transduce.func)?;
-        transduce.initial_value = self.visit(transduce.initial_value)?;
-        transduce.iterable = self.visit(transduce.iterable)?;
-        Ok(ExprKind::Transduce(transduce))
-    }
-
-    fn visit_read(&mut self, mut read: Box<crate::parser::ast::Read>) -> Self::Output {
-        read.expr = self.visit(read.expr)?;
-        Ok(ExprKind::Read(read))
-    }
-
-    fn visit_execute(&mut self, mut execute: Box<crate::parser::ast::Execute>) -> Self::Output {
-        execute.transducer = self.visit(execute.transducer)?;
-        execute.collection = self.visit(execute.collection)?;
-        execute.output_type = execute.output_type.map(|x| self.visit(x)).transpose()?;
-        Ok(ExprKind::Execute(execute))
-    }
-
     fn visit_quote(&mut self, quote: Box<crate::parser::ast::Quote>) -> Self::Output {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_struct(&mut self, s: Box<crate::parser::ast::Struct>) -> Self::Output {
-        Ok(ExprKind::Struct(s))
-    }
-
     fn visit_macro(&mut self, _m: crate::parser::ast::Macro) -> Self::Output {
         stop!(Generic => "unexpected macro found in const evaluator");
-    }
-
-    fn visit_eval(&mut self, mut e: Box<crate::parser::ast::Eval>) -> Self::Output {
-        e.expr = self.visit(e.expr)?;
-        Ok(ExprKind::Eval(e))
     }
 
     fn visit_atom(&mut self, a: crate::parser::ast::Atom) -> Self::Output {
@@ -516,7 +472,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             for (var, arg) in l.args.iter().zip(args.iter()) {
                 let identifier = var.atom_identifier_or_else(
-                    throw!(BadSyntax => "lambda expects an identifier for the arguments"; l.location.span),
+                    throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {}", var); l.location.span),
                 )?;
                 if let Some(c) = self.to_constant(arg) {
                     new_env.bind(identifier, c);
@@ -544,7 +500,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let span = l.location.span;
             for (var, arg) in l.args.iter().zip(args.iter()) {
                 let identifier = var.atom_identifier_or_else(
-                    throw!(BadSyntax => "lambda expects an identifier for the arguments"; span),
+                    throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {}", var); span),
                 )?;
 
                 // If the argument/variable is used internally, keep it
@@ -569,6 +525,9 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 // println!("Returning in here");
 
                 debug!("Found no used arguments or non constant arguments, returning the body");
+
+                // Unwind the recursion before we bail out
+                self.bindings = parent;
 
                 self.changed = true;
                 return Ok(output);
@@ -643,12 +602,23 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     fn visit_require(&mut self, _s: crate::parser::ast::Require) -> Self::Output {
-        stop!(Generic => "unexpected require in const evaluator");
+        stop!(Generic => "unexpected require - require is only allowed at the top level");
     }
 
-    fn visit_callcc(&mut self, mut cc: Box<crate::parser::ast::CallCC>) -> Self::Output {
-        cc.expr = self.visit(cc.expr)?;
-        Ok(ExprKind::CallCC(cc))
+    // TODO come back to this
+    fn visit_let(&mut self, mut l: Box<crate::parser::ast::Let>) -> Self::Output {
+        // panic!("---------------------------Visiting let!--------------------");
+
+        let mut visited_bindings = Vec::new();
+
+        for (binding, expr) in l.bindings {
+            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+        }
+
+        l.bindings = visited_bindings;
+        l.body_expr = self.visit(l.body_expr)?;
+
+        Ok(ExprKind::Let(l))
     }
 }
 
@@ -690,43 +660,9 @@ impl<'a> VisitorMut for CollectSet<'a> {
         self.visit(&r.expr);
     }
 
-    fn visit_apply(&mut self, apply: &crate::parser::ast::Apply) -> Self::Output {
-        self.visit(&apply.func);
-        self.visit(&apply.list);
-    }
-
-    fn visit_panic(&mut self, p: &crate::parser::ast::Panic) -> Self::Output {
-        self.visit(&p.message);
-    }
-
-    fn visit_transduce(&mut self, transduce: &crate::parser::ast::Transduce) -> Self::Output {
-        self.visit(&transduce.transducer);
-        self.visit(&transduce.func);
-        self.visit(&transduce.initial_value);
-        self.visit(&transduce.iterable);
-    }
-
-    fn visit_read(&mut self, read: &crate::parser::ast::Read) -> Self::Output {
-        self.visit(&read.expr);
-    }
-
-    fn visit_execute(&mut self, execute: &crate::parser::ast::Execute) -> Self::Output {
-        self.visit(&execute.transducer);
-        self.visit(&execute.collection);
-        if let Some(x) = execute.output_type.as_ref() {
-            self.visit(x)
-        }
-    }
-
     fn visit_quote(&mut self, _quote: &Quote) -> Self::Output {}
 
-    fn visit_struct(&mut self, _s: &crate::parser::ast::Struct) -> Self::Output {}
-
     fn visit_macro(&mut self, _m: &crate::parser::ast::Macro) -> Self::Output {}
-
-    fn visit_eval(&mut self, e: &crate::parser::ast::Eval) -> Self::Output {
-        self.visit(&e.expr);
-    }
 
     fn visit_atom(&mut self, _a: &Atom) -> Self::Output {}
 
@@ -744,11 +680,14 @@ impl<'a> VisitorMut for CollectSet<'a> {
         ) {
             self.set_idents.insert(identifier.to_string());
         }
+
+        self.visit(&s.expr);
     }
 
     fn visit_require(&mut self, _s: &crate::parser::ast::Require) -> Self::Output {}
 
-    fn visit_callcc(&mut self, cc: &crate::parser::ast::CallCC) -> Self::Output {
-        self.visit(&cc.expr);
+    fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {
+        l.bindings.iter().for_each(|x| self.visit(&x.1));
+        self.visit(&l.body_expr);
     }
 }

@@ -1,13 +1,16 @@
+pub mod builtin;
 pub(crate) mod const_evaluation;
+pub mod contract_checker;
 mod contracts;
 pub mod engine;
 mod evaluation_progress;
-mod heap;
+// mod heap;
+pub mod dylib;
 mod lazy_stream;
+mod meta;
 pub mod options;
-mod primitives;
+pub mod primitives;
 pub mod register_fn;
-mod stack;
 #[cfg(test)]
 mod test_util;
 #[cfg(test)]

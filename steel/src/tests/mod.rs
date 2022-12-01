@@ -3,24 +3,19 @@ use crate::steel_vm::engine::Engine;
 
 fn generate_asserting_machine() -> Engine {
     let mut vm = Engine::new();
-    vm.parse_and_execute_without_optimizations(PRELUDE).unwrap();
-    vm.parse_and_execute_without_optimizations(CONTRACTS)
-        .unwrap();
+    vm.compile_and_run_raw_program(PRELUDE).unwrap();
+    vm.compile_and_run_raw_program(CONTRACTS).unwrap();
     vm
 }
 
 pub(crate) fn assert_script<T: AsRef<str>>(script: T) {
     let mut vm = generate_asserting_machine();
-    assert!(vm
-        .parse_and_execute_without_optimizations(script.as_ref())
-        .is_ok());
+    assert!(vm.compile_and_run_raw_program(script.as_ref()).is_ok());
 }
 
 pub(crate) fn assert_script_error<T: AsRef<str>>(script: T) {
     let mut vm = generate_asserting_machine();
-    assert!(vm
-        .parse_and_execute_without_optimizations(script.as_ref())
-        .is_err());
+    assert!(vm.compile_and_run_raw_program(script.as_ref()).is_err());
 }
 
 macro_rules! test_harness_success {
@@ -56,12 +51,18 @@ macro_rules! test_harness_failure {
 }
 
 test_harness_success! {
+    abc_problem,
     apply_more_complex,
+    babbage_problem,
+    balanced_brackets,
     basic_apply,
     calculator,
     capture_upvalue,
     capture_upvalues_arity_two,
     close_upvalue,
+    closure_value_capture,
+    delim_control,
+    delim_control_n,
     define_normal,
     dfs,
     fib,
@@ -71,13 +72,18 @@ test_harness_success! {
     generic_execution,
     generic_transducer_with_different_functions,
     generic_transducer,
+    heap_sort,
     letrec_mutual_recursion,
     letrec_simple_recursion,
     local_struct,
     matcher,
     merge_sort,
+    numbers,
+    quicksort,
     read,
     set_local,
+    set_tail_call,
+    shift_reset,
     sieve,
     simple_stream_with_map,
     simple_stream_with_mapping,

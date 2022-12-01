@@ -77,22 +77,28 @@
 ;; execute / transducer work with transducers
 ;; these are like source agnostic
 
-(execute (taking 15)
-         (add-streams (integers 0) (integers 0)))
+(transduce
+         (add-streams (integers 0) (integers 0))
+         (taking 15)
+         (into-list))
 
-(execute (taking 15)
-         (merge-streams (integers 0) (integers 0)))
+(transduce (merge-streams (integers 0) (integers 0))
+         (taking 15)
+         (into-list))
 
 
-(execute (taking 15)
+(transduce 
          (merge-streams
           (merge-streams (integers 0) (integers 0))
-          (add-streams (integers 0) (integers 0))))
+          (add-streams (integers 0) (integers 0)))
+          (taking 15)
+          (into-list))
 
 
 
-(execute (taking 15)
-         (map-stream (lambda (x) 10) (integers 0)))
+(transduce (map-stream (lambda (x) 10) (integers 0))
+        (taking 15)
+        (into-list))
 
 
 (stream->list (in-range-stream 0 10))
@@ -119,5 +125,8 @@
 
 
 
-(execute (taking 15) (port-stream my-port read-line-from-port 'eof))
+(transduce 
+  (port-stream my-port read-line-from-port 'eof)
+  (taking 15) 
+  (into-list))
 

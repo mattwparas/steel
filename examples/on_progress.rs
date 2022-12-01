@@ -22,7 +22,7 @@ pub fn main() {
     });
 
     // This should end with "Number of instructions up to this point: 4000"
-    vm.run(
+    vm.compile_and_run_raw_program(
         r#"
         (define (loop x)
             (if (equal? x 1000)

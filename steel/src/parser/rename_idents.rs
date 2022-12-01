@@ -97,50 +97,12 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
         self.visit(&mut r.expr)
     }
 
-    fn visit_apply(&mut self, apply: &mut super::ast::Apply) -> Self::Output {
-        self.visit(&mut apply.func);
-        self.visit(&mut apply.list);
-    }
-
-    fn visit_panic(&mut self, p: &mut super::ast::Panic) -> Self::Output {
-        self.visit(&mut p.message);
-    }
-
-    fn visit_transduce(&mut self, transduce: &mut super::ast::Transduce) -> Self::Output {
-        // todo!()
-        self.visit(&mut transduce.transducer);
-        self.visit(&mut transduce.func);
-        self.visit(&mut transduce.initial_value);
-        self.visit(&mut transduce.iterable);
-    }
-
-    fn visit_read(&mut self, read: &mut super::ast::Read) -> Self::Output {
-        self.visit(&mut read.expr);
-    }
-
-    fn visit_execute(&mut self, execute: &mut super::ast::Execute) -> Self::Output {
-        self.visit(&mut execute.transducer);
-        self.visit(&mut execute.collection);
-
-        if let Some(ref mut o) = execute.output_type {
-            self.visit(o);
-        }
-    }
-
     fn visit_quote(&mut self, quote: &mut super::ast::Quote) -> Self::Output {
         self.visit(&mut quote.expr);
     }
 
-    fn visit_struct(&mut self, _s: &mut super::ast::Struct) -> Self::Output {
-        // no op
-    }
-
     fn visit_macro(&mut self, _m: &mut super::ast::Macro) -> Self::Output {
         todo!()
-    }
-
-    fn visit_eval(&mut self, e: &mut super::ast::Eval) -> Self::Output {
-        self.visit(&mut e.expr);
     }
 
     fn visit_atom(&mut self, a: &mut super::ast::Atom) -> Self::Output {
@@ -185,8 +147,12 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
         todo!()
     }
 
-    fn visit_callcc(&mut self, cc: &mut super::ast::CallCC) -> Self::Output {
-        self.visit(&mut cc.expr);
+    fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
+        for (_, expr) in &mut l.bindings {
+            self.visit(expr);
+        }
+
+        self.visit(&mut l.body_expr);
     }
 }
 
@@ -195,7 +161,7 @@ mod rename_visitor_tests {
 
     use super::TokenType::*;
     use super::*;
-    use crate::parser::ast::{Atom, Define, If, LambdaFunction, List, Transduce};
+    use crate::parser::ast::{Atom, Define, If, LambdaFunction, List};
 
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
@@ -254,21 +220,7 @@ mod rename_visitor_tests {
     fn test_should_do_nothing() {
         let mut pre_condition = ExprKind::If(Box::new(If::new(
             ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(true)))),
-            ExprKind::Transduce(Box::new(Transduce::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "c".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "d".to_string(),
-                )))),
-                SyntaxObject::default(TokenType::Transduce),
-            ))),
+            ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(true)))),
             ExprKind::If(Box::new(If::new(
                 ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(false)))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),

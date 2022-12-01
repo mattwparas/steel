@@ -1,35 +1,34 @@
-mod contracts;
+pub mod contracts;
 mod control;
 mod fs;
-mod hashmaps;
-mod hashsets;
+pub mod hashmaps;
+pub mod hashsets;
 mod io;
-mod lists;
-mod meta_ops;
-mod nums;
+pub mod lists;
+pub mod meta_ops;
+pub mod nums;
 mod ports;
+pub mod process;
 mod streams;
 mod strings;
 mod symbols;
-mod transducers;
+pub mod transducers;
 mod utils;
 mod vectors;
 
-pub use contracts::ContractOperations;
 pub use control::ControlOperations;
 pub use fs::FsFunctions;
 pub use hashmaps::HashMapOperations;
-pub use hashsets::HashSetOperations;
 pub use io::IoFunctions;
-pub use lists::ListOperations;
 pub use meta_ops::MetaOperations;
 pub use nums::NumOperations;
 pub use ports::PortOperations;
 pub use streams::StreamOperations;
 pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
-pub use transducers::TransducerOperations;
 pub use vectors::VectorOperations;
+
+pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{FunctionSignature, SteelVal};
@@ -66,7 +65,7 @@ macro_rules! try_from_impl {
             }
 
             impl FromSteelVal for $body {
-                fn from_steelval(value: SteelVal) -> result::Result<Self, SteelErr> {
+                fn from_steelval(value: &SteelVal) -> result::Result<Self, SteelErr> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
                         _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
@@ -127,9 +126,9 @@ impl IntoSteelVal for char {
 }
 
 impl FromSteelVal for char {
-    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
+    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if let SteelVal::CharV(c) = val {
-            Ok(c)
+            Ok(*c)
         } else {
             Err(SteelErr::new(
                 ErrorKind::ConversionError,
@@ -160,7 +159,7 @@ impl<T: IntoSteelVal> IntoSteelVal for Option<T> {
 }
 
 impl<T: FromSteelVal> FromSteelVal for Option<T> {
-    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
+    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if val.is_truthy() {
             Ok(Some(T::from_steelval(val)?))
         } else {
@@ -169,20 +168,73 @@ impl<T: FromSteelVal> FromSteelVal for Option<T> {
     }
 }
 
-// TODO make intosteelval return a result type
-// This allows errors to propagate
-
-impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
-    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-        match self {
-            Ok(s) => s.into_steelval(),
-            Err(e) => crate::stop!(Generic => format!("{:?}", e)),
-        }
+impl FromSteelVal for SteelVal {
+    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
+        Ok(val.clone())
     }
 }
 
+// TODO make intosteelval return a result type
+// This allows errors to propagate
+// @Matt - TODO: 4/29/22 -> Decide how natively Result and Option types should be integrated
+// Directly into Steel. At the moment we _could_ bail out and just rely entirely on Rust
+// types, but then we may have to more carefully integrate with functions in the std library
+// in order to interact. We also could convert directly into a Steel representation, i.e.
+// (make-struct Ok (x))
+// (make-struct Err (x))
+// This could make it easier to integrate natively, but also opaquely wrapping it allows for
+// perhaps better performance
+// impl<T: IntoSteelVal, E: IntoSteelVal> Custom for Result<T, E> {}
+
+// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
+//     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+//         match self {
+//             Ok(s) => Ok(create_result_ok_struct(s.into_steelval()?)),
+//             Err(e) => crate::stop!(Generic => format!("{:?}", e)),
+//         }
+//     }
+// }
+
+// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
+//     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+
+//     }
+// }
+
+// impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for Result<T, E> {
+//     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
+//         if val.is_struct() {
+//             if let SteelVal::MutableVector(v) = val {
+//                 let lock = v.borrow();
+//                 // 0 -> magic symbol
+//                 // 1 -> name
+//                 // 2 -> options
+//                 // 3 -> data
+//                 let name = lock.get(1);
+//                 let inner = lock.get(3);
+
+//                 if let Some(SteelVal::SymbolV(name)) = name {
+//                     match name.as_str() {
+//                         "Ok" => Ok(Ok(T::from_steelval(inner.unwrap())?)),
+//                         "Err" => Ok(Err(E::from_steelval(inner.unwrap())?)),
+//                         _ => {
+//                             stop!(ConversionError => format!("Failed converting an instance of a steel struct into a Rust result type: found an instance of a struct with the name: {:?}, expecting either `Ok` or `Err`", name))
+//                         }
+//                     }
+//                 } else {
+//                     stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type, found an instance of a struct without a name - expected a name and found: {:?}", name))
+//                 }
+//             } else {
+//                 unreachable!()
+//             }
+//         } else {
+//             stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {:?}", val));
+//         }
+//     }
+// }
+
 impl FromSteelVal for () {
-    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
+    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if let SteelVal::Void = val {
             Ok(())
         } else {
@@ -212,8 +264,8 @@ impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
     fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
         match value {
-            SteelVal::StringV(ref x) => Ok(x.unwrap()),
-            SteelVal::SymbolV(ref x) => Ok(x.unwrap()),
+            SteelVal::StringV(ref x) => Ok(x.to_string()),
+            SteelVal::SymbolV(ref x) => Ok(x.to_string()),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
                 "Expected string".to_string(),
@@ -235,14 +287,13 @@ impl From<Gc<SteelVal>> for SteelVal {
 }
 
 impl FromSteelVal for String {
-    fn from_steelval(val: SteelVal) -> Result<Self, SteelErr> {
-        if let SteelVal::StringV(s) = val {
-            Ok(s.unwrap())
-        } else {
-            Err(SteelErr::new(
+    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
+        match val {
+            SteelVal::StringV(s) | SteelVal::SymbolV(s) => Ok(s.to_string()),
+            _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Expected string".to_string(),
-            ))
+                format!("Expected string, found: {}", val),
+            )),
         }
     }
 }
@@ -251,8 +302,8 @@ impl TryFrom<&SteelVal> for String {
     type Error = SteelErr;
     fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
         match value {
-            SteelVal::StringV(x) => Ok(x.unwrap()),
-            SteelVal::SymbolV(x) => Ok(x.unwrap()),
+            SteelVal::StringV(x) => Ok(x.to_string()),
+            SteelVal::SymbolV(x) => Ok(x.to_string()),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
                 "Expected string".to_string(),
@@ -269,7 +320,7 @@ impl From<String> for SteelVal {
 
 impl IntoSteelVal for String {
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-        Ok(SteelVal::StringV(Gc::new(self)))
+        Ok(SteelVal::StringV(self.into()))
     }
 }
 
@@ -315,7 +366,7 @@ mod try_from_tests {
 
     #[test]
     fn from_steelval_char() {
-        assert_eq!(char::from_steelval(SteelVal::CharV('c')).unwrap(), 'c')
+        assert_eq!(char::from_steelval(&SteelVal::CharV('c')).unwrap(), 'c')
     }
 
     #[test]
@@ -325,12 +376,12 @@ mod try_from_tests {
 
     #[test]
     fn from_steelval_usize() {
-        assert_eq!(usize::from_steelval(SteelVal::IntV(10)).unwrap(), 10)
+        assert_eq!(usize::from_steelval(&SteelVal::IntV(10)).unwrap(), 10)
     }
 
     #[test]
     fn from_steelval_i32() {
-        assert_eq!(i32::from_steelval(SteelVal::IntV(32)).unwrap(), 32)
+        assert_eq!(i32::from_steelval(&SteelVal::IntV(32)).unwrap(), 32)
     }
 
     #[test]

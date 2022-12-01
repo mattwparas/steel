@@ -1,5 +1,8 @@
-use crate::parser::lexer::TokenStream;
-use crate::parser::tokens::{Token, TokenType, TokenType::*};
+use crate::{parser::lexer::TokenStream, rvals::IntoSteelVal};
+use crate::{
+    parser::tokens::{Token, TokenType, TokenType::*},
+    rvals::FromSteelVal,
+};
 
 use std::rc::Rc;
 use std::result;
@@ -19,12 +22,163 @@ use crate::rvals::SteelVal::*;
 
 use super::ast;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyntaxObject {
-    pub(crate) ty: TokenType,
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+)]
+pub struct SourceId(pub(crate) usize);
+
+impl IntoSteelVal for SourceId {
+    fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
+        self.0.into_steelval()
+    }
+}
+
+impl FromSteelVal for SourceId {
+    fn from_steelval<'a>(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::IntV(v) = val {
+            Ok(SourceId(*v as usize))
+        } else {
+            stop!(TypeMismatch => "Unable to convert steelval: {} into source id", val)
+        }
+    }
+}
+
+pub struct Sources {
+    paths: HashMap<SourceId, PathBuf>,
+    sources: Vec<String>,
+}
+
+impl Sources {
+    pub fn new() -> Self {
+        Sources {
+            paths: HashMap::new(),
+            sources: Vec::new(),
+        }
+    }
+
+    pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
+        let index = self.sources.len();
+        self.sources.push(source);
+
+        let id = SourceId(index);
+
+        if let Some(path) = path {
+            self.paths.insert(id, path);
+        }
+
+        id
+    }
+
+    pub fn get(&self, source_id: SourceId) -> Option<&String> {
+        self.sources.get(source_id.0)
+    }
+
+    pub fn get_path(&self, source_id: &SourceId) -> Option<&PathBuf> {
+        self.paths.get(source_id)
+    }
+}
+
+pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+)]
+pub struct SyntaxObjectId(pub usize);
+
+impl SyntaxObjectId {
+    pub fn fresh() -> Self {
+        SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst))
+    }
+}
+
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+)]
+pub struct ListId(usize);
+
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+)]
+pub struct FunctionId(usize);
+
+impl std::fmt::Display for SyntaxObjectId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+/// A syntax object that can hold anything as the syntax
+/// In this case, we're using the token type emitted by logos
+///
+/// This should open the door to interning our strings to make
+/// parsing (and optimizations later) faster
+#[derive(Serialize, Deserialize)]
+pub struct RawSyntaxObject<T> {
+    pub(crate) ty: T,
     pub(crate) span: Span,
     pub(crate) source: Option<Rc<PathBuf>>,
+    // pub(crate) metadata: Option<IdentifierMetadata>,
+    pub(crate) syntax_object_id: SyntaxObjectId,
 }
+
+impl<T: Clone> Clone for RawSyntaxObject<T> {
+    fn clone(&self) -> Self {
+        Self {
+            ty: self.ty.clone(),
+            span: self.span.clone(),
+            source: self.source.clone(),
+            // metadata: self.metadata.clone(),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+        }
+    }
+}
+
+/// Denotes what kind of identifier we actually have
+#[derive(Clone, Serialize, Deserialize)]
+pub enum IdentifierType {
+    Free,
+    Global,
+    Local,
+    Macro,
+    Module,
+}
+
+#[derive(Clone, Serialize, Deserialize, Hash, Eq, PartialOrd, Ord, PartialEq, Default)]
+pub struct IdentifierMetadata {
+    // kind: IdentifierType,
+    // built_in: bool,
+    pub(crate) depth: usize,
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawSyntaxObject")
+            .field("ty", &self.ty)
+            .field("span", &self.span)
+            .field("source", &self.source)
+            .finish()
+    }
+}
+
+// Implementing hash here just on the token type - we dont want the span included
+// For determining the hash here
+impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.ty.hash(state);
+        self.span.hash(state);
+    }
+}
+
+pub type SyntaxObject = RawSyntaxObject<TokenType>;
+
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+// pub struct SyntaxObject {
+//     pub(crate) ty: TokenType,
+//     pub(crate) span: Span,
+//     pub(crate) source: Option<Rc<PathBuf>>,
+// }
 
 impl PartialEq for SyntaxObject {
     fn eq(&self, other: &Self) -> bool {
@@ -38,14 +192,25 @@ impl SyntaxObject {
             ty,
             span,
             source: None,
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+        }
+    }
+
+    pub fn new_with_source(ty: TokenType, span: Span, source: Option<Rc<PathBuf>>) -> Self {
+        SyntaxObject {
+            ty,
+            span,
+            source,
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
 
     pub fn default(ty: TokenType) -> Self {
         SyntaxObject {
             ty,
-            span: Span::new(0, 0),
+            span: Span::new(0, 0, None),
             source: None,
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
 
@@ -58,6 +223,7 @@ impl SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
             source: source.as_ref().map(Rc::clone),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
         }
     }
 }
@@ -86,6 +252,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             NumberLiteral(x) => Ok(NumV(x)),
             IntegerLiteral(x) => Ok(IntV(x)),
             StringLiteral(x) => Ok(StringV(x.into())),
+            Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {
                 Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string()).with_span(span))
             }
@@ -104,27 +271,23 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Comment => Err(
                 SteelErr::new(ErrorKind::UnexpectedToken, "comment".to_string()).with_span(span),
             ),
-            Hash => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#".to_string()).with_span(span)),
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),
-            Transduce => Ok(SymbolV("transduce".into())),
-            Execute => Ok(SymbolV("execute".into())),
+            TestLet => Ok(SymbolV("test-let".into())),
+            // Transduce => Ok(SymbolV("transduce".into())),
+            // Execute => Ok(SymbolV("execute".into())),
             Return => Ok(SymbolV("return!".into())),
             Begin => Ok(SymbolV("begin".into())),
-            Panic => Ok(SymbolV("panic!".into())),
+            // Panic => Ok(SymbolV("panic!".into())),
             Lambda => Ok(SymbolV("lambda".into())),
             Quote => Ok(SymbolV("quote".into())),
             DefineSyntax => Ok(SymbolV("define-syntax".into())),
             SyntaxRules => Ok(SymbolV("syntax-rules".into())),
             Ellipses => Ok(SymbolV("...".into())),
-            Struct => Ok(SymbolV("struct".into())),
-            Apply => Ok(SymbolV("apply".into())),
+            // Apply => Ok(SymbolV("apply".into())),
             Set => Ok(SymbolV("set!".into())),
-            Read => Ok(SymbolV("read".into())),
-            Eval => Ok(SymbolV("eval".into())),
             Require => Ok(SymbolV("require".into())),
-            CallCC => Ok(SymbolV("call/cc".into())),
         }
     }
 }
@@ -176,17 +339,39 @@ impl ParseError {
 #[derive(Debug)]
 pub struct Parser<'a> {
     tokenizer: TokenStream<'a>,
-    intern: &'a mut HashMap<String, Rc<TokenType>>,
+    _intern: &'a mut HashMap<String, Rc<TokenType>>,
     quote_stack: Vec<usize>,
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
+    context: Vec<ParsingContext>,
+    comment_buffer: Vec<&'a str>,
+}
+
+#[derive(Debug)]
+enum ParsingContext {
+    // Inside of a quote. Expressions should be parsed without being coerced into a typed variant of the AST
+    Quote(usize),
+    // Shortened version of a quote
+    QuoteTick(usize),
+    // Inside of an unquote - expressions should actually be parsed as usual
+    Unquote(usize),
+    // Shortened version of unquote
+    UnquoteTick(usize),
+    // Treat this like a normal quote
+    Quasiquote(usize),
+    // Shortened version of quasiquote
+    QuasiquoteTick(usize),
+    // expressions should parsed as normal
+    UnquoteSplicing(usize),
+    // Shorted version of Unquote Splicing
+    UnquoteSplicingTick(usize),
 }
 
 impl<'a> Parser<'a> {
-    #[cfg(test)]
+    // #[cfg(test)]
     pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {
         let mut intern = HashMap::new();
-        Parser::new(expr, &mut intern).collect()
+        Parser::new(expr, &mut intern, None).collect()
     }
 }
 
@@ -194,7 +379,7 @@ pub type Result<T> = result::Result<T, ParseError>;
 
 fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
     if let TokenType::Error = t.ty {
-        println!("Found an error: {}", t);
+        // println!("Found an error: {}", t);
 
         if t.source.starts_with('\"') {
             ParseError::IncompleteString(t.source.to_string(), t.span, None)
@@ -207,13 +392,19 @@ fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str, intern: &'a mut HashMap<String, Rc<TokenType>>) -> Self {
+    pub fn new(
+        input: &'a str,
+        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        source_id: Option<SourceId>,
+    ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, true),
-            intern,
+            tokenizer: TokenStream::new(input, true, source_id),
+            _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: None,
+            context: Vec::new(),
+            comment_buffer: Vec::new(),
         }
     }
 
@@ -221,13 +412,33 @@ impl<'a> Parser<'a> {
         input: &'a str,
         intern: &'a mut HashMap<String, Rc<TokenType>>,
         source_name: PathBuf,
+        source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, true),
-            intern,
+            tokenizer: TokenStream::new(input, true, source_id),
+            _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: Some(Rc::from(source_name)),
+            context: Vec::new(),
+            comment_buffer: Vec::new(),
+        }
+    }
+
+    // Attach comments!
+    pub fn doc_comment_parser(
+        input: &'a str,
+        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        source_id: Option<SourceId>,
+    ) -> Self {
+        Parser {
+            tokenizer: TokenStream::new(input, false, source_id),
+            _intern: intern,
+            quote_stack: Vec::new(),
+            shorthand_quote_stack: Vec::new(),
+            source_name: None,
+            context: Vec::new(),
+            comment_buffer: Vec::new(),
         }
     }
 
@@ -250,6 +461,8 @@ impl<'a> Parser<'a> {
     }
 
     fn construct_quote_vec(&mut self, val: ExprKind, span: Span) -> Vec<ExprKind> {
+        // println!("Inside construct quote vec with: {:?}", val);
+
         let q = {
             let rc_val = TokenType::Quote;
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
@@ -291,16 +504,6 @@ impl<'a> Parser<'a> {
         ExprKind::List(List::new(vec![q, val]))
     }
 
-    // Reader macro for #
-    fn construct_lambda_shorthand(&mut self, val: ExprKind, span: Span) -> ExprKind {
-        let q = {
-            let rc_val = TokenType::Identifier("lambda-hash".to_string());
-            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
-        };
-
-        ExprKind::List(List::new(vec![q, val]))
-    }
-
     fn read_from_tokens(&mut self) -> Result<ExprKind> {
         let mut stack: Vec<Vec<ExprKind>> = Vec::new();
         let mut current_frame: Vec<ExprKind> = Vec::new();
@@ -311,44 +514,112 @@ impl<'a> Parser<'a> {
             match self.tokenizer.next() {
                 Some(token) => {
                     match token.ty {
+                        TokenType::Comment => {
+                            println!("Found a comment!");
+                            // Internal comments, we're gonna skip for now
+                            continue;
+                        }
                         TokenType::Error => return Err(tokentype_error_to_parse_error(&token)), // TODO
                         TokenType::QuoteTick => {
                             // quote_count += 1;
-                            self.quote_stack.push(current_frame.len());
+                            // self.quote_stack.push(current_frame.len());
+                            self.shorthand_quote_stack.push(current_frame.len());
+
+                            // println!("Entering context: Quote Tick in read from tokens");
+
+                            self.context
+                                .push(ParsingContext::QuoteTick(current_frame.len()));
+
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_quote(x, token.span));
-                            self.quote_stack.pop();
+                            // self.quote_stack.pop();
+                            self.shorthand_quote_stack.pop();
+
+                            // println!(
+                            //     "Exiting Context: {:?} in read from tokens",
+                            //     self.context.pop()
+                            // );
+
+                            // self.context.pop();
+
+                            let popped_value = self.context.pop();
+
+                            if let Some(popped) = popped_value {
+                                debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
+                            }
 
                             current_frame.push(quote_inner?);
                         }
                         TokenType::Unquote => {
+                            // println!("Entering context: Unquote");
+
+                            self.context
+                                .push(ParsingContext::UnquoteTick(current_frame.len()));
+
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_unquote(x, token.span));
+
+                            let popped_value = self.context.pop();
+
+                            if let Some(popped) = popped_value {
+                                debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
+                            }
+                            // println!("Exiting Context: {:?}", self.context.pop());
                             current_frame.push(quote_inner?);
                         }
                         TokenType::QuasiQuote => {
+                            // println!("Entering context: Quasiquote");
+
+                            self.context
+                                .push(ParsingContext::QuasiquoteTick(current_frame.len()));
+
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_quasiquote(x, token.span));
+
+                            // self.context.pop();
+                            // println!(
+                            //     ">>>>>>>>>>>>>>>>>>> Exiting Context: {:?}",
+                            //     self.context.pop()
+                            // );
+
+                            let popped_value = self.context.pop();
+
+                            if let Some(popped) = popped_value {
+                                // println!("Popped: {:?}", popped);
+                                debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
+                            }
+
                             current_frame.push(quote_inner?);
                         }
                         TokenType::UnquoteSplice => {
+                            // println!("Entering context: UnquoteSplicing");
+
+                            self.context
+                                .push(ParsingContext::UnquoteSplicingTick(current_frame.len()));
+
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| self.construct_unquote_splicing(x, token.span));
-                            current_frame.push(quote_inner?);
-                        }
-                        TokenType::Hash => {
-                            let quote_inner = self
-                                .next()
-                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                                .map(|x| self.construct_lambda_shorthand(x, token.span));
+
+                            // self.context.pop();
+
+                            let popped_value = self.context.pop();
+
+                            if let Some(popped) = popped_value {
+                                debug_assert!(matches!(
+                                    popped,
+                                    ParsingContext::UnquoteSplicingTick(_)
+                                ))
+                            }
+
+                            // println!("Exiting Context: {:?}", self.context.pop());
                             current_frame.push(quote_inner?);
                         }
                         TokenType::OpenParen => {
@@ -356,20 +627,31 @@ impl<'a> Parser<'a> {
                             current_frame = Vec::new();
                         }
                         TokenType::CloseParen => {
+                            // This is the match that we'll want to move inside the below stack.pop() match statement
+                            // As we close the current context, we check what our current state is -
+
                             if let Some(mut prev_frame) = stack.pop() {
-                                match self.quote_stack.last() {
-                                    Some(last_quote_index)
-                                        if stack.len() == *last_quote_index
-                                            && self.quote_stack.len() > 1 =>
-                                    {
-                                        self.quote_stack.pop();
-                                        prev_frame.push(ExprKind::List(List::new(current_frame)))
-                                    }
-                                    Some(last_quote_index)
-                                        if stack.len() == *last_quote_index
-                                            && self.quote_stack.len() == 1 =>
-                                    {
-                                        self.quote_stack.pop();
+                                match self.context.last() {
+                                    // TODO: Change this -> This should really be just Some(ParsingContext::Quote)
+                                    // If we have _anything_ then we should check if we need to parse it differently. If we're at the last_quote_index,
+                                    // then we can pop it off inside there.
+                                    Some(ParsingContext::Quote(last_quote_index))
+                                    | Some(ParsingContext::Quasiquote(last_quote_index)) => {
+                                        // println!(
+                                        //     "Q/QQ: Stack length: {:?}, last_quote_index: {:?}",
+                                        //     stack.len(),
+                                        //     last_quote_index
+                                        // );
+
+                                        // let last_quote_index = *last_quote_index;
+
+                                        if stack.len() <= *last_quote_index {
+                                            self.context.pop();
+                                            // println!("Exiting Context: {:?}", self.context.pop());
+                                        }
+
+                                        // println!("Inside here!");
+                                        // println!("Frame: {:?}", current_frame);
 
                                         match current_frame.first() {
                                             Some(ExprKind::Atom(Atom {
@@ -378,40 +660,120 @@ impl<'a> Parser<'a> {
                                                         ty: TokenType::Quote,
                                                         ..
                                                     },
+                                            })) => match self.context.last() {
+                                                Some(
+                                                    ParsingContext::Quasiquote(_)
+                                                    | ParsingContext::QuasiquoteTick(_)
+                                                    | ParsingContext::Quote(_)
+                                                    | ParsingContext::QuoteTick(_),
+                                                ) => prev_frame
+                                                    .push(ExprKind::List(List::new(current_frame))),
+                                                _ => {
+                                                    prev_frame.push(
+                                                        ExprKind::try_from(current_frame).map_err(
+                                                            |x| {
+                                                                x.set_source(
+                                                                    self.source_name.clone(),
+                                                                )
+                                                            },
+                                                        )?,
+                                                    );
+                                                }
+                                            },
+                                            _ => {
+                                                // println!("Converting to list");
+                                                // println!("Context here: {:?}", self.context);
+                                                prev_frame
+                                                    .push(ExprKind::List(List::new(current_frame)))
+                                            }
+                                        }
+                                    }
+
+                                    Some(ParsingContext::QuoteTick(_))
+                                    | Some(ParsingContext::QuasiquoteTick(_)) => {
+                                        match current_frame.first() {
+                                            Some(ExprKind::Atom(Atom {
+                                                syn:
+                                                    SyntaxObject {
+                                                        ty: TokenType::Quote,
+                                                        ..
+                                                    },
                                             })) => {
+                                                // println!("Converting to quote inside quote tick");
                                                 prev_frame.push(
                                                     ExprKind::try_from(current_frame).map_err(
                                                         |x| x.set_source(self.source_name.clone()),
                                                     )?,
                                                 );
                                             }
-                                            _ => prev_frame
-                                                .push(ExprKind::List(List::new(current_frame))),
+                                            _ => {
+                                                // println!("Converting to list inside quote tick");
+                                                prev_frame
+                                                    .push(ExprKind::List(List::new(current_frame)))
+                                            }
                                         }
-                                    }
-                                    Some(_) => {
-                                        prev_frame.push(ExprKind::List(List::new(current_frame)))
-                                    }
-                                    _ => match self.shorthand_quote_stack.last() {
-                                        Some(_) => prev_frame
-                                            .push(ExprKind::List(List::new(current_frame))),
-                                        _ => {
-                                            prev_frame.push(
-                                                ExprKind::try_from(current_frame).map_err(|x| {
-                                                    x.set_source(self.source_name.clone())
-                                                })?,
-                                            );
-                                        }
-                                    },
-                                }
-                                current_frame = prev_frame;
-                            } else {
-                                match self.shorthand_quote_stack.last() {
-                                    Some(last_quote_index) if stack.len() == *last_quote_index => {
-                                        self.shorthand_quote_stack.pop();
-                                        return Ok(ExprKind::List(List::new(current_frame)));
                                     }
 
+                                    // If we're in the short hand reader world, just ignore popping off the stack
+                                    // but still treat it as a normal expression
+                                    Some(ParsingContext::UnquoteTick(_))
+                                    | Some(ParsingContext::UnquoteSplicingTick(_)) => {
+                                        // println!(
+                                        //     "UQ/UQS: Stack length: {:?}, last_quote_index: {:?}",
+                                        //     stack.len(),
+                                        //     last_quote_index
+                                        // );
+
+                                        // if stack.len() <= *last_quote_index {
+                                        //     // println!("Exiting Context: {:?}", self.context.pop());
+                                        //     self.context.pop();
+                                        // }
+
+                                        prev_frame.push(
+                                            ExprKind::try_from(current_frame).map_err(|x| {
+                                                x.set_source(self.source_name.clone())
+                                            })?,
+                                        );
+                                    }
+
+                                    Some(ParsingContext::Unquote(last_quote_index))
+                                    | Some(ParsingContext::UnquoteSplicing(last_quote_index)) => {
+                                        // println!(
+                                        //     "UQ/UQS: Stack length: {:?}, last_quote_index: {:?}",
+                                        //     stack.len(),
+                                        //     last_quote_index
+                                        // );
+
+                                        if stack.len() <= *last_quote_index {
+                                            // println!("Exiting Context: {:?}", self.context.pop());
+                                            self.context.pop();
+                                        }
+
+                                        prev_frame.push(
+                                            ExprKind::try_from(current_frame).map_err(|x| {
+                                                x.set_source(self.source_name.clone())
+                                            })?,
+                                        );
+                                    }
+
+                                    // Else case, just go ahead and assume it is a normal frame
+                                    _ => prev_frame.push(
+                                        ExprKind::try_from(current_frame)
+                                            .map_err(|x| x.set_source(self.source_name.clone()))?,
+                                    ),
+                                }
+
+                                // Reinitialize current frame here
+                                current_frame = prev_frame;
+                            } else {
+                                // println!("Else case: {:?}", current_frame);
+                                // println!("Context: {:?}", self.context);
+
+                                match self.context.last() {
+                                    Some(ParsingContext::QuoteTick(_))
+                                    | Some(ParsingContext::QuasiquoteTick(_)) => {
+                                        return Ok(ExprKind::List(List::new(current_frame)));
+                                    }
                                     _ => {
                                         return ExprKind::try_from(current_frame)
                                             .map_err(|x| x.set_source(self.source_name.clone()))
@@ -424,6 +786,33 @@ impl<'a> Parser<'a> {
                             if let TokenType::Quote = &token.ty {
                                 // self.quote_stack.push(current_frame.len());
                                 self.quote_stack.push(stack.len());
+                            }
+
+                            // Mark what context we're inside with the context stack:
+                            // This only works when its the first argument - check the function call in open paren?
+                            if current_frame.is_empty() {
+                                match &token.ty {
+                                    TokenType::Quote => {
+                                        self.context.push(ParsingContext::Quote(stack.len()))
+                                    }
+                                    TokenType::Identifier(ident) if ident.as_str() == "unquote" => {
+                                        self.context.push(ParsingContext::Unquote(stack.len()))
+                                    }
+                                    TokenType::Identifier(ident)
+                                        if ident.as_str() == "quasiquote" =>
+                                    {
+                                        self.context.push(ParsingContext::Quasiquote(stack.len()))
+                                    }
+                                    TokenType::Identifier(ident)
+                                        if ident.as_str() == "unquote-splicing" =>
+                                    {
+                                        self.context
+                                            .push(ParsingContext::UnquoteSplicing(stack.len()))
+                                    }
+                                    _ => {}
+                                }
+
+                                // println!("Context on application: {:?}", self.context);
                             }
 
                             // println!("{}", token);
@@ -447,15 +836,42 @@ impl<'a> Parser<'a> {
 impl<'a> Iterator for Parser<'a> {
     type Item = Result<ExprKind>;
 
+    // TODO -> put the
     fn next(&mut self) -> Option<Self::Item> {
         // self.shorthand_quote_stack = Vec::new();
         // self.quote_stack = Vec::new();
 
         self.tokenizer.next().map(|res| match res.ty {
+            // Collect the comment until theres something to attach to
+            TokenType::Comment => {
+                //     // todo!()
+
+                println!("Found a comment: {}", res.source());
+                println!("Buffer now: {:?}", self.comment_buffer);
+
+                self.comment_buffer
+                    .push(res.source().trim_start_matches(';'));
+                match self.next() {
+                    Some(v) => v,
+                    None => Err(ParseError::SyntaxError(
+                        "Doc comment not associated with a top level definition".to_string(),
+                        res.span(),
+                        None,
+                    )),
+                }
+
+                // Ok(self.next().unwrap)
+
+                //     println!("Found a comment!");
+            }
+
             // Err(e) => Err(ParseError::TokenError(e)),
             TokenType::QuoteTick => {
                 // See if this does the job
                 self.shorthand_quote_stack.push(0);
+
+                // println!("Entering Context: Quote Tick");
+                self.context.push(ParsingContext::QuoteTick(0));
 
                 let value = self
                     .next()
@@ -464,31 +880,84 @@ impl<'a> Iterator for Parser<'a> {
 
                 self.shorthand_quote_stack.pop();
 
+                let popped_value = self.context.pop();
+
+                if let Some(popped) = popped_value {
+                    debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
+                }
+
+                // println!("Exiting context: {:?}", self.context.pop());
+                // println!("Result: {:?}", value);
+
                 match value {
                     Ok(v) => ExprKind::try_from(v),
                     Err(e) => Err(e),
                 }
             }
-            TokenType::Unquote => self
-                .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                .map(|x| self.construct_unquote(x, res.span)),
-            TokenType::UnquoteSplice => self
-                .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                .map(|x| self.construct_unquote_splicing(x, res.span)),
-            TokenType::QuasiQuote => self
-                .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                .map(|x| self.construct_quasiquote(x, res.span)),
-            TokenType::Hash => self
-                .next()
-                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                .map(|x| self.construct_lambda_shorthand(x, res.span)),
+            TokenType::Unquote => {
+                // println!("Entering Context: Unquote");
+                self.context.push(ParsingContext::UnquoteTick(0));
+
+                let value = self
+                    .next()
+                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                    .map(|x| self.construct_unquote(x, res.span));
+
+                let popped_value = self.context.pop();
+
+                if let Some(popped) = popped_value {
+                    debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
+                }
+                // println!("Exiting context: {:?}", self.context.pop());
+
+                value
+            }
+            TokenType::UnquoteSplice => {
+                // println!("Entering Context: Unquotesplicing");
+                self.context.push(ParsingContext::UnquoteSplicingTick(0));
+
+                let value = self
+                    .next()
+                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                    .map(|x| self.construct_unquote_splicing(x, res.span));
+
+                let popped_value = self.context.pop();
+
+                if let Some(popped) = popped_value {
+                    debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
+                }
+
+                // println!("Exiting context: {:?}", self.context.pop());
+
+                value
+            }
+            TokenType::QuasiQuote => {
+                // println!("Entering Context: Quasiquote");
+                self.context.push(ParsingContext::QuasiquoteTick(0));
+
+                let value = self
+                    .next()
+                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                    .map(|x| self.construct_quasiquote(x, res.span));
+
+                // println!("{:?}", self.context.pop());
+
+                // println!("Top level Context: {:?}", self.context);
+
+                let popped_value = self.context.pop();
+
+                if let Some(popped) = popped_value {
+                    debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
+                }
+
+                // println!("Exiting context: {:?}", self.context.pop());
+
+                value
+            }
             TokenType::OpenParen => self.read_from_tokens(),
             TokenType::CloseParen => Err(ParseError::Unexpected(
                 TokenType::CloseParen,
-                self.source_name.clone().clone(),
+                self.source_name.clone(),
             )),
             TokenType::Error => Err(tokentype_error_to_parse_error(&res)),
             _ => Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res)))),
@@ -501,80 +970,141 @@ mod parser_tests {
     // use super::TokenType::*;
     use super::*;
     use crate::parser::ast::ExprKind;
-    use crate::parser::ast::{
-        Begin, Define, Execute, If, LambdaFunction, Panic, Quote, Return, Transduce,
-    };
+    use crate::parser::ast::{Begin, Define, If, LambdaFunction, Quote, Return};
+
+    fn atom(ident: &str) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
+            ident.to_string(),
+        ))))
+    }
+
+    fn int(num: isize) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(num))))
+    }
+
+    fn character(c: char) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::default(
+            TokenType::CharacterLiteral(c),
+        )))
+    }
+
+    #[test]
+    fn check_quote_parsing() {
+        println!("{:?}", Parser::parse("'(a b 'c)"));
+    }
+
+    fn parses(s: &str) {
+        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let a: Result<Vec<_>> = Parser::new(s, &mut cache, None).collect();
+        a.unwrap();
+    }
 
     fn assert_parse(s: &str, result: &[ExprKind]) {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         let a = a.unwrap();
         assert_eq!(a.as_slice(), result);
     }
 
     fn assert_parse_err(s: &str, err: ParseError) {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         assert_eq!(a, Err(err));
     }
 
     fn assert_parse_is_err(s: &str) {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         assert!(a.is_err());
     }
 
     #[test]
+    fn check_parser_with_doc_comments() {
+        let mut cache = HashMap::new();
+
+        let expr = r#"
+        ;; This is a fancy cool comment, that I want to attach to a top level definition!
+        ;; This is the second line of the comment, I want this attached as well!
+        (define foo 12345)
+        "#;
+
+        let parser = Parser::doc_comment_parser(expr, &mut cache, None);
+
+        let result: Result<Vec<_>> = parser.collect();
+
+        println!("{:?}", result.unwrap());
+    }
+
+    #[test]
+    fn parses_make_struct() {
+        parses("(define make-struct (lambda (struct-name fields) (map (lambda (field) (list (quote define) (concat-symbols struct-name field) (quote (lambda (this) (vector-ref this 0))))) fields)))")
+    }
+
+    #[test]
+    fn parses_quasiquote() {
+        parses(r#"(quasiquote ((unquote x) xs ...)) "#);
+    }
+
+    #[test]
+    fn parse_syntax_rules() {
+        parses(
+            r#"
+            (syntax-rules (unquote unquote-splicing)
+              ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+              ((quasiquote ((unquote-splicing x)))        (append (list x) '()))
+              ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
+              ((quasiquote (unquote x))                 x)
+              ((quasiquote (x))                          '(x))
+              ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
+              ((quasiquote x)                           'x))
+            "#,
+        );
+    }
+
+    #[test]
+    fn parse_define_syntax() {
+        parses(
+            r#"
+        (define-syntax quasiquote
+            (syntax-rules (unquote unquote-splicing)
+              ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+              ((quasiquote ((unquote-splicing x)))        (append (list x) '()))
+              ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
+              ((quasiquote (unquote x))                 x)
+              ((quasiquote (x))                          '(x))
+              ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
+              ((quasiquote x)                           'x)))
+        "#,
+        );
+    }
+
+    #[test]
+    fn parse_quote() {
+        // parses("(displayln (match (quote (lambda y z)) '(x y z)))")
+        parses("(displayln (match '(lambda y z) '(x y z)))")
+    }
+
+    #[test]
     fn parse_unicode() {
-        assert_parse(
-            "#\\¡",
-            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::CharacterLiteral('¡'),
-            )))],
-        );
-        assert_parse(
-            "#\\\\u{b}",
-            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::CharacterLiteral('\u{b}'),
-            )))],
-        );
+        assert_parse("#\\¡", &[character('¡')]);
+        assert_parse("#\\\\u{b}", &[character('\u{b}')]);
     }
 
     #[test]
     fn parse_more_unicode() {
-        assert_parse(
-            "#\\\\u{a0}",
-            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::CharacterLiteral('\u{a0}'),
-            )))],
-        );
+        assert_parse("#\\\\u{a0}", &[character('\u{a0}')]);
     }
 
     #[test]
     fn parse_strange_characters() {
-        assert_parse(
-            "#\\^",
-            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::CharacterLiteral('^'),
-            )))],
-        );
+        assert_parse("#\\^", &[character('^')]);
     }
 
     #[test]
     fn parse_character_sequence() {
         assert_parse(
             "#\\¡ #\\SPACE #\\g",
-            &[
-                ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    TokenType::CharacterLiteral('¡'),
-                ))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    TokenType::CharacterLiteral(' '),
-                ))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    TokenType::CharacterLiteral('g'),
-                ))),
-            ],
+            &[character('¡'), character(' '), character('g')],
         )
     }
 
@@ -583,15 +1113,9 @@ mod parser_tests {
         assert_parse(
             "(if #\\¡ #\\SPACE #\\g)",
             &[ExprKind::If(Box::new(If::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    TokenType::CharacterLiteral('¡'),
-                ))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    TokenType::CharacterLiteral(' '),
-                ))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    TokenType::CharacterLiteral('g'),
-                ))),
+                character('¡'),
+                character(' '),
+                character('g'),
                 SyntaxObject::default(TokenType::If),
             )))],
         )
@@ -599,28 +1123,13 @@ mod parser_tests {
 
     #[test]
     fn parse_close_paren_character() {
-        assert_parse(
-            "#\\)",
-            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::CharacterLiteral(')'),
-            )))],
-        );
-        assert_parse(
-            "#\\]",
-            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::CharacterLiteral(']'),
-            )))],
-        )
+        assert_parse("#\\)", &[character(')')]);
+        assert_parse("#\\]", &[character(']')])
     }
 
     #[test]
     fn parse_open_paren_character() {
-        assert_parse(
-            "#\\(",
-            &[ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::CharacterLiteral('('),
-            )))],
-        )
+        assert_parse("#\\(", &[character('(')])
     }
 
     #[test]
@@ -637,21 +1146,8 @@ mod parser_tests {
     }
 
     #[test]
-    fn test_panic_should_err() {
-        assert_parse_is_err("(panic!)");
-        assert_parse_is_err("(panic! 1 2)")
-    }
-
-    #[test]
-    fn test_eval_should_err() {
-        assert_parse_is_err("(eval)");
-        assert_parse_is_err("(eval 1 2)");
-    }
-
-    #[test]
-    fn test_read_should_err() {
-        assert_parse_is_err("(read)");
-        assert_parse_is_err("(read 1 2)");
+    fn quote_multiple_args_should_err() {
+        assert_parse_is_err("(quote a b c)");
     }
 
     #[test]
@@ -661,27 +1157,11 @@ mod parser_tests {
     }
 
     #[test]
-    fn test_execute_should_err() {
-        assert_parse_is_err("(execute)");
-        assert_parse_is_err("(execute 1)");
-        assert_parse_is_err("(execute 1 2 3 4)");
-    }
-
-    #[test]
     fn test_if_should_err() {
         assert_parse_is_err("(if)");
         assert_parse_is_err("(if 1)");
         assert_parse_is_err("(if 1 2)");
         assert_parse_is_err("(if 1 2 3 4)");
-    }
-
-    #[test]
-    fn test_transduce_should_err() {
-        assert_parse_is_err("(transduce)");
-        assert_parse_is_err("(transduce 1)");
-        assert_parse_is_err("(transduce 1 2)");
-        assert_parse_is_err("(transduce 1 2 3)");
-        assert_parse_is_err("(transduce 1 2 3 4 5)");
     }
 
     #[test]
@@ -709,9 +1189,7 @@ mod parser_tests {
         assert_parse(
             "(if #\\¡ (quote ()) #\\g)",
             &[ExprKind::If(Box::new(If::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    TokenType::CharacterLiteral('¡'),
-                ))),
+                character('¡'),
                 ExprKind::Quote(
                     Quote::new(
                         List::new(vec![]).into(),
@@ -719,9 +1197,7 @@ mod parser_tests {
                     )
                     .into(),
                 ),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    TokenType::CharacterLiteral('g'),
-                ))),
+                character('g'),
                 SyntaxObject::default(TokenType::If),
             )))],
         )
@@ -746,9 +1222,7 @@ mod parser_tests {
         assert_parse(
             "(list '())",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                    "list".to_string(),
-                )))),
+                atom("list"),
                 ExprKind::Quote(
                     Quote::new(
                         List::new(vec![]).into(),
@@ -762,20 +1236,7 @@ mod parser_tests {
 
     #[test]
     fn test_multi_parse_simple() {
-        assert_parse(
-            "a b +",
-            &[
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "+".to_string(),
-                )))),
-            ],
-        );
+        assert_parse("a b +", &[atom("a"), atom("b"), atom("+")]);
     }
 
     #[test]
@@ -783,22 +1244,14 @@ mod parser_tests {
         assert_parse(
             "a b (funcall  1 (+ 2 3.5))",
             &[
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
+                atom("a"),
+                atom("b"),
                 ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "funcall".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
+                    atom("funcall"),
+                    int(1),
                     ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
+                        atom("+"),
+                        int(2),
                         ExprKind::Atom(Atom::new(SyntaxObject::default(NumberLiteral(3.5)))),
                     ])),
                 ])),
@@ -810,21 +1263,8 @@ mod parser_tests {
         assert_parse(
             "(+ 1 2 3) (- 4 3)",
             &[
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "-".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(4)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
-                ])),
+                ExprKind::List(List::new(vec![atom("+"), int(1), int(2), int(3)])),
+                ExprKind::List(List::new(vec![atom("-"), int(4), int(3)])),
             ],
         );
     }
@@ -834,49 +1274,23 @@ mod parser_tests {
         assert_parse(
             "(+ 1 (foo (bar 2 3)))",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "+".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
+                atom("+"),
+                int(1),
                 ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "foo".to_string(),
-                    )))),
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "bar".to_owned(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
-                    ])),
+                    atom("foo"),
+                    ExprKind::List(List::new(vec![atom("bar"), int(2), int(3)])),
                 ])),
             ]))],
         );
         assert_parse(
             "(+ 1 (+ 2 3) (foo (bar 2 3)))",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "+".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
+                atom("+"),
+                int(1),
+                ExprKind::List(List::new(vec![atom("+"), int(2), int(3)])),
                 ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "foo".to_string(),
-                    )))),
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "bar".to_owned(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
-                    ])),
+                    atom("foo"),
+                    ExprKind::List(List::new(vec![atom("bar"), int(2), int(3)])),
                 ])),
             ]))],
         );
@@ -887,34 +1301,22 @@ mod parser_tests {
         assert_parse(
             "(+ 1 (if 2 3 4) (foo (+ (bar 1 1) 3) 5))",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "+".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
+                atom("+"),
+                int(1),
                 ExprKind::If(Box::new(If::new(
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(4)))),
+                    int(2),
+                    int(3),
+                    int(4),
                     SyntaxObject::default(If),
                 ))),
                 ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "foo".to_string(),
-                    )))),
+                    atom("foo"),
                     ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::List(List::new(vec![
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                "bar".to_string(),
-                            )))),
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                        ])),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
+                        atom("+"),
+                        ExprKind::List(List::new(vec![atom("bar"), int(1), int(1)])),
+                        int(3),
                     ])),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(5)))),
+                    int(5),
                 ])),
             ]))],
         );
@@ -927,8 +1329,8 @@ mod parser_tests {
             &[ExprKind::Quote(Box::new(Quote::new(
                 ExprKind::List(List::new(vec![
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
+                    int(1),
+                    int(2),
                 ])),
                 SyntaxObject::default(TokenType::Quote),
             )))],
@@ -942,8 +1344,8 @@ mod parser_tests {
             &[ExprKind::Quote(Box::new(Quote::new(
                 ExprKind::List(List::new(vec![
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
+                    int(1),
+                    int(2),
                 ])),
                 SyntaxObject::default(TokenType::Quote),
             )))],
@@ -959,10 +1361,10 @@ mod parser_tests {
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
                     ExprKind::List(List::new(vec![
                         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
+                        int(1),
+                        int(2),
                     ])),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
+                    int(3),
                 ])),
                 SyntaxObject::default(TokenType::Quote),
             )))],
@@ -978,10 +1380,10 @@ mod parser_tests {
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
                     ExprKind::List(List::new(vec![
                         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
+                        int(1),
+                        int(2),
                     ])),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
+                    int(3),
                 ])),
                 SyntaxObject::default(TokenType::Quote),
             )))],
@@ -998,42 +1400,30 @@ mod parser_tests {
                         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
                         ExprKind::List(List::new(vec![
                             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
+                            int(1),
+                            int(2),
                         ])),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
+                        int(3),
                     ])),
                     SyntaxObject::default(TokenType::Quote),
                 ))),
                 ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
+                    atom("+"),
+                    int(1),
                     ExprKind::If(Box::new(If::new(
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(4)))),
+                        int(2),
+                        int(3),
+                        int(4),
                         SyntaxObject::default(If),
                     ))),
                     ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "foo".to_string(),
-                        )))),
+                        atom("foo"),
                         ExprKind::List(List::new(vec![
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                "+".to_string(),
-                            )))),
-                            ExprKind::List(List::new(vec![
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                    "bar".to_string(),
-                                )))),
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                            ])),
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
+                            atom("+"),
+                            ExprKind::List(List::new(vec![atom("bar"), int(1), int(1)])),
+                            int(3),
                         ])),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(5)))),
+                        int(5),
                     ])),
                 ])),
             ],
@@ -1046,13 +1436,9 @@ mod parser_tests {
             "'(applesauce 'one)",
             &[ExprKind::Quote(Box::new(Quote::new(
                 ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "applesauce".to_string(),
-                    )))),
+                    atom("applesauce"),
                     ExprKind::Quote(Box::new(Quote::new(
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "one".to_string(),
-                        )))),
+                        atom("one"),
                         SyntaxObject::default(TokenType::Quote),
                     ))),
                 ])),
@@ -1067,13 +1453,9 @@ mod parser_tests {
             "(quote (applesauce 'one))",
             &[ExprKind::Quote(Box::new(Quote::new(
                 ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "applesauce".to_string(),
-                    )))),
+                    atom("applesauce"),
                     ExprKind::Quote(Box::new(Quote::new(
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "one".to_string(),
-                        )))),
+                        atom("one"),
                         SyntaxObject::default(TokenType::Quote),
                     ))),
                 ])),
@@ -1087,16 +1469,8 @@ mod parser_tests {
         assert_parse(
             "`(+ 1 2)",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "quasiquote".to_string(),
-                )))),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                ])),
+                atom("quasiquote"),
+                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -1106,16 +1480,8 @@ mod parser_tests {
         assert_parse(
             "(quasiquote (+ 1 2))",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "quasiquote".to_string(),
-                )))),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                ])),
+                atom("quasiquote"),
+                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -1125,16 +1491,8 @@ mod parser_tests {
         assert_parse(
             ",(+ 1 2)",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "unquote".to_string(),
-                )))),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                ])),
+                atom("unquote"),
+                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -1144,16 +1502,8 @@ mod parser_tests {
         assert_parse(
             "(unquote (+ 1 2))",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "unquote".to_string(),
-                )))),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                ])),
+                atom("unquote"),
+                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -1163,16 +1513,8 @@ mod parser_tests {
         assert_parse(
             ",@(+ 1 2)",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "unquote-splicing".to_string(),
-                )))),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                ])),
+                atom("unquote-splicing"),
+                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -1182,71 +1524,9 @@ mod parser_tests {
         assert_parse(
             "(unquote-splicing (+ 1 2))",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "unquote-splicing".to_string(),
-                )))),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "+".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                ])),
+                atom("unquote-splicing"),
+                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
             ]))],
-        )
-    }
-
-    #[test]
-    fn test_transduce() {
-        assert_parse(
-            "(transduce a b c d)",
-            &[ExprKind::Transduce(Box::new(Transduce::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "c".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "d".to_string(),
-                )))),
-                SyntaxObject::default(TokenType::Transduce),
-            )))],
-        )
-    }
-
-    #[test]
-    fn test_transduce_complex() {
-        assert_parse(
-            "(if #t (transduce a b c d) (if #f 10 20))",
-            &[ExprKind::If(Box::new(If::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(true)))),
-                ExprKind::Transduce(Box::new(Transduce::new(
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "a".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "b".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "c".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "d".to_string(),
-                    )))),
-                    SyntaxObject::default(TokenType::Transduce),
-                ))),
-                ExprKind::If(Box::new(If::new(
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(false)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
-                    SyntaxObject::default(If),
-                ))),
-                SyntaxObject::default(If),
-            )))],
         )
     }
 
@@ -1255,10 +1535,8 @@ mod parser_tests {
         assert_parse(
             "(define a 10)",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                atom("a"),
+                int(10),
                 SyntaxObject::default(TokenType::Define),
             )))],
         )
@@ -1269,22 +1547,10 @@ mod parser_tests {
         assert_parse(
             "(define (foo x) (+ x 10))",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "foo".to_string(),
-                )))),
+                atom("foo"),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        Identifier("x".to_string()),
-                    )))],
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "x".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                    ])),
+                    vec![atom("x")],
+                    ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
                 SyntaxObject::default(TokenType::Define),
@@ -1297,30 +1563,10 @@ mod parser_tests {
         assert_parse(
             "(define (foo x y z) (+ x 10))",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "foo".to_string(),
-                )))),
+                atom("foo"),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "x".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "y".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "z".to_string(),
-                        )))),
-                    ],
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "x".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                    ])),
+                    vec![atom("x"), atom("y"), atom("z")],
+                    ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
                 SyntaxObject::default(TokenType::Define),
@@ -1333,56 +1579,14 @@ mod parser_tests {
         assert_parse(
             "(define (foo x y z) (+ x 10) (+ y 20) (+ z 30))",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "foo".to_string(),
-                )))),
+                atom("foo"),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "x".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "y".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "z".to_string(),
-                        )))),
-                    ],
+                    vec![atom("x"), atom("y"), atom("z")],
                     ExprKind::Begin(Begin::new(
                         vec![
-                            ExprKind::List(List::new(vec![
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                    "+".to_string(),
-                                )))),
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                    "x".to_string(),
-                                )))),
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(
-                                    10,
-                                )))),
-                            ])),
-                            ExprKind::List(List::new(vec![
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                    "+".to_string(),
-                                )))),
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                    "y".to_string(),
-                                )))),
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(
-                                    20,
-                                )))),
-                            ])),
-                            ExprKind::List(List::new(vec![
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                    "+".to_string(),
-                                )))),
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                    "z".to_string(),
-                                )))),
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(
-                                    30,
-                                )))),
-                            ])),
+                            ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
+                            ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
+                            ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
                         ],
                         SyntaxObject::default(TokenType::Begin),
                     )),
@@ -1398,35 +1602,25 @@ mod parser_tests {
         assert_parse(
             "(define (test) (define (foo) (bar)) (define (bar) (foo)))",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "test".to_string(),
-                )))),
+                atom("test"),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                     vec![],
                     ExprKind::Begin(Begin::new(
                         vec![
                             ExprKind::Define(Box::new(Define::new(
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                    "foo".to_string(),
-                                )))),
+                                atom("foo"),
                                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                                     vec![],
-                                    ExprKind::List(List::new(vec![ExprKind::Atom(Atom::new(
-                                        SyntaxObject::default(Identifier("bar".to_string())),
-                                    ))])),
+                                    ExprKind::List(List::new(vec![atom("bar")])),
                                     SyntaxObject::default(TokenType::Lambda),
                                 ))),
                                 SyntaxObject::default(TokenType::Define),
                             ))),
                             ExprKind::Define(Box::new(Define::new(
-                                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                    "bar".to_string(),
-                                )))),
+                                atom("bar"),
                                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                                     vec![],
-                                    ExprKind::List(List::new(vec![ExprKind::Atom(Atom::new(
-                                        SyntaxObject::default(Identifier("foo".to_string())),
-                                    ))])),
+                                    ExprKind::List(List::new(vec![atom("foo")])),
                                     SyntaxObject::default(TokenType::Lambda),
                                 ))),
                                 SyntaxObject::default(TokenType::Define),
@@ -1442,47 +1636,11 @@ mod parser_tests {
     }
 
     #[test]
-    fn test_execute_two_arguments() {
-        assert_parse(
-            "(execute a b)",
-            &[ExprKind::Execute(Box::new(Execute::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
-                None,
-                SyntaxObject::default(TokenType::Execute),
-            )))],
-        )
-    }
-
-    #[test]
-    fn test_execute_three_arguments() {
-        assert_parse(
-            "(execute a b c)",
-            &[ExprKind::Execute(Box::new(Execute::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
-                Some(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    Identifier("c".to_string()),
-                )))),
-                SyntaxObject::default(TokenType::Execute),
-            )))],
-        )
-    }
-
-    #[test]
     fn test_return_normal() {
         assert_parse(
             "(return! 10)",
             &[ExprKind::Return(Box::new(Return::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                int(10),
                 SyntaxObject::default(TokenType::Return),
             )))],
         )
@@ -1493,24 +1651,9 @@ mod parser_tests {
         assert_parse(
             "(begin 1 2 3)",
             &[ExprKind::Begin(Begin::new(
-                vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(1)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(2)))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(3)))),
-                ],
+                vec![int(1), int(2), int(3)],
                 SyntaxObject::default(TokenType::Begin),
             ))],
-        )
-    }
-
-    #[test]
-    fn test_panic_normal() {
-        assert_parse(
-            "(panic! 10)",
-            &[ExprKind::Panic(Box::new(Panic::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                SyntaxObject::default(TokenType::Panic),
-            )))],
         )
     }
 
@@ -1519,10 +1662,8 @@ mod parser_tests {
         assert_parse(
             "(lambda (x) 10)",
             &[ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    Identifier("x".to_string()),
-                )))],
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                vec![atom("x")],
+                int(10),
                 SyntaxObject::default(TokenType::Lambda),
             )))],
         )
@@ -1534,21 +1675,11 @@ mod parser_tests {
             "((lambda (a) (+ a 20)) 10)",
             &[ExprKind::List(List::new(vec![
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        Identifier("a".to_string()),
-                    )))],
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "a".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
-                    ])),
+                    vec![atom("a")],
+                    ExprKind::List(List::new(vec![atom("+"), atom("a"), int(20)])),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                int(10),
             ]))],
         );
     }
@@ -1559,74 +1690,12 @@ mod parser_tests {
             "(let ([a 10]) (+ a 20))",
             &[ExprKind::List(List::new(vec![
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        Identifier("a".to_string()),
-                    )))],
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "+".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "a".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
-                    ])),
+                    vec![atom("a")],
+                    ExprKind::List(List::new(vec![atom("+"), atom("a"), int(20)])),
                     SyntaxObject::default(TokenType::Let),
                 ))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                int(10),
             ]))],
-        )
-    }
-
-    #[test]
-    fn test_execute() {
-        assert_parse(
-            "(execute a b)",
-            &[ExprKind::Execute(Box::new(Execute::new(
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "a".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "b".to_string(),
-                )))),
-                None,
-                SyntaxObject::default(TokenType::Execute),
-            )))],
-        )
-    }
-
-    #[test]
-    fn test_execute_nested() {
-        assert_parse(
-            "(if (empty? lst) '() (execute a b))",
-            &[ExprKind::If(Box::new(If::new(
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "empty?".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "lst".to_string(),
-                    )))),
-                ])),
-                ExprKind::Quote(
-                    Quote::new(
-                        List::new(vec![]).into(),
-                        SyntaxObject::default(TokenType::Quote),
-                    )
-                    .into(),
-                ),
-                ExprKind::Execute(Box::new(Execute::new(
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "a".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "b".to_string(),
-                    )))),
-                    None,
-                    SyntaxObject::default(TokenType::Execute),
-                ))),
-                SyntaxObject::default(TokenType::If),
-            )))],
         )
     }
 
@@ -1662,14 +1731,7 @@ mod parser_tests {
                 '(#f '())
                 (list (car contents) (cdr contents)))",
             &[ExprKind::If(Box::new(If::new(
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "null?".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "contents".to_string(),
-                    )))),
-                ])),
+                ExprKind::List(List::new(vec![atom("null?"), atom("contents")])),
                 ExprKind::Quote(
                     Quote::new(
                         ExprKind::List(List::new(vec![
@@ -1689,25 +1751,9 @@ mod parser_tests {
                     .into(),
                 ),
                 ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "list".to_string(),
-                    )))),
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "car".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "contents".to_string(),
-                        )))),
-                    ])),
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "cdr".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "contents".to_string(),
-                        )))),
-                    ])),
+                    atom("list"),
+                    ExprKind::List(List::new(vec![atom("car"), atom("contents")])),
+                    ExprKind::List(List::new(vec![atom("cdr"), atom("contents")])),
                 ])),
                 SyntaxObject::default(TokenType::If),
             )))],
@@ -1721,14 +1767,7 @@ mod parser_tests {
                 (quote (#f '()))
                 (list (car contents) (cdr contents)))",
             &[ExprKind::If(Box::new(If::new(
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "null?".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "contents".to_string(),
-                    )))),
-                ])),
+                ExprKind::List(List::new(vec![atom("null?"), atom("contents")])),
                 ExprKind::Quote(
                     Quote::new(
                         ExprKind::List(List::new(vec![
@@ -1748,25 +1787,9 @@ mod parser_tests {
                     .into(),
                 ),
                 ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                        "list".to_string(),
-                    )))),
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "car".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "contents".to_string(),
-                        )))),
-                    ])),
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "cdr".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "contents".to_string(),
-                        )))),
-                    ])),
+                    atom("list"),
+                    ExprKind::List(List::new(vec![atom("car"), atom("contents")])),
+                    ExprKind::List(List::new(vec![atom("cdr"), atom("contents")])),
                 ])),
                 SyntaxObject::default(TokenType::If),
             )))],
@@ -1781,18 +1804,9 @@ mod parser_tests {
                 '(#f '())
                 (list (car contents) (cdr contents))))",
             &[ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                    "list".to_string(),
-                )))),
+                atom("list"),
                 ExprKind::If(Box::new(If::new(
-                    ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "null?".to_string(),
-                        )))),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "contents".to_string(),
-                        )))),
-                    ])),
+                    ExprKind::List(List::new(vec![atom("null?"), atom("contents")])),
                     ExprKind::Quote(
                         Quote::new(
                             ExprKind::List(List::new(vec![
@@ -1812,25 +1826,9 @@ mod parser_tests {
                         .into(),
                     ),
                     ExprKind::List(List::new(vec![
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                            "list".to_string(),
-                        )))),
-                        ExprKind::List(List::new(vec![
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                "car".to_string(),
-                            )))),
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                "contents".to_string(),
-                            )))),
-                        ])),
-                        ExprKind::List(List::new(vec![
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                "cdr".to_string(),
-                            )))),
-                            ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                                "contents".to_string(),
-                            )))),
-                        ])),
+                        atom("list"),
+                        ExprKind::List(List::new(vec![atom("car"), atom("contents")])),
+                        ExprKind::List(List::new(vec![atom("cdr"), atom("contents")])),
                     ])),
                     SyntaxObject::default(TokenType::If),
                 ))),
@@ -1843,22 +1841,8 @@ mod parser_tests {
         assert_parse(
             "(define (datum->syntax var) (car ret-value))",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                        "datum->syntax".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                        "var".to_string(),
-                    )))),
-                ])),
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                        "car".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                        "ret-value".to_string(),
-                    )))),
-                ])),
+                ExprKind::List(List::new(vec![atom("datum->syntax"), atom("var")])),
+                ExprKind::List(List::new(vec![atom("car"), atom("ret-value")])),
                 SyntaxObject::default(TokenType::Define),
             )))],
         )
@@ -1869,21 +1853,10 @@ mod parser_tests {
         assert_parse(
             "(define ((datum->syntax var) arg) 10)",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::List(List::new(vec![
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                        "datum->syntax".to_string(),
-                    )))),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                        "var".to_string(),
-                    )))),
-                ])),
+                ExprKind::List(List::new(vec![atom("datum->syntax"), atom("var")])),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        TokenType::Identifier("arg".to_string()),
-                    )))],
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-                        10,
-                    )))),
+                    vec![atom("arg")],
+                    int(10),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
                 SyntaxObject::default(TokenType::Define),
