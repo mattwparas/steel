@@ -344,6 +344,7 @@ pub struct Parser<'a> {
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
     context: Vec<ParsingContext>,
+    comment_buffer: Vec<&'a str>,
 }
 
 #[derive(Debug)]
@@ -403,6 +404,7 @@ impl<'a> Parser<'a> {
             shorthand_quote_stack: Vec::new(),
             source_name: None,
             context: Vec::new(),
+            comment_buffer: Vec::new(),
         }
     }
 
@@ -419,6 +421,24 @@ impl<'a> Parser<'a> {
             shorthand_quote_stack: Vec::new(),
             source_name: Some(Rc::from(source_name)),
             context: Vec::new(),
+            comment_buffer: Vec::new(),
+        }
+    }
+
+    // Attach comments!
+    pub fn doc_comment_parser(
+        input: &'a str,
+        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        source_id: Option<SourceId>,
+    ) -> Self {
+        Parser {
+            tokenizer: TokenStream::new(input, false, source_id),
+            _intern: intern,
+            quote_stack: Vec::new(),
+            shorthand_quote_stack: Vec::new(),
+            source_name: None,
+            context: Vec::new(),
+            comment_buffer: Vec::new(),
         }
     }
 
@@ -495,6 +515,7 @@ impl<'a> Parser<'a> {
                 Some(token) => {
                     match token.ty {
                         TokenType::Comment => {
+                            println!("Found a comment!");
                             // Internal comments, we're gonna skip for now
                             continue;
                         }
@@ -822,12 +843,27 @@ impl<'a> Iterator for Parser<'a> {
 
         self.tokenizer.next().map(|res| match res.ty {
             // Collect the comment until theres something to attach to
-            // TokenType::Comment => {
-            //     // todo!()
+            TokenType::Comment => {
+                //     // todo!()
 
-            //     println!("Found a comment!");
+                println!("Found a comment: {}", res.source());
+                println!("Buffer now: {:?}", self.comment_buffer);
 
-            // }
+                self.comment_buffer
+                    .push(res.source().trim_start_matches(';'));
+                match self.next() {
+                    Some(v) => v,
+                    None => Err(ParseError::SyntaxError(
+                        "Doc comment not associated with a top level definition".to_string(),
+                        res.span(),
+                        None,
+                    )),
+                }
+
+                // Ok(self.next().unwrap)
+
+                //     println!("Found a comment!");
+            }
 
             // Err(e) => Err(ParseError::TokenError(e)),
             TokenType::QuoteTick => {
@@ -980,6 +1016,23 @@ mod parser_tests {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         assert!(a.is_err());
+    }
+
+    #[test]
+    fn check_parser_with_doc_comments() {
+        let mut cache = HashMap::new();
+
+        let expr = r#"
+        ;; This is a fancy cool comment, that I want to attach to a top level definition!
+        ;; This is the second line of the comment, I want this attached as well!
+        (define foo 12345)
+        "#;
+
+        let parser = Parser::doc_comment_parser(expr, &mut cache, None);
+
+        let result: Result<Vec<_>> = parser.collect();
+
+        println!("{:?}", result.unwrap());
     }
 
     #[test]

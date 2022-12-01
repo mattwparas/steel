@@ -1,4 +1,9 @@
-use crate::{core::utils::Boxed, rvals::MAGIC_STRUCT_SYMBOL};
+use im_rc::HashMap;
+
+use crate::{
+    core::utils::Boxed,
+    rvals::{FromSteelVal, IntoSteelVal, MAGIC_STRUCT_SYMBOL},
+};
 use crate::{
     gc::Gc,
     rvals::{AsRefSteelVal, SRef, SteelString},
@@ -266,6 +271,87 @@ impl UserDefinedStruct {
         }
     }
 
+    #[inline(always)]
+    fn new_ok<T: IntoSteelVal>(value: T) -> Result<SteelVal> {
+        OK_CONSTRUCTOR.with(|x| x(&[value.into_steelval()?]))
+    }
+
+    #[inline(always)]
+    fn new_err<T: IntoSteelVal>(value: T) -> Result<SteelVal> {
+        ERR_CONSTRUCTOR.with(|x| x(&[value.into_steelval()?]))
+    }
+
+    #[inline(always)]
+    fn is_ok(&self) -> bool {
+        Rc::ptr_eq(&self.name, &OK_RESULT_LABEL.with(|x| Rc::clone(x)))
+    }
+
+    #[inline(always)]
+    fn is_err(&self) -> bool {
+        Rc::ptr_eq(&self.name, &ERR_RESULT_LABEL.with(|x| Rc::clone(x)))
+    }
+
+    fn new_with_options(
+        name: Rc<String>,
+        properties: Gc<HashMap<SteelVal, SteelVal>>,
+        rest: &[SteelVal],
+    ) -> Self {
+        Self {
+            name,
+            fields: MaybeHeapVec::from_slice(rest),
+            len: rest.len() + 1,
+            properties,
+        }
+    }
+
+    fn constructor_thunk(
+        name: Rc<String>,
+        options: Gc<HashMap<SteelVal, SteelVal>>,
+        len: usize,
+    ) -> impl Fn(&[SteelVal]) -> Result<SteelVal> {
+        move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != len {
+                let error_message = format!(
+                    "{} expected {} arguments, found {}",
+                    name.clone(),
+                    args.len(),
+                    len
+                );
+                stop!(ArityMismatch => error_message);
+            }
+
+            let new_struct =
+                UserDefinedStruct::new_with_options(Rc::clone(&name), options.clone(), args);
+
+            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
+        }
+    }
+
+    fn constructor_with_options(
+        name: Rc<String>,
+        options: Gc<HashMap<SteelVal, SteelVal>>,
+        len: usize,
+    ) -> SteelVal {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != len {
+                let error_message = format!(
+                    "{} expected {} arguments, found {}",
+                    name.clone(),
+                    args.len(),
+                    len
+                );
+                stop!(ArityMismatch => error_message);
+            }
+
+            let new_struct =
+                UserDefinedStruct::new_with_options(Rc::clone(&name), options.clone(), args);
+
+            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
+        };
+
+        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
+    }
+
     fn constructor(name: Rc<String>, len: usize) -> SteelVal {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != len {
@@ -453,77 +539,72 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
     ]))
 }
 
-#[derive(Debug, Clone)]
-struct AlternativeOk(SteelVal);
+thread_local! {
+    pub static OK_RESULT_LABEL: Rc<String> = Rc::new("Ok".into());
+    pub static ERR_RESULT_LABEL: Rc<String> = Rc::new("Err".into());
+    pub static RESULT_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
+        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
+    pub static OK_CONSTRUCTOR: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>> = {
+        let name = OK_RESULT_LABEL.with(|x| Rc::clone(x));
+        Rc::new(UserDefinedStruct::constructor_thunk(
+            Rc::clone(&name),
+            RESULT_OPTIONS.with(|x| Gc::clone(x)),
+            1,
+        ))
+    };
 
-impl AlternativeOk {
-    pub fn new(value: SteelVal) -> Self {
-        Self(value)
-    }
-
-    pub fn value(&self) -> SteelVal {
-        self.0.clone()
-    }
+    pub static ERR_CONSTRUCTOR: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>> = {
+        let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
+        Rc::new(UserDefinedStruct::constructor_thunk(
+            Rc::clone(&name),
+            RESULT_OPTIONS.with(|x| Gc::clone(x)),
+            1,
+        ))
+    };
 }
 
-impl Custom for AlternativeOk {}
-
-#[derive(Debug, Clone)]
-struct AlternativeErr(SteelVal);
-
-impl AlternativeErr {
-    pub fn new(value: SteelVal) -> Self {
-        Self(value)
-    }
-
-    pub fn value(&self) -> SteelVal {
-        self.0.clone()
-    }
+fn test() -> std::result::Result<usize, usize> {
+    Err(10)
 }
-
-impl Custom for AlternativeErr {}
 
 pub(crate) fn build_result_structs() -> BuiltInModule {
     // Build module
-    let mut module = BuiltInModule::new("steel/result".to_string());
+    let mut module = BuiltInModule::new("steel/core/result".to_string());
 
     {
-        let name = Rc::new("Ok".into());
-
-        // Don't put any options in it?
-        let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
-        let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
+        let name = OK_RESULT_LABEL.with(|x| Rc::clone(x));
 
         // Build the getter for the first index
         let getter = UserDefinedStruct::getter_prototype_index(Rc::clone(&name), 0);
+        let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
 
         module
-            .register_value("Ok", constructor)
+            .register_value(
+                "Ok",
+                SteelVal::BoxedFunction(Box::new(OK_CONSTRUCTOR.with(|x| Rc::clone(x)))),
+            )
             .register_value("Ok?", predicate)
             .register_value("Ok->value", getter);
+        // .register_fn("test", test);
     }
 
     {
-        let name = Rc::new("Err".into());
-        let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
+        let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
+        // let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
         let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
 
         // Build the getter for the first index
         let getter = UserDefinedStruct::getter_prototype_index(Rc::clone(&name), 0);
 
         module
-            .register_value("Err", constructor)
+            .register_value(
+                "Err",
+                SteelVal::BoxedFunction(Box::new(ERR_CONSTRUCTOR.with(|x| Rc::clone(x)))),
+            )
             .register_value("Err?", predicate)
             .register_value("Err->value", getter);
     }
-
-    module
-        .register_type::<AlternativeOk>("Alternative-Ok?")
-        .register_type::<AlternativeErr>("Alternative-Err?")
-        .register_fn("Alternative-Ok", AlternativeOk::new)
-        .register_fn("Alternative-Err", AlternativeErr::new)
-        .register_fn("Alternative-Ok->value", AlternativeOk::value)
-        .register_fn("Alternative-Err->value", AlternativeErr::value);
 
     module
 }
@@ -548,6 +629,47 @@ pub(crate) fn is_custom_struct() -> SteelVal {
             Ok(SteelVal::BoolV(false))
         }
     })
+}
+
+// TODO: Implement this for results
+
+// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
+//     fn into_steelval(self) -> Result<SteelVal> {
+//         match self {
+//             Ok(s) => Ok()
+//         }
+//     }
+// }
+
+impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for std::result::Result<T, E> {
+    fn into_steelval(self) -> Result<SteelVal> {
+        match self {
+            Ok(s) => UserDefinedStruct::new_ok(s),
+            Err(e) => crate::stop!(Generic => format!("{:?}", e)),
+        }
+    }
+}
+
+// // impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
+// //     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+
+// //     }
+// // }
+
+impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E> {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        if let SteelVal::CustomStruct(s) = val {
+            if s.is_ok() {
+                Ok(Ok(T::from_steelval(&s.fields.get(0).unwrap())?))
+            } else if s.is_err() {
+                Ok(Err(E::from_steelval(&s.fields.get(0).unwrap())?))
+            } else {
+                stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {:?}", val))
+            }
+        } else {
+            stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {:?}", val));
+        }
+    }
 }
 
 // #[cfg(test)]

@@ -30,7 +30,10 @@ pub use vectors::VectorOperations;
 
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
-use crate::rerrs::{ErrorKind, SteelErr};
+use crate::{
+    rerrs::{ErrorKind, SteelErr},
+    rvals::Custom,
+};
 use crate::{
     rvals::{create_result_ok_struct, FunctionSignature, SteelVal},
     stop,
@@ -189,46 +192,52 @@ impl FromSteelVal for SteelVal {
 // perhaps better performance
 // impl<T: IntoSteelVal, E: IntoSteelVal> Custom for Result<T, E> {}
 
-impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
-    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-        match self {
-            Ok(s) => Ok(create_result_ok_struct(s.into_steelval()?)),
-            Err(e) => crate::stop!(Generic => format!("{:?}", e)),
-        }
-    }
-}
+// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
+//     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+//         match self {
+//             Ok(s) => Ok(create_result_ok_struct(s.into_steelval()?)),
+//             Err(e) => crate::stop!(Generic => format!("{:?}", e)),
+//         }
+//     }
+// }
 
-impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for Result<T, E> {
-    fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
-        if val.is_struct() {
-            if let SteelVal::MutableVector(v) = val {
-                let lock = v.borrow();
-                // 0 -> magic symbol
-                // 1 -> name
-                // 2 -> options
-                // 3 -> data
-                let name = lock.get(1);
-                let inner = lock.get(3);
+// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
+//     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
 
-                if let Some(SteelVal::SymbolV(name)) = name {
-                    match name.as_str() {
-                        "Ok" => Ok(Ok(T::from_steelval(inner.unwrap())?)),
-                        "Err" => Ok(Err(E::from_steelval(inner.unwrap())?)),
-                        _ => {
-                            stop!(ConversionError => format!("Failed converting an instance of a steel struct into a Rust result type: found an instance of a struct with the name: {:?}, expecting either `Ok` or `Err`", name))
-                        }
-                    }
-                } else {
-                    stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type, found an instance of a struct without a name - expected a name and found: {:?}", name))
-                }
-            } else {
-                unreachable!()
-            }
-        } else {
-            stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {:?}", val));
-        }
-    }
-}
+//     }
+// }
+
+// impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for Result<T, E> {
+//     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
+//         if val.is_struct() {
+//             if let SteelVal::MutableVector(v) = val {
+//                 let lock = v.borrow();
+//                 // 0 -> magic symbol
+//                 // 1 -> name
+//                 // 2 -> options
+//                 // 3 -> data
+//                 let name = lock.get(1);
+//                 let inner = lock.get(3);
+
+//                 if let Some(SteelVal::SymbolV(name)) = name {
+//                     match name.as_str() {
+//                         "Ok" => Ok(Ok(T::from_steelval(inner.unwrap())?)),
+//                         "Err" => Ok(Err(E::from_steelval(inner.unwrap())?)),
+//                         _ => {
+//                             stop!(ConversionError => format!("Failed converting an instance of a steel struct into a Rust result type: found an instance of a struct with the name: {:?}, expecting either `Ok` or `Err`", name))
+//                         }
+//                     }
+//                 } else {
+//                     stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type, found an instance of a struct without a name - expected a name and found: {:?}", name))
+//                 }
+//             } else {
+//                 unreachable!()
+//             }
+//         } else {
+//             stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {:?}", val));
+//         }
+//     }
+// }
 
 impl FromSteelVal for () {
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {

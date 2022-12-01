@@ -4,10 +4,8 @@ extern crate steel;
 use std::{io::Read, path::PathBuf};
 
 use helpers::*;
+use steel::steel_vm::engine::Engine;
 use steel::PRELUDE;
-use steel::{
-    steel_vm::engine::Engine,
-};
 
 #[test]
 fn basic_test() {

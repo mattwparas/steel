@@ -27,6 +27,8 @@
                            contract-attachment-location
                            parent))
 
+;; TODO: Raise error with contract violation directly attached, if possible
+;;
 (struct ContractViolation (error-message))
 
 (struct ContractedFunction (contract function name))
@@ -474,7 +476,7 @@
         (define name (lambda (args ...) body ...))
         (set! name (bind-contract-to-function contract name 'name)))
     ;  (define name (bind/c contract (lambda (args ...) body ...) 'name))
-     
+
      ]
     [(define/c name contract expr)
      (define name ((bind-contract-to-function

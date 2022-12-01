@@ -348,7 +348,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/constants)
     (require-builtin steel/syntax)
     (require-builtin steel/process)
-    (require-builtin steel/result)
+    (require-builtin steel/core/result)
 "#;
 
 pub static SANDBOXED_MODULES: &str = r#"
