@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use crate::{
     compiler::{
         // code_generator::{convert_call_globals, CodeGenerator},
@@ -775,7 +777,7 @@ impl Compiler {
         // struct_builders.extract_structs_for_executable(expanded_statements)?;
 
         // Pretty print the expressions to see what we're working with here
-        expanded_statements.pretty_print();
+        // expanded_statements.pretty_print();
 
         // TODO: Contract/Type Checking goes here
         // println!("---------------------------------------");
