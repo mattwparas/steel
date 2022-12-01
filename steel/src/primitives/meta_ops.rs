@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::{builtin_stop, stop};
 use crate::{
     gc::{get_object_count, Gc},

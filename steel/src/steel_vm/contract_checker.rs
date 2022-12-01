@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::collections::{BTreeSet, HashMap};
 
 use quickscope::ScopeMap;

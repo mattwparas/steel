@@ -470,7 +470,7 @@ use std::path::Path;
 
 // The output is wrapped in a Result to allow matching on errors
 // Returns an Iterator to the Reader of the lines of the file.
-fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
+fn _read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where
     P: AsRef<Path>,
 {
@@ -541,7 +541,7 @@ impl OpCodeOccurenceProfiler {
             | OpCode::TAILCALL
             | OpCode::TCOJMP
             | OpCode::POP
-            | OpCode::POP_PURE
+            | OpCode::POPPURE
             | OpCode::FUNC => {
                 let new_sequence = self.sequence.drain(0..).collect();
                 // Increment the count on this basic block if we've seen it
@@ -967,6 +967,7 @@ fn extract_spans(instructions: Vec<Vec<Instruction>>) -> (Vec<Span>, Vec<Vec<Den
 
 // A program stripped of its debug symbols, but only constructable by running a pass
 // over it with the symbol map to intern all of the symbols in the order they occurred
+#[allow(unused)]
 #[derive(Clone)]
 pub struct Executable {
     pub(crate) name: String,

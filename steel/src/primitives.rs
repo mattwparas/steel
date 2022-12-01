@@ -30,14 +30,8 @@ pub use vectors::VectorOperations;
 
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
-use crate::{
-    rerrs::{ErrorKind, SteelErr},
-    rvals::Custom,
-};
-use crate::{
-    rvals::{create_result_ok_struct, FunctionSignature, SteelVal},
-    stop,
-};
+use crate::rerrs::{ErrorKind, SteelErr};
+use crate::rvals::{FunctionSignature, SteelVal};
 use im_rc::Vector;
 
 use std::convert::TryFrom;
@@ -362,8 +356,6 @@ impl From<FunctionSignature> for SteelVal {
 
 #[cfg(test)]
 mod try_from_tests {
-
-    use std::rc::Rc;
 
     use super::*;
 

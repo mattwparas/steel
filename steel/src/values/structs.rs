@@ -1,5 +1,8 @@
+#![allow(unused)]
+
 use im_rc::HashMap;
 
+use crate::throw;
 use crate::{
     core::utils::Boxed,
     rvals::{FromSteelVal, IntoSteelVal, MAGIC_STRUCT_SYMBOL},
@@ -7,9 +10,7 @@ use crate::{
 use crate::{
     gc::Gc,
     rvals::{AsRefSteelVal, SRef, SteelString},
-    steel_vm::register_fn::RegisterFn,
 };
-use crate::{rvals::Custom, throw};
 use crate::{
     rvals::{Result, SteelVal},
     SteelErr,

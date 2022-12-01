@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 #[cfg(feature = "jit")]
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
@@ -968,7 +970,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::PASS,
                     ..
                 } => {
-                    println!("Hitting a pass - this shouldn't happen");
+                    log::warn!("Hitting a pass - this shouldn't happen");
                     self.ip += 1;
                 }
                 DenseInstruction {
@@ -1482,7 +1484,7 @@ impl<'a> VmCore<'a> {
                 //     }
                 // }
                 DenseInstruction {
-                    op_code: OpCode::POP_PURE,
+                    op_code: OpCode::POPPURE,
                     payload_size,
                     ..
                 } => {

@@ -378,7 +378,7 @@ impl Engine {
         self.run_raw_program(program)
     }
 
-    pub(crate) fn run_raw_program_from_exprs(
+    pub(crate) fn _run_raw_program_from_exprs(
         &mut self,
         exprs: Vec<ExprKind>,
     ) -> Result<Vec<SteelVal>> {

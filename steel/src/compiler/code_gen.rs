@@ -62,7 +62,7 @@ impl<'a> CodeGenerator<'a> {
     pub fn top_level_compile(mut self, expr: &ExprKind) -> Result<Vec<Instruction>> {
         self.visit(expr)?;
         self.instructions
-            .push(LabeledInstruction::builder(OpCode::POP_PURE));
+            .push(LabeledInstruction::builder(OpCode::POPPURE));
 
         Ok(resolve_labels(self.instructions))
     }
@@ -94,6 +94,7 @@ impl<'a> CodeGenerator<'a> {
         Ok(())
     }
 
+    #[allow(unused)]
     fn should_specialize_call(&self, l: &List) -> Option<OpCode> {
         if l.args.len() == 3 {
             let function = l.first()?;
@@ -116,6 +117,7 @@ impl<'a> CodeGenerator<'a> {
         None
     }
 
+    #[allow(unused)]
     fn specialize_call(&mut self, l: &List, op: OpCode) -> Result<()> {
         let value = eval_atom(l.args[2].atom_syntax_object().unwrap())?;
 
@@ -431,7 +433,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             }
         }
 
-        let pop_op_code = OpCode::POP_PURE;
+        let pop_op_code = OpCode::POPPURE;
 
         body_instructions
             .push(LabeledInstruction::builder(pop_op_code).payload(lambda_function.args.len()));
@@ -489,7 +491,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
     fn visit_return(&mut self, r: &crate::parser::ast::Return) -> Self::Output {
         self.visit(&r.expr)?;
-        self.push(LabeledInstruction::builder(OpCode::POP_PURE));
+        self.push(LabeledInstruction::builder(OpCode::POPPURE));
         Ok(())
     }
 
@@ -855,7 +857,7 @@ mod code_gen_tests {
             (OpCode::MOVEREADLOCAL, 2), // last usage of z
             (OpCode::PUSH, 0), // + is a global, that is late bound and the index is resolved later
             (OpCode::TAILCALL, 3), // tail call function, with 3 arguments
-            (OpCode::POP_PURE, 3), // Pop 3 arguments
+            (OpCode::POPPURE, 3), // Pop 3 arguments
             (OpCode::ECLOSURE, 3), // Something about 3 arguments...
         ];
 

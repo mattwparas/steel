@@ -187,7 +187,6 @@ mod hashset_tests {
     use crate::rvals::SteelString;
 
     use super::*;
-    use std::rc::Rc;
 
     #[test]
     fn hs_construct_normal() {

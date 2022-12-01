@@ -60,7 +60,7 @@ impl Kernel {
 
             let arguments = iter.collect();
 
-            println!("Expanding: {:?} with arguments: {:?}", ident, arguments);
+            log::info!(target: "kernel", "Expanding: {:?} with arguments: {:?}", ident, arguments);
 
             let result = self
                 .engine

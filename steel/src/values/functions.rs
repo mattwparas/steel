@@ -1,7 +1,9 @@
+#![allow(unused)]
+
 use std::{
     cell::{Cell, RefCell},
     hash::Hasher,
-    rc::{Rc, Weak},
+    rc::Rc,
 };
 
 use crate::{
@@ -15,14 +17,14 @@ use crate::{
 
 use super::closed::HeapRef;
 
-pub(crate) enum Function {
-    BoxedFunction(BoxedFunctionSignature),
-    Closure(Gc<ByteCodeLambda>),
-    FuncV(FunctionSignature),
-    ContractedFunction(Gc<ContractedFunction>),
-    MutFuncV(MutFunctionSignature),
-    Builtin(BuiltInSignature),
-}
+// pub(crate) enum Function {
+//     BoxedFunction(BoxedFunctionSignature),
+//     Closure(Gc<ByteCodeLambda>),
+//     FuncV(FunctionSignature),
+//     ContractedFunction(Gc<ContractedFunction>),
+//     MutFuncV(MutFunctionSignature),
+//     Builtin(BuiltInSignature),
+// }
 
 #[derive(Clone, Debug)]
 pub struct ByteCodeLambda {

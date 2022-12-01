@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use fnv::FnvHashMap;
-use itertools::Itertools;
+// use itertools::Itertools;
 use quickscope::ScopeMap;
 
 use crate::{
@@ -1008,6 +1008,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // self.stack_offset = stack_offset
     }
 
+    #[allow(dead_code, unused)]
     fn visit_let(&mut self, l: &'a crate::parser::ast::Let) {
         let eligibility = self.tail_call_eligible;
         self.tail_call_eligible = false;
@@ -1784,7 +1785,7 @@ struct FindCallSiteById<'a, F> {
 }
 
 impl<'a, F> FindCallSiteById<'a, F> {
-    pub fn new(id: SyntaxObjectId, analysis: &'a Analysis, func: F) -> Self {
+    pub fn _new(id: SyntaxObjectId, analysis: &'a Analysis, func: F) -> Self {
         Self {
             id,
             analysis,
@@ -3009,8 +3010,6 @@ impl<'a> SemanticAnalysis<'a> {
 
 #[cfg(test)]
 mod analysis_pass_tests {
-    use env_logger::Builder;
-    use log::LevelFilter;
 
     use crate::{
         parser::{ast::AstTools, parser::Parser},

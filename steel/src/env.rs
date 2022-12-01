@@ -20,6 +20,7 @@ pub const fn _new_false() -> SteelVal {
     SteelVal::BoolV(false)
 }
 
+#[allow(unused)]
 #[derive(Debug)]
 pub struct Env {
     pub(crate) bindings_vec: Vec<SteelVal>,
@@ -51,7 +52,7 @@ impl Env {
     }
 
     // Appends the values from the map into the other
-    pub(crate) fn add_hashmap(&mut self, map: HashMap<usize, ExprKind>) {
+    pub(crate) fn _add_hashmap(&mut self, map: HashMap<usize, ExprKind>) {
         for (key, value) in map {
             self.ast_map.insert(key, value);
         }
@@ -73,7 +74,7 @@ impl Env {
     }
 
     /// Get the value located at that index
-    pub fn repl_get_idx(&self, idx: usize) -> &SteelVal {
+    pub fn _repl_get_idx(&self, idx: usize) -> &SteelVal {
         &self.bindings_vec[idx]
     }
 

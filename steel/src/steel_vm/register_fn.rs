@@ -7,8 +7,6 @@ use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
 use futures::FutureExt;
 
-use crate::core::utils::Boxed;
-
 /// Trait for allowing any function that satisfies the `Fn` trait to be embedded in the engine
 /// This allows for clean embedding of function pointers as well as closures that capture immutable environments
 pub trait RegisterFn<FN, ARGS, RET> {

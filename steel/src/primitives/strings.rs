@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use im_lists::list::List;
 
 use crate::rvals::{Result, SteelVal};

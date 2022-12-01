@@ -13,17 +13,17 @@ use crate::core::utils::{
 declare_const_ref_functions! {
     LIST => new,
     LENGTH => length,
-    NEW => new,
+    // NEW => new,
     REVERSE => reverse,
-    LAST => last,
-    TAKE => take,
+    // LAST => last,
+    // TAKE => take,
     LIST_REF => list_ref,
     TRY_LIST_REF => try_list_ref,
     RANGE => range,
     IS_EMPTY => is_empty,
     CAR => car,
     LIST_TO_STRING => list_to_string,
-    FIRST => car,
+    // FIRST => car,
     PAIR => pair,
 }
 
@@ -71,7 +71,7 @@ pub(crate) fn third(list: &List<SteelVal>) -> UnRecoverableResult {
     list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list)).into()
 }
 
-fn test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
+fn _test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(test_map, args, 2);
 
     let mut arg_iter = args.into_iter();

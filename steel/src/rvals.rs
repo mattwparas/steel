@@ -432,22 +432,6 @@ impl<T: CustomType + 'static> AsRefMutSteelVal for T {
 // struct StructBuilder {
 // }
 
-pub(crate) fn create_result_ok_struct(ok: SteelVal) -> SteelVal {
-    SteelVal::MutableVector(Gc::new(RefCell::new(vec![
-        MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
-        SteelVal::SymbolV("Ok".into()),
-        SteelVal::HashMapV(Gc::new({
-            let mut hm = im_rc::HashMap::new();
-            hm.insert(
-                SteelVal::SymbolV("#:transparent".into()),
-                SteelVal::BoolV(true),
-            );
-            hm
-        })),
-        ok,
-    ])))
-}
-
 thread_local! {
     pub static MAGIC_STRUCT_SYMBOL: SteelVal = SteelVal::ListV(im_lists::list![SteelVal::SymbolV("StructMarker".into())]);
 }
@@ -825,6 +809,7 @@ impl SteelVal {
         }
     }
 
+    #[allow(unused)]
     pub(crate) fn other_contains_self(&self, other: &SteelVal) -> bool {
         println!("Checking self: {} with other: {}", self, other);
         match other {

@@ -1,7 +1,7 @@
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
+use std::env::current_dir;
 use std::path::Path;
-use std::{env::current_dir, rc::Rc};
 
 pub struct FsFunctions {}
 impl FsFunctions {

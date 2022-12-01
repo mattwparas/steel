@@ -11,8 +11,8 @@ use std::process;
 
 use clap::Parser;
 
-use env_logger::Builder;
-use log::LevelFilter;
+// use env_logger::Builder;
+// use log::LevelFilter;
 
 /// Steel Interpreter Client
 #[derive(Parser, Debug)]
@@ -37,17 +37,17 @@ enum EmitAction {
 }
 
 fn main() {
-    // env_logger::init();
+    env_logger::init();
 
-    let mut builder = Builder::new();
+    // let mut builder = Builder::new();
 
-    let log_targets = ["pipeline_time", "dylibs", "steel::compiler::modules"];
+    // let log_targets = ["pipeline_time", "dylibs", "steel::compiler::modules"];
 
-    for target in log_targets {
-        builder.filter(Some(target), LevelFilter::Trace);
-    }
+    // for target in log_targets {
+    //     builder.filter(Some(target), LevelFilter::Trace);
+    // }
 
-    builder.init();
+    // builder.init();
 
     let clap_args = Args::parse();
 
@@ -185,10 +185,6 @@ fn finish(result: Result<(), std::io::Error>) -> ! {
     };
 
     process::exit(code);
-}
-
-async fn test_async_function() -> usize {
-    10
 }
 
 pub fn configure_engine() -> Engine {

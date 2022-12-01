@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
 use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};

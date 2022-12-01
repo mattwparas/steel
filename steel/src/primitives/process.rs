@@ -2,7 +2,7 @@ use std::process::{Child, Command, ExitStatus};
 
 use im_lists::list::List;
 
-use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule, SteelVal};
+use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
 use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
 
 pub fn process_module() -> BuiltInModule {
@@ -28,12 +28,12 @@ struct ChildProcess {
 
 #[derive(Debug)]
 struct ProcessExitStatus {
-    exit_status: ExitStatus,
+    _exit_status: ExitStatus,
 }
 
 impl ProcessExitStatus {
-    pub fn new(exit_status: ExitStatus) -> Self {
-        Self { exit_status }
+    pub fn new(_exit_status: ExitStatus) -> Self {
+        Self { _exit_status }
     }
 }
 

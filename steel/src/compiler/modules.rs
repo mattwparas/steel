@@ -2,7 +2,7 @@ use crate::{
     compiler::passes::mangle::mangle_vars_with_prefix,
     expr_list,
     parser::{
-        ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
+        ast::{Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::expand_kernel,
         kernel::Kernel,
         parser::{ParseError, Parser, Sources, SyntaxObject},
@@ -77,7 +77,7 @@ impl ModuleManager {
     pub(crate) fn add_module(
         &mut self,
         path: PathBuf,
-        global_macro_map: &mut HashMap<String, SteelMacro>,
+        _global_macro_map: &mut HashMap<String, SteelMacro>,
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
         builtin_modules: ImmutableHashMap<String, BuiltInModule>,
@@ -574,7 +574,7 @@ impl CompiledModule {
     }
 
     // Turn the module into the AST node that represents the macro module in the stdlib
-    fn to_module_ast_node(&self) -> ExprKind {
+    fn _to_module_ast_node(&self) -> ExprKind {
         let mut body = vec![
             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
                 "module".to_string(),

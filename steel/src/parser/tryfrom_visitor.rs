@@ -1,6 +1,5 @@
 use im_lists::list::List;
 
-use crate::parser::visitors::ConsumingVisitorRef;
 use crate::{parser::ast::ExprKind, rvals::Syntax};
 
 use crate::rerrs::SteelErr;

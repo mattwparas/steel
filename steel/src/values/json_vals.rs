@@ -43,6 +43,7 @@ pub fn serialize_val_to_string() -> SteelVal {
 }
 
 // required to parse each string
+#[allow(unused)]
 fn unescape(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars();
