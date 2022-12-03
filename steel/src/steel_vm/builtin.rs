@@ -78,7 +78,7 @@ impl BuiltInModule {
     pub fn register_doc(
         &mut self,
         definition: impl Into<Cow<'static, str>>,
-        description: impl Into<Cow<'static, str>>,
+        description: DocTemplate<'static>,
     ) {
         self.docs.register_doc(definition, description);
     }
@@ -97,6 +97,17 @@ impl BuiltInModule {
     /// to compile an program for later use and don't currently have access to the functions in memory, use `SteelVal::Void`
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
         self.values.insert(name.to_string(), value);
+        self
+    }
+
+    pub fn register_value_with_doc(
+        &mut self,
+        name: &'static str,
+        value: SteelVal,
+        doc: DocTemplate<'static>,
+    ) -> &mut Self {
+        self.values.insert(name.to_string(), value);
+        self.register_doc(Cow::from(name), doc);
         self
     }
 
@@ -170,7 +181,7 @@ impl BuiltInModule {
 /// Documentation representation
 #[derive(Clone, Debug)]
 pub struct InternalDocumentation {
-    definitions: HashMap<Cow<'static, str>, Cow<'static, str>>,
+    definitions: HashMap<Cow<'static, str>, DocTemplate<'static>>,
 }
 
 impl InternalDocumentation {
@@ -183,13 +194,76 @@ impl InternalDocumentation {
     pub fn register_doc(
         &mut self,
         definition: impl Into<Cow<'static, str>>,
-        description: impl Into<Cow<'static, str>>,
+        description: DocTemplate<'static>,
     ) {
-        self.definitions
-            .insert(definition.into(), description.into());
+        self.definitions.insert(definition.into(), description);
     }
 
-    pub fn get(&self, definition: &str) -> Option<&Cow<'static, str>> {
+    pub fn get(&self, definition: &str) -> Option<&DocTemplate<'static>> {
         self.definitions.get(definition)
     }
 }
+
+// pub(crate) const LAST_DOC: &'static str = r#"
+
+// (last l) -> any/c
+
+//     l : list?
+
+// Returns the last element in the list.
+// Takes time proportional to the length of the list.
+
+// Example:
+//     > (last (list 1 2 3 4))
+//     4
+
+// "#;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DocTemplate<'a> {
+    pub signature: &'a str,
+    pub params: &'a [&'a str],
+    pub description: &'a str,
+    pub examples: &'a [(&'a str, &'a str)],
+}
+
+// TODO: Replace doc usage with this
+// Come up with const evaluation of the template
+// pub const LAST_DOC: DocTemplate<'static> = DocTemplate {
+//     signature: "(last l) -> any/c",
+//     params: &["l: list?"],
+//     description: r#"
+// Returns the last element in the list.
+// Takes time proportional to the length of the list."#,
+//     examples: &[(r#"> (last (list 1 2 3 4))"#, "=> 4")],
+// };
+
+impl<'a> std::fmt::Display for DocTemplate<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "")?;
+        writeln!(f, "{}", self.signature)?;
+        writeln!(f, "")?;
+
+        for param in self.params {
+            writeln!(f, "   {}", param)?
+        }
+
+        writeln!(f, "")?;
+        writeln!(f, "{}", self.description)?;
+        writeln!(f, "")?;
+        if !self.examples.is_empty() {
+            writeln!(f, "Example:")?;
+            for (example, output) in self.examples {
+                writeln!(f, "   {}", example)?;
+                writeln!(f, "   {}", output)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+// #[test]
+// fn check_output() {
+//     println!("{}", LAST_DOC);
+// }

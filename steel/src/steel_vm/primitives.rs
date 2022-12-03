@@ -391,18 +391,18 @@ pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
 fn list_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/lists".to_string());
     module
-        .register_value(LIST, crate::primitives::lists::LIST)
-        .register_value(CONS, crate::primitives::lists::CONS)
-        .register_value(RANGE, crate::primitives::lists::RANGE)
-        .register_value(LENGTH, crate::primitives::lists::LENGTH)
-        .register_value("last", crate::primitives::lists::LAST)
+        .register_value_with_doc(LIST, crate::primitives::lists::LIST, LIST_DOC)
+        .register_value_with_doc(CONS, crate::primitives::lists::CONS, CONS_DOC)
+        .register_value_with_doc(RANGE, crate::primitives::lists::RANGE, RANGE_DOC)
+        .register_value_with_doc(LENGTH, crate::primitives::lists::LENGTH, LENGTH_DOC)
+        .register_value_with_doc("last", crate::primitives::lists::LAST, LAST_DOC)
         .register_value("empty?", crate::primitives::lists::IS_EMPTY)
-        .register_value(CAR, crate::primitives::lists::CAR)
+        .register_value_with_doc(CAR, crate::primitives::lists::CAR, CAR_DOC)
         .register_value(FIRST, crate::primitives::lists::CAR)
-        .register_value(CDR, crate::primitives::lists::CDR)
+        .register_value_with_doc(CDR, crate::primitives::lists::CDR, CDR_DOC)
         .register_value(REST, crate::primitives::lists::REST)
         .register_value(APPEND, crate::primitives::lists::APPEND)
-        .register_value(REVERSE, crate::primitives::lists::REVERSE)
+        .register_value_with_doc(REVERSE, crate::primitives::lists::REVERSE, REVERSE_DOC)
         .register_value("list-ref", crate::primitives::lists::LIST_REF)
         .register_value("try-list-ref", crate::primitives::lists::TRY_LIST_REF)
         .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
@@ -418,14 +418,6 @@ fn list_module() -> BuiltInModule {
         .register_fn("second", crate::primitives::lists::second)
         .register_fn("third", crate::primitives::lists::third);
 
-    module.register_doc(LIST, LIST_DOC);
-    module.register_doc(CONS, CONS_DOC);
-    module.register_doc(RANGE, RANGE_DOC);
-    module.register_doc(LENGTH, LENGTH_DOC);
-    module.register_doc(REVERSE, REVERSE_DOC);
-    module.register_doc("last", LAST_DOC);
-    module.register_doc(CAR, CAR_DOC);
-    module.register_doc(CDR, CDR_DOC);
     module.register_doc("second", SECOND_DOC);
     module.register_doc("third", THIRD_DOC);
 
