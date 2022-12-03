@@ -6,7 +6,10 @@ use crate::{
         hashmaps::hashmap_module,
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
-        lists::UnRecoverableResult,
+        lists::{
+            UnRecoverableResult, CAR_DOC, CDR_DOC, CONS_DOC, LAST_DOC, LENGTH_DOC, LIST_DOC,
+            RANGE_DOC, REVERSE_DOC, SECOND_DOC, THIRD_DOC,
+        },
         nums::quotient,
         process::process_module,
         ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
@@ -392,6 +395,7 @@ fn list_module() -> BuiltInModule {
         .register_value(CONS, crate::primitives::lists::CONS)
         .register_value(RANGE, crate::primitives::lists::RANGE)
         .register_value(LENGTH, crate::primitives::lists::LENGTH)
+        .register_value("last", crate::primitives::lists::LAST)
         .register_value("empty?", crate::primitives::lists::IS_EMPTY)
         .register_value(CAR, crate::primitives::lists::CAR)
         .register_value(FIRST, crate::primitives::lists::CAR)
@@ -414,25 +418,16 @@ fn list_module() -> BuiltInModule {
         .register_fn("second", crate::primitives::lists::second)
         .register_fn("third", crate::primitives::lists::third);
 
-    module.register_doc(
-        LIST,
-        r#"
-
-    (list v ...) -> list?
-
-        v: any/c
-
-    Returns a newly allocated list containing the vs as its elements.
-
-    Examples:
-    
-        > (list 1 2 3 4 5)
-        '(1 2 3 4)
-        > (list (list 1 2) (list 3 4))
-        '((1 2) (3 4))
-    
-    "#,
-    );
+    module.register_doc(LIST, LIST_DOC);
+    module.register_doc(CONS, CONS_DOC);
+    module.register_doc(RANGE, RANGE_DOC);
+    module.register_doc(LENGTH, LENGTH_DOC);
+    module.register_doc(REVERSE, REVERSE_DOC);
+    module.register_doc("last", LAST_DOC);
+    module.register_doc(CAR, CAR_DOC);
+    module.register_doc(CDR, CDR_DOC);
+    module.register_doc("second", SECOND_DOC);
+    module.register_doc("third", THIRD_DOC);
 
     module
 }

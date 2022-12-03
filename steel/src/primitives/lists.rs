@@ -15,7 +15,7 @@ declare_const_ref_functions! {
     LENGTH => length,
     // NEW => new,
     REVERSE => reverse,
-    // LAST => last,
+    LAST => last,
     // TAKE => take,
     LIST_REF => list_ref,
     TRY_LIST_REF => try_list_ref,
@@ -63,9 +63,51 @@ impl From<Result<SteelVal>> for UnRecoverableResult {
     }
 }
 
+pub(crate) const SECOND_DOC: &'static str = r#"
+
+(second l) -> any/c
+
+    l : list?
+
+Get the second element of the list. Raises an error if the list does not have an element in the second position.
+
+Examples:
+
+    λ > (second '(1 2 3))
+    => 2
+    λ > (second '())
+    error[E11]: Generic
+    ┌─ :1:2
+    │
+    1 │ (second '())
+    │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+
+"#;
+
 pub(crate) fn second(list: &List<SteelVal>) -> UnRecoverableResult {
     list.get(1).cloned().ok_or_else(throw!(Generic => "second: index out of bounds - list did not have an element in the second position: {:?}", list)).into()
 }
+
+pub(crate) const THIRD_DOC: &'static str = r#"
+
+(third l) -> any/c
+
+    l : list?
+
+Get the third element of the list. Raises an error if the list does not have an element in the second position.
+
+Examples:
+
+    λ > (third '(1 2 3))
+    => 3
+    λ > (third '())
+    error[E11]: Generic
+    ┌─ :1:2
+    │
+    1 │ (third '())
+    │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
+
+"#;
 
 pub(crate) fn third(list: &List<SteelVal>) -> UnRecoverableResult {
     list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list)).into()
@@ -97,6 +139,23 @@ fn _test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Steel
     }
 }
 
+pub(crate) const LIST_DOC: &'static str = r#"
+
+(list v ...) -> list?
+
+    v: any/c
+
+Returns a newly allocated list containing the vs as its elements.
+
+Examples:
+
+    > (list 1 2 3 4 5)
+    '(1 2 3 4)
+    > (list (list 1 2) (list 3 4))
+    '((1 2) (3 4))
+
+"#;
+
 fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
 }
@@ -120,6 +179,25 @@ fn pair(args: &[SteelVal]) -> Result<SteelVal> {
         Ok(SteelVal::BoolV(false))
     }
 }
+
+pub(crate) const CONS_DOC: &'static str = r#"
+
+(cons a d) -> list?
+
+    a : any/c
+    d : any/c
+
+Returns a newly allocated list whose first element is a and second element is d.
+
+Note: In steel, there are only proper lists. Pairs do not exist directly, const 
+    
+Examples:
+
+    > (cons 1 2)
+    '(1 2)
+    > (cons 1 '())
+    '(1)
+"#;
 
 fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
@@ -145,6 +223,22 @@ fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     // }
 }
 
+pub(crate) const RANGE_DOC: &'static str = r#"
+
+(range n m) -> (listof int?)
+
+    n : int?
+    m : int?
+
+Returns a newly allocated list of the elements in the range (n, m].
+
+Examples:
+
+    λ > (range 0 10)
+    => '(0 1 2 3 4 5 6 7 8 9)
+
+"#;
+
 fn range(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(new_range, args, 2);
 
@@ -168,6 +262,23 @@ fn range(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+pub(crate) const LENGTH_DOC: &'static str = r#"
+
+(length l) -> int?
+
+    l : list?
+
+Returns the length of the list.
+
+Examples:
+
+    λ > (length (list 1 2 3 4 5))
+    => 5
+    λ > (length (range 0 10))
+    => 10
+
+"#;
+
 fn length(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(length, args, 1);
 
@@ -178,6 +289,21 @@ fn length(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+pub(crate) const REVERSE_DOC: &'static str = r#"
+
+(reverse l) -> list?
+
+    l : list?
+
+Returns a list that has the same elements as lst, but in reverse order.
+This function takes time proportional to the length of lst.
+    
+Example:
+    > (reverse (list 1 2 3 4))
+    '(4 3 2 1)
+
+"#;
+
 fn reverse(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(reverse, args, 1);
 
@@ -187,6 +313,21 @@ fn reverse(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(TypeMismatch => "reverse expects a list")
     }
 }
+
+pub(crate) const LAST_DOC: &'static str = r#"
+
+(last l) -> any/c
+
+    l : list?
+
+Returns the last element in the list.
+Takes time proportional to the length of the list.
+    
+Example:
+    > (last (list 1 2 3 4))
+    4
+
+"#;
 
 pub fn last(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(last, args, 1);
@@ -211,6 +352,23 @@ pub fn last(args: &[SteelVal]) -> Result<SteelVal> {
 //     }
 // }
 
+pub(crate) const CAR_DOC: &'static str = r#"
+
+(car l) -> any/c
+
+    l : list?
+
+Returns the first element of the list l.
+
+Examples:
+
+    > (car '(1 2))
+    => 1
+    > (car (cons 2 3))
+    => 2
+
+"#;
+
 fn car(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(car, args, 1);
     if let SteelVal::ListV(l) = &args[0] {
@@ -220,6 +378,29 @@ fn car(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(TypeMismatch => format!("first expects a list, found: {:?}", &args[0]))
     }
 }
+
+pub(crate) const CDR_DOC: &'static str = r#"
+
+(cdr l) -> list?
+
+    l : list?
+
+Returns the rest of the list. Will raise an error if the list is empty.
+
+Examples:
+    λ > (cdr (list 10 20 30))
+    => '(20 30)
+    λ > (cdr (list 10))
+    => '()
+    λ > (cdr '())
+    error[E11]: Generic
+    ┌─ :1:2
+    │
+    1 │ (cdr '())
+    │  ^^^ cdr expects a non empty list
+
+    λ >
+"#;
 
 fn cdr(args: &mut [SteelVal]) -> Result<SteelVal> {
     arity_check!(rest, args, 1);
