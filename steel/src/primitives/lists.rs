@@ -141,6 +141,16 @@ fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
 }
 
+pub(crate) const IS_EMPTY_DOC: DocTemplate<'static> = DocTemplate {
+    signature: "(empty? lst) -> bool?",
+    params: &["lst: list?"],
+    description: "Checks if the list is empty",
+    examples: &[
+        ("> (empty? (list 1 2 3 4 5))", "#false"),
+        ("> (empty? '())", "#true"),
+    ],
+};
+
 fn is_empty(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(is_empty, args, 1);
 
@@ -299,6 +309,16 @@ pub(crate) const CAR_DOC: DocTemplate<'static> = DocTemplate {
     examples: &[("> (car '(1 2))", "=> 1"), ("> (car (cons 2 3))", "=> 2")],
 };
 
+pub(crate) const FIRST_DOC: DocTemplate<'static> = DocTemplate {
+    signature: "(first l) -> any/c",
+    params: &["l : list?"],
+    description: r#"Returns the first element of the list l."#,
+    examples: &[
+        ("> (first '(1 2))", "=> 1"),
+        ("> (first (cons 2 3))", "=> 2"),
+    ],
+};
+
 fn car(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(car, args, 1);
     if let SteelVal::ListV(l) = &args[0] {
@@ -345,6 +365,25 @@ fn cdr(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
 }
 
+pub(crate) const REST_DOC: DocTemplate<'static> = DocTemplate {
+    signature: "(rest l) -> list?",
+    params: &["l : list?"],
+    description: r#"Returns the rest of the list. Will raise an error if the list is empty."#,
+    examples: &[
+        ("λ > (rest (list 10 20 30))", "=> '(20 30)"),
+        ("λ > (rest (list 10))", "=> '()"),
+        (
+            "λ > (rest '())",
+            r#"error[E11]: Generic
+    ┌─ :1:2
+    │
+    1 │ (rest '())
+    │  ^^^^ rest expects a non empty list
+"#,
+        ),
+    ],
+};
+
 fn rest(args: &mut [SteelVal]) -> Result<SteelVal> {
     arity_check!(rest, args, 1);
 
@@ -376,6 +415,13 @@ pub fn take(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+pub(crate) const APPEND_DOC: DocTemplate<'static> = DocTemplate {
+    signature: "(append l r) -> list?",
+    params: &["l : list?", "r : list?"],
+    description: r#"Returns the rest of the list. Will raise an error if the list is empty."#,
+    examples: &[("λ > (append (list 1 2) (list 3 4))", "=> '(1 2 3 4)")],
+};
+
 fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
     arity_check!(append, args, 2);
 
@@ -405,6 +451,27 @@ pub fn try_list_ref(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(TypeMismatch => format!("try-list-ref expects a list and an integer, found {} and {}", &args[0], &args[1]))
     }
 }
+
+pub(crate) const LIST_REF_DOC: DocTemplate<'static> = DocTemplate {
+    signature: "(list-ref lst index) -> list?",
+    params: &["lst : list?", "index : (and/c int? positive?)"],
+    description: r#"Returns the value located at the given index. Will raise an error if you try to index out of bounds.
+
+Note: Runs in time proportional to the length of the list, however lists in Steel are implemented in such a fashion that the
+time complexity is O(n/64). Meaning, for small lists this can be constant."#,
+    examples: &[
+        ("λ > (list-ref (list 1 2 3 4) 2)", "=> 3"),
+        ("λ > (list-ref (range 0 100) 42)", "=> 42"),
+        (
+            "λ > (list-ref (list 1 2 3 4) 10)",
+            r#"error[E11]: Generic
+  ┌─ :1:2
+  │
+1 │ (list-ref (list 1 2 3 4) 10)
+  │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10"#,
+        ),
+    ],
+};
 
 pub fn list_ref(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(list_ref, args, 2);

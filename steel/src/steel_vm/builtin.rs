@@ -252,7 +252,7 @@ impl<'a> std::fmt::Display for DocTemplate<'a> {
         writeln!(f, "{}", self.description)?;
         writeln!(f, "")?;
         if !self.examples.is_empty() {
-            writeln!(f, "Example:")?;
+            writeln!(f, "Examples:")?;
             for (example, output) in self.examples {
                 writeln!(f, "   {}", example)?;
                 writeln!(f, "   {}", output)?;

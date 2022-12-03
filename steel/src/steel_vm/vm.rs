@@ -34,7 +34,7 @@ use crate::{
 // use std::env::current_exe;
 use std::{iter::Iterator, rc::Rc, time::Instant};
 
-use super::evaluation_progress::EvaluationProgress;
+use super::{builtin::DocTemplate, evaluation_progress::EvaluationProgress};
 
 use fnv::FnvHashMap;
 use im_lists::list::List;
@@ -3012,6 +3012,17 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Res
 
     Some(Ok(continuation))
 }
+
+// TODO: Come back and finish this
+pub(crate) const APPLY_DOC: DocTemplate<'static> = DocTemplate {
+    signature: "(apply function lst) -> any",
+    params: &["function : function?", "lst : list?"],
+    description: r#"Applies the given `function` with arguments as the contents of the `lst`."#,
+    examples: &[
+        ("λ > (apply + (list 1 2 3 4))", "=> 10"),
+        ("λ > (apply list (list 1 2 3 4))", "=> '(1 2 3 4)"),
+    ],
+};
 
 // TODO: This apply does not respect tail position
 // Something like this: (define (loop) (apply loop '()))
