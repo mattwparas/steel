@@ -17,6 +17,7 @@
     4. [Contracts](reference/contracts.md)
     5. [Transducers](reference/transducers.md)
     6. [Modules](reference/modules.md)
+    7. [Functions](reference/functions.md)
 5. [Bytecode](bytecode/bytecode.md)
     1. [Optimizations](bytecode/optimizations.md)
 6. [Benchmarks](benchmarks/benchmarks.md)

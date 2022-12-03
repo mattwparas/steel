@@ -446,3 +446,9 @@
          (apply (lambda ?al ?e1 ...) ?args)
          (case-lambda "CLAUSE" ?args ?l 
            ?clause1 ...)))))
+
+
+(define-syntax help
+  (syntax-rules ()
+    [(help ident) 
+     (%doc? %-builtin-module-steel/base (quote ident))]))

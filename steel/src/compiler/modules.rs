@@ -153,15 +153,15 @@ impl ModuleManager {
             .iter()
             .chain(module_builder.built_ins.iter())
         {
-            println!("{:?}", path);
+            // println!("{:?}", path);
             let module = module_builder.compiled_modules.get(path).unwrap();
 
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
                 for provide in &provide_expr.list().unwrap().args[1..] {
-                    println!("{}", provide);
+                    // println!("{}", provide);
 
-                    println!("Top level provide handler");
+                    // println!("Top level provide handler");
 
                     // Would be nice if this could be handled by some macro expansion...
                     // See if contract/out
@@ -389,8 +389,8 @@ impl CompiledModule {
 
         // TODO: This is the same as the top level, they should be merged
         for path in &self.requires {
-            println!("{:?}", path);
-            println!("{:?}", modules.keys().collect::<Vec<_>>());
+            // println!("{:?}", path);
+            // println!("{:?}", modules.keys().collect::<Vec<_>>());
             let module = modules.get(path).unwrap();
 
             let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
@@ -871,7 +871,7 @@ impl<'a> ModuleBuilder<'a> {
         // Clone the requires... I suppose
         let mut requires = self.requires.clone();
 
-        println!("built ins: {:?}", self.built_ins);
+        // println!("built ins: {:?}", self.built_ins);
 
         requires.append(&mut self.built_ins.clone());
 

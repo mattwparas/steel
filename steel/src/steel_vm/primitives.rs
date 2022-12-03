@@ -19,7 +19,10 @@ use crate::{
         structs::{is_custom_struct, make_struct_type, UserDefinedStruct},
     },
 };
-use crate::{rvals::IntoSteelVal, values::structs::build_result_structs};
+use crate::{
+    rvals::IntoSteelVal,
+    values::structs::{build_option_structs, build_result_structs},
+};
 use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
@@ -227,6 +230,7 @@ thread_local! {
     pub static SANDBOXED_IO_MODULE: BuiltInModule = sandboxed_io_module();
     pub static PROCESS_MODULE: BuiltInModule = process_module();
     pub static RESULT_MODULE: BuiltInModule = build_result_structs();
+    pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
 }
 
@@ -254,6 +258,7 @@ pub fn prelude() -> BuiltInModule {
         .with_module(SYNTAX_MODULE.with(|x| x.clone()))
         .with_module(PROCESS_MODULE.with(|x| x.clone()))
         .with_module(RESULT_MODULE.with(|x| x.clone()))
+        .with_module(OPTION_MODULE.with(|x| x.clone()))
 }
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
@@ -293,6 +298,7 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
 pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_fn("%doc?", BuiltInModule::get_doc);
     engine.register_value("%proto-hash%", HM_CONSTRUCT);
     engine.register_value("%proto-hash-insert%", HM_INSERT);
     engine.register_value("%proto-hash-get%", HM_GET);
@@ -323,6 +329,7 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(SYNTAX_MODULE.with(|x| x.clone()))
         .register_module(PROCESS_MODULE.with(|x| x.clone()))
         .register_module(RESULT_MODULE.with(|x| x.clone()))
+        .register_module(OPTION_MODULE.with(|x| x.clone()))
         .register_module(PRELUDE_MODULE.with(|x| x.clone()));
 }
 
@@ -349,6 +356,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/syntax)
     (require-builtin steel/process)
     (require-builtin steel/core/result)
+    (require-builtin steel/core/option)
 "#;
 
 pub static SANDBOXED_MODULES: &str = r#"
@@ -405,6 +413,27 @@ fn list_module() -> BuiltInModule {
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         .register_fn("second", crate::primitives::lists::second)
         .register_fn("third", crate::primitives::lists::third);
+
+    module.register_doc(
+        LIST,
+        r#"
+
+    (list v ...) -> list?
+
+        v: any/c
+
+    Returns a newly allocated list containing the vs as its elements.
+
+    Examples:
+    
+        > (list 1 2 3 4 5)
+        '(1 2 3 4)
+        > (list (list 1 2) (list 3 4))
+        '((1 2) (3 4))
+    
+    "#,
+    );
+
     module
 }
 

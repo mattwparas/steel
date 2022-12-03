@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use crate::{
     parser::{ast::ExprKind, parser::SyntaxObject, tokens::TokenType},
@@ -31,6 +31,7 @@ use im_rc::OrdMap;
 pub struct BuiltInModule {
     pub(crate) name: Rc<str>,
     values: OrdMap<String, SteelVal>,
+    docs: InternalDocumentation,
 }
 
 impl Custom for BuiltInModule {}
@@ -40,6 +41,7 @@ impl BuiltInModule {
         Self {
             name: name.into(),
             values: OrdMap::new(),
+            docs: InternalDocumentation::new(),
         }
     }
 
@@ -49,6 +51,7 @@ impl BuiltInModule {
 
     pub fn with_module<'a>(mut self, module: BuiltInModule) -> Self {
         self.values = self.values.union(module.values);
+        self.docs.definitions.extend(module.docs.definitions);
         self
     }
 
@@ -70,6 +73,20 @@ impl BuiltInModule {
             predicate_name,
             SteelVal::BoxedFunction(Box::new(Rc::new(f))),
         )
+    }
+
+    pub fn register_doc(
+        &mut self,
+        definition: impl Into<Cow<'static, str>>,
+        description: impl Into<Cow<'static, str>>,
+    ) {
+        self.docs.register_doc(definition, description);
+    }
+
+    pub fn get_doc(&self, definition: String) {
+        if let Some(value) = self.docs.get(&definition) {
+            println!("{}", value)
+        }
     }
 
     pub(crate) fn unreadable_name(&self) -> String {
@@ -147,5 +164,32 @@ impl BuiltInModule {
             defines,
             SyntaxObject::default(TokenType::Begin),
         ))
+    }
+}
+
+/// Documentation representation
+#[derive(Clone, Debug)]
+pub struct InternalDocumentation {
+    definitions: HashMap<Cow<'static, str>, Cow<'static, str>>,
+}
+
+impl InternalDocumentation {
+    pub fn new() -> Self {
+        Self {
+            definitions: HashMap::new(),
+        }
+    }
+
+    pub fn register_doc(
+        &mut self,
+        definition: impl Into<Cow<'static, str>>,
+        description: impl Into<Cow<'static, str>>,
+    ) {
+        self.definitions
+            .insert(definition.into(), description.into());
+    }
+
+    pub fn get(&self, definition: &str) -> Option<&Cow<'static, str>> {
+        self.definitions.get(definition)
     }
 }

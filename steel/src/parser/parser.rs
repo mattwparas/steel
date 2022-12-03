@@ -515,7 +515,7 @@ impl<'a> Parser<'a> {
                 Some(token) => {
                     match token.ty {
                         TokenType::Comment => {
-                            println!("Found a comment!");
+                            // println!("Found a comment!");
                             // Internal comments, we're gonna skip for now
                             continue;
                         }
@@ -850,9 +850,13 @@ impl<'a> Iterator for Parser<'a> {
                 println!("Buffer now: {:?}", self.comment_buffer);
 
                 self.comment_buffer
-                    .push(res.source().trim_start_matches(';'));
+                    .push(res.source().trim_start_matches(';').trim_start());
+
                 match self.next() {
-                    Some(v) => v,
+                    Some(v) => {
+                        println!("Next thing found: {:?}", v);
+                        v
+                    }
                     None => Err(ParseError::SyntaxError(
                         "Doc comment not associated with a top level definition".to_string(),
                         res.span(),
@@ -1025,6 +1029,27 @@ mod parser_tests {
         let expr = r#"
         ;; This is a fancy cool comment, that I want to attach to a top level definition!
         ;; This is the second line of the comment, I want this attached as well!
+        ;; Macro for creating a new struct, in the form of:
+        ;; `(struct <struct-name> (fields ...) options ...)`
+        ;; The options can consist of the following:
+        ;;
+        ;; Single variable options (those which their presence indicates #true)
+        ;; - #:mutable
+        ;; - #:transparent
+        ;;
+        ;; Other options must be presented as key value pairs, and will get stored
+        ;; in the struct instance. They will also be bound to the variable
+        ;; ___<struct-name>-options___ in the same lexical environment where the
+        ;; struct was defined. For example:
+        ;;
+        ;; (Applesauce (a b c) #:mutable #:transparent #:unrecognized-option 1234)
+        ;;
+        ;; Will result in the value `___Applesauce-options___` like so:
+        ;; (hash #:mutable #true #:transparent #true #:unrecognized-option 1234)
+        ;;
+        ;; By default, structs are immutable, which means setter functions will not
+        ;; be generated. Also by default, structs are not transparent, which means
+        ;; printing them will result in an opaque struct that does not list the fields
         (define foo 12345)
         "#;
 

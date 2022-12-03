@@ -428,8 +428,8 @@ impl UserDefinedStruct {
 
     fn getter_prototype_index(name: Rc<String>, index: usize) -> SteelVal {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "struct-ref expected two arguments");
+            if args.len() != 1 {
+                stop!(ArityMismatch => "struct-ref expected one argument");
             }
 
             let steel_struct = &args[0].clone();
@@ -563,10 +563,29 @@ thread_local! {
             1,
         ))
     };
-}
 
-fn test() -> std::result::Result<usize, usize> {
-    Err(10)
+    pub static SOME_OPTION_LABEL: Rc<String> = Rc::new("Some".into());
+    pub static NONE_LABEL: Rc<String> = Rc::new("None".into());
+    pub static OPTION_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
+        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
+    pub static SOME_CONSTRUCTOR: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>> = {
+        let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
+        Rc::new(UserDefinedStruct::constructor_thunk(
+            Rc::clone(&name),
+            OPTION_OPTIONS.with(|x| Gc::clone(x)),
+            1,
+        ))
+    };
+
+    pub static NONE_CONSTRUCTOR: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>> = {
+        let name = NONE_LABEL.with(|x| Rc::clone(x));
+        Rc::new(UserDefinedStruct::constructor_thunk(
+            Rc::clone(&name),
+            OPTION_OPTIONS.with(|x| Gc::clone(x)),
+            0,
+        ))
+    };
 }
 
 pub(crate) fn build_result_structs() -> BuiltInModule {
@@ -587,7 +606,6 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
             )
             .register_value("Ok?", predicate)
             .register_value("Ok->value", getter);
-        // .register_fn("test", test);
     }
 
     {
@@ -605,6 +623,42 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
             )
             .register_value("Err?", predicate)
             .register_value("Err->value", getter);
+    }
+
+    module
+}
+
+pub(crate) fn build_option_structs() -> BuiltInModule {
+    // Build module
+    let mut module = BuiltInModule::new("steel/core/option".to_string());
+
+    {
+        let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
+
+        // Build the getter for the first index
+        let getter = UserDefinedStruct::getter_prototype_index(Rc::clone(&name), 0);
+        let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
+
+        module
+            .register_value(
+                "Some",
+                SteelVal::BoxedFunction(Box::new(SOME_CONSTRUCTOR.with(|x| Rc::clone(x)))),
+            )
+            .register_value("Some?", predicate)
+            .register_value("Some->value", getter);
+    }
+
+    {
+        let name = NONE_LABEL.with(|x| Rc::clone(x));
+        // let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
+        let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
+
+        module
+            .register_value(
+                "None",
+                SteelVal::BoxedFunction(Box::new(NONE_CONSTRUCTOR.with(|x| Rc::clone(x)))),
+            )
+            .register_value("None?", predicate);
     }
 
     module
