@@ -867,8 +867,6 @@ impl RawProgramWithSymbols {
     pub fn build(mut self, name: String, symbol_map: &mut SymbolMap) -> Result<Executable> {
         let now = Instant::now();
 
-        let mut struct_instructions = Vec::new();
-
         let mut interner = DebruijnIndicesInterner::default();
 
         for expression in &mut self.instructions {
@@ -894,10 +892,6 @@ impl RawProgramWithSymbols {
             gimmick_super_instruction(instructions);
         }
         // }
-
-        // Put the new struct functions at the front
-        struct_instructions.append(&mut self.instructions);
-        self.instructions = struct_instructions;
 
         let (spans, instructions) = extract_spans(self.instructions);
 

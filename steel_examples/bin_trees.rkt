@@ -46,11 +46,7 @@
                 (mapping (lambda (i) (make i d)))
                 (into-reducer
                 (lambda (c i) (+ c (check i)))
-                0
-                
-                
-                
-                ))))
+                0))))
         (loop (+ 2 d) end max-depth min-depth))))
 
 
