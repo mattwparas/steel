@@ -1,4 +1,7 @@
-use crate::steel_vm::{builtin::DocTemplate, vm::VmContext};
+use crate::steel_vm::{
+    builtin::{DocTemplate, MarkdownDoc},
+    vm::VmContext,
+};
 use crate::{
     rvals::{IntoSteelVal, Result, SteelVal},
     steel_vm::vm::VmCore,
@@ -62,6 +65,24 @@ impl From<Result<SteelVal>> for UnRecoverableResult {
         UnRecoverableResult(value)
     }
 }
+
+pub(crate) const LIST_MODULE_DOC: MarkdownDoc<'static> = MarkdownDoc(
+    r#"
+
+# steel/lists
+    
+Lists in Steel have an interface that matches those of classic schemes or lisps. At face value, they appear to be implemented as cons cells - however, under the hood they are actually implemented as unrolled linked lists.
+
+This means that for most practical purposes, interaction with lists is the same. That being said, there are no improper lists, meaning, pairs are actually just lists of two elements.
+
+Indexing into a list also takes O(n/64) - which means you'll get constant time indexing on small lists.
+
+```scheme
+(list 10 20 30 40) ;; => '(10 20 30 40)
+```
+
+"#,
+);
 
 pub(crate) const SECOND_DOC: DocTemplate<'static> = DocTemplate {
     signature: "(second l) -> any/c",

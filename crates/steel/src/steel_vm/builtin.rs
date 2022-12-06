@@ -78,9 +78,9 @@ impl BuiltInModule {
     pub fn register_doc(
         &mut self,
         definition: impl Into<Cow<'static, str>>,
-        description: DocTemplate<'static>,
+        description: impl Into<Documentation<'static>>,
     ) {
-        self.docs.register_doc(definition, description);
+        self.docs.register_doc(definition, description.into());
     }
 
     pub fn get_doc(&self, definition: String) {
@@ -181,7 +181,7 @@ impl BuiltInModule {
 /// Documentation representation
 #[derive(Clone, Debug)]
 pub struct InternalDocumentation {
-    definitions: HashMap<Cow<'static, str>, DocTemplate<'static>>,
+    definitions: HashMap<Cow<'static, str>, Documentation<'static>>,
 }
 
 impl InternalDocumentation {
@@ -194,12 +194,12 @@ impl InternalDocumentation {
     pub fn register_doc(
         &mut self,
         definition: impl Into<Cow<'static, str>>,
-        description: DocTemplate<'static>,
+        description: Documentation<'static>,
     ) {
         self.definitions.insert(definition.into(), description);
     }
 
-    pub fn get(&self, definition: &str) -> Option<&DocTemplate<'static>> {
+    pub fn get(&self, definition: &str) -> Option<&Documentation<'static>> {
         self.definitions.get(definition)
     }
 }
@@ -220,6 +220,14 @@ impl InternalDocumentation {
 // "#;
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Documentation<'a> {
+    Function(DocTemplate<'a>),
+    Module(ModuleDoc<'a>),
+    Value(ValueDoc<'a>),
+    Markdown(MarkdownDoc<'a>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct DocTemplate<'a> {
     pub signature: &'a str,
     pub params: &'a [&'a str],
@@ -227,16 +235,37 @@ pub struct DocTemplate<'a> {
     pub examples: &'a [(&'a str, &'a str)],
 }
 
-// TODO: Replace doc usage with this
-// Come up with const evaluation of the template
-// pub const LAST_DOC: DocTemplate<'static> = DocTemplate {
-//     signature: "(last l) -> any/c",
-//     params: &["l: list?"],
-//     description: r#"
-// Returns the last element in the list.
-// Takes time proportional to the length of the list."#,
-//     examples: &[(r#"> (last (list 1 2 3 4))"#, "=> 4")],
-// };
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModuleDoc<'a> {
+    pub name: &'a str,
+    pub description: &'a str,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValueDoc<'a> {
+    pub name: &'a str,
+    pub description: &'a str,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkdownDoc<'a>(pub &'a str);
+
+impl<'a> std::fmt::Display for MarkdownDoc<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", termimad::text(&self.0))
+    }
+}
+
+impl<'a> std::fmt::Display for Documentation<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Documentation::Function(d) => write!(f, "{}", d),
+            Documentation::Module(d) => write!(f, "{}", d),
+            Documentation::Value(d) => write!(f, "{}", d),
+            Documentation::Markdown(d) => write!(f, "{}", d),
+        }
+    }
+}
 
 impl<'a> std::fmt::Display for DocTemplate<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -260,6 +289,48 @@ impl<'a> std::fmt::Display for DocTemplate<'a> {
         }
 
         Ok(())
+    }
+}
+
+impl<'a> std::fmt::Display for ValueDoc<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "")?;
+        writeln!(f, "{}", self.name)?;
+        writeln!(f, "")?;
+        writeln!(f, "{}", self.description)
+    }
+}
+
+impl<'a> std::fmt::Display for ModuleDoc<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "")?;
+        writeln!(f, "{}", self.name)?;
+        writeln!(f, "")?;
+        writeln!(f, "{}", self.description)
+    }
+}
+
+impl<'a> Into<Documentation<'a>> for DocTemplate<'a> {
+    fn into(self) -> Documentation<'a> {
+        Documentation::Function(self)
+    }
+}
+
+impl<'a> Into<Documentation<'a>> for ModuleDoc<'a> {
+    fn into(self) -> Documentation<'a> {
+        Documentation::Module(self)
+    }
+}
+
+impl<'a> Into<Documentation<'a>> for ValueDoc<'a> {
+    fn into(self) -> Documentation<'a> {
+        Documentation::Value(self)
+    }
+}
+
+impl<'a> Into<Documentation<'a>> for MarkdownDoc<'a> {
+    fn into(self) -> Documentation<'a> {
+        Documentation::Markdown(self)
     }
 }
 

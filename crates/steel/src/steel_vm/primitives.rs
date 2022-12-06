@@ -396,6 +396,10 @@ pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
 
 fn list_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/lists".to_string());
+
+    // Register the doc for the module
+    module.register_doc("steel/lists", crate::primitives::lists::LIST_MODULE_DOC);
+
     module
         .register_value_with_doc(LIST, crate::primitives::lists::LIST, LIST_DOC)
         .register_value_with_doc(CONS, crate::primitives::lists::CONS, CONS_DOC)

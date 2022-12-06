@@ -188,20 +188,20 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     let mut print_time = false;
 
-    let (tx, rx) = channel();
+    // let (tx, rx) = channel();
 
-    ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
-        .expect("Error setting Ctrl-C handler");
+    // ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
+    // .expect("Error setting Ctrl-C handler");
 
-    vm.on_progress(move |x| {
-        if x % 1000 == 0 {
-            match rx.try_recv() {
-                Ok(_) => return false,
-                _ => {}
-            }
-        }
-        true
-    });
+    // vm.on_progress(move |x| {
+    //     if x % 1000 == 0 {
+    //         match rx.try_recv() {
+    //             Ok(_) => return false,
+    //             _ => {}
+    //         }
+    //     }
+    //     true
+    // });
 
     loop {
         let readline = rl.readline(&prompt);
