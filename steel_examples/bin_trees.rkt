@@ -31,22 +31,29 @@
       (+ 1 (+ (check (node-left t)) 
                          (check (node-right t))))))
 
+(define (iterate n m d sum)
+  (if (equal? n m)
+      sum
+      (iterate (+ n 1) m d (+ sum (check (make n d))))))
+
+
 (define (loop d end max-depth min-depth)
     (if (>= d end)
         void
         (begin
-        (let ((iterations (arithmetic-shift 1 (+ (- max-depth d) min-depth))))
-            (display iterations)
-            (display " trees of depth ")
-            (display d)
-            (display " check: ")
-            (displayln
-            (transduce
-                (range 0 iterations) 
-                (mapping (lambda (i) (make i d)))
-                (into-reducer
-                (lambda (c i) (+ c (check i)))
-                0))))
+          (let ((iterations (arithmetic-shift 1 (+ (- max-depth d) min-depth))))
+              (display iterations)
+              (display " trees of depth ")
+              (display d)
+              (display " check: ")
+              ; (displayln
+              ;   (transduce
+              ;       (range 0 iterations) 
+              ;       (mapping (lambda (i) (make i d)))
+              ;       (into-reducer
+              ;       (lambda (c i) (+ c (check i)))
+              ;       0))))
+              (displayln (iterate 0 iterations d 0)))
         (loop (+ 2 d) end max-depth min-depth))))
 
 

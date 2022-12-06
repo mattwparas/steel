@@ -84,6 +84,31 @@ pub fn gimmick_super_instruction(instructions: &mut [Instruction]) {
     }
 }
 
+pub fn move_read_local_call_global(instructions: &mut [Instruction]) {
+    for i in 0..instructions.len() {
+        let move_read_local = instructions.get(i);
+        let call_global = instructions.get(i + 1);
+
+        match (move_read_local, call_global) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::MOVEREADLOCAL,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    ..
+                }),
+            ) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::MOVEREADLOCALCALLGLOBAL;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 // Often, there may be a loop condition with something like (= x 10000)
 // this identifies these and lazily applies the function, only pushing on to the stack
 // until it absolutely needs to
@@ -792,6 +817,7 @@ impl RawProgramWithSymbols {
             convert_call_globals(instructions);
 
             gimmick_super_instruction(instructions);
+            move_read_local_call_global(instructions);
 
             // loop_condition_local_const_arity_two(instructions);
         }
@@ -890,6 +916,7 @@ impl RawProgramWithSymbols {
             // loop_condition_local_const_arity_two(instructions);
             specialize_constants(instructions)?;
             gimmick_super_instruction(instructions);
+            move_read_local_call_global(instructions);
         }
         // }
 

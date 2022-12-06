@@ -938,7 +938,8 @@ impl<'a> VmCore<'a> {
 
         // let mut frame = self.stack_frames.last().unwrap();
 
-        while self.ip < self.instructions.len() {
+        // while self.ip < self.instructions.len() {
+        loop {
             // Process the op code
             // self.profiler.process_opcode(
             //     &self.instructions[self.ip].op_code,
@@ -1121,6 +1122,21 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => self.handle_move_local(payload_size as usize)?,
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCALCALLGLOBAL,
+                    payload_size,
+                    ..
+                } => {
+                    self.handle_move_local(payload_size as usize)?;
+                    // Move to the next iteration of the loop
+                    let next_inst = self.instructions[self.ip];
+                    self.ip += 1;
+                    let next_next_inst = self.instructions[self.ip];
+                    self.handle_call_global(
+                        next_inst.payload_size as usize,
+                        next_next_inst.payload_size as usize,
+                    )?;
+                }
                 DenseInstruction {
                     op_code: OpCode::SETLOCAL,
                     payload_size,
@@ -1704,7 +1720,8 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn handle_move_local(&mut self, index: usize) -> Result<()> {
-        let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+        // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+        let offset = self.stack_frames.last().unwrap().index;
         let value = std::mem::replace(&mut self.stack[index + offset], SteelVal::Void);
 
         self.stack.push(value);

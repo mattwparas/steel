@@ -68,6 +68,7 @@ pub enum OpCode {
     SETCAPTURED,
     SETALLOC,
     GIMMICK,
+    MOVEREADLOCALCALLGLOBAL,
 }
 
 impl OpCode {
