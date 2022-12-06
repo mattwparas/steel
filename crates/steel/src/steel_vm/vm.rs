@@ -2801,7 +2801,7 @@ impl<'a> VmCore<'a> {
     fn handle_function_call_on_stack(&mut self, payload_size: usize) -> Result<()> {
         use SteelVal::*;
         match self.stack.last().unwrap().clone() {
-            BoxedFunction(f) => self.call_boxed_func_on_stack(*f, payload_size)?,
+            BoxedFunction(f) => self.call_boxed_func_on_stack(f, payload_size)?,
             FuncV(f) => self.call_primitive_func_on_stack(f, payload_size)?,
             FutureFunc(f) => self.call_future_func_on_stack(*f, payload_size)?,
             // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,

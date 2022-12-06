@@ -69,7 +69,7 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, R
             res.into_steelval()
         };
 
-        self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }
 
@@ -91,7 +91,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + 'static>
             res.into_steelval()
         };
 
-        self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }
 
@@ -113,7 +113,7 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'stat
             res.into_steelval()
         };
 
-        self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }
 
@@ -152,7 +152,7 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, R
             res.into_steelval()
         };
 
-        self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }
 
@@ -172,7 +172,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + 'static>
             res.into_steelval()
         };
 
-        self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }
 
@@ -194,7 +194,7 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'stat
             res.into_steelval()
         };
 
-        self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }
 
@@ -245,7 +245,7 @@ impl<A: AsRefSteelVal, B: AsRefSteelVal, FN: Fn(&A, &B) -> RET + 'static, RET: I
             res.into_steelval()
         };
 
-        self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }
 
@@ -265,7 +265,7 @@ impl<A: FromSteelVal, B: AsRefSteelVal, FN: Fn(A, &B) -> RET + 'static, RET: Int
             res.into_steelval()
         };
 
-        self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 }
 
@@ -287,7 +287,7 @@ macro_rules! impl_register_fn {
                     res.into_steelval()
                 };
 
-                self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
             }
         }
 
@@ -307,7 +307,7 @@ macro_rules! impl_register_fn {
                     res.into_steelval()
                 };
 
-                self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
             }
         }
 
@@ -379,7 +379,7 @@ macro_rules! impl_register_fn_self {
                     res.into_steelval()
                 };
 
-                self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
             }
         }
 
@@ -402,7 +402,7 @@ macro_rules! impl_register_fn_self {
                     res.into_steelval()
                 };
 
-                self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
             }
         }
 
@@ -425,7 +425,7 @@ macro_rules! impl_register_fn_self {
                     res.into_steelval()
                 };
 
-                self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
             }
         }
 
@@ -448,7 +448,7 @@ macro_rules! impl_register_fn_self {
                     res.into_steelval()
                 };
 
-                self.register_value(name, SteelVal::BoxedFunction(Box::new(Rc::new(f))))
+                self.register_value(name, SteelVal::BoxedFunction(Rc::new(f)))
             }
         }
     };

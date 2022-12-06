@@ -350,7 +350,7 @@ impl UserDefinedStruct {
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         };
 
-        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
+        SteelVal::BoxedFunction(Rc::new(f))
     }
 
     fn constructor(name: Rc<String>, len: usize) -> SteelVal {
@@ -370,7 +370,7 @@ impl UserDefinedStruct {
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         };
 
-        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
+        SteelVal::BoxedFunction(Rc::new(f))
     }
 
     fn predicate(name: Rc<String>) -> SteelVal {
@@ -387,7 +387,7 @@ impl UserDefinedStruct {
             }))
         };
 
-        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
+        SteelVal::BoxedFunction(Rc::new(f))
     }
 
     fn getter_prototype(name: Rc<String>) -> SteelVal {
@@ -423,7 +423,7 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
+        SteelVal::BoxedFunction(Rc::new(f))
     }
 
     fn getter_prototype_index(name: Rc<String>, index: usize) -> SteelVal {
@@ -454,7 +454,7 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
+        SteelVal::BoxedFunction(Rc::new(f))
     }
 
     fn setter_prototype(name: Rc<String>) -> SteelVal {
@@ -500,7 +500,7 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Box::new(Rc::new(f)))
+        SteelVal::BoxedFunction(Rc::new(f))
     }
 
     pub fn properties(&self) -> SteelVal {
@@ -602,7 +602,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
         module
             .register_value(
                 "Ok",
-                SteelVal::BoxedFunction(Box::new(OK_CONSTRUCTOR.with(|x| Rc::clone(x)))),
+                SteelVal::BoxedFunction(OK_CONSTRUCTOR.with(|x| Rc::clone(x))),
             )
             .register_value("Ok?", predicate)
             .register_value("Ok->value", getter);
@@ -619,7 +619,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
         module
             .register_value(
                 "Err",
-                SteelVal::BoxedFunction(Box::new(ERR_CONSTRUCTOR.with(|x| Rc::clone(x)))),
+                SteelVal::BoxedFunction(ERR_CONSTRUCTOR.with(|x| Rc::clone(x))),
             )
             .register_value("Err?", predicate)
             .register_value("Err->value", getter);
@@ -642,7 +642,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
         module
             .register_value(
                 "Some",
-                SteelVal::BoxedFunction(Box::new(SOME_CONSTRUCTOR.with(|x| Rc::clone(x)))),
+                SteelVal::BoxedFunction(SOME_CONSTRUCTOR.with(|x| Rc::clone(x))),
             )
             .register_value("Some?", predicate)
             .register_value("Some->value", getter);
@@ -656,7 +656,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
         module
             .register_value(
                 "None",
-                SteelVal::BoxedFunction(Box::new(NONE_CONSTRUCTOR.with(|x| Rc::clone(x)))),
+                SteelVal::BoxedFunction(NONE_CONSTRUCTOR.with(|x| Rc::clone(x))),
             )
             .register_value("None?", predicate);
     }

@@ -556,10 +556,7 @@ impl Engine {
             Ok(SteelVal::BoolV(T::from_steelval(&args[0]).is_ok()))
         };
 
-        self.register_value(
-            predicate_name,
-            SteelVal::BoxedFunction(Box::new(Rc::new(f))),
-        )
+        self.register_value(predicate_name, SteelVal::BoxedFunction(Rc::new(f)))
     }
 
     /// Registers a callback function. If registered, this callback will be called on every instruction
