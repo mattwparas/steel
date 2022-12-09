@@ -39,69 +39,114 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     }
 }
 
-pub fn gimmick_super_instruction(instructions: &mut [Instruction]) {
+// pub fn gimmick_super_instruction(instructions: &mut [Instruction]) {
+//     for i in 0..instructions.len() {
+//         let read_local = instructions.get(i);
+//         let load_int = instructions.get(i + 1);
+//         let lte = instructions.get(i + 2);
+//         let pass_instr = instructions.get(i + 3);
+//         let if_instr = instructions.get(i + 4);
+
+//         match (read_local, load_int, lte, pass_instr, if_instr) {
+//             (
+//                 Some(Instruction {
+//                     op_code: OpCode::READLOCAL,
+//                     ..
+//                 }),
+//                 Some(Instruction {
+//                     op_code: OpCode::LOADINT2,
+//                     ..
+//                 }),
+//                 Some(Instruction {
+//                     op_code: OpCode::LTE,
+//                     ..
+//                 }),
+//                 Some(Instruction {
+//                     op_code: OpCode::PASS,
+//                     ..
+//                 }),
+//                 // HAS to be arity 2 in this case
+//                 Some(Instruction {
+//                     op_code: OpCode::IF,
+//                     ..
+//                 }),
+//             ) => {
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.op_code = OpCode::GIMMICK;
+//                 }
+
+//                 instructions[i + 1].op_code = OpCode::PASS;
+//                 instructions[i + 2].op_code = OpCode::PASS;
+//                 instructions[i + 4].op_code = OpCode::PASS;
+//             }
+//             _ => {}
+//         }
+//     }
+// }
+
+// pub fn move_read_local_call_global(instructions: &mut [Instruction]) {
+//     for i in 0..instructions.len() {
+//         let move_read_local = instructions.get(i);
+//         let call_global = instructions.get(i + 1);
+
+//         match (move_read_local, call_global) {
+//             (
+//                 Some(Instruction {
+//                     op_code: OpCode::MOVEREADLOCAL,
+//                     ..
+//                 }),
+//                 Some(Instruction {
+//                     op_code: OpCode::CALLGLOBAL,
+//                     ..
+//                 }),
+//             ) => {
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.op_code = OpCode::MOVEREADLOCALCALLGLOBAL;
+//                 }
+//             }
+//             _ => {}
+//         }
+//     }
+// }
+
+pub fn specialize_read_local(instructions: &mut [Instruction]) {
     for i in 0..instructions.len() {
         let read_local = instructions.get(i);
-        let load_int = instructions.get(i + 1);
-        let lte = instructions.get(i + 2);
-        let pass_instr = instructions.get(i + 3);
-        let if_instr = instructions.get(i + 4);
 
-        match (read_local, load_int, lte, pass_instr, if_instr) {
-            (
-                Some(Instruction {
-                    op_code: OpCode::READLOCAL,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::LOADINT2,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::LTE,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::PASS,
-                    ..
-                }),
-                // HAS to be arity 2 in this case
-                Some(Instruction {
-                    op_code: OpCode::IF,
-                    ..
-                }),
-            ) => {
+        match read_local {
+            Some(Instruction {
+                op_code: OpCode::MOVEREADLOCAL,
+                payload_size,
+                ..
+            }) => {
+                let op_code = match payload_size {
+                    0 => OpCode::MOVEREADLOCAL0,
+                    1 => OpCode::MOVEREADLOCAL1,
+                    2 => OpCode::MOVEREADLOCAL2,
+                    3 => OpCode::MOVEREADLOCAL3,
+                    _ => continue,
+                };
+
                 if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::GIMMICK;
+                    x.op_code = op_code;
                 }
-
-                instructions[i + 1].op_code = OpCode::PASS;
-                instructions[i + 2].op_code = OpCode::PASS;
-                instructions[i + 4].op_code = OpCode::PASS;
             }
-            _ => {}
-        }
-    }
-}
 
-pub fn move_read_local_call_global(instructions: &mut [Instruction]) {
-    for i in 0..instructions.len() {
-        let move_read_local = instructions.get(i);
-        let call_global = instructions.get(i + 1);
+            Some(Instruction {
+                op_code: OpCode::READLOCAL,
+                payload_size,
+                ..
+            }) => {
+                let op_code = match payload_size {
+                    0 => OpCode::READLOCAL0,
+                    1 => OpCode::READLOCAL1,
+                    2 => OpCode::READLOCAL2,
+                    3 => OpCode::READLOCAL3,
+                    _ => continue,
+                };
 
-        match (move_read_local, call_global) {
-            (
-                Some(Instruction {
-                    op_code: OpCode::MOVEREADLOCAL,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::CALLGLOBAL,
-                    ..
-                }),
-            ) => {
                 if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::MOVEREADLOCALCALLGLOBAL;
+                    x.op_code = op_code;
                 }
             }
             _ => {}
@@ -510,135 +555,6 @@ where
 //     fn report(&self);
 // }
 
-#[derive(PartialEq, Eq, Hash, Clone, PartialOrd, Ord, Debug)]
-pub struct InstructionPattern {
-    block: Vec<OpCode>,
-}
-
-impl InstructionPattern {
-    pub fn new(block: Vec<OpCode>) -> Self {
-        Self { block }
-    }
-}
-
-pub struct OpCodeOccurenceProfiler {
-    occurrences: HashMap<(OpCode, usize), usize>,
-    time: HashMap<(OpCode, usize), std::time::Duration>,
-    // This should be a hashset of all of the sequences of instructions that we run into, along with their counts
-    // This can be a good entry point for understanding common sequences
-    // TODO: @Matt - 8/3/22
-    // This could also be calculated ahead of time - basic blocks can be memoized, but for profiling this is... fine
-    basic_blocks: HashMap<InstructionPattern, usize>,
-    // The current sequence before we get cut off
-    sequence: Vec<OpCode>,
-}
-
-impl OpCodeOccurenceProfiler {
-    pub fn new() -> Self {
-        OpCodeOccurenceProfiler {
-            occurrences: HashMap::new(),
-            time: HashMap::new(),
-            basic_blocks: HashMap::new(),
-            sequence: Vec::new(),
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.occurrences.clear();
-        self.time.clear();
-    }
-
-    pub fn process_opcode(&mut self, opcode: &OpCode, payload: usize) {
-        *self.occurrences.entry((*opcode, payload)).or_default() += 1;
-
-        match opcode {
-            OpCode::SDEF | OpCode::EDEF => return,
-            _ => {}
-        }
-
-        self.sequence.push(*opcode);
-
-        match opcode {
-            OpCode::JMP
-            | OpCode::IF
-            | OpCode::CALLGLOBAL
-            | OpCode::CALLGLOBALTAIL
-            | OpCode::TAILCALL
-            | OpCode::TCOJMP
-            | OpCode::POP
-            | OpCode::POPPURE
-            | OpCode::FUNC => {
-                let new_sequence = self.sequence.drain(0..).collect();
-                // Increment the count on this basic block if we've seen it
-                *self
-                    .basic_blocks
-                    .entry(InstructionPattern::new(new_sequence))
-                    .or_default() += 1;
-            }
-            _ => {}
-        }
-    }
-
-    pub fn add_time(&mut self, opcode: &OpCode, payload: usize, time: std::time::Duration) {
-        *self.time.entry((*opcode, payload)).or_default() += time;
-    }
-
-    pub fn report_basic_blocks(&self) {
-        println!("--------------- Basic Blocks ---------------");
-
-        let mut blocks = self.basic_blocks.iter().collect::<Vec<_>>();
-
-        blocks.sort_by_key(|x| x.1);
-        blocks.reverse();
-
-        for block in blocks {
-            println!("{:#?}", block)
-        }
-
-        println!("--------------------------------------------")
-    }
-
-    pub fn report_time_spend(&self) {
-        let total_time: u128 = self.time.values().map(|x| x.as_micros()).sum();
-
-        let mut counts = self
-            .time
-            .iter()
-            .map(|x| (x.0, (x.1.as_micros() as f64 / total_time as f64) * 100.0))
-            .filter(|x| !f64::is_nan(x.1))
-            .collect::<Vec<(&(OpCode, usize), f64)>>();
-
-        counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
-
-        println!("------- Time Spent: Profiling Report -------");
-        for row in counts {
-            println!("{:?} => {:.2}%", row.0, row.1);
-        }
-        println!("--------------------------------------------")
-    }
-
-    pub fn report(&self) {
-        let total: usize = self.occurrences.values().sum();
-
-        let mut counts = self
-            .occurrences
-            .iter()
-            .map(|x| (x.0, (*x.1 as f64 / total as f64) * 100.0))
-            .collect::<Vec<(&(OpCode, usize), f64)>>();
-
-        counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
-
-        println!("------- Profiling Report -------");
-        println!("Total instructions executed: {}", total);
-        for row in counts {
-            println!("{:?} => {:.2}%", row.0, row.1);
-        }
-        println!("--------------------------------")
-
-        // println!("{:#?}", counts);
-    }
-}
-
 impl RawProgramWithSymbols {
     pub fn new(
         // struct_functions: Vec<StructFuncBuilderConcrete>,
@@ -816,8 +732,9 @@ impl RawProgramWithSymbols {
             inline_num_operations(instructions);
             convert_call_globals(instructions);
 
-            gimmick_super_instruction(instructions);
-            move_read_local_call_global(instructions);
+            // gimmick_super_instruction(instructions);
+            // move_read_local_call_global(instructions);
+            specialize_read_local(instructions);
 
             // loop_condition_local_const_arity_two(instructions);
         }
@@ -915,8 +832,9 @@ impl RawProgramWithSymbols {
             // TODO: Re-enable optimizations
             // loop_condition_local_const_arity_two(instructions);
             specialize_constants(instructions)?;
-            gimmick_super_instruction(instructions);
-            move_read_local_call_global(instructions);
+            // gimmick_super_instruction(instructions);
+            // move_read_local_call_global(instructions);
+            specialize_read_local(instructions);
         }
         // }
 

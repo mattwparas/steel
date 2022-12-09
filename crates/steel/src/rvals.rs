@@ -619,7 +619,7 @@ pub enum SteelVal {
     /// Represents a scheme-only struct
     // StructV(Gc<SteelStruct>),
     /// Alternative implementation of a scheme-only struct
-    CustomStruct(Gc<UserDefinedStruct>),
+    CustomStruct(Gc<RefCell<UserDefinedStruct>>),
     // Represents a special rust closure
     // StructClosureV(Box<SteelStruct>, StructClosureSignature),
     // StructClosureV(Box<StructClosure>),
@@ -970,7 +970,7 @@ impl SteelVal {
     pub fn is_function(&self) -> bool {
         matches!(
             self,
-            BoxedFunction(_) | Closure(_) | FuncV(_) | ContractedFunction(_)
+            BoxedFunction(_) | Closure(_) | FuncV(_) | ContractedFunction(_) | BuiltIn(_)
         )
     }
 
@@ -1240,7 +1240,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, ")")
         }
         Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
-        CustomStruct(s) => write!(f, "{}", s.as_ref()),
+        CustomStruct(s) => write!(f, "{}", s.borrow()),
         PortV(_) => write!(f, "#<port>"),
         Closure(_) => write!(f, "#<bytecode-closure>"),
         HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),

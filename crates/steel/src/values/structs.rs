@@ -21,20 +21,20 @@ use std::{cell::RefCell, rc::Rc};
 #[derive(Clone, Debug)]
 pub struct UserDefinedStruct {
     pub(crate) name: Rc<String>,
-    pub(crate) fields: MaybeHeapVec,
+    pub(crate) fields: smallvec::SmallVec<[SteelVal; 5]>,
     pub(crate) len: usize,
     pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
 }
 
-impl AsRefSteelVal for UserDefinedStruct {
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
-        if let SteelVal::CustomStruct(s) = val {
-            Ok(SRef::Temporary(s))
-        } else {
-            stop!(TypeMismatch => format!("Value cannot be referenced as a struct: {}", val))
-        }
-    }
-}
+// impl AsRefSteelVal for UserDefinedStruct {
+//     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
+//         if let SteelVal::CustomStruct(s) = val {
+//             Ok(SRef::Temporary(&s.borrow()))
+//         } else {
+//             stop!(TypeMismatch => format!("Value cannot be referenced as a struct: {}", val))
+//         }
+//     }
+// }
 
 impl std::fmt::Display for UserDefinedStruct {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -43,42 +43,40 @@ impl std::fmt::Display for UserDefinedStruct {
             .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
             .is_some()
         {
-            match &self.fields {
-                MaybeHeapVec::Unit => write!(f, "({})", self.name),
-                MaybeHeapVec::One(v) => write!(f, "({} {})", self.name, v.borrow()),
-                MaybeHeapVec::Two(a) => {
-                    let guard = a.borrow();
-                    write!(f, "({} {} {})", self.name, guard[0], guard[1])
-                }
-                MaybeHeapVec::Three(a) => {
-                    let guard = a.borrow();
-                    write!(f, "({} {} {} {})", self.name, guard[0], guard[1], guard[2])
-                }
-                MaybeHeapVec::Four(a) => {
-                    let guard = a.borrow();
-                    write!(
-                        f,
-                        "({} {} {} {} {})",
-                        self.name, guard[0], guard[1], guard[2], guard[3]
-                    )
-                }
-                MaybeHeapVec::Five(a) => {
-                    let guard = a.borrow();
-                    write!(
-                        f,
-                        "({} {} {} {} {} {})",
-                        self.name, guard[0], guard[1], guard[2], guard[3], guard[4]
-                    )
-                }
-                MaybeHeapVec::Spilled(v) => {
-                    let guard = v.borrow();
-                    write!(f, "({})", self.name)?;
-                    for item in guard.iter() {
-                        write!(f, "{}", item)?;
-                    }
-                    write!(f, ")")
-                }
+            write!(f, "({}", self.name)?;
+            for i in 0..self.len - 1 {
+                write!(f, " {}", self.fields[i])?;
             }
+
+            write!(f, ")")
+
+            // match &self.fields {
+            //     MaybeHeapVec::Unit => write!(f, "({})", self.name),
+            //     MaybeHeapVec::One(v) => write!(f, "({} {})", self.name, v),
+            //     MaybeHeapVec::Two(a) => {
+            //         write!(f, "({} {} {})", self.name, a[0], a[1])
+            //     }
+            //     MaybeHeapVec::Three(a) => {
+            //         write!(f, "({} {} {} {})", self.name, a[0], a[1], a[2])
+            //     }
+            //     MaybeHeapVec::Four(a) => {
+            //         write!(f, "({} {} {} {} {})", self.name, a[0], a[1], a[2], a[3])
+            //     }
+            //     MaybeHeapVec::Five(a) => {
+            //         write!(
+            //             f,
+            //             "({} {} {} {} {} {})",
+            //             self.name, a[0], a[1], a[2], a[3], a[4]
+            //         )
+            //     }
+            //     MaybeHeapVec::Spilled(v) => {
+            //         write!(f, "({})", self.name)?;
+            //         for item in v.iter() {
+            //             write!(f, "{}", item)?;
+            //         }
+            //         write!(f, ")")
+            //     }
+            // }
         } else {
             write!(f, "({})", self.name)
         }
@@ -117,37 +115,32 @@ fn check_sizes() {
 #[derive(Clone, Debug)]
 pub(crate) enum MaybeHeapVec {
     Unit,
-    One(Rc<RefCell<SteelVal>>),
-    Two(Rc<RefCell<[SteelVal; 2]>>),
-    Three(Rc<RefCell<[SteelVal; 3]>>),
-    Four(Rc<RefCell<[SteelVal; 4]>>),
-    Five(Rc<RefCell<[SteelVal; 5]>>),
-    Spilled(Rc<RefCell<Vec<SteelVal>>>),
+    One(SteelVal),
+    Two([SteelVal; 2]),
+    Three([SteelVal; 3]),
+    Four([SteelVal; 4]),
+    Five([SteelVal; 5]),
+    Spilled(Vec<SteelVal>),
 }
 
 impl MaybeHeapVec {
     pub fn from_slice(args: &[SteelVal]) -> Self {
         match &args {
             &[] => Self::Unit,
-            &[one] => Self::One(one.clone().rc_refcell()),
-            &[one, two] => Self::Two([one.clone(), two.clone()].rc_refcell()),
-            &[one, two, three] => {
-                Self::Three([one.clone(), two.clone(), three.clone()].rc_refcell())
-            }
+            &[one] => Self::One(one.clone()),
+            &[one, two] => Self::Two([one.clone(), two.clone()]),
+            &[one, two, three] => Self::Three([one.clone(), two.clone(), three.clone()]),
             &[one, two, three, four] => {
-                Self::Four([one.clone(), two.clone(), three.clone(), four.clone()].rc_refcell())
+                Self::Four([one.clone(), two.clone(), three.clone(), four.clone()])
             }
-            &[one, two, three, four, five] => Self::Five(
-                [
-                    one.clone(),
-                    two.clone(),
-                    three.clone(),
-                    four.clone(),
-                    five.clone(),
-                ]
-                .rc_refcell(),
-            ),
-            _ => Self::Spilled(Rc::new(RefCell::new(args.iter().cloned().collect()))),
+            &[one, two, three, four, five] => Self::Five([
+                one.clone(),
+                two.clone(),
+                three.clone(),
+                four.clone(),
+                five.clone(),
+            ]),
+            _ => Self::Spilled(args.iter().cloned().collect()),
         }
     }
 
@@ -155,48 +148,42 @@ impl MaybeHeapVec {
     pub fn get(&self, index: usize) -> Option<SteelVal> {
         match self {
             MaybeHeapVec::Unit => None,
-            MaybeHeapVec::One(v) => Some(v.borrow().clone()),
-            MaybeHeapVec::Two(a) => Some(a.borrow()[index].clone()),
-            MaybeHeapVec::Three(a) => Some(a.borrow()[index].clone()),
-            MaybeHeapVec::Four(a) => Some(a.borrow()[index].clone()),
-            MaybeHeapVec::Five(a) => Some(a.borrow()[index].clone()),
-            MaybeHeapVec::Spilled(a) => Some(a.borrow()[index].clone()),
+            MaybeHeapVec::One(v) => Some(v.clone()),
+            MaybeHeapVec::Two(a) => Some(a[index].clone()),
+            MaybeHeapVec::Three(a) => Some(a[index].clone()),
+            MaybeHeapVec::Four(a) => Some(a[index].clone()),
+            MaybeHeapVec::Five(a) => Some(a[index].clone()),
+            MaybeHeapVec::Spilled(a) => Some(a[index].clone()),
         }
     }
 
     #[inline(always)]
-    pub fn set(&self, index: usize, mut value: SteelVal) -> SteelVal {
+    pub fn set(&mut self, index: usize, mut value: SteelVal) -> SteelVal {
         match self {
             MaybeHeapVec::Unit => panic!("Tried to get the 0th index of a unit struct"),
             MaybeHeapVec::One(v) => {
-                let mut guard = v.borrow_mut();
-                let old = guard.clone();
-                *guard = value;
+                let old = v.clone();
+                *v = value;
                 old
             }
             MaybeHeapVec::Two(a) => {
-                let mut guard = a.borrow_mut();
-                std::mem::swap(&mut guard[index], &mut value);
+                std::mem::swap(&mut a[index], &mut value);
                 value
             }
             MaybeHeapVec::Three(a) => {
-                let mut guard = a.borrow_mut();
-                std::mem::swap(&mut guard[index], &mut value);
+                std::mem::swap(&mut a[index], &mut value);
                 value
             }
             MaybeHeapVec::Four(a) => {
-                let mut guard = a.borrow_mut();
-                std::mem::swap(&mut guard[index], &mut value);
+                std::mem::swap(&mut a[index], &mut value);
                 value
             }
             MaybeHeapVec::Five(a) => {
-                let mut guard = a.borrow_mut();
-                std::mem::swap(&mut guard[index], &mut value);
+                std::mem::swap(&mut a[index], &mut value);
                 value
             }
             MaybeHeapVec::Spilled(a) => {
-                let mut guard = a.borrow_mut();
-                std::mem::swap(&mut guard[index], &mut value);
+                std::mem::swap(&mut a[index], &mut value);
                 value
             }
         }
@@ -263,7 +250,7 @@ impl UserDefinedStruct {
         if let SteelVal::HashMapV(properties) = options.clone() {
             Ok(Self {
                 name,
-                fields: MaybeHeapVec::from_slice(rest),
+                fields: rest.into(),
                 len: fields.len(),
                 properties,
             })
@@ -299,7 +286,7 @@ impl UserDefinedStruct {
     ) -> Self {
         Self {
             name,
-            fields: MaybeHeapVec::from_slice(rest),
+            fields: rest.into(),
             len: rest.len() + 1,
             properties,
         }
@@ -324,7 +311,7 @@ impl UserDefinedStruct {
             let new_struct =
                 UserDefinedStruct::new_with_options(Rc::clone(&name), options.clone(), args);
 
-            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
+            Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         }
     }
 
@@ -347,7 +334,7 @@ impl UserDefinedStruct {
             let new_struct =
                 UserDefinedStruct::new_with_options(Rc::clone(&name), options.clone(), args);
 
-            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
+            Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         };
 
         SteelVal::BoxedFunction(Rc::new(f))
@@ -367,7 +354,7 @@ impl UserDefinedStruct {
 
             let new_struct = UserDefinedStruct::new(Rc::clone(&name), args)?;
 
-            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
+            Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         };
 
         SteelVal::BoxedFunction(Rc::new(f))
@@ -381,7 +368,11 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
             Ok(SteelVal::BoolV(match &args[0] {
-                SteelVal::CustomStruct(my_struct) if Rc::ptr_eq(&my_struct.name, &name) => true,
+                SteelVal::CustomStruct(my_struct)
+                    if Rc::ptr_eq(&my_struct.borrow().name, &name) =>
+                {
+                    true
+                }
                 // SteelVal::CustomStruct(my_struct) if my_struct.name == name => true,
                 _ => false,
             }))
@@ -401,7 +392,7 @@ impl UserDefinedStruct {
 
             match (&steel_struct, &idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
-                    if !Rc::ptr_eq(&s.name, &name) {
+                    if !Rc::ptr_eq(&s.borrow().name, &name) {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:p}, {:?}", name, &s, &steel_struct));
                     }
 
@@ -409,8 +400,10 @@ impl UserDefinedStruct {
                         stop!(Generic => "struct-ref expected a non negative index");
                     }
 
-                    s.fields
+                    s.borrow()
+                        .fields
                         .get(*idx as usize)
+                        .cloned()
                         .ok_or_else(throw!(Generic => "struct-ref: index out of bounds"))
                 }
                 _ => {
@@ -436,12 +429,14 @@ impl UserDefinedStruct {
 
             match &steel_struct {
                 SteelVal::CustomStruct(s) => {
-                    if !Rc::ptr_eq(&s.name, &name) {
+                    if !Rc::ptr_eq(&s.borrow().name, &name) {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:p}, {:?}", name, &s, &steel_struct));
                     }
 
-                    s.fields
+                    s.borrow()
+                        .fields
                         .get(index)
+                        .cloned()
                         .ok_or_else(throw!(Generic => "struct-ref: index out of bounds"))
                 }
                 _ => {
@@ -469,19 +464,29 @@ impl UserDefinedStruct {
 
             match (&steel_struct, &idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
-                    if !Rc::ptr_eq(&s.name, &name) {
-                        stop!(TypeMismatch => format!("Struct setter expected {}, found {}", name, &s.name));
+                    if !Rc::ptr_eq(&s.borrow().name, &name) {
+                        stop!(TypeMismatch => format!("Struct setter expected {}, found {}", name, &s.borrow().name));
                     }
 
                     if *idx < 0 {
                         stop!(Generic => "struct-ref expected a non negative index");
                     }
-                    if *idx as usize >= s.len {
+                    if *idx as usize >= s.borrow().len {
                         stop!(Generic => "struct-ref: index out of bounds");
                     }
 
+                    let mut guard = s.borrow_mut();
+
+                    let old = guard.fields[*idx as usize].clone();
+
+                    guard.fields[*idx as usize] = arg.clone();
+
+                    Ok(old)
+
+                    // s.borrow_mut().fields[0].clone();
+
                     // if let StructBacking::Mutable(m) = s.fields {
-                    Ok(s.fields.set(0, arg.clone()))
+                    // Ok(s.borrow_mut().fields.set(0, arg.clone()))
                     // } else {
                     // stop!(TypeMismatch => "attempted to set an immutable struct fields")
                     // }
@@ -714,10 +719,10 @@ impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for std::result::Result<T
 impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::CustomStruct(s) = val {
-            if s.is_ok() {
-                Ok(Ok(T::from_steelval(&s.fields.get(0).unwrap())?))
-            } else if s.is_err() {
-                Ok(Err(E::from_steelval(&s.fields.get(0).unwrap())?))
+            if s.borrow().is_ok() {
+                Ok(Ok(T::from_steelval(&s.borrow().fields.get(0).unwrap())?))
+            } else if s.borrow().is_err() {
+                Ok(Err(E::from_steelval(&s.borrow().fields.get(0).unwrap())?))
             } else {
                 stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {:?}", val))
             }
@@ -798,4 +803,13 @@ impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E
 //         let expected = SteelVal::IntV(1);
 //         assert_eq!(res.unwrap(), expected);
 //     }
+// }
+
+// #[test]
+// fn small_vec_size() {
+//     println!(
+//         "{:?}",
+//         std::mem::size_of::<smallvec::SmallVec<[SteelVal; 5]>>()
+//     );
+//     println!("{:?}", std::mem::size_of::<MaybeHeapVec>())
 // }

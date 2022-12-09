@@ -1,9 +1,10 @@
-#![allow(unused)]
+// #![allow(unused)]
 
 #[cfg(feature = "jit")]
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
 use crate::jit::sig::JitFunctionPointer;
+use crate::values::transducers::Reducer;
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::DenseInstruction, opcode::OpCode},
@@ -16,7 +17,6 @@ use crate::{
     steel_vm::primitives::{equality_primitive, lte_primitive},
     values::transducers::Transducers,
 };
-use crate::{compiler::program::OpCodeOccurenceProfiler, values::transducers::Reducer};
 use crate::{
     core::utils::arity_check,
     values::{closed::Heap, contracts::ContractType},
@@ -32,12 +32,13 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 // use std::env::current_exe;
-use std::{iter::Iterator, rc::Rc, time::Instant};
+use std::{cell::RefCell, collections::HashMap, iter::Iterator, ops::Deref, rc::Rc, time::Instant};
 
 use super::{builtin::DocTemplate, evaluation_progress::EvaluationProgress};
 
 use fnv::FnvHashMap;
 use im_lists::list::List;
+use lazy_static::lazy_static;
 use log::{debug, error, log_enabled};
 
 use crate::rvals::IntoSteelVal;
@@ -146,9 +147,10 @@ pub struct SteelThread {
     callback: EvaluationProgress,
     stack: Vec<SteelVal>,
     profiler: OpCodeOccurenceProfiler,
-    // TODO: make this not as bad
-    closure_interner: FnvHashMap<usize, ByteCodeLambda>,
-    pure_function_interner: FnvHashMap<usize, Gc<ByteCodeLambda>>,
+    // TODO: Combine these three into one struct.
+    closure_interner: fxhash::FxHashMap<usize, ByteCodeLambda>,
+    pure_function_interner: fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
+    super_instructions: Vec<Rc<DynamicBlock>>,
     heap: Heap,
     // If contracts are set to off - contract construction results in a no-op,
     // so we don't need generics on the thread
@@ -169,8 +171,9 @@ impl SteelThread {
             // function_stack: CallStack::with_capacity(64),
             // stack_index: Vec::with_capacity(64),
             profiler: OpCodeOccurenceProfiler::new(),
-            closure_interner: FnvHashMap::default(),
-            pure_function_interner: FnvHashMap::default(),
+            closure_interner: fxhash::FxHashMap::default(),
+            pure_function_interner: fxhash::FxHashMap::default(),
+            super_instructions: Vec::new(),
             heap: Heap::new(),
             contracts_on: true,
             stack_frames: Vec::with_capacity(64),
@@ -239,6 +242,7 @@ impl SteelThread {
             &mut self.pure_function_interner,
             &mut self.heap,
             self.contracts_on,
+            &mut self.super_instructions,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
         );
@@ -276,6 +280,7 @@ impl SteelThread {
             &mut self.pure_function_interner,
             &mut self.heap,
             self.contracts_on,
+            &mut self.super_instructions,
             #[cfg(feature = "jit")]
             Some(&mut self.jit),
         )?;
@@ -371,6 +376,11 @@ impl SteelThread {
                 // self.profiler.report_basic_blocks();
 
                 // self.upvalue_head = vm_instance.upvalue_head;
+
+                // println!(
+                //     "------ Total trace samples: {} ------",
+                //     self.profiler.sample_count
+                // );
 
                 // Clean up
                 self.stack.clear();
@@ -520,8 +530,91 @@ impl<'a> VmContext for VmCore<'a> {
     }
 }
 
+// TODO: Make dynamic block use this
+enum FunctionBlock {
+    Specialized(for<'r> fn(&'r mut VmCore<'_>) -> Result<()>),
+    Unrolled(Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>),
+}
+
+// Construct a basic block for a series of instructions
+// Note: A call to either apply or call/cc should invalidate this, as it fundamentally
+// violates the principle of a basic block.
+#[derive(Clone)]
+pub struct DynamicBlock {
+    basic_block: InstructionPattern,
+    entry_inst: DenseInstruction,
+    header_func: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
+    handlers: Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>,
+    specialized: Option<for<'r> fn(&'r mut VmCore<'_>) -> Result<()>>,
+}
+
+impl DynamicBlock {
+    fn call(&self, context: &mut VmCore<'_>) -> Result<()> {
+        // println!("---- Entering dynamic block ----");
+        // println!("{:#?}", self.basic_block);
+
+        if let Some(header) = self.header_func {
+            // println!("Calling special entry block");
+            header(context, self.entry_inst.payload_size as usize)?;
+        }
+
+        if let Some(specialized) = self.specialized {
+            specialized(context)?;
+        } else {
+            for func in self.handlers.iter() {
+                func(context)?;
+            }
+        }
+
+        // println!("---- Exited dynamic block ----");
+        // println!(
+        // "Current op code: {:?}",
+        // context.instructions[context.ip].op_code
+        // );
+        Ok(())
+    }
+
+    fn construct_basic_block(head: DenseInstruction, basic_block: InstructionPattern) -> Self {
+        // TODO: Drop the first
+        let mut handlers = basic_block.block.into_iter().peekable();
+        // .map(|x| OP_CODE_TABLE[x as usize]);
+        // .collect();
+
+        let mut header_func = None;
+
+        println!("{:#?}", basic_block);
+
+        if let Some(first) = handlers.peek() {
+            header_func = op_code_requires_payload(**first);
+        }
+
+        if header_func.is_some() {
+            handlers.next();
+        }
+
+        let op_codes: Vec<_> = handlers.clone().copied().collect();
+
+        let specialized = SUPER_PATTERNS.get(&op_codes).copied();
+
+        if specialized.is_some() {
+            println!("Found specialized function!");
+        }
+
+        let handlers = handlers.map(|x| OP_CODE_TABLE[*x as usize]).collect();
+
+        Self {
+            basic_block,
+            handlers,
+            entry_inst: head,
+            header_func,
+            specialized,
+        }
+    }
+}
+
 pub struct VmCore<'a> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
+    // pub(crate) instructions: Rc<RefCell<Vec<DenseInstruction>>>,
     pub(crate) stack: &'a mut Vec<SteelVal>,
     pub(crate) global_env: &'a mut Env,
     pub(crate) stack_frames: &'a mut Vec<StackFrame>,
@@ -531,18 +624,24 @@ pub struct VmCore<'a> {
     pub(crate) pop_count: usize,
     pub(crate) spans: &'a [Span],
     pub(crate) profiler: &'a mut OpCodeOccurenceProfiler,
-    pub(crate) closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
-    pub(crate) pure_function_interner: &'a mut FnvHashMap<usize, Gc<ByteCodeLambda>>,
+    pub(crate) closure_interner: &'a mut fxhash::FxHashMap<usize, ByteCodeLambda>,
+    pub(crate) pure_function_interner: &'a mut fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
     pub(crate) heap: &'a mut Heap,
     pub(crate) use_contracts: bool,
     pub(crate) depth: usize,
+    pub(crate) super_instructions: &'a mut Vec<Rc<DynamicBlock>>,
     #[cfg(feature = "jit")]
     pub(crate) jit: Option<&'a mut JIT>,
+}
+
+fn test_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    Ok(())
 }
 
 impl<'a> VmCore<'a> {
     fn new_unchecked(
         instructions: Rc<[DenseInstruction]>,
+        // instructions: Rc<RefCell<Vec<DenseInstruction>>>,
         stack: &'a mut Vec<SteelVal>,
         global_env: &'a mut Env,
         constants: &'a ConstantMap,
@@ -550,10 +649,11 @@ impl<'a> VmCore<'a> {
         stack_frames: &'a mut Vec<StackFrame>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
-        closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
-        pure_function_interner: &'a mut FnvHashMap<usize, Gc<ByteCodeLambda>>,
+        closure_interner: &'a mut fxhash::FxHashMap<usize, ByteCodeLambda>,
+        pure_function_interner: &'a mut fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
         heap: &'a mut Heap,
         use_contracts: bool,
+        super_instructions: &'a mut Vec<Rc<DynamicBlock>>,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> VmCore<'a> {
         VmCore {
@@ -572,6 +672,7 @@ impl<'a> VmCore<'a> {
             heap,
             use_contracts,
             depth: 0,
+            super_instructions,
             #[cfg(feature = "jit")]
             jit,
         }
@@ -586,10 +687,11 @@ impl<'a> VmCore<'a> {
         stack_frames: &'a mut Vec<StackFrame>,
         spans: &'a [Span],
         profiler: &'a mut OpCodeOccurenceProfiler,
-        closure_interner: &'a mut FnvHashMap<usize, ByteCodeLambda>,
-        pure_function_interner: &'a mut FnvHashMap<usize, Gc<ByteCodeLambda>>,
+        closure_interner: &'a mut fxhash::FxHashMap<usize, ByteCodeLambda>,
+        pure_function_interner: &'a mut fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
         heap: &'a mut Heap,
         use_contracts: bool,
+        super_instructions: &'a mut Vec<Rc<DynamicBlock>>,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> Result<VmCore<'a>> {
         if instructions.is_empty() {
@@ -612,6 +714,7 @@ impl<'a> VmCore<'a> {
             heap,
             use_contracts,
             depth: 0,
+            super_instructions,
             #[cfg(feature = "jit")]
             jit,
         })
@@ -941,10 +1044,33 @@ impl<'a> VmCore<'a> {
         // while self.ip < self.instructions.len() {
         loop {
             // Process the op code
-            // self.profiler.process_opcode(
-            //     &self.instructions[self.ip].op_code,
-            //     self.instructions[self.ip].payload_size as usize,
-            // );
+            // TODO: Just build up a slice, don't directly store the full vec of op codes
+            if let Some(pat) = self.profiler.process_opcode(
+                &self.instructions[self.ip].op_code,
+                self.ip,
+                &self.instructions,
+                // Grab the current stack frame
+                self.stack_frames.last().map(|x| &x.function),
+            ) {
+                // if count > 1000 {
+                println!("Found a hot pattern, creating super instruction...");
+
+                // Index of the starting opcode
+                let start = pat.pattern.start;
+
+                let id = self.super_instructions.len();
+
+                let guard = self.stack_frames.last_mut().unwrap();
+
+                // Next run should get the new sequence of opcodes
+                let (head, _) = guard.function.update_to_super_instruction(start, id);
+
+                let block = DynamicBlock::construct_basic_block(head, pat);
+                self.super_instructions.push(Rc::new(block));
+
+                // let
+                // }
+            }
 
             // println!("{:?}", self.instructions[self.ip]);
 
@@ -1055,32 +1181,31 @@ impl<'a> VmCore<'a> {
                     inline_primitive!(lte_primitive, payload_size);
                 }
 
-                DenseInstruction {
-                    op_code: OpCode::GIMMICK,
-                    payload_size,
-                    ..
-                } => {
-                    // Handle the local
-                    self.handle_local(payload_size as usize)?;
+                // DenseInstruction {
+                //     op_code: OpCode::GIMMICK,
+                //     payload_size,
+                //     ..
+                // } => {
+                //     // Handle the local
+                //     self.handle_local(payload_size as usize)?;
 
-                    // Load the int
-                    self.stack.push(SteelVal::INT_TWO);
-                    self.ip += 1;
+                //     // Load the int
+                //     self.stack.push(SteelVal::INT_TWO);
+                //     self.ip += 1;
 
-                    let payload = self.instructions[self.ip].payload_size;
+                //     let payload = self.instructions[self.ip].payload_size;
 
-                    inline_primitive!(lte_primitive, payload);
+                //     inline_primitive!(lte_primitive, payload);
 
-                    let payload_size = self.instructions[self.ip].payload_size;
+                //     let payload_size = self.instructions[self.ip].payload_size;
 
-                    // Handle the if
-                    if self.stack.pop().unwrap().is_truthy() {
-                        self.ip += 1;
-                    } else {
-                        self.ip = payload_size as usize;
-                    }
-                }
-
+                //     // Handle the if
+                //     if self.stack.pop().unwrap().is_truthy() {
+                //         self.ip += 1;
+                //     } else {
+                //         self.ip = payload_size as usize;
+                //     }
+                // }
                 DenseInstruction {
                     op_code: OpCode::VOID,
                     ..
@@ -1113,6 +1238,22 @@ impl<'a> VmCore<'a> {
                     ..
                 } => self.handle_local(payload_size as usize)?,
                 DenseInstruction {
+                    op_code: OpCode::READLOCAL0,
+                    ..
+                } => local_handler0(self)?,
+                DenseInstruction {
+                    op_code: OpCode::READLOCAL1,
+                    ..
+                } => local_handler1(self)?,
+                DenseInstruction {
+                    op_code: OpCode::READLOCAL2,
+                    ..
+                } => local_handler2(self)?,
+                DenseInstruction {
+                    op_code: OpCode::READLOCAL3,
+                    ..
+                } => local_handler3(self)?,
+                DenseInstruction {
                     op_code: OpCode::READCAPTURED,
                     payload_size,
                     ..
@@ -1122,21 +1263,69 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => self.handle_move_local(payload_size as usize)?,
+                // TODO: Introduce macro for this
                 DenseInstruction {
-                    op_code: OpCode::MOVEREADLOCALCALLGLOBAL,
-                    payload_size,
+                    op_code: OpCode::MOVEREADLOCAL0,
                     ..
                 } => {
-                    self.handle_move_local(payload_size as usize)?;
-                    // Move to the next iteration of the loop
-                    let next_inst = self.instructions[self.ip];
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.stack_frames.last().unwrap().index;
+                    let value = std::mem::replace(&mut self.stack[offset], SteelVal::Void);
+
+                    self.stack.push(value);
                     self.ip += 1;
-                    let next_next_inst = self.instructions[self.ip];
-                    self.handle_call_global(
-                        next_inst.payload_size as usize,
-                        next_next_inst.payload_size as usize,
-                    )?;
                 }
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL1,
+                    ..
+                } => {
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.stack_frames.last().unwrap().index;
+                    let value = std::mem::replace(&mut self.stack[1 + offset], SteelVal::Void);
+
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL2,
+                    ..
+                } => {
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.stack_frames.last().unwrap().index;
+                    let value = std::mem::replace(&mut self.stack[2 + offset], SteelVal::Void);
+
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL3,
+                    ..
+                } => {
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.stack_frames.last().unwrap().index;
+                    let value = std::mem::replace(&mut self.stack[3 + offset], SteelVal::Void);
+
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+
+                // DenseInstruction {
+                //     op_code: OpCode::MOVEREADLOCALCALLGLOBAL,
+                //     payload_size,
+                //     ..
+                // } => {
+                //     self.handle_move_local(payload_size as usize)?;
+
+                //     // Move to the next iteration of the loop
+                //     let next_inst = self.instructions[self.ip];
+                //     self.ip += 1;
+                //     let next_next_inst = self.instructions[self.ip];
+                //     self.handle_call_global(
+                //         next_inst.payload_size as usize,
+                //         next_next_inst.payload_size as usize,
+                //     )?;
+                // }
                 DenseInstruction {
                     op_code: OpCode::SETLOCAL,
                     payload_size,
@@ -1316,7 +1505,7 @@ impl<'a> VmCore<'a> {
                     // self.heap.collect_garbage();
                     // }
                     // let offset = self.stack_index.last().copied().unwrap_or(0);
-                    let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = last_stack_frame.index;
 
                     // We should have arity at this point, drop the stack up to this point
                     // take the last arity off the stack, go back and replace those in order
@@ -1327,12 +1516,13 @@ impl<'a> VmCore<'a> {
                     // [... frame-start ... arg1 arg2 arg3]
                     //      ^^^^^^~~~~~~~~
                     let back = self.stack.len() - current_arity;
-                    for i in 0..current_arity {
-                        self.stack[offset + i] = self.stack[back + i].clone();
-                    }
+                    // for i in 0..current_arity {
+                    //     self.stack[offset + i] = self.stack[back + i].clone();
+                    // }
 
                     // self.stack.truncate(offset + current_arity);
-                    self.stack.truncate(offset + current_arity);
+
+                    let _ = self.stack.drain(offset..back);
 
                     // println!("stack after truncating: {:?}", self.stack);
                 }
@@ -1353,88 +1543,36 @@ impl<'a> VmCore<'a> {
                 }
                 DenseInstruction {
                     op_code: OpCode::SETALLOC,
-                    payload_size,
                     ..
-                } => {
-                    let value_to_assign = self.stack.pop().unwrap();
-
-                    let old_value = self
-                        .stack_frames
-                        .last()
-                        .unwrap()
-                        .function
-                        .heap_allocated()
-                        .borrow_mut()[payload_size as usize]
-                        .set(value_to_assign);
-
-                    self.stack.push(old_value);
-                    self.ip += 1;
-                }
+                } => set_alloc_handler(self)?,
                 DenseInstruction {
                     op_code: OpCode::READALLOC,
-                    payload_size,
                     ..
-                } => {
-                    let value = self
-                        .stack_frames
-                        .last()
-                        .unwrap()
-                        .function
-                        .heap_allocated()
-                        .borrow()[payload_size as usize]
-                        .get();
+                } => read_alloc_handler(self)?,
 
-                    // println!(
-                    //     "Reading heap allocated at index: {} {}",
-                    //     payload_size, value
-                    // );
-
-                    self.stack.push(value);
-                    self.ip += 1;
-                }
                 DenseInstruction {
                     op_code: OpCode::ALLOC,
-                    payload_size,
                     ..
-                } => {
-                    let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-
-                    let allocated_var = self.heap.allocate(
-                        self.stack[offset].clone(), // TODO: Could actually move off of the stack entirely
-                        self.stack.iter(),
-                        self.stack_frames.iter().map(|x| &x.function),
-                        self.global_env.roots(),
-                    );
-
-                    self.stack_frames
-                        .last_mut()
-                        .unwrap()
-                        .function
-                        .heap_allocated
-                        .borrow_mut()
-                        .push(allocated_var);
-
-                    self.ip += 1;
-
-                    // todo!("Implement patching in vars from the stack to the heap");
-                }
+                } => alloc_handler(self)?,
+                // todo!("Implement patching in vars from the stack to the heap");
                 DenseInstruction {
                     op_code: OpCode::LETENDSCOPE,
-                    payload_size,
                     ..
                 } => {
-                    let beginning_scope = payload_size as usize;
-                    let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let_end_scope_handler(self)?;
 
-                    // Move to the pop
-                    self.ip += 1;
+                    // let beginning_scope = payload_size as usize;
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
 
-                    let rollback_index = beginning_scope + offset;
+                    // // Move to the pop
+                    // self.ip += 1;
 
-                    let last = self.stack.pop().expect("stack empty at pop");
+                    // let rollback_index = beginning_scope + offset;
 
-                    self.stack.truncate(rollback_index);
-                    self.stack.push(last);
+                    // let last = self.stack.pop().expect("stack empty at pop");
+
+                    // self.stack.truncate(rollback_index);
+                    // self.stack.push(last);
 
                     /*
 
@@ -1521,9 +1659,8 @@ impl<'a> VmCore<'a> {
                 DenseInstruction {
                     op_code: OpCode::NEWSCLOSURE,
                     payload_size,
-                    span_index,
                     ..
-                } => self.handle_new_start_closure(payload_size as usize, span_index)?,
+                } => self.handle_new_start_closure(payload_size as usize)?,
                 DenseInstruction {
                     op_code: OpCode::PUREFUNC,
                     payload_size,
@@ -1539,6 +1676,18 @@ impl<'a> VmCore<'a> {
                 } => {
                     self.ip += 1;
                 }
+                DenseInstruction {
+                    op_code: OpCode::DynSuperInstruction,
+                    payload_size,
+                    ..
+                } => {
+                    self.cut_sequence();
+
+                    let super_instruction =
+                        { self.super_instructions[payload_size as usize].clone() };
+
+                    super_instruction.call(self)?;
+                }
                 _ => {
                     crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     panic!(
@@ -1547,6 +1696,10 @@ impl<'a> VmCore<'a> {
                     );
                 }
             }
+
+            // if let Some(pat) = pat {
+            // self.profiler.tie_off_length(self.ip);
+            // }
 
             // Process the op code
             // self.profiler.add_time(
@@ -1564,14 +1717,38 @@ impl<'a> VmCore<'a> {
             //     }
             // }
         }
-
-        error!(
-            "Out of bounds instruction!: instruction pointer: {}, instruction length: {}",
-            self.ip,
-            self.instructions.len()
-        );
-        panic!("Out of bounds instruction")
     }
+
+    // fn call_super_instruction(&mut self, payload_size: usize) -> Result<()> {
+    //     let super_instructions = &self.super_instructions[payload_size];
+
+    //     // println!("---- Entering dynamic block ----");
+    //     // println!("{:#?}", self.basic_block);
+
+    //     if let Some(header) = super_instructions.header_func {
+    //         // println!("Calling special entry block");
+    //         header(self, super_instructions.entry_inst.payload_size as usize)?;
+    //     }
+
+    //     if let Some(specialized) = super_instructions.specialized {
+    //         specialized(self)?;
+    //     } else {
+    //         for func in super_instructions.handlers.iter() {
+    //             func(self)?;
+    //         }
+    //     }
+
+    //     // println!("---- Exited dynamic block ----");
+    //     // println!(
+    //     // "Current op code: {:?}",
+    //     // context.instructions[context.ip].op_code
+    //     // );
+    //     Ok(())
+    // }
+
+    // fn call(&mut self) -> Result<()> {
+
+    // }
 
     // #[inline(always)]
     // TODO: This is definitely an issue - if the instruction stack is empty,
@@ -1593,6 +1770,7 @@ impl<'a> VmCore<'a> {
         self.stack_frames.last().and_then(|x| x.span)
     }
 
+    #[inline(always)]
     fn handle_pop_pure(&mut self, _payload: u32) -> Option<Result<SteelVal>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
@@ -1624,7 +1802,32 @@ impl<'a> VmCore<'a> {
         // let should_return = self.stack_frames.is_empty();
         let should_return = self.pop_count == 0;
 
-        if should_return {
+        if !should_return {
+            let last = last.unwrap();
+            // let ret_val = self.stack.pop().unwrap();
+
+            let rollback_index = last.index;
+
+            // Snatch the value to close from the payload size
+            // Move forward past the pop
+            self.ip += 1;
+
+            // Close remaining values on the stack
+
+            // self.stack.truncate(rollback_index);
+            // self.stack.push(ret_val);
+
+            // self.stack.truncate(rollback_index + 1);
+            // *self.stack.last_mut().unwrap() = ret_val;
+
+            let _ = self.stack.drain(rollback_index..self.stack.len() - 1);
+
+            let prev_state = last.instruction_pointer;
+            self.ip = prev_state.0;
+            self.instructions = prev_state.instrs();
+
+            None
+        } else {
             let ret_val = self.stack.pop().ok_or_else(|| {
                 SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
                     .with_span(self.current_span())
@@ -1638,26 +1841,6 @@ impl<'a> VmCore<'a> {
             self.stack.truncate(rollback_index);
 
             Some(ret_val)
-        } else {
-            let last = last.unwrap();
-            let ret_val = self.stack.pop().unwrap();
-
-            let rollback_index = last.index;
-
-            // Snatch the value to close from the payload size
-            // Move forward past the pop
-            self.ip += 1;
-
-            // Close remaining values on the stack
-
-            self.stack.truncate(rollback_index);
-            self.stack.push(ret_val);
-
-            let prev_state = last.instruction_pointer;
-            self.ip = prev_state.0;
-            self.instructions = prev_state.instrs();
-
-            None
         }
     }
 
@@ -1678,7 +1861,7 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     fn handle_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
         let func = self.global_env.repl_lookup_idx(index);
         // TODO - handle this a bit more elegantly
@@ -1686,22 +1869,23 @@ impl<'a> VmCore<'a> {
         self.handle_global_function_call(func, payload_size, index)
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
         let func = self.global_env.repl_lookup_idx(index);
         self.ip += 1;
         self.handle_tail_call(func, payload_size)
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
         let value = self.global_env.repl_lookup_idx(index);
+
         self.stack.push(value);
         self.ip += 1;
         Ok(())
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     fn handle_local(&mut self, index: usize) -> Result<()> {
         let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let value = self.stack[index + offset].clone();
@@ -1780,6 +1964,7 @@ impl<'a> VmCore<'a> {
             let arity = self.instructions[forward_index - 1].payload_size;
 
             let constructed_lambda = Gc::new(ByteCodeLambda::new(
+                closure_id,
                 closure_body,
                 arity as usize,
                 is_multi_arity,
@@ -1798,7 +1983,7 @@ impl<'a> VmCore<'a> {
         self.ip = forward_index;
     }
 
-    fn handle_new_start_closure(&mut self, offset: usize, span: usize) -> Result<()> {
+    fn handle_new_start_closure(&mut self, offset: usize) -> Result<()> {
         // println!("Hitting start closure");
 
         // println!("Instruction: {:?}", self.instructions[self.ip]);
@@ -1923,6 +2108,7 @@ impl<'a> VmCore<'a> {
             let arity = self.instructions[forward_index - 1].payload_size;
 
             let mut constructed_lambda = ByteCodeLambda::new(
+                closure_id,
                 closure_body,
                 arity as usize,
                 is_multi_arity,
@@ -1974,6 +2160,8 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
+        self.cut_sequence();
+
         // Something like:
         // let last_func = self.function_stack.last_mut().unwrap();
         // last_func.set_function(Gc::clone(&closure));
@@ -2036,12 +2224,15 @@ impl<'a> VmCore<'a> {
 
         // We should have arity at this point, drop the stack up to this point
         // take the last arity off the stack, go back and replace those in order
-        let back = self.stack.len() - new_arity;
-        for i in 0..new_arity {
-            self.stack[offset + i] = self.stack[back + i].clone();
-        }
+        // let back = self.stack.len() - new_arity;
+        // for i in 0..new_arity {
+        //     self.stack[offset + i] = self.stack[back + i].clone();
+        // }
 
-        self.stack.truncate(offset + new_arity);
+        // self.stack.truncate(offset + new_arity);
+
+        let back = self.stack.len() - new_arity;
+        let _ = self.stack.drain(offset..back);
 
         // // TODO
         // self.heap
@@ -2059,14 +2250,40 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    // #[inline(always)]
+    fn cut_sequence(&mut self) {
+        if let Some(pat) = self.profiler.cut_sequence(
+            &self.instructions,
+            self.stack_frames.last().map(|x| &x.function),
+        ) {
+            println!("Found a hot pattern, creating super instruction...");
+
+            // Index of the starting opcode
+            let start = pat.pattern.start;
+
+            let id = self.super_instructions.len();
+
+            let guard = self.stack_frames.last_mut().unwrap();
+
+            // We don't want to repeatedly thrash by calculating hashes for the block pattern, so
+            // we mark the tail of the block directly on the function itself.
+            // guard.function.mark_block_tail(self.ip);
+
+            // Next run should get the new sequence of opcodes
+            let (head, _) = guard.function.update_to_super_instruction(start, id);
+
+            let block = DynamicBlock::construct_basic_block(head, pat);
+            self.super_instructions.push(Rc::new(block));
+        }
+    }
+
+    #[inline(always)]
     fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
         match &stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
-            FutureFunc(f) => self.call_future_func(f, payload_size),
+            // FutureFunc(f) => self.call_future_func(f, payload_size),
             ContractedFunction(cf) => self.call_contracted_function_tail_call(cf, payload_size),
             #[cfg(feature = "jit")]
             CompiledFunction(function) => self.call_compiled_function(function, payload_size),
@@ -2388,6 +2605,8 @@ impl<'a> VmCore<'a> {
         local: SteelVal,
         const_value: SteelVal,
     ) -> Result<()> {
+        self.cut_sequence();
+
         // push them onto the stack if we need to
         self.stack.push(local);
         self.stack.push(const_value);
@@ -2416,31 +2635,21 @@ impl<'a> VmCore<'a> {
 
         // self.current_arity = Some(closure.arity());
 
-        if self.stack_frames.len() == STACK_LIMIT {
-            crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-            println!("lazy - stack frame at exit: {:?}", self.stack);
-            stop!(Generic => "lazy closure: stack overflowed!"; self.current_span());
-        }
-
-        // self.stack_index.push(self.stack.len() - 2);
-
-        // TODO use new heap
-        // self.heap
-        //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
-        // self.heap.collect_garbage();
-
-        // self.instruction_stack.push(InstructionPointer::new(
-        //     self.ip + 4,
-        //     Rc::clone(&self.instructions),
-        // ));
+        self.check_stack_overflow()?;
         self.pop_count += 1;
-
-        // Move args into the stack, push stack onto stacks
-        // let stack = std::mem::replace(&mut self.stack, args.into());
-        // self.stacks.push(stack);
 
         self.instructions = closure.body_exp();
         self.ip = 0;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn check_stack_overflow(&self) -> Result<()> {
+        if self.stack_frames.len() >= STACK_LIMIT {
+            crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+            println!("stack frame at exit: {:?}", self.stack);
+            stop!(Generic => "stack overflowed!"; self.current_span());
+        }
         Ok(())
     }
 
@@ -2533,6 +2742,8 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
+        self.cut_sequence();
+
         // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
         // println!("Handling function call for multi arity function");
@@ -2585,11 +2796,7 @@ impl<'a> VmCore<'a> {
 
         // self.current_arity = Some(closure.arity());
 
-        if self.stack_frames.len() == STACK_LIMIT {
-            crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-            println!("function call - stack frame at exit: {:?}", self.stack);
-            stop!(Generic => "function call closure: stack overflowed!"; self.current_span());
-        }
+        self.check_stack_overflow()?;
 
         // self.stack_index.push(self.stack.len() - closure.arity());
 
@@ -2642,8 +2849,12 @@ impl<'a> VmCore<'a> {
         payload_size: usize,
         _ast_index: usize,
     ) -> Result<()> {
-        // Jit profiling
-        // closure.increment_call_count();
+        // Record the end of the existing sequence
+        self.cut_sequence();
+
+        // Jit profiling -> Make sure that we really only trace once we pass a certain threshold
+        // For instance, if this function
+        closure.increment_call_count();
 
         // if closure.is_multi_arity {
         //     println!("Calling multi arity function");
@@ -2725,11 +2936,7 @@ impl<'a> VmCore<'a> {
 
         // self.current_arity = Some(closure.arity());
 
-        if self.stack_frames.len() == STACK_LIMIT {
-            crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-            println!("stack frame at exit: {:?}", self.stack);
-            stop!(Generic => "function call closure jit: stack overflowed!"; self.current_span());
-        }
+        self.check_stack_overflow()?;
 
         // closure arity here is the number of true arguments
         // self.stack_index.push(self.stack.len() - closure.arity());
@@ -2756,7 +2963,7 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     fn handle_global_function_call(
         &mut self,
         stack_func: SteelVal,
@@ -3094,6 +3301,40 @@ pub(crate) fn apply<'a, 'b>(
                     Some(result)
                 }
 
+                // Calling a builtin here might involve a little recursion business
+                SteelVal::BuiltIn(f) => {
+                    let args = l.into_iter().cloned().collect::<Vec<_>>();
+
+                    // let result = f(&args).map_err(|e| e.set_span_if_none(ctx.current_span()));
+
+                    // Some(result)
+
+                    ctx.ip += 1;
+
+                    // TODO: Don't do this - just read directly from the stack
+
+                    let result = f(ctx, &args).map(|x| {
+                        x.map_err(|x| {
+                            // TODO: @Matt 4/24/2022 -> combine this into one function probably
+                            if x.has_span() {
+                                x
+                            } else {
+                                x.set_span_if_none(ctx.current_span())
+                            }
+                            // x.set_span_if_none(self.current_span())
+                        })
+                    });
+
+                    if let Some(result) = result {
+                        // TODO: unwrap here
+                        ctx.stack.push(result.unwrap());
+                    }
+
+                    // ctx.ip += 1;
+
+                    None
+                }
+
                 _ => {
                     builtin_stop!(Generic => format!("apply expects a function, found: {}", arg1));
                 }
@@ -3105,3 +3346,1308 @@ pub(crate) fn apply<'a, 'b>(
         builtin_stop!(TypeMismatch => "apply expects a list, found: {}", arg2);
     }
 }
+
+#[derive(PartialEq, Eq, Hash, Clone, PartialOrd, Ord, Debug)]
+pub struct InstructionPattern {
+    pub(crate) block: Rc<[OpCode]>,
+    pub(crate) pattern: BlockPattern,
+}
+
+impl InstructionPattern {
+    pub fn new(block: Rc<[OpCode]>, pattern: BlockPattern) -> Self {
+        Self { block, pattern }
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, PartialOrd, Ord, Debug)]
+pub struct BlockPattern {
+    start: usize,
+    end: usize,
+}
+
+#[derive(Debug, Clone, Default, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct BlockMetadata {
+    count: usize,
+    length: usize,
+    created: bool,
+}
+
+pub struct OpCodeOccurenceProfiler {
+    occurrences: HashMap<(OpCode, usize), usize>,
+    time: HashMap<(OpCode, usize), std::time::Duration>,
+    // This could also be calculated ahead of time - basic blocks can be memoized, but for profiling this is... fine
+    blocks: fxhash::FxHashMap<BlockPattern, BlockMetadata>,
+    // The current sequence before we get cut off
+    starting_index: Option<usize>,
+    ending_index: Option<usize>,
+    sample_count: usize,
+}
+
+impl OpCodeOccurenceProfiler {
+    pub fn new() -> Self {
+        OpCodeOccurenceProfiler {
+            occurrences: HashMap::new(),
+            time: HashMap::new(),
+            blocks: fxhash::FxHashMap::default(),
+            starting_index: None,
+            ending_index: None,
+            sample_count: 0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.occurrences.clear();
+        self.time.clear();
+    }
+
+    // Process the op code and the associated payload
+    // TODO: Get this to just use offsets, don't actually clone the instruction set directly
+    pub fn process_opcode(
+        &mut self,
+        opcode: &OpCode,
+        // payload: usize,
+        index: usize,
+        instructions: &[DenseInstruction],
+        function: Option<&Gc<ByteCodeLambda>>,
+    ) -> Option<InstructionPattern> {
+        // *self.occurrences.entry((*opcode, payload)).or_default() += 1;
+
+        let function = function?;
+
+        // Trace once it becomes hot
+        let call_count = function.call_count();
+        // If we're in the special zone, profile, otherwise don't
+        if call_count < 1000 || call_count > 10000 {
+            self.starting_index = None;
+            self.ending_index = None;
+            return None;
+        }
+
+        match opcode {
+            OpCode::SDEF | OpCode::EDEF => return None,
+            _ => {}
+        }
+
+        if self.starting_index.is_none() {
+            self.starting_index = Some(index);
+        }
+
+        self.ending_index = Some(index);
+
+        match opcode {
+            OpCode::JMP
+            | OpCode::IF
+            // | OpCode::CALLGLOBAL
+            | OpCode::CALLGLOBALTAIL
+            | OpCode::TAILCALL
+            | OpCode::TCOJMP
+            | OpCode::POPPURE
+            // | OpCode::FUNC 
+            => {
+
+                let block_pattern = BlockPattern {
+                    start: self.starting_index.unwrap(),
+                    end: index
+                };
+
+                let mut guard = function.blocks.borrow_mut();
+
+
+                if let Some((_, metadata)) = guard.iter_mut().find(|x| x.0 == block_pattern) {
+
+                    // self.sample_count += 1;
+                    // println!("Sampling on op code: {:?}", opcode);
+
+                    metadata.count += 1;
+                    metadata.length = index - block_pattern.start;
+                    // self.last_sequence = Some(pattern);
+
+                    if metadata.count > 1000 && !metadata.created {
+                        metadata.created = true;
+
+                        // println!("{} {}", block_pattern.start, index);
+
+                        let sequence = instructions[block_pattern.start..=index].into_iter().map(|x| x.op_code).filter(|x| !x.is_ephemeral_opcode() && *x != OpCode::POPPURE).collect();
+
+                        self.starting_index = None;
+                        self.ending_index = None;
+
+
+                        // println!("Pattern finished");
+
+                        return Some(InstructionPattern::new(sequence, block_pattern));
+                    }
+
+                } else {
+                    if index - block_pattern.start > 2 {
+                        guard.push((block_pattern, BlockMetadata::default()));
+                    }
+                }
+
+                self.starting_index = None;
+                self.ending_index = None;
+
+                // println!("Pattern finished");
+            }
+            _ => {
+                // println!("Updating end to be: {}", index);
+                self.ending_index = Some(index);
+                // self.sequence.push((*opcode, index));
+            }
+        }
+
+        None
+    }
+
+    // TODO: Use this in the above function
+    pub fn cut_sequence(
+        &mut self,
+        instructions: &[DenseInstruction],
+        function: Option<&Gc<ByteCodeLambda>>,
+    ) -> Option<InstructionPattern> {
+        // println!(
+        //     "Cutting sequence: {:?} {:?} {:?}",
+        //     function_id, self.starting_index, self.ending_index
+        // );
+
+        let function = function?;
+
+        // Trace once it becomes hot
+        let call_count = function.call_count();
+        // If we're in the special zone, profile, otherwise don't
+        if call_count < 1000 || call_count > 10000 {
+            self.starting_index = None;
+            self.ending_index = None;
+            return None;
+        }
+
+        let start = self.starting_index?;
+        let index = self.ending_index?;
+
+        let block_pattern = BlockPattern { start, end: index };
+
+        // if function.check_tail(&block_pattern) {
+        //     self.starting_index = None;
+        //     self.ending_index = None;
+        //     return None;
+        // }
+
+        let mut guard = function.blocks.borrow_mut();
+
+        if let Some((_, metadata)) = guard.iter_mut().find(|x| x.0 == block_pattern) {
+            metadata.count += 1;
+            metadata.length = index - block_pattern.start;
+            // self.last_sequence = Some(pattern);
+
+            // self.sample_count += 1;
+            // println!("Sampling on op code: {:?}", instructions[index].op_code);
+
+            if metadata.count > 1000 && !metadata.created {
+                metadata.created = true;
+
+                let sequence = instructions[block_pattern.start..=index]
+                    .into_iter()
+                    .map(|x| x.op_code)
+                    .filter(|x| !x.is_ephemeral_opcode() && *x != OpCode::POPPURE)
+                    .collect();
+
+                self.starting_index = None;
+                self.ending_index = None;
+
+                // println!("Pattern finished");
+
+                return Some(InstructionPattern::new(sequence, block_pattern));
+            }
+        } else {
+            if index - block_pattern.start > 3 {
+                guard.push((block_pattern, BlockMetadata::default()));
+            }
+        }
+
+        self.starting_index = None;
+        self.ending_index = None;
+
+        // println!("Pattern finished");
+
+        None
+    }
+
+    // pub fn tie_off_length(&mut self, index: usize) {
+    //     if let Some(pattern) = &self.last_sequence {
+    //         let pattern = pattern.clone();
+    //         if let Some(metadata) = self.basic_blocks.get_mut(&pattern) {
+    //             let starting_index = self.starting_index.unwrap();
+
+    //             if index > starting_index {
+    //                 metadata.length = index - starting_index;
+    //             }
+    //         }
+    //     }
+    // }
+
+    pub fn add_time(&mut self, opcode: &OpCode, payload: usize, time: std::time::Duration) {
+        *self.time.entry((*opcode, payload)).or_default() += time;
+    }
+
+    // pub fn report_basic_blocks(&self) {
+    //     println!("--------------- Basic Blocks ---------------");
+
+    //     let mut blocks = self.basic_blocks.iter().collect::<Vec<_>>();
+
+    //     blocks.sort_by_key(|x| x.1);
+    //     blocks.reverse();
+
+    //     for block in blocks.iter().take(10) {
+    //         if block.1.count > 0 {
+    //             println!("{:#?}", block)
+    //         }
+    //     }
+
+    //     println!("--------------------------------------------")
+    // }
+
+    pub fn report_time_spend(&self) {
+        let total_time: u128 = self.time.values().map(|x| x.as_micros()).sum();
+
+        let mut counts = self
+            .time
+            .iter()
+            .map(|x| (x.0, (x.1.as_micros() as f64 / total_time as f64) * 100.0))
+            .filter(|x| !f64::is_nan(x.1))
+            .collect::<Vec<(&(OpCode, usize), f64)>>();
+
+        counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
+
+        println!("------- Time Spent: Profiling Report -------");
+        for row in counts {
+            println!("{:?} => {:.2}%", row.0, row.1);
+        }
+        println!("--------------------------------------------")
+    }
+
+    pub fn report(&self) {
+        let total: usize = self.occurrences.values().sum();
+
+        let mut counts = self
+            .occurrences
+            .iter()
+            .map(|x| (x.0, (*x.1 as f64 / total as f64) * 100.0))
+            .collect::<Vec<(&(OpCode, usize), f64)>>();
+
+        counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
+
+        println!("------- Profiling Report -------");
+        println!("Total instructions executed: {}", total);
+        for row in counts {
+            println!("{:?} => {:.2}%", row.0, row.1);
+        }
+        println!("--------------------------------")
+
+        // println!("{:#?}", counts);
+    }
+}
+
+// If the op code requires the original payload from the instruction that we're overwriting, we should
+// attach it to the basic block, because otherwise we'll have lost the payload
+fn op_code_requires_payload(
+    op_code: OpCode,
+) -> Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>> {
+    match op_code {
+        OpCode::VOID => None,
+        OpCode::PUSH => Some(push_handler_with_payload),
+        OpCode::IF => todo!(),
+        OpCode::JMP => todo!(),
+        OpCode::FUNC => Some(func_handler_with_payload),
+        OpCode::SCLOSURE => todo!(),
+        OpCode::ECLOSURE => todo!(),
+        OpCode::BIND => Some(bind_handler_with_payload),
+        OpCode::SDEF => todo!(),
+        OpCode::EDEF => todo!(),
+        OpCode::POPPURE => todo!(),
+        OpCode::PASS => todo!(),
+        OpCode::PUSHCONST => Some(push_const_handler_with_payload),
+        OpCode::NDEFS => todo!(),
+        OpCode::PANIC => None,
+        OpCode::TAILCALL => todo!(),
+        OpCode::SET => Some(set_handler_with_payload),
+        OpCode::READLOCAL => Some(local_handler_with_payload),
+        OpCode::READLOCAL0 => None,
+        OpCode::READLOCAL1 => None,
+        OpCode::READLOCAL2 => None,
+        OpCode::READLOCAL3 => None,
+        OpCode::SETLOCAL => Some(set_local_handler_with_payload),
+        OpCode::COPYCAPTURESTACK => todo!(),
+        OpCode::COPYCAPTURECLOSURE => todo!(),
+        OpCode::COPYHEAPCAPTURECLOSURE => todo!(),
+        OpCode::FIRSTCOPYHEAPCAPTURECLOSURE => todo!(),
+        OpCode::TCOJMP => todo!(),
+        OpCode::CALLGLOBAL => Some(call_global_handler_with_payload),
+        OpCode::CALLGLOBALTAIL => todo!(),
+        OpCode::LOADINT0 => None,
+        OpCode::LOADINT1 => None,
+        OpCode::LOADINT2 => None,
+        OpCode::CGLOCALCONST => todo!(),
+        OpCode::MOVEREADLOCAL => Some(move_local_handler_with_payload),
+        OpCode::MOVEREADLOCAL0 => None,
+        OpCode::MOVEREADLOCAL1 => None,
+        OpCode::MOVEREADLOCAL2 => None,
+        OpCode::MOVEREADLOCAL3 => None,
+        OpCode::READCAPTURED => Some(read_captured_handler_with_payload),
+        OpCode::MOVECGLOCALCONST => todo!(),
+        OpCode::BEGINSCOPE => None,
+        OpCode::LETENDSCOPE => Some(let_end_scope_handler_with_payload),
+        OpCode::PUREFUNC => Some(pure_function_handler_with_payload),
+        OpCode::ADD => Some(add_handler_payload),
+        OpCode::SUB => Some(sub_handler_payload),
+        OpCode::MUL => Some(multiply_handler_payload),
+        OpCode::DIV => Some(division_handler_payload),
+        OpCode::EQUAL => Some(equality_handler_payload),
+        OpCode::LTE => Some(lte_handler_payload),
+        OpCode::NEWSCLOSURE => Some(new_sclosure_handler_with_payload),
+        OpCode::ADDREGISTER => todo!(),
+        OpCode::SUBREGISTER => todo!(),
+        OpCode::LTEREGISTER => todo!(),
+        OpCode::SUBREGISTER1 => todo!(),
+        OpCode::ALLOC => None,
+        OpCode::READALLOC => Some(read_alloc_handler_with_payload),
+        OpCode::SETALLOC => Some(set_alloc_handler_with_payload),
+        // OpCode::GIMMICK => todo!(),
+        // OpCode::MOVEREADLOCALCALLGLOBAL => Some(move_read_local_call_global_handler_payload),
+        OpCode::DynSuperInstruction => todo!(),
+        _ => None,
+    }
+}
+
+// Table to map opcode discriminant directly to an individual handler function
+// Why do we want this? When generating dynamic super instructions, we create
+// basic blocks, and from there transfer contexts away from the core vm loop, and instead
+// over to a basic block sequence of handler function, which we will call directly
+// on the main VM context. In order to construct these sequences, we will need to be able
+// to grab a basic block from the running sequence, and directly patch an instruction set
+// on the fly, to transfer context over to that sequence.
+static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 59] = [
+    void_handler,
+    push_handler,
+    if_handler,   // If
+    jump_handler, // jmp
+    func_handler,
+    dummy, // sclosure
+    dummy, // eclosure
+    bind_handler,
+    dummy, // sdef
+    dummy, // edef
+    dummy, // pop
+    dummy, // pass
+    push_const_handler,
+    dummy, // ndefs,
+    panic_handler,
+    tail_call_handler, // tailcall
+    set_handler,
+    local_handler,
+    local_handler0,
+    local_handler1,
+    local_handler2,
+    local_handler3,
+    set_local_handler,
+    dummy,            // copycapturestack
+    dummy,            // copycaptureclosure
+    dummy,            // copyheapcaptureclosure
+    dummy,            // firstcopyheapcaptureclosure
+    tco_jump_handler, // tcojmp
+    call_global_handler,
+    call_global_tail_handler, // callglobaltail
+    handle_load_int0,
+    handle_load_int1,
+    handle_load_int2,
+    dummy, // cglocalconst
+    move_local_handler,
+    move_local_handler0,
+    move_local_handler1,
+    move_local_handler2,
+    move_local_handler3,
+    read_captured_handler,
+    dummy, // movecglocalconst
+    begin_scope_handler,
+    let_end_scope_handler,
+    pure_function_handler,
+    add_handler,
+    sub_handler,
+    multiply_handler,
+    division_handler,
+    equality_handler,
+    lte_handler,
+    new_sclosure_handler,
+    dummy, // addregister
+    dummy, // subregister
+    dummy, // lteregister
+    dummy, // subregister
+    alloc_handler,
+    read_alloc_handler,
+    set_alloc_handler,
+    // dummy,                               // gimmick
+    // move_read_local_call_global_handler, // movereadlocalcallglobal,
+    dummy, // dynsuperinstruction
+];
+
+macro_rules! opcode_to_function {
+    (VOID) => {
+        void_handler
+    };
+    (PUSH) => {
+        push_handler
+    };
+    (FUNC) => {
+        func_handler
+    };
+    (BIND) => {
+        bind_handler
+    };
+    (PUSHCONST) => {
+        push_const_handler
+    };
+    (PANIC) => {
+        panic_handler
+    };
+    (SET) => {
+        set_handler
+    };
+    (READLOCAL0) => {
+        local_handler0
+    };
+    (LOADINT2) => {
+        handle_load_int2
+    };
+    (LTE) => {
+        lte_handler
+    };
+    (MOVEREADLOCAL0) => {
+        move_local_handler0
+    };
+    (SUB) => {
+        sub_handler
+    };
+    (LOADINT1) => {
+        handle_load_int1
+    };
+    (MUL) => {
+        multiply_handler
+    };
+    (MOVEREADLOCAL1) => {
+        move_local_handler1
+    };
+    (READLOCAL1) => {
+        local_handler1
+    };
+    (READLOCAL2) => {
+        local_handler2
+    };
+    (READLOCAL3) => {
+        local_handler3
+    };
+    (LOADINT0) => {
+        handle_load_int0
+    };
+    (CALLGLOBAL) => {
+        call_global_handler
+    };
+    (READCAPTURED) => {
+        read_captured_handler
+    };
+    (IF) => {
+        if_handler
+    };
+    (EQUAL) => {
+        equality_handler
+    };
+    (JMP) => {
+        jump_handler
+    };
+    (ADD) => {
+        add_handler
+    };
+    (TAILCALL) => {
+        tail_call_handler
+    };
+}
+
+lazy_static! {
+    static ref SUPER_PATTERNS: std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>> =
+        create_super_instruction_map();
+}
+
+fn create_super_instruction_map(
+) -> std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>> {
+    use OpCode::*;
+
+    let mut map = HashMap::new();
+
+    macro_rules! create_super_pattern {
+        ($($args:tt),*) => {
+
+            // fn func(ctx: &mut VmCore<'_>) -> Result<()> {
+            //     $(
+            //         OP_CODE_TABLE[$args as usize](ctx)?;
+            //     )*
+
+            //     Ok(())
+            // }
+
+            // TODO: This isn't actually doing the correct mapping. Set up a const mapping instead using macros
+            map.insert(vec![
+                $($args,)*
+            ], |ctx: &mut VmCore<'_>| -> Result<()> {
+                $(
+                    opcode_to_function!($args)(ctx)?;
+                )*
+
+                Ok(())
+            } as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>);
+        };
+    }
+
+    // Fib patterns identified from the benchmarks
+    // yes, this is explicitly gaming the benchmarks. But the idea is sound,
+    // and this is just a start.
+    // create_super_pattern!(READLOCAL0, LOADINT2, LTE, IF);
+
+    map.insert(
+        vec![READLOCAL0, LOADINT2, LTE, IF],
+        specialized_lte0 as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>,
+    );
+
+    map.insert(
+        vec![MOVEREADLOCAL0, LOADINT2, SUB, CALLGLOBAL],
+        specialized_sub02 as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>,
+    );
+
+    map.insert(
+        vec![READLOCAL0, LOADINT1, SUB, CALLGLOBAL],
+        specialized_sub01 as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>,
+    );
+
+    // create_super_pattern!(MOVEREADLOCAL0, LOADINT2, SUB, CALLGLOBAL);
+    // create_super_pattern!(READLOCAL0, LOADINT1, SUB, CALLGLOBAL);
+
+    // bin trees patterns
+    create_super_pattern!(
+        READLOCAL0,
+        LOADINT2,
+        MUL,
+        MOVEREADLOCAL1,
+        LOADINT1,
+        SUB,
+        READLOCAL2,
+        LOADINT1,
+        SUB,
+        READLOCAL3,
+        CALLGLOBAL
+    );
+
+    create_super_pattern!(READLOCAL1, LOADINT0, CALLGLOBAL, IF);
+    create_super_pattern!(MOVEREADLOCAL0, LOADINT0, READCAPTURED, TAILCALL);
+    create_super_pattern!(MOVEREADLOCAL0, LOADINT2, READCAPTURED, TAILCALL);
+
+    // Ack patterns
+    create_super_pattern!(READLOCAL0, LOADINT0, EQUAL, IF);
+
+    create_super_pattern!(READLOCAL1, LOADINT0, EQUAL, IF);
+
+    create_super_pattern!(
+        READLOCAL0,
+        LOADINT1,
+        SUB,
+        MOVEREADLOCAL0,
+        MOVEREADLOCAL1,
+        LOADINT1,
+        SUB,
+        CALLGLOBAL
+    );
+
+    create_super_pattern!(READLOCAL1, LOADINT1, ADD, JMP);
+
+    map
+}
+
+fn specialized_lte0(ctx: &mut VmCore<'_>) -> Result<()> {
+    let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let value = ctx.stack[offset].clone();
+
+    let result = lte_binop(value, 2);
+    ctx.ip += 4;
+
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    // change to truthy...
+    if result {
+        ctx.ip += 1;
+    } else {
+        ctx.ip = payload_size as usize;
+    }
+
+    Ok(())
+}
+
+fn specialized_sub02(ctx: &mut VmCore<'_>) -> Result<()> {
+    let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let value = ctx.stack[offset].clone();
+
+    ctx.stack.push(sub_binop(value, 2)?);
+    ctx.ip += 4;
+    Ok(())
+}
+
+fn specialized_sub01(ctx: &mut VmCore<'_>) -> Result<()> {
+    let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let value = ctx.stack[offset].clone();
+
+    ctx.stack.push(sub_binop(value, 1)?);
+    ctx.ip += 4;
+
+    call_global_handler(ctx)
+}
+
+pub fn lte_binop(l: SteelVal, r: isize) -> bool {
+    match l {
+        SteelVal::IntV(l) => l <= r,
+        _ => false,
+    }
+}
+
+pub fn sub_binop(l: SteelVal, r: isize) -> Result<SteelVal> {
+    match l {
+        SteelVal::IntV(l) => Ok(SteelVal::IntV(l - r)),
+        SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
+        _ => stop!(TypeMismatch => "sub given wrong types"),
+    }
+}
+
+fn dummy(_: &mut VmCore<'_>) -> Result<()> {
+    panic!("Unimplemented op code handler!")
+}
+
+// OpCode::VOID
+fn void_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.stack.push(SteelVal::Void);
+    ctx.ip += 1;
+    Ok(())
+}
+
+// OpCode::PUSH
+fn push_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_push(index as usize)
+}
+
+// OpCode::PUSH
+fn push_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    ctx.handle_push(payload)
+}
+
+// OpCode::FUNC
+fn func_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let func = ctx.stack.pop().unwrap();
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_function_call(func, payload_size as usize)
+}
+
+// OpCode::FUNC
+fn func_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    let func = ctx.stack.pop().unwrap();
+    ctx.handle_function_call(func, payload)
+}
+
+// OpCode::BIND
+fn bind_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_bind(index as usize);
+    Ok(())
+}
+
+// OpCode::BIND
+fn bind_handler_with_payload(ctx: &mut VmCore<'_>, index: usize) -> Result<()> {
+    ctx.handle_bind(index as usize);
+    Ok(())
+}
+
+// OpCode::PUSHCONST
+fn push_const_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let val = ctx.constants.get(payload_size as usize);
+    ctx.stack.push(val);
+    ctx.ip += 1;
+    Ok(())
+}
+
+// OpCode::PUSHCONST
+fn push_const_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    let val = ctx.constants.get(payload);
+    ctx.stack.push(val);
+    ctx.ip += 1;
+    Ok(())
+}
+
+// OpCode::PANIC
+fn panic_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.handle_panic(ctx.current_span())
+}
+
+// OpCode::SET
+fn set_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_set(index as usize)
+}
+
+// OpCode::SET
+fn set_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    ctx.handle_set(payload)
+}
+
+// OpCode::READLOCAL
+#[inline(always)]
+fn local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_local(index as usize)
+}
+
+// OpCode::READLOCAL
+fn local_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    ctx.handle_local(payload)
+}
+
+// OpCode::READLOCAL0
+#[inline(always)]
+fn local_handler0(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.handle_local(0)
+}
+
+// OpCode::READLOCAL1
+fn local_handler1(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.handle_local(1)
+}
+
+// OpCode::READLOCAL2
+fn local_handler2(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.handle_local(2)
+}
+
+// OpCode::READLOCAL3
+fn local_handler3(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.handle_local(3)
+}
+
+// OpCode::SETLOCAL
+fn set_local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let offset = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_set_local(offset as usize);
+    Ok(())
+}
+
+// OpCode::SETLOCAL
+fn set_local_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    ctx.handle_set_local(payload);
+    Ok(())
+}
+
+// OpCode::CALLGLOBAL
+fn call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
+    let next_inst = ctx.instructions[ctx.ip];
+    ctx.handle_call_global(payload_size as usize, next_inst.payload_size as usize)
+}
+
+// OpCode::CALLGLOBAL
+fn call_global_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    ctx.ip += 1;
+    let next_inst = ctx.instructions[ctx.ip];
+    ctx.handle_call_global(payload, next_inst.payload_size as usize)
+}
+
+// OpCode::LOADINT0
+fn handle_load_int0(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.stack.push(SteelVal::INT_ZERO);
+    ctx.ip += 1;
+    Ok(())
+}
+
+// OpCode::LOADINT1
+fn handle_load_int1(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.stack.push(SteelVal::INT_ONE);
+    ctx.ip += 1;
+    Ok(())
+}
+
+// OpCode::LOADINT2
+fn handle_load_int2(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.stack.push(SteelVal::INT_TWO);
+    ctx.ip += 1;
+    Ok(())
+}
+
+// OpCode::MOVEREADLOCAL
+fn move_local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_move_local(index as usize)
+}
+
+// OpCode::MOVEREADLOCAL
+fn move_local_handler_with_payload(ctx: &mut VmCore<'_>, index: usize) -> Result<()> {
+    ctx.handle_move_local(index)
+}
+
+// OpCode::MOVEREADLOCAL0
+fn move_local_handler0(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.handle_move_local(0)
+}
+
+// OpCode::MOVEREADLOCAL1
+fn move_local_handler1(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.handle_move_local(1)
+}
+
+// OpCode::MOVEREADLOCAL2
+fn move_local_handler2(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.handle_move_local(2)
+}
+
+// OpCode::MOVEREADLOCAL3
+fn move_local_handler3(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.handle_move_local(3)
+}
+
+// OpCode::READCAPTURED
+fn read_captured_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_read_captures(payload_size as usize)
+}
+
+// OpCode::READCAPTURED
+fn read_captured_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+    ctx.handle_read_captures(payload_size)
+}
+
+// OpCode::BEGINSCOPE
+fn begin_scope_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    ctx.ip += 1;
+    Ok(())
+}
+
+// OpCode::LETENDSCOPE
+fn let_end_scope_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let beginning_scope = ctx.instructions[ctx.ip].payload_size as usize;
+    let_end_scope_handler_with_payload(ctx, beginning_scope)
+}
+
+// OpCode::LETENDSCOPE
+fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usize) -> Result<()> {
+    let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+
+    // Move to the pop
+    ctx.ip += 1;
+
+    let rollback_index = beginning_scope + offset;
+
+    let _ = ctx.stack.drain(rollback_index..ctx.stack.len() - 1);
+
+    // let last = ctx.stack.pop().expect("stack empty at pop");
+
+    // ctx.stack.truncate(rollback_index);
+    // ctx.stack.push(last);
+
+    Ok(())
+}
+
+// OpCode::PUREFUNC
+fn pure_function_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+    ctx.handle_pure_function(payload_size);
+    Ok(())
+}
+
+// OpCode::PUREFUNC
+fn pure_function_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+    ctx.handle_pure_function(payload_size);
+    Ok(())
+}
+
+macro_rules! handler_inline_primitive {
+    ($ctx:expr, $name:tt) => {{
+        let payload_size = $ctx.instructions[$ctx.ip].payload_size as usize;
+        let last_index = $ctx.stack.len() - payload_size as usize;
+
+        let result = match $name(&mut $ctx.stack[last_index..]) {
+            Ok(value) => value,
+            Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
+        };
+
+        // This is the old way... lets see if the below way improves the speed
+        $ctx.stack.truncate(last_index);
+        $ctx.stack.push(result);
+
+        $ctx.ip += 2;
+    }};
+}
+
+macro_rules! handler_inline_primitive_payload {
+    ($ctx:expr, $name:tt, $payload_size: expr) => {{
+        let last_index = $ctx.stack.len() - $payload_size as usize;
+
+        let result = match $name(&mut $ctx.stack[last_index..]) {
+            Ok(value) => value,
+            Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
+        };
+
+        // This is the old way... lets see if the below way improves the speed
+        $ctx.stack.truncate(last_index);
+        $ctx.stack.push(result);
+
+        $ctx.ip += 2;
+    }};
+}
+
+// OpCode::ADD
+fn add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive!(ctx, add_primitive);
+    Ok(())
+}
+
+// OpCode::ADD
+fn add_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, add_primitive, payload);
+    Ok(())
+}
+
+// OpCode::SUB
+#[inline(always)]
+fn sub_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive!(ctx, subtract_primitive);
+    Ok(())
+}
+
+// OpCode::SUB
+fn sub_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, subtract_primitive, payload);
+    Ok(())
+}
+
+// OpCode::MULT
+fn multiply_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive!(ctx, multiply_primitive);
+    Ok(())
+}
+
+// OpCode::MULT
+fn multiply_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, multiply_primitive, payload);
+    Ok(())
+}
+
+// OpCode::DIV
+#[inline(always)]
+fn division_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive!(ctx, divide_primitive);
+    Ok(())
+}
+
+// OpCode::DIV
+fn division_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, divide_primitive, payload);
+    Ok(())
+}
+
+// OpCode::EQUAL
+#[inline(always)]
+fn equality_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive!(ctx, equality_primitive);
+    Ok(())
+}
+
+// OpCode::EQUAL
+fn equality_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, equality_primitive, payload);
+    Ok(())
+}
+
+// OpCode::LTE
+#[inline(always)]
+fn lte_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive!(ctx, lte_primitive);
+    Ok(())
+}
+
+// OpCode::LTE
+fn lte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, lte_primitive, payload);
+    Ok(())
+}
+
+// OpCode::ALLOC
+fn alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+
+    let allocated_var = ctx.heap.allocate(
+        ctx.stack[offset].clone(), // TODO: Could actually move off of the stack entirely
+        ctx.stack.iter(),
+        ctx.stack_frames.iter().map(|x| &x.function),
+        ctx.global_env.roots(),
+    );
+
+    ctx.stack_frames
+        .last_mut()
+        .unwrap()
+        .function
+        .heap_allocated
+        .borrow_mut()
+        .push(allocated_var);
+
+    ctx.ip += 1;
+
+    Ok(())
+}
+
+// OpCode::READALLOC
+#[inline(always)]
+fn read_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+
+    let value = ctx
+        .stack_frames
+        .last()
+        .unwrap()
+        .function
+        .heap_allocated()
+        .borrow()[payload_size as usize]
+        .get();
+
+    ctx.stack.push(value);
+    ctx.ip += 1;
+
+    Ok(())
+}
+
+// OpCode::READALLOC
+#[inline(always)]
+fn read_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+    let value = ctx
+        .stack_frames
+        .last()
+        .unwrap()
+        .function
+        .heap_allocated()
+        .borrow()[payload_size as usize]
+        .get();
+
+    ctx.stack.push(value);
+    ctx.ip += 1;
+
+    Ok(())
+}
+
+// OpCode::SETALLOC
+#[inline(always)]
+fn set_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+    let value_to_assign = ctx.stack.pop().unwrap();
+
+    let old_value = ctx
+        .stack_frames
+        .last()
+        .unwrap()
+        .function
+        .heap_allocated()
+        .borrow_mut()[payload_size as usize]
+        .set(value_to_assign);
+
+    ctx.stack.push(old_value);
+    ctx.ip += 1;
+
+    Ok(())
+}
+
+// OpCode::SETALLOC
+#[inline(always)]
+fn set_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+    let value_to_assign = ctx.stack.pop().unwrap();
+
+    let old_value = ctx
+        .stack_frames
+        .last()
+        .unwrap()
+        .function
+        .heap_allocated()
+        .borrow_mut()[payload_size as usize]
+        .set(value_to_assign);
+
+    ctx.stack.push(old_value);
+    ctx.ip += 1;
+
+    Ok(())
+}
+
+// OpCode::NEWSCLOSURE
+fn new_sclosure_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+
+    ctx.handle_new_start_closure(payload_size as usize)
+}
+
+// OpCode::NEWSCLOSURE
+fn new_sclosure_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+    ctx.handle_new_start_closure(payload_size as usize)
+}
+
+// OpCode::MOVEREADLOCALCALLGLOBAL
+// fn move_read_local_call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+//     let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+//     ctx.handle_move_local(payload_size as usize)?;
+
+//     // Move to the next iteration of the loop
+//     let next_inst = ctx.instructions[ctx.ip];
+//     ctx.ip += 1;
+//     let next_next_inst = ctx.instructions[ctx.ip];
+//     ctx.handle_call_global(
+//         next_inst.payload_size as usize,
+//         next_next_inst.payload_size as usize,
+//     )
+// }
+
+// // OpCode::MOVEREADLOCALCALLGLOBAL
+// fn move_read_local_call_global_handler_payload(
+//     ctx: &mut VmCore<'_>,
+//     payload_size: usize,
+// ) -> Result<()> {
+//     ctx.handle_move_local(payload_size as usize)?;
+
+//     // Move to the next iteration of the loop
+//     let next_inst = ctx.instructions[ctx.ip];
+//     ctx.ip += 1;
+//     let next_next_inst = ctx.instructions[ctx.ip];
+//     ctx.handle_call_global(
+//         next_inst.payload_size as usize,
+//         next_next_inst.payload_size as usize,
+//     )
+// }
+
+#[inline(always)]
+fn jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip = payload_size as usize;
+    Ok(())
+}
+
+#[inline(always)]
+fn if_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    // change to truthy...
+    if ctx.stack.pop().unwrap().is_truthy() {
+        ctx.ip += 1;
+    } else {
+        ctx.ip = payload_size as usize;
+    }
+    Ok(())
+}
+
+#[inline(always)]
+fn call_global_tail_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
+    let next_inst = ctx.instructions[ctx.ip];
+    ctx.handle_tail_call_global(payload_size as usize, next_inst.payload_size as usize)
+}
+
+#[inline(always)]
+fn tail_call_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let func = ctx.stack.pop().unwrap();
+    ctx.handle_tail_call(func, payload_size as usize)
+}
+
+#[inline(always)]
+fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    // println!("At tco jump");
+
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+
+    let current_arity = payload_size as usize;
+    // This is the number of (local) functions we need to pop to get back to the place we want to be at
+    let depth = ctx.instructions[ctx.ip + 1].payload_size as usize;
+
+    // println!("Depth: {:?}", depth);
+    // println!("Function stack length: {:?}", self.function_stack.len());
+    // println!("Stack index: {:?}", self.stack_index);
+    // println!(
+    //     "Instruction stack length: {:?}",
+    //     self.instruction_stack.len()
+    // );
+
+    // for function in function_stack {
+
+    // }
+
+    for _ in 0..depth {
+        // println!("Popping");
+        // self.function_stack.pop();
+        // self.stack_index.pop();
+        ctx.stack_frames.pop();
+        // self.instruction_stack.pop();
+        ctx.pop_count -= 1;
+    }
+
+    let last_stack_frame = ctx.stack_frames.last().unwrap();
+
+    ctx.instructions = last_stack_frame.function.body_exp();
+
+    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+
+    // panic!("Stopping");
+
+    ctx.ip = 0;
+
+    let closure_arity = last_stack_frame.function.arity();
+
+    if current_arity != closure_arity {
+        stop!(ArityMismatch => format!("tco: function expected {} arguments, found {}", closure_arity, current_arity); ctx.current_span());
+    }
+
+    // HACK COME BACK TO THIS
+    // if self.ip == 0 && self.heap.len() > self.heap.limit() {
+    // TODO collect here
+    // self.heap.collect_garbage();
+    // }
+    // let offset = self.stack_index.last().copied().unwrap_or(0);
+    let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+
+    // We should have arity at this point, drop the stack up to this point
+    // take the last arity off the stack, go back and replace those in order
+    // [... arg1 arg2 arg3]
+    //      ^^^ <- back = this index
+    // offset = the start of the stack frame
+    // Copy the arg1 arg2 arg3 values to
+    // [... frame-start ... arg1 arg2 arg3]
+    //      ^^^^^^~~~~~~~~
+    // let back = ctx.stack.len() - current_arity;
+    // for i in 0..current_arity {
+    //     ctx.stack[offset + i] = ctx.stack[back + i].clone();
+    // }
+
+    // // self.stack.truncate(offset + current_arity);
+    // ctx.stack.truncate(offset + current_arity);
+
+    let back = ctx.stack.len() - current_arity;
+    // for i in 0..current_arity {
+    //     self.stack[offset + i] = self.stack[back + i].clone();
+    // }
+
+    // self.stack.truncate(offset + current_arity);
+
+    let _ = ctx.stack.drain(offset..back);
+
+    Ok(())
+}
+
+// #[inline(always)]
+// fn pop_pure_handler(ctx: &mut VmCore<'_>) ->
+
+// | OpCode::CALLGLOBALTAIL
+// | OpCode::TAILCALL
+// | OpCode::TCOJMP
+// | OpCode::POPPURE

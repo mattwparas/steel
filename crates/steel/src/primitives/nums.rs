@@ -69,6 +69,7 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+#[inline(always)]
 pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {
         stop!(ArityMismatch => "- requires at least one argument")

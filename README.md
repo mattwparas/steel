@@ -42,7 +42,6 @@ This will launch a REPL instance that looks something like this:
 * Limited `syntax-rules` style macros are supported
 * Easy integration with Rust functions and structs
 * Easily call a script from rust or via a separate file
-* Few dependencies
 * Efficient - common functions and data structures are optimized for performance (`map`, `filter`, etc)
 * Higher order Contracts
 * Built in immutable data structures include:

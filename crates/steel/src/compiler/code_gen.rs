@@ -653,7 +653,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 }
                 // In the event we're captured, we're going to just read the
                 // offset from the captured var
-                Captured => OpCode::SETCAPTURED,
+                Captured => {
+                    stop!(Generic => "Compiler error: Should not be able to set! an immutably captured variable")
+                }
                 Free => OpCode::SET,
                 HeapAllocated => OpCode::SETALLOC,
                 // This is technically true, but in an incremental compilation mode, we assume the variable is already bound
@@ -661,7 +663,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             };
 
             let payload = match op_code {
-                OpCode::SETCAPTURED => analysis.read_capture_offset.unwrap(),
+                // OpCode::SETCAPTURED => analysis.read_capture_offset.unwrap(),
                 OpCode::SETALLOC => analysis.read_heap_offset.unwrap(),
                 _ => analysis.stack_offset.unwrap_or_default(),
             };

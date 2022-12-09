@@ -381,27 +381,27 @@ pub fn replace_defines_with_debruijn_indices(
 
 // Adds a flag to the pop value in order to save the heap to the global heap
 // I should really come up with a better name but for now we'll leave it
-fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
-    match instructions {
-        [.., Instruction {
-            op_code: OpCode::EDEF,
-            ..
-        }, Instruction {
-            op_code: OpCode::BIND,
-            ..
-        }, Instruction {
-            op_code: OpCode::VOID,
-            ..
-        }, Instruction {
-            op_code: OpCode::POP,
-            payload_size: x,
-            ..
-        }] => {
-            *x = 1;
-        }
-        _ => {}
-    }
-}
+// fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
+//     match instructions {
+//         [.., Instruction {
+//             op_code: OpCode::EDEF,
+//             ..
+//         }, Instruction {
+//             op_code: OpCode::BIND,
+//             ..
+//         }, Instruction {
+//             op_code: OpCode::VOID,
+//             ..
+//         }, Instruction {
+//             op_code: OpCode::POP,
+//             payload_size: x,
+//             ..
+//         }] => {
+//             *x = 1;
+//         }
+//         _ => {}
+//     }
+// }
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 pub enum OptLevel {
@@ -640,7 +640,8 @@ impl Compiler {
                 super::code_gen::CodeGenerator::new(&mut self.constant_map, &analysis)
                     .top_level_compile(&expr)?;
 
-            inject_heap_save_to_pop(&mut instructions);
+            // TODO: I don't think this needs to be here anymore
+            // inject_heap_save_to_pop(&mut instructions);
             index_buffer.push(instructions.len());
             instruction_buffer.append(&mut instructions);
         }

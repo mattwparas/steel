@@ -27,15 +27,6 @@ impl Instruction {
             constant: false,
         }
     }
-
-    pub fn new_pop() -> Instruction {
-        Instruction {
-            op_code: OpCode::POP,
-            payload_size: 0,
-            contents: None,
-            constant: false,
-        }
-    }
 }
 
 // Want to turn a steel struct directly into this struct

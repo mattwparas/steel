@@ -2019,9 +2019,9 @@ checksum = "03b634d87b960ab1a38c4fe143b508576f075e7c978bfad18217645ebfdfa2ec"
 
 [[package]]
 name = "smallvec"
-version = "1.6.1"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe0f37c9e8f3c5a4a66ad655a93c74daac4ad00c441533bf5c6e7990bb42604e"
+checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
 
 [[package]]
 name = "socket2"
@@ -2055,10 +2055,12 @@ dependencies = [
  "env_logger",
  "fnv",
  "futures",
+ "fxhash",
  "im-lists",
  "im-rc",
  "itertools",
  "lasso",
+ "lazy_static",
  "log",
  "logos",
  "once_cell",
@@ -2068,6 +2070,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "smallvec",
  "steel",
  "termimad",
  "thiserror",

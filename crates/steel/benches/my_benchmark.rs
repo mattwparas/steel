@@ -195,9 +195,9 @@ fn fib_28_contract(c: &mut Criterion) {
     let program = vm.emit_raw_program_no_path(&script).unwrap();
     let executable = vm.raw_program_to_executable(program).unwrap();
 
-    let mut group = c.benchmark_group("fib-28-contract");
+    let mut group = c.benchmark_group("contract-fib-28");
     group.sample_size(200);
-    group.bench_function("fib-28-contract", |b| {
+    group.bench_function("contract-fib-28", |b| {
         b.iter(|| vm.run_executable(&executable))
     });
     group.finish();

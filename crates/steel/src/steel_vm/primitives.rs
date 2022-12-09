@@ -25,7 +25,7 @@ use crate::{
     rvals::FromSteelVal,
     values::{
         closed::HeapRef,
-        structs::{is_custom_struct, make_struct_type, UserDefinedStruct},
+        structs::{is_custom_struct, make_struct_type},
     },
 };
 use crate::{
@@ -575,7 +575,7 @@ fn number_module() -> BuiltInModule {
     module
 }
 
-#[inline]
+#[inline(always)]
 pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() == 0 {
         stop!(ArityMismatch => "expected at least one argument");
@@ -604,6 +604,7 @@ pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(true))
 }
 
+#[inline(always)]
 pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() == 0 {
         stop!(ArityMismatch => "expected at least one argument");
@@ -844,7 +845,7 @@ fn meta_module() -> BuiltInModule {
         .register_fn("arity?", arity)
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
-        .register_fn("struct-properties", UserDefinedStruct::properties)
+        // .register_fn("struct-properties", UserDefinedStruct::properties)
         .register_value(
             "box",
             SteelVal::BuiltIn(crate::primitives::meta_ops::steel_box),
