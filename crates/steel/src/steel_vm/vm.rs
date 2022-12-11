@@ -585,7 +585,7 @@ impl DynamicBlock {
         println!("{:#?}", basic_block);
 
         if let Some(first) = handlers.peek() {
-            header_func = op_code_requires_payload(**first);
+            header_func = op_code_requires_payload(first.0);
         }
 
         if header_func.is_some() {
@@ -594,20 +594,21 @@ impl DynamicBlock {
 
         let op_codes: Vec<_> = handlers.clone().copied().collect();
 
-        let specialized = SUPER_PATTERNS.get(&op_codes).copied();
+        // let specialized = SUPER_PATTERNS.get(&op_codes).copied();
 
-        if specialized.is_some() {
-            println!("Found specialized function!");
-        }
+        // if specialized.is_some() {
+        //     println!("Found specialized function!");
+        // }
 
-        let handlers = handlers.map(|x| OP_CODE_TABLE[*x as usize]).collect();
+        let handlers = handlers.map(|x| OP_CODE_TABLE[x.0 as usize]).collect();
 
         Self {
             basic_block,
             handlers,
             entry_inst: head,
             header_func,
-            specialized,
+            // TODO: Come back and add the specialized ones back in
+            specialized: None,
         }
     }
 }
@@ -1089,6 +1090,7 @@ impl<'a> VmCore<'a> {
             // Otherwise, we're going to be copying the instruction _every_ time we iterate which is going to slow down the loop
             // We'd rather just reference the instruction and call it a day
             match self.instructions[self.ip] {
+                // match unsafe { *self.instructions.get_unchecked(self.ip) } {
                 DenseInstruction {
                     op_code: OpCode::PANIC,
                     ..
@@ -1181,31 +1183,6 @@ impl<'a> VmCore<'a> {
                     inline_primitive!(lte_primitive, payload_size);
                 }
 
-                // DenseInstruction {
-                //     op_code: OpCode::GIMMICK,
-                //     payload_size,
-                //     ..
-                // } => {
-                //     // Handle the local
-                //     self.handle_local(payload_size as usize)?;
-
-                //     // Load the int
-                //     self.stack.push(SteelVal::INT_TWO);
-                //     self.ip += 1;
-
-                //     let payload = self.instructions[self.ip].payload_size;
-
-                //     inline_primitive!(lte_primitive, payload);
-
-                //     let payload_size = self.instructions[self.ip].payload_size;
-
-                //     // Handle the if
-                //     if self.stack.pop().unwrap().is_truthy() {
-                //         self.ip += 1;
-                //     } else {
-                //         self.ip = payload_size as usize;
-                //     }
-                // }
                 DenseInstruction {
                     op_code: OpCode::VOID,
                     ..
@@ -1775,22 +1752,6 @@ impl<'a> VmCore<'a> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
 
-        // if self.pop_count - 1 != self.stack_frames.len() {
-        //     println!("{:?}", self.stack);
-        //     println!("Pop count: {}", self.pop_count);
-        //     println!("{:?}", self.stack_frames.len());
-
-        //     panic!("Pop count and stack frames aren't aligned");
-        // }
-
-        // assert_eq!(self.pop_count - 1, self.stack_frames.len());
-
-        // println!(
-        //     "Pop count: {}, stack frames: {}",
-        //     self.pop_count,
-        //     self.stack_frames.len()
-        // );
-
         self.pop_count -= 1;
 
         // unwrap just because we want to see if we have something here
@@ -1807,10 +1768,6 @@ impl<'a> VmCore<'a> {
             // let ret_val = self.stack.pop().unwrap();
 
             let rollback_index = last.index;
-
-            // Snatch the value to close from the payload size
-            // Move forward past the pop
-            self.ip += 1;
 
             // Close remaining values on the stack
 
@@ -1922,6 +1879,8 @@ impl<'a> VmCore<'a> {
         //     println!("Found multi arity function");
         // }
 
+        assert!(self.ip < self.instructions.len());
+
         self.ip += 1;
 
         let is_multi_arity = self.instructions[self.ip].payload_size == 1;
@@ -1991,6 +1950,8 @@ impl<'a> VmCore<'a> {
         // if self.instructions[self.ip].payload_size == 1 {
         //     println!("Found multi arity function");
         // }
+
+        assert!(self.ip < self.instructions.len());
 
         self.ip += 1;
 
@@ -2146,6 +2107,9 @@ impl<'a> VmCore<'a> {
         let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
 
         let old_index = index + offset;
+
+        assert!(old_index < self.stack.len());
+
         let old_value = self.stack[old_index].clone();
 
         // Modify the stack and change the value to the new one
@@ -2607,6 +2571,8 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         self.cut_sequence();
 
+        let prev_length = self.stack.len();
+
         // push them onto the stack if we need to
         self.stack.push(local);
         self.stack.push(const_value);
@@ -2614,7 +2580,7 @@ impl<'a> VmCore<'a> {
         // Push new stack frame
         self.stack_frames.push(
             StackFrame::new(
-                self.stack.len() - 2,
+                prev_length,
                 Gc::clone(closure),
                 InstructionPointer::new(self.ip + 4, Rc::clone(&self.instructions)),
             )
@@ -3349,12 +3315,12 @@ pub(crate) fn apply<'a, 'b>(
 
 #[derive(PartialEq, Eq, Hash, Clone, PartialOrd, Ord, Debug)]
 pub struct InstructionPattern {
-    pub(crate) block: Rc<[OpCode]>,
+    pub(crate) block: Rc<[(OpCode, usize)]>,
     pub(crate) pattern: BlockPattern,
 }
 
 impl InstructionPattern {
-    pub fn new(block: Rc<[OpCode]>, pattern: BlockPattern) -> Self {
+    pub fn new(block: Rc<[(OpCode, usize)]>, pattern: BlockPattern) -> Self {
         Self { block, pattern }
     }
 }
@@ -3376,7 +3342,6 @@ pub struct OpCodeOccurenceProfiler {
     occurrences: HashMap<(OpCode, usize), usize>,
     time: HashMap<(OpCode, usize), std::time::Duration>,
     // This could also be calculated ahead of time - basic blocks can be memoized, but for profiling this is... fine
-    blocks: fxhash::FxHashMap<BlockPattern, BlockMetadata>,
     // The current sequence before we get cut off
     starting_index: Option<usize>,
     ending_index: Option<usize>,
@@ -3388,7 +3353,6 @@ impl OpCodeOccurenceProfiler {
         OpCodeOccurenceProfiler {
             occurrences: HashMap::new(),
             time: HashMap::new(),
-            blocks: fxhash::FxHashMap::default(),
             starting_index: None,
             ending_index: None,
             sample_count: 0,
@@ -3467,7 +3431,11 @@ impl OpCodeOccurenceProfiler {
 
                         // println!("{} {}", block_pattern.start, index);
 
-                        let sequence = instructions[block_pattern.start..=index].into_iter().map(|x| x.op_code).filter(|x| !x.is_ephemeral_opcode() && *x != OpCode::POPPURE).collect();
+                        let sequence = instructions[block_pattern.start..=index]
+                            .into_iter()
+                            .map(|x| (x.op_code, x.payload_size as usize))
+                            .filter(|x| !x.0.is_ephemeral_opcode() && x.0 != OpCode::POPPURE)
+                            .collect();
 
                         self.starting_index = None;
                         self.ending_index = None;
@@ -3547,8 +3515,8 @@ impl OpCodeOccurenceProfiler {
 
                 let sequence = instructions[block_pattern.start..=index]
                     .into_iter()
-                    .map(|x| x.op_code)
-                    .filter(|x| !x.is_ephemeral_opcode() && *x != OpCode::POPPURE)
+                    .map(|x| (x.op_code, x.payload_size as usize))
+                    .filter(|x| !x.0.is_ephemeral_opcode() && x.0 != OpCode::POPPURE)
                     .collect();
 
                 self.starting_index = None;
@@ -4149,6 +4117,7 @@ fn set_local_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Resul
 
 // OpCode::CALLGLOBAL
 fn call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    // assert!(ctx.ip + 1 < ctx.instructions.len());
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
@@ -4548,6 +4517,8 @@ fn if_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
 #[inline(always)]
 fn call_global_tail_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    // assert!(ctx.ip + 1 < ctx.instructions.len());
+
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
