@@ -2619,6 +2619,11 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
+    #[inline(always)]
+    fn get_offset(&self) -> usize {
+        self.stack_frames.last().map(|x| x.index).unwrap_or(0)
+    }
+
     // #[inline(always)]
     fn handle_lazy_function_call(
         &mut self,
@@ -3341,8 +3346,6 @@ pub struct BlockMetadata {
 pub struct OpCodeOccurenceProfiler {
     occurrences: HashMap<(OpCode, usize), usize>,
     time: HashMap<(OpCode, usize), std::time::Duration>,
-    // This could also be calculated ahead of time - basic blocks can be memoized, but for profiling this is... fine
-    // The current sequence before we get cut off
     starting_index: Option<usize>,
     ending_index: Option<usize>,
     sample_count: usize,
@@ -3539,19 +3542,6 @@ impl OpCodeOccurenceProfiler {
 
         None
     }
-
-    // pub fn tie_off_length(&mut self, index: usize) {
-    //     if let Some(pattern) = &self.last_sequence {
-    //         let pattern = pattern.clone();
-    //         if let Some(metadata) = self.basic_blocks.get_mut(&pattern) {
-    //             let starting_index = self.starting_index.unwrap();
-
-    //             if index > starting_index {
-    //                 metadata.length = index - starting_index;
-    //             }
-    //         }
-    //     }
-    // }
 
     pub fn add_time(&mut self, opcode: &OpCode, payload: usize, time: std::time::Duration) {
         *self.time.entry((*opcode, payload)).or_default() += time;
@@ -3843,6 +3833,13 @@ lazy_static! {
         create_super_instruction_map();
 }
 
+// lazy_static! {
+//     static ref SUPER_PATTERNS: std::collections::HashMap<
+//         Vec<(OpCode, Option<usize>)>,
+//         for<'r> fn(&'r mut VmCore<'_>) -> Result<()>,
+//     > = create_super_instruction_map();
+// }
+
 fn create_super_instruction_map(
 ) -> std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>> {
     use OpCode::*;
@@ -3935,6 +3932,73 @@ fn create_super_instruction_map(
 
     map
 }
+
+/*
+
+TODO:
+* https://www3.hhu.de/stups/downloads/pdf/BoCuFiRi09_246.pdf
+* https://github.com/playXE/stack2ssa/blob/main/src/lower.rs
+
+^^ The above actually seems to generate an honest to god JIT backend. What I'm suggesting
+is to still just use the runtime, but instead to profile guided optimization to constantly be
+creating sequences of instructions that speed things up.
+
+Develop a DSL for generating super instructions, via macros.
+
+If the op code handler pushes a value to the stack, it should be declared like so:
+
+fn returns_value(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+    ...
+}
+
+if its a bin op, make it look like this:
+
+fn bin_op(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+    ...
+}
+
+if we know it returns a bool, have it just return a bool:
+
+fn bool(ctx: &mut VmCore<'_>) -> Result<bool> {
+    ...
+}
+
+Then, with a sequence of fairly silly macros transformations, we could define a sequence of meta
+instructions with some funny macros:
+
+super_instruction! {
+    READLOCAL0,
+    LOADINT1,
+    SUB,
+    MOVEREADLOCAL0,
+    MOVEREADLOCAL1,
+    LOADINT1,
+    SUB,
+    CALLGLOBAL
+}
+
+could translate directly to something like (where we have comp time fresh vars, somehow):
+
+let x = read_local_0(ctx);
+let y = 1;
+let z = x - y // somehow
+
+let foo = move_read_local_0(ctx);
+let bar = move_read_local_1(ctx);
+let baz = 1;
+
+let quux = bar - baz;
+let call_global = call_global(ctx, ...)
+
+ret call_global
+
+We would have to perform stack to ssa conversion, such that its implicitly possible to reconstruct
+the call stack, and then we can "compile" this directly to the rust code that manipulates the state
+of the VM context.
+
+"Unlocking" the state by removing from the state of the
+
+*/
 
 fn specialized_lte0(ctx: &mut VmCore<'_>) -> Result<()> {
     let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
