@@ -45,6 +45,9 @@ criterion = "0.3.5"
 steel = { path = ".", features = ["modules"] }
 env_logger = "0.9"
 
+# [build-dependencies]
+# steel-gen = { path = "../steel-gen" }
+
 [features]
 # this effectively enable the feature `no-color` of colored when testing with
 # `cargo test --features colors_off`

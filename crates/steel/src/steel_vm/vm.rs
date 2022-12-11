@@ -1,5 +1,7 @@
 // #![allow(unused)]
 
+mod dynamic;
+
 #[cfg(feature = "jit")]
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
@@ -42,6 +44,15 @@ use lazy_static::lazy_static;
 use log::{debug, error, log_enabled};
 
 use crate::rvals::IntoSteelVal;
+
+// Includes the module as a dependency, that being said - this should
+// probably get generated into some specific sub module directly?
+include!(concat!(env!("OUT_DIR"), "/hello.rs"));
+
+#[test]
+fn call_hello_world() {
+    println!("{:?}", message());
+}
 
 const STACK_LIMIT: usize = 1000;
 const _JIT_THRESHOLD: usize = 100;
