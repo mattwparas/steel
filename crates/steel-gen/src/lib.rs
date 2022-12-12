@@ -85,6 +85,75 @@ macro_rules! opcode_to_function {
     };
 }
 
+// If the op code requires the original payload from the instruction that we're overwriting, we should
+// attach it to the basic block, because otherwise we'll have lost the payload
+// fn op_code_requires_payload(op_code: OpCode) -> Option<&'static str> {
+//     match op_code {
+//         OpCode::VOID => None,
+//         OpCode::PUSH => Some("push_handler_with_payload"),
+//         OpCode::IF => todo!(),
+//         OpCode::JMP => todo!(),
+//         OpCode::FUNC => Some("func_handler_with_payload"),
+//         OpCode::SCLOSURE => todo!(),
+//         OpCode::ECLOSURE => todo!(),
+//         OpCode::BIND => Some("bind_handler_with_payload"),
+//         OpCode::SDEF => todo!(),
+//         OpCode::EDEF => todo!(),
+//         OpCode::POPPURE => todo!(),
+//         OpCode::PASS => todo!(),
+//         OpCode::PUSHCONST => Some("push_const_handler_with_payload"),
+//         OpCode::NDEFS => todo!(),
+//         OpCode::PANIC => None,
+//         OpCode::TAILCALL => todo!(),
+//         OpCode::SET => Some("set_handler_with_payload"),
+//         OpCode::READLOCAL => Some("local_handler_with_payload"),
+//         OpCode::READLOCAL0 => None,
+//         OpCode::READLOCAL1 => None,
+//         OpCode::READLOCAL2 => None,
+//         OpCode::READLOCAL3 => None,
+//         OpCode::SETLOCAL => Some("set_local_handler_with_payload"),
+//         OpCode::COPYCAPTURESTACK => todo!(),
+//         OpCode::COPYCAPTURECLOSURE => todo!(),
+//         OpCode::COPYHEAPCAPTURECLOSURE => todo!(),
+//         OpCode::FIRSTCOPYHEAPCAPTURECLOSURE => todo!(),
+//         OpCode::TCOJMP => todo!(),
+//         OpCode::CALLGLOBAL => Some("call_global_handler_with_payload"),
+//         OpCode::CALLGLOBALTAIL => todo!(),
+//         OpCode::LOADINT0 => None,
+//         OpCode::LOADINT1 => None,
+//         OpCode::LOADINT2 => None,
+//         OpCode::CGLOCALCONST => todo!(),
+//         OpCode::MOVEREADLOCAL => Some("move_local_handler_with_payload"),
+//         OpCode::MOVEREADLOCAL0 => None,
+//         OpCode::MOVEREADLOCAL1 => None,
+//         OpCode::MOVEREADLOCAL2 => None,
+//         OpCode::MOVEREADLOCAL3 => None,
+//         OpCode::READCAPTURED => Some("read_captured_handler_with_payload"),
+//         OpCode::MOVECGLOCALCONST => todo!(),
+//         OpCode::BEGINSCOPE => None,
+//         OpCode::LETENDSCOPE => Some("let_end_scope_handler_with_payload"),
+//         OpCode::PUREFUNC => Some("pure_function_handler_with_payload"),
+//         OpCode::ADD => Some("add_handler_payload"),
+//         OpCode::SUB => Some("sub_handler_payload"),
+//         OpCode::MUL => Some("multiply_handler_payload"),
+//         OpCode::DIV => Some("division_handler_payload"),
+//         OpCode::EQUAL => Some("equality_handler_payload"),
+//         OpCode::LTE => Some("lte_handler_payload"),
+//         OpCode::NEWSCLOSURE => Some("new_sclosure_handler_with_payload"),
+//         OpCode::ADDREGISTER => todo!(),
+//         OpCode::SUBREGISTER => todo!(),
+//         OpCode::LTEREGISTER => todo!(),
+//         OpCode::SUBREGISTER1 => todo!(),
+//         OpCode::ALLOC => None,
+//         OpCode::READALLOC => Some("read_alloc_handler_with_payload"),
+//         OpCode::SETALLOC => Some("set_alloc_handler_with_payload"),
+//         // OpCode::GIMMICK => todo!(),
+//         // OpCode::MOVEREADLOCALCALLGLOBAL => Some(move_read_local_call_global_handler_payload),
+//         OpCode::DynSuperInstruction => todo!(),
+//         _ => None,
+//     }
+// }
+
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OpCode {
@@ -151,7 +220,30 @@ pub enum OpCode {
     DynSuperInstruction,
 }
 
-struct LocalVariable(String);
+// If we can provide hints on the types, this can help with constant folding of operations
+// that we know the types of
+//
+// For instance, this can also allow specializing _lots_ of the list operations if we can pull it off
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum TypeHint {
+    Int,
+    Bool,
+    Float,
+    None,
+}
+
+#[derive(Clone, Debug)]
+struct LocalVariable {
+    id: u16,
+    type_hint: TypeHint,
+}
+
+impl LocalVariable {
+    pub fn kind(mut self, type_hint: TypeHint) -> Self {
+        self.type_hint = type_hint;
+        self
+    }
+}
 
 struct GenSym {
     prefix: &'static str,
@@ -159,17 +251,325 @@ struct GenSym {
 }
 
 impl GenSym {
+    pub fn new() -> Self {
+        Self {
+            prefix: "x",
+            count: 0,
+        }
+    }
+
     // Generate a fresh variable
     fn fresh(&mut self) -> LocalVariable {
         let count = self.count;
         self.count += 1;
-        LocalVariable(self.prefix.to_string() + &count.to_string())
+        LocalVariable {
+            id: count,
+            type_hint: TypeHint::None,
+        }
     }
 }
 
-struct StackToSSAConversion {
+impl std::fmt::Display for LocalVariable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "x{}", self.id)
+    }
+}
+
+fn op_code_to_handler(op_code: OpCode) -> String {
+    format!("opcode_to_ssa_handler!({:?})", op_code)
+}
+
+struct StackToSSAConverter {
     generator: GenSym,
-    locals: Vec<LocalVariable>,
+    stack: Vec<LocalVariable>,
+}
+
+impl StackToSSAConverter {
+    pub fn new() -> Self {
+        Self {
+            generator: GenSym::new(),
+            stack: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self) -> LocalVariable {
+        let var = self.generator.fresh();
+        self.stack.push(var.clone());
+        var
+    }
+
+    pub fn push_with_hint(&mut self, type_hint: TypeHint) -> LocalVariable {
+        let var = self.generator.fresh().kind(type_hint);
+        self.stack.push(var.clone());
+        var
+    }
+
+    pub fn pop(&mut self) -> LocalVariable {
+        self.stack.pop().unwrap()
+    }
+
+    pub fn process_sequence(&mut self, op_codes: &[OpCode]) -> String {
+        use OpCode::*;
+
+        let mut scope = Scope::new();
+        let mut function = Function::new(
+            op_codes
+                .iter()
+                .map(|x| format!("{:?}", x))
+                .collect::<String>(),
+        );
+        function.arg("ctx", codegen::Type::new("VmCore<'_>"));
+        function.ret(codegen::Type::new("Result<()>"));
+
+        // READLOCAL0,
+        // LOADINT2,
+        // MUL,
+        // MOVEREADLOCAL1,
+        // LOADINT1,
+        // SUB,
+        // READLOCAL2,
+        // LOADINT1,
+        // SUB,
+        // READLOCAL3,
+        // CALLGLOBAL
+
+        for op in op_codes {
+            match op {
+                LOADINT0 => {
+                    let local = self.push_with_hint(TypeHint::Int);
+                    // Load the immediate for 0
+                    function.line(format!("{} = {}", local, 0));
+                }
+                LOADINT1 => {
+                    let local = self.push_with_hint(TypeHint::Int);
+                    // Load the immediate for 1
+                    function.line(format!("{} = {}", local, 1));
+                }
+                LOADINT2 => {
+                    let local = self.push_with_hint(TypeHint::Int);
+                    // Load the immediate for 2
+                    function.line(format!("{} = {}", local, 2));
+                }
+                MOVEREADLOCAL0 | MOVEREADLOCAL1 | MOVEREADLOCAL2 | READLOCAL0 | READLOCAL2 => {
+                    let local = self.push();
+                    function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                }
+                PUSH => {
+                    // Consider embedding some type hints on these for even more specialization if possible
+                    let local = self.push();
+                    function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                }
+                LTE | EQUAL => {
+                    let left = self.pop();
+                    let right = self.pop();
+
+                    match (left.type_hint, right.type_hint) {
+                        (a, b) if a == b => {
+                            let local = self.push_with_hint(TypeHint::Bool);
+
+                            function.line(format!("{} = {} == {};", local, left, right));
+                            function.line("ctx.ip += 1;");
+                        }
+                        (TypeHint::Int, TypeHint::Int) => {
+                            // Delegate to the binary handler to return an int
+                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Int, Int)", op);
+
+                            let local = self.push_with_hint(TypeHint::Bool);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::Int, TypeHint::Float) => {
+                            // Delegate to the binary handler to return an int
+                            let call =
+                                format!("binop_opcode_to_ssa_handler!({:?}, Int, Float)", op);
+
+                            let local = self.push_with_hint(TypeHint::Bool);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::Int, TypeHint::None) => {
+                            // Delegate to the binary handler to return an int
+                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Int, None)", op);
+
+                            let local = self.push_with_hint(TypeHint::Bool);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::Float, TypeHint::Int) => {
+                            // Delegate to the binary handler to return an int
+                            let call =
+                                format!("binop_opcode_to_ssa_handler!({:?}, Float, Int)", op);
+
+                            let local = self.push_with_hint(TypeHint::Bool);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::Float, TypeHint::Float) => {
+                            // Delegate to the binary handler to return an int
+                            let call =
+                                format!("binop_opcode_to_ssa_handler!({:?}, Float, Float)", op);
+
+                            let local = self.push_with_hint(TypeHint::Bool);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::Float, TypeHint::None) => {
+                            // Delegate to the binary handler to return an int
+                            let call =
+                                format!("binop_opcode_to_ssa_handler!({:?}, Float, None)", op);
+
+                            // Probably needs to be promoted to a float in this case
+                            let local = self.push_with_hint(TypeHint::Bool);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::None, TypeHint::Int) => {
+                            // Delegate to the binary handler to return an int
+                            let call = format!("binop_opcode_to_ssa_handler!({:?}, None, Int)", op);
+
+                            // Probably needs to be promoted to a float in this case
+                            let local = self.push_with_hint(TypeHint::Bool);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::None, TypeHint::Float) => {
+                            // Delegate to the binary handler to return an int
+                            let call = format!("binop_opcode_to_ssa_handler!({:?}, None, Int)", op);
+
+                            // Probably needs to be promoted to a float in this case
+                            let local = self.push_with_hint(TypeHint::Bool);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (_, _) => todo!(),
+                    }
+                }
+
+                // TODO: Need to handle the actual op code as well
+                // READLOCAL0, LOADINT2, LTE, IF
+                ADD | MUL | SUB | DIV => {
+                    let left = self.pop();
+                    let right = self.pop();
+
+                    match (left.type_hint, right.type_hint) {
+                        (TypeHint::Int, TypeHint::Int) => {
+                            // Delegate to the binary handler to return an int
+                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Int, Int)", op);
+
+                            let local = self.push_with_hint(TypeHint::Int);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::Int, TypeHint::Float) => {
+                            // Delegate to the binary handler to return an int
+                            let call =
+                                format!("binop_opcode_to_ssa_handler!({:?}, Int, Float)", op);
+
+                            let local = self.push_with_hint(TypeHint::Float);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::Int, TypeHint::None) => {
+                            // Delegate to the binary handler to return an int
+                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Int, None)", op);
+
+                            let local = self.push_with_hint(TypeHint::None);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::Float, TypeHint::Int) => {
+                            // Delegate to the binary handler to return an int
+                            let call =
+                                format!("binop_opcode_to_ssa_handler!({:?}, Float, Int)", op);
+
+                            let local = self.push_with_hint(TypeHint::Float);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::Float, TypeHint::Float) => {
+                            // Delegate to the binary handler to return an int
+                            let call =
+                                format!("binop_opcode_to_ssa_handler!({:?}, Float, Float)", op);
+
+                            let local = self.push_with_hint(TypeHint::Float);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::Float, TypeHint::None) => {
+                            // Delegate to the binary handler to return an int
+                            let call =
+                                format!("binop_opcode_to_ssa_handler!({:?}, Float, None)", op);
+
+                            // Probably needs to be promoted to a float in this case
+                            let local = self.push_with_hint(TypeHint::Float);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::None, TypeHint::Int) => {
+                            // Delegate to the binary handler to return an int
+                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Nont, Int)", op);
+
+                            // Probably needs to be promoted to a float in this case
+                            let local = self.push_with_hint(TypeHint::None);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (TypeHint::None, TypeHint::Float) => {
+                            // Delegate to the binary handler to return an int
+                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Nont, Int)", op);
+
+                            // Probably needs to be promoted to a float in this case
+                            let local = self.push_with_hint(TypeHint::Float);
+
+                            push_binop(&mut function, local, call, left, right);
+                        }
+                        (_, _) => todo!(),
+                    }
+                }
+                _ => {
+                    todo!()
+                }
+            }
+        }
+
+        let last = self.pop();
+
+        match last.type_hint {
+            TypeHint::Int => function.line(format!("ctx.stack.push(SteelVal::IntV({}));", last)),
+            TypeHint::Bool => function.line(format!("ctx.stack.push(SteelVal::BoolV({}));", last)),
+            TypeHint::Float => function.line(format!("ctx.stack.push(SteelVal::NumV({}));", last)),
+            // It is already confirmed to be... something thats non primitive.
+            TypeHint::None => function.line(format!("ctx.stack.push({});", last)),
+        };
+
+        function.line("Ok(())");
+        scope.push_fn(function);
+
+        scope.to_string()
+    }
+}
+
+fn push_binop(
+    function: &mut Function,
+    local: LocalVariable,
+    call: String,
+    left: LocalVariable,
+    right: LocalVariable,
+) {
+    function.line(format!(
+        "{} = {}",
+        local,
+        Call::new(
+            call.into(),
+            // op_code_to_handler(*op).into(),
+            vec![
+                "ctx".into(),
+                left.to_string().into(),
+                right.to_string().into()
+            ],
+        )
+        .to_string(),
+    ));
 }
 
 fn ctx_signature() -> Scope {
@@ -211,7 +611,7 @@ impl<'a> std::fmt::Display for Call<'a> {
         for arg in &self.args {
             write!(f, "{}, ", arg)?;
         }
-        write!(f, ")")
+        write!(f, ")?;")
     }
 }
 
@@ -224,5 +624,19 @@ impl<'a> std::fmt::Display for Call<'a> {
 
 #[test]
 fn test() {
-    println!("{}", ctx_signature().to_string());
+    let op_codes = vec![
+        OpCode::LOADINT0,
+        OpCode::LOADINT1,
+        OpCode::ADD,
+        OpCode::LOADINT2,
+        OpCode::EQUAL,
+    ];
+
+    let mut stack_to_ssa = StackToSSAConverter::new();
+
+    let result = stack_to_ssa.process_sequence(&op_codes);
+
+    println!("{}", result);
+
+    // println!("{}", ctx_signature().to_string());
 }
