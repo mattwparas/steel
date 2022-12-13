@@ -1,7 +1,5 @@
 // #![allow(unused)]
 
-mod dynamic;
-
 #[cfg(feature = "jit")]
 use crate::jit::code_gen::JIT;
 #[cfg(feature = "jit")]
@@ -4539,38 +4537,6 @@ fn new_sclosure_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) 
     ctx.handle_new_start_closure(payload_size as usize)
 }
 
-// OpCode::MOVEREADLOCALCALLGLOBAL
-// fn move_read_local_call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-//     let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
-//     ctx.handle_move_local(payload_size as usize)?;
-
-//     // Move to the next iteration of the loop
-//     let next_inst = ctx.instructions[ctx.ip];
-//     ctx.ip += 1;
-//     let next_next_inst = ctx.instructions[ctx.ip];
-//     ctx.handle_call_global(
-//         next_inst.payload_size as usize,
-//         next_next_inst.payload_size as usize,
-//     )
-// }
-
-// // OpCode::MOVEREADLOCALCALLGLOBAL
-// fn move_read_local_call_global_handler_payload(
-//     ctx: &mut VmCore<'_>,
-//     payload_size: usize,
-// ) -> Result<()> {
-//     ctx.handle_move_local(payload_size as usize)?;
-
-//     // Move to the next iteration of the loop
-//     let next_inst = ctx.instructions[ctx.ip];
-//     ctx.ip += 1;
-//     let next_next_inst = ctx.instructions[ctx.ip];
-//     ctx.handle_call_global(
-//         next_inst.payload_size as usize,
-//         next_next_inst.payload_size as usize,
-//     )
-// }
-
 #[inline(always)]
 fn jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
@@ -4588,6 +4554,28 @@ fn if_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         ctx.ip = payload_size as usize;
     }
     Ok(())
+}
+
+#[inline(always)]
+fn raw_if_handler(ctx: &mut VmCore<'_>) {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    // change to truthy...
+    if ctx.stack.pop().unwrap().is_truthy() {
+        ctx.ip += 1;
+    } else {
+        ctx.ip = payload_size as usize;
+    }
+}
+
+#[inline(always)]
+fn if_handler_with_bool(ctx: &mut VmCore<'_>, condition: bool) {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    // change to truthy...
+    if condition {
+        ctx.ip += 1;
+    } else {
+        ctx.ip = payload_size as usize;
+    }
 }
 
 #[inline(always)]
@@ -4781,67 +4769,84 @@ fn div_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
 }
 
 macro_rules! binop_opcode_to_ssa_handler {
-    (ADD, Int, Int) => {
+    (ADD2, Int, Int) => {
         add_handler_int_int
     };
 
-    (ADD, Int, Float) => {
+    (ADD2, Int, Float) => {
         add_handler_int_float
     };
 
-    (ADD, Float, Int) => {
+    (ADD2, Float, Int) => {
         add_handler_int_float
     };
 
-    (ADD, Float, Float) => {
+    (ADD2, Float, Float) => {
         add_handler_float_float
     };
 
-    (MUL, Int, Int) => {
+    (MUL2, Int, Int) => {
         multiply_handler_int_int
     };
 
-    (MUL, Int, Float) => {
+    (MUL2, Int, Float) => {
         multiply_handler_int_float
     };
 
-    (MUL, Float, Int) => {
+    (MUL2, Float, Int) => {
         multiply_handler_int_float
     };
 
-    (MUL, Float, Float) => {
+    (MUL2, Float, Float) => {
         multiply_handler_float_float
     };
 
-    (SUB, Int, Int) => {
+    (SUB2, Int, Int) => {
         multiply_handler_int_int
     };
 
-    (SUB, Int, Float) => {
+    (SUB2, Int, Float) => {
         multiply_handler_int_float
     };
 
-    (SUB, Float, Int) => {
+    (SUB2, Float, Int) => {
         multiply_handler_int_float
     };
 
-    (SUB, Float, Float) => {
+    (SUB2, Float, Float) => {
         multiply_handler_float_float
     };
 
-    (DIV, Int, Int) => {
+    (DIV2, Int, Int) => {
         multiply_handler_int_int
     };
 
-    (DIV, Int, Float) => {
+    (DIV2, Int, Float) => {
         multiply_handler_int_float
     };
 
-    (DIV, Float, Int) => {
+    (DIV2, Float, Int) => {
         multiply_handler_int_float
     };
 
-    (DIV, Float, Float) => {
+    (DIV2, Float, Float) => {
         multiply_handler_float_float
     };
+}
+
+macro_rules! if_to_ssa_handler {
+    (IF, Bool) => {
+        if_handler_with_bool
+    };
+    (IF) => {
+        raw_if_handler
+    };
+}
+
+macro_rules! opcode_to_ssa_handler {
+    () => {};
+}
+
+mod dynamic {
+    use super::*;
 }

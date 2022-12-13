@@ -421,7 +421,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Int, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Int, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, Int)", op);
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -429,8 +429,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Int, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call =
-                                format!("binop_opcode_to_ssa_handler!({:?}, Int, Float)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, Float)", op);
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -438,7 +437,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Int, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Int, None)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, None)", op);
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -446,8 +445,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Float, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call =
-                                format!("binop_opcode_to_ssa_handler!({:?}, Float, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, Float, Int)", op);
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -456,7 +454,7 @@ impl StackToSSAConverter {
                         (TypeHint::Float, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
                             let call =
-                                format!("binop_opcode_to_ssa_handler!({:?}, Float, Float)", op);
+                                format!("binop_opcode_to_ssa_handler!({}, Float, Float)", op);
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -464,8 +462,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Float, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
-                            let call =
-                                format!("binop_opcode_to_ssa_handler!({:?}, Float, None)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, Float, None)", op);
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Bool);
@@ -474,7 +471,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::None, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({:?}, None, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, None, Int)", op);
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Bool);
@@ -483,7 +480,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::None, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({:?}, None, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, None, Int)", op);
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Bool);
@@ -582,13 +579,14 @@ impl StackToSSAConverter {
             }
         }
 
-        if let Some(last) = self.stack.pop() {
-            match last.type_hint {
+        // For whatever is left, push on to the SteelThread stack
+        for value in &self.stack {
+            match value.type_hint {
                 TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
-                    function.line(format!("ctx.stack.push({}.into());", last))
+                    function.line(format!("ctx.stack.push({}.into());", value))
                 }
                 // It is already confirmed to be... something thats non primitive.
-                _ => function.line(format!("ctx.stack.push({});", last)),
+                _ => function.line(format!("ctx.stack.push({});", value)),
             };
         }
 
