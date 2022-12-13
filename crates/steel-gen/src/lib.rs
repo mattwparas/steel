@@ -335,7 +335,7 @@ impl StackToSSAConverter {
                 .map(|x| format!("{}", x))
                 .collect::<String>(),
         );
-        function.arg("ctx", codegen::Type::new("VmCore<'_>"));
+        function.arg("ctx", codegen::Type::new("&mut VmCore<'_>"));
         function.ret(codegen::Type::new("Result<()>"));
 
         // READLOCAL0,
@@ -372,8 +372,9 @@ impl StackToSSAConverter {
                     function.line(format!("{} = {}", local, 2));
                 }
                 Single(
-                    MOVEREADLOCAL | MOVEREADLOCAL1 | MOVEREADLOCAL2 | READLOCAL0 | READLOCAL1
-                    | READLOCAL2 | PUSH | READCAPTURED | TAILCALL | CALLGLOBAL,
+                    MOVEREADLOCAL | MOVEREADLOCAL1 | MOVEREADLOCAL2 | MOVEREADLOCAL3 | READLOCAL0
+                    | READLOCAL1 | READLOCAL2 | READLOCAL3 | PUSH | READCAPTURED | TAILCALL
+                    | CALLGLOBAL,
                 ) => {
                     let local = self.push();
                     function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
@@ -555,7 +556,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::None, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Nont, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({:?}, None, Int)", op);
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::None);
@@ -564,7 +565,8 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::None, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Nont, Int)", op);
+                            let call =
+                                format!("binop_opcode_to_ssa_handler!({:?}, None, Float)", op);
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Float);

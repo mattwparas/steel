@@ -4697,3 +4697,151 @@ fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 // | OpCode::TAILCALL
 // | OpCode::TCOJMP
 // | OpCode::POPPURE
+
+// MUL | SUB | DIV
+
+#[inline(always)]
+fn add_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
+    l + r
+}
+
+#[inline(always)]
+fn add_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
+    l as f64 + r
+}
+
+#[inline(always)]
+fn add_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
+    l + r as f64
+}
+
+#[inline(always)]
+fn add_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
+    l + r
+}
+
+#[inline(always)]
+fn sub_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
+    l - r
+}
+
+#[inline(always)]
+fn sub_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
+    l as f64 - r
+}
+
+#[inline(always)]
+fn sub_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
+    l - r as f64
+}
+
+#[inline(always)]
+fn sub_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
+    l - r
+}
+
+#[inline(always)]
+fn multiply_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
+    l * r
+}
+
+#[inline(always)]
+fn multiply_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
+    l as f64 * r
+}
+
+#[inline(always)]
+fn multiply_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
+    l * r as f64
+}
+
+#[inline(always)]
+fn multiply_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
+    l * r
+}
+
+#[inline(always)]
+fn div_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
+    l / r
+}
+
+#[inline(always)]
+fn div_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
+    l as f64 / r
+}
+
+#[inline(always)]
+fn div_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
+    l / r as f64
+}
+
+#[inline(always)]
+fn div_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
+    l / r
+}
+
+macro_rules! binop_opcode_to_ssa_handler {
+    (ADD, Int, Int) => {
+        add_handler_int_int
+    };
+
+    (ADD, Int, Float) => {
+        add_handler_int_float
+    };
+
+    (ADD, Float, Int) => {
+        add_handler_int_float
+    };
+
+    (ADD, Float, Float) => {
+        add_handler_float_float
+    };
+
+    (MUL, Int, Int) => {
+        multiply_handler_int_int
+    };
+
+    (MUL, Int, Float) => {
+        multiply_handler_int_float
+    };
+
+    (MUL, Float, Int) => {
+        multiply_handler_int_float
+    };
+
+    (MUL, Float, Float) => {
+        multiply_handler_float_float
+    };
+
+    (SUB, Int, Int) => {
+        multiply_handler_int_int
+    };
+
+    (SUB, Int, Float) => {
+        multiply_handler_int_float
+    };
+
+    (SUB, Float, Int) => {
+        multiply_handler_int_float
+    };
+
+    (SUB, Float, Float) => {
+        multiply_handler_float_float
+    };
+
+    (DIV, Int, Int) => {
+        multiply_handler_int_int
+    };
+
+    (DIV, Int, Float) => {
+        multiply_handler_int_float
+    };
+
+    (DIV, Float, Int) => {
+        multiply_handler_int_float
+    };
+
+    (DIV, Float, Float) => {
+        multiply_handler_float_float
+    };
+}
