@@ -54,6 +54,7 @@ env_logger = "0.9"
 colors_off = ["colored/no-color"]
 modules = []
 jit = []
+dynamic = []
 
 [[bench]]
 name = "my_benchmark"

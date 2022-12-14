@@ -218,6 +218,7 @@ pub enum OpCode {
     // GIMMICK,
     // MOVEREADLOCALCALLGLOBAL,
     DynSuperInstruction,
+    Arity,
 }
 
 // If we can provide hints on the types, this can help with constant folding of operations
@@ -233,7 +234,7 @@ enum TypeHint {
     None,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct LocalVariable {
     id: u16,
     type_hint: TypeHint,
@@ -289,6 +290,7 @@ struct StackToSSAConverter {
 enum Pattern {
     Single(OpCode),
     Double(OpCode, usize),
+    Pair(OpCode, OpCode, usize),
 }
 
 impl std::fmt::Display for Pattern {
@@ -296,6 +298,7 @@ impl std::fmt::Display for Pattern {
         match self {
             Pattern::Single(op) => write!(f, "{:?}", op),
             Pattern::Double(op, payload) => write!(f, "{:?}{}", op, payload),
+            Pattern::Pair(op1, op2, payload) => write!(f, "{:?}{:?}{}", op1, op2, payload),
         }
     }
 }
@@ -338,8 +341,6 @@ impl StackToSSAConverter {
         function.arg("ctx", codegen::Type::new("&mut VmCore<'_>"));
         function.ret(codegen::Type::new("Result<()>"));
 
-        function.line("offset = ctx.get_offset()");
-
         // READLOCAL0,
         // LOADINT2,
         // MUL,
@@ -376,6 +377,21 @@ impl StackToSSAConverter {
                     let local = self.push_with_hint(TypeHint::Int);
                     // Load the immediate for 2
                     function.line(format!("{} = {}", local, 2));
+                }
+                Pair(CALLGLOBAL, Arity, n) => {
+                    let args = self
+                        .stack
+                        .split_off(self.stack.len() - n)
+                        .into_iter()
+                        .map(|x| x.to_string() + ".into(), ")
+                        .collect::<String>();
+
+                    let local = self.push();
+
+                    function.line(format!(
+                        "{} = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &[{}])?;",
+                        local, args
+                    ));
                 }
                 Single(
                     MOVEREADLOCAL | MOVEREADLOCAL1 | MOVEREADLOCAL2 | MOVEREADLOCAL3 | READLOCAL0
@@ -664,12 +680,17 @@ impl<'a> std::fmt::Display for Call<'a> {
 fn test() {
     let op_codes = vec![
         Pattern::Single(OpCode::LOADINT0),
-        Pattern::Single(OpCode::BEGINSCOPE),
+        // Pattern::Single(OpCode::BEGINSCOPE),
         Pattern::Single(OpCode::LOADINT1),
-        Pattern::Single(OpCode::BEGINSCOPE), // Pattern::Double(OpCode::ADD, 2),
-                                             // Pattern::Single(OpCode::LOADINT2),
-                                             // Pattern::Double(OpCode::EQUAL, 2),
-                                             // Pattern::Single(OpCode::IF),
+        Pattern::Single(OpCode::LOADINT1),
+        Pattern::Single(OpCode::LOADINT1),
+        Pattern::Single(OpCode::LOADINT1),
+        Pattern::Single(OpCode::LOADINT1),
+        Pattern::Pair(OpCode::CALLGLOBAL, OpCode::Arity, 6),
+        // Pattern::Single(OpCode::BEGINSCOPE), // Pattern::Double(OpCode::ADD, 2),
+        // Pattern::Single(OpCode::LOADINT2),
+        // Pattern::Double(OpCode::EQUAL, 2),
+        // Pattern::Single(OpCode::IF),
     ];
 
     let mut stack_to_ssa = StackToSSAConverter::new();

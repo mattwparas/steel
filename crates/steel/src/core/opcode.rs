@@ -64,6 +64,7 @@ pub enum OpCode {
     // GIMMICK,
     // MOVEREADLOCALCALLGLOBAL,
     DynSuperInstruction,
+    Arity,
 }
 
 impl OpCode {

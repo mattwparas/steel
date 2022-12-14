@@ -324,7 +324,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 }
 
                 if let Some(x) = instructions.get_mut(i + 1) {
-                    x.op_code = OpCode::PASS;
+                    x.op_code = OpCode::Arity;
                 }
             }
             (
@@ -342,7 +342,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 }
 
                 if let Some(x) = instructions.get_mut(i + 1) {
-                    x.op_code = OpCode::PASS;
+                    x.op_code = OpCode::Arity;
                 }
             }
             _ => {}
