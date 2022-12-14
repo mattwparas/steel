@@ -338,6 +338,8 @@ impl StackToSSAConverter {
         function.arg("ctx", codegen::Type::new("&mut VmCore<'_>"));
         function.ret(codegen::Type::new("Result<()>"));
 
+        function.line("offset = ctx.get_offset()");
+
         // READLOCAL0,
         // LOADINT2,
         // MUL,
@@ -352,6 +354,10 @@ impl StackToSSAConverter {
 
         for op in op_codes {
             match op {
+                Single(BEGINSCOPE) => {
+                    let local = self.pop();
+                    function.line(format!("ctx.stack.push({}.into());", local));
+                }
                 Single(VOID) => {
                     let local = self.push_with_hint(TypeHint::Void);
                     function.line(format!("{} = SteelVal::Void", local));
@@ -658,11 +664,12 @@ impl<'a> std::fmt::Display for Call<'a> {
 fn test() {
     let op_codes = vec![
         Pattern::Single(OpCode::LOADINT0),
+        Pattern::Single(OpCode::BEGINSCOPE),
         Pattern::Single(OpCode::LOADINT1),
-        Pattern::Double(OpCode::ADD, 2),
-        Pattern::Single(OpCode::LOADINT2),
-        Pattern::Double(OpCode::EQUAL, 2),
-        Pattern::Single(OpCode::IF),
+        Pattern::Single(OpCode::BEGINSCOPE), // Pattern::Double(OpCode::ADD, 2),
+                                             // Pattern::Single(OpCode::LOADINT2),
+                                             // Pattern::Double(OpCode::EQUAL, 2),
+                                             // Pattern::Single(OpCode::IF),
     ];
 
     let mut stack_to_ssa = StackToSSAConverter::new();

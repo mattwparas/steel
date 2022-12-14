@@ -4065,6 +4065,38 @@ fn dummy(_: &mut VmCore<'_>) -> Result<()> {
     panic!("Unimplemented op code handler!")
 }
 
+#[inline(always)]
+fn handle_push_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
+    let value = ctx.global_env.repl_lookup_idx(index);
+    ctx.ip += 1;
+    Ok(value)
+}
+
+#[inline(always)]
+fn handle_local_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
+    let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let value = ctx.stack[index + offset].clone();
+    ctx.ip += 1;
+    Ok(value)
+}
+
+#[inline(always)]
+fn handle_read_captures_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
+    let value = ctx.stack_frames.last().unwrap().function.captures()[index].clone();
+
+    ctx.ip += 1;
+    Ok(value)
+}
+
+#[inline(always)]
+fn handle_move_local_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
+    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let offset = ctx.stack_frames.last().unwrap().index;
+    let value = std::mem::replace(&mut ctx.stack[index + offset], SteelVal::Void);
+    ctx.ip += 1;
+    Ok(value)
+}
+
 // OpCode::VOID
 fn void_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.stack.push(SteelVal::Void);

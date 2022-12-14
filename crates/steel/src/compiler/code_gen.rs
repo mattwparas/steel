@@ -712,9 +712,16 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .get(&l.syntax_object_id)
             .expect("Missing analysis information for let");
 
+        // Push the scope + the number of arguments in this scope
+        // self.push(LabeledInstruction::builder(OpCode::BEGINSCOPE).payload(l.bindings.len()));
+        // self.push(LabeledInstruction::builder(OpCode::BEGINSCOPE).payload(info.stack_offset));
+
         // We just assume these will live on the stack at whatever position we're entering now
         for expr in l.expression_arguments() {
             self.visit(expr)?;
+            // For the JIT -> push the last instruction to the internal scope
+            // TODO: Rename from BEGINSCOPE to something like MARKLETVAR
+            self.push(LabeledInstruction::builder(OpCode::BEGINSCOPE));
         }
 
         let mut heap_allocated_arguments = info
