@@ -1,6 +1,9 @@
 // TODO: Create stack to ssa representation of the op codes, via macros
 
+pub mod opcode;
 use std::borrow::Cow;
+
+pub use opcode::OpCode;
 
 use codegen::{Function, Scope};
 
@@ -154,72 +157,72 @@ macro_rules! opcode_to_function {
 //     }
 // }
 
-#[repr(u8)]
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum OpCode {
-    VOID = 0,
-    PUSH = 1,
-    IF = 2,
-    JMP = 3,
-    FUNC = 4,
-    SCLOSURE = 5,
-    ECLOSURE = 6,
-    BIND,
-    SDEF,
-    EDEF,
-    POPPURE,
-    PASS,
-    PUSHCONST,
-    NDEFS,
-    PANIC,
-    TAILCALL,
-    SET,
-    READLOCAL,
-    READLOCAL0,
-    READLOCAL1,
-    READLOCAL2,
-    READLOCAL3,
-    SETLOCAL,
-    COPYCAPTURESTACK,
-    COPYCAPTURECLOSURE,
-    COPYHEAPCAPTURECLOSURE,
-    FIRSTCOPYHEAPCAPTURECLOSURE,
-    TCOJMP,
-    CALLGLOBAL,
-    CALLGLOBALTAIL,
-    LOADINT0, // Load const 0
-    LOADINT1,
-    LOADINT2,
-    CGLOCALCONST,
-    MOVEREADLOCAL,
-    MOVEREADLOCAL0,
-    MOVEREADLOCAL1,
-    MOVEREADLOCAL2,
-    MOVEREADLOCAL3,
-    READCAPTURED,
-    MOVECGLOCALCONST,
-    BEGINSCOPE,
-    LETENDSCOPE,
-    PUREFUNC,
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    EQUAL,
-    LTE,
-    NEWSCLOSURE,
-    ADDREGISTER,
-    SUBREGISTER,
-    LTEREGISTER,
-    SUBREGISTER1,
-    ALLOC,
-    READALLOC,
-    SETALLOC,
-    // GIMMICK,
-    // MOVEREADLOCALCALLGLOBAL,
-    DynSuperInstruction,
-    Arity,
-}
+// #[repr(u8)]
+// #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+// pub enum OpCode {
+//     VOID = 0,
+//     PUSH = 1,
+//     IF = 2,
+//     JMP = 3,
+//     FUNC = 4,
+//     SCLOSURE = 5,
+//     ECLOSURE = 6,
+//     BIND,
+//     SDEF,
+//     EDEF,
+//     POPPURE,
+//     PASS,
+//     PUSHCONST,
+//     NDEFS,
+//     PANIC,
+//     TAILCALL,
+//     SET,
+//     READLOCAL,
+//     READLOCAL0,
+//     READLOCAL1,
+//     READLOCAL2,
+//     READLOCAL3,
+//     SETLOCAL,
+//     COPYCAPTURESTACK,
+//     COPYCAPTURECLOSURE,
+//     COPYHEAPCAPTURECLOSURE,
+//     FIRSTCOPYHEAPCAPTURECLOSURE,
+//     TCOJMP,
+//     CALLGLOBAL,
+//     CALLGLOBALTAIL,
+//     LOADINT0, // Load const 0
+//     LOADINT1,
+//     LOADINT2,
+//     CGLOCALCONST,
+//     MOVEREADLOCAL,
+//     MOVEREADLOCAL0,
+//     MOVEREADLOCAL1,
+//     MOVEREADLOCAL2,
+//     MOVEREADLOCAL3,
+//     READCAPTURED,
+//     MOVECGLOCALCONST,
+//     BEGINSCOPE,
+//     LETENDSCOPE,
+//     PUREFUNC,
+//     ADD,
+//     SUB,
+//     MUL,
+//     DIV,
+//     EQUAL,
+//     LTE,
+//     NEWSCLOSURE,
+//     ADDREGISTER,
+//     SUBREGISTER,
+//     LTEREGISTER,
+//     SUBREGISTER1,
+//     ALLOC,
+//     READALLOC,
+//     SETALLOC,
+//     // GIMMICK,
+//     // MOVEREADLOCALCALLGLOBAL,
+//     DynSuperInstruction,
+//     Arity,
+// }
 
 // If we can provide hints on the types, this can help with constant folding of operations
 // that we know the types of
@@ -676,6 +679,42 @@ impl<'a> std::fmt::Display for Call<'a> {
 
 // READCAPTURED, TAILCALL
 
+impl Pattern {
+    fn from_opcodes(op_codes: &[(OpCode, usize)]) -> Vec<Pattern> {
+        use OpCode::*;
+
+        let mut patterns: Vec<Pattern> = Vec::new();
+        let mut iter = op_codes.iter();
+
+        while let Some(op) = iter.next() {
+            match op {
+                (
+                    LOADINT0 | LOADINT1 | LOADINT2 | READLOCAL0 | READLOCAL1 | READLOCAL2
+                    | READLOCAL3 | MOVEREADLOCAL0 | MOVEREADLOCAL1 | MOVEREADLOCAL2
+                    | MOVEREADLOCAL3 | IF | PUSH | READCAPTURED | READLOCAL | MOVEREADLOCAL
+                    | BEGINSCOPE | TAILCALL,
+                    _,
+                ) => {
+                    // todo!()
+                    patterns.push(Pattern::Single(op.0));
+                }
+                (ADD | SUB | MUL | DIV | EQUAL | LTE, 2) => {
+                    patterns.push(Pattern::Double(op.0, 2));
+                }
+                (CALLGLOBAL, _) => {
+                    let arity = iter.next().unwrap();
+                    patterns.push(Pattern::Pair(CALLGLOBAL, arity.0, arity.1))
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+
+        todo!()
+    }
+}
+
 #[test]
 fn test() {
     let op_codes = vec![
@@ -688,9 +727,9 @@ fn test() {
         Pattern::Single(OpCode::LOADINT1),
         Pattern::Pair(OpCode::CALLGLOBAL, OpCode::Arity, 6),
         // Pattern::Single(OpCode::BEGINSCOPE), // Pattern::Double(OpCode::ADD, 2),
-        // Pattern::Single(OpCode::LOADINT2),
-        // Pattern::Double(OpCode::EQUAL, 2),
-        // Pattern::Single(OpCode::IF),
+        Pattern::Single(OpCode::LOADINT2),
+        Pattern::Double(OpCode::EQUAL, 2),
+        Pattern::Single(OpCode::IF),
     ];
 
     let mut stack_to_ssa = StackToSSAConverter::new();

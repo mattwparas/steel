@@ -1688,6 +1688,12 @@ impl<'a> VmCore<'a> {
                     self.ip += 1;
                 }
                 DenseInstruction {
+                    op_code: OpCode::Arity,
+                    ..
+                } => {
+                    self.ip += 1;
+                }
+                DenseInstruction {
                     op_code: OpCode::DynSuperInstruction,
                     payload_size,
                     ..
@@ -4642,10 +4648,10 @@ fn if_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 }
 
 #[inline(always)]
-fn raw_if_handler(ctx: &mut VmCore<'_>) {
+fn raw_if_handler(ctx: &mut VmCore<'_>, arg: SteelVal) {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     // change to truthy...
-    if ctx.stack.pop().unwrap().is_truthy() {
+    if arg.is_truthy() {
         ctx.ip += 1;
     } else {
         ctx.ip = payload_size as usize;

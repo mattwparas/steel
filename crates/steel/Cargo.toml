@@ -37,6 +37,7 @@ dlopen_derive = "0.1.4"
 termimad = "0.14"
 smallvec = "1.10.0"
 lazy_static = "1.4.0"
+steel-gen = { path = "../steel-gen" }
 
 [dev-dependencies]
 proptest = "1.0.0"

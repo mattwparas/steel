@@ -2081,6 +2081,7 @@ dependencies = [
  "serde_json",
  "smallvec",
  "steel",
+ "steel-gen",
  "termimad",
  "thiserror",
 ]
@@ -2090,6 +2091,8 @@ name = "steel-gen"
 version = "0.1.0"
 dependencies = [
  "codegen",
+ "serde",
+ "serde_derive",
 ]
 
 [[package]]
