@@ -1413,8 +1413,9 @@ impl<'a> VmCore<'a> {
                     self.ip += 1;
                     let next_inst = self.instructions[self.ip];
                     self.handle_call_global(
-                        payload_size as usize,
                         next_inst.payload_size as usize,
+                        payload_size as usize,
+                        // next_inst.payload_size as usize,
                     )?;
                 }
                 DenseInstruction {
@@ -1426,8 +1427,9 @@ impl<'a> VmCore<'a> {
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     let next_inst = self.instructions[self.ip + 1];
                     self.handle_tail_call_global(
-                        payload_size as usize,
                         next_inst.payload_size as usize,
+                        payload_size as usize,
+                        // next_inst.payload_size as usize,
                     )?;
                 }
                 DenseInstruction {
@@ -1546,6 +1548,14 @@ impl<'a> VmCore<'a> {
                 }
                 DenseInstruction {
                     op_code: OpCode::BEGINSCOPE,
+                    ..
+                } => {
+                    // todo!()
+                    self.ip += 1;
+                    // self.stack_index.push(self.stack.len());
+                }
+                DenseInstruction {
+                    op_code: OpCode::LetVar,
                     ..
                 } => {
                     // todo!()
@@ -4270,14 +4280,14 @@ fn call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
-    ctx.handle_call_global(payload_size as usize, next_inst.payload_size as usize)
+    ctx.handle_call_global(next_inst.payload_size as usize, payload_size as usize)
 }
 
 // OpCode::CALLGLOBAL
 fn call_global_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
-    ctx.handle_call_global(payload, next_inst.payload_size as usize)
+    ctx.handle_call_global(next_inst.payload_size as usize, payload)
 }
 
 // TODO: Have a way to know the correct arity?

@@ -168,26 +168,6 @@ impl DebruijnIndicesInterner {
                     ..
                 }
                 | Instruction {
-                    op_code: OpCode::CALLGLOBAL,
-                    contents:
-                        Some(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            span,
-                            ..
-                        }),
-                    ..
-                }
-                | Instruction {
-                    op_code: OpCode::CALLGLOBALTAIL,
-                    contents:
-                        Some(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            span,
-                            ..
-                        }),
-                    ..
-                }
-                | Instruction {
                     op_code: OpCode::SET,
                     contents:
                         Some(SyntaxObject {
@@ -215,6 +195,44 @@ impl DebruijnIndicesInterner {
                         x.constant = false;
                     }
                 }
+                Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            span,
+                            ..
+                        }),
+                    ..
+                }
+                | Instruction {
+                    op_code: OpCode::CALLGLOBALTAIL,
+                    contents:
+                        Some(SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            span,
+                            ..
+                        }),
+                    ..
+                } => {
+                    if self.flat_defines.get(s).is_some() {
+                        if self.second_pass_defines.get(s).is_none() && depth == 0 {
+                            let message = format!(
+                                "Cannot reference an identifier before its definition: {}",
+                                s
+                            );
+                            stop!(FreeIdentifier => message; *span);
+                        }
+                    }
+
+                    let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
+
+                    // TODO commenting this for now
+                    if let Some(x) = instructions.get_mut(i + 1) {
+                        x.payload_size = idx;
+                        x.constant = false;
+                    }
+                }
                 _ => {}
             }
         }
@@ -225,159 +243,159 @@ impl DebruijnIndicesInterner {
 
 // TODO this needs to take into account if they are functions or not before adding them
 // don't just blindly do all global defines first - need to do them in order correctly
-pub fn replace_defines_with_debruijn_indices(
-    instructions: &mut [Instruction],
-    symbol_map: &mut SymbolMap,
-) -> Result<()> {
-    let mut flat_defines: HashSet<String> = HashSet::new();
+// pub fn replace_defines_with_debruijn_indices(
+//     instructions: &mut [Instruction],
+//     symbol_map: &mut SymbolMap,
+// ) -> Result<()> {
+//     let mut flat_defines: HashSet<String> = HashSet::new();
 
-    for i in 2..instructions.len() {
-        match (&instructions[i], &instructions[i - 1], &instructions[i - 2]) {
-            (
-                Instruction {
-                    op_code: OpCode::BIND,
-                    contents:
-                        Some(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }),
-                    ..
-                },
-                Instruction {
-                    op_code: OpCode::EDEF,
-                    ..
-                },
-                Instruction {
-                    op_code: OpCode::ECLOSURE,
-                    ..
-                },
-            ) => {
-                let idx = symbol_map.get_or_add(s);
-                flat_defines.insert(s.to_owned());
+//     for i in 2..instructions.len() {
+//         match (&instructions[i], &instructions[i - 1], &instructions[i - 2]) {
+//             (
+//                 Instruction {
+//                     op_code: OpCode::BIND,
+//                     contents:
+//                         Some(SyntaxObject {
+//                             ty: TokenType::Identifier(s),
+//                             ..
+//                         }),
+//                     ..
+//                 },
+//                 Instruction {
+//                     op_code: OpCode::EDEF,
+//                     ..
+//                 },
+//                 Instruction {
+//                     op_code: OpCode::ECLOSURE,
+//                     ..
+//                 },
+//             ) => {
+//                 let idx = symbol_map.get_or_add(s);
+//                 flat_defines.insert(s.to_owned());
 
-                if let Some(x) = instructions.get_mut(i) {
-                    x.payload_size = idx;
-                }
-            }
-            (
-                Instruction {
-                    op_code: OpCode::BIND,
-                    contents:
-                        Some(SyntaxObject {
-                            ty: TokenType::Identifier(s),
-                            ..
-                        }),
-                    ..
-                },
-                ..,
-            ) => {
-                let idx = symbol_map.get_or_add(s);
-                flat_defines.insert(s.to_owned());
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.payload_size = idx;
+//                 }
+//             }
+//             (
+//                 Instruction {
+//                     op_code: OpCode::BIND,
+//                     contents:
+//                         Some(SyntaxObject {
+//                             ty: TokenType::Identifier(s),
+//                             ..
+//                         }),
+//                     ..
+//                 },
+//                 ..,
+//             ) => {
+//                 let idx = symbol_map.get_or_add(s);
+//                 flat_defines.insert(s.to_owned());
 
-                if let Some(x) = instructions.get_mut(i) {
-                    x.payload_size = idx;
-                }
-            }
-            _ => {}
-        }
-    }
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.payload_size = idx;
+//                 }
+//             }
+//             _ => {}
+//         }
+//     }
 
-    let mut second_pass_defines: HashSet<String> = HashSet::new();
+//     let mut second_pass_defines: HashSet<String> = HashSet::new();
 
-    let mut depth = 0;
+//     let mut depth = 0;
 
-    // name mangle
-    // Replace all identifiers with indices
-    for i in 0..instructions.len() {
-        match &instructions[i] {
-            Instruction {
-                op_code: OpCode::SCLOSURE | OpCode::NEWSCLOSURE | OpCode::PUREFUNC,
-                ..
-            } => {
-                depth += 1;
-            }
-            Instruction {
-                op_code: OpCode::ECLOSURE,
-                ..
-            } => {
-                depth -= 1;
-            }
-            Instruction {
-                op_code: OpCode::BIND,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        ..
-                    }),
-                ..
-            } => {
-                // Keep track of where the defines actually are in the process
-                second_pass_defines.insert(s.to_owned());
-            }
-            Instruction {
-                op_code: OpCode::PUSH,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        span,
-                        ..
-                    }),
-                ..
-            }
-            | Instruction {
-                op_code: OpCode::CALLGLOBAL,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        span,
-                        ..
-                    }),
-                ..
-            }
-            | Instruction {
-                op_code: OpCode::CALLGLOBALTAIL,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        span,
-                        ..
-                    }),
-                ..
-            }
-            | Instruction {
-                op_code: OpCode::SET,
-                contents:
-                    Some(SyntaxObject {
-                        ty: TokenType::Identifier(s),
-                        span,
-                        ..
-                    }),
-                ..
-            } => {
-                if flat_defines.get(s).is_some() {
-                    if second_pass_defines.get(s).is_none() && depth == 0 {
-                        let message = format!(
-                            "Cannot reference an identifier before its definition: {}",
-                            s
-                        );
-                        stop!(FreeIdentifier => message; *span);
-                    }
-                }
+//     // name mangle
+//     // Replace all identifiers with indices
+//     for i in 0..instructions.len() {
+//         match &instructions[i] {
+//             Instruction {
+//                 op_code: OpCode::SCLOSURE | OpCode::NEWSCLOSURE | OpCode::PUREFUNC,
+//                 ..
+//             } => {
+//                 depth += 1;
+//             }
+//             Instruction {
+//                 op_code: OpCode::ECLOSURE,
+//                 ..
+//             } => {
+//                 depth -= 1;
+//             }
+//             Instruction {
+//                 op_code: OpCode::BIND,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         ..
+//                     }),
+//                 ..
+//             } => {
+//                 // Keep track of where the defines actually are in the process
+//                 second_pass_defines.insert(s.to_owned());
+//             }
+//             Instruction {
+//                 op_code: OpCode::PUSH,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         span,
+//                         ..
+//                     }),
+//                 ..
+//             }
+//             | Instruction {
+//                 op_code: OpCode::CALLGLOBAL,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         span,
+//                         ..
+//                     }),
+//                 ..
+//             }
+//             | Instruction {
+//                 op_code: OpCode::CALLGLOBALTAIL,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         span,
+//                         ..
+//                     }),
+//                 ..
+//             }
+//             | Instruction {
+//                 op_code: OpCode::SET,
+//                 contents:
+//                     Some(SyntaxObject {
+//                         ty: TokenType::Identifier(s),
+//                         span,
+//                         ..
+//                     }),
+//                 ..
+//             } => {
+//                 if flat_defines.get(s).is_some() {
+//                     if second_pass_defines.get(s).is_none() && depth == 0 {
+//                         let message = format!(
+//                             "Cannot reference an identifier before its definition: {}",
+//                             s
+//                         );
+//                         stop!(FreeIdentifier => message; *span);
+//                     }
+//                 }
 
-                let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
+//                 let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
 
-                // TODO commenting this for now
-                if let Some(x) = instructions.get_mut(i) {
-                    x.payload_size = idx;
-                    x.constant = false;
-                }
-            }
-            _ => {}
-        }
-    }
+//                 // TODO commenting this for now
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.payload_size = idx;
+//                     x.constant = false;
+//                 }
+//             }
+//             _ => {}
+//         }
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 // Adds a flag to the pop value in order to save the heap to the global heap
 // I should really come up with a better name but for now we'll leave it

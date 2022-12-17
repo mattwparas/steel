@@ -1,7 +1,7 @@
 extern crate rustyline;
 use colored::*;
 
-use std::sync::mpsc::channel;
+// use std::sync::mpsc::channel;
 
 use rustyline::error::ReadlineError;
 use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};

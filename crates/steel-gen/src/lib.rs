@@ -237,7 +237,7 @@ enum TypeHint {
     None,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct LocalVariable {
     id: u16,
     type_hint: TypeHint,
@@ -287,6 +287,7 @@ fn op_code_to_handler(op_code: Pattern) -> String {
 struct StackToSSAConverter {
     generator: GenSym,
     stack: Vec<LocalVariable>,
+    local_offset: usize,
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -311,7 +312,13 @@ impl StackToSSAConverter {
         Self {
             generator: GenSym::new(),
             stack: Vec::new(),
+            local_offset: 0,
         }
+    }
+
+    // Get the current local offset
+    pub fn local_offset(&self) -> usize {
+        self.local_offset
     }
 
     pub fn push(&mut self) -> LocalVariable {
@@ -358,10 +365,13 @@ impl StackToSSAConverter {
 
         for op in op_codes {
             match op {
-                Single(BEGINSCOPE) => {
-                    let local = self.pop();
-                    function.line(format!("ctx.stack.push({}.into());", local));
+                Double(BEGINSCOPE, n) => {
+                    self.local_offset = *n;
                 }
+                // Single(LetVar) => {
+                //     let local = self.pop();
+                //     function.line(format!("ctx.stack.push({}.into());", local));
+                // }
                 Single(VOID) => {
                     let local = self.push_with_hint(TypeHint::Void);
                     function.line(format!("{} = SteelVal::Void", local));
@@ -381,7 +391,9 @@ impl StackToSSAConverter {
                     // Load the immediate for 2
                     function.line(format!("{} = {}", local, 2));
                 }
-                Pair(CALLGLOBAL, Arity, n) => {
+                Double(CALLGLOBAL, n) => {
+                    // println!("Stack: {:?}", self.stack);
+
                     let args = self
                         .stack
                         .split_off(self.stack.len() - n)
@@ -396,11 +408,121 @@ impl StackToSSAConverter {
                         local, args
                     ));
                 }
-                Single(
-                    MOVEREADLOCAL | MOVEREADLOCAL1 | MOVEREADLOCAL2 | MOVEREADLOCAL3 | READLOCAL0
-                    | READLOCAL1 | READLOCAL2 | READLOCAL3 | PUSH | READCAPTURED | TAILCALL
-                    | CALLGLOBAL,
-                ) => {
+                Double(READLOCAL, n) => {
+                    if self.local_offset > *n {
+                        let local = self.push();
+                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    } else {
+                        let local = self.push();
+                        let var = self.stack.get(*n).unwrap();
+                        function.line(format!("{} = {}.clone()", local, var));
+                    }
+                }
+                Single(READLOCAL0) => {
+                    // If we're dealing with a let var, then we can only specialize it _iff_ the
+                    // value we're reading exceeds the current function arguments.
+                    // For instance, if we have a function like this:
+                    // (lambda (x y z) (let ((foo 10)) (+ x y z foo))
+                    // Then foo should be something like READLOCAL(4)
+                    // In this case, we can safely snag it from the Rust stack
+                    // Otherwise, we need to read it from the steel stack.
+                    if self.local_offset > 0 {
+                        let local = self.push();
+                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    } else {
+                        let local = self.push();
+                        let var = self.stack.get(0).unwrap();
+                        function.line(format!("{} = {}.clone()", local, var));
+                    }
+                }
+                Single(READLOCAL1) => {
+                    if self.local_offset > 1 {
+                        let local = self.push();
+                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    } else {
+                        let local = self.push();
+                        let var = self.stack.get(1).unwrap();
+                        function.line(format!("{} = {}.clone()", local, var));
+                    }
+                }
+                Single(READLOCAL2) => {
+                    if self.local_offset > 2 {
+                        let local = self.push();
+                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    } else {
+                        let local = self.push();
+                        let var = self.stack.get(2).unwrap();
+                        function.line(format!("{} = {}.clone()", local, var));
+                    }
+                }
+                Single(READLOCAL3) => {
+                    if self.local_offset > 3 {
+                        let local = self.push();
+                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    } else {
+                        let local = self.push();
+                        let var = self.stack.get(3).unwrap();
+                        function.line(format!("{} = {}.clone()", local, var));
+                    }
+                }
+                Double(MOVEREADLOCAL, n) => {
+                    if self.local_offset > *n {
+                        let local = self.push();
+                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    } else {
+                        let local = self.push();
+                        let var = self.stack.get(*n).unwrap();
+                        function.line(format!("{} = {}", local, var));
+                    }
+                }
+                Single(MOVEREADLOCAL0) => {
+                    // If we're dealing with a let var, then we can only specialize it _iff_ the
+                    // value we're reading exceeds the current function arguments.
+                    // For instance, if we have a function like this:
+                    // (lambda (x y z) (let ((foo 10)) (+ x y z foo))
+                    // Then foo should be something like READLOCAL(4)
+                    // In this case, we can safely snag it from the Rust stack
+                    // Otherwise, we need to read it from the steel stack.
+                    if self.local_offset > 0 {
+                        let local = self.push();
+                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    } else {
+                        let local = self.push();
+                        let var = self.stack.get(0).unwrap();
+                        function.line(format!("{} = {}", local, var));
+                    }
+                }
+                Single(MOVEREADLOCAL1) => {
+                    if self.local_offset > 1 {
+                        let local = self.push();
+                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    } else {
+                        let local = self.push();
+                        let var = self.stack.get(1).unwrap();
+                        function.line(format!("{} = {}", local, var));
+                    }
+                }
+                Single(MOVEREADLOCAL2) => {
+                    if self.local_offset > 2 {
+                        let local = self.push();
+                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    } else {
+                        let local = self.push();
+                        let var = self.stack.get(2).unwrap();
+                        function.line(format!("{} = {}", local, var));
+                    }
+                }
+                Single(MOVEREADLOCAL3) => {
+                    if self.local_offset > 3 {
+                        let local = self.push();
+                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    } else {
+                        let local = self.push();
+                        let var = self.stack.get(3).unwrap();
+                        function.line(format!("{} = {}", local, var));
+                    }
+                }
+                Single(PUSH | READCAPTURED | TAILCALL | CALLGLOBAL) => {
                     let local = self.push();
                     function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
                 }
@@ -691,19 +813,15 @@ impl Pattern {
                 (
                     LOADINT0 | LOADINT1 | LOADINT2 | READLOCAL0 | READLOCAL1 | READLOCAL2
                     | READLOCAL3 | MOVEREADLOCAL0 | MOVEREADLOCAL1 | MOVEREADLOCAL2
-                    | MOVEREADLOCAL3 | IF | PUSH | READCAPTURED | READLOCAL | MOVEREADLOCAL
-                    | BEGINSCOPE | TAILCALL,
+                    | MOVEREADLOCAL3 | IF | PUSH | READCAPTURED | TAILCALL,
                     _,
-                ) => {
-                    // todo!()
-                    patterns.push(Pattern::Single(op.0));
-                }
-                (ADD | SUB | MUL | DIV | EQUAL | LTE, 2) => {
-                    patterns.push(Pattern::Double(op.0, 2));
-                }
-                (CALLGLOBAL, _) => {
-                    let arity = iter.next().unwrap();
-                    patterns.push(Pattern::Pair(CALLGLOBAL, arity.0, arity.1))
+                ) => patterns.push(Pattern::Single(op.0)),
+                (READLOCAL | MOVEREADLOCAL, n) => patterns.push(Pattern::Double(op.0, *n)),
+                (ADD | SUB | MUL | DIV | EQUAL | LTE, 2) => patterns.push(Pattern::Double(op.0, 2)),
+                (BEGINSCOPE, n) => patterns.push(Pattern::Double(op.0, *n)),
+                (CALLGLOBAL, n) => {
+                    // let arity = iter.next().unwrap();
+                    patterns.push(Pattern::Double(CALLGLOBAL, *n))
                 }
                 _ => {
                     continue;
@@ -711,26 +829,50 @@ impl Pattern {
             }
         }
 
-        todo!()
+        return patterns;
     }
 }
 
 #[test]
 fn test() {
+    // let op_codes = vec![
+    //     Pattern::Double(OpCode::BEGINSCOPE, 0),
+    //     Pattern::Single(OpCode::LOADINT0),
+    //     // Pattern::Single(OpCode::BEGINSCOPE),
+    //     Pattern::Single(OpCode::LOADINT1),
+    //     Pattern::Single(OpCode::LOADINT1),
+    //     Pattern::Single(OpCode::LOADINT1),
+    //     Pattern::Single(OpCode::LOADINT1),
+    //     Pattern::Single(OpCode::LOADINT1),
+    //     Pattern::Single(OpCode::READLOCAL0),
+    //     Pattern::Single(OpCode::READLOCAL1),
+    //     Pattern::Pair(OpCode::CALLGLOBAL, OpCode::Arity, 6),
+    //     // Pattern::Single(OpCode::BEGINSCOPE), // Pattern::Double(OpCode::ADD, 2),
+    //     Pattern::Single(OpCode::LOADINT2),
+    //     Pattern::Double(OpCode::EQUAL, 2),
+    //     Pattern::Single(OpCode::IF),
+    // ];
+
+    use OpCode::*;
+
     let op_codes = vec![
-        Pattern::Single(OpCode::LOADINT0),
-        // Pattern::Single(OpCode::BEGINSCOPE),
-        Pattern::Single(OpCode::LOADINT1),
-        Pattern::Single(OpCode::LOADINT1),
-        Pattern::Single(OpCode::LOADINT1),
-        Pattern::Single(OpCode::LOADINT1),
-        Pattern::Single(OpCode::LOADINT1),
-        Pattern::Pair(OpCode::CALLGLOBAL, OpCode::Arity, 6),
-        // Pattern::Single(OpCode::BEGINSCOPE), // Pattern::Double(OpCode::ADD, 2),
-        Pattern::Single(OpCode::LOADINT2),
-        Pattern::Double(OpCode::EQUAL, 2),
-        Pattern::Single(OpCode::IF),
+        (BEGINSCOPE, 0),
+        (READLOCAL0, 0),
+        (LOADINT2, 225),
+        (MUL, 2),
+        (MOVEREADLOCAL1, 1),
+        (LOADINT1, 219),
+        (SUB, 2),
+        (READLOCAL2, 2),
+        (LOADINT1, 219),
+        (SUB, 2),
+        (READLOCAL3, 3),
+        (CALLGLOBAL, 2),
     ];
+
+    let op_codes = Pattern::from_opcodes(&op_codes);
+
+    println!("{:#?}", op_codes);
 
     let mut stack_to_ssa = StackToSSAConverter::new();
 

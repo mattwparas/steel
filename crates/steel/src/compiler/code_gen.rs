@@ -31,6 +31,7 @@ pub struct CodeGenerator<'a> {
     pub(crate) instructions: Vec<LabeledInstruction>,
     constant_map: &'a mut ConstantMap,
     analysis: &'a Analysis,
+    local_count: Vec<usize>,
 }
 
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
@@ -56,6 +57,7 @@ impl<'a> CodeGenerator<'a> {
             instructions: Vec::new(),
             constant_map,
             analysis,
+            local_count: Vec::new(),
         }
     }
 
@@ -345,6 +347,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             LabeledInstruction::builder(OpCode::PASS).payload(lambda_function.syntax_object_id),
         );
 
+        // Save how many locals we have, for when we hit lets
+        self.local_count.push(arity);
+
         let mut body_instructions = {
             let mut code_gen = CodeGenerator::new(&mut self.constant_map, &self.analysis);
             code_gen.visit(&lambda_function.body)?;
@@ -472,6 +477,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         } else {
             stop!(Generic => "out of bounds closure len");
         }
+
+        self.local_count.pop();
 
         Ok(())
     }
@@ -706,6 +713,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // FUNC 2
         // LETENDSCOPE 0 <- index of the stack when we entered this let expr
 
+        self.push(
+            LabeledInstruction::builder(OpCode::BEGINSCOPE)
+                .payload(*self.local_count.last().unwrap_or(&0)),
+        );
+
         let info = self
             .analysis
             .let_info
@@ -721,7 +733,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             self.visit(expr)?;
             // For the JIT -> push the last instruction to the internal scope
             // TODO: Rename from BEGINSCOPE to something like MARKLETVAR
-            self.push(LabeledInstruction::builder(OpCode::BEGINSCOPE));
+            // self.push(LabeledInstruction::builder(OpCode::LetVar));
         }
 
         let mut heap_allocated_arguments = info

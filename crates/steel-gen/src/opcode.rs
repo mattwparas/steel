@@ -65,6 +65,7 @@ pub enum OpCode {
     // MOVEREADLOCALCALLGLOBAL,
     DynSuperInstruction,
     Arity,
+    LetVar,
 }
 
 impl OpCode {

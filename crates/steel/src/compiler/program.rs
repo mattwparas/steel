@@ -312,37 +312,55 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
             (
                 Some(Instruction {
                     op_code: OpCode::PUSH,
+                    payload_size: index,
                     ..
                 }),
                 Some(Instruction {
                     op_code: OpCode::FUNC,
+                    payload_size: arity,
                     ..
                 }),
             ) => {
+                let arity = *arity;
+                let index = *index;
+
+                // println!("Converting call global");
+                // println!("Arity: {}", arity);
+                // println!("Index: {}", index);
+
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = OpCode::CALLGLOBAL;
+                    x.payload_size = arity;
                 }
 
                 if let Some(x) = instructions.get_mut(i + 1) {
                     x.op_code = OpCode::Arity;
+                    x.payload_size = index;
                 }
             }
             (
                 Some(Instruction {
                     op_code: OpCode::PUSH,
+                    payload_size: index,
                     ..
                 }),
                 Some(Instruction {
                     op_code: OpCode::TAILCALL,
+                    payload_size: arity,
                     ..
                 }),
             ) => {
+                let arity = *arity;
+                let index = *index;
+
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = OpCode::CALLGLOBALTAIL;
+                    x.payload_size = arity;
                 }
 
                 if let Some(x) = instructions.get_mut(i + 1) {
                     x.op_code = OpCode::Arity;
+                    x.payload_size = index;
                 }
             }
             _ => {}
