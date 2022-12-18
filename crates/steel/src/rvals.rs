@@ -671,6 +671,88 @@ pub enum SteelVal {
     Boxed(HeapRef),
 }
 
+// TODO: Consider unboxed value types, for optimized usages when compiling segments of code.
+// If we can infer the types from the concrete functions used, we don't need to have unboxed values -> We also
+// can use concrete forms of the underlying functions as well.
+// #[derive(Clone)]
+// pub enum UnboxedSteelVal {
+//     /// Represents a boolean value
+//     BoolV(bool),
+//     /// Represents a number, currently only f64 numbers are supported
+//     NumV(f64),
+//     /// Represents an integer
+//     IntV(isize),
+//     /// Represents a character type
+//     CharV(char),
+//     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
+//     /// data structures
+//     VectorV(Vector<SteelVal>),
+//     /// Void return value
+//     Void,
+//     /// Represents strings
+//     StringV(SteelString),
+//     /// Represents built in rust functions
+//     FuncV(FunctionSignature),
+//     /// Represents a symbol, internally represented as `String`s
+//     SymbolV(SteelString),
+//     /// Container for a type that implements the `Custom Type` trait. (trait object)
+//     Custom(Gc<RefCell<Box<dyn CustomType>>>),
+//     // Embedded HashMap
+//     HashMapV(HashMap<SteelVal, SteelVal>),
+//     // Embedded HashSet
+//     HashSetV(HashSet<SteelVal>),
+//     /// Represents a scheme-only struct
+//     // StructV(Gc<SteelStruct>),
+//     /// Alternative implementation of a scheme-only struct
+//     CustomStruct(Gc<RefCell<UserDefinedStruct>>),
+//     // Represents a special rust closure
+//     // StructClosureV(Box<SteelStruct>, StructClosureSignature),
+//     // StructClosureV(Box<StructClosure>),
+//     /// Represents a port object
+//     PortV(SteelPort),
+//     /// Represents a bytecode closure
+//     Closure(Gc<ByteCodeLambda>),
+//     /// Generic iterator wrapper
+//     IterV(Gc<Transducer>),
+//     /// Reducers
+//     ReducerV(Gc<Reducer>),
+//     // Reducer(Reducer)
+//     // Generic IntoIter wrapper
+//     // Promise(Gc<SteelVal>),
+//     /// Async Function wrapper
+//     FutureFunc(BoxedAsyncFunctionSignature),
+//     // Boxed Future Result
+//     FutureV(Gc<FutureResult>),
+
+//     StreamV(Gc<LazyStream>),
+//     // Break the cycle somehow
+//     // EvaluationEnv(Weak<RefCell<Env>>),
+//     /// Contract
+//     Contract(Gc<ContractType>),
+//     /// Contracted Function
+//     ContractedFunction(Gc<ContractedFunction>),
+//     /// Custom closure
+//     BoxedFunction(BoxedFunctionSignature),
+//     // Continuation
+//     ContinuationFunction(Gc<Continuation>),
+//     // List
+//     ListV(List<SteelVal>),
+//     // Mutable functions
+//     MutFunc(MutFunctionSignature),
+//     // Built in functions
+//     BuiltIn(BuiltInSignature),
+//     // Mutable vector
+//     MutableVector(Gc<RefCell<Vec<SteelVal>>>),
+//     // This should delegate to the underlying iterator - can allow for faster raw iteration if possible
+//     // Should allow for polling just a raw "next" on underlying elements
+//     BoxedIterator(Gc<RefCell<BuiltInDataStructureIterator>>),
+
+//     SyntaxObject(Gc<Syntax>),
+
+//     // Mutable storage, with Gc backing
+//     Boxed(HeapRef),
+// }
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SteelString(Rc<String>);
 

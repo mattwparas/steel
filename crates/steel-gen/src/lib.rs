@@ -5,7 +5,7 @@ use std::borrow::Cow;
 
 pub use opcode::OpCode;
 
-use codegen::{Function, Scope};
+use codegen::{Block, Function, Scope};
 
 macro_rules! opcode_to_function {
     (VOID) => {
@@ -287,14 +287,13 @@ fn op_code_to_handler(op_code: Pattern) -> String {
 struct StackToSSAConverter {
     generator: GenSym,
     stack: Vec<LocalVariable>,
-    local_offset: usize,
+    local_offset: Option<usize>,
 }
 
-#[derive(Clone, Debug, Copy)]
-enum Pattern {
+#[derive(Clone, Debug, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Pattern {
     Single(OpCode),
     Double(OpCode, usize),
-    Pair(OpCode, OpCode, usize),
 }
 
 impl std::fmt::Display for Pattern {
@@ -302,7 +301,6 @@ impl std::fmt::Display for Pattern {
         match self {
             Pattern::Single(op) => write!(f, "{:?}", op),
             Pattern::Double(op, payload) => write!(f, "{:?}{}", op, payload),
-            Pattern::Pair(op1, op2, payload) => write!(f, "{:?}{:?}{}", op1, op2, payload),
         }
     }
 }
@@ -312,14 +310,20 @@ impl StackToSSAConverter {
         Self {
             generator: GenSym::new(),
             stack: Vec::new(),
-            local_offset: 0,
+            local_offset: None,
         }
     }
 
-    // Get the current local offset
-    pub fn local_offset(&self) -> usize {
-        self.local_offset
+    pub fn reset(&mut self) {
+        self.generator.count = 0;
+        self.stack.clear();
+        self.local_offset = None;
     }
+
+    // Get the current local offset
+    // pub fn local_offset(&self) -> usize {
+    //     self.local_offset
+    // }
 
     pub fn push(&mut self) -> LocalVariable {
         let var = self.generator.fresh();
@@ -337,11 +341,11 @@ impl StackToSSAConverter {
         self.stack.pop().unwrap()
     }
 
-    pub fn process_sequence(&mut self, op_codes: &[Pattern]) -> String {
+    pub fn process_sequence(&mut self, op_codes: &[Pattern]) -> Function {
         use OpCode::*;
         use Pattern::*;
 
-        let mut scope = Scope::new();
+        // let mut scope = Scope::new();
         let mut function = Function::new(
             op_codes
                 .iter()
@@ -349,6 +353,7 @@ impl StackToSSAConverter {
                 .collect::<String>(),
         );
         function.arg("ctx", codegen::Type::new("&mut VmCore<'_>"));
+        function.arg("payload", codegen::Type::new("usize"));
         function.ret(codegen::Type::new("Result<()>"));
 
         // READLOCAL0,
@@ -366,7 +371,8 @@ impl StackToSSAConverter {
         for op in op_codes {
             match op {
                 Double(BEGINSCOPE, n) => {
-                    self.local_offset = *n;
+                    self.local_offset = Some(*n);
+                    function.line("ctx.ip += 1;");
                 }
                 // Single(LetVar) => {
                 //     let local = self.pop();
@@ -374,22 +380,26 @@ impl StackToSSAConverter {
                 // }
                 Single(VOID) => {
                     let local = self.push_with_hint(TypeHint::Void);
-                    function.line(format!("{} = SteelVal::Void", local));
+                    function.line(format!("let {} = SteelVal::Void;", local));
+                    function.line("ctx.ip += 1;");
                 }
                 Single(LOADINT0) => {
                     let local = self.push_with_hint(TypeHint::Int);
                     // Load the immediate for 0
-                    function.line(format!("{} = {}", local, 0));
+                    function.line(format!("let {} = {};", local, 0));
+                    function.line("ctx.ip += 1;");
                 }
                 Single(LOADINT1) => {
                     let local = self.push_with_hint(TypeHint::Int);
                     // Load the immediate for 1
-                    function.line(format!("{} = {}", local, 1));
+                    function.line(format!("let {} = {};", local, 1));
+                    function.line("ctx.ip += 1;");
                 }
                 Single(LOADINT2) => {
                     let local = self.push_with_hint(TypeHint::Int);
                     // Load the immediate for 2
-                    function.line(format!("{} = {}", local, 2));
+                    function.line(format!("let {} = {};", local, 2));
+                    function.line("ctx.ip += 1;");
                 }
                 Double(CALLGLOBAL, n) => {
                     // println!("Stack: {:?}", self.stack);
@@ -404,18 +414,24 @@ impl StackToSSAConverter {
                     let local = self.push();
 
                     function.line(format!(
-                        "{} = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &[{}])?;",
+                        "let {} = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [{}])?;",
                         local, args
                     ));
                 }
                 Double(READLOCAL, n) => {
-                    if self.local_offset > *n {
+                    if self.local_offset.is_none()
+                        || self.local_offset.is_some() && self.local_offset.unwrap() > *n
+                    {
                         let local = self.push();
-                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                        function.line(format!(
+                            "let {} = {}(ctx)?;",
+                            local,
+                            op_code_to_handler(*op)
+                        ));
                     } else {
                         let local = self.push();
                         let var = self.stack.get(*n).unwrap();
-                        function.line(format!("{} = {}.clone()", local, var));
+                        function.line(format!("let {} = {}.clone();", local, var));
                     }
                 }
                 Single(READLOCAL0) => {
@@ -426,53 +442,83 @@ impl StackToSSAConverter {
                     // Then foo should be something like READLOCAL(4)
                     // In this case, we can safely snag it from the Rust stack
                     // Otherwise, we need to read it from the steel stack.
-                    if self.local_offset > 0 {
+                    if self.local_offset.is_none()
+                        || self.local_offset.is_some() && self.local_offset.unwrap() > 0
+                    {
                         let local = self.push();
-                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                        function.line(format!(
+                            "let {} = {}(ctx)?;",
+                            local,
+                            op_code_to_handler(*op)
+                        ));
                     } else {
                         let local = self.push();
                         let var = self.stack.get(0).unwrap();
-                        function.line(format!("{} = {}.clone()", local, var));
+                        function.line(format!("let {} = {}.clone();", local, var));
                     }
                 }
                 Single(READLOCAL1) => {
-                    if self.local_offset > 1 {
+                    if self.local_offset.is_none()
+                        || self.local_offset.is_some() && self.local_offset.unwrap() > 1
+                    {
                         let local = self.push();
-                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                        function.line(format!(
+                            "let {} = {}(ctx)?;",
+                            local,
+                            op_code_to_handler(*op)
+                        ));
                     } else {
                         let local = self.push();
                         let var = self.stack.get(1).unwrap();
-                        function.line(format!("{} = {}.clone()", local, var));
+                        function.line(format!("let {} = {}.clone();", local, var));
                     }
                 }
                 Single(READLOCAL2) => {
-                    if self.local_offset > 2 {
+                    if self.local_offset.is_none()
+                        || self.local_offset.is_some() && self.local_offset.unwrap() > 2
+                    {
                         let local = self.push();
-                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                        function.line(format!(
+                            "let {} = {}(ctx)?;",
+                            local,
+                            op_code_to_handler(*op)
+                        ));
                     } else {
                         let local = self.push();
                         let var = self.stack.get(2).unwrap();
-                        function.line(format!("{} = {}.clone()", local, var));
+                        function.line(format!("let {} = {}.clone();", local, var));
                     }
                 }
                 Single(READLOCAL3) => {
-                    if self.local_offset > 3 {
+                    if self.local_offset.is_none()
+                        || self.local_offset.is_some() && self.local_offset.unwrap() > 3
+                    {
                         let local = self.push();
-                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                        function.line(format!(
+                            "let {} = {}(ctx)?;",
+                            local,
+                            op_code_to_handler(*op)
+                        ));
                     } else {
                         let local = self.push();
                         let var = self.stack.get(3).unwrap();
-                        function.line(format!("{} = {}.clone()", local, var));
+                        function.line(format!("let {} = {}.clone();", local, var));
                     }
                 }
                 Double(MOVEREADLOCAL, n) => {
-                    if self.local_offset > *n {
+                    if self.local_offset.is_none()
+                        || self.local_offset.is_some() && self.local_offset.unwrap() > *n
+                    {
                         let local = self.push();
-                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                        function.line(format!(
+                            "let {} = {}(ctx)?;",
+                            local,
+                            op_code_to_handler(*op)
+                        ));
                     } else {
                         let local = self.push();
                         let var = self.stack.get(*n).unwrap();
-                        function.line(format!("{} = {}", local, var));
+                        function.line(format!("let {} = {};", local, var));
                     }
                 }
                 Single(MOVEREADLOCAL0) => {
@@ -483,48 +529,76 @@ impl StackToSSAConverter {
                     // Then foo should be something like READLOCAL(4)
                     // In this case, we can safely snag it from the Rust stack
                     // Otherwise, we need to read it from the steel stack.
-                    if self.local_offset > 0 {
+                    if self.local_offset.is_none()
+                        || self.local_offset.is_some() && self.local_offset.unwrap() > 0
+                    {
                         let local = self.push();
-                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                        function.line(format!(
+                            "let {} = {}(ctx)?;",
+                            local,
+                            op_code_to_handler(*op)
+                        ));
                     } else {
                         let local = self.push();
                         let var = self.stack.get(0).unwrap();
-                        function.line(format!("{} = {}", local, var));
+                        function.line(format!("let {} = {};", local, var));
                     }
                 }
                 Single(MOVEREADLOCAL1) => {
-                    if self.local_offset > 1 {
+                    if self.local_offset.is_none()
+                        || self.local_offset.is_some() && self.local_offset.unwrap() > 1
+                    {
                         let local = self.push();
-                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                        function.line(format!(
+                            "let {} = {}(ctx)?;",
+                            local,
+                            op_code_to_handler(*op)
+                        ));
                     } else {
                         let local = self.push();
                         let var = self.stack.get(1).unwrap();
-                        function.line(format!("{} = {}", local, var));
+                        function.line(format!("let {} = {};", local, var));
                     }
                 }
                 Single(MOVEREADLOCAL2) => {
-                    if self.local_offset > 2 {
+                    if self.local_offset.is_none()
+                        || self.local_offset.is_some() && self.local_offset.unwrap() > 2
+                    {
                         let local = self.push();
-                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                        function.line(format!(
+                            "let {} = {}(ctx)?;",
+                            local,
+                            op_code_to_handler(*op)
+                        ));
                     } else {
                         let local = self.push();
                         let var = self.stack.get(2).unwrap();
-                        function.line(format!("{} = {}", local, var));
+                        function.line(format!("let {} = {};", local, var));
                     }
                 }
                 Single(MOVEREADLOCAL3) => {
-                    if self.local_offset > 3 {
+                    if self.local_offset.is_none()
+                        || self.local_offset.is_some() && self.local_offset.unwrap() > 3
+                    {
                         let local = self.push();
-                        function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                        function.line(format!(
+                            "let {} = {}(ctx)?;",
+                            local,
+                            op_code_to_handler(*op)
+                        ));
                     } else {
                         let local = self.push();
                         let var = self.stack.get(3).unwrap();
-                        function.line(format!("{} = {}", local, var));
+                        function.line(format!("let {} = {};", local, var));
                     }
                 }
                 Single(PUSH | READCAPTURED | TAILCALL | CALLGLOBAL) => {
                     let local = self.push();
-                    function.line(format!("{} = {}(ctx)?;", local, op_code_to_handler(*op)));
+                    function.line(format!(
+                        "let {} = {}(ctx)?;",
+                        local,
+                        op_code_to_handler(*op)
+                    ));
                 }
                 // Single(PUSH) => {
                 //     // Consider embedding some type hints on these for even more specialization if possible
@@ -559,11 +633,13 @@ impl StackToSSAConverter {
                     let left = self.pop();
                     let right = self.pop();
 
+                    function.line("ctx.ip += 2;");
+
                     match (left.type_hint, right.type_hint) {
                         (a, b) if a == b => {
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            function.line(format!("{} = {} == {};", local, left, right));
+                            function.line(format!("let {} = {} == {};", local, left, right));
                             function.line("ctx.ip += 1;");
                         }
                         (TypeHint::Int, TypeHint::Int) => {
@@ -644,10 +720,12 @@ impl StackToSSAConverter {
                     let left = self.pop();
                     let right = self.pop();
 
+                    function.line("ctx.ip += 2;");
+
                     match (left.type_hint, right.type_hint) {
                         (TypeHint::Int, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Int, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, Int)", op);
 
                             let local = self.push_with_hint(TypeHint::Int);
 
@@ -655,8 +733,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Int, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call =
-                                format!("binop_opcode_to_ssa_handler!({:?}, Int, Float)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, Float)", op);
 
                             let local = self.push_with_hint(TypeHint::Float);
 
@@ -664,7 +741,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Int, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({:?}, Int, None)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, None)", op);
 
                             let local = self.push_with_hint(TypeHint::None);
 
@@ -672,8 +749,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Float, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call =
-                                format!("binop_opcode_to_ssa_handler!({:?}, Float, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, Float, Int)", op);
 
                             let local = self.push_with_hint(TypeHint::Float);
 
@@ -682,7 +758,7 @@ impl StackToSSAConverter {
                         (TypeHint::Float, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
                             let call =
-                                format!("binop_opcode_to_ssa_handler!({:?}, Float, Float)", op);
+                                format!("binop_opcode_to_ssa_handler!({}, Float, Float)", op);
 
                             let local = self.push_with_hint(TypeHint::Float);
 
@@ -690,8 +766,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Float, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
-                            let call =
-                                format!("binop_opcode_to_ssa_handler!({:?}, Float, None)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, Float, None)", op);
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Float);
@@ -700,7 +775,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::None, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({:?}, None, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, None, Int)", op);
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::None);
@@ -709,8 +784,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::None, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call =
-                                format!("binop_opcode_to_ssa_handler!({:?}, None, Float)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({}, None, Float)", op);
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Float);
@@ -738,9 +812,11 @@ impl StackToSSAConverter {
         }
 
         function.line("Ok(())");
-        scope.push_fn(function);
+        // scope.push_fn(function);
 
-        scope.to_string()
+        // scope.to_string()
+
+        function
     }
 }
 
@@ -752,7 +828,7 @@ fn push_binop(
     right: LocalVariable,
 ) {
     function.line(format!(
-        "{} = {}",
+        "let {} = {}",
         local,
         Call::new(
             call.into(),
@@ -802,7 +878,7 @@ impl<'a> std::fmt::Display for Call<'a> {
 // READCAPTURED, TAILCALL
 
 impl Pattern {
-    fn from_opcodes(op_codes: &[(OpCode, usize)]) -> Vec<Pattern> {
+    pub fn from_opcodes(op_codes: &[(OpCode, usize)]) -> Vec<Pattern> {
         use OpCode::*;
 
         let mut patterns: Vec<Pattern> = Vec::new();
@@ -833,6 +909,83 @@ impl Pattern {
     }
 }
 
+// struct SuperInstructionMap {
+//     map: std::collections::HashMap<Vec<Pattern>, for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>>
+// }
+
+pub fn generate_opcode_map(patterns: Vec<Vec<(OpCode, usize)>>) -> String {
+    use OpCode::*;
+
+    let mut global_scope = Scope::new();
+
+    let mut generate = codegen::Function::new("generate_dynamic_op_codes");
+    generate.ret(codegen::Type::new("SuperInstructionMap"));
+
+    generate.line("use OpCode::*;");
+    generate.line("use steel_gen::Pattern::*;");
+
+    generate.line("let mut map = SuperInstructionMap::new();");
+
+    let mut converter = StackToSSAConverter::new();
+
+    for pattern in patterns {
+        let pattern = Pattern::from_opcodes(&pattern);
+        let generated_name = pattern.iter().map(|x| format!("{}", x)).collect::<String>();
+        let generated_function = converter.process_sequence(&pattern);
+
+        let mut scope = Scope::new();
+
+        scope.push_fn(generated_function);
+
+        generate.line(scope.to_string());
+        generate.line(format!(
+            "map.insert(vec!{:?}, {});",
+            pattern, generated_name
+        ));
+
+        converter.reset();
+
+        // let block = Block::new(before)
+
+        // generate.push_block(block)
+    }
+
+    // Return the map now
+    generate.line("map");
+
+    // This gives me the interface to the super instruction stuff
+    let top_level_definition = r#"
+
+    pub(crate) struct SuperInstructionMap {
+        map: std::collections::HashMap<Vec<steel_gen::Pattern>, for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>>
+    }
+
+    impl SuperInstructionMap {
+        pub(crate) fn new() -> Self {
+            Self { map: std::collections::HashMap::new() }
+        }
+
+        pub(crate) fn insert(&mut self, pattern: Vec<steel_gen::Pattern>, func: for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>) {
+            self.map.insert(pattern, func);
+        }
+
+        pub(crate) fn get(&self, op_codes: &[(OpCode, usize)]) -> Option<for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>> {
+            let pattern = steel_gen::Pattern::from_opcodes(&op_codes);
+            self.map.get(&pattern).copied()
+        }
+    }
+    
+    lazy_static! {
+        pub(crate) static ref DYNAMIC_SUPER_PATTERNS: SuperInstructionMap = generate_dynamic_op_codes();
+    }
+    
+    "#;
+
+    global_scope.push_fn(generate);
+
+    format!("{}\n{}", top_level_definition, global_scope.to_string())
+}
+
 #[test]
 fn test() {
     // let op_codes = vec![
@@ -856,18 +1009,10 @@ fn test() {
     use OpCode::*;
 
     let op_codes = vec![
-        (BEGINSCOPE, 0),
-        (READLOCAL0, 0),
+        (MOVEREADLOCAL0, 0),
         (LOADINT2, 225),
-        (MUL, 2),
-        (MOVEREADLOCAL1, 1),
-        (LOADINT1, 219),
         (SUB, 2),
-        (READLOCAL2, 2),
-        (LOADINT1, 219),
-        (SUB, 2),
-        (READLOCAL3, 3),
-        (CALLGLOBAL, 2),
+        (CALLGLOBAL, 1),
     ];
 
     let op_codes = Pattern::from_opcodes(&op_codes);
@@ -878,7 +1023,26 @@ fn test() {
 
     let result = stack_to_ssa.process_sequence(&op_codes);
 
-    println!("{}", result);
+    let mut scope = Scope::new();
+
+    scope.push_fn(result);
+
+    println!("{}", scope.to_string());
 
     // println!("{}", ctx_signature().to_string());
+}
+
+#[test]
+fn test_generation() {
+    use OpCode::*;
+
+    // TODO: Come up with better way for this to make it in
+    let patterns: Vec<Vec<(OpCode, usize)>> = vec![vec![
+        (MOVEREADLOCAL0, 0),
+        (LOADINT2, 225),
+        (SUB, 2),
+        (CALLGLOBAL, 1),
+    ]];
+
+    println!("{}", generate_opcode_map(patterns));
 }

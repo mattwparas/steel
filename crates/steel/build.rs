@@ -4,20 +4,32 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+use steel_gen::generate_opcode_map;
+use steel_gen::OpCode::*;
+
 fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("hello.rs");
-    fs::write(
-        &dest_path,
-        r#"
-        
+    let dest_path = Path::new(&out_dir).join("dynamic.rs");
+    // fs::write(
+    //     &dest_path,
+    //     r#"
 
-        pub fn message() -> &'static str {
-            println!("{:?}", OpCode::FUNC);
-            "Hello, World!"
-        }
-        "#,
-    )
-    .unwrap();
+    //     pub fn message() -> &'static str {
+    //         println!("{:?}", OpCode::FUNC);
+    //         "Hello, World!"
+    //     }
+    //     "#,
+    // )
+    // .unwrap();
+
+    // TODO: Come up with better way for this to make it in
+    let patterns: Vec<Vec<(steel_gen::OpCode, usize)>> = vec![vec![
+        (MOVEREADLOCAL0, 0),
+        (LOADINT2, 225),
+        (SUB, 2),
+        (CALLGLOBAL, 1),
+    ]];
+
+    fs::write(&dest_path, generate_opcode_map(patterns)).unwrap();
     println!("cargo:rerun-if-changed=build.rs");
 }

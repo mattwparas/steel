@@ -43,14 +43,10 @@ use log::{debug, error, log_enabled};
 
 use crate::rvals::IntoSteelVal;
 
-// Includes the module as a dependency, that being said - this should
-// probably get generated into some specific sub module directly?
-include!(concat!(env!("OUT_DIR"), "/hello.rs"));
-
-#[test]
-fn call_hello_world() {
-    println!("{:?}", message());
-}
+// #[test]
+// fn call_hello_world() {
+//     println!("{:?}", message());
+// }
 
 const STACK_LIMIT: usize = 1000;
 const _JIT_THRESHOLD: usize = 100;
@@ -557,7 +553,7 @@ pub struct DynamicBlock {
     entry_inst: DenseInstruction,
     header_func: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
     handlers: Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>,
-    specialized: Option<for<'r> fn(&'r mut VmCore<'_>) -> Result<()>>,
+    specialized: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
 }
 
 impl DynamicBlock {
@@ -565,14 +561,14 @@ impl DynamicBlock {
         // println!("---- Entering dynamic block ----");
         // println!("{:#?}", self.basic_block);
 
-        if let Some(header) = self.header_func {
-            // println!("Calling special entry block");
-            header(context, self.entry_inst.payload_size as usize)?;
-        }
-
         if let Some(specialized) = self.specialized {
-            specialized(context)?;
+            specialized(context, self.entry_inst.payload_size as usize)?;
         } else {
+            if let Some(header) = self.header_func {
+                // println!("Calling special entry block");
+                header(context, self.entry_inst.payload_size as usize)?;
+            }
+
             for func in self.handlers.iter() {
                 func(context)?;
             }
@@ -606,11 +602,11 @@ impl DynamicBlock {
 
         let op_codes: Vec<_> = handlers.clone().copied().collect();
 
-        // let specialized = SUPER_PATTERNS.get(&op_codes).copied();
+        let specialized = dynamic::DYNAMIC_SUPER_PATTERNS.get(&op_codes);
 
-        // if specialized.is_some() {
-        //     println!("Found specialized function!");
-        // }
+        if specialized.is_some() {
+            println!("Found specialized function!");
+        }
 
         let handlers = handlers.map(|x| OP_CODE_TABLE[x.0 as usize]).collect();
 
@@ -620,7 +616,7 @@ impl DynamicBlock {
             entry_inst: head,
             header_func,
             // TODO: Come back and add the specialized ones back in
-            specialized: None,
+            specialized,
         }
     }
 }
@@ -3039,7 +3035,7 @@ impl<'a> VmCore<'a> {
             _ => {
                 println!("{:?}", stack_func);
                 println!("Stack: {:?}", self.stack);
-                stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
             }
         }
     }
@@ -4151,6 +4147,16 @@ fn handle_move_local_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<Stee
     Ok(value)
 }
 
+#[inline(always)]
+fn handle_move_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    // let offset = ctx.stack_frames.last().unwrap().index;
+    let offset = ctx.get_offset();
+    let value = std::mem::replace(&mut ctx.stack[offset], SteelVal::Void);
+    ctx.ip += 1;
+    Ok(value)
+}
+
 // OpCode::VOID
 fn void_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.stack.push(SteelVal::Void);
@@ -4297,6 +4303,8 @@ fn call_global_handler_no_stack(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> 
 
     // TODO: Track the op codes of the surrounding values as well
     // let next_inst = ctx.instructions[ctx.ip];
+
+    println!("Looking up a function at index: {}", payload_size as usize);
 
     let func = ctx.global_env.repl_lookup_idx(payload_size as usize);
     ctx.handle_non_instr_global_function_call(func, args)
@@ -4852,6 +4860,15 @@ fn multiply_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
 }
 
 #[inline(always)]
+fn multiply_handler_int_none(_: &mut VmCore<'_>, l: isize, r: SteelVal) -> Result<SteelVal> {
+    match r {
+        SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 * r)),
+        SteelVal::IntV(n) => Ok(SteelVal::IntV(l * n)),
+        _ => stop!(TypeMismatch => "multiply expected an number, found: {}", r),
+    }
+}
+
+#[inline(always)]
 fn div_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
     l / r
 }
@@ -4871,6 +4888,7 @@ fn div_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
     l / r
 }
 
+#[macro_export]
 macro_rules! binop_opcode_to_ssa_handler {
     (ADD2, Int, Int) => {
         add_handler_int_int
@@ -4906,6 +4924,10 @@ macro_rules! binop_opcode_to_ssa_handler {
 
     (SUB2, Int, Int) => {
         multiply_handler_int_int
+    };
+
+    (SUB2, Int, None) => {
+        multiply_handler_int_none
     };
 
     (SUB2, Int, Float) => {
@@ -4960,10 +4982,18 @@ macro_rules! if_to_ssa_handler {
 
 macro_rules! opcode_to_ssa_handler {
     (CALLGLOBAL) => {
-        call_global_handler_with_payload_no_stack
+        call_global_handler_no_stack
+    };
+
+    (MOVEREADLOCAL0) => {
+        handle_move_local_0_no_stack
     };
 }
 
 mod dynamic {
     use super::*;
+
+    // Includes the module as a dependency, that being said - this should
+    // probably get generated into some specific sub module directly?
+    include!(concat!(env!("OUT_DIR"), "/dynamic.rs"));
 }
