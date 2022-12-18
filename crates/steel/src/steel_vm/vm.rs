@@ -2900,30 +2900,6 @@ impl<'a> VmCore<'a> {
 
         // TODO take this out
 
-        // #[cfg(feature = "jit")]
-        // {
-        // if closure.call_count() > JIT_THRESHOLD && !closure.has_attempted_to_be_compiled() {
-        //     // unimplemented!();
-        //     if let Some(jit) = &mut self.jit {
-        //         if let Some(function_ast) = self.global_env.get_expr(ast_index) {
-        //             if let Ok(compiled_func) = jit.compile(function_ast) {
-        //                 self.global_env.repl_define_idx(
-        //                     ast_index,
-        //                     SteelVal::CompiledFunction(compiled_func.clone()),
-        //                 );
-
-        //                 return self.call_compiled_function(&compiled_func, payload_size, span);
-        //             } else {
-        //                 // Mark this function as being unable to be compiled
-        //                 closure.set_cannot_be_compiled();
-        //             }
-        //         }
-        //     }
-        // }
-        // }
-
-        // Push on the function stack so we have access to it later
-
         // self.function_stack
         //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
 
@@ -3031,6 +3007,55 @@ impl<'a> VmCore<'a> {
             MutFunc(f) => f(args),
             FuncV(f) => f(args),
             FutureFunc(f) => Ok(SteelVal::FutureV(Gc::new(f(args)?))),
+            _ => {
+                println!("{:?}", stack_func);
+                println!("Stack: {:?}", self.stack);
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
+            }
+        }
+
+        // Ok(())
+    }
+
+    #[inline(always)]
+    fn handle_non_instr_global_function_call_lazy_push(
+        &mut self,
+        stack_func: SteelVal,
+        args: &mut [SteelVal],
+    ) -> Result<()> {
+        use SteelVal::*;
+
+        // self.ip += 1;
+
+        match &stack_func {
+            BoxedFunction(f) => {
+                self.ip += 1;
+                self.stack.push(f(args)?)
+            }
+            MutFunc(f) => {
+                self.ip += 1;
+                self.stack.push(f(args)?)
+            }
+            FuncV(f) => {
+                self.ip += 1;
+                self.stack.push(f(args)?)
+            }
+            FutureFunc(f) => {
+                self.ip += 1;
+                self.stack.push(SteelVal::FutureV(Gc::new(f(args)?)))
+            }
+            Closure(closure) => {
+                let arity = args.len();
+
+                for arg in args {
+                    self.stack.push(arg.clone());
+                }
+
+                // println!("Stack: {:?}", self.stack);
+                // panic!();
+
+                self.handle_function_call_closure_jit(closure, arity)?;
+            }
             // BuiltIn(f) => f(self, args),
             _ => {
                 println!("{:?}", stack_func);
@@ -3038,6 +3063,8 @@ impl<'a> VmCore<'a> {
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
             }
         }
+
+        Ok(())
     }
 
     // #[inline(always)]
@@ -4157,6 +4184,14 @@ fn handle_move_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
     Ok(value)
 }
 
+#[inline(always)]
+fn handle_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+    let offset = ctx.get_offset();
+    let value = ctx.stack[offset].clone();
+    ctx.ip += 1;
+    Ok(value)
+}
+
 // OpCode::VOID
 fn void_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.stack.push(SteelVal::Void);
@@ -4304,10 +4339,26 @@ fn call_global_handler_no_stack(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> 
     // TODO: Track the op codes of the surrounding values as well
     // let next_inst = ctx.instructions[ctx.ip];
 
-    println!("Looking up a function at index: {}", payload_size as usize);
+    // println!("Looking up a function at index: {}", payload_size as usize);
 
     let func = ctx.global_env.repl_lookup_idx(payload_size as usize);
     ctx.handle_non_instr_global_function_call(func, args)
+}
+
+// Call a global function with the given arguments, but only push the args to the stack
+// if we need to
+fn call_global_handler_with_args(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> Result<()> {
+    ctx.ip += 1;
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+
+    // TODO: Track the op codes of the surrounding values as well
+    // let next_inst = ctx.instructions[ctx.ip];
+
+    // println!("Looking up a function at index: {}", payload_size as usize);
+    // panic!("Call global handler with args");
+
+    let func = ctx.global_env.repl_lookup_idx(payload_size as usize);
+    ctx.handle_non_instr_global_function_call_lazy_push(func, args)
 }
 
 // OpCode::LOADINT0
@@ -4825,6 +4876,24 @@ fn sub_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
 }
 
 #[inline(always)]
+fn sub_handler_int_none(_: &mut VmCore<'_>, l: isize, r: SteelVal) -> Result<SteelVal> {
+    match r {
+        SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 - r)),
+        SteelVal::IntV(n) => Ok(SteelVal::IntV(l - n)),
+        _ => stop!(TypeMismatch => "sub expected an number, found: {}", r),
+    }
+}
+
+#[inline(always)]
+fn sub_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<SteelVal> {
+    match l {
+        SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
+        SteelVal::IntV(l) => Ok(SteelVal::IntV(l - r)),
+        _ => stop!(TypeMismatch => "sub expected an number, found: {}", r),
+    }
+}
+
+#[inline(always)]
 fn sub_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
     l as f64 - r
 }
@@ -4888,6 +4957,15 @@ fn div_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
     l / r
 }
 
+#[inline(always)]
+fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<bool> {
+    match l {
+        SteelVal::NumV(l) => Ok(l <= r as f64),
+        SteelVal::IntV(l) => Ok(l <= r),
+        _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+    }
+}
+
 #[macro_export]
 macro_rules! binop_opcode_to_ssa_handler {
     (ADD2, Int, Int) => {
@@ -4923,39 +5001,47 @@ macro_rules! binop_opcode_to_ssa_handler {
     };
 
     (SUB2, Int, Int) => {
-        multiply_handler_int_int
+        sub_handler_int_int
     };
 
     (SUB2, Int, None) => {
-        multiply_handler_int_none
+        sub_handler_int_none
+    };
+
+    (SUB2, None, Int) => {
+        sub_handler_none_int
     };
 
     (SUB2, Int, Float) => {
-        multiply_handler_int_float
+        sub_handler_int_float
     };
 
     (SUB2, Float, Int) => {
-        multiply_handler_int_float
+        sub_handler_float_int
     };
 
     (SUB2, Float, Float) => {
-        multiply_handler_float_float
+        sub_handler_float_float
     };
 
     (DIV2, Int, Int) => {
-        multiply_handler_int_int
+        div_handler_int_int
     };
 
     (DIV2, Int, Float) => {
-        multiply_handler_int_float
+        div_handler_int_float
     };
 
     (DIV2, Float, Int) => {
-        multiply_handler_int_float
+        div_handler_float_int
     };
 
     (DIV2, Float, Float) => {
-        multiply_handler_float_float
+        div_handler_float_float
+    };
+
+    (LTE2, None, Int) => {
+        lte_handler_none_int
     };
 }
 
@@ -4985,8 +5071,16 @@ macro_rules! opcode_to_ssa_handler {
         call_global_handler_no_stack
     };
 
+    (CALLGLOBAL, Tail) => {
+        call_global_handler_with_args
+    };
+
     (MOVEREADLOCAL0) => {
         handle_move_local_0_no_stack
+    };
+
+    (READLOCAL0) => {
+        handle_local_0_no_stack
     };
 }
 

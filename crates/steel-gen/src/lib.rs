@@ -368,7 +368,9 @@ impl StackToSSAConverter {
         // READLOCAL3,
         // CALLGLOBAL
 
-        for op in op_codes {
+        let last = op_codes.len();
+
+        for (index, op) in op_codes.iter().enumerate() {
             match op {
                 Double(BEGINSCOPE, n) => {
                     self.local_offset = Some(*n);
@@ -411,12 +413,19 @@ impl StackToSSAConverter {
                         .map(|x| x.to_string() + ".into(), ")
                         .collect::<String>();
 
-                    let local = self.push();
+                    if index == last - 1 {
+                        function.line(format!(
+                            "opcode_to_ssa_handler!(CALLGLOBAL, Tail)(ctx, &mut [{}])?;",
+                            args
+                        ));
+                    } else {
+                        let local = self.push();
 
-                    function.line(format!(
-                        "let {} = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [{}])?;",
-                        local, args
-                    ));
+                        function.line(format!(
+                            "let {} = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [{}])?;",
+                            local, args
+                        ));
+                    }
                 }
                 Double(READLOCAL, n) => {
                     if self.local_offset.is_none()
@@ -630,8 +639,8 @@ impl StackToSSAConverter {
                     }
                 }
                 Double(LTE | EQUAL, 2) => {
-                    let left = self.pop();
                     let right = self.pop();
+                    let left = self.pop();
 
                     function.line("ctx.ip += 2;");
 
@@ -717,8 +726,8 @@ impl StackToSSAConverter {
                 // TODO: Need to handle the actual op code as well
                 // READLOCAL0, LOADINT2, LTE, IF
                 Double(ADD | MUL | SUB | DIV, 2) => {
-                    let left = self.pop();
                     let right = self.pop();
+                    let left = self.pop();
 
                     function.line("ctx.ip += 2;");
 

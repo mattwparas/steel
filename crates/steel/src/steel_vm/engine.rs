@@ -648,7 +648,9 @@ impl Engine {
                 if let Some(file_content) = self.sources.get(source_id) {
                     // Build stack trace if we have it:
                     if let Some(trace) = error.stack_trace() {
-                        for dehydrated_context in trace.trace().iter() {
+                        // TODO: Flatten recursive calls into the same stack trace
+                        // and present the count
+                        for dehydrated_context in trace.trace().iter().take(20) {
                             // Report a call stack with whatever we actually have,
                             if let Some(span) = dehydrated_context.span() {
                                 if let Some(id) = span.source_id() {
