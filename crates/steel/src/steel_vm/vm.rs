@@ -459,10 +459,6 @@ impl SteelThread {
 pub struct InstructionPointer(usize, Rc<[DenseInstruction]>);
 
 impl InstructionPointer {
-    pub fn _new_raw() -> Self {
-        InstructionPointer(0, Rc::from(Vec::new().into_boxed_slice()))
-    }
-
     // #[inline(always)]
     pub fn new(ip: usize, instrs: Rc<[DenseInstruction]>) -> Self {
         InstructionPointer(ip, instrs)
@@ -477,6 +473,7 @@ impl InstructionPointer {
 #[derive(Clone, Debug)]
 pub struct Continuation {
     pub(crate) stack: Vec<SteelVal>,
+    current_frame: StackFrame,
     instructions: Rc<[DenseInstruction]>,
     // instruction_stack: Vec<InstructionPointer>,
     // stack_index: Vec<usize>,
@@ -789,6 +786,7 @@ impl<'a> VmCore<'a> {
         Continuation {
             stack: self.stack.clone(),
             instructions: Rc::clone(&self.instructions),
+            current_frame: self.current_frame.clone(),
             stack_frames: self.stack_frames.clone(),
             ip: self.ip,
             sp: self.sp,
@@ -813,6 +811,7 @@ impl<'a> VmCore<'a> {
         self.sp = continuation.sp;
         self.pop_count = continuation.pop_count;
         *self.stack_frames = continuation.stack_frames;
+        self.current_frame = continuation.current_frame;
     }
 
     // #[inline(always)]
