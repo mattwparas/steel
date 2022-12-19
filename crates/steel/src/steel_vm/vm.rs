@@ -232,32 +232,70 @@ impl SteelThread {
         function: SteelVal,
         args: Vec<SteelVal>,
     ) -> Result<SteelVal> {
-        let mut vm_instance = VmCore::new_unchecked(
-            Rc::new([]),
-            &mut self.stack,
-            &mut self.global_env,
-            constant_map,
-            &self.callback,
-            // &mut self.function_stack,
-            // &mut self.stack_index,
-            &mut self.stack_frames,
-            &[],
-            &mut self.profiler,
-            &mut self.closure_interner,
-            &mut self.pure_function_interner,
-            &mut self.heap,
-            self.contracts_on,
-            &mut self.super_instructions,
-            #[cfg(feature = "jit")]
-            Some(&mut self.jit),
-        );
+        match function {
+            SteelVal::FuncV(func) => {
+                let arg_vec: Vec<_> = args.into_iter().collect();
+                func(&arg_vec).map_err(|x| x.set_span_if_none(Span::default()))
+            }
+            SteelVal::BoxedFunction(func) => {
+                let arg_vec: Vec<_> = args.into_iter().collect();
+                func(&arg_vec).map_err(|x| x.set_span_if_none(Span::default()))
+            }
+            // SteelVal::ContractedFunction(cf) => {
+            //     let arg_vec: Vec<_> = args.into_iter().collect();
+            //     cf.apply(arg_vec, cur_inst_span, self)
+            // }
+            SteelVal::MutFunc(func) => {
+                let mut arg_vec: Vec<_> = args.into_iter().collect();
+                func(&mut arg_vec).map_err(|x| x.set_span_if_none(Span::default()))
+            }
+            // SteelVal::BuiltIn(func) => {
+            //     let arg_vec: Vec<_> = args.into_iter().collect();
+            //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+            // }
+            SteelVal::Closure(closure) => {
+                let prev_length = self.stack.len();
 
-        vm_instance.call_func_or_else_many_args(
-            &function,
-            args,
-            &Span::default(),
-            throw!(TypeMismatch => format!("application not a procedure: {}", function)),
-        )
+                let frame = StackFrame::new(
+                    prev_length,
+                    Gc::clone(&closure),
+                    InstructionPointer::new(0, Rc::from([])),
+                );
+
+                let mut vm_instance = VmCore::new_unchecked(
+                    Rc::new([]),
+                    &mut self.stack,
+                    &mut self.global_env,
+                    constant_map,
+                    &self.callback,
+                    // &mut self.function_stack,
+                    // &mut self.stack_index,
+                    &mut self.stack_frames,
+                    &[],
+                    &mut self.profiler,
+                    &mut self.closure_interner,
+                    &mut self.pure_function_interner,
+                    &mut self.heap,
+                    self.contracts_on,
+                    &mut self.super_instructions,
+                    frame,
+                    #[cfg(feature = "jit")]
+                    Some(&mut self.jit),
+                );
+
+                // vm_instance.call_func_or_else_many_args(
+                //     &function,
+                //     args,
+                //     &Span::default(),
+                //     throw!(TypeMismatch => format!("application not a procedure: {}", function)),
+                // );
+
+                vm_instance.call_with_args(&closure, args)
+            }
+            _ => {
+                stop!(TypeMismatch => format!("application not a procedure: {}", function))
+            }
+        }
     }
 
     pub fn execute(
@@ -640,6 +678,7 @@ pub struct VmCore<'a> {
     pub(crate) use_contracts: bool,
     pub(crate) depth: usize,
     pub(crate) super_instructions: &'a mut Vec<Rc<DynamicBlock>>,
+    pub(crate) current_frame: StackFrame,
     #[cfg(feature = "jit")]
     pub(crate) jit: Option<&'a mut JIT>,
 }
@@ -664,6 +703,7 @@ impl<'a> VmCore<'a> {
         heap: &'a mut Heap,
         use_contracts: bool,
         super_instructions: &'a mut Vec<Rc<DynamicBlock>>,
+        current_frame: StackFrame,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> VmCore<'a> {
         VmCore {
@@ -684,6 +724,7 @@ impl<'a> VmCore<'a> {
             use_contracts,
             depth: 0,
             super_instructions,
+            current_frame,
             #[cfg(feature = "jit")]
             jit,
         }
@@ -703,14 +744,24 @@ impl<'a> VmCore<'a> {
         heap: &'a mut Heap,
         use_contracts: bool,
         super_instructions: &'a mut Vec<Rc<DynamicBlock>>,
+        // current_frame: StackFrame,
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> Result<VmCore<'a>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
         }
 
+        // Set up the instruction pointers here
+        let function = Gc::new(ByteCodeLambda::main(instructions.iter().copied().collect()));
+
+        let current_frame = StackFrame::new(
+            0,
+            function,
+            InstructionPointer::new(0, Rc::clone(&instructions)),
+        );
+
         Ok(VmCore {
-            instructions: Rc::clone(&instructions),
+            instructions,
             stack,
             global_env,
             stack_frames,
@@ -727,6 +778,7 @@ impl<'a> VmCore<'a> {
             use_contracts,
             depth: 0,
             super_instructions,
+            current_frame,
             #[cfg(feature = "jit")]
             jit,
         })

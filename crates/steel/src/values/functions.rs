@@ -86,6 +86,10 @@ impl ByteCodeLambda {
         }
     }
 
+    pub fn main(instructions: Vec<DenseInstruction>) -> ByteCodeLambda {
+        Self::new(0, instructions, 0, false, Vec::default(), Vec::default())
+    }
+
     pub fn set_captures(&mut self, captures: Vec<SteelVal>) {
         self.captures = captures;
     }
