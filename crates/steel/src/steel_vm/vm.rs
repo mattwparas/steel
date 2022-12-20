@@ -1819,6 +1819,8 @@ impl<'a> VmCore<'a> {
             // .flatten()
             .copied()
             .unwrap_or_default()
+
+        // Span::default()
     }
 
     fn enclosing_span(&self) -> Option<Span> {
@@ -2206,7 +2208,7 @@ impl<'a> VmCore<'a> {
 
     fn new_handle_tail_call_closure(
         &mut self,
-        closure: &Gc<ByteCodeLambda>,
+        closure: Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
         self.cut_sequence();
@@ -2226,9 +2228,6 @@ impl<'a> VmCore<'a> {
         let current_span = self.current_span();
 
         let last = self.stack_frames.last_mut().unwrap();
-
-        last.set_function(Gc::clone(closure));
-        last.set_span(current_span);
 
         let offset = last.sp;
 
@@ -2295,6 +2294,9 @@ impl<'a> VmCore<'a> {
         // self.global_env = inner_env;
         self.instructions = closure.body_exp();
 
+        last.set_function(closure);
+        last.set_span(current_span);
+
         self.ip = 0;
         Ok(())
     }
@@ -2329,15 +2331,15 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
-        match &stack_func {
+        match stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             // FutureFunc(f) => self.call_future_func(f, payload_size),
-            ContractedFunction(cf) => self.call_contracted_function_tail_call(cf, payload_size),
-            #[cfg(feature = "jit")]
-            CompiledFunction(function) => self.call_compiled_function(function, payload_size),
-            ContinuationFunction(cc) => self.call_continuation(cc),
+            ContractedFunction(cf) => self.call_contracted_function_tail_call(&cf, payload_size),
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(function) => self.call_compiled_function(function, payload_size),
+            ContinuationFunction(cc) => self.call_continuation(&cc),
             Closure(closure) => self.new_handle_tail_call_closure(closure, payload_size),
             // Closure(closure) => self.handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
@@ -2353,7 +2355,7 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_boxed_func(
         &mut self,
-        func: &Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>,
+        func: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>,
         payload_size: usize,
     ) -> Result<()> {
         let last_index = self.stack.len() - payload_size;
@@ -2434,7 +2436,7 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn call_builtin_func(&mut self, func: &BuiltInSignature, payload_size: usize) -> Result<()> {
+    fn call_builtin_func(&mut self, func: BuiltInSignature, payload_size: usize) -> Result<()> {
         // Note: We Advance the pointer here. In the event we're calling a builtin that fusses with
         // the instruction pointer, we allow the function to override this. For example, call/cc will
         // advance the pointer - or perhaps, even fuss with the control flow.
@@ -2466,7 +2468,7 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_primitive_mut_func(
         &mut self,
-        f: &fn(&mut [SteelVal]) -> Result<SteelVal>,
+        f: fn(&mut [SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
         // println!("Stack: {:?}", self.stack);
@@ -2489,7 +2491,7 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_primitive_func(
         &mut self,
-        f: &fn(&[SteelVal]) -> Result<SteelVal>,
+        f: fn(&[SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
         // let result = f(self.stack.peek_range(self.stack.len() - payload_size..))
@@ -2617,7 +2619,7 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_future_func(
         &mut self,
-        f: &Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>,
+        f: Box<Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>,
         payload_size: usize,
     ) -> Result<()> {
         let last_index = self.stack.len() - payload_size;
@@ -2672,6 +2674,22 @@ impl<'a> VmCore<'a> {
             )
             .with_span(self.current_span()),
         );
+
+        // self.current_frame.sp = prev_length;
+
+        // self.current_frame.ip += 4;
+
+        // // Set the sp to be the current values on this
+        // let mut current_frame = StackFrame::new(
+        //     prev_length,
+        //     Gc::clone(closure),
+        //     self.ip + 4,
+        //     Rc::clone(&self.instructions),
+        // )
+        // .with_span(self.current_span());
+
+        // std::mem::swap(&mut current_frame, &mut self.current_frame);
+        // self.stack_frames.push(current_frame);
 
         self.sp = prev_length;
 
@@ -2799,7 +2817,7 @@ impl<'a> VmCore<'a> {
     // // #[inline(always)]
     fn handle_function_call_closure(
         &mut self,
-        closure: &Gc<ByteCodeLambda>,
+        closure: Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
         self.cut_sequence();
@@ -2847,14 +2865,23 @@ impl<'a> VmCore<'a> {
 
         self.sp = self.stack.len() - closure.arity();
 
+        // {
+        //     // Current frame already has the instructions
+        //     self.current_frame.ip += 1;
+        //     self.current_frame = self.stack.len() - closure.arity();
+
+        //     self.stack_frames.push(self.current_frame);
+
+        //     let instructions = closure.body_exp();
+
+        //     self.current_frame = StackFrame::new(self.sp, closure, 0, instructions)
+        // }
+
+        let instructions = closure.body_exp();
+
         self.stack_frames.push(
-            StackFrame::new(
-                self.sp,
-                Gc::clone(closure),
-                self.ip + 1,
-                Rc::clone(&self.instructions),
-            )
-            .with_span(self.current_span()),
+            StackFrame::new(self.sp, closure, self.ip + 1, Rc::clone(&self.instructions))
+                .with_span(self.current_span()),
         );
 
         // self.current_arity = Some(closure.arity());
@@ -2878,7 +2905,7 @@ impl<'a> VmCore<'a> {
         // let stack = std::mem::replace(&mut self.stack, args.into());
         // self.stacks.push(stack);
 
-        self.instructions = closure.body_exp();
+        self.instructions = instructions;
         self.ip = 0;
         Ok(())
     }
@@ -2908,7 +2935,7 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn handle_function_call_closure_jit(
         &mut self,
-        closure: &Gc<ByteCodeLambda>,
+        closure: Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
         // Record the end of the existing sequence
@@ -2964,15 +2991,12 @@ impl<'a> VmCore<'a> {
 
         self.sp = self.stack.len() - closure.arity();
 
+        let instructions = closure.body_exp();
+
         // Do this _after_ the multi arity business
         self.stack_frames.push(
-            StackFrame::new(
-                self.sp,
-                Gc::clone(closure),
-                self.ip + 1,
-                Rc::clone(&self.instructions),
-            )
-            .with_span(self.current_span()),
+            StackFrame::new(self.sp, closure, self.ip + 1, Rc::clone(&self.instructions))
+                .with_span(self.current_span()),
         );
 
         // self.current_arity = Some(closure.arity());
@@ -2989,7 +3013,7 @@ impl<'a> VmCore<'a> {
 
         self.pop_count += 1;
 
-        self.instructions = closure.body_exp();
+        self.instructions = instructions;
         self.ip = 0;
         Ok(())
     }
@@ -3002,17 +3026,17 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         use SteelVal::*;
 
-        match &stack_func {
+        match stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size)?,
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size)?,
             FuncV(f) => self.call_primitive_func(f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
-            ContractedFunction(cf) => self.call_contracted_function(cf, payload_size)?,
-            ContinuationFunction(cc) => self.call_continuation(cc)?,
+            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
+            ContinuationFunction(cc) => self.call_continuation(&cc)?,
             Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size)?,
-            #[cfg(feature = "jit")]
-            CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            Contract(c) => self.call_contract(c, payload_size)?,
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
+            Contract(c) => self.call_contract(&c, payload_size)?,
             BuiltIn(f) => self.call_builtin_func(f, payload_size)?,
             _ => {
                 println!("{:?}", stack_func);
@@ -3058,7 +3082,7 @@ impl<'a> VmCore<'a> {
 
         // self.ip += 1;
 
-        match &stack_func {
+        match stack_func {
             BoxedFunction(f) => {
                 self.ip += 1;
                 self.stack.push(f(args)?)
@@ -3114,17 +3138,17 @@ impl<'a> VmCore<'a> {
     fn handle_function_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
 
-        match &stack_func {
+        match stack_func {
             BoxedFunction(f) => self.call_boxed_func(f, payload_size)?,
             FuncV(f) => self.call_primitive_func(f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size)?,
-            ContractedFunction(cf) => self.call_contracted_function(cf, payload_size)?,
-            ContinuationFunction(cc) => self.call_continuation(cc)?,
+            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
+            ContinuationFunction(cc) => self.call_continuation(&cc)?,
             Closure(closure) => self.handle_function_call_closure(closure, payload_size)?,
-            #[cfg(feature = "jit")]
-            CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            Contract(c) => self.call_contract(c, payload_size)?,
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
+            Contract(c) => self.call_contract(&c, payload_size)?,
             BuiltIn(f) => self.call_builtin_func(f, payload_size)?,
             _ => {
                 println!("{:?}", stack_func);
@@ -3370,7 +3394,8 @@ pub(crate) fn apply<'a, 'b>(
                     }
 
                     // TODO: Fix this unwrap
-                    ctx.handle_function_call_closure(closure, l.len()).unwrap();
+                    ctx.handle_function_call_closure(closure.clone(), l.len())
+                        .unwrap();
 
                     None
                 }
