@@ -686,7 +686,7 @@ impl<'a> VmCore<'a> {
         #[cfg(feature = "jit")] jit: Option<&'a mut JIT>,
     ) -> VmCore<'a> {
         VmCore {
-            instructions: Rc::clone(&instructions),
+            instructions,
             stack,
             global_env,
             stack_frames,
