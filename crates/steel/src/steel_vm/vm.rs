@@ -96,14 +96,15 @@ pub enum ContinuationMark {
 
 #[derive(Debug, Clone)]
 pub struct StackFrame {
-    index: usize,
+    sp: usize,
     // This kind of by definition _does_ have to be a function. But for now, we'll just leave it as a
     // generic steel value
     handler: Option<SteelVal>,
     span: Option<Span>,
     // This should get added to the GC as well
     pub(crate) function: Gc<ByteCodeLambda>,
-    instruction_pointer: InstructionPointer,
+    ip: usize,
+    instructions: Rc<[DenseInstruction]>,
     // continuation_mark: ContinuationMark,
 }
 
@@ -111,12 +112,14 @@ impl StackFrame {
     pub fn new(
         stack_index: usize,
         function: Gc<ByteCodeLambda>,
-        instruction_pointer: InstructionPointer,
+        ip: usize,
+        instructions: Rc<[DenseInstruction]>,
     ) -> Self {
         Self {
-            index: stack_index,
+            sp: stack_index,
             function,
-            instruction_pointer,
+            ip,
+            instructions,
             span: None,
             handler: None,
             // continuation_mark: ContinuationMark::Default,
@@ -256,11 +259,7 @@ impl SteelThread {
             SteelVal::Closure(closure) => {
                 let prev_length = self.stack.len();
 
-                let frame = StackFrame::new(
-                    prev_length,
-                    Gc::clone(&closure),
-                    InstructionPointer::new(0, Rc::from([])),
-                );
+                let frame = StackFrame::new(prev_length, Gc::clone(&closure), 0, Rc::from([]));
 
                 let mut vm_instance = VmCore::new_unchecked(
                     Rc::new([]),
@@ -352,7 +351,7 @@ impl SteelThread {
 
                     if let Some(handler) = last.handler.clone() {
                         // Drop the stack BACK to where it was on this level
-                        vm_instance.stack.truncate(last.index);
+                        vm_instance.stack.truncate(last.sp);
 
                         vm_instance.stack.push(e.into_steelval()?);
 
@@ -375,13 +374,14 @@ impl SteelThread {
                         match handler {
                             SteelVal::Closure(closure) => {
                                 if vm_instance.stack_frames.is_empty() {
-                                    vm_instance.sp = last.index;
+                                    vm_instance.sp = last.sp;
 
                                     // Push on a dummy stack frame if we're at the top
                                     vm_instance.stack_frames.push(StackFrame::new(
-                                        last.index,
+                                        last.sp,
                                         Gc::clone(&closure),
-                                        InstructionPointer::new(0, Rc::from([])),
+                                        0,
+                                        Rc::from([]),
                                     ));
                                 }
 
@@ -455,33 +455,15 @@ impl SteelThread {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct InstructionPointer(usize, Rc<[DenseInstruction]>);
-
-impl InstructionPointer {
-    // #[inline(always)]
-    pub fn new(ip: usize, instrs: Rc<[DenseInstruction]>) -> Self {
-        InstructionPointer(ip, instrs)
-    }
-
-    // #[inline(always)]
-    pub fn instrs(self) -> Rc<[DenseInstruction]> {
-        self.1
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Continuation {
     pub(crate) stack: Vec<SteelVal>,
     current_frame: StackFrame,
     instructions: Rc<[DenseInstruction]>,
-    // instruction_stack: Vec<InstructionPointer>,
-    // stack_index: Vec<usize>,
     pub(crate) stack_frames: Vec<StackFrame>,
     ip: usize,
     sp: usize,
     pop_count: usize,
-    // pub(crate) function_stack: CallStack,
 }
 
 pub trait VmContext {
@@ -751,11 +733,7 @@ impl<'a> VmCore<'a> {
         // Set up the instruction pointers here
         let function = Gc::new(ByteCodeLambda::main(instructions.iter().copied().collect()));
 
-        let current_frame = StackFrame::new(
-            0,
-            function,
-            InstructionPointer::new(0, Rc::clone(&instructions)),
-        );
+        let current_frame = StackFrame::new(0, function, 0, Rc::clone(&instructions));
 
         Ok(VmCore {
             instructions,
@@ -971,7 +949,8 @@ impl<'a> VmCore<'a> {
         self.stack_frames.push(StackFrame::new(
             prev_length,
             Gc::clone(closure),
-            InstructionPointer::new(0, Rc::from([])),
+            0,
+            Rc::from([]),
         ));
 
         self.sp = prev_length;
@@ -1024,7 +1003,8 @@ impl<'a> VmCore<'a> {
         self.stack_frames.push(StackFrame::new(
             prev_length,
             Gc::clone(closure),
-            InstructionPointer::new(0, Rc::from([])),
+            0,
+            Rc::from([]),
         ));
 
         self.sp = prev_length;
@@ -1048,7 +1028,8 @@ impl<'a> VmCore<'a> {
         self.stack_frames.push(StackFrame::new(
             prev_length,
             Gc::clone(closure),
-            InstructionPointer::new(0, Rc::from([])),
+            0,
+            Rc::from([]),
         ));
 
         self.sp = prev_length;
@@ -1163,18 +1144,29 @@ impl<'a> VmCore<'a> {
             // Otherwise, we're going to be copying the instruction _every_ time we iterate which is going to slow down the loop
             // We'd rather just reference the instruction and call it a day
             match self.instructions[self.ip] {
-                // match unsafe { *self.instructions.get_unchecked(self.ip) } {
                 DenseInstruction {
-                    op_code: OpCode::PANIC,
-                    ..
-                } => self.handle_panic(self.current_span())?,
-                DenseInstruction {
-                    op_code: OpCode::PASS,
+                    op_code: OpCode::DynSuperInstruction,
+                    payload_size,
                     ..
                 } => {
-                    log::warn!("Hitting a pass - this shouldn't happen");
-                    self.ip += 1;
+                    self.cut_sequence();
+
+                    let super_instruction =
+                        { self.super_instructions[payload_size as usize].clone() };
+
+                    super_instruction.call(self)?;
                 }
+
+                DenseInstruction {
+                    op_code: OpCode::POPPURE,
+                    payload_size,
+                    ..
+                } => {
+                    if let Some(r) = self.handle_pop_pure(payload_size) {
+                        return r;
+                    }
+                }
+
                 DenseInstruction {
                     op_code: OpCode::SUBREGISTER1,
                     ..
@@ -1545,7 +1537,7 @@ impl<'a> VmCore<'a> {
                     let last_stack_frame = self.stack_frames.last().unwrap();
 
                     self.instructions = last_stack_frame.function.body_exp();
-                    self.sp = last_stack_frame.index;
+                    self.sp = last_stack_frame.sp;
 
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
@@ -1565,7 +1557,7 @@ impl<'a> VmCore<'a> {
                     // self.heap.collect_garbage();
                     // }
                     // let offset = self.stack_index.last().copied().unwrap_or(0);
-                    let offset = last_stack_frame.index;
+                    let offset = last_stack_frame.sp;
 
                     // We should have arity at this point, drop the stack up to this point
                     // take the last arity off the stack, go back and replace those in order
@@ -1706,15 +1698,6 @@ impl<'a> VmCore<'a> {
                 //     }
                 // }
                 DenseInstruction {
-                    op_code: OpCode::POPPURE,
-                    payload_size,
-                    ..
-                } => {
-                    if let Some(r) = self.handle_pop_pure(payload_size) {
-                        return r;
-                    }
-                }
-                DenseInstruction {
                     op_code: OpCode::BIND,
                     payload_size,
                     ..
@@ -1751,16 +1734,15 @@ impl<'a> VmCore<'a> {
                     self.ip += 1;
                 }
                 DenseInstruction {
-                    op_code: OpCode::DynSuperInstruction,
-                    payload_size,
+                    op_code: OpCode::PANIC,
+                    ..
+                } => self.handle_panic(self.current_span())?,
+                DenseInstruction {
+                    op_code: OpCode::PASS,
                     ..
                 } => {
-                    self.cut_sequence();
-
-                    let super_instruction =
-                        { self.super_instructions[payload_size as usize].clone() };
-
-                    super_instruction.call(self)?;
+                    log::warn!("Hitting a pass - this shouldn't happen");
+                    self.ip += 1;
                 }
                 _ => {
                     crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
@@ -1862,25 +1844,21 @@ impl<'a> VmCore<'a> {
 
         if !should_return {
             let last = last.unwrap();
+
+            // Update the current frame to be the last one
+            //
+            // self.current_frame = last.clone();
+
             // let ret_val = self.stack.pop().unwrap();
 
-            let rollback_index = last.index;
-
-            // Close remaining values on the stack
-
-            // self.stack.truncate(rollback_index);
-            // self.stack.push(ret_val);
-
-            // self.stack.truncate(rollback_index + 1);
-            // *self.stack.last_mut().unwrap() = ret_val;
+            let rollback_index = last.sp;
 
             let _ = self.stack.drain(rollback_index..self.stack.len() - 1);
 
-            let prev_state = last.instruction_pointer;
-            self.ip = prev_state.0;
-            self.instructions = prev_state.instrs();
+            self.ip = last.ip;
+            self.instructions = last.instructions;
 
-            self.sp = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+            self.sp = self.stack_frames.last().map(|x| x.sp).unwrap_or(0);
 
             // self.sp = last.index;
 
@@ -1893,7 +1871,7 @@ impl<'a> VmCore<'a> {
                     .with_span(self.current_span())
             });
 
-            let rollback_index = last.map(|x| x.index).unwrap_or(0);
+            let rollback_index = last.map(|x| x.sp).unwrap_or(0);
 
             // Move forward past the pop
             self.ip += 1;
@@ -2253,7 +2231,7 @@ impl<'a> VmCore<'a> {
         last.set_function(Gc::clone(closure));
         last.set_span(current_span);
 
-        let offset = last.index;
+        let offset = last.sp;
 
         // self.stack_frames.last_mut().unwrap().set_function(function)
 
@@ -2690,7 +2668,8 @@ impl<'a> VmCore<'a> {
             StackFrame::new(
                 prev_length,
                 Gc::clone(closure),
-                InstructionPointer::new(self.ip + 4, Rc::clone(&self.instructions)),
+                self.ip + 4,
+                Rc::clone(&self.instructions),
             )
             .with_span(self.current_span()),
         );
@@ -2873,7 +2852,8 @@ impl<'a> VmCore<'a> {
             StackFrame::new(
                 self.sp,
                 Gc::clone(closure),
-                InstructionPointer::new(self.ip + 1, Rc::clone(&self.instructions)),
+                self.ip + 1,
+                Rc::clone(&self.instructions),
             )
             .with_span(self.current_span()),
         );
@@ -2990,7 +2970,8 @@ impl<'a> VmCore<'a> {
             StackFrame::new(
                 self.sp,
                 Gc::clone(closure),
-                InstructionPointer::new(self.ip + 1, Rc::clone(&self.instructions)),
+                self.ip + 1,
+                Rc::clone(&self.instructions),
             )
             .with_span(self.current_span()),
         );
@@ -3097,6 +3078,8 @@ impl<'a> VmCore<'a> {
             }
             Closure(closure) => {
                 let arity = args.len();
+
+                self.stack.reserve(arity);
 
                 for arg in args {
                     self.stack.push(arg.clone());
@@ -3208,7 +3191,8 @@ pub fn call_with_exception_handler<'a, 'b>(
                 StackFrame::new(
                     ctx.sp,
                     Gc::clone(&closure),
-                    InstructionPointer::new(ctx.ip + 1, Rc::clone(&ctx.instructions)),
+                    ctx.ip + 1,
+                    Rc::clone(&ctx.instructions),
                 )
                 .with_span(ctx.current_span())
                 .with_handler(handler),
@@ -3303,7 +3287,8 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Res
                 StackFrame::new(
                     ctx.sp,
                     Gc::clone(&closure),
-                    InstructionPointer::new(ctx.ip + 1, Rc::clone(&ctx.instructions)),
+                    ctx.ip + 1,
+                    Rc::clone(&ctx.instructions),
                 )
                 .with_span(ctx.current_span()),
             );
@@ -4236,6 +4221,16 @@ fn handle_move_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
 }
 
 #[inline(always)]
+fn handle_move_local_1_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    // let offset = ctx.stack_frames.last().unwrap().index;
+    let offset = ctx.get_offset();
+    let value = std::mem::replace(&mut ctx.stack[offset + 1], SteelVal::Void);
+    ctx.ip += 1;
+    Ok(value)
+}
+
+#[inline(always)]
 fn handle_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
     let offset = ctx.get_offset();
     let value = ctx.stack[offset].clone();
@@ -4398,6 +4393,8 @@ fn call_global_handler_no_stack(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> 
 
 // Call a global function with the given arguments, but only push the args to the stack
 // if we need to
+
+#[inline(always)]
 fn call_global_handler_with_args(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> Result<()> {
     ctx.ip += 1;
     let payload_size = ctx.instructions[ctx.ip].payload_size;
@@ -4840,7 +4837,7 @@ fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let last_stack_frame = ctx.stack_frames.last().unwrap();
 
     ctx.instructions = last_stack_frame.function.body_exp();
-    ctx.sp = last_stack_frame.index;
+    ctx.sp = last_stack_frame.sp;
 
     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
@@ -4929,18 +4926,18 @@ fn sub_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
 #[inline(always)]
 fn sub_handler_int_none(_: &mut VmCore<'_>, l: isize, r: SteelVal) -> Result<SteelVal> {
     match r {
-        SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 - r)),
         SteelVal::IntV(n) => Ok(SteelVal::IntV(l - n)),
-        _ => stop!(TypeMismatch => "sub expected an number, found: {}", r),
+        SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 - r)),
+        _ => stop!(TypeMismatch => "sub expected a number, found: {}", r),
     }
 }
 
 #[inline(always)]
 fn sub_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<SteelVal> {
     match l {
-        SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
         SteelVal::IntV(l) => Ok(SteelVal::IntV(l - r)),
-        _ => stop!(TypeMismatch => "sub expected an number, found: {}", r),
+        SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
+        _ => stop!(TypeMismatch => "sub expected a number, found: {}", l),
     }
 }
 
@@ -5011,8 +5008,8 @@ fn div_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
 #[inline(always)]
 fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<bool> {
     match l {
-        SteelVal::NumV(l) => Ok(l <= r as f64),
         SteelVal::IntV(l) => Ok(l <= r),
+        SteelVal::NumV(l) => Ok(l <= r as f64),
         _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
     }
 }
@@ -5128,6 +5125,10 @@ macro_rules! opcode_to_ssa_handler {
 
     (MOVEREADLOCAL0) => {
         handle_move_local_0_no_stack
+    };
+
+    (MOVEREADLOCAL1) => {
+        handle_move_local_1_no_stack
     };
 
     (READLOCAL0) => {

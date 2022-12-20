@@ -2091,6 +2091,7 @@ name = "steel-gen"
 version = "0.1.0"
 dependencies = [
  "codegen",
+ "itertools",
  "serde",
  "serde_derive",
 ]

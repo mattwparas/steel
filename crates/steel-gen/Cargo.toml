@@ -9,3 +9,4 @@ edition = "2021"
 codegen = "0.2.0"
 serde = { version = "1.0.137", features = ["derive"] }
 serde_derive = "1.0.137"
+itertools = "0.10.5"

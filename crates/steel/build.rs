@@ -32,6 +32,16 @@ fn main() {
         ],
         vec![(READLOCAL0, 0), (LOADINT1, 219), (SUB, 2), (CALLGLOBAL, 1)],
         vec![(READLOCAL0, 0), (LOADINT2, 225), (LTE, 2), (IF, 7)],
+        vec![
+            (READLOCAL0, 0),
+            (LOADINT1, 219),
+            (SUB, 2),
+            (MOVEREADLOCAL0, 0),
+            (MOVEREADLOCAL1, 1),
+            (LOADINT1, 219),
+            (SUB, 2),
+            (CALLGLOBAL, 2),
+        ],
     ];
 
     fs::write(&dest_path, generate_opcode_map(patterns)).unwrap();

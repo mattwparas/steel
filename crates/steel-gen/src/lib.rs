@@ -3,6 +3,7 @@
 pub mod opcode;
 use std::borrow::Cow;
 
+use itertools::Itertools;
 pub use opcode::OpCode;
 
 use codegen::{Block, Function, Scope};
@@ -349,8 +350,8 @@ impl StackToSSAConverter {
         let mut function = Function::new(
             op_codes
                 .iter()
-                .map(|x| format!("{}", x))
-                .collect::<String>(),
+                .map(|x| format!("{}", x).to_lowercase())
+                .join("_"),
         );
         function.arg("ctx", codegen::Type::new("&mut VmCore<'_>"));
         function.arg("payload", codegen::Type::new("usize"));
@@ -414,6 +415,19 @@ impl StackToSSAConverter {
                         .collect::<String>();
 
                     if index == last - 1 {
+                        // For whatever is left, push on to the SteelThread stack
+                        for value in &self.stack {
+                            match value.type_hint {
+                                TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
+                                    function.line(format!("ctx.stack.push({}.into());", value))
+                                }
+                                // It is already confirmed to be... something thats non primitive.
+                                _ => function.line(format!("ctx.stack.push({});", value)),
+                            };
+                        }
+
+                        self.stack.clear();
+
                         function.line(format!(
                             "opcode_to_ssa_handler!(CALLGLOBAL, Tail)(ctx, &mut [{}])?;",
                             args
@@ -929,6 +943,7 @@ pub fn generate_opcode_map(patterns: Vec<Vec<(OpCode, usize)>>) -> String {
 
     let mut generate = codegen::Function::new("generate_dynamic_op_codes");
     generate.ret(codegen::Type::new("SuperInstructionMap"));
+    generate.vis("pub(crate)");
 
     generate.line("use OpCode::*;");
     generate.line("use steel_gen::Pattern::*;");
@@ -939,7 +954,10 @@ pub fn generate_opcode_map(patterns: Vec<Vec<(OpCode, usize)>>) -> String {
 
     for pattern in patterns {
         let pattern = Pattern::from_opcodes(&pattern);
-        let generated_name = pattern.iter().map(|x| format!("{}", x)).collect::<String>();
+        let generated_name = pattern
+            .iter()
+            .map(|x| format!("{}", x).to_lowercase())
+            .join("_");
         let generated_function = converter.process_sequence(&pattern);
 
         let mut scope = Scope::new();
