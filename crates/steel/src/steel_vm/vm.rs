@@ -1159,10 +1159,9 @@ impl<'a> VmCore<'a> {
 
                 DenseInstruction {
                     op_code: OpCode::POPPURE,
-                    payload_size,
                     ..
                 } => {
-                    if let Some(r) = self.handle_pop_pure(payload_size) {
+                    if let Some(r) = self.handle_pop_pure() {
                         return r;
                     }
                 }
@@ -1827,7 +1826,7 @@ impl<'a> VmCore<'a> {
     }
 
     #[inline(always)]
-    fn handle_pop_pure(&mut self, _payload: u32) -> Option<Result<SteelVal>> {
+    fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
 
