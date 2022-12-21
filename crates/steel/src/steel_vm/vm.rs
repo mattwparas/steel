@@ -93,6 +93,9 @@ impl DehydratedStackTrace {
 // Then - do I want to always reference the last one, or just refer to the current one?
 // TODO: We'll need to add these functions to the GC as well
 
+// TODO: Consider shrinking the size of the stack frame to reduce thrash
+// One way to do so would be to move the span and the handler into another location, and
+// hold a pointer to it.
 #[derive(Debug, Clone)]
 pub struct StackFrame {
     sp: usize,
