@@ -186,13 +186,13 @@ impl SteelThread {
         SteelThread {
             global_env: Env::root(),
             callback: EvaluationProgress::new(),
-            stack: Vec::with_capacity(256),
+            stack: Vec::with_capacity(1024),
             profiler: OpCodeOccurenceProfiler::new(),
             function_interner: FunctionInterner::default(),
             super_instructions: Vec::new(),
             heap: Heap::new(),
             contracts_on: true,
-            stack_frames: Vec::with_capacity(64),
+            stack_frames: Vec::with_capacity(128),
             current_frame: StackFrame::main(),
             #[cfg(feature = "jit")]
             jit: JIT::default(),
@@ -452,14 +452,14 @@ impl SteelThread {
         }
     }
 
-    pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
-        DehydratedStackTrace::new(
-            self.stack_frames
-                .iter()
-                .map(|x| DehydratedCallContext::new(x.span))
-                .collect(),
-        )
-    }
+    // pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
+    //     DehydratedStackTrace::new(
+    //         self.stack_frames
+    //             .iter()
+    //             .map(|x| DehydratedCallContext::new(x.span))
+    //             .collect(),
+    //     )
+    // }
 }
 
 #[derive(Clone, Debug)]
@@ -678,7 +678,6 @@ fn test_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 impl<'a> VmCore<'a> {
     fn new_unchecked(
         instructions: Rc<[DenseInstruction]>,
-        // instructions: Rc<RefCell<Vec<DenseInstruction>>>,
         stack: &'a mut Vec<SteelVal>,
         global_env: &'a mut Env,
         constants: &'a ConstantMap,
