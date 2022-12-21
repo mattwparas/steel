@@ -2062,7 +2062,6 @@ dependencies = [
  "dlopen",
  "dlopen_derive",
  "env_logger",
- "fnv",
  "futures",
  "fxhash",
  "im-lists",

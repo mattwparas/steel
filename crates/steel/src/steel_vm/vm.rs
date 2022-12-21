@@ -36,7 +36,6 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator, ops::Deref, rc::R
 
 use super::{builtin::DocTemplate, evaluation_progress::EvaluationProgress};
 
-use fnv::FnvHashMap;
 use im_lists::list::List;
 use lazy_static::lazy_static;
 use log::{debug, error, log_enabled};
@@ -83,12 +82,12 @@ impl DehydratedStackTrace {
     }
 }
 
-// Eventually expand this to other kinds of continuations
-#[derive(Debug, Clone, Copy)]
-pub enum ContinuationMark {
-    Default,
-    Transducer,
-}
+// // Eventually expand this to other kinds of continuations
+// #[derive(Debug, Clone, Copy)]
+// pub enum ContinuationMark {
+//     Default,
+//     Transducer,
+// }
 
 // This should be the go to thing for handling basically everything we need
 // Then - do I want to always reference the last one, or just refer to the current one?
@@ -97,15 +96,13 @@ pub enum ContinuationMark {
 #[derive(Debug, Clone)]
 pub struct StackFrame {
     sp: usize,
-    // This kind of by definition _does_ have to be a function. But for now, we'll just leave it as a
-    // generic steel value
+    // This _has_ to be a function
     handler: Option<SteelVal>,
     span: Option<Span>,
     // This should get added to the GC as well
     pub(crate) function: Gc<ByteCodeLambda>,
     ip: usize,
     instructions: Rc<[DenseInstruction]>,
-    // continuation_mark: ContinuationMark,
 }
 
 impl StackFrame {
@@ -122,8 +119,12 @@ impl StackFrame {
             instructions,
             span: None,
             handler: None,
-            // continuation_mark: ContinuationMark::Default,
         }
+    }
+
+    pub fn main() -> Self {
+        let function = Gc::new(ByteCodeLambda::main(Vec::new()));
+        StackFrame::new(0, function, 0, Rc::from([]))
     }
 
     #[inline(always)]
@@ -155,19 +156,29 @@ pub struct SteelThread {
     callback: EvaluationProgress,
     stack: Vec<SteelVal>,
     profiler: OpCodeOccurenceProfiler,
+    function_interner: FunctionInterner,
     // TODO: Combine these three into one struct.
-    closure_interner: fxhash::FxHashMap<usize, ByteCodeLambda>,
-    pure_function_interner: fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
     super_instructions: Vec<Rc<DynamicBlock>>,
     heap: Heap,
     // If contracts are set to off - contract construction results in a no-op,
     // so we don't need generics on the thread
     contracts_on: bool,
+    current_frame: StackFrame,
     stack_frames: Vec<StackFrame>,
     // Bit of a funky way of handling things that we probably could do with delimited continuations
     // directly, but it could work
     #[cfg(feature = "jit")]
     jit: JIT,
+}
+
+struct RunTimeOptions {
+    contracts_on: bool,
+}
+
+#[derive(Default)]
+struct FunctionInterner {
+    closure_interner: fxhash::FxHashMap<usize, ByteCodeLambda>,
+    pure_function_interner: fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
 }
 
 impl SteelThread {
@@ -176,15 +187,13 @@ impl SteelThread {
             global_env: Env::root(),
             callback: EvaluationProgress::new(),
             stack: Vec::with_capacity(256),
-            // function_stack: CallStack::with_capacity(64),
-            // stack_index: Vec::with_capacity(64),
             profiler: OpCodeOccurenceProfiler::new(),
-            closure_interner: fxhash::FxHashMap::default(),
-            pure_function_interner: fxhash::FxHashMap::default(),
+            function_interner: FunctionInterner::default(),
             super_instructions: Vec::new(),
             heap: Heap::new(),
             contracts_on: true,
             stack_frames: Vec::with_capacity(64),
+            current_frame: StackFrame::main(),
             #[cfg(feature = "jit")]
             jit: JIT::default(),
         }
@@ -272,8 +281,8 @@ impl SteelThread {
                     &mut self.stack_frames,
                     &[],
                     &mut self.profiler,
-                    &mut self.closure_interner,
-                    &mut self.pure_function_interner,
+                    &mut self.function_interner.closure_interner,
+                    &mut self.function_interner.pure_function_interner,
                     &mut self.heap,
                     self.contracts_on,
                     &mut self.super_instructions,
@@ -313,13 +322,11 @@ impl SteelThread {
             &mut self.global_env,
             constant_map,
             &self.callback,
-            // &mut self.function_stack,
-            // &mut self.stack_index,
             &mut self.stack_frames,
             spans,
             &mut self.profiler,
-            &mut self.closure_interner,
-            &mut self.pure_function_interner,
+            &mut self.function_interner.closure_interner,
+            &mut self.function_interner.pure_function_interner,
             &mut self.heap,
             self.contracts_on,
             &mut self.super_instructions,
@@ -666,6 +673,8 @@ fn test_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
+// TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
+//
 impl<'a> VmCore<'a> {
     fn new_unchecked(
         instructions: Rc<[DenseInstruction]>,

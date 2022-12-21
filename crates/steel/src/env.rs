@@ -1,9 +1,4 @@
-use std::collections::HashMap;
-
-use crate::{
-    parser::ast::ExprKind,
-    rvals::{Result, SteelVal},
-};
+use crate::rvals::{Result, SteelVal};
 
 // TODO
 pub const fn _new_void() -> SteelVal {
@@ -24,7 +19,6 @@ pub const fn _new_false() -> SteelVal {
 #[derive(Debug)]
 pub struct Env {
     pub(crate) bindings_vec: Vec<SteelVal>,
-    pub(crate) ast_map: HashMap<usize, ExprKind>,
 }
 
 impl Env {
@@ -36,7 +30,6 @@ impl Env {
     pub fn root() -> Self {
         Env {
             bindings_vec: Vec::new(),
-            ast_map: HashMap::new(),
         }
     }
 
@@ -49,17 +42,6 @@ impl Env {
                 }
             }
         }
-    }
-
-    // Appends the values from the map into the other
-    pub(crate) fn _add_hashmap(&mut self, map: HashMap<usize, ExprKind>) {
-        for (key, value) in map {
-            self.ast_map.insert(key, value);
-        }
-    }
-
-    pub(crate) fn _get_expr(&mut self, idx: usize) -> Option<&ExprKind> {
-        self.ast_map.get(&idx)
     }
 
     /// Search starting from the current environment

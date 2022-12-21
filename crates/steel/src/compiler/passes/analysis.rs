@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use fnv::FnvHashMap;
 // use itertools::Itertools;
 use quickscope::ScopeMap;
 
@@ -230,10 +229,10 @@ impl LetInformation {
 #[derive(Default, Debug, Clone)]
 pub struct Analysis {
     // TODO: make these be specific IDs for semantic id, function id, and call info id
-    pub(crate) info: FnvHashMap<SyntaxObjectId, SemanticInformation>,
-    pub(crate) function_info: FnvHashMap<usize, FunctionInformation>,
-    pub(crate) call_info: FnvHashMap<usize, CallSiteInformation>,
-    pub(crate) let_info: FnvHashMap<usize, LetInformation>,
+    pub(crate) info: fxhash::FxHashMap<SyntaxObjectId, SemanticInformation>,
+    pub(crate) function_info: fxhash::FxHashMap<usize, FunctionInformation>,
+    pub(crate) call_info: fxhash::FxHashMap<usize, CallSiteInformation>,
+    pub(crate) let_info: fxhash::FxHashMap<usize, LetInformation>,
 }
 
 impl Analysis {
