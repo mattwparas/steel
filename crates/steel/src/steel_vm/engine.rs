@@ -591,7 +591,7 @@ impl Engine {
     /// .unwrap();
     /// ```
     pub fn on_progress<FN: Fn(usize) -> bool + 'static>(&mut self, callback: FN) -> &mut Self {
-        self.virtual_machine.on_progress(callback);
+        // self.virtual_machine.on_progress(callback);
         self
     }
 

@@ -196,11 +196,11 @@ pub(crate) fn steel_box<'a, 'b>(
     let arg = args[0].clone();
 
     // Allocate the variable directly on the heap
-    let allocated_var = ctx.heap.allocate(
+    let allocated_var = ctx.thread.heap.allocate(
         arg,
-        ctx.stack.iter(),
-        ctx.stack_frames.iter().map(|x| &x.function),
-        ctx.global_env.roots(),
+        ctx.thread.stack.iter(),
+        ctx.thread.stack_frames.iter().map(|x| &x.function),
+        ctx.thread.global_env.roots(),
     );
 
     Some(Ok(SteelVal::Boxed(allocated_var)))

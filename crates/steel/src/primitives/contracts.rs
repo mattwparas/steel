@@ -82,7 +82,7 @@ pub fn bind_contract_to_function<'a, 'b>(
     let contract = args[0].clone();
     let function = args[1].clone();
 
-    if !ctx.use_contracts {
+    if !ctx.thread.runtime_options.contracts_on {
         return Some(Ok(function));
     }
 

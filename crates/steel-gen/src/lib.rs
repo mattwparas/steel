@@ -197,11 +197,10 @@ impl StackToSSAConverter {
                         // For whatever is left, push on to the SteelThread stack
                         for value in &self.stack {
                             match value.type_hint {
-                                TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
-                                    function.line(format!("ctx.stack.push({}.into());", value))
-                                }
+                                TypeHint::Int | TypeHint::Bool | TypeHint::Float => function
+                                    .line(format!("ctx.thread.stack.push({}.into());", value)),
                                 // It is already confirmed to be... something thats non primitive.
-                                _ => function.line(format!("ctx.stack.push({});", value)),
+                                _ => function.line(format!("ctx.thread.stack.push({});", value)),
                             };
                         }
 
@@ -606,10 +605,10 @@ impl StackToSSAConverter {
         for value in &self.stack {
             match value.type_hint {
                 TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
-                    function.line(format!("ctx.stack.push({}.into());", value))
+                    function.line(format!("ctx.thread.stack.push({}.into());", value))
                 }
                 // It is already confirmed to be... something thats non primitive.
-                _ => function.line(format!("ctx.stack.push({});", value)),
+                _ => function.line(format!("ctx.thread.stack.push({});", value)),
             };
         }
 
