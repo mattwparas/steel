@@ -879,30 +879,7 @@ impl<'a> VmCore<'a> {
             argument_count += 1;
         }
 
-        // TODO: abstract the multi arity code into its own function
-        // This is duplicated across like 3 different places
-        if closure.is_multi_arity {
-            if argument_count < closure.arity() - 1 {
-                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), argument_count); self.current_span());
-            }
-
-            // (define (test x . y))
-            // (test 1 2 3 4 5)
-            // in this case, arity = 2 and payload size = 5
-            // pop off the last 4, collect into a list
-            let amount_to_remove = 1 + argument_count - closure.arity();
-
-            let values = self
-                .thread
-                .stack
-                .split_off(self.thread.stack.len() - amount_to_remove);
-
-            let list = SteelVal::ListV(List::from(values));
-
-            self.thread.stack.push(list);
-        } else if closure.arity() != argument_count {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), argument_count); self.current_span());
-        }
+        self.adjust_stack_for_multi_arity(closure, argument_count, &mut 0)?;
 
         // self.function_stack
         // .push(CallContext::new(Gc::clone(closure)));
@@ -2173,10 +2150,6 @@ impl<'a> VmCore<'a> {
 
         let current_span = self.current_span();
 
-        let last = self.thread.stack_frames.last_mut().unwrap();
-
-        let offset = last.sp;
-
         // self.stack_frames.last_mut().unwrap().set_function(function)
 
         // TODO
@@ -2185,37 +2158,11 @@ impl<'a> VmCore<'a> {
 
         let mut new_arity = payload_size;
 
-        if closure.is_multi_arity {
-            // println!(
-            //     "multi closure function, multi arity, arity: {:?}",
-            //     closure.arity()
-            // );
+        self.adjust_stack_for_multi_arity(&closure, payload_size, &mut new_arity)?;
 
-            if payload_size < closure.arity() - 1 {
-                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-            }
+        let last = self.thread.stack_frames.last_mut().unwrap();
 
-            // (define (test x . y))
-            // (test 1 2 3 4 5)
-            // in this case, arity = 2 and payload size = 5
-            // pop off the last 4, collect into a list
-            let amount_to_remove = 1 + payload_size - closure.arity();
-
-            let values = self
-                .thread
-                .stack
-                .split_off(self.thread.stack.len() - amount_to_remove);
-
-            let list = SteelVal::ListV(List::from(values));
-
-            self.thread.stack.push(list);
-
-            new_arity = closure.arity();
-
-            // println!("Stack after list conversion: {:?}", self.stack);
-        } else if closure.arity() != payload_size {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-        }
+        let offset = last.sp;
 
         // Find the new arity from the payload
 
@@ -2247,6 +2194,47 @@ impl<'a> VmCore<'a> {
         last.set_span(current_span);
 
         self.ip = 0;
+        Ok(())
+    }
+
+    fn adjust_stack_for_multi_arity(
+        &mut self,
+        closure: &Gc<ByteCodeLambda>,
+        payload_size: usize,
+        new_arity: &mut usize,
+    ) -> Result<()> {
+        if closure.is_multi_arity {
+            // println!(
+            //     "multi closure function, multi arity, arity: {:?}",
+            //     closure.arity()
+            // );
+
+            if payload_size < closure.arity() - 1 {
+                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
+            }
+
+            // (define (test x . y))
+            // (test 1 2 3 4 5)
+            // in this case, arity = 2 and payload size = 5
+            // pop off the last 4, collect into a list
+            let amount_to_remove = 1 + payload_size - closure.arity();
+
+            let values = self
+                .thread
+                .stack
+                .split_off(self.thread.stack.len() - amount_to_remove);
+
+            let list = SteelVal::ListV(List::from(values));
+
+            self.thread.stack.push(list);
+
+            *new_arity = closure.arity();
+
+            // println!("Stack after list conversion: {:?}", self.stack);
+        } else if closure.arity() != payload_size {
+            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
+        }
+
         Ok(())
     }
 
@@ -2789,38 +2777,7 @@ impl<'a> VmCore<'a> {
             closure.increment_call_count();
         }
 
-        // Push on the function stack so we have access to it laters
-        // self.function_stack
-        //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
-
-        // if closure.arity() != payload_size {
-        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); *span);
-        // }
-
-        if closure.is_multi_arity {
-            // println!("Arity: {}", closure.arity());
-
-            if payload_size < closure.arity() - 1 {
-                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-            }
-
-            // (define (test x . y))
-            // (test 1 2 3 4 5)
-            // in this case, arity = 2 and payload size = 5
-            // pop off the last 4, collect into a list
-            let amount_to_remove = 1 + payload_size - closure.arity();
-
-            let values = self
-                .thread
-                .stack
-                .split_off(self.thread.stack.len() - amount_to_remove);
-
-            let list = SteelVal::ListV(List::from(values));
-
-            self.thread.stack.push(list);
-        } else if closure.arity() != payload_size {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-        }
+        self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
 
         self.sp = self.thread.stack.len() - closure.arity();
 
@@ -2923,33 +2880,7 @@ impl<'a> VmCore<'a> {
         // println!("Multi arity: {}", closure.is_multi_arity);
         // crate::core::instructions::pretty_print_dense_instructions(&closure.body_exp);
 
-        // TODO - this is unclear - need to pop values off of the stack, collect them as a list, then push it back in
-        // If this is a multi arity function
-        // then we should just
-        if closure.is_multi_arity {
-            // println!("Calling multi arity function");
-
-            if payload_size < closure.arity() - 1 {
-                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-            }
-
-            // (define (test x . y))
-            // (test 1 2 3 4 5)
-            // in this case, arity = 2 and payload size = 5
-            // pop off the last 4, collect into a list
-            let amount_to_remove = 1 + payload_size - closure.arity();
-
-            let values = self
-                .thread
-                .stack
-                .split_off(self.thread.stack.len() - amount_to_remove);
-
-            let list = SteelVal::ListV(List::from(values));
-
-            self.thread.stack.push(list);
-        } else if closure.arity() != payload_size {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-        }
+        self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
 
         self.sp = self.thread.stack.len() - closure.arity();
 
