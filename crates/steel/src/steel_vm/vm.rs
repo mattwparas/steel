@@ -1710,18 +1710,18 @@ impl<'a> VmCore<'a> {
     // TODO: This is definitely an issue - if the instruction stack is empty,
     // We will probably end up grabbing a garbage span
     fn current_span(&self) -> Span {
-        self.spans
-            .get(
-                self.instructions
-                    .get(self.ip)
-                    .map(|x| x.span_index)
-                    .unwrap_or_default(),
-            )
-            // .flatten()
-            .copied()
-            .unwrap_or_default()
+        // self.spans
+        //     .get(
+        //         self.instructions
+        //             .get(self.ip)
+        //             .map(|x| x.span_index)
+        //             .unwrap_or_default(),
+        //     )
+        //     // .flatten()
+        //     .copied()
+        //     .unwrap_or_default()
 
-        // Span::default()
+        Span::default()
     }
 
     fn enclosing_span(&self) -> Option<Span> {
