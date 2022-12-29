@@ -624,10 +624,6 @@ pub struct VmCore<'a> {
     pub(crate) thread: &'a mut SteelThread,
 }
 
-fn test_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    Ok(())
-}
-
 // TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
 //
 impl<'a> VmCore<'a> {
@@ -1648,59 +1644,8 @@ impl<'a> VmCore<'a> {
                     );
                 }
             }
-
-            // if let Some(pat) = pat {
-            // self.profiler.tie_off_length(self.ip);
-            // }
-
-            // Process the op code
-            // self.profiler.add_time(
-            //     &self.instructions[self.ip].op_code,
-            //     self.instructions[self.ip].payload_size as usize,
-            //     now.elapsed(),
-            // );
-
-            // TODO: @Matt Add a way to interrupt back thats not crappy
-            // Put callbacks behind generic
-            // if U::use_callbacks() {
-            //     match self.callback.call_and_increment() {
-            //         Some(b) if !b => stop!(Generic => "Callback forced quit of function!"),
-            //         _ => {}
-            //     }
-            // }
         }
     }
-
-    // fn call_super_instruction(&mut self, payload_size: usize) -> Result<()> {
-    //     let super_instructions = &self.super_instructions[payload_size];
-
-    //     // println!("---- Entering dynamic block ----");
-    //     // println!("{:#?}", self.basic_block);
-
-    //     if let Some(header) = super_instructions.header_func {
-    //         // println!("Calling special entry block");
-    //         header(self, super_instructions.entry_inst.payload_size as usize)?;
-    //     }
-
-    //     if let Some(specialized) = super_instructions.specialized {
-    //         specialized(self)?;
-    //     } else {
-    //         for func in super_instructions.handlers.iter() {
-    //             func(self)?;
-    //         }
-    //     }
-
-    //     // println!("---- Exited dynamic block ----");
-    //     // println!(
-    //     // "Current op code: {:?}",
-    //     // context.instructions[context.ip].op_code
-    //     // );
-    //     Ok(())
-    // }
-
-    // fn call(&mut self) -> Result<()> {
-
-    // }
 
     fn move_from_stack(&mut self, offset: usize) -> SteelVal {
         std::mem::replace(&mut self.thread.stack[offset], SteelVal::Void)
@@ -1710,18 +1655,18 @@ impl<'a> VmCore<'a> {
     // TODO: This is definitely an issue - if the instruction stack is empty,
     // We will probably end up grabbing a garbage span
     fn current_span(&self) -> Span {
-        // self.spans
-        //     .get(
-        //         self.instructions
-        //             .get(self.ip)
-        //             .map(|x| x.span_index)
-        //             .unwrap_or_default(),
-        //     )
-        //     // .flatten()
-        //     .copied()
-        //     .unwrap_or_default()
+        self.spans
+            .get(
+                self.instructions
+                    .get(self.ip)
+                    .map(|x| x.span_index)
+                    .unwrap_or_default(),
+            )
+            // .flatten()
+            .copied()
+            .unwrap_or_default()
 
-        Span::default()
+        // Span::default()
     }
 
     fn enclosing_span(&self) -> Option<Span> {
