@@ -672,6 +672,13 @@ impl StackToSSAConverter {
             ));
         }
 
+        if max_ip_read > 0 {
+            function.line(format!(
+                "assert!(ctx.ip + {} < ctx.instructions.len());",
+                max_ip_read
+            ));
+        }
+
         for line in lines.lines {
             function.line(line);
         }

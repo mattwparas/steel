@@ -188,13 +188,13 @@ impl SteelThread {
     pub fn new() -> SteelThread {
         SteelThread {
             global_env: Env::root(),
-            stack: Vec::with_capacity(1024),
+            stack: Vec::with_capacity(128),
             profiler: OpCodeOccurenceProfiler::new(),
             function_interner: FunctionInterner::default(),
             super_instructions: Vec::new(),
             heap: Heap::new(),
             runtime_options: RunTimeOptions::new(),
-            stack_frames: Vec::with_capacity(128),
+            stack_frames: Vec::with_capacity(32),
             current_frame: StackFrame::main(),
         }
     }
@@ -1863,9 +1863,12 @@ impl<'a> VmCore<'a> {
             // If extraneous lets are lifted, we probably don't need this
             // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
 
+            let forward_jump_index = self.ip + forward_jump - 1;
+
             // Construct the closure body using the offsets from the payload
             // used to be - 1, now - 2
-            let closure_body = self.instructions[self.ip..(self.ip + forward_jump - 1)].to_vec();
+            let closure_body = self.instructions[self.ip..forward_jump_index].to_vec();
+            let spans = self.spans[self.ip..forward_jump_index].into();
 
             // snag the arity from the eclosure instruction
             let arity = self.instructions[forward_index - 1].payload_size;
@@ -1877,6 +1880,7 @@ impl<'a> VmCore<'a> {
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),
+                spans,
             ));
 
             self.thread
@@ -2019,12 +2023,15 @@ impl<'a> VmCore<'a> {
                 panic!("Out of bounds forward jump");
             }
 
+            let forward_jump_index = forward_index - 1;
+
             // Construct the closure body using the offsets from the payload
             // used to be - 1, now - 2
-            let closure_body = self.instructions[self.ip..(forward_index - 1)].to_vec();
+            let closure_body = self.instructions[self.ip..forward_jump_index].to_vec();
+            let spans = self.spans[self.ip..forward_jump_index].into();
 
             // snag the arity from the eclosure instruction
-            let arity = self.instructions[forward_index - 1].payload_size;
+            let arity = self.instructions[forward_jump_index].payload_size;
 
             let mut constructed_lambda = ByteCodeLambda::new(
                 closure_id,
@@ -2033,6 +2040,7 @@ impl<'a> VmCore<'a> {
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),
+                spans,
             );
 
             self.thread
@@ -2620,6 +2628,9 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn check_stack_overflow(&self) -> Result<()> {
+        // println!("Depth: {}", self.thread.stack_frames.len());
+        // println!("Stack length: {}", self.thread.stack.len());
+
         if self.thread.stack_frames.len() >= STACK_LIMIT {
             crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
             println!("stack frame at exit: {:?}", self.thread.stack);
@@ -2823,8 +2834,7 @@ impl<'a> VmCore<'a> {
 
         // Do this _after_ the multi arity business
         self.thread.stack_frames.push(
-            StackFrame::new(self.sp, closure, self.ip + 1, Rc::clone(&self.instructions))
-                .with_span(self.current_span()),
+            StackFrame::new(self.sp, closure, self.ip + 1, Rc::clone(&self.instructions)), // .with_span(self.current_span()),
         );
 
         // self.current_arity = Some(closure.arity());

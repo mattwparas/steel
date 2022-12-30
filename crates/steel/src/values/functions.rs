@@ -11,6 +11,7 @@ use fxhash::FxHashSet;
 use crate::{
     core::{instructions::DenseInstruction, opcode::OpCode},
     gc::Gc,
+    parser::span::Span,
     rvals::{BoxedFunctionSignature, FunctionSignature, MutFunctionSignature},
     steel_vm::vm::{BlockMetadata, BlockPattern, BuiltInSignature},
     values::contracts::ContractedFunction,
@@ -45,6 +46,7 @@ pub struct ByteCodeLambda {
     captures: Vec<SteelVal>,
     pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
+    spans: Box<[Span]>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -71,6 +73,7 @@ impl ByteCodeLambda {
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
         heap_allocated: Vec<HeapRef>,
+        spans: Box<[Span]>,
     ) -> ByteCodeLambda {
         ByteCodeLambda {
             id,
@@ -83,11 +86,20 @@ impl ByteCodeLambda {
             // TODO: Allocated the necessary size right away <- we're going to index into it
             heap_allocated: RefCell::new(heap_allocated),
             blocks: RefCell::new(Vec::new()),
+            spans,
         }
     }
 
     pub fn main(instructions: Vec<DenseInstruction>) -> ByteCodeLambda {
-        Self::new(0, instructions, 0, false, Vec::default(), Vec::default())
+        Self::new(
+            0,
+            instructions,
+            0,
+            false,
+            Vec::default(),
+            Vec::default(),
+            Box::from([]),
+        )
     }
 
     pub fn set_captures(&mut self, captures: Vec<SteelVal>) {
