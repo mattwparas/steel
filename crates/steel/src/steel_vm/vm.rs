@@ -938,6 +938,14 @@ impl<'a> VmCore<'a> {
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
+    // pub fn get_slice_of_size_two(&mut self) -> &mut [SteelVal] {
+    //     if let &mut [.., last, two] = self.thread.stack.as_mut_slice() {
+    //         &mut [last, two]
+    //     } else {
+    //         unreachable!()
+    //     }
+    // }
+
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
         // let mut cur_inst;
 
@@ -1673,7 +1681,7 @@ impl<'a> VmCore<'a> {
         self.thread.stack_frames.last().and_then(|x| x.span)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
@@ -2142,13 +2150,18 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
+    #[inline(always)]
     fn adjust_stack_for_multi_arity(
         &mut self,
         closure: &Gc<ByteCodeLambda>,
         payload_size: usize,
         new_arity: &mut usize,
     ) -> Result<()> {
-        if closure.is_multi_arity {
+        if !closure.is_multi_arity {
+            if closure.arity() != payload_size {
+                stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
+            }
+        } else {
             // println!(
             //     "multi closure function, multi arity, arity: {:?}",
             //     closure.arity()
@@ -2176,9 +2189,11 @@ impl<'a> VmCore<'a> {
             *new_arity = closure.arity();
 
             // println!("Stack after list conversion: {:?}", self.stack);
-        } else if closure.arity() != payload_size {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
         }
+
+        // else if closure.arity() != payload_size {
+        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
+        // }
 
         Ok(())
     }
@@ -2794,37 +2809,12 @@ impl<'a> VmCore<'a> {
 
     // TODO improve this a bit
     // #[inline(always)]
-    fn handle_function_call_closure_jit(
+    #[inline(always)]
+    fn handle_function_call_closure_jit_without_profiling(
         &mut self,
         closure: Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
-        // Record the end of the existing sequence
-        self.cut_sequence();
-
-        // Jit profiling -> Make sure that we really only trace once we pass a certain threshold
-        // For instance, if this function
-        closure.increment_call_count();
-
-        // if closure.is_multi_arity {
-        //     println!("Calling multi arity function");
-        // }
-
-        // println!(
-        //     "Calling function with arity: {:?}, payload size: {:?}",
-        //     closure.arity(),
-        //     payload_size
-        // );
-
-        // TODO take this out
-
-        // self.function_stack
-        //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
-
-        // println!("Calling function");
-        // println!("Multi arity: {}", closure.is_multi_arity);
-        // crate::core::instructions::pretty_print_dense_instructions(&closure.body_exp);
-
         self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
 
         self.sp = self.thread.stack.len() - closure.arity();
@@ -2854,6 +2844,24 @@ impl<'a> VmCore<'a> {
         self.instructions = instructions;
         self.ip = 0;
         Ok(())
+    }
+
+    // TODO improve this a bit
+    // #[inline(always)]
+    #[inline(always)]
+    fn handle_function_call_closure_jit(
+        &mut self,
+        closure: Gc<ByteCodeLambda>,
+        payload_size: usize,
+    ) -> Result<()> {
+        // Record the end of the existing sequence
+        self.cut_sequence();
+
+        // Jit profiling -> Make sure that we really only trace once we pass a certain threshold
+        // For instance, if this function
+        closure.increment_call_count();
+
+        self.handle_function_call_closure_jit_without_profiling(closure, payload_size)
     }
 
     #[inline(always)]
@@ -2946,9 +2954,7 @@ impl<'a> VmCore<'a> {
                     self.thread.stack.push(arg.clone());
                 }
 
-                // println!("Stack: {:?}", self.stack);
-                // panic!();
-
+                // If we're here, we're already done profiling, and don't need to profile anymore
                 self.handle_function_call_closure_jit(closure, arity)?;
             }
             // BuiltIn(f) => f(self, args),

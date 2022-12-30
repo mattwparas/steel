@@ -591,6 +591,8 @@ impl From<Syntax> for SteelVal {
 
 #[derive(Clone)]
 pub enum SteelVal {
+    /// Represents a bytecode closure
+    Closure(Gc<ByteCodeLambda>),
     /// Represents a boolean value
     BoolV(bool),
     /// Represents a number, currently only f64 numbers are supported
@@ -625,8 +627,6 @@ pub enum SteelVal {
     // StructClosureV(Box<StructClosure>),
     /// Represents a port object
     PortV(Gc<SteelPort>),
-    /// Represents a bytecode closure
-    Closure(Gc<ByteCodeLambda>),
     /// Generic iterator wrapper
     IterV(Gc<Transducer>),
     /// Reducers

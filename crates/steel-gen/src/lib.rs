@@ -85,6 +85,17 @@ impl std::fmt::Display for Pattern {
     }
 }
 
+#[derive(Default)]
+struct FunctionLines {
+    lines: Vec<String>,
+}
+
+impl FunctionLines {
+    fn line(&mut self, line: impl Into<String>) {
+        self.lines.push(line.into())
+    }
+}
+
 impl StackToSSAConverter {
     pub fn new() -> Self {
         Self {
@@ -136,6 +147,14 @@ impl StackToSSAConverter {
         function.arg("payload", codegen::Type::new("usize"));
         function.ret(codegen::Type::new("Result<()>"));
 
+        let mut lines = FunctionLines::default();
+
+        let mut max_local_offset_read = 0;
+        let mut max_ip_read = 0;
+
+        // TODO: Don't use the function line pushing directly, use a vec manually, and then insert an assertion for the instruction count
+        // to help reduce the bounds checks that we have to pay
+
         // READLOCAL0,
         // LOADINT2,
         // MUL,
@@ -154,7 +173,7 @@ impl StackToSSAConverter {
             match op {
                 Double(BEGINSCOPE, n) => {
                     self.local_offset = Some(*n);
-                    function.line("ctx.ip += 1;");
+                    lines.line("ctx.ip += 1;");
                 }
                 // Single(LetVar) => {
                 //     let local = self.pop();
@@ -162,26 +181,30 @@ impl StackToSSAConverter {
                 // }
                 Single(VOID) => {
                     let local = self.push_with_hint(TypeHint::Void);
-                    function.line(format!("let {} = SteelVal::Void;", local));
-                    function.line("ctx.ip += 1;");
+                    lines.line(format!("let {} = SteelVal::Void;", local));
+                    lines.line("ctx.ip += 1;");
                 }
                 Single(LOADINT0) => {
                     let local = self.push_with_hint(TypeHint::Int);
                     // Load the immediate for 0
-                    function.line(format!("let {} = {};", local, 0));
-                    function.line("ctx.ip += 1;");
+                    lines.line(format!("let {} = {};", local, 0));
+                    lines.line("ctx.ip += 1;");
                 }
                 Single(LOADINT1) => {
                     let local = self.push_with_hint(TypeHint::Int);
                     // Load the immediate for 1
-                    function.line(format!("let {} = {};", local, 1));
-                    function.line("ctx.ip += 1;");
+                    lines.line(format!("let {} = {};", local, 1));
+                    lines.line("ctx.ip += 1;");
+
+                    max_ip_read += 1;
                 }
                 Single(LOADINT2) => {
                     let local = self.push_with_hint(TypeHint::Int);
                     // Load the immediate for 2
-                    function.line(format!("let {} = {};", local, 2));
-                    function.line("ctx.ip += 1;");
+                    lines.line(format!("let {} = {};", local, 2));
+                    lines.line("ctx.ip += 1;");
+
+                    max_ip_read += 1;
                 }
                 Double(CALLGLOBAL, n) => {
                     // println!("Stack: {:?}", self.stack);
@@ -197,23 +220,24 @@ impl StackToSSAConverter {
                         // For whatever is left, push on to the SteelThread stack
                         for value in &self.stack {
                             match value.type_hint {
-                                TypeHint::Int | TypeHint::Bool | TypeHint::Float => function
-                                    .line(format!("ctx.thread.stack.push({}.into());", value)),
+                                TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
+                                    lines.line(format!("ctx.thread.stack.push({}.into());", value))
+                                }
                                 // It is already confirmed to be... something thats non primitive.
-                                _ => function.line(format!("ctx.thread.stack.push({});", value)),
+                                _ => lines.line(format!("ctx.thread.stack.push({});", value)),
                             };
                         }
 
                         self.stack.clear();
 
-                        function.line(format!(
+                        lines.line(format!(
                             "opcode_to_ssa_handler!(CALLGLOBAL, Tail)(ctx, &mut [{}])?;",
                             args
                         ));
                     } else {
                         let local = self.push();
 
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [{}])?;",
                             local, args
                         ));
@@ -224,15 +248,17 @@ impl StackToSSAConverter {
                         || self.local_offset.is_some() && self.local_offset.unwrap() > *n
                     {
                         let local = self.push();
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = {}(ctx)?;",
                             local,
                             op_code_to_handler(*op)
                         ));
+
+                        max_local_offset_read = max_local_offset_read.max(*n);
                     } else {
                         let local = self.push();
                         let var = self.stack.get(*n).unwrap();
-                        function.line(format!("let {} = {}.clone();", local, var));
+                        lines.line(format!("let {} = {}.clone();", local, var));
                     }
                 }
                 Single(READLOCAL0) => {
@@ -247,15 +273,17 @@ impl StackToSSAConverter {
                         || self.local_offset.is_some() && self.local_offset.unwrap() > 0
                     {
                         let local = self.push();
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = {}(ctx)?;",
                             local,
                             op_code_to_handler(*op)
                         ));
+
+                        max_local_offset_read = max_local_offset_read.max(0);
                     } else {
                         let local = self.push();
                         let var = self.stack.get(0).unwrap();
-                        function.line(format!("let {} = {}.clone();", local, var));
+                        lines.line(format!("let {} = {}.clone();", local, var));
                     }
                 }
                 Single(READLOCAL1) => {
@@ -263,15 +291,17 @@ impl StackToSSAConverter {
                         || self.local_offset.is_some() && self.local_offset.unwrap() > 1
                     {
                         let local = self.push();
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = {}(ctx)?;",
                             local,
                             op_code_to_handler(*op)
                         ));
+
+                        max_local_offset_read = max_local_offset_read.max(1);
                     } else {
                         let local = self.push();
                         let var = self.stack.get(1).unwrap();
-                        function.line(format!("let {} = {}.clone();", local, var));
+                        lines.line(format!("let {} = {}.clone();", local, var));
                     }
                 }
                 Single(READLOCAL2) => {
@@ -279,15 +309,17 @@ impl StackToSSAConverter {
                         || self.local_offset.is_some() && self.local_offset.unwrap() > 2
                     {
                         let local = self.push();
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = {}(ctx)?;",
                             local,
                             op_code_to_handler(*op)
                         ));
+
+                        max_local_offset_read = max_local_offset_read.max(2);
                     } else {
                         let local = self.push();
                         let var = self.stack.get(2).unwrap();
-                        function.line(format!("let {} = {}.clone();", local, var));
+                        lines.line(format!("let {} = {}.clone();", local, var));
                     }
                 }
                 Single(READLOCAL3) => {
@@ -295,15 +327,17 @@ impl StackToSSAConverter {
                         || self.local_offset.is_some() && self.local_offset.unwrap() > 3
                     {
                         let local = self.push();
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = {}(ctx)?;",
                             local,
                             op_code_to_handler(*op)
                         ));
+
+                        max_local_offset_read = max_local_offset_read.max(3);
                     } else {
                         let local = self.push();
                         let var = self.stack.get(3).unwrap();
-                        function.line(format!("let {} = {}.clone();", local, var));
+                        lines.line(format!("let {} = {}.clone();", local, var));
                     }
                 }
                 Double(MOVEREADLOCAL, n) => {
@@ -311,15 +345,17 @@ impl StackToSSAConverter {
                         || self.local_offset.is_some() && self.local_offset.unwrap() > *n
                     {
                         let local = self.push();
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = {}(ctx)?;",
                             local,
                             op_code_to_handler(*op)
                         ));
+
+                        max_local_offset_read = max_local_offset_read.max(*n);
                     } else {
                         let local = self.push();
                         let var = self.stack.get(*n).unwrap();
-                        function.line(format!("let {} = {};", local, var));
+                        lines.line(format!("let {} = {};", local, var));
                     }
                 }
                 Single(MOVEREADLOCAL0) => {
@@ -334,15 +370,17 @@ impl StackToSSAConverter {
                         || self.local_offset.is_some() && self.local_offset.unwrap() > 0
                     {
                         let local = self.push();
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = {}(ctx)?;",
                             local,
                             op_code_to_handler(*op)
                         ));
+
+                        max_local_offset_read = max_local_offset_read.max(0);
                     } else {
                         let local = self.push();
                         let var = self.stack.get(0).unwrap();
-                        function.line(format!("let {} = {};", local, var));
+                        lines.line(format!("let {} = {};", local, var));
                     }
                 }
                 Single(MOVEREADLOCAL1) => {
@@ -350,15 +388,17 @@ impl StackToSSAConverter {
                         || self.local_offset.is_some() && self.local_offset.unwrap() > 1
                     {
                         let local = self.push();
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = {}(ctx)?;",
                             local,
                             op_code_to_handler(*op)
                         ));
+
+                        max_local_offset_read = max_local_offset_read.max(1);
                     } else {
                         let local = self.push();
                         let var = self.stack.get(1).unwrap();
-                        function.line(format!("let {} = {};", local, var));
+                        lines.line(format!("let {} = {};", local, var));
                     }
                 }
                 Single(MOVEREADLOCAL2) => {
@@ -366,15 +406,17 @@ impl StackToSSAConverter {
                         || self.local_offset.is_some() && self.local_offset.unwrap() > 2
                     {
                         let local = self.push();
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = {}(ctx)?;",
                             local,
                             op_code_to_handler(*op)
                         ));
+
+                        max_local_offset_read = max_local_offset_read.max(2);
                     } else {
                         let local = self.push();
                         let var = self.stack.get(2).unwrap();
-                        function.line(format!("let {} = {};", local, var));
+                        lines.line(format!("let {} = {};", local, var));
                     }
                 }
                 Single(MOVEREADLOCAL3) => {
@@ -382,20 +424,22 @@ impl StackToSSAConverter {
                         || self.local_offset.is_some() && self.local_offset.unwrap() > 3
                     {
                         let local = self.push();
-                        function.line(format!(
+                        lines.line(format!(
                             "let {} = {}(ctx)?;",
                             local,
                             op_code_to_handler(*op)
                         ));
+
+                        max_local_offset_read = max_local_offset_read.max(3);
                     } else {
                         let local = self.push();
                         let var = self.stack.get(3).unwrap();
-                        function.line(format!("let {} = {};", local, var));
+                        lines.line(format!("let {} = {};", local, var));
                     }
                 }
                 Single(PUSH | READCAPTURED | TAILCALL | CALLGLOBAL) => {
                     let local = self.push();
-                    function.line(format!(
+                    lines.line(format!(
                         "let {} = {}(ctx)?;",
                         local,
                         op_code_to_handler(*op)
@@ -417,13 +461,13 @@ impl StackToSSAConverter {
                     // If we're dealing with an int, just unbox it directly
                     match test_condition.type_hint {
                         TypeHint::Bool => {
-                            function.line(format!(
+                            lines.line(format!(
                                 "if_to_ssa_handler!(IF, Bool)(ctx, {});",
                                 test_condition
                             ));
                         }
                         _ => {
-                            function.line(format!(
+                            lines.line(format!(
                                 "if_to_ssa_handler!(IF)(ctx, {}.into());",
                                 test_condition
                             ));
@@ -434,14 +478,17 @@ impl StackToSSAConverter {
                     let right = self.pop();
                     let left = self.pop();
 
-                    function.line("ctx.ip += 2;");
+                    lines.line("ctx.ip += 2;");
+
+                    max_ip_read += 2;
 
                     match (left.type_hint, right.type_hint) {
                         (a, b) if a == b => {
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            function.line(format!("let {} = {} == {};", local, left, right));
-                            function.line("ctx.ip += 1;");
+                            lines.line(format!("let {} = {} == {};", local, left, right));
+                            lines.line("ctx.ip += 1;");
+                            max_ip_read += 1;
                         }
                         (TypeHint::Int, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
@@ -449,7 +496,7 @@ impl StackToSSAConverter {
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::Int, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
@@ -457,7 +504,7 @@ impl StackToSSAConverter {
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::Int, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
@@ -465,7 +512,7 @@ impl StackToSSAConverter {
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::Float, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
@@ -473,7 +520,7 @@ impl StackToSSAConverter {
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::Float, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
@@ -482,7 +529,7 @@ impl StackToSSAConverter {
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::Float, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
@@ -491,7 +538,7 @@ impl StackToSSAConverter {
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::None, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
@@ -500,7 +547,7 @@ impl StackToSSAConverter {
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::None, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
@@ -509,7 +556,7 @@ impl StackToSSAConverter {
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (_, _) => todo!(),
                     }
@@ -521,7 +568,9 @@ impl StackToSSAConverter {
                     let right = self.pop();
                     let left = self.pop();
 
-                    function.line("ctx.ip += 2;");
+                    lines.line("ctx.ip += 2;");
+
+                    max_ip_read += 2;
 
                     match (left.type_hint, right.type_hint) {
                         (TypeHint::Int, TypeHint::Int) => {
@@ -530,7 +579,7 @@ impl StackToSSAConverter {
 
                             let local = self.push_with_hint(TypeHint::Int);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::Int, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
@@ -538,7 +587,7 @@ impl StackToSSAConverter {
 
                             let local = self.push_with_hint(TypeHint::Float);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::Int, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
@@ -546,7 +595,7 @@ impl StackToSSAConverter {
 
                             let local = self.push_with_hint(TypeHint::None);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::Float, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
@@ -554,7 +603,7 @@ impl StackToSSAConverter {
 
                             let local = self.push_with_hint(TypeHint::Float);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::Float, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
@@ -563,7 +612,7 @@ impl StackToSSAConverter {
 
                             let local = self.push_with_hint(TypeHint::Float);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::Float, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
@@ -572,7 +621,7 @@ impl StackToSSAConverter {
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Float);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::None, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
@@ -581,7 +630,7 @@ impl StackToSSAConverter {
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::None);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (TypeHint::None, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
@@ -590,7 +639,7 @@ impl StackToSSAConverter {
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Float);
 
-                            push_binop(&mut function, local, call, left, right);
+                            push_binop(&mut lines, local, call, left, right);
                         }
                         (_, _) => todo!(),
                     }
@@ -605,15 +654,27 @@ impl StackToSSAConverter {
         for value in &self.stack {
             match value.type_hint {
                 TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
-                    function.line(format!("ctx.thread.stack.push({}.into());", value))
+                    lines.line(format!("ctx.thread.stack.push({}.into());", value))
                 }
                 // It is already confirmed to be... something thats non primitive.
-                _ => function.line(format!("ctx.thread.stack.push({});", value)),
+                _ => lines.line(format!("ctx.thread.stack.push({});", value)),
             };
         }
 
-        function.line("Ok(())");
+        lines.line("Ok(())");
         // scope.push_fn(function);
+
+        // Emit the assert for bounds checking purposes
+        if max_local_offset_read > 0 {
+            function.line(format!(
+                "assert!(ctx.sp + {} < ctx.thread.stack.len());",
+                max_local_offset_read
+            ));
+        }
+
+        for line in lines.lines {
+            function.line(line);
+        }
 
         // scope.to_string()
 
@@ -622,7 +683,7 @@ impl StackToSSAConverter {
 }
 
 fn push_binop(
-    function: &mut Function,
+    function: &mut FunctionLines,
     local: LocalVariable,
     call: String,
     left: LocalVariable,
