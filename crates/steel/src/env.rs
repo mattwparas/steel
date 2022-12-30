@@ -50,7 +50,7 @@ impl Env {
     /// if found, return that value
     ///
     /// Otherwise, error with `FreeIdentifier`
-    // #[inline]
+    #[inline(always)]
     pub fn repl_lookup_idx(&self, idx: usize) -> SteelVal {
         self.bindings_vec[idx].clone()
     }
