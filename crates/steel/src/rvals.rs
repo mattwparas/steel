@@ -79,7 +79,7 @@ pub type MutFunctionSignature = fn(&mut [SteelVal]) -> Result<SteelVal>;
 // pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 
 // TODO: This increases the size of the SteelVal enum by 8 bytes. Consider boxing it instead
-pub type BoxedFunctionSignature = Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>;
+pub type BoxedFunctionSignature = Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>>;
 
 pub type BoxedAsyncFunctionSignature = Box<Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>;
 
@@ -795,7 +795,7 @@ impl std::fmt::Debug for SteelString {
 }
 
 #[test]
-fn check_size() {
+fn check_size_of_steelval() {
     assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 }
 

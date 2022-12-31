@@ -337,7 +337,7 @@ impl UserDefinedStruct {
             Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
     }
 
     fn constructor(name: Rc<String>, len: usize) -> SteelVal {
@@ -357,7 +357,7 @@ impl UserDefinedStruct {
             Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
     }
 
     fn predicate(name: Rc<String>) -> SteelVal {
@@ -378,7 +378,7 @@ impl UserDefinedStruct {
             }))
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
     }
 
     fn getter_prototype(name: Rc<String>) -> SteelVal {
@@ -416,7 +416,7 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
     }
 
     fn getter_prototype_index(name: Rc<String>, index: usize) -> SteelVal {
@@ -449,7 +449,7 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
     }
 
     fn setter_prototype(name: Rc<String>) -> SteelVal {
@@ -505,7 +505,7 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(f))
+        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
     }
 
     pub fn properties(&self) -> SteelVal {
@@ -551,22 +551,22 @@ thread_local! {
     pub static RESULT_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
-    pub static OK_CONSTRUCTOR: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>> = {
+    pub static OK_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         let name = OK_RESULT_LABEL.with(|x| Rc::clone(x));
-        Rc::new(UserDefinedStruct::constructor_thunk(
+        Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
             Rc::clone(&name),
             RESULT_OPTIONS.with(|x| Gc::clone(x)),
             1,
-        ))
+        )))
     };
 
-    pub static ERR_CONSTRUCTOR: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>> = {
+    pub static ERR_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
-        Rc::new(UserDefinedStruct::constructor_thunk(
+        Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
             Rc::clone(&name),
             RESULT_OPTIONS.with(|x| Gc::clone(x)),
             1,
-        ))
+        )))
     };
 
     pub static SOME_OPTION_LABEL: Rc<String> = Rc::new("Some".into());
@@ -574,22 +574,22 @@ thread_local! {
     pub static OPTION_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
-    pub static SOME_CONSTRUCTOR: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>> = {
+    pub static SOME_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
-        Rc::new(UserDefinedStruct::constructor_thunk(
+        Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
             Rc::clone(&name),
             OPTION_OPTIONS.with(|x| Gc::clone(x)),
             1,
-        ))
+        )))
     };
 
-    pub static NONE_CONSTRUCTOR: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>> = {
+    pub static NONE_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         let name = NONE_LABEL.with(|x| Rc::clone(x));
-        Rc::new(UserDefinedStruct::constructor_thunk(
+        Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
             Rc::clone(&name),
             OPTION_OPTIONS.with(|x| Gc::clone(x)),
             0,
-        ))
+        )))
     };
 }
 

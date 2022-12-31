@@ -69,7 +69,10 @@ impl BuiltInModule {
             Ok(SteelVal::BoolV(T::from_steelval(&args[0]).is_ok()))
         };
 
-        self.register_value(predicate_name, SteelVal::BoxedFunction(Rc::new(f)))
+        self.register_value(
+            predicate_name,
+            SteelVal::BoxedFunction(Rc::new(Box::new(f))),
+        )
     }
 
     pub fn register_doc(

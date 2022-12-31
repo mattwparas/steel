@@ -2275,7 +2275,7 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_boxed_func(
         &mut self,
-        func: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>,
+        func: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>>,
         payload_size: usize,
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
