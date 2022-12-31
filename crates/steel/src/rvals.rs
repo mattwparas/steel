@@ -796,7 +796,7 @@ impl std::fmt::Debug for SteelString {
 
 #[test]
 fn check_size() {
-    println!("{:?}", std::mem::size_of::<SteelVal>());
+    assert_eq!(std::mem::size_of::<SteelVal>(), 16);
 }
 
 pub struct Chunks {

@@ -697,7 +697,7 @@ impl<'a> VmCore<'a> {
             self.thread
                 .stack_frames
                 .iter()
-                .map(|x| DehydratedCallContext::new(x.span))
+                .map(|x| DehydratedCallContext::new(x.function.spans.get(x.ip).copied()))
                 .collect(),
         )
     }
@@ -2600,8 +2600,7 @@ impl<'a> VmCore<'a> {
                 Gc::clone(closure),
                 self.ip + 4,
                 Rc::clone(&self.instructions),
-            )
-            .with_span(self.current_span()),
+            ), // .with_span(self.current_span()),
         );
 
         // self.current_frame.sp = prev_length;
@@ -2785,8 +2784,7 @@ impl<'a> VmCore<'a> {
         let instructions = closure.body_exp();
 
         self.thread.stack_frames.push(
-            StackFrame::new(self.sp, closure, self.ip + 1, Rc::clone(&self.instructions))
-                .with_span(self.current_span()),
+            StackFrame::new(self.sp, closure, self.ip + 1, Rc::clone(&self.instructions)), // .with_span(self.current_span()),
         );
 
         // self.current_arity = Some(closure.arity());
@@ -3089,7 +3087,7 @@ pub fn call_with_exception_handler<'a, 'b>(
                     ctx.ip + 1,
                     Rc::clone(&ctx.instructions),
                 )
-                .with_span(ctx.current_span())
+                // .with_span(ctx.current_span())
                 .with_handler(handler),
             );
 
@@ -3184,8 +3182,7 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Res
                     Gc::clone(&closure),
                     ctx.ip + 1,
                     Rc::clone(&ctx.instructions),
-                )
-                .with_span(ctx.current_span()),
+                ), // .with_span(ctx.current_span()),
             );
 
             // ctx.stack_index.push(ctx.stack.len());
