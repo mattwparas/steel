@@ -155,7 +155,7 @@ impl<'a> StaticContract<'a> {
             StaticContract::Atom(a) => a.to_type_info(),
             StaticContract::ListOf(l) => TypeInfo::ListOf(Box::new(l.to_type_info())),
             StaticContract::Function(pre, post) => TypeInfo::FixedArityFunction(
-                pre.into_iter().map(|x| x.to_type_info()).collect(),
+                pre.iter().map(|x| x.to_type_info()).collect(),
                 Box::new(post.to_type_info()),
             ),
             StaticContract::AnyArityFunction(pre, post) => TypeInfo::AnyArityFunction(
@@ -163,10 +163,10 @@ impl<'a> StaticContract<'a> {
                 Box::new(post.to_type_info()),
             ),
             StaticContract::UnionOf(u) => {
-                TypeInfo::UnionOf(u.into_iter().map(|x| x.to_type_info()).collect())
+                TypeInfo::UnionOf(u.iter().map(|x| x.to_type_info()).collect())
             }
             StaticContract::IntersectionOf(u) => {
-                TypeInfo::IntersectionOf(u.into_iter().map(|x| x.to_type_info()).collect())
+                TypeInfo::IntersectionOf(u.iter().map(|x| x.to_type_info()).collect())
             }
         }
     }
@@ -231,16 +231,12 @@ impl<'a> BoundContract<'a> {
     // TODO make this resiliant to syntax errors
     pub fn new(contract: StaticContract<'a>, body: &'a ExprKind) -> Self {
         // if body.lambda_function().unwrap().args
-
-        match &contract {
-            StaticContract::Function(pre_conditions, _) => {
-                assert_eq!(
-                    body.lambda_function().unwrap().args.len(),
-                    pre_conditions.len(),
-                    "The arguments and contracts must be of matching lengths"
-                );
-            }
-            _ => {}
+        if let StaticContract::Function(pre_conditions, _) = &contract {
+            assert_eq!(
+                body.lambda_function().unwrap().args.len(),
+                pre_conditions.len(),
+                "The arguments and contracts must be of matching lengths"
+            );
         }
 
         BoundContract { body, contract }
@@ -261,7 +257,7 @@ fn is_contract(expr: &ExprKind) -> bool {
 }
 
 // Is this bind/c instance referring to a make-function/c instance
-fn function_contract<'a>(expr: &'a ExprKind) -> Option<Result<StaticContract<'a>>> {
+fn function_contract(expr: &ExprKind) -> Option<Result<StaticContract>> {
     let body = expr.list()?;
 
     if body.first_ident()? == "bind/c" {
@@ -286,10 +282,11 @@ pub struct GlobalContractCollector<'a> {
 
 impl<'a> GlobalContractCollector<'a> {
     pub fn collect_contracts(exprs: impl IntoIterator<Item = &'a ExprKind>) -> Self {
-        let mut collector = Self::default();
-
-        // TODO: Attach the built-ins here
-        collector.built_ins = built_in_contract_map();
+        let mut collector = GlobalContractCollector {
+            // TODO: Attach the built-ins here
+            built_ins: built_in_contract_map(),
+            ..Default::default()
+        };
 
         exprs.into_iter().for_each(|x| collector.visit(x));
         collector
@@ -522,7 +519,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
     fn visit_begin(&mut self, begin: &crate::parser::ast::Begin) -> Self::Output {
         let mut last = TypeInfo::Void;
         for expr in &begin.exprs {
-            last = self.visit(&expr)?;
+            last = self.visit(expr)?;
         }
         Ok(last)
     }
@@ -634,7 +631,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                     }
                 }
 
-                return Ok(return_type);
+                Ok(return_type)
             }
 
             TypeInfo::DependentFunction(func) => {
@@ -645,7 +642,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
 
                 let return_type = func(argument_types);
 
-                return Ok(return_type);
+                Ok(return_type)
             }
 
             TypeInfo::AnyArityFunction(pre, post) => {
@@ -677,7 +674,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                     }
                 }
 
-                return Ok(*(post.clone()));
+                Ok(*(post.clone()))
             }
             TypeInfo::FixedArityFunction(pre, post) => {
                 let found_arity = pre.len();
@@ -695,7 +692,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                     .collect::<Result<Vec<_>>>()?;
 
                 for ((expected, mut found), unvisited) in
-                    pre.into_iter().zip(visited).zip(l.args[1..].iter())
+                    pre.iter().zip(visited).zip(l.args[1..].iter())
                 {
                     println!("Found argument type: {:?}", found);
 
@@ -719,7 +716,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                     }
                 }
 
-                return Ok(*(post.clone()));
+                Ok(*(post.clone()))
             }
             _ => {
                 stop!(TypeMismatch => format!("Function application not a procedure, expected a function, found: {:?}", function_type))
@@ -742,7 +739,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
             stop!(TypeMismatch => "set! expression is incompatible with type");
         }
 
-        return Ok(assignment_type);
+        Ok(assignment_type)
     }
 
     fn visit_require(&mut self, _s: &crate::parser::ast::Require) -> Self::Output {

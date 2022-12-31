@@ -400,7 +400,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         }
 
         if l.args.len() == 1 {
-            let mut args_iter = l.args.clone().into_iter();
+            let mut args_iter = l.args.into_iter();
             let func_expr = args_iter.next().unwrap();
             let func = self.visit(func_expr)?;
 
@@ -409,7 +409,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 return self.eval_function(evaluated_func, func, Vec::new(), &[]);
             } else {
                 if let ExprKind::LambdaFunction(f) = &func {
-                    if f.args.len() != 0 {
+                    if !f.args.is_empty() {
                         stop!(ArityMismatch => format!("function expected {} arguments, found 0", f.args.len()))
                     }
 
@@ -512,7 +512,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     actually_used_arguments.push(arg.clone());
                     // }
                 } else {
-                    if self.to_constant(&arg).is_none() {
+                    if self.to_constant(arg).is_none() {
                         // actually_used_variables.push(var.clone());
                         // println!("Found a non constant argument: {}", arg);
                         non_constant_arguments.push(arg.clone());
@@ -546,7 +546,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             if self.to_constant(&output).is_some() {
                 let mut non_constant_arguments: Vec<_> = args
                     .into_iter()
-                    .filter(|x| self.to_constant(&x).is_none())
+                    .filter(|x| self.to_constant(x).is_none())
                     .collect();
 
                 debug!("Found a constant output from the body");
@@ -652,7 +652,7 @@ impl<'a> VisitorMut for CollectSet<'a> {
 
     fn visit_begin(&mut self, begin: &Begin) -> Self::Output {
         for expr in &begin.exprs {
-            self.visit(&expr);
+            self.visit(expr);
         }
     }
 

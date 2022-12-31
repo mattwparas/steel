@@ -30,7 +30,7 @@ impl FlatContract {
         } else if predicate.is_function() {
             Ok(FlatContract::new(predicate, name).into())
         } else {
-            stop!(TypeMismatch => format!("flat contracts require a function argument, found {}", predicate.to_string()));
+            stop!(TypeMismatch => format!("flat contracts require a function argument, found {}", predicate));
         }
     }
 
@@ -207,7 +207,7 @@ impl Contract for DependentContract {
     }
 
     fn parent(&self) -> Option<Gc<FunctionKind>> {
-        (&self.parent).as_ref().map(Gc::clone)
+        self.parent.as_ref().map(Gc::clone)
     }
 
     fn set_attachment_location(&mut self, loc: Option<String>) {
@@ -228,7 +228,7 @@ impl fmt::Display for DependentContract {
             f,
             "(->i ({}) {})",
             self.pre_conditions.iter().map(|x| x.to_string()).join(" "),
-            self.post_condition.to_string()
+            self.post_condition
         )
     }
 }
@@ -258,7 +258,7 @@ impl Contract for FunctionContract {
     }
 
     fn parent(&self) -> Option<Gc<FunctionKind>> {
-        (&self.parent).as_ref().map(Gc::clone)
+        self.parent.as_ref().map(Gc::clone)
     }
 
     fn set_attachment_location(&mut self, loc: Option<String>) {
@@ -272,7 +272,7 @@ impl fmt::Display for FunctionContract {
             f,
             "(-> {} {})",
             self.pre_conditions.iter().map(|x| x.to_string()).join(" "),
-            self.post_condition.to_string()
+            *self.post_condition
         )
     }
 }

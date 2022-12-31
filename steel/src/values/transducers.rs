@@ -26,6 +26,12 @@ impl Transducer {
     }
 }
 
+impl Default for Transducer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone, PartialEq, Hash)]
 pub enum Transducers {
     Map(SteelVal),          // function

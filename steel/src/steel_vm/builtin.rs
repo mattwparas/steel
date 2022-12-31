@@ -47,7 +47,7 @@ impl BuiltInModule {
         self.values.contains_key(ident)
     }
 
-    pub fn with_module<'a>(mut self, module: BuiltInModule) -> Self {
+    pub fn with_module(mut self, module: BuiltInModule) -> Self {
         self.values = self.values.union(module.values);
         self
     }
@@ -115,7 +115,7 @@ impl BuiltInModule {
                 // Otherwise, just default to using the provided name
                 let name = prefix
                     .map(|pre| pre.to_string() + x)
-                    .unwrap_or(x.to_owned());
+                    .unwrap_or_else(|| x.to_owned());
 
                 ExprKind::Define(Box::new(crate::parser::ast::Define::new(
                     // TODO: Add the custom prefix here

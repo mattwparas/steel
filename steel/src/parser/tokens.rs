@@ -323,51 +323,51 @@ impl<'a> Token<'a> {
     }
 }
 
-impl Into<Span> for Token<'_> {
-    fn into(self) -> Span {
-        self.span()
+impl From<Token<'_>> for Span {
+    fn from(token: Token<'_>) -> Self {
+        token.span()
     }
 }
 
-impl Into<Span> for &Token<'_> {
-    fn into(self) -> Span {
-        self.span()
+impl From<&Token<'_>> for Span {
+    fn from(token: &Token<'_>) -> Self {
+        token.span()
     }
 }
 
-impl<'a> Into<ops::Range<usize>> for Token<'a> {
-    fn into(self) -> ops::Range<usize> {
-        self.span.into()
+impl From<Token<'_>> for ops::Range<usize> {
+    fn from(token: Token<'_>) -> Self {
+        token.span().into()
     }
 }
 
-impl<'a> Into<ops::Range<usize>> for &Token<'a> {
-    fn into(self) -> ops::Range<usize> {
-        self.span.into()
+impl From<&Token<'_>> for ops::Range<usize> {
+    fn from(token: &Token<'_>) -> Self {
+        token.span().into()
     }
 }
 
-impl<'a> Into<(usize, usize)> for Token<'a> {
-    fn into(self) -> (usize, usize) {
-        self.span.into()
+impl From<Token<'_>> for (usize, usize) {
+    fn from(token: Token<'_>) -> Self {
+        token.span().into()
     }
 }
 
-impl<'a> Into<(usize, usize)> for &Token<'a> {
-    fn into(self) -> (usize, usize) {
-        self.span.into()
+impl From<&Token<'_>> for (usize, usize) {
+    fn from(token: &Token<'_>) -> Self {
+        token.span().into()
     }
 }
 
-impl<'a> Into<[usize; 2]> for Token<'a> {
-    fn into(self) -> [usize; 2] {
-        self.span.into()
+impl From<Token<'_>> for [usize; 2] {
+    fn from(token: Token<'_>) -> Self {
+        token.span().into()
     }
 }
 
-impl<'a> Into<[usize; 2]> for &Token<'a> {
-    fn into(self) -> [usize; 2] {
-        self.span.into()
+impl From<&Token<'_>> for [usize; 2] {
+    fn from(token: &Token<'_>) -> Self {
+        token.span().into()
     }
 }
 

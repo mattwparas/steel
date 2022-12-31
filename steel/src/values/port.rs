@@ -256,31 +256,21 @@ impl SteelPort {
     // Checks
     //
     pub fn is_input(&self) -> bool {
-        match self {
-            SteelPort::FileInput(_, _) => true,
-            // SteelPort::StringInput(_, _) => true,
-            SteelPort::StdInput(_) => true,
-            _ => false,
-        }
+        matches!(self, SteelPort::FileInput(_, _) | SteelPort::StdInput(_))
     }
 
     pub fn is_output(&self) -> bool {
-        match self {
-            SteelPort::FileOutput(_, _) => true,
-            // SteelPort::StringOutput(_, _) => true,
-            SteelPort::StdOutput(_) => true,
-            _ => false,
-        }
+        matches!(self, SteelPort::FileOutput(_, _) | SteelPort::StdOutput(_))
     }
 
     pub fn is_textual(&self) -> bool {
-        match self {
-            SteelPort::FileInput(_, _) => true,
-            SteelPort::FileOutput(_, _) => true,
-            SteelPort::StdOutput(_) => true,
-            SteelPort::StdInput(_) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            SteelPort::FileInput(_, _)
+                | SteelPort::FileOutput(_, _)
+                | SteelPort::StdOutput(_)
+                | SteelPort::StdInput(_)
+        )
     }
 
     // pub fn is_binary(&self) -> bool {
