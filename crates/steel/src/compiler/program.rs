@@ -157,108 +157,108 @@ pub fn specialize_read_local(instructions: &mut [Instruction]) {
 // Often, there may be a loop condition with something like (= x 10000)
 // this identifies these and lazily applies the function, only pushing on to the stack
 // until it absolutely needs to
-pub fn loop_condition_local_const_arity_two(instructions: &mut [Instruction]) {
-    for i in 0..instructions.len() {
-        let read_local = instructions.get(i);
-        let push_const = instructions.get(i + 1);
-        let call_global = instructions.get(i + 2);
-        let pass = instructions.get(i + 3);
+// pub fn loop_condition_local_const_arity_two(instructions: &mut [Instruction]) {
+//     for i in 0..instructions.len() {
+//         let read_local = instructions.get(i);
+//         let push_const = instructions.get(i + 1);
+//         let call_global = instructions.get(i + 2);
+//         let pass = instructions.get(i + 3);
 
-        match (read_local, push_const, call_global, pass) {
-            (
-                Some(Instruction {
-                    op_code: OpCode::READLOCAL,
-                    payload_size: local_idx,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::PUSHCONST,
-                    payload_size: const_idx,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::CALLGLOBAL,
-                    payload_size: ident,
-                    contents: identifier,
-                    ..
-                }),
-                // HAS to be arity 2 in this case
-                Some(Instruction {
-                    op_code: OpCode::PASS,
-                    payload_size: 2,
-                    ..
-                }),
-            ) => {
-                let local_idx = *local_idx;
-                let const_idx = *const_idx;
-                let ident = *ident;
-                let identifier = identifier.clone();
+//         match (read_local, push_const, call_global, pass) {
+//             (
+//                 Some(Instruction {
+//                     op_code: OpCode::READLOCAL,
+//                     payload_size: local_idx,
+//                     ..
+//                 }),
+//                 Some(Instruction {
+//                     op_code: OpCode::PUSHCONST,
+//                     payload_size: const_idx,
+//                     ..
+//                 }),
+//                 Some(Instruction {
+//                     op_code: OpCode::CALLGLOBAL,
+//                     payload_size: ident,
+//                     contents: identifier,
+//                     ..
+//                 }),
+//                 // HAS to be arity 2 in this case
+//                 Some(Instruction {
+//                     op_code: OpCode::PASS,
+//                     payload_size: 2,
+//                     ..
+//                 }),
+//             ) => {
+//                 let local_idx = *local_idx;
+//                 let const_idx = *const_idx;
+//                 let ident = *ident;
+//                 let identifier = identifier.clone();
 
-                if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::CGLOCALCONST;
-                    x.payload_size = ident;
-                    x.contents = identifier;
-                }
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.op_code = OpCode::CGLOCALCONST;
+//                     x.payload_size = ident;
+//                     x.contents = identifier;
+//                 }
 
-                if let Some(x) = instructions.get_mut(i + 1) {
-                    x.op_code = OpCode::READLOCAL;
-                    x.payload_size = local_idx;
-                }
+//                 if let Some(x) = instructions.get_mut(i + 1) {
+//                     x.op_code = OpCode::READLOCAL;
+//                     x.payload_size = local_idx;
+//                 }
 
-                if let Some(x) = instructions.get_mut(i + 2) {
-                    x.op_code = OpCode::PUSHCONST;
-                    x.payload_size = const_idx;
-                }
-            }
-            (
-                Some(Instruction {
-                    op_code: OpCode::MOVEREADLOCAL,
-                    payload_size: local_idx,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::PUSHCONST,
-                    payload_size: const_idx,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::CALLGLOBAL,
-                    payload_size: ident,
-                    contents: identifier,
-                    ..
-                }),
-                // HAS to be arity 2 in this case
-                Some(Instruction {
-                    op_code: OpCode::PASS,
-                    payload_size: 2,
-                    ..
-                }),
-            ) => {
-                let local_idx = *local_idx;
-                let const_idx = *const_idx;
-                let ident = *ident;
-                let identifier = identifier.clone();
+//                 if let Some(x) = instructions.get_mut(i + 2) {
+//                     x.op_code = OpCode::PUSHCONST;
+//                     x.payload_size = const_idx;
+//                 }
+//             }
+//             (
+//                 Some(Instruction {
+//                     op_code: OpCode::MOVEREADLOCAL,
+//                     payload_size: local_idx,
+//                     ..
+//                 }),
+//                 Some(Instruction {
+//                     op_code: OpCode::PUSHCONST,
+//                     payload_size: const_idx,
+//                     ..
+//                 }),
+//                 Some(Instruction {
+//                     op_code: OpCode::CALLGLOBAL,
+//                     payload_size: ident,
+//                     contents: identifier,
+//                     ..
+//                 }),
+//                 // HAS to be arity 2 in this case
+//                 Some(Instruction {
+//                     op_code: OpCode::PASS,
+//                     payload_size: 2,
+//                     ..
+//                 }),
+//             ) => {
+//                 let local_idx = *local_idx;
+//                 let const_idx = *const_idx;
+//                 let ident = *ident;
+//                 let identifier = identifier.clone();
 
-                if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::MOVECGLOCALCONST;
-                    x.payload_size = ident;
-                    x.contents = identifier;
-                }
+//                 if let Some(x) = instructions.get_mut(i) {
+//                     x.op_code = OpCode::MOVECGLOCALCONST;
+//                     x.payload_size = ident;
+//                     x.contents = identifier;
+//                 }
 
-                if let Some(x) = instructions.get_mut(i + 1) {
-                    x.op_code = OpCode::MOVEREADLOCAL;
-                    x.payload_size = local_idx;
-                }
+//                 if let Some(x) = instructions.get_mut(i + 1) {
+//                     x.op_code = OpCode::MOVEREADLOCAL;
+//                     x.payload_size = local_idx;
+//                 }
 
-                if let Some(x) = instructions.get_mut(i + 2) {
-                    x.op_code = OpCode::PUSHCONST;
-                    x.payload_size = const_idx;
-                }
-            }
-            _ => {}
-        }
-    }
-}
+//                 if let Some(x) = instructions.get_mut(i + 2) {
+//                     x.op_code = OpCode::PUSHCONST;
+//                     x.payload_size = const_idx;
+//                 }
+//             }
+//             _ => {}
+//         }
+//     }
+// }
 
 pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
     if instructions.is_empty() {

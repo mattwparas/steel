@@ -1329,31 +1329,6 @@ impl<'a> VmCore<'a> {
                     self.handle_lazy_function_call(func, local_value, const_val)?;
                 }
                 DenseInstruction {
-                    op_code: OpCode::MOVECGLOCALCONST,
-                    payload_size,
-                    ..
-                } => {
-                    let move_read_local = &self.instructions[self.ip + 1];
-                    let push_const = &self.instructions[self.ip + 2];
-
-                    // Snag the function
-                    let func = self
-                        .thread
-                        .global_env
-                        .repl_lookup_idx(payload_size as usize);
-
-                    // get the local by moving its position
-                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-                    let offset = self.get_offset();
-
-                    // get the const
-                    let const_val = self.constants.get(push_const.payload_size as usize);
-                    let local_value =
-                        self.move_from_stack(move_read_local.payload_size as usize + offset);
-
-                    self.handle_lazy_function_call(func, local_value, const_val)?;
-                }
-                DenseInstruction {
                     op_code: OpCode::CALLGLOBAL,
                     payload_size,
                     ..
@@ -3662,7 +3637,6 @@ fn op_code_requires_payload(
         OpCode::MOVEREADLOCAL2 => None,
         OpCode::MOVEREADLOCAL3 => None,
         OpCode::READCAPTURED => Some(read_captured_handler_with_payload),
-        OpCode::MOVECGLOCALCONST => todo!(),
         OpCode::BEGINSCOPE => None,
         OpCode::LETENDSCOPE => Some(let_end_scope_handler_with_payload),
         OpCode::PUREFUNC => Some(pure_function_handler_with_payload),
@@ -3694,7 +3668,7 @@ fn op_code_requires_payload(
 // on the main VM context. In order to construct these sequences, we will need to be able
 // to grab a basic block from the running sequence, and directly patch an instruction set
 // on the fly, to transfer context over to that sequence.
-static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 59] = [
+static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 58] = [
     void_handler,
     push_handler,
     if_handler,   // If
@@ -3735,7 +3709,6 @@ static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 59] = [
     move_local_handler2,
     move_local_handler3,
     read_captured_handler,
-    dummy, // movecglocalconst
     begin_scope_handler,
     let_end_scope_handler,
     pure_function_handler,
