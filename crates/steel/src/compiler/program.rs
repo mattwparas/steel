@@ -898,23 +898,11 @@ fn extract_spans(instructions: Vec<Vec<Instruction>>) -> (Vec<Span>, Vec<Vec<Den
         }
     }
 
-    let mut count = 0;
-
     let instructions: Vec<_> = instructions
         .into_iter()
         .map(|x| {
             x.into_iter()
-                .map(|x| {
-                    let res = DenseInstruction::new_with_index(
-                        x.op_code,
-                        x.payload_size.try_into().unwrap(),
-                        count,
-                    );
-
-                    count += 1;
-
-                    res
-                })
+                .map(|x| DenseInstruction::new(x.op_code, x.payload_size.try_into().unwrap()))
                 .collect()
         })
         .collect();

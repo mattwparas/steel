@@ -266,12 +266,19 @@ impl SteelThread {
 
                 // let frame = StackFrame::new(prev_length, Gc::clone(&closure), 0, Rc::from([]));
 
+                // Create phony span vec
+                let spans = closure
+                    .body_exp()
+                    .iter()
+                    .map(|_| Span::default())
+                    .collect::<Vec<_>>();
+
                 let mut vm_instance = VmCore::new_unchecked(
                     Rc::new([]),
                     constant_map,
                     // &mut self.function_stack,
                     // &mut self.stack_index,
-                    &[],
+                    &spans,
                     self,
                 );
 
@@ -859,12 +866,14 @@ impl<'a> VmCore<'a> {
 
         // if self.stack_frames
 
+        let instructions = closure.body_exp();
+
         // TODO:
         self.thread.stack_frames.push(StackFrame::new(
             prev_length,
             Gc::clone(closure),
             0,
-            Rc::from([]),
+            instructions.clone(),
         ));
 
         self.sp = prev_length;
@@ -879,7 +888,7 @@ impl<'a> VmCore<'a> {
 
         // self.function_stack
         // .push(CallContext::new(Gc::clone(closure)));
-        let result = self.call_with_instructions_and_reset_state(closure.body_exp());
+        let result = self.call_with_instructions_and_reset_state(instructions);
 
         result
     }
@@ -1663,16 +1672,25 @@ impl<'a> VmCore<'a> {
     // TODO: This is definitely an issue - if the instruction stack is empty,
     // We will probably end up grabbing a garbage span
     fn current_span(&self) -> Span {
-        self.spans
-            .get(
-                self.instructions
-                    .get(self.ip)
-                    .map(|x| x.span_index)
-                    .unwrap_or_default(),
-            )
-            // .flatten()
+        //// New way
+        self.thread
+            .stack_frames
+            .last()
+            .and_then(|x| x.function.spans.get(self.ip))
             .copied()
+            // .unwrap()
             .unwrap_or_default()
+
+        // self.spans
+        //     .get(
+        //         self.instructions
+        //             .get(self.ip)
+        //             .map(|x| x.span_index)
+        //             .unwrap_or_default(),
+        //     )
+        //     // .flatten()
+        //     .copied()
+        //     .unwrap_or_default()
 
         // Span::default()
     }

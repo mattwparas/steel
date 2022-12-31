@@ -410,7 +410,7 @@ criterion_group!(
     engine_creation,
     register_function,
     multiple_transducers,
-    fib_28_contract,
+    // fib_28_contract,
     ackermann // trie_sort,
               // merge_sort,
               // struct_construct,

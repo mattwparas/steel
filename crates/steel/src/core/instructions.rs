@@ -110,7 +110,6 @@ pub fn disassemble(instructions: &[Instruction]) -> String {
 pub struct DenseInstruction {
     pub op_code: OpCode,
     pub payload_size: u32,
-    pub span_index: usize,
 }
 
 impl DenseInstruction {
@@ -118,19 +117,6 @@ impl DenseInstruction {
         DenseInstruction {
             op_code,
             payload_size,
-            span_index: 0,
-        }
-    }
-
-    pub fn new_with_index(
-        op_code: OpCode,
-        payload_size: u32,
-        span_index: usize,
-    ) -> DenseInstruction {
-        DenseInstruction {
-            op_code,
-            payload_size,
-            span_index,
         }
     }
 }

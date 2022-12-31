@@ -46,7 +46,7 @@ pub struct ByteCodeLambda {
     captures: Vec<SteelVal>,
     pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
-    spans: Box<[Span]>,
+    pub(crate) spans: Box<[Span]>,
 }
 
 impl PartialEq for ByteCodeLambda {
