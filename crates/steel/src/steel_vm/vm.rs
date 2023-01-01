@@ -305,6 +305,7 @@ impl SteelThread {
     ) -> Result<SteelVal> {
         self.profiler.reset();
 
+        #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
 
         let mut vm_instance = VmCore::new(instructions, constant_map, spans, self)?;
@@ -414,6 +415,7 @@ impl SteelThread {
                 // self.stack_index.clear();
                 // self.function_stack.clear();
 
+                #[cfg(feature = "profiling")]
                 if log_enabled!(target: "pipeline_time", log::Level::Debug) {
                     debug!(
                         target: "pipeline_time",

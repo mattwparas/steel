@@ -522,6 +522,7 @@ impl Compiler {
     ) -> Result<RawProgramWithSymbols> {
         let mut intern = HashMap::new();
 
+        #[cfg(feature = "profiling")]
         let now = Instant::now();
 
         let id = sources.add_source(expr_str.to_string(), path.clone());
@@ -533,6 +534,7 @@ impl Compiler {
             Parser::new(expr_str, &mut intern, Some(id)).collect()
         };
 
+        #[cfg(feature = "profiling")]
         if log_enabled!(target: "pipeline_time", log::Level::Debug) {
             debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
         }
@@ -832,6 +834,7 @@ impl Compiler {
         constants: ImmutableHashMap<String, SteelVal>,
         mut expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
+        #[cfg(feature = "profiling")]
         let opt_time = Instant::now();
 
         match self.opt_level {
@@ -856,6 +859,7 @@ impl Compiler {
             _ => {}
         }
 
+        #[cfg(feature = "profiling")]
         if log_enabled!(target: "pipeline_time", log::Level::Debug) {
             debug!(
                 target: "pipeline_time",

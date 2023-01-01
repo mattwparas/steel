@@ -761,6 +761,7 @@ impl RawProgramWithSymbols {
     }
 
     pub fn debug_build(mut self, _name: String, symbol_map: &mut SymbolMap) -> Result<()> {
+        #[cfg(feature = "profiling")]
         let now = Instant::now();
 
         let mut struct_instructions = Vec::new();
@@ -810,6 +811,7 @@ impl RawProgramWithSymbols {
             .iter()
             .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)));
 
+        #[cfg(feature = "profiling")]
         if log_enabled!(target: "pipeline_time", log::Level::Debug) {
             debug!(target: "pipeline_time", "Executable Build Time: {:?}", now.elapsed());
         }
@@ -826,6 +828,7 @@ impl RawProgramWithSymbols {
     // also look into having the constant map be correct mapping
     // I think the run time will have to swap the constant map in and out
     pub fn build(mut self, name: String, symbol_map: &mut SymbolMap) -> Result<Executable> {
+        #[cfg(feature = "profiling")]
         let now = Instant::now();
 
         let mut interner = DebruijnIndicesInterner::default();
@@ -875,6 +878,7 @@ impl RawProgramWithSymbols {
 
         // println!("Symbol Map: {:#?}", sorted_symbol_map);
 
+        #[cfg(feature = "profiling")]
         if log_enabled!(target: "pipeline_time", log::Level::Debug) {
             debug!(target: "pipeline_time", "Executable Build Time: {:?}", now.elapsed());
         }

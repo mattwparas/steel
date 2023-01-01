@@ -37,11 +37,11 @@ enum EmitAction {
 }
 
 fn main() {
-    env_logger::init();
+    // env_logger::init();
 
     // let mut builder = Builder::new();
 
-    // let log_targets = ["pipeline_time", "dylibs", "steel::compiler::modules"];
+    // let log_targets = ["pipeline_time"];
 
     // for target in log_targets {
     //     builder.filter(Some(target), LevelFilter::Trace);

@@ -48,10 +48,12 @@ pub struct LambdaLifter {
 
 impl LambdaLifter {
     pub fn lift(ast: Vec<ExprKind>) -> Vec<ExprKind> {
+        #[cfg(feature = "profiling")]
         let lambda_lifting_time = Instant::now();
 
         let res = LambdaLifter::default().fold(ast);
 
+        #[cfg(feature = "profiling")]
         if log_enabled!(target: "pipeline_time", log::Level::Debug) {
             debug!(
                 target: "pipeline_time",

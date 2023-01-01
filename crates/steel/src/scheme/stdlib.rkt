@@ -350,9 +350,6 @@
 ;;; Macros go here:
 
 
-(define (code-gen-v2)
-  (set-env-var! "CODE_GEN_V2" "true"))
-
 (define-syntax reset 
     (syntax-rules ()
         ((reset ?e) (*reset (lambda () ?e)))))

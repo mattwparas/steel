@@ -55,6 +55,7 @@ colors_off = ["colored/no-color"]
 modules = []
 jit = []
 dynamic = []
+profiling = []
 
 [[bench]]
 name = "my_benchmark"
