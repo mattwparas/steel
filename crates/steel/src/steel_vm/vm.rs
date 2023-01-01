@@ -101,7 +101,7 @@ pub struct StackFrame {
     sp: usize,
     // This _has_ to be a function
     handler: Option<SteelVal>,
-    span: Option<Span>,
+    // span: Option<Span>,
     // This should get added to the GC as well
     pub(crate) function: Gc<ByteCodeLambda>,
     ip: usize,
@@ -120,7 +120,7 @@ impl StackFrame {
             function,
             ip,
             instructions,
-            span: None,
+            // span: None,
             handler: None,
         }
     }
@@ -130,19 +130,19 @@ impl StackFrame {
         StackFrame::new(0, function, 0, Rc::from([]))
     }
 
-    #[inline(always)]
-    pub fn with_span(mut self, span: Span) -> Self {
-        self.span = Some(span);
-        self
-    }
+    // #[inline(always)]
+    // pub fn with_span(mut self, span: Span) -> Self {
+    //     self.span = Some(span);
+    //     self
+    // }
 
     pub fn set_function(&mut self, function: Gc<ByteCodeLambda>) {
         self.function = function;
     }
 
-    pub fn set_span(&mut self, span: Span) {
-        self.span = Some(span);
-    }
+    // pub fn set_span(&mut self, span: Span) {
+    //     self.span = Some(span);
+    // }
 
     pub fn attach_handler(&mut self, handler: SteelVal) {
         self.handler = Some(handler);
@@ -1671,7 +1671,10 @@ impl<'a> VmCore<'a> {
     }
 
     fn enclosing_span(&self) -> Option<Span> {
-        self.thread.stack_frames.last().and_then(|x| x.span)
+        self.thread
+            .stack_frames
+            .last()
+            .and_then(|x| x.function.spans.get(x.ip).copied())
     }
 
     #[inline(never)]
@@ -2102,7 +2105,7 @@ impl<'a> VmCore<'a> {
         // let offset = self.stack_index.pop().unwrap();
         // self.instruction_stack.pop();
 
-        let current_span = self.current_span();
+        // let current_span = self.current_span();
 
         // self.stack_frames.last_mut().unwrap().set_function(function)
 
@@ -2145,7 +2148,7 @@ impl<'a> VmCore<'a> {
         self.instructions = closure.body_exp();
 
         last.set_function(closure);
-        last.set_span(current_span);
+        // last.set_span(current_span);
 
         self.ip = 0;
         Ok(())

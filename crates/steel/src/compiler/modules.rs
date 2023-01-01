@@ -16,6 +16,7 @@ use std::{
     collections::{HashMap, HashSet},
     io::Read,
     path::PathBuf,
+    rc::Rc,
 };
 
 use crate::parser::expander::SteelMacro;
@@ -80,7 +81,7 @@ impl ModuleManager {
         _global_macro_map: &mut HashMap<String, SteelMacro>,
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     ) -> Result<()> {
         // todo!()
 
@@ -112,7 +113,7 @@ impl ModuleManager {
         sources: &mut Sources,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
@@ -629,7 +630,7 @@ struct ModuleBuilder<'a> {
     file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
     sources: &'a mut Sources,
     kernel: &'a mut Option<Kernel>,
-    builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+    builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -641,7 +642,7 @@ impl<'a> ModuleBuilder<'a> {
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -1156,7 +1157,7 @@ impl<'a> ModuleBuilder<'a> {
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -1177,7 +1178,7 @@ impl<'a> ModuleBuilder<'a> {
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -1198,7 +1199,7 @@ impl<'a> ModuleBuilder<'a> {
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     ) -> Self {
         ModuleBuilder {
             name,

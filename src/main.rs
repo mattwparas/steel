@@ -64,19 +64,19 @@ fn main() {
             action,
         } => match action {
             None => {
-                let core_libraries = &[
-                    steel::stdlib::PRELUDE,
-                    steel::stdlib::DISPLAY,
-                    steel::stdlib::CONTRACTS,
-                ];
+                // let core_libraries = &[
+                //     steel::stdlib::PRELUDE,
+                //     steel::stdlib::DISPLAY,
+                //     steel::stdlib::CONTRACTS,
+                // ];
 
-                for core in core_libraries {
-                    let res = vm.compile_and_run_raw_program(core);
-                    if let Err(e) = res {
-                        eprintln!("{}", e);
-                        return;
-                    }
-                }
+                // for core in core_libraries {
+                //     let res = vm.compile_and_run_raw_program(core);
+                //     if let Err(e) = res {
+                //         eprintln!("{}", e);
+                //         return;
+                //     }
+                // }
 
                 let contents =
                     fs::read_to_string(&path).expect("Something went wrong reading the file");

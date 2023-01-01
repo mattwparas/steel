@@ -11,7 +11,7 @@ use super::{
     kernel::Kernel,
 };
 
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::parser::expander::SteelMacro;
 
@@ -170,7 +170,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
 pub fn expand_kernel(
     expr: ExprKind,
     kernel: Option<&mut Kernel>,
-    builtin_modules: im_rc::HashMap<String, BuiltInModule>,
+    builtin_modules: im_rc::HashMap<Rc<str>, BuiltInModule>,
 ) -> Result<ExprKind> {
     KernelExpander {
         map: kernel,
@@ -183,13 +183,13 @@ pub fn expand_kernel(
 pub struct KernelExpander<'a> {
     map: Option<&'a mut Kernel>,
     pub(crate) changed: bool,
-    builtin_modules: im_rc::HashMap<String, BuiltInModule>,
+    builtin_modules: im_rc::HashMap<Rc<str>, BuiltInModule>,
 }
 
 impl<'a> KernelExpander<'a> {
     pub fn new(
         map: Option<&'a mut Kernel>,
-        builtin_modules: im_rc::HashMap<String, BuiltInModule>,
+        builtin_modules: im_rc::HashMap<Rc<str>, BuiltInModule>,
     ) -> Self {
         Self {
             map,
@@ -525,7 +525,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                                 ..
                             },
                     })] => {
-                        if let Some(module) = self.builtin_modules.get(s) {
+                        if let Some(module) = self.builtin_modules.get(s.as_str()) {
                             return Ok(module.to_syntax(None));
                         } else {
                             stop!(BadSyntax => "require-builtin: module not found: {}", s);
@@ -551,7 +551,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                                 ..
                             },
                     })] if az == "as" => {
-                        if let Some(module) = self.builtin_modules.get(s) {
+                        if let Some(module) = self.builtin_modules.get(s.as_str()) {
                             return Ok(module.to_syntax(Some(prefix.as_str())));
                         } else {
                             stop!(BadSyntax => "require-builtin: module not found: {}", s);

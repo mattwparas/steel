@@ -15,6 +15,7 @@
     (displayln "Building steel for release...")
     (build-release)
     (displayln "Running benches...")
+    (run-bench '("../target/release/steel startup/startup.scm" "python3 startup/startup.py" "--warmup" "10" "--min-runs" "100"))
     (run-bench '("../target/release/steel fib/fib.scm" "python3 fib/fib.py" "--warmup" "10" "--min-runs" "40"))
     ; (run-bench '("../target/release/steel fib/fib.scm" "python3 fib/fib.py" "lua fib/fib.lua" "--warmup" "10" "--min-runs" "40"))
     ; (run-bench '("../target/release/steel ack/ack.scm" "python3 ack/ack.py" "lua ack/ack.lua" "--warmup" "10" "--min-runs" "40"))

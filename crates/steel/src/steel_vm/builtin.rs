@@ -181,13 +181,13 @@ impl BuiltInModule {
 /// Documentation representation
 #[derive(Clone, Debug)]
 pub struct InternalDocumentation {
-    definitions: HashMap<Cow<'static, str>, Documentation<'static>>,
+    definitions: im_rc::HashMap<Cow<'static, str>, Documentation<'static>>,
 }
 
 impl InternalDocumentation {
     pub fn new() -> Self {
         Self {
-            definitions: HashMap::new(),
+            definitions: im_rc::HashMap::new(),
         }
     }
 

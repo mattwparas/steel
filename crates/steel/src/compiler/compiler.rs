@@ -20,11 +20,11 @@ use crate::{
     parser::parser::Sources,
 };
 
-use std::iter::Iterator;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
 };
+use std::{iter::Iterator, rc::Rc};
 
 use crate::rvals::{Result, SteelVal};
 
@@ -505,7 +505,7 @@ impl Compiler {
     pub fn compile_executable_from_expressions(
         &mut self,
         exprs: Vec<ExprKind>,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
         constants: ImmutableHashMap<String, SteelVal>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
@@ -517,7 +517,7 @@ impl Compiler {
         expr_str: &str,
         path: Option<PathBuf>,
         constants: ImmutableHashMap<String, SteelVal>,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<std::rc::Rc<str>, BuiltInModule>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         let mut intern = HashMap::new();
@@ -549,7 +549,7 @@ impl Compiler {
         constants: ImmutableHashMap<String, SteelVal>,
         path: Option<PathBuf>,
         sources: &mut Sources,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     ) -> Result<Vec<ExprKind>> {
         let mut intern = HashMap::new();
 
@@ -599,7 +599,7 @@ impl Compiler {
         &mut self,
         path: PathBuf,
         sources: &mut Sources,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     ) -> Result<()> {
         self.module_manager.add_module(
             path,
@@ -619,7 +619,7 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
         sources: &mut Sources,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     ) -> Result<Vec<ExprKind>> {
         #[cfg(feature = "modules")]
         return self.module_manager.compile_main(
@@ -679,7 +679,7 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         constants: ImmutableHashMap<String, SteelVal>,
-        builtin_modules: ImmutableHashMap<String, BuiltInModule>,
+        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
         path: Option<PathBuf>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {

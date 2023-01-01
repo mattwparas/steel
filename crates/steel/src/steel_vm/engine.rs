@@ -18,7 +18,7 @@ use crate::{
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw, SteelErr,
 };
-use std::{collections::HashMap, path::PathBuf, rc::Rc};
+use std::{borrow::Cow, collections::HashMap, path::PathBuf, rc::Rc};
 
 use im_rc::HashMap as ImmutableHashMap;
 use itertools::Itertools;
@@ -27,7 +27,7 @@ pub struct Engine {
     virtual_machine: SteelThread,
     compiler: Compiler,
     constants: Option<ImmutableHashMap<String, SteelVal>>,
-    modules: ImmutableHashMap<String, BuiltInModule>,
+    modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     sources: Sources,
     dylibs: DylibContainers,
 }
@@ -253,7 +253,7 @@ impl Engine {
     // Registers the given module into the virtual machine
     pub fn register_module(&mut self, module: BuiltInModule) -> &mut Self {
         // Add the module to the map
-        self.modules.insert(module.name.to_string(), module.clone());
+        self.modules.insert(Rc::clone(&module.name), module.clone());
         // Register the actual module itself as a value to make the virtual machine capable of reading from it
         self.register_value(
             module.unreadable_name().as_str(),
