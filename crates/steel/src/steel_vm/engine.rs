@@ -332,7 +332,8 @@ impl Engine {
         bytecode: Rc<[DenseInstruction]>,
         constant_map: &ConstantMap,
     ) -> Result<SteelVal> {
-        self.virtual_machine.execute(bytecode, constant_map, &[])
+        self.virtual_machine
+            .execute(bytecode, constant_map, Rc::from([]))
     }
 
     /// Emit the bytecode directly, with a path provided.

@@ -764,7 +764,7 @@ impl RawProgramWithSymbols {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
-        let mut struct_instructions = Vec::new();
+        // let mut struct_instructions = Vec::new();
 
         // for builder in &self.struct_functions {
         //     // Add the eventual function names to the symbol map
@@ -804,8 +804,8 @@ impl RawProgramWithSymbols {
         }
 
         // Put the new struct functions at the front
-        struct_instructions.append(&mut self.instructions);
-        self.instructions = struct_instructions;
+        // struct_instructions.append(&mut self.instructions);
+        // self.instructions = struct_instructions;
 
         self.instructions
             .iter()
@@ -870,7 +870,7 @@ impl RawProgramWithSymbols {
                 .map(|x| Rc::from(x.into_boxed_slice()))
                 .collect(),
             constant_map: self.constant_map,
-            spans,
+            spans: spans.into(),
         });
 
         // let mut sorted_symbol_map = symbol_map.map.iter().collect::<Vec<_>>();
@@ -924,7 +924,7 @@ pub struct Executable {
     pub(crate) time_stamp: SystemTime, // TODO -> don't use system time, probably not as portable, prefer date time
     pub(crate) instructions: Vec<Rc<[DenseInstruction]>>,
     pub(crate) constant_map: ConstantMap,
-    pub(crate) spans: Vec<Span>,
+    pub(crate) spans: Rc<[Span]>,
 }
 
 impl Executable {

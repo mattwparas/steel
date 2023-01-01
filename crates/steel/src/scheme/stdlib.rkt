@@ -347,6 +347,13 @@
 
 (define (slice l offset n)
   (take (drop l offset) n))
+
+(define (flatten lst)
+  (cond ((null? lst) '())
+        ((list? lst)
+         (append (flatten (car lst)) (flatten (cdr lst))))
+        (else (list lst))))
+
 ;;; Macros go here:
 
 

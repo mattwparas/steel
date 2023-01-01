@@ -719,7 +719,11 @@ fn fs_module() -> BuiltInModule {
         .register_value("read-dir", FsFunctions::read_dir())
         .register_value("path-exists?", FsFunctions::path_exists())
         .register_value("file-name", FsFunctions::file_name())
-        .register_value("current-directory", FsFunctions::current_dir());
+        .register_value("current-directory", FsFunctions::current_dir())
+        .register_value(
+            "path->extension",
+            SteelVal::FuncV(FsFunctions::get_extension),
+        );
     module
 }
 

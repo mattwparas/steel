@@ -3,6 +3,12 @@ use crate::stop;
 use std::env::current_dir;
 use std::path::Path;
 
+fn get_extension_from_filename(filename: &str) -> Option<&str> {
+    Path::new(filename)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+}
+
 pub struct FsFunctions {}
 impl FsFunctions {
     pub fn path_exists() -> SteelVal {
@@ -33,6 +39,22 @@ impl FsFunctions {
                 stop!(ArityMismatch => "is-file? takes one argument")
             }
         })
+    }
+
+    pub fn get_extension(args: &[SteelVal]) -> Result<SteelVal> {
+        if args.len() == 1 {
+            if let SteelVal::StringV(s) = &args[0] {
+                if let Some(ext) = get_extension_from_filename(&s) {
+                    Ok(SteelVal::StringV(ext.into()))
+                } else {
+                    stop!(Generic => format!("path->extension expects a path that exists, found: {}", s))
+                }
+            } else {
+                stop!(TypeMismatch => format!("path->extension expects a string, found: {}", &args[0]))
+            }
+        } else {
+            stop!(ArityMismatch => format!("path->extension takes one argument, found: {}", args.len()))
+        }
     }
 
     pub fn is_dir() -> SteelVal {

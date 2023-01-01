@@ -46,7 +46,7 @@ pub struct ByteCodeLambda {
     captures: Vec<SteelVal>,
     pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
-    pub(crate) spans: Box<[Span]>,
+    pub(crate) spans: Rc<[Span]>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -73,8 +73,11 @@ impl ByteCodeLambda {
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
         heap_allocated: Vec<HeapRef>,
-        spans: Box<[Span]>,
+        // TODO: Spans need to be moved around as well, like instructions
+        spans: Rc<[Span]>,
     ) -> ByteCodeLambda {
+        debug_assert_eq!(body_exp.len(), spans.len());
+
         ByteCodeLambda {
             id,
             body_exp: RefCell::new(body_exp.into_boxed_slice().into()),
@@ -98,7 +101,7 @@ impl ByteCodeLambda {
             false,
             Vec::default(),
             Vec::default(),
-            Box::from([]),
+            Rc::from([]),
         )
     }
 
@@ -112,6 +115,10 @@ impl ByteCodeLambda {
 
     pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
         Rc::clone(&self.body_exp.borrow())
+    }
+
+    pub fn spans(&self) -> Rc<[Span]> {
+        Rc::clone(&self.spans)
     }
 
     // Get the starting index in the instruction set, and the new ID to associate with this
