@@ -226,7 +226,10 @@ impl<'a> ConstantEvaluator<'a> {
         if evaluated_func.is_function() {
             match evaluated_func {
                 SteelVal::FuncV(f) => {
-                    let output = f(args)?;
+                    // TODO: Clean this up - we shouldn't even enter this section of the code w/o having
+                    // the actual atom itself.
+                    let output = f(args)
+                        .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
 
                     if let Some(new_token) = steelval_to_atom(&output) {
                         let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));

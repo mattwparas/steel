@@ -702,7 +702,7 @@ impl<'a> VmCore<'a> {
             self.thread
                 .stack_frames
                 .iter()
-                .map(|x| DehydratedCallContext::new(x.function.spans.get(x.ip).copied()))
+                .map(|x| DehydratedCallContext::new(x.spans.get(x.ip).copied()))
                 .collect(),
         )
     }
@@ -1671,6 +1671,8 @@ impl<'a> VmCore<'a> {
         //     .copied()
         //     // .unwrap()
         //     .unwrap_or_default()
+
+        // println!("Span vec: {:#?}", self.spans);
 
         self.spans.get(self.ip).copied().unwrap_or_default()
 
