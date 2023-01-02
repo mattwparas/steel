@@ -94,7 +94,7 @@ fn let_to_function_call(l: Box<crate::parser::ast::Let>) -> ExprKind {
 
     original_application_args.insert(0, function);
 
-    return ExprKind::List(List::new(original_application_args));
+    ExprKind::List(List::new(original_application_args))
 }
 
 // TODO -> handle errors better here
@@ -138,14 +138,10 @@ impl Folder for LambdaLifter {
     }
 
     fn visit_define(&mut self, mut define: Box<Define>) -> ExprKind {
-        match &define.body {
-            ExprKind::LambdaFunction(_) => {
-                // TODO move this into a method
-                self.gen_sym.defining_context =
-                    define.name.atom_identifier().map(|x| x.to_string());
-            }
-            _ => {}
-        }
+        if let ExprKind::LambdaFunction(_) = &define.body {
+            // TODO move this into a method
+            self.gen_sym.defining_context = define.name.atom_identifier().map(|x| x.to_string());
+        };
 
         define.body = self.visit(define.body);
         ExprKind::Define(define)
@@ -204,14 +200,6 @@ impl Folder for LambdaLifter {
             return let_to_function_call(l);
         }
 
-        let captured_vars = self
-            .scope
-            .iter()
-            .filter(|x| *x.1)
-            .filter(|x| !let_level_bindings.contains(&x.0.as_str()))
-            .map(|x| x.0.to_string())
-            .collect::<Vec<_>>();
-
         // Exit the scope
         self.scope.pop_layer();
 
@@ -220,9 +208,13 @@ impl Folder for LambdaLifter {
         let mut original_application_args =
             l.bindings.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
 
-        let captured_atoms = captured_vars
-            .into_iter()
-            .map(|x| atom(x.to_string()))
+        let captured_atoms = self
+            .scope
+            .iter()
+            .filter(|x| *x.1)
+            .filter(|x| !let_level_bindings.contains(&x.0.as_str()))
+            .map(|x| x.0.to_string())
+            .map(atom)
             .collect::<Vec<_>>();
 
         for var in &captured_atoms {
@@ -251,8 +243,7 @@ impl Folder for LambdaLifter {
 
         // Call the function, return this one now
         original_application_args.insert(0, generated_name);
-        let constructed_function_application = ExprKind::List(List::new(original_application_args));
-        constructed_function_application
+        ExprKind::List(List::new(original_application_args))
     }
 
     // If we're visiting a list, we want to check if this is actually a let expr - the immediate application

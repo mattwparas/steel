@@ -144,9 +144,8 @@ impl MetaOperations {
                 loop {
                     let fut = fut.unwrap();
                     let ready = poll_future(fut.into_shared());
-                    match ready {
-                        Some(v) => return v,
-                        None => {}
+                    if let Some(v) = ready {
+                        return v;
                     }
                 }
             } else {
@@ -157,12 +156,12 @@ impl MetaOperations {
 
     pub fn join_futures() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 0 {
+            if args.is_empty() {
                 stop!(Generic => "join! requires at least one argument");
             }
 
             let joined_futures: Vec<_> = args
-                .into_iter()
+                .iter()
                 .map(|x| {
                     if let SteelVal::FutureV(f) = x {
                         Ok(f.unwrap().into_shared())
@@ -185,10 +184,7 @@ impl MetaOperations {
     }
 }
 
-pub(crate) fn steel_box<'a, 'b>(
-    ctx: &'a mut VmCore<'b>,
-    args: &[SteelVal],
-) -> Option<Result<SteelVal>> {
+pub(crate) fn steel_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() != 1 {
         builtin_stop!(ArityMismatch => "box takes one argument, found: {}", args.len())
     }

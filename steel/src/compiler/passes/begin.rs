@@ -173,22 +173,18 @@ enum ExpressionType<'a> {
 
 impl<'a> ExpressionType<'a> {
     fn is_expression(&self) -> bool {
-        if let ExpressionType::Expression = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, ExpressionType::Expression)
     }
 
     fn eval_atom(t: &SyntaxObject) -> bool {
-        match &t.ty {
+        matches!(
+            t.ty,
             TokenType::BooleanLiteral(_)
-            | TokenType::NumberLiteral(_)
-            | TokenType::StringLiteral(_)
-            | TokenType::CharacterLiteral(_)
-            | TokenType::IntegerLiteral(_) => true,
-            _ => false,
-        }
+                | TokenType::NumberLiteral(_)
+                | TokenType::StringLiteral(_)
+                | TokenType::CharacterLiteral(_)
+                | TokenType::IntegerLiteral(_)
+        )
     }
 
     fn is_constant(expr: &'a ExprKind) -> bool {
@@ -302,10 +298,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                             .into(),
                         );
 
-                        let application =
-                            ExprKind::List(List::new(vec![constructed_function, d.body]));
-
-                        application
+                        ExprKind::List(List::new(vec![constructed_function, d.body]))
                     }
                     other => ExprKind::Begin(Begin::new(
                         vec![other, accum],
@@ -387,11 +380,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
     // TODO: Move this up so we don't have to use raw_exprs anymore
 
-    for ((i, expression), arg) in expression_types[0..idx + 1]
-        .into_iter()
-        .enumerate()
-        .zip(args)
-    {
+    for ((i, expression), arg) in expression_types[0..idx + 1].iter().enumerate().zip(args) {
         match expression {
             ExpressionType::DefineFunction(name) => {
                 if let ExprKind::Define(d) = &exprs[i] {
@@ -511,11 +500,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
     top_level_dummy_args.insert(0, ExprKind::LambdaFunction(Box::new(outer_lambda)));
 
-    let result = ExprKind::List(List::new(top_level_dummy_args));
-
-    // println!("{}", result.to_pretty(60));
-
-    result
+    ExprKind::List(List::new(top_level_dummy_args))
 
     // TODO: This is the real transformation that needs to take place once lets are fixed
     // follow-up - let rec is going to be completely broken

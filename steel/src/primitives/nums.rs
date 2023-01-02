@@ -78,7 +78,7 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     let mut sum_float = 0.0;
     let mut found_float = false;
 
-    let mut args = args.into_iter();
+    let mut args = args.iter();
 
     if let Some(first) = args.next() {
         match first {

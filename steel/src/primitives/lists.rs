@@ -71,10 +71,10 @@ pub(crate) fn third(list: &List<SteelVal>) -> UnRecoverableResult {
     list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list)).into()
 }
 
-fn _test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<SteelVal> {
+fn _test_map(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(test_map, args, 2);
 
-    let mut arg_iter = args.into_iter();
+    let mut arg_iter = args.iter();
     let arg1 = arg_iter.next().unwrap();
     let arg2 = arg_iter.next().unwrap();
 
@@ -84,7 +84,7 @@ fn _test_map<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Result<Steel
 
             Ok(SteelVal::ListV(
                 l.into_iter()
-                    .map(|x| ctx.call_function_one_arg(&arg1, x.clone()))
+                    .map(|x| ctx.call_function_one_arg(arg1, x.clone()))
                     .collect::<Result<_>>()?,
             ))
 
