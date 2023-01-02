@@ -287,12 +287,10 @@ pub fn try_list_ref(args: &[SteelVal]) -> Result<SteelVal> {
     if let (SteelVal::ListV(lst), SteelVal::IntV(n)) = (&args[0], &args[1]) {
         if *n < 0 {
             stop!(Generic => "list-ref expects a positive integer")
+        } else if let Some(l) = lst.get(*n as usize) {
+            Ok(l.clone())
         } else {
-            if let Some(l) = lst.get(*n as usize) {
-                Ok(l.clone())
-            } else {
-                Ok(SteelVal::BoolV(false))
-            }
+            Ok(SteelVal::BoolV(false))
         }
     } else {
         stop!(TypeMismatch => format!("try-list-ref expects a list and an integer, found {} and {}", &args[0], &args[1]))

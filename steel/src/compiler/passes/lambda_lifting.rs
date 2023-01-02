@@ -13,7 +13,7 @@ use log::{debug, log_enabled};
 use quickscope::ScopeMap;
 // use std::collections::HashSet;
 
-const GENSYM_PREFIX: &'static str = "##-##lambda-lifter-";
+const GENSYM_PREFIX: &str = "##-##lambda-lifter-";
 
 #[derive(Default)]
 pub struct GenSym {

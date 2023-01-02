@@ -72,7 +72,7 @@ pub enum OpCode {
 
 impl OpCode {
     // TODO better error handling here
-    pub fn from_str(s: &str) -> Self {
+    pub fn from(s: &str) -> Self {
         use OpCode::*;
         match s {
             "VOID" => VOID,

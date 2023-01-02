@@ -197,14 +197,15 @@ impl DebruijnIndicesInterner {
                         }),
                     ..
                 } => {
-                    if self.flat_defines.get(s).is_some() {
-                        if self.second_pass_defines.get(s).is_none() && depth == 0 {
-                            let message = format!(
-                                "Cannot reference an identifier before its definition: {}",
-                                s
-                            );
-                            stop!(FreeIdentifier => message; *span);
-                        }
+                    if self.flat_defines.get(s).is_some()
+                        && self.second_pass_defines.get(s).is_none()
+                        && depth == 0
+                    {
+                        let message = format!(
+                            "Cannot reference an identifier before its definition: {}",
+                            s
+                        );
+                        stop!(FreeIdentifier => message; *span);
                     }
 
                     let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
@@ -354,14 +355,15 @@ pub fn replace_defines_with_debruijn_indices(
                     }),
                 ..
             } => {
-                if flat_defines.get(s).is_some() {
-                    if second_pass_defines.get(s).is_none() && depth == 0 {
-                        let message = format!(
-                            "Cannot reference an identifier before its definition: {}",
-                            s
-                        );
-                        stop!(FreeIdentifier => message; *span);
-                    }
+                if flat_defines.get(s).is_some()
+                    && second_pass_defines.get(s).is_none()
+                    && depth == 0
+                {
+                    let message = format!(
+                        "Cannot reference an identifier before its definition: {}",
+                        s
+                    );
+                    stop!(FreeIdentifier => message; *span);
                 }
 
                 let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
@@ -382,24 +384,22 @@ pub fn replace_defines_with_debruijn_indices(
 // Adds a flag to the pop value in order to save the heap to the global heap
 // I should really come up with a better name but for now we'll leave it
 fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
-    match instructions {
-        [.., Instruction {
-            op_code: OpCode::EDEF,
-            ..
-        }, Instruction {
-            op_code: OpCode::BIND,
-            ..
-        }, Instruction {
-            op_code: OpCode::VOID,
-            ..
-        }, Instruction {
-            op_code: OpCode::POP,
-            payload_size: x,
-            ..
-        }] => {
-            *x = 1;
-        }
-        _ => {}
+    if let [.., Instruction {
+        op_code: OpCode::EDEF,
+        ..
+    }, Instruction {
+        op_code: OpCode::BIND,
+        ..
+    }, Instruction {
+        op_code: OpCode::VOID,
+        ..
+    }, Instruction {
+        op_code: OpCode::POP,
+        payload_size: x,
+        ..
+    }] = instructions
+    {
+        *x = 1;
     }
 }
 
@@ -418,6 +418,17 @@ pub struct Compiler {
     module_manager: ModuleManager,
     opt_level: OptLevel,
     kernel: Option<Kernel>,
+}
+
+impl Default for Compiler {
+    fn default() -> Self {
+        Compiler::new(
+            SymbolMap::new(),
+            ConstantMap::new(),
+            HashMap::new(),
+            ModuleManager::default(),
+        )
+    }
 }
 
 impl Compiler {
@@ -461,15 +472,6 @@ impl Compiler {
             HashMap::new(),
             ModuleManager::default(),
             Kernel::new(),
-        )
-    }
-
-    pub fn default() -> Self {
-        Compiler::new(
-            SymbolMap::new(),
-            ConstantMap::new(),
-            HashMap::new(),
-            ModuleManager::default(),
         )
     }
 
@@ -544,7 +546,7 @@ impl Compiler {
         let parsed = parsed?;
 
         let expanded_statements =
-            self.expand_expressions(parsed, path, sources, builtin_modules.clone())?;
+            self.expand_expressions(parsed, path, sources, builtin_modules)?;
 
         let mut expanded_statements = expanded_statements;
 
@@ -557,9 +559,8 @@ impl Compiler {
                 }
             },
             OptLevel::Two => {
-                expanded_statements =
-                    ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
-                        .run(expanded_statements)?;
+                expanded_statements = ConstantEvaluatorManager::new(constants, self.opt_level)
+                    .run(expanded_statements)?;
             }
             _ => {}
         }
@@ -830,9 +831,8 @@ impl Compiler {
                 }
             }
             OptLevel::Two => {
-                expanded_statements =
-                    ConstantEvaluatorManager::new(constants.clone(), self.opt_level)
-                        .run(expanded_statements)?;
+                expanded_statements = ConstantEvaluatorManager::new(constants, self.opt_level)
+                    .run(expanded_statements)?;
             }
             _ => {}
         }

@@ -399,26 +399,24 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                                 ))),
                         );
                     }
+                } else if var.mutated {
+                    self.push(
+                        LabeledInstruction::builder(OpCode::FIRSTCOPYHEAPCAPTURECLOSURE)
+                            .payload(var.heap_offset.unwrap())
+                            .contents(SyntaxObject::default(TokenType::Identifier(
+                                key.to_string(),
+                            ))),
+                    );
                 } else {
-                    if var.mutated {
-                        self.push(
-                            LabeledInstruction::builder(OpCode::FIRSTCOPYHEAPCAPTURECLOSURE)
-                                .payload(var.heap_offset.unwrap())
-                                .contents(SyntaxObject::default(TokenType::Identifier(
-                                    key.to_string(),
-                                ))),
-                        );
-                    } else {
-                        // In this case, it hasn't yet been captured, so we'll just capture
-                        // directly from the stack
-                        self.push(
-                            LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
-                                .payload(var.stack_offset.unwrap())
-                                .contents(SyntaxObject::default(TokenType::Identifier(
-                                    key.to_string(),
-                                ))),
-                        );
-                    }
+                    // In this case, it hasn't yet been captured, so we'll just capture
+                    // directly from the stack
+                    self.push(
+                        LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
+                            .payload(var.stack_offset.unwrap())
+                            .contents(SyntaxObject::default(TokenType::Identifier(
+                                key.to_string(),
+                            ))),
+                    );
                 }
             }
         }

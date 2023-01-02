@@ -216,12 +216,10 @@ impl<'a> ExpressionType<'a> {
                             defined_idents.visit(&d.body);
                             if defined_idents.check_output() {
                                 expression_types.push(ExpressionType::DefineFlatStar(name));
+                            } else if Self::is_constant(&d.body) {
+                                expression_types.push(ExpressionType::DefineConst(name));
                             } else {
-                                if Self::is_constant(&d.body) {
-                                    expression_types.push(ExpressionType::DefineConst(name));
-                                } else {
-                                    expression_types.push(ExpressionType::DefineFlat(name));
-                                }
+                                expression_types.push(ExpressionType::DefineFlat(name));
                             }
                         }
                     }

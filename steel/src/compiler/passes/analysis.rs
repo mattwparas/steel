@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map, HashMap, HashSet};
 
 use fnv::FnvHashMap;
 // use itertools::Itertools;
@@ -239,7 +239,7 @@ pub struct Analysis {
 impl Analysis {
     pub fn from_exprs(exprs: &[ExprKind]) -> Self {
         let mut analysis = Analysis::default();
-        analysis.run(&exprs);
+        analysis.run(exprs);
         analysis
     }
 
@@ -274,7 +274,7 @@ impl Analysis {
                 }
             });
 
-        self.run(&exprs);
+        self.run(exprs);
     }
 
     pub fn resolve_alias(&self, mut id: SyntaxObjectId) -> Option<SyntaxObjectId> {
@@ -288,7 +288,7 @@ impl Analysis {
             id = next;
         }
 
-        return Some(id);
+        Some(id)
     }
 
     pub fn visit_top_level_define_function_without_body(
@@ -315,9 +315,9 @@ impl Analysis {
         }
 
         log::info!("Defining global: {:?}", define.name);
-        define_var(scope, &define);
+        define_var(scope, define);
 
-        self.insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
+        self.insert(define.name.atom_syntax_object().unwrap(), semantic_info);
     }
 
     pub fn run(&mut self, exprs: &[ExprKind]) {
@@ -580,9 +580,9 @@ impl<'a> AnalysisPass<'a> {
         }
 
         log::info!("Defining global: {:?}", define.name);
-        define_var(self.scope, &define);
+        define_var(self.scope, define);
 
-        self.info.insert(&name_syntax_object, semantic_info);
+        self.info.insert(name_syntax_object, semantic_info);
     }
 
     // TODO: I really hate this identifier status if local nonsense
@@ -614,10 +614,10 @@ impl<'a> AnalysisPass<'a> {
             semantic_info = semantic_info.shadows(shadowed_var.id)
         }
 
-        define_var(&mut self.scope, &define);
+        define_var(self.scope, define);
 
         self.info
-            .insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
+            .insert(define.name.atom_syntax_object().unwrap(), semantic_info);
     }
 
     // Visit the function arguments, marking these as defining in our scope
@@ -655,12 +655,7 @@ impl<'a> AnalysisPass<'a> {
             {
                 if let Some(info) = info.arguments.get(name) {
                     // println!("Found information: {:#?}", info);
-
-                    if info.mutated && info.captured {
-                        true
-                    } else {
-                        false
-                    }
+                    info.mutated && info.captured
                 } else {
                     false
                 }
@@ -683,7 +678,7 @@ impl<'a> AnalysisPass<'a> {
                 // in the event of a set!
                 // Later on in this function this gets updated accordingly
                 self.info.insert(
-                    &arg.atom_syntax_object().unwrap(),
+                    arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::HeapAllocated,
                         depth,
@@ -700,7 +695,7 @@ impl<'a> AnalysisPass<'a> {
                 // in the event of a set!
                 // Later on in this function this gets updated accordingly
                 self.info.insert(
-                    &arg.atom_syntax_object().unwrap(),
+                    arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::Local,
                         depth,
@@ -746,21 +741,19 @@ impl<'a> AnalysisPass<'a> {
                 } else {
                     IdentifierStatus::Captured
                 }
-            } else {
-                if let Some(info) = self.info.get(&var.atom_syntax_object().unwrap()) {
-                    match info.kind {
-                        IdentifierStatus::HeapAllocated => {
-                            // heap_offset = info.heap_offset;
-                            // read_heap_offset = info.read_heap_offset;
+            } else if let Some(info) = self.info.get(var.atom_syntax_object().unwrap()) {
+                match info.kind {
+                    IdentifierStatus::HeapAllocated => {
+                        // heap_offset = info.heap_offset;
+                        // read_heap_offset = info.read_heap_offset;
 
-                            IdentifierStatus::HeapAllocated
-                        }
-                        // IdentifierStatus::Captured => IdentifierStatus::Captured,
-                        _ => IdentifierStatus::Local,
+                        IdentifierStatus::HeapAllocated
                     }
-                } else {
-                    IdentifierStatus::Local
+                    // IdentifierStatus::Captured => IdentifierStatus::Captured,
+                    _ => IdentifierStatus::Local,
                 }
+            } else {
+                IdentifierStatus::Local
             };
 
             // let kind = if captured_vars.contains_key(ident) {
@@ -800,7 +793,7 @@ impl<'a> AnalysisPass<'a> {
             // }
 
             self.info
-                .update_with(&var.atom_syntax_object().unwrap(), semantic_info);
+                .update_with(var.atom_syntax_object().unwrap(), semantic_info);
         }
     }
 
@@ -815,7 +808,7 @@ impl<'a> AnalysisPass<'a> {
 impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     // TODO: define expressions are not handled by this for stack offset purposes
     fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
-        self.visit_define_without_body(&define, IdentifierStatus::Local);
+        self.visit_define_without_body(define, IdentifierStatus::Local);
 
         let define_ctx = self.defining_context.take();
 
@@ -826,9 +819,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     }
 
     // Quoted values are just constants - lets ignore them for now?
-    fn visit_quote(&mut self, _quote: &'a crate::parser::ast::Quote) {
-        return;
-    }
+    fn visit_quote(&mut self, _quote: &'a crate::parser::ast::Quote) {}
 
     fn visit_if(&mut self, f: &'a crate::parser::ast::If) {
         // Explicitly disallow a tail call in the test expression
@@ -1050,11 +1041,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             let heap_alloc = if let Some(info) = self.info.let_info.get(&l.syntax_object_id) {
                 if let Some(info) = info.arguments.get(name) {
-                    if info.mutated && info.captured {
-                        true
-                    } else {
-                        false
-                    }
+                    info.mutated && info.captured
                 } else {
                     false
                 }
@@ -1062,6 +1049,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 false
             };
 
+            #[allow(clippy::diverging_sub_expression)]
             if heap_alloc {
                 self.scope.define(
                     name.to_string(),
@@ -1076,7 +1064,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // in the event of a set!
                 // Later on in this function this gets updated accordingly
                 self.info.insert(
-                    &arg.atom_syntax_object().unwrap(),
+                    arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::HeapAllocated,
                         self.scope.depth(),
@@ -1090,7 +1078,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     .define(name.to_string(), ScopeInfo::new_local(id, stack_offset));
 
                 self.info.insert(
-                    &arg.atom_syntax_object().unwrap(),
+                    arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::LetVar,
                         self.scope.depth(),
@@ -1112,11 +1100,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             arguments.insert(name.to_string(), self.scope.remove(name).unwrap());
         }
 
-        if !self.info.let_info.contains_key(&l.syntax_object_id) {
-            self.info.let_info.insert(
-                l.syntax_object_id,
-                LetInformation::new(self.stack_offset, self.function_context, arguments),
-            );
+        if let hash_map::Entry::Vacant(e) = self.info.let_info.entry(l.syntax_object_id) {
+            e.insert(LetInformation::new(
+                self.stack_offset,
+                self.function_context,
+                arguments,
+            ));
         }
 
         if is_top_level {
@@ -1351,9 +1340,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // println!("{:?}", )
 
         for (var, value) in self.captures.iter() {
-            captured_vars.get_mut(var.as_str()).map(|x| {
-                x.captured_from_enclosing = value.captured_from_enclosing;
-            });
+            if let Some(scope_info) = captured_vars.get_mut(var.as_str()) {
+                scope_info.captured_from_enclosing = value.captured_from_enclosing;
+            }
         }
 
         log::info!("Captured variables: {:?}", captured_vars);
@@ -1578,16 +1567,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 let mut identifier_status = if captured.mutated {
                     IdentifierStatus::HeapAllocated
-                } else {
-                    if let Some(info) = self.info.get(&a.syn) {
-                        if info.kind == IdentifierStatus::HeapAllocated {
-                            IdentifierStatus::HeapAllocated
-                        } else {
-                            IdentifierStatus::Captured
-                        }
+                } else if let Some(info) = self.info.get(&a.syn) {
+                    if info.kind == IdentifierStatus::HeapAllocated {
+                        IdentifierStatus::HeapAllocated
                     } else {
                         IdentifierStatus::Captured
                     }
+                } else {
+                    IdentifierStatus::Captured
                 };
 
                 // We also want to mark the current var thats actually in scope as last used as well
@@ -1885,7 +1872,7 @@ impl<'a, F> FindCallSites<'a, F> {
 
 impl<'a, F> VisitorMutUnitRef<'a> for FindCallSites<'a, F>
 where
-    F: FnMut(&Analysis, &crate::parser::ast::List) -> (),
+    F: FnMut(&Analysis, &crate::parser::ast::List),
 {
     fn visit_list(&mut self, l: &'a crate::parser::ast::List) {
         if self.is_required_global_function_call(l) {
@@ -1900,7 +1887,7 @@ where
 
 impl<'a, F> VisitorMutRefUnit for FindCallSites<'a, F>
 where
-    F: FnMut(&Analysis, &mut crate::parser::ast::List) -> (),
+    F: FnMut(&Analysis, &mut crate::parser::ast::List),
 {
     fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
         if self.is_required_global_function_call(l) {
@@ -1939,7 +1926,7 @@ impl<'a, F> MutateCallSites<'a, F> {
 
 impl<'a, F> VisitorMutRefUnit for MutateCallSites<'a, F>
 where
-    F: FnMut(&Analysis, &mut ExprKind) -> (),
+    F: FnMut(&Analysis, &mut ExprKind),
 {
     fn visit(&mut self, expr: &mut ExprKind) {
         match expr {
@@ -2784,7 +2771,7 @@ impl<'a> SemanticAnalysis<'a> {
     // Modify the call site to point to another kind of expression
     pub fn find_call_sites_and_mutate_with<F>(&mut self, name: &str, func: F)
     where
-        F: FnMut(&Analysis, &mut ExprKind) -> (),
+        F: FnMut(&Analysis, &mut ExprKind),
     {
         let mut find_call_sites = MutateCallSites::new(name, &self.analysis, func);
 
@@ -2797,7 +2784,7 @@ impl<'a> SemanticAnalysis<'a> {
     // on the node
     pub fn find_call_sites_and_call<F>(&self, name: &str, func: F)
     where
-        F: FnMut(&Analysis, &crate::parser::ast::List) -> (),
+        F: FnMut(&Analysis, &crate::parser::ast::List),
     {
         let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
 
@@ -2810,7 +2797,7 @@ impl<'a> SemanticAnalysis<'a> {
     // on the node
     pub fn find_call_sites_and_modify_with<F>(&mut self, name: &str, func: F)
     where
-        F: FnMut(&Analysis, &mut crate::parser::ast::List) -> (),
+        F: FnMut(&Analysis, &mut crate::parser::ast::List),
     {
         let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
 

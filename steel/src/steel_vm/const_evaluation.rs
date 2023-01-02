@@ -511,12 +511,10 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     actually_used_variables.push(var.clone());
                     actually_used_arguments.push(arg.clone());
                     // }
-                } else {
-                    if self.to_constant(arg).is_none() {
-                        // actually_used_variables.push(var.clone());
-                        // println!("Found a non constant argument: {}", arg);
-                        non_constant_arguments.push(arg.clone());
-                    }
+                } else if self.to_constant(arg).is_none() {
+                    // actually_used_variables.push(var.clone());
+                    // println!("Found a non constant argument: {}", arg);
+                    non_constant_arguments.push(arg.clone());
                 }
             }
 

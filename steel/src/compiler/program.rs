@@ -784,7 +784,7 @@ impl RawProgramWithSymbols {
     }
 
     /// Applies a peephole style optimization to the underlying instruction set
-    pub fn with_optimization<F: Fn(&mut [Instruction]) -> ()>(&mut self, f: F) {
+    pub fn with_optimization<F: Fn(&mut [Instruction])>(&mut self, f: F) {
         for instructions in &mut self.instructions {
             f(instructions)
         }

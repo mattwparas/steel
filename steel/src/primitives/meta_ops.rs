@@ -50,7 +50,7 @@ impl MetaOperations {
 
     pub fn active_objects() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 0 {
+            if !args.is_empty() {
                 stop!(ArityMismatch => "active-object-count expects only one argument");
             }
             Ok(SteelVal::IntV(get_object_count() as isize))
