@@ -166,6 +166,7 @@ pub struct SteelThread {
     pub(crate) runtime_options: RunTimeOptions,
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
+    current_executable: Option<Executable>,
 }
 
 pub(crate) struct RunTimeOptions {
@@ -196,6 +197,7 @@ impl SteelThread {
             runtime_options: RunTimeOptions::new(),
             stack_frames: Vec::with_capacity(32),
             current_frame: StackFrame::main(),
+            current_executable: None,
         }
     }
 
@@ -226,7 +228,7 @@ impl SteelThread {
         instructions
             .into_iter()
             .zip(spans.into_iter())
-            .map(|x| self.execute(Rc::clone(&x.0), &constant_map, Rc::clone(x.1)))
+            .map(|x| self.execute(Rc::clone(&x.0), constant_map.clone(), Rc::clone(x.1)))
             .collect()
 
         // TODO
@@ -237,7 +239,7 @@ impl SteelThread {
 
     pub(crate) fn call_function(
         &mut self,
-        constant_map: &ConstantMap,
+        constant_map: ConstantMap,
         function: SteelVal,
         args: Vec<SteelVal>,
     ) -> Result<SteelVal> {
@@ -297,7 +299,7 @@ impl SteelThread {
     pub fn execute(
         &mut self,
         instructions: Rc<[DenseInstruction]>,
-        constant_map: &ConstantMap,
+        constant_map: ConstantMap,
         spans: Rc<[Span]>,
     ) -> Result<SteelVal> {
         self.profiler.reset();
@@ -624,7 +626,7 @@ impl DynamicBlock {
 
 pub struct VmCore<'a> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
-    pub(crate) constants: &'a ConstantMap,
+    pub(crate) constants: ConstantMap,
     pub(crate) ip: usize,
     pub(crate) sp: usize,
     pub(crate) pop_count: usize,
@@ -638,7 +640,7 @@ pub struct VmCore<'a> {
 impl<'a> VmCore<'a> {
     fn new_unchecked(
         instructions: Rc<[DenseInstruction]>,
-        constants: &'a ConstantMap,
+        constants: ConstantMap,
         spans: Rc<[Span]>,
         thread: &'a mut SteelThread,
     ) -> VmCore<'a> {
@@ -656,7 +658,7 @@ impl<'a> VmCore<'a> {
 
     fn new(
         instructions: Rc<[DenseInstruction]>,
-        constants: &'a ConstantMap,
+        constants: ConstantMap,
         spans: Rc<[Span]>,
         thread: &'a mut SteelThread,
     ) -> Result<VmCore<'a>> {

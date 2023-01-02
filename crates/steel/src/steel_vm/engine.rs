@@ -164,7 +164,7 @@ impl Engine {
         arguments: Vec<SteelVal>,
     ) -> Result<SteelVal> {
         self.virtual_machine
-            .call_function(&self.compiler.constant_map, function, arguments)
+            .call_function(self.compiler.constant_map.clone(), function, arguments)
     }
 
     pub fn run(&mut self, input: &str) -> Result<Vec<SteelVal>> {
@@ -330,7 +330,7 @@ impl Engine {
     pub fn execute(
         &mut self,
         bytecode: Rc<[DenseInstruction]>,
-        constant_map: &ConstantMap,
+        constant_map: ConstantMap,
     ) -> Result<SteelVal> {
         self.virtual_machine
             .execute(bytecode, constant_map, Rc::from([]))

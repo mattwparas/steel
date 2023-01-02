@@ -862,8 +862,8 @@ impl RawProgramWithSymbols {
         let (spans, instructions) = extract_spans(self.instructions);
 
         let res = Ok(Executable {
-            name,
-            version: self.version,
+            name: Rc::new(name),
+            version: Rc::new(self.version),
             time_stamp: SystemTime::now(),
             instructions: instructions
                 .into_iter()
@@ -930,8 +930,8 @@ fn extract_spans(
 #[allow(unused)]
 #[derive(Clone)]
 pub struct Executable {
-    pub(crate) name: String,
-    pub(crate) version: String,
+    pub(crate) name: Rc<String>,
+    pub(crate) version: Rc<String>,
     pub(crate) time_stamp: SystemTime, // TODO -> don't use system time, probably not as portable, prefer date time
     pub(crate) instructions: Vec<Rc<[DenseInstruction]>>,
     pub(crate) constant_map: ConstantMap,
