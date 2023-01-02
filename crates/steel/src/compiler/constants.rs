@@ -14,13 +14,19 @@ use std::collections::HashMap;
 
 // Shared constant map - for repeated in memory execution of a program, this is going to share the same
 // underlying representation.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub struct ConstantMap(Rc<RefCell<Vec<SteelVal>>>);
 
 // #[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
 // struct ConstantExprMap {
 //     map: Vec<Expr>,
 // }
+
+impl Clone for ConstantMap {
+    fn clone(&self) -> Self {
+        Self(Rc::clone(&self.0))
+    }
+}
 
 impl ConstantMap {
     pub fn new() -> ConstantMap {
@@ -93,6 +99,7 @@ impl ConstantMap {
     }
 
     // Fallible
+    #[inline(always)]
     pub fn get(&self, idx: usize) -> SteelVal {
         self.0.borrow()[idx].clone()
     }

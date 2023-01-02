@@ -889,18 +889,29 @@ impl RawProgramWithSymbols {
 
 // TODO -> replace spans on instructions with index into span vector
 // this is kinda nasty but it _should_ work
-fn extract_spans(instructions: Vec<Vec<Instruction>>) -> (Vec<Span>, Vec<Vec<DenseInstruction>>) {
-    let mut span_vec = Vec::with_capacity(instructions.iter().map(|x| x.len()).sum());
+fn extract_spans(
+    instructions: Vec<Vec<Instruction>>,
+) -> (Vec<Rc<[Span]>>, Vec<Vec<DenseInstruction>>) {
+    // let mut span_vec = Vec::with_capacity(instructions.iter().map(|x| x.len()).sum());
 
-    for instruction_set in &instructions {
-        for instruction in instruction_set {
-            if let Some(syn) = &instruction.contents {
-                span_vec.push(syn.span)
-            } else {
-                span_vec.push(Span::default())
-            }
-        }
-    }
+    // for instruction_set in &instructions {
+    //     for instruction in instruction_set {
+    //         if let Some(syn) = &instruction.contents {
+    //             span_vec.push(syn.span)
+    //         } else {
+    //             span_vec.push(Span::default())
+    //         }
+    //     }
+    // }
+
+    let span_vec = instructions
+        .iter()
+        .map(|x| {
+            x.iter()
+                .map(|x| x.contents.as_ref().map(|x| x.span).unwrap_or_default())
+                .collect()
+        })
+        .collect();
 
     let instructions: Vec<_> = instructions
         .into_iter()
@@ -924,7 +935,7 @@ pub struct Executable {
     pub(crate) time_stamp: SystemTime, // TODO -> don't use system time, probably not as portable, prefer date time
     pub(crate) instructions: Vec<Rc<[DenseInstruction]>>,
     pub(crate) constant_map: ConstantMap,
-    pub(crate) spans: Rc<[Span]>,
+    pub(crate) spans: Vec<Rc<[Span]>>,
 }
 
 impl Executable {

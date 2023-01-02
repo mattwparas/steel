@@ -93,9 +93,6 @@ impl DehydratedStackTrace {
 // Then - do I want to always reference the last one, or just refer to the current one?
 // TODO: We'll need to add these functions to the GC as well
 
-// TODO: Consider shrinking the size of the stack frame to reduce thrash
-// One way to do so would be to move the span and the handler into another location, and
-// hold a pointer to it.
 #[derive(Debug, Clone)]
 pub struct StackFrame {
     sp: usize,
@@ -228,7 +225,8 @@ impl SteelThread {
 
         instructions
             .into_iter()
-            .map(|x| self.execute(Rc::clone(&x), &constant_map, Rc::clone(spans)))
+            .zip(spans.into_iter())
+            .map(|x| self.execute(Rc::clone(&x.0), &constant_map, Rc::clone(x.1)))
             .collect()
 
         // TODO
