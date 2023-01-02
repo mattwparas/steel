@@ -22,7 +22,7 @@ impl IntoSteelVal for Span {
 }
 
 impl FromSteelVal for Span {
-    fn from_steelval<'a>(val: &'a crate::SteelVal) -> crate::rvals::Result<Self> {
+    fn from_steelval(val: &crate::SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::ListV(l) = val {
             if l.len() != 3 {
                 stop!(ConversionError => "cannot convert to a span object: {}", val);
@@ -115,53 +115,20 @@ impl fmt::Debug for Span {
     }
 }
 
-// impl From<Range<usize>> for Span {
-//     #[inline]
-//     fn from(range: Range<usize>) -> Self {
-//         Self {
-//             start: range.start,
-//             end: range.end,
-//         }
-//     }
-// }
-
-impl Into<Range<usize>> for Span {
-    #[inline]
-    fn into(self) -> Range<usize> {
-        self.start..self.end
+impl From<Span> for Range<usize> {
+    fn from(span: Span) -> Self {
+        span.start..span.end
     }
 }
 
-// impl From<(usize, usize)> for Span {
-//     #[inline]
-//     fn from(range: (usize, usize)) -> Self {
-//         Self {
-//             start: range.0,
-//             end: range.1,
-//         }
-//     }
-// }
-
-impl Into<(usize, usize)> for Span {
-    #[inline]
-    fn into(self) -> (usize, usize) {
-        (self.start, self.end)
+impl From<Span> for (usize, usize) {
+    fn from(span: Span) -> Self {
+        (span.start, span.end)
     }
 }
 
-// impl From<[usize; 2]> for Span {
-//     #[inline]
-//     fn from(range: [usize; 2]) -> Self {
-//         Self {
-//             start: range[0],
-//             end: range[1],
-//         }
-//     }
-// }
-
-impl Into<[usize; 2]> for Span {
-    #[inline]
-    fn into(self) -> [usize; 2] {
-        [self.start, self.end]
+impl From<Span> for [usize; 2] {
+    fn from(span: Span) -> Self {
+        [span.start, span.end]
     }
 }

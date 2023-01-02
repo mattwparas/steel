@@ -78,7 +78,7 @@ fn parse_unicode_str(slice: &str) -> Option<char> {
         let result = char::try_from(uinitial).ok();
 
         println!("{:?}", result);
-        return result;
+        result
     } else {
         None
     }
@@ -108,9 +108,9 @@ fn parse_str(lex: &mut Lexer<TokenType>) -> Option<String> {
     // Trim off the start and end of the string
     // We don't need that inside the lexer at all
     slice
-        .strip_suffix("\"")
+        .strip_suffix('\"')
         .or(Some(slice))
-        .and_then(|x| x.strip_prefix("\""))
+        .and_then(|x| x.strip_prefix('\"'))
         .or(Some(slice))
         .map(|x| x.to_string())
 }
@@ -241,7 +241,7 @@ fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
         '\n' => write!(f, "#\\NEWLINE"),
         '\r' => write!(f, "#\\RETURN"),
         c if c.is_control() || c.is_whitespace() => {
-            write!(f, "#\\{}", c.escape_unicode().to_string())
+            write!(f, "#\\{}", c.escape_unicode())
         }
         // '\"' => write!(f, "#\\DOUBLE-QUOTE"),
         // '\'' => write!(f, "#\\QUOTE"),

@@ -6,6 +6,7 @@ pub mod expander;
 pub mod interner;
 pub mod kernel;
 pub mod lexer;
+#[allow(clippy::module_inception)]
 pub mod parser;
 pub mod rename_idents;
 pub mod replace_idents;
