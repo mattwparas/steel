@@ -734,7 +734,8 @@ fn port_module() -> BuiltInModule {
         .register_value("open-output-file", PortOperations::open_output_file())
         .register_value("write-line!", PortOperations::write_line())
         .register_value("read-port-to-string", PortOperations::read_port_to_string())
-        .register_value("read-line-from-port", PortOperations::read_line_to_string());
+        .register_value("read-line-from-port", PortOperations::read_line_to_string())
+        .register_value("stdin", SteelVal::FuncV(PortOperations::open_stdin));
     module
 }
 

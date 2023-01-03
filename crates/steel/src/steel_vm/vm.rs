@@ -154,6 +154,10 @@ impl StackFrame {
     }
 }
 
+thread_local! {
+    pub(crate) static DEFAULT_CONSTANT_MAP: ConstantMap = ConstantMap::new();
+}
+
 pub struct SteelThread {
     pub(crate) global_env: Env,
     pub(crate) stack: Vec<SteelVal>,
@@ -166,7 +170,8 @@ pub struct SteelThread {
     pub(crate) runtime_options: RunTimeOptions,
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
-    current_executable: Option<Executable>,
+    constant_map: ConstantMap,
+    // current_executable: Option<Executable>,
 }
 
 pub(crate) struct RunTimeOptions {
@@ -197,7 +202,12 @@ impl SteelThread {
             runtime_options: RunTimeOptions::new(),
             stack_frames: Vec::with_capacity(32),
             current_frame: StackFrame::main(),
-            current_executable: None,
+            // Should probably just have this be Option<ConstantMap> - but then every time we look up
+            // something we'll have to deal with the fact that its wrapped in an option. Another options
+            // Would just have all programs compiled in this thread just share a constant map. For now,
+            // we'll have each thread default to an empty constant map, and replace it with the map bundled
+            // with the executables
+            constant_map: DEFAULT_CONSTANT_MAP.with(|x| x.clone()),
         }
     }
 
@@ -225,11 +235,17 @@ impl SteelThread {
             ..
         } = program;
 
-        instructions
+        self.constant_map = constant_map.clone();
+
+        let result = instructions
             .into_iter()
             .zip(spans.into_iter())
             .map(|x| self.execute(Rc::clone(&x.0), constant_map.clone(), Rc::clone(x.1)))
-            .collect()
+            .collect();
+
+        self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
+
+        result
 
         // TODO
         // self.global_env.print_diagnostics();

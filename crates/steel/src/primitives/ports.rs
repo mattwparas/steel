@@ -1,10 +1,20 @@
-use crate::gc::Gc;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
 use crate::values::port::SteelPort;
+use crate::{gc::Gc, values::port::new_rc_ref_cell};
 
 pub struct PortOperations {}
 impl PortOperations {
+    pub fn open_stdin(args: &[SteelVal]) -> Result<SteelVal> {
+        if args.is_empty() {
+            Ok(SteelVal::PortV(Gc::new(SteelPort::StdInput(
+                new_rc_ref_cell(std::io::stdin()),
+            ))))
+        } else {
+            stop!(ArityMismatch => "stdin expects no arguments")
+        }
+    }
+
     pub fn open_input_file() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {

@@ -327,14 +327,14 @@ impl Engine {
     // }
 
     /// Execute bytecode with a constant map directly.
-    pub fn execute(
-        &mut self,
-        bytecode: Rc<[DenseInstruction]>,
-        constant_map: ConstantMap,
-    ) -> Result<SteelVal> {
-        self.virtual_machine
-            .execute(bytecode, constant_map, Rc::from([]))
-    }
+    // pub fn execute(
+    //     &mut self,
+    //     bytecode: Rc<[DenseInstruction]>,
+    //     constant_map: ConstantMap,
+    // ) -> Result<SteelVal> {
+    //     self.virtual_machine
+    //         .execute(bytecode, constant_map, Rc::from([]))
+    // }
 
     /// Emit the bytecode directly, with a path provided.
     // pub fn emit_instructions_with_path(
