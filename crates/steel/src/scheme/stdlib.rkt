@@ -82,11 +82,25 @@
     [(-> a (b)) ((f> b) a)]
     [(-> a b c ...) (-> (-> a b) c ...)]))
 
+(define-syntax ~>
+  (syntax-rules ()
+    [(~> a) a]
+    [(~> a (b c ...)) ((f> b c ...) a)]
+    [(~> a (b)) ((f> b) a)]
+    [(~> a b c ...) (~> (~> a b) c ...)]))
+
 (define-syntax l>
   (syntax-rules ()
     [(l> fun args* ...)
      (lambda (x) (fun args* ... x))]
     [(l> fun) fun]))
+
+(define-syntax ~>>
+  (syntax-rules ()
+    [(~>> a) a]
+    [(~>> a (b c ...)) ((l> b c ...) a)]
+    [(~>> a (b)) ((l> b) a)]
+    [(~>> a b c ...) (~>> (~>> a b) c ...)]))
 
 (define-syntax ->>
   (syntax-rules ()
