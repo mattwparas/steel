@@ -17,7 +17,7 @@ impl InternedString {
     pub fn from_static(ident: &'static str) -> Self {
         Self(
             INTERNER
-                .get_or_init(|| ThreadedRodeo::new())
+                .get_or_init(ThreadedRodeo::new)
                 .get_or_intern_static(ident),
         )
     }
@@ -25,7 +25,7 @@ impl InternedString {
     pub fn from_string(ident: String) -> Self {
         Self(
             INTERNER
-                .get_or_init(|| ThreadedRodeo::new())
+                .get_or_init(ThreadedRodeo::new)
                 .get_or_intern(ident),
         )
     }
@@ -101,6 +101,6 @@ fn test_initialization() {
 //     INTERNER.get().unwrap().get_or_intern_static(key)
 // }
 
-fn resolve<'a>(key: &'a Spur) -> &'a str {
-    INTERNER.get().unwrap().resolve(&key)
+fn resolve(key: &Spur) -> &str {
+    INTERNER.get().unwrap().resolve(key)
 }

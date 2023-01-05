@@ -1,4 +1,5 @@
 #![allow(unused)]
+#![allow(clippy::type_complexity)]
 
 use im_rc::HashMap;
 
@@ -127,17 +128,17 @@ pub(crate) enum MaybeHeapVec {
 
 impl MaybeHeapVec {
     pub fn from_slice(args: &[SteelVal]) -> Self {
-        match &args {
-            &[] => Self::Unit,
-            &[one] => Self::One(one.clone().rc_refcell()),
-            &[one, two] => Self::Two([one.clone(), two.clone()].rc_refcell()),
-            &[one, two, three] => {
+        match args {
+            [] => Self::Unit,
+            [one] => Self::One(one.clone().rc_refcell()),
+            [one, two] => Self::Two([one.clone(), two.clone()].rc_refcell()),
+            [one, two, three] => {
                 Self::Three([one.clone(), two.clone(), three.clone()].rc_refcell())
             }
-            &[one, two, three, four] => {
+            [one, two, three, four] => {
                 Self::Four([one.clone(), two.clone(), three.clone(), four.clone()].rc_refcell())
             }
-            &[one, two, three, four, five] => Self::Five(
+            [one, two, three, four, five] => Self::Five(
                 [
                     one.clone(),
                     two.clone(),
@@ -147,7 +148,7 @@ impl MaybeHeapVec {
                 ]
                 .rc_refcell(),
             ),
-            _ => Self::Spilled(Rc::new(RefCell::new(args.iter().cloned().collect()))),
+            _ => Self::Spilled(Rc::new(RefCell::new(args.to_vec()))),
         }
     }
 
@@ -218,18 +219,18 @@ pub(crate) enum ImmutableMaybeHeapVec {
 
 impl ImmutableMaybeHeapVec {
     pub fn from_slice(args: &[SteelVal]) -> Self {
-        match &args {
-            &[] => Self::Unit,
-            &[one] => Self::One(one.clone()),
-            &[one, two] => Self::Two(Rc::new([one.clone(), two.clone()])),
-            &[one, two, three] => Self::Three(Rc::new([one.clone(), two.clone(), three.clone()])),
-            &[one, two, three, four] => Self::Four(Rc::new([
+        match args {
+            [] => Self::Unit,
+            [one] => Self::One(one.clone()),
+            [one, two] => Self::Two(Rc::new([one.clone(), two.clone()])),
+            [one, two, three] => Self::Three(Rc::new([one.clone(), two.clone(), three.clone()])),
+            [one, two, three, four] => Self::Four(Rc::new([
                 one.clone(),
                 two.clone(),
                 three.clone(),
                 four.clone(),
             ])),
-            &[one, two, three, four, five] => Self::Five(Rc::new([
+            [one, two, three, four, five] => Self::Five(Rc::new([
                 one.clone(),
                 two.clone(),
                 three.clone(),
@@ -546,6 +547,7 @@ thread_local! {
     pub static RESULT_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
+
     pub static OK_CONSTRUCTOR: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>> = {
         let name = OK_RESULT_LABEL.with(|x| Rc::clone(x));
         Rc::new(UserDefinedStruct::constructor_thunk(

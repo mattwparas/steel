@@ -20,10 +20,10 @@ pub fn string_to_jsexpr() -> SteelVal {
                 &args[0].string_or_else(throw!(TypeMismatch => "string->jsexpr takes a string"))?;
             // let unescaped = unescape(arg);
             // let res: std::result::Result<Value, _> = serde_json::from_str(unescaped.as_str());
-            let res: std::result::Result<Value, _> = serde_json::from_str(&arg);
+            let res: std::result::Result<Value, _> = serde_json::from_str(arg);
             match res {
                 Ok(res) => res.try_into(),
-                Err(e) => stop!(Generic => format!("string->jsexpr failed: {}", e.to_string())),
+                Err(e) => stop!(Generic => format!("string->jsexpr failed: {}", e)),
             }
         }
     })
@@ -93,7 +93,7 @@ impl TryFrom<Value> for SteelVal {
             Value::String(s) => Ok(SteelVal::StringV(s.into())),
             Value::Array(v) => Ok(SteelVal::ListV(
                 v.into_iter()
-                    .map(|x| <SteelVal>::try_from(x))
+                    .map(<SteelVal>::try_from)
                     .collect::<Result<List<SteelVal>>>()?,
             )),
             Value::Object(m) => m.try_into(),

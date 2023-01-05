@@ -34,7 +34,7 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn enumerating(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 0 {
+    if !args.is_empty() {
         stop!(ArityMismatch => "enumerating takes no arguments");
     }
 
@@ -137,7 +137,7 @@ pub fn flat_map(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn flatten(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 0 {
+    if !args.is_empty() {
         stop!(ArityMismatch => "flattening takes no arguments");
     }
 

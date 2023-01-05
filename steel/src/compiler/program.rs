@@ -47,39 +47,37 @@ pub fn gimmick_super_instruction(instructions: &mut [Instruction]) {
         let pass_instr = instructions.get(i + 3);
         let if_instr = instructions.get(i + 4);
 
-        match (read_local, load_int, lte, pass_instr, if_instr) {
-            (
-                Some(Instruction {
-                    op_code: OpCode::READLOCAL,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::LOADINT2,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::LTE,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::PASS,
-                    ..
-                }),
-                // HAS to be arity 2 in this case
-                Some(Instruction {
-                    op_code: OpCode::IF,
-                    ..
-                }),
-            ) => {
-                if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::GIMMICK;
-                }
-
-                instructions[i + 1].op_code = OpCode::PASS;
-                instructions[i + 2].op_code = OpCode::PASS;
-                instructions[i + 4].op_code = OpCode::PASS;
+        if let (
+            Some(Instruction {
+                op_code: OpCode::READLOCAL,
+                ..
+            }),
+            Some(Instruction {
+                op_code: OpCode::LOADINT2,
+                ..
+            }),
+            Some(Instruction {
+                op_code: OpCode::LTE,
+                ..
+            }),
+            Some(Instruction {
+                op_code: OpCode::PASS,
+                ..
+            }),
+            // HAS to be arity 2 in this case
+            Some(Instruction {
+                op_code: OpCode::IF,
+                ..
+            }),
+        ) = (read_local, load_int, lte, pass_instr, if_instr)
+        {
+            if let Some(x) = instructions.get_mut(i) {
+                x.op_code = OpCode::GIMMICK;
             }
-            _ => {}
+
+            instructions[i + 1].op_code = OpCode::PASS;
+            instructions[i + 2].op_code = OpCode::PASS;
+            instructions[i + 4].op_code = OpCode::PASS;
         }
     }
 }
@@ -220,7 +218,7 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
                     _ => continue,
                 };
 
-                (*instructions.get_mut(i).unwrap()).op_code = opcode;
+                instructions.get_mut(i).unwrap().op_code = opcode;
             }
             _ => continue,
         }
@@ -285,51 +283,54 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
         let push = instructions.get(i);
         let func = instructions.get(i + 1);
 
-        match (push, func) {
-            (
-                Some(Instruction {
-                    op_code: OpCode::PUSH,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::FUNC | OpCode::TAILCALL,
-                    contents:
-                        Some(RawSyntaxObject {
-                            ty: TokenType::Identifier(ident),
-                            ..
-                        }),
-                    payload_size,
-                    ..
-                }),
-            ) => {
-                let replaced = match ident.as_ref() {
-                    "+" => Some(OpCode::ADD),
-                    "-" => Some(OpCode::SUB),
-                    "/" => Some(OpCode::DIV),
-                    "*" => Some(OpCode::MUL),
-                    "equal?" => Some(OpCode::EQUAL),
-                    "<=" => Some(OpCode::LTE),
-                    _ => None,
-                };
+        if let (
+            Some(Instruction {
+                op_code: OpCode::PUSH,
+                ..
+            }),
+            Some(Instruction {
+                op_code: OpCode::FUNC | OpCode::TAILCALL,
+                contents:
+                    Some(RawSyntaxObject {
+                        ty: TokenType::Identifier(ident),
+                        ..
+                    }),
+                payload_size,
+                ..
+            }),
+        ) = (push, func)
+        {
+            let replaced = match ident.as_ref() {
+                "+" => Some(OpCode::ADD),
+                "-" => Some(OpCode::SUB),
+                "/" => Some(OpCode::DIV),
+                "*" => Some(OpCode::MUL),
+                "equal?" => Some(OpCode::EQUAL),
+                "<=" => Some(OpCode::LTE),
+                _ => None,
+            };
 
-                if let Some(new_op_code) = replaced {
-                    let payload_size = *payload_size;
-                    if let Some(x) = instructions.get_mut(i) {
-                        x.op_code = new_op_code;
-                        x.payload_size = payload_size;
-                    }
+            if let Some(new_op_code) = replaced {
+                let payload_size = *payload_size;
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = new_op_code;
+                    x.payload_size = payload_size;
+                }
 
-                    if let Some(x) = instructions.get_mut(i + 1) {
-                        x.op_code = OpCode::PASS;
-                    }
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.op_code = OpCode::PASS;
                 }
             }
-            _ => {}
         }
     }
 }
 
 pub struct ProgramBuilder(Vec<Vec<DenseInstruction>>);
+impl Default for ProgramBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ProgramBuilder {
     pub fn new() -> Self {
@@ -506,6 +507,12 @@ pub struct OpCodeOccurenceProfiler {
     basic_blocks: HashMap<InstructionPattern, usize>,
     // The current sequence before we get cut off
     sequence: Vec<OpCode>,
+}
+
+impl Default for OpCodeOccurenceProfiler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OpCodeOccurenceProfiler {
@@ -777,7 +784,7 @@ impl RawProgramWithSymbols {
     }
 
     /// Applies a peephole style optimization to the underlying instruction set
-    pub fn with_optimization<F: Fn(&mut [Instruction]) -> ()>(&mut self, f: F) {
+    pub fn with_optimization<F: Fn(&mut [Instruction])>(&mut self, f: F) {
         for instructions in &mut self.instructions {
             f(instructions)
         }

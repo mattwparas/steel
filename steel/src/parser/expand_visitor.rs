@@ -214,10 +214,8 @@ fn _expand_default_arguments(
     for argument in &lambda_function.args {
         if let ExprKind::List(_) = argument {
             found_pair = true;
-        } else {
-            if found_pair {
-                stop!(BadSyntax => "Non default argument aoccurs after a default argument"; lambda_function.location.span)
-            }
+        } else if found_pair {
+            stop!(BadSyntax => "Non default argument aoccurs after a default argument"; lambda_function.location.span)
         }
     }
 

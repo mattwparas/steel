@@ -1,4 +1,5 @@
 // pub mod code_generator;
+#[allow(clippy::module_inception)]
 pub mod compiler;
 pub mod constants;
 pub mod map;

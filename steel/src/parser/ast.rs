@@ -119,11 +119,12 @@ impl ExprKind {
     pub fn atom_identifier_mut(&mut self) -> Option<&mut String> {
         match self {
             Self::Atom(Atom {
-                syn: SyntaxObject { ty: t, .. },
-            }) => match t {
-                TokenType::Identifier(s) => Some(s),
-                _ => None,
-            },
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    },
+            }) => Some(s),
             _ => None,
         }
     }
@@ -141,11 +142,12 @@ impl ExprKind {
     ) -> std::result::Result<&str, E> {
         match self {
             Self::Atom(Atom {
-                syn: SyntaxObject { ty: t, .. },
-            }) => match t {
-                TokenType::Identifier(s) => Ok(s),
-                _ => Err(err()),
-            },
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    },
+            }) => Ok(s),
             _ => Err(err()),
         }
     }
@@ -153,11 +155,12 @@ impl ExprKind {
     pub fn atom_identifier(&self) -> Option<&str> {
         match self {
             Self::Atom(Atom {
-                syn: SyntaxObject { ty: t, .. },
-            }) => match t {
-                TokenType::Identifier(s) => Some(s),
-                _ => None,
-            },
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    },
+            }) => Some(s),
             _ => None,
         }
     }
@@ -165,11 +168,12 @@ impl ExprKind {
     pub fn string_literal(&self) -> Option<&str> {
         match self {
             Self::Atom(Atom {
-                syn: SyntaxObject { ty: t, .. },
-            }) => match t {
-                TokenType::StringLiteral(s) => Some(s),
-                _ => None,
-            },
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::StringLiteral(s),
+                        ..
+                    },
+            }) => Some(s),
             _ => None,
         }
     }
@@ -259,7 +263,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             )))),
             VectorV(lst) => {
                 let items: std::result::Result<Vec<Self>, Self::Error> =
-                    lst.iter().map(|x| Self::try_from(x)).collect();
+                    lst.iter().map(Self::try_from).collect();
                 Ok(ExprKind::List(List::new(items?)))
             }
             Void => Err("Can't convert from Void to expression!"),
@@ -280,7 +284,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             }
             ListV(l) => {
                 let items: std::result::Result<Vec<Self>, Self::Error> =
-                    l.iter().map(|x| Self::try_from(x)).collect();
+                    l.iter().map(Self::try_from).collect();
 
                 Ok(ExprKind::List(List::new(items?)))
             }
@@ -396,7 +400,7 @@ impl Atom {
 
 impl fmt::Display for Atom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.syn.ty.to_string())
+        write!(f, "{}", self.syn.ty)
     }
 }
 
@@ -672,7 +676,7 @@ impl Clone for LambdaFunction {
             args: self.args.clone(),
             body: self.body.clone(),
             location: self.location.clone(),
-            rest: self.rest.clone(),
+            rest: self.rest,
             syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
         }
     }
@@ -937,10 +941,7 @@ impl List {
     }
 
     pub fn is_a_builtin_expr(&self) -> bool {
-        match self.first_ident() {
-            Some(func) if func == "##__module-get" || func == "%module-get%" => true,
-            _ => false,
-        }
+        matches!(self.first_ident(), Some(func) if func == "##__module-get" || func == "%module-get%")
     }
 
     pub fn first_func_mut(&mut self) -> Option<&mut LambdaFunction> {
@@ -1573,7 +1574,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
         // let mut value = value.into_iter().peekable();
 
         // TODO -> get rid of this clone on the first value
-        if let Some(f) = value.first().map(|x| x.clone()) {
+        if let Some(f) = value.first().cloned() {
             match f {
                 ExprKind::Atom(a) => {
                     // let value = value.into_iter();

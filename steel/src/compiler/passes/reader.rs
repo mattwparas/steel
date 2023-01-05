@@ -24,8 +24,8 @@ impl Folder for ExpandMethodCalls {
             // println!("Inside this if statement");
             // println!("Func: {:?}", func);
 
-            if func.contains(".") {
-                let words = func.split(".").collect::<Vec<_>>();
+            if func.contains('.') {
+                let words = func.split('.').collect::<Vec<_>>();
 
                 if words.len() != 2 {
                     l.args = l.args.into_iter().map(|e| self.visit(e)).collect();
@@ -58,7 +58,7 @@ impl Folder for ExpandMethodCalls {
         }
 
         l.args = l.args.into_iter().map(|e| self.visit(e)).collect();
-        return ExprKind::List(l);
+        ExprKind::List(l)
     }
 }
 

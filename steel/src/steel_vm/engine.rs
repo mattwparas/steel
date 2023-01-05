@@ -32,6 +32,12 @@ pub struct Engine {
     dylibs: DylibContainers,
 }
 
+impl Default for Engine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Engine {
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child

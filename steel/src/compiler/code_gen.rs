@@ -78,15 +78,9 @@ impl<'a> CodeGenerator<'a> {
     fn specialize_constant(&mut self, syn: &SyntaxObject) -> Result<()> {
         let value = eval_atom(syn)?;
 
-        let opcode = match &value {
-            // SteelVal::IntV(1) => OpCode::LOADINT1,
-            // SteelVal::IntV(2) => OpCode::LOADINT2,
-            _ => OpCode::PUSHCONST,
-        };
-
         let idx = self.constant_map.add_or_get(value);
         self.push(
-            LabeledInstruction::builder(opcode)
+            LabeledInstruction::builder(OpCode::PUSHCONST)
                 .payload(idx)
                 .contents(syn.clone())
                 .constant(true),
@@ -142,7 +136,7 @@ impl<'a> CodeGenerator<'a> {
 
         if let Some(analysis) = &l.args[1]
             .atom_syntax_object()
-            .and_then(|a| self.analysis.get(&a))
+            .and_then(|a| self.analysis.get(a))
         {
             self.push(LabeledInstruction::builder(op).payload(analysis.stack_offset.unwrap()));
         } else {
@@ -208,14 +202,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // }
 
         if let Some(elem) = self.instructions.get_mut(false_start - 1) {
-            (*elem).payload_size = j3;
+            elem.payload_size = j3;
             // (*elem).payload_size = false_start;
         } else {
             stop!(Generic => "out of bounds jump");
         }
 
         if let Some(elem) = self.instructions.get_mut(if_idx) {
-            (*elem).payload_size = false_start;
+            elem.payload_size = false_start;
             // (*elem).payload_size = false_start;
         } else {
             stop!(Generic => "out of bounds jump");
@@ -297,7 +291,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         } else {
             panic!(
                 "Complex defines not supported in bytecode generation: {}",
-                (define.name).to_string()
+                define.name
             )
         }
 
@@ -329,11 +323,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // Attach the debug symbols here
         self.push(LabeledInstruction::builder(op_code).contents(lambda_function.location.clone()));
         self.push(
-            LabeledInstruction::builder(OpCode::PASS).payload(if lambda_function.rest {
-                1
-            } else {
-                0
-            }),
+            LabeledInstruction::builder(OpCode::PASS).payload(usize::from(lambda_function.rest)),
         );
 
         let arity = lambda_function.args.len();
@@ -346,7 +336,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         );
 
         let mut body_instructions = {
-            let mut code_gen = CodeGenerator::new(&mut self.constant_map, &self.analysis);
+            let mut code_gen = CodeGenerator::new(self.constant_map, self.analysis);
             code_gen.visit(&lambda_function.body)?;
             code_gen.instructions
         };
@@ -409,26 +399,24 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                                 ))),
                         );
                     }
+                } else if var.mutated {
+                    self.push(
+                        LabeledInstruction::builder(OpCode::FIRSTCOPYHEAPCAPTURECLOSURE)
+                            .payload(var.heap_offset.unwrap())
+                            .contents(SyntaxObject::default(TokenType::Identifier(
+                                key.to_string(),
+                            ))),
+                    );
                 } else {
-                    if var.mutated {
-                        self.push(
-                            LabeledInstruction::builder(OpCode::FIRSTCOPYHEAPCAPTURECLOSURE)
-                                .payload(var.heap_offset.unwrap())
-                                .contents(SyntaxObject::default(TokenType::Identifier(
-                                    key.to_string(),
-                                ))),
-                        );
-                    } else {
-                        // In this case, it hasn't yet been captured, so we'll just capture
-                        // directly from the stack
-                        self.push(
-                            LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
-                                .payload(var.stack_offset.unwrap())
-                                .contents(SyntaxObject::default(TokenType::Identifier(
-                                    key.to_string(),
-                                ))),
-                        );
-                    }
+                    // In this case, it hasn't yet been captured, so we'll just capture
+                    // directly from the stack
+                    self.push(
+                        LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
+                            .payload(var.stack_offset.unwrap())
+                            .contents(SyntaxObject::default(TokenType::Identifier(
+                                key.to_string(),
+                            ))),
+                    );
                 }
             }
         }
@@ -468,7 +456,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         self.push(LabeledInstruction::builder(OpCode::ECLOSURE).payload(arity));
 
         if let Some(elem) = self.instructions.get_mut(idx) {
-            (*elem).payload_size = closure_body_size;
+            elem.payload_size = closure_body_size;
         } else {
             stop!(Generic => "out of bounds closure len");
         }
@@ -550,7 +538,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             Ok(())
         } else {
-            return self.specialize_constant(&a.syn);
+            self.specialize_constant(&a.syn)
         }
     }
 
@@ -567,7 +555,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             stop!(BadSyntax => "function application empty");
         }
 
-        let pop_len = if l.args.len() > 0 {
+        let pop_len = if !l.args.is_empty() {
             l.args[1..].len()
         } else {
             0
@@ -638,7 +626,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         let a = s.variable.atom_syntax_object().unwrap();
 
-        if let Some(analysis) = self.analysis.get(&a) {
+        if let Some(analysis) = self.analysis.get(a) {
             // TODO: We really want to fail as early as possible, but lets just try this here:
             if analysis.builtin {
                 stop!(Generic => "set!: cannot mutate module-required identifier"; s.location.span);

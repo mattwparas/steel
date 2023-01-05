@@ -21,7 +21,7 @@ impl IntoSteelVal for SteelVal {
 // }
 
 impl<T: FromSteelVal + Clone> FromSteelVal for List<T> {
-    fn from_steelval<'a>(val: &'a SteelVal) -> Result<Self> {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::ListV(l) = val {
             l.iter().map(T::from_steelval).collect()
         } else {
@@ -41,7 +41,7 @@ impl<T: IntoSteelVal + Clone> IntoSteelVal for List<T> {
 
 impl<T: IntoSteelVal + Clone> IntoSteelVal for &[T] {
     fn into_steelval(self) -> Result<SteelVal> {
-        self.into_iter()
+        self.iter()
             .map(|x| x.clone().into_steelval())
             .collect::<Result<List<_>>>()
             .map(SteelVal::ListV)

@@ -1,4 +1,5 @@
 #![allow(unused)]
+#![allow(clippy::type_complexity)]
 
 #[cfg(feature = "jit")]
 use crate::jit::code_gen::JIT;
@@ -208,8 +209,8 @@ impl SteelThread {
         } = program;
 
         instructions
-            .into_iter()
-            .map(|x| self.execute(Rc::clone(&x), &constant_map, &spans))
+            .iter()
+            .map(|x| self.execute(Rc::clone(x), constant_map, spans))
             .collect()
 
         // TODO
@@ -541,6 +542,7 @@ pub struct VmCore<'a> {
 }
 
 impl<'a> VmCore<'a> {
+    #[allow(clippy::too_many_arguments)]
     fn new_unchecked(
         instructions: Rc<[DenseInstruction]>,
         stack: &'a mut Vec<SteelVal>,
@@ -577,6 +579,7 @@ impl<'a> VmCore<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new(
         instructions: Rc<[DenseInstruction]>,
         stack: &'a mut Vec<SteelVal>,
@@ -836,9 +839,7 @@ impl<'a> VmCore<'a> {
 
         // self.function_stack
         // .push(CallContext::new(Gc::clone(closure)));
-        let result = self.call_with_instructions_and_reset_state(closure.body_exp());
-
-        result
+        self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
     // Calling convention
@@ -900,7 +901,7 @@ impl<'a> VmCore<'a> {
             ($name:tt, $payload_size:expr) => {{
                 let last_index = self.stack.len() - $payload_size as usize;
 
-                let result = match $name(&mut self.stack[last_index..]) {
+                let result = match $name(&self.stack[last_index..]) {
                     Ok(value) => value,
                     Err(e) => return Err(e.set_span_if_none(self.current_span())),
                 };
@@ -2835,10 +2836,7 @@ impl<'a> VmCore<'a> {
     }
 }
 
-pub fn current_function_span<'a, 'b>(
-    ctx: &'a mut VmCore<'b>,
-    args: &[SteelVal],
-) -> Option<Result<SteelVal>> {
+pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if !args.is_empty() {
         builtin_stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
     }
@@ -2849,8 +2847,8 @@ pub fn current_function_span<'a, 'b>(
     }
 }
 
-pub fn call_with_exception_handler<'a, 'b>(
-    ctx: &'a mut VmCore<'b>,
+pub fn call_with_exception_handler(
+    ctx: &mut VmCore,
     args: &[SteelVal],
 ) -> Option<Result<SteelVal>> {
     if args.len() != 2 {
@@ -2916,7 +2914,7 @@ pub fn call_with_exception_handler<'a, 'b>(
     Some(Ok(SteelVal::Void))
 }
 
-pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     /*
     - Construct the continuation
     - Get the function that has been passed in (off the stack)
@@ -3018,10 +3016,7 @@ pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Res
 // _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.
 // Similarly, care should be taken to check out transduce, because nested calls to that will
 // result in a stack overflow with sufficient depth on the recursive calls
-pub(crate) fn apply<'a, 'b>(
-    ctx: &'a mut VmCore<'b>,
-    args: &[SteelVal],
-) -> Option<Result<SteelVal>> {
+pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // arity_check!(apply, args, 2);
 
     ctx.ip -= 1;

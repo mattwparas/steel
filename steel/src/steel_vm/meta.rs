@@ -105,7 +105,7 @@ impl EngineWrapper {
                     })
                     .collect::<Result<Vec<Vec<SteelVal>>>>();
 
-                Ok(values?.into_iter().flatten().collect::<List<_>>().into())
+                Ok(values?.into_iter().flatten().collect::<List<_>>())
             }
             _ => {
                 stop!(TypeMismatch => "run! expects either a list of expressions, or a string")
@@ -117,12 +117,7 @@ impl EngineWrapper {
     pub(crate) fn get_value(self, expr: SteelVal) -> Result<SteelVal> {
         match expr {
             SteelVal::SymbolV(expr) | SteelVal::StringV(expr) => {
-                match self.0.borrow().extract_value(expr.as_ref())? {
-                    // SteelVal::Closure(_) => {
-                    //     stop!(Generic => "a closure cannot be used outside of its defining environment")
-                    // }
-                    other => Ok(other),
-                }
+                self.0.borrow().extract_value(expr.as_ref())
             }
             _ => {
                 stop!(TypeMismatch => "get-value expected either a string or a symbol, found: {}", expr)

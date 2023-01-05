@@ -15,13 +15,11 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
             SteelVal::IntV(n) => {
                 if found_float {
                     sum_float *= *n as f64;
+                } else if let Some(res) = isize::checked_mul(sum_int, *n) {
+                    sum_int = res
                 } else {
-                    if let Some(res) = isize::checked_mul(sum_int, *n) {
-                        sum_int = res
-                    } else {
-                        found_float = true;
-                        sum_float *= *n as f64;
-                    }
+                    found_float = true;
+                    sum_float *= *n as f64;
                 }
             }
             SteelVal::NumV(n) => {
@@ -78,7 +76,7 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     let mut sum_float = 0.0;
     let mut found_float = false;
 
-    let mut args = args.into_iter();
+    let mut args = args.iter();
 
     if let Some(first) = args.next() {
         match first {
@@ -101,13 +99,11 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
             SteelVal::IntV(n) => {
                 if found_float {
                     sum_float -= *n as f64;
+                } else if let Some(res) = isize::checked_sub(sum_int, *n) {
+                    sum_int = res
                 } else {
-                    if let Some(res) = isize::checked_sub(sum_int, *n) {
-                        sum_int = res
-                    } else {
-                        found_float = true;
-                        sum_float -= *n as f64;
-                    }
+                    found_float = true;
+                    sum_float -= *n as f64;
                 }
             }
             SteelVal::NumV(n) => {
@@ -184,13 +180,11 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
             SteelVal::IntV(n) => {
                 if found_float {
                     sum_float += *n as f64;
+                } else if let Some(res) = isize::checked_add(sum_int, *n) {
+                    sum_int = res
                 } else {
-                    if let Some(res) = isize::checked_add(sum_int, *n) {
-                        sum_int = res
-                    } else {
-                        found_float = true;
-                        sum_float += *n as f64;
-                    }
+                    found_float = true;
+                    sum_float += *n as f64;
                 }
             }
             SteelVal::NumV(n) => {
