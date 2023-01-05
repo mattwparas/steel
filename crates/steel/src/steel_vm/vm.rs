@@ -42,6 +42,26 @@ use log::{debug, error, log_enabled};
 
 use crate::rvals::IntoSteelVal;
 
+#[inline]
+#[cold]
+fn cold() {}
+
+#[inline]
+fn likely(b: bool) -> bool {
+    if !b {
+        cold()
+    }
+    b
+}
+
+#[inline]
+fn unlikely(b: bool) -> bool {
+    if b {
+        cold()
+    }
+    b
+}
+
 // #[test]
 // fn call_hello_world() {
 //     println!("{:?}", message());
@@ -1729,7 +1749,7 @@ impl<'a> VmCore<'a> {
         // let should_return = self.stack_frames.is_empty();
         let should_return = self.pop_count == 0;
 
-        if !should_return {
+        if likely(!should_return) {
             let last = last.unwrap();
 
             // Update the current frame to be the last one
@@ -2199,7 +2219,7 @@ impl<'a> VmCore<'a> {
         payload_size: usize,
         new_arity: &mut usize,
     ) -> Result<()> {
-        if !closure.is_multi_arity {
+        if unlikely(!closure.is_multi_arity) {
             if closure.arity() != payload_size {
                 stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
             }
@@ -2666,7 +2686,7 @@ impl<'a> VmCore<'a> {
         // println!("Depth: {}", self.thread.stack_frames.len());
         // println!("Stack length: {}", self.thread.stack.len());
 
-        if self.thread.stack_frames.len() >= STACK_LIMIT {
+        if unlikely(self.thread.stack_frames.len() >= STACK_LIMIT) {
             crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
             println!("stack frame at exit: {:?}", self.thread.stack);
             stop!(Generic => "stack overflowed!"; self.current_span());
