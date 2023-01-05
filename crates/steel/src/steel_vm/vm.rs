@@ -2219,8 +2219,8 @@ impl<'a> VmCore<'a> {
         payload_size: usize,
         new_arity: &mut usize,
     ) -> Result<()> {
-        if unlikely(!closure.is_multi_arity) {
-            if closure.arity() != payload_size {
+        if likely(!closure.is_multi_arity) {
+            if unlikely(closure.arity() != payload_size) {
                 stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
             }
         } else {
