@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map, HashMap, HashSet};
 
 // use itertools::Itertools;
 use quickscope::ScopeMap;
@@ -238,7 +238,7 @@ pub struct Analysis {
 impl Analysis {
     pub fn from_exprs(exprs: &[ExprKind]) -> Self {
         let mut analysis = Analysis::default();
-        analysis.run(&exprs);
+        analysis.run(exprs);
         analysis
     }
 
@@ -273,7 +273,7 @@ impl Analysis {
                 }
             });
 
-        self.run(&exprs);
+        self.run(exprs);
     }
 
     pub fn resolve_alias(&self, mut id: SyntaxObjectId) -> Option<SyntaxObjectId> {
@@ -287,7 +287,7 @@ impl Analysis {
             id = next;
         }
 
-        return Some(id);
+        Some(id)
     }
 
     pub fn visit_top_level_define_function_without_body(
@@ -314,9 +314,9 @@ impl Analysis {
         }
 
         log::info!("Defining global: {:?}", define.name);
-        define_var(scope, &define);
+        define_var(scope, define);
 
-        self.insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
+        self.insert(define.name.atom_syntax_object().unwrap(), semantic_info);
     }
 
     pub fn run(&mut self, exprs: &[ExprKind]) {
@@ -579,9 +579,9 @@ impl<'a> AnalysisPass<'a> {
         }
 
         log::info!("Defining global: {:?}", define.name);
-        define_var(self.scope, &define);
+        define_var(self.scope, define);
 
-        self.info.insert(&name_syntax_object, semantic_info);
+        self.info.insert(name_syntax_object, semantic_info);
     }
 
     // TODO: I really hate this identifier status if local nonsense
@@ -613,10 +613,10 @@ impl<'a> AnalysisPass<'a> {
             semantic_info = semantic_info.shadows(shadowed_var.id)
         }
 
-        define_var(&mut self.scope, &define);
+        define_var(self.scope, define);
 
         self.info
-            .insert(&define.name.atom_syntax_object().unwrap(), semantic_info);
+            .insert(define.name.atom_syntax_object().unwrap(), semantic_info);
     }
 
     // Visit the function arguments, marking these as defining in our scope
@@ -654,12 +654,7 @@ impl<'a> AnalysisPass<'a> {
             {
                 if let Some(info) = info.arguments.get(name) {
                     // println!("Found information: {:#?}", info);
-
-                    if info.mutated && info.captured {
-                        true
-                    } else {
-                        false
-                    }
+                    info.mutated && info.captured
                 } else {
                     false
                 }
@@ -682,7 +677,7 @@ impl<'a> AnalysisPass<'a> {
                 // in the event of a set!
                 // Later on in this function this gets updated accordingly
                 self.info.insert(
-                    &arg.atom_syntax_object().unwrap(),
+                    arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::HeapAllocated,
                         depth,
@@ -699,7 +694,7 @@ impl<'a> AnalysisPass<'a> {
                 // in the event of a set!
                 // Later on in this function this gets updated accordingly
                 self.info.insert(
-                    &arg.atom_syntax_object().unwrap(),
+                    arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::Local,
                         depth,
@@ -745,21 +740,19 @@ impl<'a> AnalysisPass<'a> {
                 } else {
                     IdentifierStatus::Captured
                 }
-            } else {
-                if let Some(info) = self.info.get(&var.atom_syntax_object().unwrap()) {
-                    match info.kind {
-                        IdentifierStatus::HeapAllocated => {
-                            // heap_offset = info.heap_offset;
-                            // read_heap_offset = info.read_heap_offset;
+            } else if let Some(info) = self.info.get(var.atom_syntax_object().unwrap()) {
+                match info.kind {
+                    IdentifierStatus::HeapAllocated => {
+                        // heap_offset = info.heap_offset;
+                        // read_heap_offset = info.read_heap_offset;
 
-                            IdentifierStatus::HeapAllocated
-                        }
-                        // IdentifierStatus::Captured => IdentifierStatus::Captured,
-                        _ => IdentifierStatus::Local,
+                        IdentifierStatus::HeapAllocated
                     }
-                } else {
-                    IdentifierStatus::Local
+                    // IdentifierStatus::Captured => IdentifierStatus::Captured,
+                    _ => IdentifierStatus::Local,
                 }
+            } else {
+                IdentifierStatus::Local
             };
 
             // let kind = if captured_vars.contains_key(ident) {
@@ -799,7 +792,7 @@ impl<'a> AnalysisPass<'a> {
             // }
 
             self.info
-                .update_with(&var.atom_syntax_object().unwrap(), semantic_info);
+                .update_with(var.atom_syntax_object().unwrap(), semantic_info);
         }
     }
 
@@ -814,7 +807,7 @@ impl<'a> AnalysisPass<'a> {
 impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     // TODO: define expressions are not handled by this for stack offset purposes
     fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
-        self.visit_define_without_body(&define, IdentifierStatus::Local);
+        self.visit_define_without_body(define, IdentifierStatus::Local);
 
         let define_ctx = self.defining_context.take();
 
@@ -825,9 +818,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     }
 
     // Quoted values are just constants - lets ignore them for now?
-    fn visit_quote(&mut self, _quote: &'a crate::parser::ast::Quote) {
-        return;
-    }
+    fn visit_quote(&mut self, _quote: &'a crate::parser::ast::Quote) {}
 
     fn visit_if(&mut self, f: &'a crate::parser::ast::If) {
         // Explicitly disallow a tail call in the test expression
@@ -1049,11 +1040,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             let heap_alloc = if let Some(info) = self.info.let_info.get(&l.syntax_object_id) {
                 if let Some(info) = info.arguments.get(name) {
-                    if info.mutated && info.captured {
-                        true
-                    } else {
-                        false
-                    }
+                    info.mutated && info.captured
                 } else {
                     false
                 }
@@ -1061,6 +1048,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 false
             };
 
+            #[allow(clippy::diverging_sub_expression)]
             if heap_alloc {
                 self.scope.define(
                     name.to_string(),
@@ -1075,7 +1063,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // in the event of a set!
                 // Later on in this function this gets updated accordingly
                 self.info.insert(
-                    &arg.atom_syntax_object().unwrap(),
+                    arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::HeapAllocated,
                         self.scope.depth(),
@@ -1089,7 +1077,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     .define(name.to_string(), ScopeInfo::new_local(id, stack_offset));
 
                 self.info.insert(
-                    &arg.atom_syntax_object().unwrap(),
+                    arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::LetVar,
                         self.scope.depth(),
@@ -1111,11 +1099,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             arguments.insert(name.to_string(), self.scope.remove(name).unwrap());
         }
 
-        if !self.info.let_info.contains_key(&l.syntax_object_id) {
-            self.info.let_info.insert(
-                l.syntax_object_id,
-                LetInformation::new(self.stack_offset, self.function_context, arguments),
-            );
+        if let hash_map::Entry::Vacant(e) = self.info.let_info.entry(l.syntax_object_id) {
+            e.insert(LetInformation::new(
+                self.stack_offset,
+                self.function_context,
+                arguments,
+            ));
         }
 
         if is_top_level {
@@ -1350,9 +1339,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // println!("{:?}", )
 
         for (var, value) in self.captures.iter() {
-            captured_vars.get_mut(var.as_str()).map(|x| {
-                x.captured_from_enclosing = value.captured_from_enclosing;
-            });
+            if let Some(scope_info) = captured_vars.get_mut(var.as_str()) {
+                scope_info.captured_from_enclosing = value.captured_from_enclosing;
+            }
         }
 
         log::info!("Captured variables: {:?}", captured_vars);
@@ -1391,10 +1380,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             let mut slated_for_removal = Vec::new();
 
             if lambda_bottoms_out {
-                captured_vars = captured_vars
-                    .into_iter()
-                    .filter(|x| self.vars_used.contains(&x.0))
-                    .collect();
+                captured_vars.retain(|x: &String, _| self.vars_used.contains(x));
 
                 for var in info.captured_vars.keys() {
                     if !captured_vars.contains_key(var) {
@@ -1410,10 +1396,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
 
             for (var, value) in captured_vars {
-                info.captured_vars.get_mut(var.as_str()).map(|x| {
-                    x.captured_from_enclosing = value.captured_from_enclosing;
-                    x.heap_offset = value.heap_offset;
-                });
+                if let Some(scope_info) = info.captured_vars.get_mut(var.as_str()) {
+                    scope_info.captured_from_enclosing = value.captured_from_enclosing;
+                    scope_info.heap_offset = value.heap_offset;
+                };
             }
 
             return;
@@ -1437,7 +1423,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         if let Some(info) = s
             .variable
             .atom_syntax_object()
-            .and_then(|x| self.info.get(&x))
+            .and_then(|x| self.info.get(x))
         {
             if info.refers_to == self.defining_context {
                 self.defining_context = None;
@@ -1580,16 +1566,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 let mut identifier_status = if captured.mutated {
                     IdentifierStatus::HeapAllocated
-                } else {
-                    if let Some(info) = self.info.get(&a.syn) {
-                        if info.kind == IdentifierStatus::HeapAllocated {
-                            IdentifierStatus::HeapAllocated
-                        } else {
-                            IdentifierStatus::Captured
-                        }
+                } else if let Some(info) = self.info.get(&a.syn) {
+                    if info.kind == IdentifierStatus::HeapAllocated {
+                        IdentifierStatus::HeapAllocated
                     } else {
                         IdentifierStatus::Captured
                     }
+                } else {
+                    IdentifierStatus::Captured
                 };
 
                 // We also want to mark the current var thats actually in scope as last used as well
@@ -1739,7 +1723,7 @@ impl<'a> VisitorMutUnitRef<'a> for Analysis {
                     "Id: {:?}, Atom in function argument: {:?}, Semantic Information: {:?}",
                     arg.syntax_object_id,
                     arg.ty,
-                    self.get(&arg)
+                    self.get(arg)
                 );
             }
         }
@@ -1748,10 +1732,10 @@ impl<'a> VisitorMutUnitRef<'a> for Analysis {
     }
 }
 
-pub fn query_top_level_define<'a, A: AsRef<str>>(
-    exprs: &'a [ExprKind],
+pub fn query_top_level_define<A: AsRef<str>>(
+    exprs: &[ExprKind],
     name: A,
-) -> Option<&'a crate::parser::ast::Define> {
+) -> Option<&crate::parser::ast::Define> {
     let mut found_defines = Vec::new();
     for expr in exprs {
         if let ExprKind::Define(d) = expr {
@@ -1799,13 +1783,13 @@ impl<'a, F> FindCallSiteById<'a, F> {
             .args
             .first()
             .and_then(|x| x.atom_syntax_object())
-            .and_then(|x| self.analysis.get(&x))
+            .and_then(|x| self.analysis.get(x))
             .and_then(|x| x.refers_to)
         {
-            return refers_to == self.id;
+            refers_to == self.id
+        } else {
+            false
         }
-
-        false
     }
 }
 
@@ -1821,7 +1805,7 @@ where
 
         // If we're a match, call the function
         if self.is_required_call_site(l) {
-            self.modified |= (self.func)(&self.analysis, l)
+            self.modified |= (self.func)(self.analysis, l)
         }
     }
 }
@@ -1851,7 +1835,7 @@ where
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(refers_to) = self.analysis.get(&a.syn).and_then(|x| x.refers_to) {
             if refers_to == self.id {
-                self.modified |= (self.func)(&self.analysis, a)
+                self.modified |= (self.func)(self.analysis, a)
             }
         }
     }
@@ -1875,7 +1859,7 @@ impl<'a, F> FindCallSites<'a, F> {
 impl<'a, F> FindCallSites<'a, F> {
     fn is_required_global_function_call(&self, l: &List) -> bool {
         if let Some(name) = l.first_ident() {
-            if let Some(semantic_info) = self.analysis.get(&l.args[0].atom_syntax_object().unwrap())
+            if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
             {
                 return name == self.name && semantic_info.kind == IdentifierStatus::Global;
             }
@@ -1887,11 +1871,11 @@ impl<'a, F> FindCallSites<'a, F> {
 
 impl<'a, F> VisitorMutUnitRef<'a> for FindCallSites<'a, F>
 where
-    F: FnMut(&Analysis, &crate::parser::ast::List) -> (),
+    F: FnMut(&Analysis, &crate::parser::ast::List),
 {
     fn visit_list(&mut self, l: &'a crate::parser::ast::List) {
         if self.is_required_global_function_call(l) {
-            (self.func)(&self.analysis, l)
+            (self.func)(self.analysis, l)
         }
 
         for arg in &l.args {
@@ -1902,11 +1886,11 @@ where
 
 impl<'a, F> VisitorMutRefUnit for FindCallSites<'a, F>
 where
-    F: FnMut(&Analysis, &mut crate::parser::ast::List) -> (),
+    F: FnMut(&Analysis, &mut crate::parser::ast::List),
 {
     fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
         if self.is_required_global_function_call(l) {
-            (self.func)(&self.analysis, l)
+            (self.func)(self.analysis, l)
         }
 
         for arg in &mut l.args {
@@ -1941,7 +1925,7 @@ impl<'a, F> MutateCallSites<'a, F> {
 
 impl<'a, F> VisitorMutRefUnit for MutateCallSites<'a, F>
 where
-    F: FnMut(&Analysis, &mut ExprKind) -> (),
+    F: FnMut(&Analysis, &mut ExprKind),
 {
     fn visit(&mut self, expr: &mut ExprKind) {
         match expr {
@@ -1957,12 +1941,12 @@ where
                 if let ExprKind::List(l) = &list {
                     if let Some(name) = l.first_ident() {
                         if let Some(semantic_info) =
-                            self.analysis.get(&l.args[0].atom_syntax_object().unwrap())
+                            self.analysis.get(l.args[0].atom_syntax_object().unwrap())
                         {
                             if name == self.name && semantic_info.kind == IdentifierStatus::Global {
                                 // At this point, call out to the user given function - if we do in fact mutate
                                 // where the value points to, we should return a full node that needs to be visited
-                                (self.func)(&self.analysis, list);
+                                (self.func)(self.analysis, list);
 
                                 // TODO: Analysis should maybe be re run here - mutations might invalidate the analysis
                                 // This might make it worth rerunning the analysis
@@ -2022,7 +2006,7 @@ where
                 }
 
                 if let ExprKind::Let(_) = &let_expr {
-                    if (self.func)(&self.analysis, let_expr) {
+                    if (self.func)(self.analysis, let_expr) {
                         log::info!("Modified let expression");
                     }
                 }
@@ -2073,7 +2057,7 @@ where
                     if l.is_anonymous_function_call() {
                         // TODO: rerunning analysis might be worth it here - we want to be able to trigger a re run if a mutation would cause a change
                         // In the state of the analysis
-                        if (self.func)(&self.analysis, list) {
+                        if (self.func)(self.analysis, list) {
                             // return self.visit(list);
                             log::info!("Modified anonymous function call site!");
                         }
@@ -2181,12 +2165,12 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
                         .filter(|x| match l.args.get(*x) {
                             Some(ExprKind::List(l)) => l.is_a_builtin_expr(),
                             Some(ExprKind::Quote(_)) => true,
-                            Some(ExprKind::Atom(a)) => match a.syn.ty {
+                            Some(ExprKind::Atom(a)) => matches!(
+                                a.syn.ty,
                                 TokenType::NumberLiteral(_)
-                                | TokenType::IntegerLiteral(_)
-                                | TokenType::BooleanLiteral(_) => true,
-                                _ => false,
-                            },
+                                    | TokenType::IntegerLiteral(_)
+                                    | TokenType::BooleanLiteral(_)
+                            ),
                             _ => false,
                         })
                         .collect();
@@ -2367,7 +2351,7 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
                     .lambda_function()
                     .and_then(|func| self.analysis.get_function_info(func))
                 {
-                    let ident_info = self.analysis.get(&ident).unwrap();
+                    let ident_info = self.analysis.get(ident).unwrap();
 
                     if ident_info.depth > 1 {
                         if !info.captured_vars.is_empty() {
@@ -2472,7 +2456,7 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
 
                 let all_dont_contain_references = inner_l.args[1..]
                     .iter()
-                    .all(|x| !ExprContainsIds::contains(&self.analysis, &arg_ids, x));
+                    .all(|x| !ExprContainsIds::contains(self.analysis, &arg_ids, x));
 
                 if all_dont_contain_references {
                     if let Some(function_b) = inner_l.first_func_mut() {
@@ -2534,7 +2518,7 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn populate_captures(&mut self) {
-        self.analysis.populate_captures(&self.exprs);
+        self.analysis.populate_captures(self.exprs);
     }
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
@@ -2545,7 +2529,7 @@ impl<'a> SemanticAnalysis<'a> {
         &self,
         name: A,
     ) -> Option<&crate::parser::ast::Define> {
-        query_top_level_define(&self.exprs, name)
+        query_top_level_define(self.exprs, name)
     }
 
     // Takes the function call, and inlines it at the call sites. In theory, with constant evaluation and
@@ -2619,8 +2603,8 @@ impl<'a> SemanticAnalysis<'a> {
             *self.exprs = lifter.lifted_functions;
 
             log::info!("Re-running the analysis after lifting local functions");
-            self.analysis = Analysis::from_exprs(&self.exprs);
-            self.analysis.populate_captures(&self.exprs);
+            self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.populate_captures(self.exprs);
         }
 
         self
@@ -2687,7 +2671,7 @@ impl<'a> SemanticAnalysis<'a> {
                 let function = l.args.get_mut(0).unwrap();
 
                 if let ExprKind::LambdaFunction(f) = function {
-                    let analysis = analysis.get_function_info(&f).unwrap();
+                    let analysis = analysis.get_function_info(f).unwrap();
 
                     if analysis.captured_vars.is_empty() {
                         log::info!("Found a function that does not capture variables");
@@ -2751,7 +2735,7 @@ impl<'a> SemanticAnalysis<'a> {
                     re_run_analysis = true;
                     log::info!("Replaced anonymous function call with let");
 
-                    return true;
+                    true
                 } else {
                     unreachable!()
                 }
@@ -2786,7 +2770,7 @@ impl<'a> SemanticAnalysis<'a> {
     // Modify the call site to point to another kind of expression
     pub fn find_call_sites_and_mutate_with<F>(&mut self, name: &str, func: F)
     where
-        F: FnMut(&Analysis, &mut ExprKind) -> (),
+        F: FnMut(&Analysis, &mut ExprKind),
     {
         let mut find_call_sites = MutateCallSites::new(name, &self.analysis, func);
 
@@ -2799,7 +2783,7 @@ impl<'a> SemanticAnalysis<'a> {
     // on the node
     pub fn find_call_sites_and_call<F>(&self, name: &str, func: F)
     where
-        F: FnMut(&Analysis, &crate::parser::ast::List) -> (),
+        F: FnMut(&Analysis, &crate::parser::ast::List),
     {
         let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
 
@@ -2812,7 +2796,7 @@ impl<'a> SemanticAnalysis<'a> {
     // on the node
     pub fn find_call_sites_and_modify_with<F>(&mut self, name: &str, func: F)
     where
-        F: FnMut(&Analysis, &mut crate::parser::ast::List) -> (),
+        F: FnMut(&Analysis, &mut crate::parser::ast::List),
     {
         let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
 
@@ -2969,7 +2953,7 @@ impl<'a> SemanticAnalysis<'a> {
         // Move the lifted functions to the back of the original expression list
         // self.exprs.append(&mut overall_lifted);
 
-        overall_lifted.append(&mut self.exprs);
+        overall_lifted.append(self.exprs);
         *self.exprs = overall_lifted;
 
         if re_run_analysis {
@@ -2978,7 +2962,7 @@ impl<'a> SemanticAnalysis<'a> {
             );
 
             self.analysis = Analysis::from_exprs(self.exprs);
-            self.analysis.populate_captures(&self.exprs);
+            self.analysis.populate_captures(self.exprs);
         }
 
         self
@@ -2989,7 +2973,7 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn flatten_anonymous_functions(&mut self) {
-        FlattenAnonymousFunctionCalls::flatten(&self.analysis, &mut self.exprs);
+        FlattenAnonymousFunctionCalls::flatten(&self.analysis, self.exprs);
     }
 
     pub fn remove_unused_imports(&mut self) {

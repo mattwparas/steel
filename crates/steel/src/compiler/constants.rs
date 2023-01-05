@@ -21,6 +21,11 @@ pub struct ConstantMap(Rc<RefCell<Vec<SteelVal>>>);
 // struct ConstantExprMap {
 //     map: Vec<Expr>,
 // }
+impl Default for ConstantMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Clone for ConstantMap {
     fn clone(&self) -> Self {
@@ -46,12 +51,8 @@ impl ConstantMap {
     }
 
     fn to_constant_expr_map(&self) -> Vec<String> {
-        let result: std::result::Result<Vec<_>, _> = self
-            .0
-            .borrow()
-            .iter()
-            .map(|x| ExprKind::try_from(x))
-            .collect();
+        let result: std::result::Result<Vec<_>, _> =
+            self.0.borrow().iter().map(ExprKind::try_from).collect();
 
         result.unwrap().into_iter().map(|x| x.to_string()).collect()
     }

@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use super::{
     builtin::BuiltInModule,
     engine::Engine,
@@ -43,7 +45,7 @@ macro_rules! ensure_tonicity_two {
     ($check_fn:expr) => {{
         |args: &[SteelVal]| -> Result<SteelVal> {
 
-            if args.len() == 0 {
+            if args.is_empty() {
                 stop!(ArityMismatch => "expected at least one argument");
             }
 
@@ -61,24 +63,22 @@ macro_rules! ensure_tonicity_two {
 
 fn is_void() -> SteelVal {
     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-        if let Some(first) = args.first() {
-            if let SteelVal::Void = first {
-                return Ok(SteelVal::BoolV(true));
-            }
-        }
-        Ok(SteelVal::BoolV(false))
+        Ok(if let Some(SteelVal::Void) = args.first() {
+            SteelVal::BoolV(true)
+        } else {
+            SteelVal::BoolV(false)
+        })
     })
 }
 
 macro_rules! gen_pred {
     ($variant:ident) => {{
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if let Some(first) = args.first() {
-                if let SteelVal::$variant(..) = first {
-                    return Ok(SteelVal::BoolV(true));
-                }
-            }
-            Ok(SteelVal::BoolV(false))
+            Ok(if let Some(SteelVal::$variant(..)) = args.first() {
+                SteelVal::BoolV(true)
+            } else {
+                SteelVal::BoolV(false)
+            })
         })
     }};
 
@@ -577,7 +577,7 @@ fn number_module() -> BuiltInModule {
 
 #[inline(always)]
 pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() == 0 {
+    if args.is_empty() {
         stop!(ArityMismatch => "expected at least one argument");
     }
 
@@ -591,13 +591,14 @@ pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() == 0 {
+    if args.is_empty() {
         stop!(ArityMismatch => "expected at least one argument");
     }
 
     for (left, right) in args.iter().tuple_windows() {
-        if !(left >= right) {
-            return Ok(SteelVal::BoolV(false));
+        match left.partial_cmp(right) {
+            None | Some(Ordering::Less) => return Ok(SteelVal::BoolV(false)),
+            _ => continue,
         }
     }
 
@@ -606,13 +607,14 @@ pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 
 #[inline(always)]
 pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() == 0 {
+    if args.is_empty() {
         stop!(ArityMismatch => "expected at least one argument");
     }
 
     for (left, right) in args.iter().tuple_windows() {
-        if !(left <= right) {
-            return Ok(SteelVal::BoolV(false));
+        match left.partial_cmp(right) {
+            None | Some(Ordering::Greater) => return Ok(SteelVal::BoolV(false)),
+            _ => continue,
         }
     }
 

@@ -19,7 +19,7 @@ impl PortOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::StringV(path) = &args[0] {
-                    let new_port = SteelPort::new_textual_file_input(&*path)?;
+                    let new_port = SteelPort::new_textual_file_input(path)?;
                     Ok(SteelVal::PortV(Gc::new(new_port)))
                 } else {
                     stop!(TypeMismatch => "open-input-file expects a path")
@@ -34,7 +34,7 @@ impl PortOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::StringV(path) = &args[0] {
-                    let new_port = SteelPort::new_textual_file_output(&*path)?;
+                    let new_port = SteelPort::new_textual_file_output(path)?;
                     Ok(SteelVal::PortV(Gc::new(new_port)))
                 } else {
                     stop!(TypeMismatch => "open-output-file expects a path")

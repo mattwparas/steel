@@ -42,7 +42,7 @@ const RESULT_NAME: &str = "steel/result";
 // const DICT: &str = include_str!("../scheme/modules/test.rkt");
 // const TEST_NAME: &str = "std::test";
 
-static BUILT_INS: &[(&'static str, &'static str)] = &[(OPTION_NAME, OPTION), (RESULT_NAME, RESULT)];
+static BUILT_INS: &[(&str, &str)] = &[(OPTION_NAME, OPTION), (RESULT_NAME, RESULT)];
 
 /// Manages the modules
 /// keeps some visited state on the manager for traversal
@@ -106,6 +106,7 @@ impl ModuleManager {
         Ok(())
     }
 
+    #[allow(unused)]
     pub(crate) fn compile_main(
         &mut self,
         global_macro_map: &mut HashMap<String, SteelMacro>,
@@ -634,6 +635,8 @@ struct ModuleBuilder<'a> {
 }
 
 impl<'a> ModuleBuilder<'a> {
+    #[allow(clippy::too_many_arguments)]
+    #[allow(unused)]
     fn main(
         name: Option<PathBuf>,
         source_ast: Vec<ExprKind>,
@@ -649,7 +652,7 @@ impl<'a> ModuleBuilder<'a> {
         // if its not required we know its not coming in
 
         let name = if let Some(p) = name {
-            std::fs::canonicalize(&p)?
+            std::fs::canonicalize(p)?
         } else {
             std::env::current_dir()?
         };
@@ -701,8 +704,7 @@ impl<'a> ModuleBuilder<'a> {
         self.visited.insert(self.name.clone());
 
         if self.main {
-            let exprs = std::mem::replace(&mut self.source_ast, Vec::new());
-
+            let exprs = std::mem::take(&mut self.source_ast);
             self.source_ast = exprs
                 .into_iter()
                 .filter(|x| {
@@ -724,7 +726,7 @@ impl<'a> ModuleBuilder<'a> {
             // We're at a leaf, put into the cache
             // println!("putting {:?} in the cache", self.name);
             if !self.provides.is_empty() {
-                new_exprs.push(self.into_compiled_module()?);
+                new_exprs.push(self.compile_module()?);
             }
         } else {
             // TODO come back for parsing built ins
@@ -751,11 +753,11 @@ impl<'a> ModuleBuilder<'a> {
                 let mut new_module = ModuleBuilder::new_built_in(
                     module.clone(),
                     input,
-                    &mut self.compiled_modules,
-                    &mut self.visited,
-                    &mut self.file_metadata,
-                    &mut self.sources,
-                    &mut self.kernel,
+                    self.compiled_modules,
+                    self.visited,
+                    self.file_metadata,
+                    self.sources,
+                    self.kernel,
                     self.builtin_modules.clone(),
                 )?;
 
@@ -780,7 +782,7 @@ impl<'a> ModuleBuilder<'a> {
                 // new_module.source_ast = ast;
 
                 if !new_module.provides.is_empty() {
-                    new_exprs.push(new_module.into_compiled_module()?);
+                    new_exprs.push(new_module.compile_module()?);
                 }
             }
 
@@ -813,11 +815,11 @@ impl<'a> ModuleBuilder<'a> {
 
                 let mut new_module = ModuleBuilder::new_from_path(
                     module.clone(),
-                    &mut self.compiled_modules,
-                    &mut self.visited,
-                    &mut self.file_metadata,
-                    &mut self.sources,
-                    &mut self.kernel,
+                    self.compiled_modules,
+                    self.visited,
+                    self.file_metadata,
+                    self.sources,
+                    self.kernel,
                     self.builtin_modules.clone(),
                 )?;
 
@@ -842,7 +844,7 @@ impl<'a> ModuleBuilder<'a> {
                 // new_module.source_ast = ast;
 
                 if !new_module.provides.is_empty() {
-                    new_exprs.push(new_module.into_compiled_module()?);
+                    new_exprs.push(new_module.compile_module()?);
                 }
             }
         }
@@ -856,15 +858,12 @@ impl<'a> ModuleBuilder<'a> {
         //     new_exprs.iter().map(|x| x.to_string()).collect::<Vec<_>>()
         // );
 
-        return Ok(new_exprs);
+        Ok(new_exprs)
     }
 
-    fn into_compiled_module(&mut self) -> Result<ExprKind> {
-        // let expanded = ;
-
-        // TODO use std::mem::swap or something here
-        let mut ast = std::mem::replace(&mut self.source_ast, Vec::new());
-        let provides = std::mem::replace(&mut self.provides, Vec::new());
+    fn compile_module(&mut self) -> Result<ExprKind> {
+        let mut ast = std::mem::take(&mut self.source_ast);
+        let provides = std::mem::take(&mut self.provides);
 
         // let mut ast = self.source_ast.clone();
         // let provides = self.provides.clone();
@@ -916,7 +915,7 @@ impl<'a> ModuleBuilder<'a> {
         // Look for the modules in the requires for syntax
         for require_for_syntax in &self.requires_for_syntax {
             let (module, in_scope_macros) = ModuleManager::find_in_scope_macros(
-                &self.compiled_modules,
+                self.compiled_modules,
                 require_for_syntax,
                 &mut mangled_asts,
             );
@@ -961,7 +960,7 @@ impl<'a> ModuleBuilder<'a> {
 
         // let result = module.to_module_ast_node();
 
-        let result = module.to_top_level_module(&self.compiled_modules)?;
+        let result = module.to_top_level_module(self.compiled_modules)?;
 
         // println!(
         //     "Into compiled module inserted into the cache: {:?}",
@@ -977,8 +976,8 @@ impl<'a> ModuleBuilder<'a> {
 
     fn extract_macro_defs(&mut self) -> Result<()> {
         let mut non_macros = Vec::new();
-        let exprs = std::mem::replace(&mut self.source_ast, Vec::new());
-        // self.source_ast = Vec::new();
+        let exprs = std::mem::take(&mut self.source_ast);
+
         for expr in exprs {
             if let ExprKind::Macro(m) = expr {
                 let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
@@ -1038,7 +1037,7 @@ impl<'a> ModuleBuilder<'a> {
     // Otherwise the macro expansion will not be able to understand it
     fn collect_provides(&mut self) -> Result<()> {
         let mut non_provides = Vec::new();
-        let exprs = std::mem::replace(&mut self.source_ast, Vec::new());
+        let exprs = std::mem::take(&mut self.source_ast);
 
         for mut expr in exprs {
             if let ExprKind::List(l) = &mut expr {
@@ -1073,7 +1072,7 @@ impl<'a> ModuleBuilder<'a> {
         // unimplemented!()
 
         let mut exprs_without_requires = Vec::new();
-        let exprs = std::mem::replace(&mut self.source_ast, Vec::new());
+        let exprs = std::mem::take(&mut self.source_ast);
 
         for expr in exprs {
             match &expr {
@@ -1149,6 +1148,7 @@ impl<'a> ModuleBuilder<'a> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_built_in(
         name: PathBuf,
         input: &str,
@@ -1252,7 +1252,7 @@ impl<'a> ModuleBuilder<'a> {
 
         let mut intern = HashMap::new();
 
-        let parsed = Parser::new_from_source(&exprs, &mut intern, self.name.clone(), Some(id))
+        let parsed = Parser::new_from_source(exprs, &mut intern, self.name.clone(), Some(id))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;

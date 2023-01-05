@@ -2,8 +2,16 @@ use crate::parser::ast::ExprKind;
 
 use super::Folder;
 
+type PassFn = fn() -> Box<dyn Folder>;
+
 pub struct PassManager {
-    passes: Vec<Box<fn() -> Box<dyn Folder>>>,
+    passes: Vec<PassFn>,
+}
+
+impl Default for PassManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PassManager {
@@ -11,8 +19,8 @@ impl PassManager {
         PassManager { passes: Vec::new() }
     }
 
-    pub fn register_pass(&mut self, pass: fn() -> Box<dyn Folder>) -> &mut Self {
-        self.passes.push(Box::new(pass));
+    pub fn register_pass(&mut self, pass: PassFn) -> &mut Self {
+        self.passes.push(pass);
         self
     }
 

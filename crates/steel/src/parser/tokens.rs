@@ -78,7 +78,7 @@ fn parse_unicode_str(slice: &str) -> Option<char> {
         let result = char::try_from(uinitial).ok();
 
         println!("{:?}", result);
-        return result;
+        result
     } else {
         None
     }
@@ -108,9 +108,9 @@ fn parse_str(lex: &mut Lexer<TokenType>) -> Option<String> {
     // Trim off the start and end of the string
     // We don't need that inside the lexer at all
     slice
-        .strip_suffix("\"")
+        .strip_suffix('\"')
         .or(Some(slice))
-        .and_then(|x| x.strip_prefix("\""))
+        .and_then(|x| x.strip_prefix('\"'))
         .or(Some(slice))
         .map(|x| x.to_string())
 }
@@ -241,7 +241,7 @@ fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
         '\n' => write!(f, "#\\NEWLINE"),
         '\r' => write!(f, "#\\RETURN"),
         c if c.is_control() || c.is_whitespace() => {
-            write!(f, "#\\{}", c.escape_unicode().to_string())
+            write!(f, "#\\{}", c.escape_unicode())
         }
         // '\"' => write!(f, "#\\DOUBLE-QUOTE"),
         // '\'' => write!(f, "#\\QUOTE"),
@@ -323,51 +323,51 @@ impl<'a> Token<'a> {
     }
 }
 
-impl Into<Span> for Token<'_> {
-    fn into(self) -> Span {
-        self.span()
+impl From<Token<'_>> for Span {
+    fn from(token: Token<'_>) -> Self {
+        token.span()
     }
 }
 
-impl Into<Span> for &Token<'_> {
-    fn into(self) -> Span {
-        self.span()
+impl From<&Token<'_>> for Span {
+    fn from(token: &Token<'_>) -> Self {
+        token.span()
     }
 }
 
-impl<'a> Into<ops::Range<usize>> for Token<'a> {
-    fn into(self) -> ops::Range<usize> {
-        self.span.into()
+impl From<Token<'_>> for ops::Range<usize> {
+    fn from(token: Token<'_>) -> Self {
+        token.span().into()
     }
 }
 
-impl<'a> Into<ops::Range<usize>> for &Token<'a> {
-    fn into(self) -> ops::Range<usize> {
-        self.span.into()
+impl From<&Token<'_>> for ops::Range<usize> {
+    fn from(token: &Token<'_>) -> Self {
+        token.span().into()
     }
 }
 
-impl<'a> Into<(usize, usize)> for Token<'a> {
-    fn into(self) -> (usize, usize) {
-        self.span.into()
+impl From<Token<'_>> for (usize, usize) {
+    fn from(token: Token<'_>) -> Self {
+        token.span().into()
     }
 }
 
-impl<'a> Into<(usize, usize)> for &Token<'a> {
-    fn into(self) -> (usize, usize) {
-        self.span.into()
+impl From<&Token<'_>> for (usize, usize) {
+    fn from(token: &Token<'_>) -> Self {
+        token.span().into()
     }
 }
 
-impl<'a> Into<[usize; 2]> for Token<'a> {
-    fn into(self) -> [usize; 2] {
-        self.span.into()
+impl From<Token<'_>> for [usize; 2] {
+    fn from(token: Token<'_>) -> Self {
+        token.span().into()
     }
 }
 
-impl<'a> Into<[usize; 2]> for &Token<'a> {
-    fn into(self) -> [usize; 2] {
-        self.span.into()
+impl From<&Token<'_>> for [usize; 2] {
+    fn from(token: &Token<'_>) -> Self {
+        token.span().into()
     }
 }
 

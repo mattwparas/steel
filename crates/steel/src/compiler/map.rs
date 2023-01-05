@@ -10,6 +10,12 @@ pub struct SymbolMap {
     pub(crate) map: HashMap<String, usize>,
 }
 
+impl Default for SymbolMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SymbolMap {
     pub fn new() -> Self {
         SymbolMap {

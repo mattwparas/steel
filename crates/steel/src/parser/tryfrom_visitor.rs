@@ -148,7 +148,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     type Output = Result<SteelVal>;
 
     fn visit_if(&mut self, f: Box<super::ast::If>) -> Self::Output {
-        let span = f.location.span.clone();
+        let span = f.location.span;
         let source = f.location.source.clone();
 
         let expr = [
@@ -164,7 +164,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 
     fn visit_define(&mut self, define: Box<super::ast::Define>) -> Self::Output {
-        let span = define.location.span.clone();
+        let span = define.location.span;
         let source = define.location.source.clone();
 
         let expr = [
@@ -182,7 +182,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         &mut self,
         lambda_function: Box<super::ast::LambdaFunction>,
     ) -> Self::Output {
-        let span = lambda_function.location.span.clone();
+        let span = lambda_function.location.span;
         let source = lambda_function.location.source.clone();
 
         let args = lambda_function
@@ -204,7 +204,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 
     fn visit_begin(&mut self, begin: super::ast::Begin) -> Self::Output {
-        let span = begin.location.span.clone();
+        let span = begin.location.span;
         let source = begin.location.source.clone();
         let mut exprs = vec![SteelVal::try_from(begin.location)?];
         for expr in begin.exprs {
@@ -214,7 +214,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 
     fn visit_return(&mut self, r: Box<super::ast::Return>) -> Self::Output {
-        let span = r.location.span.clone();
+        let span = r.location.span;
         let source = r.location.source.clone();
         let expr = [SteelVal::try_from(r.location)?, self.visit(r.expr)?];
         Ok(
@@ -228,7 +228,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     // like this: '(a b c) => '(a b c)
     // '(a b 'c) => '(a b 'c) --- currently this ends up as '(a b c)
     fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
-        let span = quote.location.span.clone();
+        let span = quote.location.span;
         let source = quote.location.source.clone();
 
         if self.inside_quote {
@@ -257,7 +257,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
-        let span = a.syn.span.clone();
+        let span = a.syn.span;
         let source = a.syn.source.clone();
         Ok(Syntax::new_with_source(SteelVal::try_from(a.syn)?, span, source).into())
     }
@@ -293,7 +293,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 
     fn visit_set(&mut self, s: Box<super::ast::Set>) -> Self::Output {
-        let span = s.location.span.clone();
+        let span = s.location.span;
         let source = s.location.source.clone();
         let expr = [SteelVal::try_from(s.location)?, self.visit(s.expr)?];
         Ok(

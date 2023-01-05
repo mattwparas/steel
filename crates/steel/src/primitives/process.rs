@@ -9,7 +9,7 @@ pub fn process_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/process".to_string());
 
     module
-        .register_fn("command", CommandBuilder::command_builder)
+        .register_fn("command", CommandBuilder::new)
         .register_fn("spawn-process", CommandBuilder::spawn_process)
         .register_fn("wait", ChildProcess::wait);
 
@@ -51,16 +51,12 @@ impl ChildProcess {
 }
 
 impl CommandBuilder {
-    pub fn new(command: Command) -> Self {
-        Self { command }
-    }
-
-    pub fn command_builder(command: String, args: List<String>) -> CommandBuilder {
+    pub fn new(command: String, args: List<String>) -> CommandBuilder {
         let mut command = Command::new(command);
 
         command.args(&args);
 
-        CommandBuilder::new(command)
+        Self { command }
     }
 
     pub fn spawn_process(&mut self) -> Result<ChildProcess, SteelErr> {

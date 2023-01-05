@@ -110,7 +110,7 @@ impl StringOperations {
             if args.len() == 1 {
                 if let SteelVal::StringV(s) = &args[0] {
                     let lower = s.to_lowercase();
-                    ok_string!(lower.to_string())
+                    ok_string!(lower)
                 // Ok(Gc::new(SteelVal::StringV(lower)))
                 } else {
                     stop!(TypeMismatch => "string-lowercase expected a string")

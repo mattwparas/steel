@@ -1,4 +1,5 @@
 #![allow(unused)]
+#![allow(clippy::type_complexity)]
 
 use im_rc::HashMap;
 
@@ -205,18 +206,18 @@ pub(crate) enum ImmutableMaybeHeapVec {
 
 impl ImmutableMaybeHeapVec {
     pub fn from_slice(args: &[SteelVal]) -> Self {
-        match &args {
-            &[] => Self::Unit,
-            &[one] => Self::One(one.clone()),
-            &[one, two] => Self::Two(Rc::new([one.clone(), two.clone()])),
-            &[one, two, three] => Self::Three(Rc::new([one.clone(), two.clone(), three.clone()])),
-            &[one, two, three, four] => Self::Four(Rc::new([
+        match args {
+            [] => Self::Unit,
+            [one] => Self::One(one.clone()),
+            [one, two] => Self::Two(Rc::new([one.clone(), two.clone()])),
+            [one, two, three] => Self::Three(Rc::new([one.clone(), two.clone(), three.clone()])),
+            [one, two, three, four] => Self::Four(Rc::new([
                 one.clone(),
                 two.clone(),
                 three.clone(),
                 four.clone(),
             ])),
-            &[one, two, three, four, five] => Self::Five(Rc::new([
+            [one, two, three, four, five] => Self::Five(Rc::new([
                 one.clone(),
                 two.clone(),
                 three.clone(),

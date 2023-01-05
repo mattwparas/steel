@@ -32,11 +32,9 @@ impl EvaluationProgress {
     }
 
     pub fn callback(&self) -> Option<bool> {
-        if let Some(callback) = &self.callback {
-            Some(callback(self.instruction_count.get()))
-        } else {
-            None
-        }
+        self.callback
+            .as_ref()
+            .map(|callback| callback(self.instruction_count.get()))
     }
 
     pub fn increment(&self) {

@@ -148,8 +148,10 @@ pub fn specialize_read_local(instructions: &mut [Instruction]) {
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = op_code;
                 }
-            }
-            _ => {}
+            } // instructions[i + 1].op_code = OpCode::PASS;
+            // instructions[i + 2].op_code = OpCode::PASS;
+            // instructions[i + 4].op_code = OpCode::PASS;
+            _ => continue,
         }
     }
 }
@@ -290,7 +292,7 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
                     _ => continue,
                 };
 
-                (*instructions.get_mut(i).unwrap()).op_code = opcode;
+                instructions.get_mut(i).unwrap().op_code = opcode;
             }
             _ => continue,
         }
@@ -373,51 +375,54 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
         let push = instructions.get(i);
         let func = instructions.get(i + 1);
 
-        match (push, func) {
-            (
-                Some(Instruction {
-                    op_code: OpCode::PUSH,
-                    ..
-                }),
-                Some(Instruction {
-                    op_code: OpCode::FUNC | OpCode::TAILCALL,
-                    contents:
-                        Some(RawSyntaxObject {
-                            ty: TokenType::Identifier(ident),
-                            ..
-                        }),
-                    payload_size,
-                    ..
-                }),
-            ) => {
-                let replaced = match ident.as_ref() {
-                    "+" => Some(OpCode::ADD),
-                    "-" => Some(OpCode::SUB),
-                    "/" => Some(OpCode::DIV),
-                    "*" => Some(OpCode::MUL),
-                    "equal?" => Some(OpCode::EQUAL),
-                    "<=" => Some(OpCode::LTE),
-                    _ => None,
-                };
+        if let (
+            Some(Instruction {
+                op_code: OpCode::PUSH,
+                ..
+            }),
+            Some(Instruction {
+                op_code: OpCode::FUNC | OpCode::TAILCALL,
+                contents:
+                    Some(RawSyntaxObject {
+                        ty: TokenType::Identifier(ident),
+                        ..
+                    }),
+                payload_size,
+                ..
+            }),
+        ) = (push, func)
+        {
+            let replaced = match ident.as_ref() {
+                "+" => Some(OpCode::ADD),
+                "-" => Some(OpCode::SUB),
+                "/" => Some(OpCode::DIV),
+                "*" => Some(OpCode::MUL),
+                "equal?" => Some(OpCode::EQUAL),
+                "<=" => Some(OpCode::LTE),
+                _ => None,
+            };
 
-                if let Some(new_op_code) = replaced {
-                    let payload_size = *payload_size;
-                    if let Some(x) = instructions.get_mut(i) {
-                        x.op_code = new_op_code;
-                        x.payload_size = payload_size;
-                    }
+            if let Some(new_op_code) = replaced {
+                let payload_size = *payload_size;
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = new_op_code;
+                    x.payload_size = payload_size;
+                }
 
-                    if let Some(x) = instructions.get_mut(i + 1) {
-                        x.op_code = OpCode::PASS;
-                    }
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    x.op_code = OpCode::PASS;
                 }
             }
-            _ => {}
         }
     }
 }
 
 pub struct ProgramBuilder(Vec<Vec<DenseInstruction>>);
+impl Default for ProgramBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ProgramBuilder {
     pub fn new() -> Self {
@@ -736,7 +741,7 @@ impl RawProgramWithSymbols {
     }
 
     /// Applies a peephole style optimization to the underlying instruction set
-    pub fn with_optimization<F: Fn(&mut [Instruction]) -> ()>(&mut self, f: F) {
+    pub fn with_optimization<F: Fn(&mut [Instruction])>(&mut self, f: F) {
         for instructions in &mut self.instructions {
             f(instructions)
         }

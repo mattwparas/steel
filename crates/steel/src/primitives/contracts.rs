@@ -71,10 +71,7 @@ pub fn make_function_contract(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub fn bind_contract_to_function<'a, 'b>(
-    ctx: &'a mut VmCore<'b>,
-    args: &[SteelVal],
-) -> Option<Result<SteelVal>> {
+pub fn bind_contract_to_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() < 2 || args.len() > 4 {
         builtin_stop!(ArityMismatch => "bind/c requires 2 arguments, a contract and a function")
     }
@@ -86,7 +83,7 @@ pub fn bind_contract_to_function<'a, 'b>(
         return Some(Ok(function));
     }
 
-    let name = args.get(2).map(|x| x.clone());
+    let name = args.get(2).cloned();
 
     Some(ContractedFunction::new_from_steelvals(
         contract, function, name,

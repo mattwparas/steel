@@ -127,7 +127,7 @@ pub(crate) fn poll_future(mut fut: Shared<BoxedFutureResult>) -> Option<Result<S
     // Otherwise, go ahead and poll the value to see if its ready
     // The context is going to exist exclusively in Steel, hidden behind an `await`
     let waker = noop_waker_ref();
-    let context = &mut Context::from_waker(&*waker);
+    let context = &mut Context::from_waker(waker);
 
     // Polling requires a pinned future - TODO make sure this is correct
     let mut_fut = Pin::new(&mut fut);
@@ -139,7 +139,7 @@ pub(crate) fn poll_future(mut fut: Shared<BoxedFutureResult>) -> Option<Result<S
 }
 
 /// Attempt to cast this custom type down to the underlying type
-pub(crate) fn _as_underlying_type<'a, T: 'static>(value: &'a dyn CustomType) -> Option<&'a T> {
+pub(crate) fn _as_underlying_type<T: 'static>(value: &dyn CustomType) -> Option<&T> {
     value.as_any_ref().downcast_ref::<T>()
 }
 
@@ -281,7 +281,7 @@ pub trait IntoSteelVal: Sized {
 /// get this implementation for a custom struct by using the custom
 /// steel derive.
 pub trait FromSteelVal: Sized {
-    fn from_steelval<'a>(val: &'a SteelVal) -> Result<Self>;
+    fn from_steelval(val: &SteelVal) -> Result<Self>;
 }
 
 mod private {
@@ -487,7 +487,7 @@ impl Syntax {
             )))),
             VectorV(lst) => {
                 let items: Result<Vec<ExprKind>> =
-                    lst.iter().map(|x| Self::steelval_to_exprkind(x)).collect();
+                    lst.iter().map(Self::steelval_to_exprkind).collect();
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
@@ -500,7 +500,7 @@ impl Syntax {
             )))),
             ListV(l) => {
                 let items: Result<Vec<ExprKind>> =
-                    l.iter().map(|x| Self::steelval_to_exprkind(x)).collect();
+                    l.iter().map(Self::steelval_to_exprkind).collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
@@ -536,7 +536,7 @@ impl Syntax {
             )))),
             VectorV(lst) => {
                 let items: Result<Vec<ExprKind>> =
-                    lst.iter().map(|x| Self::steelval_to_exprkind(x)).collect();
+                    lst.iter().map(Self::steelval_to_exprkind).collect();
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new_with_source(
@@ -553,7 +553,7 @@ impl Syntax {
             )))),
             ListV(l) => {
                 let items: Result<Vec<ExprKind>> =
-                    l.iter().map(|x| Self::steelval_to_exprkind(x)).collect();
+                    l.iter().map(Self::steelval_to_exprkind).collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
@@ -1122,7 +1122,7 @@ impl SteelVal {
 
     pub fn string_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
         match self {
-            Self::StringV(v) => Ok(&v),
+            Self::StringV(v) => Ok(v),
             _ => Err(err()),
         }
     }
@@ -1132,7 +1132,7 @@ impl SteelVal {
         err: F,
     ) -> std::result::Result<&FunctionSignature, E> {
         match self {
-            Self::FuncV(v) => Ok(&v),
+            Self::FuncV(v) => Ok(v),
             _ => Err(err()),
         }
     }
@@ -1142,7 +1142,7 @@ impl SteelVal {
         err: F,
     ) -> std::result::Result<&BoxedFunctionSignature, E> {
         match self {
-            Self::BoxedFunction(v) => Ok(&v),
+            Self::BoxedFunction(v) => Ok(v),
             _ => Err(err()),
         }
     }
@@ -1169,7 +1169,7 @@ impl SteelVal {
 
     pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
         match self {
-            Self::SymbolV(v) => Ok(&v),
+            Self::SymbolV(v) => Ok(v),
             _ => Err(err()),
         }
     }
@@ -1332,7 +1332,7 @@ fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         FutureV(_) => write!(f, "#<future>"),
         // Promise(_) => write!(f, "#<promise>"),
         StreamV(_) => write!(f, "#<stream>"),
-        Contract(c) => write!(f, "{}", c.to_string()),
+        Contract(c) => write!(f, "{}", **c),
         ContractedFunction(_) => write!(f, "#<contracted-function>"),
         BoxedFunction(_) => write!(f, "#<function>"),
         ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),

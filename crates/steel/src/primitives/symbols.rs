@@ -17,7 +17,7 @@ impl SymbolOperations {
                 }
             }
 
-            return Ok(SteelVal::SymbolV(new_symbol.into()));
+            Ok(SteelVal::SymbolV(new_symbol.into()))
         })
     }
 
@@ -25,7 +25,7 @@ impl SymbolOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::SymbolV(quoted_value) = &args[0] {
-                    return Ok(SteelVal::StringV(quoted_value.clone()));
+                    Ok(SteelVal::StringV(quoted_value.clone()))
                 } else {
                     let error_message =
                         format!("symbol->string expected a symbol, found {}", &args[0]);

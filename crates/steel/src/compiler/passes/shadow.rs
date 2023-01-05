@@ -14,6 +14,12 @@ pub struct RenameShadowedVariables {
     str_modifiers: HashMap<usize, String>,
 }
 
+impl Default for RenameShadowedVariables {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RenameShadowedVariables {
     pub fn new() -> Self {
         Self {
@@ -24,7 +30,7 @@ impl RenameShadowedVariables {
         }
     }
 
-    pub fn rename_shadowed_vars(exprs: &mut Vec<ExprKind>) {
+    pub fn rename_shadowed_vars(exprs: &mut [ExprKind]) {
         let mut renamer = Self::new();
         for expr in exprs.iter_mut() {
             renamer.visit(expr);
@@ -72,7 +78,7 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
 
                 if let Some(char_modifier) = char::from_digit(*modifier as u32, 10) {
                     ident.push(char_modifier)
-                } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
+                } else if let Some(str_modifier) = self.str_modifiers.get(modifier) {
                     ident.push_str(str_modifier)
                 } else {
                     panic!("The modifier should be defined by now")

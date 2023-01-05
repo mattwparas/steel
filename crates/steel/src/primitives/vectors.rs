@@ -18,7 +18,7 @@ impl VectorOperations {
     pub fn mut_vec_construct() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             Ok(SteelVal::MutableVector(Gc::new(RefCell::new(
-                args.iter().cloned().collect(),
+                args.to_vec(),
             ))))
         })
     }
@@ -208,7 +208,7 @@ impl VectorOperations {
 
     pub fn vec_append() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            let lsts: Vector<SteelVal> = unwrap_list_of_lists(args.iter().cloned().collect())?
+            let lsts: Vector<SteelVal> = unwrap_list_of_lists(args.to_vec())?
                 .into_iter()
                 .flatten()
                 .collect();

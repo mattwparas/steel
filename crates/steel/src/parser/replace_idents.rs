@@ -136,7 +136,7 @@ impl<'a> ReplaceExpressions<'a> {
                     }
                 }
 
-                return Ok(Some(else_expr.clone()));
+                Ok(Some(else_expr.clone()))
             }
             _ => Ok(None),
         }
@@ -194,11 +194,8 @@ impl<'a> ReplaceExpressions<'a> {
 }
 
 fn reserved_token_type_to_ident(token: &mut TokenType) {
-    match token {
-        TokenType::Define => {
-            *token = TokenType::Identifier("define".to_string());
-        }
-        _ => {}
+    if *token == TokenType::Define {
+        *token = TokenType::Identifier("define".to_string());
     }
 }
 

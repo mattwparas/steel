@@ -36,7 +36,7 @@ impl IntoSteelVal for SourceId {
 }
 
 impl FromSteelVal for SourceId {
-    fn from_steelval<'a>(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+    fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::IntV(v) = val {
             Ok(SourceId(*v as usize))
         } else {
@@ -48,6 +48,12 @@ impl FromSteelVal for SourceId {
 pub struct Sources {
     paths: HashMap<SourceId, PathBuf>,
     sources: Vec<String>,
+}
+
+impl Default for Sources {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Sources {
@@ -127,7 +133,7 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
     fn clone(&self) -> Self {
         Self {
             ty: self.ty.clone(),
-            span: self.span.clone(),
+            span: self.span,
             source: self.source.clone(),
             // metadata: self.metadata.clone(),
             syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),

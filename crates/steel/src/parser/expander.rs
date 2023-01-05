@@ -172,7 +172,7 @@ impl SteelMacro {
             )?
             .to_string();
 
-        let sp = ast_macro.location.span.clone();
+        let sp = ast_macro.location.span;
 
         let special_forms = ast_macro
             .syntax_rules
@@ -274,9 +274,9 @@ impl MacroCase {
 
         // println!("Args pre mangle: {:?}", &args_str);
 
-        RenameIdentifiersVisitor::new(&args_str, &special_forms).rename_identifiers(&mut body);
+        RenameIdentifiersVisitor::new(&args_str, special_forms).rename_identifiers(&mut body);
 
-        let args = args.into_iter().map(|x| x.mangle(&special_forms)).collect();
+        let args = args.into_iter().map(|x| x.mangle(special_forms)).collect();
 
         // println!("Found args: {:?}", args);
         // println!("Renamed body: {:?}", &body);
@@ -345,7 +345,7 @@ impl MacroPattern {
                     Many("##".to_string() + s)
                 }
             }
-            Nested(v) => Nested(v.into_iter().map(|x| x.mangle(special_forms)).collect()),
+            Nested(v) => Nested(v.iter().map(|x| x.mangle(special_forms)).collect()),
             _ => self.clone(),
         }
     }
@@ -422,9 +422,9 @@ impl MacroPattern {
     // TODO make this not so trash
     pub fn deconstruct(&self) -> Vec<&str> {
         match self {
-            Self::Syntax(s) => vec![&s],
-            Self::Single(s) => vec![&s],
-            Self::Many(s) => vec![&s],
+            Self::Syntax(s) => vec![s],
+            Self::Single(s) => vec![s],
+            Self::Many(s) => vec![s],
             Self::Nested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
             _ => vec![],
         }
@@ -432,19 +432,15 @@ impl MacroPattern {
 
     pub fn deconstruct_without_syntax(&self) -> Vec<&str> {
         match self {
-            Self::Single(s) => vec![&s],
-            Self::Many(s) => vec![&s],
+            Self::Single(s) => vec![s],
+            Self::Many(s) => vec![s],
             Self::Nested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
             _ => vec![],
         }
     }
 
     pub fn is_many(&self) -> bool {
-        if let MacroPattern::Many(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, MacroPattern::Many(_))
     }
 }
 
@@ -534,13 +530,13 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                         }
 
                         // This solves the destructuring test case
-                        if vec.len() < l.len() && vec.iter().find(|x| x.is_many()).is_none() {
+                        if vec.len() < l.len() && !vec.iter().any(|x| x.is_many()) {
                             debug!("Matching failed - ellipses doesn't match up");
                             return false;
                         }
 
                         // Make the recursive call on the next layer
-                        if match_vec_pattern(&vec, l) {
+                        if match_vec_pattern(vec, l) {
                             continue;
                         } else {
                             debug!("Matching failed due to child not matching");
@@ -622,7 +618,7 @@ pub fn collect_bindings(
                     .ok_or_else(throw!(ArityMismatch => "Macro expected a pattern"))?;
 
                 if let ExprKind::List(l) = child {
-                    collect_bindings(&children, l, bindings)?;
+                    collect_bindings(children, l, bindings)?;
                 } else {
                     println!("Args: {:?}", args);
                     println!("List: {}", list);

@@ -50,7 +50,7 @@ macro_rules! generate_drop {
 pub(crate) const TRANSDUCE: SteelVal = SteelVal::BuiltIn(transduce);
 
 // figure out if nested transducers works
-fn transduce<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() < 2 {
         builtin_stop!(ArityMismatch => format!("transduce expects at least 2 arguments, found {}", args.len()))
     }
@@ -60,7 +60,7 @@ fn transduce<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Resul
         .ok_or_else(throw!(ArityMismatch => "transduce expects 3 arguments, found none"))
         .unwrap();
 
-    let mut arg_iter = args.into_iter();
+    let mut arg_iter = args.iter();
     let collection = arg_iter.next().unwrap();
 
     // TODO make this way better

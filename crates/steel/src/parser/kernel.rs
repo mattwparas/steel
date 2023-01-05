@@ -16,6 +16,12 @@ pub struct Kernel {
     engine: Box<Engine>,
 }
 
+impl Default for Kernel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Kernel {
     pub fn new() -> Self {
         let mut engine = Engine::new_kernel();
