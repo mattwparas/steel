@@ -1,4 +1,7 @@
-use std::collections::{hash_map, HashMap, HashSet};
+use std::{
+    collections::{hash_map, HashSet},
+    hash::BuildHasherDefault,
+};
 
 // use itertools::Itertools;
 use quickscope::ScopeMap;
@@ -14,6 +17,8 @@ use crate::{
 };
 
 use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
+
+use fxhash::{FxHashMap, FxHasher};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IdentifierStatus {
@@ -137,8 +142,8 @@ impl SemanticInformation {
 pub struct FunctionInformation {
     // Just a mapping of the vars to their scope info - holds which vars are being
     // captured by this function
-    captured_vars: HashMap<String, ScopeInfo>,
-    arguments: HashMap<String, ScopeInfo>,
+    captured_vars: FxHashMap<String, ScopeInfo>,
+    arguments: FxHashMap<String, ScopeInfo>,
     // Keeps a mapping of vars to their scope info, if the variable was mutated
     // if this variable was mutated and inevitably captured, we want to know
     // mutated_vars: HashMap<String, ScopeInfo>,
@@ -154,8 +159,8 @@ pub struct FunctionInformation {
 
 impl FunctionInformation {
     pub fn new(
-        captured_vars: HashMap<String, ScopeInfo>,
-        arguments: HashMap<String, ScopeInfo>,
+        captured_vars: FxHashMap<String, ScopeInfo>,
+        arguments: FxHashMap<String, ScopeInfo>,
     ) -> Self {
         Self {
             captured_vars,
@@ -166,11 +171,11 @@ impl FunctionInformation {
         }
     }
 
-    pub fn captured_vars(&self) -> &HashMap<String, ScopeInfo> {
+    pub fn captured_vars(&self) -> &FxHashMap<String, ScopeInfo> {
         &self.captured_vars
     }
 
-    pub fn arguments(&self) -> &HashMap<String, ScopeInfo> {
+    pub fn arguments(&self) -> &FxHashMap<String, ScopeInfo> {
         &self.arguments
     }
 
@@ -208,14 +213,14 @@ impl CallSiteInformation {
 pub struct LetInformation {
     pub stack_offset: usize,
     pub function_context: Option<usize>,
-    pub arguments: HashMap<String, ScopeInfo>,
+    pub arguments: FxHashMap<String, ScopeInfo>,
 }
 
 impl LetInformation {
     pub fn new(
         stack_offset: usize,
         function_context: Option<usize>,
-        arguments: HashMap<String, ScopeInfo>,
+        arguments: FxHashMap<String, ScopeInfo>,
     ) -> Self {
         Self {
             stack_offset,
@@ -229,10 +234,10 @@ impl LetInformation {
 #[derive(Default, Debug, Clone)]
 pub struct Analysis {
     // TODO: make these be specific IDs for semantic id, function id, and call info id
-    pub(crate) info: fxhash::FxHashMap<SyntaxObjectId, SemanticInformation>,
-    pub(crate) function_info: fxhash::FxHashMap<usize, FunctionInformation>,
-    pub(crate) call_info: fxhash::FxHashMap<usize, CallSiteInformation>,
-    pub(crate) let_info: fxhash::FxHashMap<usize, LetInformation>,
+    pub(crate) info: FxHashMap<SyntaxObjectId, SemanticInformation>,
+    pub(crate) function_info: FxHashMap<usize, FunctionInformation>,
+    pub(crate) call_info: FxHashMap<usize, CallSiteInformation>,
+    pub(crate) let_info: FxHashMap<usize, LetInformation>,
 }
 
 impl Analysis {
@@ -540,7 +545,7 @@ impl<'a> AnalysisPass<'a> {
             .collect()
     }
 
-    fn get_captured_vars(&self, let_level_bindings: &[&str]) -> HashMap<String, ScopeInfo> {
+    fn get_captured_vars(&self, let_level_bindings: &[&str]) -> FxHashMap<String, ScopeInfo> {
         self.scope
             .iter()
             .filter(|x| x.1.captured)
@@ -705,13 +710,13 @@ impl<'a> AnalysisPass<'a> {
         }
     }
 
-    fn pop_top_layer(&mut self) -> HashMap<String, ScopeInfo> {
+    fn pop_top_layer(&mut self) -> FxHashMap<String, ScopeInfo> {
         let arguments = self
             .scope
             .iter_top()
             // .cloned()
             .map(|x| (x.0.clone(), x.1.clone()))
-            .collect::<HashMap<_, _>>();
+            .collect::<FxHashMap<_, _>>();
 
         self.scope.pop_layer();
 
@@ -721,9 +726,9 @@ impl<'a> AnalysisPass<'a> {
     fn find_and_mark_captured_arguments(
         &mut self,
         lambda_function: &LambdaFunction,
-        captured_vars: &HashMap<String, ScopeInfo>,
+        captured_vars: &FxHashMap<String, ScopeInfo>,
         depth: usize,
-        arguments: &HashMap<String, ScopeInfo>,
+        arguments: &FxHashMap<String, ScopeInfo>,
     ) {
         for var in &lambda_function.args {
             let ident = var.atom_identifier().unwrap();
@@ -1091,7 +1096,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         self.visit(&l.body_expr);
 
-        let mut arguments = HashMap::new();
+        // This is a little silly but I'm not sure why I can't call the default method on the FxHashMap directly
+        let mut arguments = FxHashMap::with_capacity_and_hasher(
+            l.bindings.len(),
+            BuildHasherDefault::<FxHasher>::default(),
+        );
 
         for arg in l.local_bindings() {
             let name = arg.atom_identifier().unwrap();

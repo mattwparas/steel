@@ -1,6 +1,5 @@
 pub mod analysis;
 pub mod begin;
-pub mod lambda_lifting;
 pub mod manager;
 pub mod mangle;
 pub mod reader;

@@ -7,8 +7,7 @@ use crate::{
         map::SymbolMap,
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
-            lambda_lifting::LambdaLifter, reader::MultipleArityFunctions,
-            shadow::RenameShadowedVariables,
+            reader::MultipleArityFunctions, shadow::RenameShadowedVariables,
         },
     },
     parser::{ast::AstTools, expand_visitor::expand_kernel, kernel::Kernel},
@@ -25,6 +24,9 @@ use std::{
     path::PathBuf,
 };
 use std::{iter::Iterator, rc::Rc};
+
+// TODO: Replace the usages of hashmap with this directly
+use fxhash::FxHashMap;
 
 use crate::rvals::{Result, SteelVal};
 
@@ -594,9 +596,10 @@ impl Compiler {
         // TODO -> lambda lifting should be done here
         // Ok(expanded_statements)
 
-        Ok(LambdaLifter::lift(expanded_statements))
+        // TODO: Deprecate this usage of the lambda lifter. Clean up the emit expanded ast API to plug back
+        // in to the playground.
 
-        // self.emit_debug_instructions_from_exprs(parsed)
+        Ok(expanded_statements)
     }
 
     pub fn compile_module(

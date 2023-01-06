@@ -2954,13 +2954,13 @@ impl<'a> VmCore<'a> {
         use SteelVal::*;
 
         match stack_func {
+            Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size)?,
+            FuncV(f) => self.call_primitive_func(f, payload_size)?,
             BoxedFunction(f) => self.call_boxed_func(f, payload_size)?,
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size)?,
-            FuncV(f) => self.call_primitive_func(f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
             ContinuationFunction(cc) => self.call_continuation(&cc)?,
-            Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size)?,
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
             Contract(c) => self.call_contract(&c, payload_size)?,
@@ -4896,7 +4896,10 @@ fn sub_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<Ste
     match l {
         SteelVal::IntV(l) => Ok(SteelVal::IntV(l - r)),
         SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
-        _ => stop!(TypeMismatch => "sub expected a number, found: {}", l),
+        _ => {
+            cold();
+            stop!(TypeMismatch => "sub expected a number, found: {}", l)
+        }
     }
 }
 

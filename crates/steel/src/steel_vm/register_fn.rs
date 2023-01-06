@@ -6,6 +6,7 @@ use crate::rvals::{AsRefSteelVal, FromSteelVal, IntoSteelVal, Result, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
 use futures::FutureExt;
+use im_lists::list::List;
 
 /// Trait for allowing any function that satisfies the `Fn` trait to be embedded in the engine
 /// This allows for clean embedding of function pointers as well as closures that capture immutable environments
@@ -19,6 +20,12 @@ pub trait RegisterFn<FN, ARGS, RET> {
 pub struct Wrapper<ARGS>(PhantomData<ARGS>);
 
 pub struct AsyncWrapper<ARGS>(PhantomData<ARGS>);
+
+// The _rest_ of the arguments -> This has a specialized implementation for rest arguments getting
+// collected into a list
+struct RestArgs {
+    args: List<SteelVal>,
+}
 
 /// TODO: This can actually be used to do const stuff
 // const fn test_move(
@@ -453,8 +460,6 @@ macro_rules! impl_register_fn_self {
         }
     };
 }
-
-// impl_register_fn_two!(1 => A:0);
 
 impl_register_fn!(1 => A:0);
 impl_register_fn!(2 => A:0, B:1);
