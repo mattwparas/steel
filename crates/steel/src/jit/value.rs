@@ -1,6 +1,6 @@
-use crate::gc::Gc;
 use crate::rvals::{FromSteelVal, IntoSteelVal};
 use crate::SteelVal;
+use crate::{gc::Gc, rvals::SteelString};
 
 use super::code_gen::JIT;
 
@@ -8,10 +8,12 @@ use super::code_gen::JIT;
 //     number == 0 && (number as isize) != 0
 // }
 
+// TODO: Make tags for everything
 // Tags
 pub const PTR_TAG: u64 = 0xfffa000000000000;
 pub const MAX_DOUBLE: u64 = 0xfff8000000000000;
 pub const INT32_TAG: u64 = 0xfff9000000000000;
+pub const STRING_TAG: u64 = 0xfff7000000000000;
 
 // pub const BOOLEAN_MASK: u64 = 0xfffb000000000002;
 // pub const TRUE_VALUE: u64 = BOOLEAN_MASK | 3;
@@ -58,10 +60,20 @@ pub fn is_pointer(bits: f64) -> bool {
     (bits & PTR_TAG) == PTR_TAG
 }
 
+pub fn is_string(bits: u64) -> bool {
+    (bits & STRING_TAG) == STRING_TAG
+}
+
 fn coerce_value(bits: u64) -> f64 {
     assert!((bits & PTR_TAG) == 0);
 
     to_float(bits | PTR_TAG)
+}
+
+fn coerce_string(bits: u64) -> f64 {
+    assert!((bits & STRING_TAG) == 0);
+
+    to_float(bits | STRING_TAG)
 }
 
 pub fn get_pointer(bits: f64) -> u64 {
@@ -173,6 +185,26 @@ pub fn to_encoded_double_raw(value: &SteelVal) -> f64 {
     }
 }
 
+pub fn to_encoded_double_raw_value(value: SteelVal) -> f64 {
+    match value {
+        SteelVal::IntV(i) => from_i32(i as i32),
+        SteelVal::NumV(n) => n,
+        SteelVal::BoolV(b) => {
+            if b {
+                to_float(TRUE_VALUE)
+            } else {
+                to_float(FALSE_VALUE)
+            }
+        }
+        SteelVal::StringV(s) => {
+            let raw: *const String = std::rc::Rc::into_raw(s.into());
+
+            coerce_string(raw as u64)
+        }
+        _ => todo!(),
+    }
+}
+
 // TODO move this to a trait
 pub fn to_encoded_double_from_const_ptr(value: *const SteelVal) -> f64 {
     coerce_value(value as u64)
@@ -188,14 +220,25 @@ pub fn decode(ptr: f64) -> SteelVal {
         SteelVal::NumV(ptr)
     } else if is_bool(bits) {
         SteelVal::BoolV(get_as_rust_bool(bits))
-    } else {
+    } else if is_string(bits) {
         // println!("Decoding a steelval ref");
-        unsafe { get_ref_from_double(ptr) }
+        unsafe { get_string_from_double(ptr) }
+    } else {
+        todo!()
     }
 }
 
 pub unsafe fn get_ref_from_double(ptr: f64) -> SteelVal {
     (&*(get_pointer(ptr) as *const SteelVal)).clone()
+}
+
+// This is super duper spooky
+pub unsafe fn get_value_from_double(ptr: f64) -> SteelVal {
+    SteelVal::StringV(std::rc::Rc::from_raw(get_pointer(ptr) as *const String).into())
+}
+
+pub unsafe fn get_string_from_double(ptr: f64) -> SteelVal {
+    SteelVal::StringV(std::rc::Rc::from_raw(get_pointer(ptr) as *const String).into())
 }
 
 pub fn is_float_encoded_value(value: isize) -> bool {
@@ -216,6 +259,14 @@ mod value_tests {
         let value = Gc::new(SteelVal::StringV("hello world".into()));
         let coerced = to_encoded_double(&value);
         let result = unsafe { get_ref_from_double(coerced) };
+        assert_eq!(result, SteelVal::StringV("hello world".into()));
+    }
+
+    #[test]
+    fn test_pointer_conversion_raw() {
+        let value = SteelVal::StringV("hello world".into());
+        let coerced = to_encoded_double_raw_value(value.clone());
+        let result = decode(coerced);
         assert_eq!(result, SteelVal::StringV("hello world".into()));
     }
 

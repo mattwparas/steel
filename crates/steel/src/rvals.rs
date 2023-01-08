@@ -782,6 +782,18 @@ impl From<String> for SteelString {
     }
 }
 
+impl From<Rc<String>> for SteelString {
+    fn from(val: Rc<String>) -> Self {
+        SteelString(val)
+    }
+}
+
+impl From<SteelString> for Rc<String> {
+    fn from(value: SteelString) -> Self {
+        value.0
+    }
+}
+
 impl std::fmt::Display for SteelString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
