@@ -17,6 +17,7 @@ const GC_THRESHOLD: usize = 256;
 const GC_GROW_FACTOR: usize = 2;
 const _RESET_LIMIT: usize = 5;
 
+#[derive(Clone)]
 pub struct Heap {
     memory: Vec<Rc<RefCell<HeapAllocated>>>,
     count: usize,

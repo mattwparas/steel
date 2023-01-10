@@ -45,6 +45,7 @@ impl FromSteelVal for SourceId {
     }
 }
 
+#[derive(Clone)]
 pub struct Sources {
     paths: HashMap<SourceId, PathBuf>,
     sources: Vec<String>,

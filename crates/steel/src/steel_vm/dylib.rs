@@ -1,15 +1,18 @@
+use std::rc::Rc;
+
 use dlopen::wrapper::{Container, WrapperApi};
 use dlopen_derive::WrapperApi;
 
 use super::builtin::BuiltInModule;
 
-#[derive(WrapperApi)]
+#[derive(WrapperApi, Clone)]
 struct ModuleApi {
     generate_module: fn() -> BuiltInModule,
 }
 
+#[derive(Clone)]
 pub(crate) struct DylibContainers {
-    containers: Vec<Container<ModuleApi>>,
+    containers: Vec<Rc<Container<ModuleApi>>>,
 }
 
 impl DylibContainers {
@@ -43,7 +46,7 @@ impl DylibContainers {
                 // Keep the container alive for the duration of the program
                 // This should probably just get wrapped up with the engine as well, when registering modules, directly
                 // register an external dylib
-                self.containers.push(cont);
+                self.containers.push(Rc::new(cont));
             }
         } else {
             log::warn!("STEEL_HOME variable missing - unable to read shared dylibs")

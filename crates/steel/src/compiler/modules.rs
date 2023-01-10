@@ -48,6 +48,7 @@ static BUILT_INS: &[(&str, &str)] = &[(OPTION_NAME, OPTION), (RESULT_NAME, RESUL
 /// keeps some visited state on the manager for traversal
 /// Also keeps track of the metadata for each file in order to determine
 /// if it needs to be recompiled
+#[derive(Clone)]
 pub(crate) struct ModuleManager {
     compiled_modules: HashMap<PathBuf, CompiledModule>,
     file_metadata: HashMap<PathBuf, SystemTime>,
@@ -344,7 +345,7 @@ impl ModuleManager {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CompiledModule {
     name: PathBuf,
     provides: Vec<ExprKind>,

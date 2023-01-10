@@ -118,7 +118,6 @@ pub struct StackFrame {
     sp: usize,
     // This _has_ to be a function
     handler: Option<SteelVal>,
-    // span: Option<Span>,
     // This should get added to the GC as well
     pub(crate) function: Gc<ByteCodeLambda>,
     ip: usize,
@@ -178,6 +177,7 @@ thread_local! {
     pub(crate) static DEFAULT_CONSTANT_MAP: ConstantMap = ConstantMap::new();
 }
 
+#[derive(Clone)]
 pub struct SteelThread {
     pub(crate) global_env: Env,
     pub(crate) stack: Vec<SteelVal>,
@@ -194,6 +194,7 @@ pub struct SteelThread {
     // current_executable: Option<Executable>,
 }
 
+#[derive(Clone)]
 pub(crate) struct RunTimeOptions {
     pub(crate) contracts_on: bool,
 }
@@ -204,7 +205,7 @@ impl RunTimeOptions {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct FunctionInterner {
     closure_interner: fxhash::FxHashMap<usize, ByteCodeLambda>,
     pure_function_interner: fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
@@ -3413,6 +3414,7 @@ pub struct BlockMetadata {
     created: bool,
 }
 
+#[derive(Clone)]
 pub struct OpCodeOccurenceProfiler {
     occurrences: HashMap<(OpCode, usize), usize>,
     time: HashMap<(OpCode, usize), std::time::Duration>,

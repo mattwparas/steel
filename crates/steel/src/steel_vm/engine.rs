@@ -13,7 +13,10 @@ use crate::{
     },
     core::instructions::DenseInstruction,
     parser::ast::ExprKind,
-    parser::parser::{ParseError, Parser, Sources},
+    parser::{
+        kernel::{fresh_kernel_image, Kernel, KERNEL_IMAGE},
+        parser::{ParseError, Parser, Sources},
+    },
     rerrs::back_trace,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw, SteelErr,
@@ -23,6 +26,7 @@ use std::{borrow::Cow, collections::HashMap, path::PathBuf, rc::Rc};
 use im_rc::HashMap as ImmutableHashMap;
 use itertools::Itertools;
 
+#[derive(Clone)]
 pub struct Engine {
     virtual_machine: SteelThread,
     compiler: Compiler,
@@ -190,19 +194,25 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new() -> Self {
-        let mut vm = Engine::new_base();
+        let mut engine = fresh_kernel_image();
 
-        let core_libraries = [
-            crate::stdlib::PRELUDE,
-            crate::stdlib::DISPLAY,
-            crate::stdlib::CONTRACTS,
-        ];
+        engine.compiler.kernel = Some(Kernel::new());
 
-        for core in core_libraries.into_iter() {
-            vm.compile_and_run_raw_program(core).unwrap();
-        }
+        engine
 
-        vm
+        // let mut vm = Engine::new_base();
+
+        // let core_libraries = [
+        //     crate::stdlib::PRELUDE,
+        //     crate::stdlib::DISPLAY,
+        //     crate::stdlib::CONTRACTS,
+        // ];
+
+        // for core in core_libraries.into_iter() {
+        //     vm.compile_and_run_raw_program(core).unwrap();
+        // }
+
+        // vm
     }
 
     /// Consumes the current `Engine` and emits a new `Engine` with the prelude added

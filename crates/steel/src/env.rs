@@ -16,7 +16,7 @@ pub const fn _new_false() -> SteelVal {
 }
 
 #[allow(unused)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Env {
     pub(crate) bindings_vec: Vec<SteelVal>,
 }

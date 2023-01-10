@@ -432,13 +432,14 @@ pub enum OptLevel {
     Three,
 }
 
+#[derive(Clone)]
 pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: ConstantMap,
     pub(crate) macro_env: HashMap<String, SteelMacro>,
     module_manager: ModuleManager,
     opt_level: OptLevel,
-    kernel: Option<Kernel>,
+    pub(crate) kernel: Option<Kernel>,
 }
 
 impl Default for Compiler {
@@ -484,6 +485,16 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: Some(kernel),
         }
+    }
+
+    pub(crate) fn default_from_kernel(kernel: Kernel) -> Compiler {
+        Compiler::new_with_kernel(
+            SymbolMap::new(),
+            ConstantMap::new(),
+            HashMap::new(),
+            ModuleManager::default(),
+            kernel,
+        )
     }
 
     pub fn default_with_kernel() -> Compiler {

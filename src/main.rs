@@ -189,7 +189,7 @@ fn finish(result: Result<(), std::io::Error>) -> ! {
 
 pub fn configure_engine() -> Engine {
     // let mut vm = Engine::new_base();
-    let vm = Engine::new_base().with_prelude().unwrap();
+    let vm = Engine::new();
 
     // register_builtin_modules(&mut vm);
 

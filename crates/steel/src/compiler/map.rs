@@ -3,7 +3,7 @@ use crate::throw;
 use std::collections::HashMap;
 
 // TODO -> use hashmap speed up access
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct SymbolMap {
     values: Vec<String>,
     // TODO don't do this - don't expose this API
