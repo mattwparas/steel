@@ -628,9 +628,9 @@ pub fn collect_bindings(
             }
             // Matching on literals
             _ => {
-                println!("Skipping pattern literal: {:?}", arg);
-                println!("Argument: {:?}", token_iter.next());
-                // token_iter.next();
+                // println!("Skipping pattern literal: {:?}", arg);
+                // println!("Argument: {:?}", token_iter.next());
+                token_iter.next();
             }
         }
     }
