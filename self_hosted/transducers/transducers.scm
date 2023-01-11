@@ -1,3 +1,5 @@
+(require "../unit-test.rkt" (for-syntax "../unit-test.rkt"))
+
 
 ;; A reduced value is stops the transduction.
 ; (define-record-type <reduced>
@@ -539,20 +541,63 @@
 
 ;; rcons here seems to be... slow
 ;; investigate tmap or rcons and see why / how its used with the input
-(list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
+; (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
 
-(list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
+; (list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
 
-(list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
+; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
 
-(list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
+; (list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
 
-(list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
+; (list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
 
-(list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
+; (list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
 
-(list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10))
+; (list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10))
 
-(list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
+; (list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
 
-(list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
+; (list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
+
+
+(test-module "transducers tests"
+    (check-equal? "tmap with basic addition and rcons" 
+                  (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3 ))
+                  (list 1 2 3 4))
+    
+    (check-equal? "tfilter with a basic predicate"
+                  (list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
+                  (list 0 2 4))
+
+    (check-equal? "tflatten basic flattening"
+                  (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
+                  (list 1 2 3 4 5 6 7 8))
+
+    (check-equal? "tdelete-neighbor-duplicates"
+                  (list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
+                  (list 1 2 3 4))
+
+    (check-equal? "tenumerate"
+                  (list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
+                  '((0 1) (1 1) (2 2) (3 2) (4 3) (5 3) (6 4) (7 4)))
+
+    (check-equal? "tadd-between"
+                  (list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
+                  '(1 10 2 10 3 10 4 10 5))
+
+    (check-equal? "ttake"
+                  (list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10))
+                  (list 1 2 3 4))
+
+    (check-equal? "ttake-while"
+                  (list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
+                  (list 2 4 6 8))
+
+    (check-equal? "tconcatenate"
+                  (list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
+                  '(10 20 30 40 50 60))
+                  
+    (check-equal? "Should fail!" 10 20)
+    (check-equal? "Another one bites the failure" 100 200)
+                  
+                  )

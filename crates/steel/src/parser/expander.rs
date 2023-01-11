@@ -164,6 +164,10 @@ impl SteelMacro {
         &self.name
     }
 
+    pub fn exprs_mut(&mut self) -> impl Iterator<Item = &mut ExprKind> {
+        self.cases.iter_mut().map(|x| &mut x.body)
+    }
+
     pub fn parse_from_ast_macro(ast_macro: Macro) -> Result<Self> {
         let name = ast_macro
             .name

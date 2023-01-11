@@ -1,5 +1,5 @@
 use crate::{
-    compiler::passes::mangle::mangle_vars_with_prefix,
+    compiler::passes::{mangle::mangle_vars_with_prefix, VisitorMutRefUnit},
     expr_list,
     parser::{
         ast::{Atom, Begin, Define, ExprKind, List, Quote},
@@ -304,10 +304,14 @@ impl ModuleManager {
             .get(require_for_syntax)
             .expect("Module missing!");
         let mut module_ast = module.ast.clone();
-        mangle_vars_with_prefix(
-            "##mangler##".to_string() + module.name.to_str().unwrap(),
-            &mut module_ast,
-        );
+
+        let globals = collect_globals(&module_ast);
+        let prefix = "mangler".to_string() + module.name.to_str().unwrap();
+
+        let mut name_mangler = NameMangler::new(globals, prefix);
+
+        name_mangler.mangle_vars(&mut module_ast);
+
         mangled_asts.append(&mut module_ast);
         // let provided_macros = module.provides_for
         // let expander = Expander::new(&module.macro_map);
@@ -322,6 +326,13 @@ impl ModuleManager {
             .provides_for_syntax
             .iter()
             .filter_map(|x| module.macro_map.get(x).map(|m| (x.to_string(), m.clone()))) // TODO -> fix this unwrap
+            .map(|mut x| {
+                for expr in x.1.exprs_mut() {
+                    name_mangler.visit(expr);
+                }
+
+                x
+            })
             .collect::<HashMap<_, _>>();
         // Check what macros are in scope here
         debug!(
@@ -1233,7 +1244,7 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn parse_from_path(mut self) -> Result<Self> {
-        println!("Opening: {:?}", self.name);
+        log::info!("Opening: {:?}", self.name);
         let mut file = std::fs::File::open(&self.name)?;
         self.file_metadata
             .insert(self.name.clone(), file.metadata()?.modified()?);
