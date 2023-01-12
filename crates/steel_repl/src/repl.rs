@@ -156,7 +156,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         .bright_yellow()
         .bold()
     );
-    let prompt = format!("{}", "λ > ".bright_green().bold().italic());
+    let mut prompt = format!("{}", "λ > ".bright_green().bold().italic());
 
     let mut rl = Editor::<RustylineHelper>::new();
     rl.set_helper(Some(RustylineHelper {
@@ -225,6 +225,13 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                     ":?" | ":help" => display_help(),
                     line if line.contains(":load") => {
                         let line = line.trim_start_matches(":load").trim();
+
+                        // Update the prompt to now include the new context
+                        prompt = format!(
+                            "{}",
+                            format!("λ ({}) > ", line).bright_green().bold().italic(),
+                        );
+
                         let path = Path::new(line);
 
                         let file = std::fs::File::open(path);
