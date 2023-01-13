@@ -8,10 +8,19 @@
 
 ;; Parses a cog file directly into a hashmap
 (define (parse-cog-file path)
-    (define contents (let ((file (open-input-file "fs/cog.scm"))) (read-port-to-string file)))
+    (define contents (let ((file (open-input-file path))) (read-port-to-string file)))
     (transduce (read! contents)
                (mapping cdr)
                (into-hashmap)))
 
+;; Discover the cogs located at the path, return as a list of hash maps
+(define (discover-cogs path)
+    (transduce (read-dir path)
+               (filtering is-dir?)
+               (mapping parse-cog)
+               (into-list)))
 
-(parse-cog-file "fs")
+
+; (parse-cog-file ".")
+
+(displayln (discover-cogs "."))
