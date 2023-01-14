@@ -338,7 +338,7 @@ fn expand_keyword_arguments(
                 (original_var_name.clone(), original_var_name.clone())
             };
 
-            println!("{:?}", original_var_name);
+            // println!("{:?}", original_var_name);
 
             // TODO: Go here to implement default arguments
             let expression = ExprKind::default_if(

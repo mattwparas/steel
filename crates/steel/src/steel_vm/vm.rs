@@ -773,6 +773,11 @@ impl<'a> VmCore<'a> {
         let old_pop_count = self.pop_count;
         let old_spans = std::mem::replace(&mut self.spans, spans);
 
+        // dbg!(self.sp);
+
+        // dbg!(self.thread.stack_frames.last().map(|x| x.sp));
+        // let old_sp = self.sp;
+
         // let old_stack_index = self.stack_index;
 
         self.ip = 0;
@@ -789,6 +794,10 @@ impl<'a> VmCore<'a> {
         self.instructions = old_instructions;
         self.pop_count = old_pop_count;
         self.spans = old_spans;
+        self.sp = self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0);
+
+        // dbg!(self.sp);
+        // dbg!(self.thread.stack_frames.last().map(|x| x.sp));
 
         // self.stack_frames.pop();
 
@@ -966,6 +975,8 @@ impl<'a> VmCore<'a> {
         // self.function_stack
         //     .push(CallContext::new(Gc::clone(closure)));
 
+        self.adjust_stack_for_multi_arity(closure, 2, &mut 0)?;
+
         self.call_with_instructions_and_reset_state(closure.body_exp(), closure.spans())
     }
 
@@ -993,6 +1004,8 @@ impl<'a> VmCore<'a> {
         self.thread.stack.push(arg);
         // self.function_stack
         //     .push(CallContext::new(Gc::clone(closure)));
+
+        self.adjust_stack_for_multi_arity(closure, 1, &mut 0)?;
 
         self.call_with_instructions_and_reset_state(closure.body_exp(), closure.spans())
     }
@@ -1731,7 +1744,7 @@ impl<'a> VmCore<'a> {
         self.thread
             .stack_frames
             .last()
-            .and_then(|x| x.function.spans.get(x.ip).copied())
+            .and_then(|x| x.spans.get(x.ip).copied())
     }
 
     #[inline(never)]
