@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{path::PathBuf, rc::Rc};
 
 use dlopen::wrapper::{Container, WrapperApi};
 use dlopen_derive::WrapperApi;
@@ -28,6 +28,9 @@ impl DylibContainers {
         let home = std::env::var("STEEL_HOME");
 
         if let Ok(home) = home {
+            let mut home = PathBuf::from(home);
+            home.push("native");
+
             let paths = std::fs::read_dir(home).unwrap();
 
             for path in paths {

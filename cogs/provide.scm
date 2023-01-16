@@ -1,3 +1,4 @@
-(require "require.scm")
-(require "steel/option")
+(require "fib/fib.scm")
+; (require "steel/option")
 
+; (provide foo)

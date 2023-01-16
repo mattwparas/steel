@@ -157,7 +157,12 @@ impl ModuleManager {
             .chain(module_builder.built_ins.iter())
         {
             // println!("{:?}", path);
-            let module = module_builder.compiled_modules.get(path).unwrap();
+            let module = if let Some(module) = module_builder.compiled_modules.get(path) {
+                module
+            } else {
+                log::info!("No provides found for module, skipping: {:?}", path);
+                continue;
+            };
 
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
@@ -1086,6 +1091,14 @@ impl<'a> ModuleBuilder<'a> {
         let mut exprs_without_requires = Vec::new();
         let exprs = std::mem::take(&mut self.source_ast);
 
+        let home = std::env::var("STEEL_HOME")
+            .map(PathBuf::from)
+            .map(|mut x| {
+                x.push("cogs");
+                x
+            })
+            .ok();
+
         for expr in exprs {
             match &expr {
                 // Include require/for-syntax here
@@ -1111,6 +1124,19 @@ impl<'a> ModuleBuilder<'a> {
                                     current.pop();
                                 }
                                 current.push(s);
+
+                                // // If the path exists on its own, we can continue
+                                // // But theres the case where we're searching for a module on the STEEL_PATH
+                                if !current.exists() {
+                                    if let Some(mut home) = home.clone() {
+                                        home.push(s);
+                                        current = home;
+
+                                        log::info!("Searching STEEL_HOME for {:?}", current);
+                                    } else {
+                                        stop!(Generic => format!("Module not found: {:?}", self.name))
+                                    }
+                                }
 
                                 // Get the absolute path and store that
                                 // current = std::fs::canonicalize(&current)?;
@@ -1245,6 +1271,7 @@ impl<'a> ModuleBuilder<'a> {
 
     fn parse_from_path(mut self) -> Result<Self> {
         log::info!("Opening: {:?}", self.name);
+
         let mut file = std::fs::File::open(&self.name)?;
         self.file_metadata
             .insert(self.name.clone(), file.metadata()?.modified()?);
@@ -1271,4 +1298,6 @@ impl<'a> ModuleBuilder<'a> {
 
         Ok(self)
     }
+
+    // fn search_index
 }
