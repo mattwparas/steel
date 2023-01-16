@@ -1,4 +1,4 @@
-(require "steel/fib")
+(require "steel/fib/fib.scm")
 (provide foo)
 
-(define foo (displayln (fib 28)))
+(define (foo) (displayln (fib 28)))

@@ -491,7 +491,8 @@
        body ...)
      (begin
         (define name (lambda (args ...) body ...))
-        (set! name (bind-contract-to-function contract name 'name)))
+        (set! name (bind-contract-to-function contract name 'name))
+        void)
     ;  (define name (bind/c contract (lambda (args ...) body ...) 'name))
 
      ]

@@ -3,14 +3,57 @@ use crate::stop;
 use std::env::current_dir;
 use std::path::Path;
 
+use std::fs;
+use std::io;
+
 fn get_extension_from_filename(filename: &str) -> Option<&str> {
     Path::new(filename)
         .extension()
         .and_then(std::ffi::OsStr::to_str)
 }
 
+/// Copy files from source to destination recursively.
+/// from https://nick.groenen.me/notes/recursively-copy-files-in-rust/
+pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> io::Result<()> {
+    fs::create_dir_all(&destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let filetype = entry.file_type()?;
+        if filetype.is_dir() {
+            copy_recursively(entry.path(), destination.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), destination.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
 pub struct FsFunctions {}
 impl FsFunctions {
+    pub fn copy_directory_recursively() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() == 2 {
+                let source = if let SteelVal::StringV(s) = &args[0] {
+                    s
+                } else {
+                    stop!(TypeMismatch => format!("copy-directory-recursively! expects a string, found: {}", &args[0]))
+                };
+
+                let destination = if let SteelVal::StringV(s) = &args[1] {
+                    s
+                } else {
+                    stop!(TypeMismatch => format!("copy-directory-recursively! expects a string, found: {}", &args[0]))
+                };
+
+                copy_recursively(source.as_str(), destination.as_str())?;
+
+                Ok(SteelVal::Void)
+            } else {
+                stop!(ArityMismatch => format!("copy-directory-recursively! takes two arguments, found: {}", args.len()))
+            }
+        })
+    }
+
     pub fn path_exists() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
