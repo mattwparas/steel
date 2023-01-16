@@ -20,6 +20,10 @@ use clap::Parser;
 struct Args {
     /// The existence of this argument indicates whether we want to run the repl, or interpret this file
     default_file: Option<String>,
+
+    /// Arguments to the input file
+    arguments: Vec<String>,
+
     /// What action to perform on this file, the absence of a subcommand indicates that the given file (if any)
     /// will be run as the entrypoint
     #[clap(subcommand)]
@@ -57,11 +61,13 @@ fn main() {
         Args {
             default_file: None,
             action: None,
+            ..
         } => finish(repl_base(vm)),
 
         Args {
             default_file: Some(path),
             action,
+            arguments,
         } => match action {
             None => {
                 // let core_libraries = &[
@@ -77,6 +83,16 @@ fn main() {
                 //         return;
                 //     }
                 // }
+
+                vm.register_value(
+                    "std::env::args",
+                    steel::SteelVal::ListV(
+                        arguments
+                            .into_iter()
+                            .map(|x| steel::SteelVal::StringV(x.into()))
+                            .collect(),
+                    ),
+                );
 
                 let contents =
                     fs::read_to_string(&path).expect("Something went wrong reading the file");
