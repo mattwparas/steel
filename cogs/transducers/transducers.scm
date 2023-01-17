@@ -1,4 +1,4 @@
-(require "../unit-test.rkt" (for-syntax "../unit-test.rkt"))
+(require "steel/tests/unit-test.rkt" (for-syntax "steel/tests/unit-test.rkt"))
 
 
 ;; A reduced value is stops the transduction.
@@ -595,9 +595,4 @@
 
     (check-equal? "tconcatenate"
                   (list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
-                  '(10 20 30 40 50 60))
-                  
-    (check-equal? "Should fail!" 10 20)
-    (check-equal? "Another one bites the failure" 100 200)
-                  
-                  )
+                  '(10 20 30 40 50 60)))

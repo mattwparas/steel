@@ -1,4 +1,0 @@
-(define (walk path)
-    
-
-)

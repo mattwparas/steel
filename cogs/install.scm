@@ -6,8 +6,8 @@
 ;; Version resolution... for now just assume everything is compatible with everything without versions
 
 ;; Load in contracts for stress testing
-(require "../self_hosted/contract.scm" 
-        (for-syntax "../self_hosted/contract.scm")
+(require "contracts/contract.scm" 
+        (for-syntax "contracts/contract.scm")
         "steel/result")
 
 (define *STEEL_HOME* (~> "STEEL_HOME" 
@@ -61,44 +61,46 @@
     (copy-directory-recursively! (hash-get package 'path) destination)
     destination)
 
-; (displayln (discover-cogs *STEEL_HOME*))
+
+(define/c (install-package-and-log cog-to-install)
+    (->c hash? void?)
+    (let ((output-dir (install-package cog-to-install)))
+                (display-color "Installed package to: " 'green)
+                (displayln output-dir)))
+
+
+(define (check-install-package installed-cogs cog-to-install)
+    (define package-name (hash-get cog-to-install 'package-name))
+    (if (hash-contains? installed-cogs package-name)
+        (begin
+            (display "Beginning installation for ")
+            (displayln package-name)
+            (displayln "Package already installed...")
+            (displayln "Overwriting existing package installation...")
+            (install-package-and-log cog-to-install))
+
+        (begin
+            (displayln "Package is not currently installed.")
+            (install-package-and-log cog-to-install))))
 
 (define (main)
-    ;; Grab the cog to install to the file system
-    (define cog-to-install (car (parse-cog "foo")))
     ;; Grab the map of installed cogs on the file system.
     ;; We will check if the cog is already installed before patching over the directory
     (define installed-cogs (discover-cogs *STEEL_HOME*))
 
+    (define cogs-to-install '("contracts" "tests" "transducers"))
+
+    ;; Grab the cog to install to the file system
+    ; (define cog-to-install (car (parse-cog "foo")))
+
     (displayln installed-cogs)
 
-    (if (hash-contains? installed-cogs (hash-get cog-to-install 'package-name))
-        (begin
-            (displayln "Package already installed...")
-            (displayln "Overwriting existing package installation...")
-            (let ((output-dir (install-package cog-to-install)))
-                (display "Installed package to")
-                (displayln output-dir)))
+    (transduce cogs-to-install
+               (flat-mapping parse-cog)
+               (into-for-each (lambda (x) (check-install-package installed-cogs x)))))
 
-        (begin
-            (displayln "Package is not currently installed.")
-            (let ((output-dir (install-package cog-to-install)))
-                (display "Installed package to ")
-                (displayln output-dir)))))
+    ; (displayln installed-cogs)
+
+    ; (install-package installed-cogs cog-to-install)
 
 (main)
-
-
-; (parse-cog-file ".")
-
-; (displayln (discover-cogs "."))
-
-
-; (displayln (discover-cogs '()))
-
-
-; (define module-to-install "foo")
-
-; (define check-installed-modules)
-
-; (env-var )
