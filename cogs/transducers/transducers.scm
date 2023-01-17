@@ -1,5 +1,17 @@
 (require "steel/tests/unit-test.rkt" (for-syntax "steel/tests/unit-test.rkt"))
 
+(provide list-transduce
+         tmap
+         tfilter
+         tflatten
+         tdelete-neighbor-duplicates
+         tenumerate
+         tadd-between
+         ttake
+         ttake-while
+         tconcatenate
+         rcons)
+
 
 ;; A reduced value is stops the transduction.
 ; (define-record-type <reduced>
