@@ -45,7 +45,11 @@ fn main() {
 
     // let mut builder = Builder::new();
 
-    // let log_targets = ["requires", "steel::compiler::modules"];
+    // let log_targets = [
+    //     "requires",
+    //     "steel::compiler::modules",
+    //     "steel::parser::expander",
+    // ];
 
     // for target in log_targets {
     //     builder.filter(Some(target), LevelFilter::Trace);

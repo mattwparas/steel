@@ -505,9 +505,9 @@
 ;   (->c string? string?)
 ;   x)
 
-(define/c (foo x y)
-  (->c even? odd? odd?)
-  (+ x y))
+; (define/c (foo x y)
+;   (->c even? odd? odd?)
+;   (+ x y))
 
 ; (foo 11 11)
 

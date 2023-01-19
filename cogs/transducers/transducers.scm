@@ -1,4 +1,4 @@
-(require "steel/tests/unit-test.rkt" (for-syntax "steel/tests/unit-test.rkt"))
+(require "steel/tests/unit-test.scm" (for-syntax "steel/tests/unit-test.scm"))
 
 (provide list-transduce
          tmap

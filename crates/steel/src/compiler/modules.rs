@@ -308,16 +308,22 @@ impl ModuleManager {
         let module = compiled_modules
             .get(require_for_syntax)
             .expect("Module missing!");
-        let mut module_ast = module.ast.clone();
 
-        let globals = collect_globals(&module_ast);
         let prefix = "mangler".to_string() + module.name.to_str().unwrap();
+
+        let globals = collect_globals(&module.ast);
 
         let mut name_mangler = NameMangler::new(globals, prefix);
 
-        name_mangler.mangle_vars(&mut module_ast);
+        // If the module hasn't been emitted already, then include it here
+        if !module.emitted {
+            let mut module_ast = module.ast.clone();
 
-        mangled_asts.append(&mut module_ast);
+            name_mangler.mangle_vars(&mut module_ast);
+
+            mangled_asts.append(&mut module_ast);
+        }
+
         // let provided_macros = module.provides_for
         // let expander = Expander::new(&module.macro_map);
         // TODO
@@ -370,6 +376,7 @@ pub struct CompiledModule {
     provides_for_syntax: Vec<String>,
     macro_map: HashMap<String, SteelMacro>,
     ast: Vec<ExprKind>,
+    emitted: bool,
 }
 
 // TODO -> cache the construction of the module ast node, then we don't need to reconstruct it every time
@@ -391,7 +398,12 @@ impl CompiledModule {
             provides_for_syntax,
             macro_map,
             ast,
+            emitted: false,
         }
+    }
+
+    pub fn set_emitted(&mut self, emitted: bool) {
+        self.emitted = emitted;
     }
 
     fn to_top_level_module(&self, modules: &HashMap<PathBuf, CompiledModule>) -> Result<ExprKind> {
@@ -963,7 +975,7 @@ impl<'a> ModuleBuilder<'a> {
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
 
-        let module = CompiledModule::new(
+        let mut module = CompiledModule::new(
             self.name.clone(),
             provides,
             requires,
@@ -974,6 +986,8 @@ impl<'a> ModuleBuilder<'a> {
             std::mem::take(&mut self.macro_map),
             mangled_asts,
         );
+
+        module.set_emitted(true);
 
         // let result = module.to_module_ast_node();
 
@@ -1158,6 +1172,20 @@ impl<'a> ModuleBuilder<'a> {
                                                 current.pop();
                                             }
                                             current.push(path);
+
+                                            if !current.exists() {
+                                                if let Some(mut home) = home.clone() {
+                                                    home.push(path);
+                                                    current = home;
+
+                                                    log::info!(
+                                                        "Searching STEEL_HOME for {:?}",
+                                                        current
+                                                    );
+                                                } else {
+                                                    stop!(Generic => format!("Module not found: {:?}", self.name))
+                                                }
+                                            }
 
                                             self.requires_for_syntax.push(current);
                                         } else {

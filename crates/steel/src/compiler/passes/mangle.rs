@@ -23,6 +23,9 @@ pub fn collect_globals(exprs: &[ExprKind]) -> HashSet<String> {
         match expr {
             ExprKind::Define(d) => {
                 if let Some(name) = d.name.atom_identifier() {
+                    if name.starts_with("mangler") {
+                        continue;
+                    }
                     global_defs.insert(name.to_string());
                 }
             }

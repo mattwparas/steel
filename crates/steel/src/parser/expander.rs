@@ -229,12 +229,16 @@ impl SteelMacro {
     }
 
     pub fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
-        debug!("Expanding macro with tokens: {}", expr);
+        if log::log_enabled!(log::Level::Debug) {
+            debug!("Expanding macro with tokens: {}", expr);
+        }
 
         let case_to_expand = self.match_case(&expr)?;
         let expanded_expr = case_to_expand.expand(expr, span)?;
 
-        info!("Macro Expansion: {}", expanded_expr);
+        if log::log_enabled!(log::Level::Info) {
+            info!("Macro Expansion: {}", expanded_expr);
+        }
 
         Ok(expanded_expr)
     }
@@ -624,9 +628,9 @@ pub fn collect_bindings(
                 if let ExprKind::List(l) = child {
                     collect_bindings(children, l, bindings)?;
                 } else {
-                    println!("Args: {:?}", args);
-                    println!("List: {}", list);
-                    println!("Current pattern: {:?}", arg);
+                    // println!("Args: {:?}", args);
+                    // println!("List: {}", list);
+                    // println!("Current pattern: {:?}", arg);
                     stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
                 }
             }

@@ -197,11 +197,15 @@ pub struct SteelThread {
 #[derive(Clone)]
 pub(crate) struct RunTimeOptions {
     pub(crate) contracts_on: bool,
+    pub(crate) test: bool,
 }
 
 impl RunTimeOptions {
     pub fn new() -> Self {
-        Self { contracts_on: true }
+        Self {
+            contracts_on: true,
+            test: false,
+        }
     }
 }
 
@@ -378,7 +382,7 @@ impl SteelThread {
                         //     .stack
                         //     .push(SteelVal::StringV(Rc::from("APPLESAUCE")));
 
-                        println!("Found handler!");
+                        // println!("Found handler!");
 
                         // println!("Stack here: {:?}", vm_instance.stack_frames);
                         // println!("pop count: {}", vm_instance.pop_count);
@@ -413,6 +417,7 @@ impl SteelThread {
                                 //     .push(CallContext::new(closure).with_span(ctx.current_span()));
 
                                 vm_instance.ip = 0;
+                                vm_instance.sp = last.sp;
                             }
                             _ => todo!("Unsupported"),
                         }
@@ -3301,6 +3306,22 @@ pub(crate) const APPLY_DOC: DocTemplate<'static> = DocTemplate {
         ("λ > (apply list (list 1 2 3 4))", "=> '(1 2 3 4)"),
     ],
 };
+
+pub(crate) fn get_test_mode<'a, 'b>(
+    ctx: &'a mut VmCore<'b>,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    Some(Ok(ctx.thread.runtime_options.test.into()))
+}
+
+pub(crate) fn set_test_mode<'a, 'b>(
+    ctx: &'a mut VmCore<'b>,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    ctx.thread.runtime_options.test = true;
+
+    Some(Ok(ctx.thread.runtime_options.test.into()))
+}
 
 // TODO: This apply does not respect tail position
 // Something like this: (define (loop) (apply loop '()))

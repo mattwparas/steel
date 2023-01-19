@@ -4,7 +4,7 @@ use super::{
     builtin::BuiltInModule,
     engine::Engine,
     register_fn::RegisterFn,
-    vm::{apply, APPLY_DOC},
+    vm::{apply, get_test_mode, set_test_mode, APPLY_DOC},
 };
 use crate::{
     parser::span::Span,
@@ -841,7 +841,9 @@ fn meta_module() -> BuiltInModule {
         .register_fn("Engine::new", super::meta::EngineWrapper::new)
         .register_fn("Engine::add-module", super::meta::EngineWrapper::add_module)
         .register_fn("Engine::modules->list", super::meta::EngineWrapper::modules)
-        // .register_fn("run!", super::meta::EngineWrapper::call)
+        .register_value("set-test-mode!", SteelVal::BuiltIn(set_test_mode))
+        .register_value("get-test-mode", SteelVal::BuiltIn(get_test_mode))
+        .register_fn("run!", super::meta::EngineWrapper::call)
         // .register_fn("get-value", super::meta::EngineWrapper::get_value)
         .register_fn("value->iterator", crate::rvals::value_into_iterator)
         .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))

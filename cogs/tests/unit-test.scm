@@ -1,8 +1,9 @@
 (provide
     test
     (for-syntax check-equal?)
-    (for-syntax check-err)
-    (for-syntax test-module))
+    (for-syntax check-err?)
+    (for-syntax test-module)
+    get-test-stats)
 
 (define *SUCCESS-COUNT* 0)
 (define *FAILURE-COUNT* 0)
@@ -41,7 +42,7 @@
 
 (define-syntax check-err?
     (syntax-rules ()
-        [(check-equal? name input expected)
+        [(check-err? name input expected)
             (with-handler (lambda (err) (mark-success)
                                         (print-success name))
                 (test name input expected))]))
@@ -63,14 +64,21 @@
 (define-syntax test-module
     (syntax-rules ()
         [(test-module name expr ...)
+            (when (get-test-mode)
                 (begin 
                     (display "###### Running tests for module ") (display name) (displayln " ######")
                     (begin expr ...)
                     (display "Test result: ") (display *SUCCESS-COUNT*) (display " passed; ") (display *FAILURE-COUNT*) (displayln " failed;")
                     (display "Failures: ") (displayln *failures*)
-                    )]
+                    ))]
         [(test-module expr ...)
             (begin expr ...)]))
+
+(define (get-test-stats) (hash
+    'success-count *SUCCESS-COUNT*
+    'failure-count *FAILURE-COUNT*
+    'failures *failures*
+))
 
 ; (test-module
 ;     (check-equal? "Checks that the expressions make sense" 
