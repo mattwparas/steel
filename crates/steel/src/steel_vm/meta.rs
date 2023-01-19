@@ -97,7 +97,7 @@ impl EngineWrapper {
                     .iter()
                     .map(|x| x.to_string())
                     .map(|x| {
-                        println!("Evaluating: {:?}", x.trim_start_matches('\''));
+                        // println!("Evaluating: {:?}", x.trim_start_matches('\''));
 
                         self.0
                             .borrow_mut()

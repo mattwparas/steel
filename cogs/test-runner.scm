@@ -4,4 +4,10 @@
 (run! shared-engine '((require "transducers/transducers.scm" "contracts/contract-test.scm")))
 ; (run! shared-engine '((require "contracts/contract-test.scm")))
 
-(run! shared-engine '((require "steel/tests/unit-test.scm") (displayln (get-test-stats))))
+(define test-stats 
+    (~> (run! shared-engine '((require "steel/tests/unit-test.scm") (get-test-stats)))
+        (Ok->value)
+        (last)))
+
+(when (not (empty? (hash-get test-stats 'failures)))
+    (error! "There were test failures!"))

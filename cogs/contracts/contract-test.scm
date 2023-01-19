@@ -12,9 +12,9 @@
 
 (test-module "check-basic-contract-checking"
     (check-equal? "basic contract" (foo 10 21) 31)
-    (check-equal? "basic contract" (foo 10 21) 31)
     (check-err? "Should raise a contract violation" (foo 11 10) 21)
-    (check-equal? "basic contract" (foo 10 21) 31)
+
+    (check-equal? "applesauce" 10 20)
 
     ; (check-err? "Should raise a contract violation" (foo 11 10) 21)
     
