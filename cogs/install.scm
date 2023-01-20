@@ -83,12 +83,21 @@
             (displayln "Package is not currently installed.")
             (install-package-and-log cog-to-install))))
 
+(define (parse-cogs-from-command-line) 
+    (if (empty? std::env::args)
+        (list (current-directory))
+        std::env::args))
+
+
 (define (main)
+
+    (define cogs-to-install (parse-cogs-from-command-line))
+
     ;; Grab the map of installed cogs on the file system.
     ;; We will check if the cog is already installed before patching over the directory
     (define installed-cogs (discover-cogs *STEEL_HOME*))
 
-    (define cogs-to-install '("contracts" "tests" "transducers"))
+    ; (define cogs-to-install '("contracts" "tests" "transducers"))
 
     ;; Grab the cog to install to the file system
     ; (define cog-to-install (car (parse-cog "foo")))

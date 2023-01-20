@@ -63,7 +63,7 @@
           [else void]))
   (flatten (tree-rec p "")))
 
-(tree "/home/matt/Documents/steel/steel/src")
+(tree "/home/matt/Documents/steel/crates/steel/src")
 
 ; (define p "/Users/mwparas/Documents/MatSci201")
 

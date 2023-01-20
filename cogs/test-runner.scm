@@ -1,8 +1,15 @@
+(require "fs/fs.scm")
+
 (define shared-engine (Engine::new))
 
 (run! shared-engine "(set-test-mode!)")
-(run! shared-engine '((require "transducers/transducers.scm" "contracts/contract-test.scm")))
-; (run! shared-engine '((require "contracts/contract-test.scm")))
+
+(define (require-file path)
+    (when (ends-with? path ".scm")
+        (run! shared-engine (list (list 'require path)))))
+
+(walk-files "." require-file)
+
 
 (define test-stats 
     (~> (run! shared-engine '((require "steel/tests/unit-test.scm") (get-test-stats)))

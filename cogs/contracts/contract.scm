@@ -451,6 +451,7 @@
 
 (define (make-contract contract name)
   (cond [(FlatContract? contract) contract]
+        [(FunctionContract? contract) contract]
         [else => (FlatContract contract name)]))
 
 (define-syntax ->c

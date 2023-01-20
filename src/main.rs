@@ -14,7 +14,7 @@ use clap::Parser;
 // use env_logger::Builder;
 // use log::LevelFilter;
 
-/// Steel Interpreter Client
+/// Steel Interpreter
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -38,6 +38,8 @@ enum EmitAction {
     Ast,
     /// Enter the repl with the given file loaded
     Interactive,
+    /// Test the module
+    Test,
 }
 
 fn main() {
@@ -105,7 +107,13 @@ fn main() {
 
                 if let Err(e) = res {
                     e.emit_result(&path, &contents);
+                    process::exit(1);
                 }
+
+                process::exit(0);
+            }
+            Some(EmitAction::Test) => {
+                todo!()
             }
             Some(EmitAction::Bytecode) => {
                 let core_libraries = &[
