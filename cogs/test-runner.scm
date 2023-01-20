@@ -8,10 +8,14 @@
     (when (ends-with? path ".scm")
         (run! shared-engine (list (list 'require path)))))
 
-(walk-files "." require-file)
+(define (get-directory-from-args) 
+    (if (empty? std::env::args)
+        "."
+        (car std::env::args)))
 
+(walk-files (get-directory-from-args) require-file)
 
-(define test-stats 
+(define test-stats
     (~> (run! shared-engine '((require "steel/tests/unit-test.scm") (get-test-stats)))
         (Ok->value)
         (last)))

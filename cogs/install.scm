@@ -102,7 +102,7 @@
     ;; Grab the cog to install to the file system
     ; (define cog-to-install (car (parse-cog "foo")))
 
-    (displayln installed-cogs)
+    ; (displayln installed-cogs)
 
     (transduce cogs-to-install
                (flat-mapping parse-cog)
