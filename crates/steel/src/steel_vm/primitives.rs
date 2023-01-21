@@ -20,6 +20,7 @@ use crate::{
         },
         nums::quotient,
         process::process_module,
+        time::time_module,
         ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
         StreamOperations, StringOperations, SymbolOperations, VectorOperations,
     },
@@ -241,6 +242,7 @@ thread_local! {
     pub static RESULT_MODULE: BuiltInModule = build_result_structs();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
+    pub static TIME_MODULE: BuiltInModule = time_module();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -339,7 +341,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(PROCESS_MODULE.with(|x| x.clone()))
         .register_module(RESULT_MODULE.with(|x| x.clone()))
         .register_module(OPTION_MODULE.with(|x| x.clone()))
-        .register_module(PRELUDE_MODULE.with(|x| x.clone()));
+        .register_module(PRELUDE_MODULE.with(|x| x.clone()))
+        .register_module(TIME_MODULE.with(|x| x.clone()));
 }
 
 pub static ALL_MODULES: &str = r#"

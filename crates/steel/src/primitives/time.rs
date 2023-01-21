@@ -1,44 +1,27 @@
-use crate::gc::Gc;
-use crate::rerrs::{ErrorKind, SteelErr};
-use crate::rvals::{Result, SteelVal};
-use crate::stop;
-use std::convert::TryFrom;
-use std::fmt::Display;
-use std::time::SystemTime;
+use crate::rvals::Custom;
+use std::{time::Duration, time::Instant};
 // use chrono::
 
 // TODO fix this noise
 
-pub struct TimeOperations {}
-impl TimeOperations {
-    pub fn time_clock() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            if args.len() != 0 {
-                stop!(ArityMismatch => "time.clock takes no arguments")
-            }
+use crate::steel_vm::builtin::BuiltInModule;
+use crate::steel_vm::register_fn::RegisterFn;
 
-            // let date_time = SystemTime::now().to_string();
-
-            let date_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH);
-
-            Ok(Gc::new(SteelVal::StringV(date_time)))
-        })
-    }
-
-    pub fn time_elapsed() -> SteelVal {
-        SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-            if args.len() != 1 {
-                stop!(ArityMismatch => "time.elapsed only takes one argument")
-            }
-            if let SteelVal::StringV(old_time) = &args[0].as_ref() {
-                // let old_time = Instant::from(old_time);
-
-                // Ok(Gc::new(SteelVal::StringV(old_time.to_string())))
-
-                unimplemented!();
-            } else {
-                stop!(TypeMismatch => "time.elapsed expected a time-stamp")
-            }
-        })
-    }
+fn duration_to_string(duration: Duration) -> String {
+    format!("{:?}", duration)
 }
+
+pub fn time_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/time".to_string());
+
+    module
+        .register_fn("instant/now", Instant::now)
+        .register_fn("instant/elapsed", Instant::elapsed)
+        .register_fn("duration-since", Instant::duration_since)
+        .register_fn("duration->string", duration_to_string);
+
+    module
+}
+
+impl Custom for Instant {}
+impl Custom for Duration {}

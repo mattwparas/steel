@@ -11,8 +11,12 @@ use rustyline::validate::{
 use rustyline::Editor;
 use rustyline::{hint::Hinter, CompletionType, Context};
 use rustyline_derive::Helper;
-use std::path::{Path, PathBuf};
-use steel::rvals::SteelVal;
+use std::{
+    cell::RefCell,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
+use steel::{rvals::SteelVal, steel_vm::register_fn::RegisterFn};
 
 use rustyline::completion::Completer;
 use rustyline::completion::Pair;
@@ -101,11 +105,6 @@ fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
     match res {
         Ok(r) => r.iter().for_each(|x| match x {
             SteelVal::Void => {}
-            x if x.is_struct() => {
-                print!("{} ", "=>".bright_blue().bold());
-                vm.call_printing_method_in_context(x.clone())
-                    .expect("Failed to convert this value to a string representation to display");
-            }
             _ => println!("{} {}", "=>".bright_blue().bold(), x),
         }),
         Err(e) => {
@@ -124,11 +123,6 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
     match res {
         Ok(r) => r.iter().for_each(|x| match x {
             SteelVal::Void => {}
-            x if x.is_struct() => {
-                print!("{} ", "=>".bright_blue().bold());
-                vm.call_printing_method_in_context(x.clone())
-                    .expect("Failed to convert this value to a string representation to display");
-            }
             _ => println!("{} {}", "=>".bright_blue().bold(), x),
         }),
         Err(e) => {
@@ -138,6 +132,34 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
 
     if print_time {
         println!("Time taken: {:?}", now.elapsed());
+    }
+}
+
+// TODO: Rewrite the repl implementation in Steel
+// pub fn wrap_engine_with_wrapper(mut engine: Engine) {
+//     let wrapped_engine = Rc::new(RefCell::new(engine));
+
+//     let cloned_engine = Rc::clone(&wrapped_engine);
+
+//     wrapped_engine.borrow_mut().register_fn("load", |path| )
+
+// }
+
+struct ReadLine(Editor<RustylineHelper>);
+
+impl ReadLine {
+    pub fn new() -> Self {
+        let mut rl = Editor::<RustylineHelper>::new();
+        rl.set_helper(Some(RustylineHelper {
+            highlighter: MatchingBracketHighlighter::default(),
+            validator: MatchingBracketValidator::default(),
+        }));
+
+        ReadLine(rl)
+    }
+
+    pub fn readline(&mut self, prompt: String) -> Result<String, ReadlineError> {
+        self.0.readline(&prompt)
     }
 }
 
@@ -170,21 +192,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     // let core_libraries = &[PRELUDE, DISPLAY, CONTRACTS];
 
     let current_dir = std::env::current_dir()?;
-
-    // for core in core_libraries {
-    //     let res = vm.compile_and_run_raw_program(core);
-
-    //     match res {
-    //         Ok(r) => r.iter().for_each(|x| match x {
-    //             SteelVal::Void => {}
-    //             _ => println!("{} {}", "=>".bright_blue().bold(), x),
-    //         }),
-    //         Err(e) => {
-    //             e.emit_result("stdlib.stl", buffer.as_str());
-    //             eprintln!("{}", e.to_string().bright_red());
-    //         }
-    //     }
-    // }
 
     let mut print_time = false;
 

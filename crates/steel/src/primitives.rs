@@ -12,6 +12,7 @@ pub mod process;
 mod streams;
 mod strings;
 mod symbols;
+pub mod time;
 pub mod transducers;
 mod utils;
 mod vectors;
