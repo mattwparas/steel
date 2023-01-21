@@ -694,6 +694,7 @@ fn io_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/io".to_string());
     module
         .register_value("display", IoFunctions::display())
+        .register_value("displayln", IoFunctions::displayln())
         .register_value("display-color", IoFunctions::display_color())
         .register_value("newline", IoFunctions::newline())
         .register_value("read-to-string", IoFunctions::read_to_string());

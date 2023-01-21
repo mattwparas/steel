@@ -19,16 +19,12 @@
     (set! *failures* (cons name *failures*)))
 
 (define (print-success name) 
-    (display "test > ")
-    (display name)
-    (display " ... ")
+    (display "test > " name " ... ")
     (display-color "Ok" 'green)
     (newline))
 
 (define (print-failure name)
-    (display "test > ")
-    (display name)
-    (display " ... ")
+    (display "test > " name " ... ")
     (display-color "FAILED" 'red)
     (newline))
 
@@ -56,19 +52,16 @@
       (begin
         (mark-failed name)
         (print-failure name)
-        (display "    Expected: ")
-        (display expected)
-        (display ", Found ")
-        (displayln input))))
+        (displayln "    Expected: " expected ", Found " input))))
 
 (define-syntax test-module
     (syntax-rules ()
         [(test-module name expr ...)
             (when (get-test-mode)
                 (begin 
-                    (display "###### Running tests for module ") (display name) (displayln " ######")
+                    (displayln "###### Running tests for module " name " ######")
                     (begin expr ...)
-                    (display "Test result: ") (display *SUCCESS-COUNT*) (display " passed; ") (display *FAILURE-COUNT*) (displayln " failed;")
+                    (displayln "Test result: " *SUCCESS-COUNT* " passed; " *FAILURE-COUNT* " failed;")
                     (display "Failures: ") (displayln *failures*)
                     ))]
         [(test-module expr ...)

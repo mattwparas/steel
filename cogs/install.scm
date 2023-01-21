@@ -55,9 +55,10 @@
 ;; Given a package spec, install that package directly to the file system
 (define/c (install-package package)
     (->c hash? string?)
-    (define destination (~> *STEEL_HOME*
-                            (string-append "/")
-                            (string-append (symbol->string (hash-get package 'package-name)))))
+    (define destination (string-append 
+                            *STEEL_HOME*
+                            "/"
+                            (symbol->string (hash-get package 'package-name))))
     (copy-directory-recursively! (hash-get package 'path) destination)
     destination)
 
@@ -73,8 +74,7 @@
     (define package-name (hash-get cog-to-install 'package-name))
     (if (hash-contains? installed-cogs package-name)
         (begin
-            (display "Beginning installation for ")
-            (displayln package-name)
+            (displayln "Beginning installation for " package-name)
             (displayln "Package already installed...")
             (displayln "Overwriting existing package installation...")
             (install-package-and-log cog-to-install))
@@ -87,6 +87,13 @@
     (if (empty? std::env::args)
         (list (current-directory))
         std::env::args))
+
+;; TODO:
+;; Grab from the git url, download to a temporary location
+;; Parse the cog file, decide where it needs to get installed,
+;; copy the source to that location, register that its been installed
+;; -> Somehow, calculate a semantic hash of the AST to do comparisons?
+; (define (install-from-git))
 
 
 (define (main)

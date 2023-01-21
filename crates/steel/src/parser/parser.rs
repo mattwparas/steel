@@ -853,15 +853,15 @@ impl<'a> Iterator for Parser<'a> {
             TokenType::Comment => {
                 //     // todo!()
 
-                println!("Found a comment: {}", res.source());
-                println!("Buffer now: {:?}", self.comment_buffer);
+                // println!("Found a comment: {}", res.source());
+                // println!("Buffer now: {:?}", self.comment_buffer);
 
                 self.comment_buffer
                     .push(res.source().trim_start_matches(';').trim_start());
 
                 match self.next() {
                     Some(v) => {
-                        println!("Next thing found: {:?}", v);
+                        // println!("Next thing found: {:?}", v);
                         v
                     }
                     None => Err(ParseError::SyntaxError(

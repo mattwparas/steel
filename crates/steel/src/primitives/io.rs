@@ -66,20 +66,29 @@ impl IoFunctions {
 
     pub fn display() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                let print_val = &args[0];
-
-                // let output_port = DEFAULT_OUTPUT_PORT.with(|x| x.clone());
-
-                match &print_val {
+            for arg in args {
+                match &arg {
                     SteelVal::StringV(s) => print!("{}", s),
-                    _ => print!("{}", print_val),
+                    _ => print!("{}", arg),
                 }
-
-                Ok(SteelVal::Void)
-            } else {
-                stop!(ArityMismatch => "display takes one argument");
             }
+
+            Ok(SteelVal::Void)
+        })
+    }
+
+    pub fn displayln() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            for arg in args {
+                match &arg {
+                    SteelVal::StringV(s) => print!("{}", s),
+                    _ => print!("{}", arg),
+                }
+            }
+
+            println!();
+
+            Ok(SteelVal::Void)
         })
     }
 

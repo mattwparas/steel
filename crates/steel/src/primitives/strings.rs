@@ -13,16 +13,28 @@ pub struct StringOperations {}
 impl StringOperations {
     pub fn string_append() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 2 {
-                if let (SteelVal::StringV(l), SteelVal::StringV(r)) = (&args[0], &args[1]) {
-                    let new_string: String = l.to_string() + r;
-                    ok_string!(new_string)
-                // Ok(Gc::new(SteelVal::StringV(new_string)))
+            if args.len() >= 2 {
+                let mut arg_iter = args.iter();
+
+                let first_arg = arg_iter.next().unwrap();
+
+                let mut first = if let SteelVal::StringV(first) = first_arg {
+                    first.to_string()
                 } else {
-                    stop!(TypeMismatch => format!("string-append expected two strings, found {} and {}", &args[0], &args[1]))
+                    stop!(TypeMismatch => format!("string-append expected a string, found: {}", first_arg))
+                };
+
+                for arg in arg_iter {
+                    if let SteelVal::StringV(r) = arg {
+                        first = first + r;
+                    } else {
+                        stop!(TypeMismatch => format!("string-append expected a string, found: {}", first_arg))
+                    };
                 }
+
+                ok_string!(first)
             } else {
-                stop!(ArityMismatch => "string-append takes two arguments")
+                stop!(ArityMismatch => "string-append takes at least two arguments")
             }
         })
     }
@@ -340,18 +352,6 @@ mod string_operation_tests {
     #[test]
     fn string_append_test_arity_mismatch_too_few() {
         let args = vec![SteelVal::StringV("foo".into())];
-        let res = apply_function(StringOperations::string_append(), args);
-        let expected = ErrorKind::ArityMismatch;
-        assert_eq!(res.unwrap_err().kind(), expected);
-    }
-
-    #[test]
-    fn string_append_test_arity_mismatch_too_many() {
-        let args = vec![
-            SteelVal::StringV("foo".into()),
-            SteelVal::StringV("bar".into()),
-            SteelVal::StringV("baz".into()),
-        ];
         let res = apply_function(StringOperations::string_append(), args);
         let expected = ErrorKind::ArityMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);

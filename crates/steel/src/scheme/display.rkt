@@ -1,6 +1,6 @@
-(define (displayln object) 
-  (display object)
-  (newline))
+; (define (displayln object) 
+;   (display object)
+;   (newline))
 
 (define/contract (struct-name s)
   (->/c custom-struct? symbol?)
