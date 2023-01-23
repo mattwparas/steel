@@ -728,6 +728,7 @@ fn fs_module() -> BuiltInModule {
             "copy-directory-recursively!",
             FsFunctions::copy_directory_recursively(),
         )
+        .register_value("delete-directory!", FsFunctions::delete_directory())
         .register_value("file-name", FsFunctions::file_name())
         .register_value("current-directory", FsFunctions::current_dir())
         .register_value(

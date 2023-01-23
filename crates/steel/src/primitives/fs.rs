@@ -30,6 +30,24 @@ pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>)
 
 pub struct FsFunctions {}
 impl FsFunctions {
+    pub fn delete_directory() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() == 1 {
+                let source = if let SteelVal::StringV(s) = &args[0] {
+                    s
+                } else {
+                    stop!(TypeMismatch => format!("delete-directory! expects a string, found: {}", &args[0]))
+                };
+
+                std::fs::remove_dir_all(source.as_str())?;
+
+                Ok(SteelVal::Void)
+            } else {
+                stop!(ArityMismatch => format!("delete-directory! takes two arguments, found: {}", args.len()))
+            }
+        })
+    }
+
     pub fn copy_directory_recursively() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 2 {

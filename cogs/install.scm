@@ -10,11 +10,15 @@
         (for-syntax "contracts/contract.scm")
         "steel/result")
 
+(define (append-with-separator path)
+    (if (ends-with? path "/") 
+        (string-append path "cogs")
+        (string-append path "/cogs")))
+
 (define *STEEL_HOME* (~> "STEEL_HOME" 
                          (env-var)
                          (unwrap-ok)
-                         (string-append "/cogs")))
-
+                         (append-with-separator)))
 
 (define/c (parse-cog module)
     (->c string? list?)
@@ -25,13 +29,7 @@
                 (list (hash-insert (parse-cog-file cog-path) 'path module))
 
                 (hash-values->list
-                    (discover-cogs module))
-
-                ; (error! "Unable to locate the cog file for module: " module)
-                
-                
-                
-                ))
+                    (discover-cogs module))))
         (error! "Unable to locate the module " module)))
 
 ;; Parses a cog file directly into a hashmap
@@ -62,6 +60,15 @@
     (copy-directory-recursively! (hash-get package 'path) destination)
     destination)
 
+;; Given a package pec, uninstall that package by deleting the contents of the installation
+(define/c (uninstall-package package)
+    (->/c hash? string?)
+    (define destination (string-append 
+                        *STEEL_HOME*
+                        "/"
+                        (symbol->string (hash-get package 'package-name))))
+    
+    (displayln destination))
 
 (define/c (install-package-and-log cog-to-install)
     (->c hash? void?)

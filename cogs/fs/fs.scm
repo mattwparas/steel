@@ -2,21 +2,6 @@
 
 (provide walk-files)
 
-
-; (define (tree p)
-;   (define (tree-rec path padding)
-;     (define name (file-name path))
-;     (displayln (string-append padding name))
-;     (cond [(is-file? path) name]
-;           [(is-dir? path)
-;             (map (fn (x)
-;                     (tree-rec x (string-append padding "    ")))
-;                   ; (merge-sort (read-dir path)))]
-;                   (read-dir path))]
-;           [else void]))
-;   (flatten (tree-rec p "")))
-
-
 (define (for-each func lst)
     (if (null? lst) 
         void
