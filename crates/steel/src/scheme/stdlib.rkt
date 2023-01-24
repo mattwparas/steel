@@ -469,4 +469,6 @@
 (define-syntax help
   (syntax-rules ()
     [(help ident) 
-     (%doc? %-builtin-module-steel/base (quote ident))]))
+     (%doc? %-builtin-module-steel/base (quote ident))]
+    [(help module ident)
+     (%doc? (datum->syntax %-builtin-module- module) (quote ident))]))
