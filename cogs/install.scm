@@ -62,7 +62,7 @@
 
 ;; Given a package pec, uninstall that package by deleting the contents of the installation
 (define/c (uninstall-package package)
-    (->/c hash? string?)
+    (->c hash? string?)
     (define destination (string-append 
                         *STEEL_HOME*
                         "/"
@@ -95,12 +95,6 @@
         (list (current-directory))
         std::env::args))
 
-;; TODO:
-;; Grab from the git url, download to a temporary location
-;; Parse the cog file, decide where it needs to get installed,
-;; copy the source to that location, register that its been installed
-;; -> Somehow, calculate a semantic hash of the AST to do comparisons?
-; (define (install-from-git))
 
 
 (define (main)

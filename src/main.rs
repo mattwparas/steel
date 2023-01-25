@@ -18,28 +18,33 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// The existence of this argument indicates whether we want to run the repl, or interpret this file
-    default_file: Option<String>,
-
-    /// Arguments to the input file
-    arguments: Vec<String>,
-
     /// What action to perform on this file, the absence of a subcommand indicates that the given file (if any)
     /// will be run as the entrypoint
     #[clap(subcommand)]
     action: Option<EmitAction>,
+
+    /// The existence of this argument indicates whether we want to run the repl, or interpret this file
+    default_file: Option<PathBuf>,
+
+    /// Arguments to the input file
+    arguments: Vec<String>,
 }
 
 #[derive(clap::Subcommand, Debug)]
 enum EmitAction {
     /// Output a debug display of the fully transformed bytecode
-    Bytecode,
+    Bytecode { default_file: Option<PathBuf> },
     /// Print a debug display of the fully expanded AST
-    Ast,
+    Ast { default_file: Option<PathBuf> },
     /// Enter the repl with the given file loaded
-    Interactive,
+    Interactive {
+        default_file: Option<PathBuf>,
+        arguments: Vec<String>,
+    },
     /// Test the module
-    Test,
+    Test { default_file: Option<String> },
+    /// Generate the documentation for a file
+    Doc { default_file: Option<PathBuf> },
 }
 
 fn main() {
@@ -63,6 +68,9 @@ fn main() {
 
     let mut vm = configure_engine();
 
+    // Register an ephemeral env args to satisfy the semantic analysis
+    // vm.register_value("std::env::args", steel::SteelVal::Void);
+
     match clap_args {
         Args {
             default_file: None,
@@ -72,129 +80,165 @@ fn main() {
 
         Args {
             default_file: Some(path),
-            action,
+            action: None,
             arguments,
-        } => match action {
-            None => {
-                // let core_libraries = &[
-                //     steel::stdlib::PRELUDE,
-                //     steel::stdlib::DISPLAY,
-                //     steel::stdlib::CONTRACTS,
-                // ];
+        } => {
+            // let core_libraries = &[
+            //     steel::stdlib::PRELUDE,
+            //     steel::stdlib::DISPLAY,
+            //     steel::stdlib::CONTRACTS,
+            // ];
 
-                // for core in core_libraries {
-                //     let res = vm.compile_and_run_raw_program(core);
-                //     if let Err(e) = res {
-                //         eprintln!("{}", e);
-                //         return;
-                //     }
-                // }
+            // for core in core_libraries {
+            //     let res = vm.compile_and_run_raw_program(core);
+            //     if let Err(e) = res {
+            //         eprintln!("{}", e);
+            //         return;
+            //     }
+            // }
 
-                vm.register_value(
-                    "std::env::args",
-                    steel::SteelVal::ListV(
-                        arguments
-                            .into_iter()
-                            .map(|x| steel::SteelVal::StringV(x.into()))
-                            .collect(),
-                    ),
-                );
+            vm.register_value(
+                "std::env::args",
+                steel::SteelVal::ListV(
+                    arguments
+                        .into_iter()
+                        .map(|x| steel::SteelVal::StringV(x.into()))
+                        .collect(),
+                ),
+            );
 
-                let contents =
-                    fs::read_to_string(&path).expect("Something went wrong reading the file");
-                let res = vm
-                    .compile_and_run_raw_program_with_path(&contents, PathBuf::from(path.clone()));
+            let contents =
+                fs::read_to_string(&path).expect("Something went wrong reading the file");
+            let res =
+                vm.compile_and_run_raw_program_with_path(&contents, PathBuf::from(path.clone()));
 
+            if let Err(e) = res {
+                e.emit_result(path.to_str().unwrap(), &contents);
+                process::exit(1);
+            }
+
+            process::exit(0);
+        }
+
+        Args {
+            default_file: None,
+            action: Some(EmitAction::Test { default_file }),
+            ..
+        } => {
+            todo!()
+        }
+
+        Args {
+            default_file: None,
+            action: Some(EmitAction::Doc { default_file }),
+            ..
+        } => {
+            todo!()
+        }
+
+        Args {
+            default_file: None,
+            action:
+                Some(EmitAction::Bytecode {
+                    default_file: Some(path),
+                }),
+            ..
+        } => {
+            let core_libraries = &[
+                steel::stdlib::PRELUDE,
+                steel::stdlib::DISPLAY,
+                steel::stdlib::CONTRACTS,
+            ];
+
+            for core in core_libraries {
+                let res = vm.compile_and_run_raw_program(core);
                 if let Err(e) = res {
-                    e.emit_result(&path, &contents);
-                    process::exit(1);
-                }
-
-                process::exit(0);
-            }
-            Some(EmitAction::Test) => {
-                todo!()
-            }
-            Some(EmitAction::Bytecode) => {
-                let core_libraries = &[
-                    steel::stdlib::PRELUDE,
-                    steel::stdlib::DISPLAY,
-                    steel::stdlib::CONTRACTS,
-                ];
-
-                for core in core_libraries {
-                    let res = vm.compile_and_run_raw_program(core);
-                    if let Err(e) = res {
-                        eprintln!("{}", e);
-                        return;
-                    }
-                }
-
-                let contents =
-                    fs::read_to_string(&path).expect("Something went wrong reading the file");
-
-                let program = vm.emit_raw_program(&contents, path.clone().into());
-
-                match program {
-                    Ok(program) => {
-                        vm.debug_print_build(path.clone(), program).unwrap();
-                    }
-                    Err(e) => e.emit_result(&path, &contents),
+                    eprintln!("{}", e);
+                    return;
                 }
             }
-            Some(EmitAction::Ast) => {
-                let core_libraries = &[
-                    steel::stdlib::PRELUDE,
-                    steel::stdlib::DISPLAY,
-                    steel::stdlib::CONTRACTS,
-                ];
 
-                for core in core_libraries {
-                    let res = vm.compile_and_run_raw_program(core);
-                    if let Err(e) = res {
-                        eprintln!("{}", e);
-                        return;
-                    }
+            let contents =
+                fs::read_to_string(&path).expect("Something went wrong reading the file");
+
+            let program = vm.emit_raw_program(&contents, path.clone().into());
+
+            match program {
+                Ok(program) => {
+                    vm.debug_print_build(path.to_str().unwrap().to_string(), program)
+                        .unwrap();
                 }
-
-                let contents = fs::read_to_string(path.clone())
-                    .expect("Something went wrong reading the file");
-
-                let res =
-                    vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone().into()));
-
-                match res {
-                    Ok(ast) => println!("{ast}"),
-                    Err(e) => e.emit_result(&path, &contents),
-                }
+                Err(e) => e.emit_result(path.to_str().unwrap(), &contents),
             }
-            Some(EmitAction::Interactive) => {
-                let core_libraries = &[
-                    steel::stdlib::PRELUDE,
-                    steel::stdlib::DISPLAY,
-                    steel::stdlib::CONTRACTS,
-                ];
+        }
 
-                for core in core_libraries {
-                    let res = vm.compile_and_run_raw_program(core);
-                    if let Err(e) = res {
-                        eprintln!("{}", e);
-                        return;
-                    }
-                }
+        Args {
+            default_file: None,
+            action: Some(EmitAction::Ast {
+                default_file: Some(path),
+            }),
+            ..
+        } => {
+            let core_libraries = &[
+                steel::stdlib::PRELUDE,
+                steel::stdlib::DISPLAY,
+                steel::stdlib::CONTRACTS,
+            ];
 
-                let contents =
-                    fs::read_to_string(&path).expect("Something went wrong reading the file");
-                let res = vm
-                    .compile_and_run_raw_program_with_path(&contents, PathBuf::from(path.clone()));
-
+            for core in core_libraries {
+                let res = vm.compile_and_run_raw_program(core);
                 if let Err(e) = res {
-                    e.emit_result(&path, &contents);
+                    eprintln!("{}", e);
+                    return;
                 }
-
-                finish(repl_base(vm))
             }
-        },
+
+            let contents =
+                fs::read_to_string(path.clone()).expect("Something went wrong reading the file");
+
+            let res = vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone().into()));
+
+            match res {
+                Ok(ast) => println!("{ast}"),
+                Err(e) => e.emit_result(path.to_str().unwrap(), &contents),
+            }
+        }
+
+        Args {
+            default_file: None,
+            action:
+                Some(EmitAction::Interactive {
+                    default_file: Some(path),
+                    arguments,
+                }),
+            ..
+        } => {
+            let core_libraries = &[
+                steel::stdlib::PRELUDE,
+                steel::stdlib::DISPLAY,
+                steel::stdlib::CONTRACTS,
+            ];
+
+            for core in core_libraries {
+                let res = vm.compile_and_run_raw_program(core);
+                if let Err(e) = res {
+                    eprintln!("{}", e);
+                    return;
+                }
+            }
+
+            let contents =
+                fs::read_to_string(&path).expect("Something went wrong reading the file");
+            let res =
+                vm.compile_and_run_raw_program_with_path(&contents, PathBuf::from(path.clone()));
+
+            if let Err(e) = res {
+                e.emit_result(path.to_str().unwrap(), &contents);
+            }
+
+            finish(repl_base(vm))
+        }
+
         _ => finish(repl_base(vm)),
     }
 }

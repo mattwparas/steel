@@ -846,6 +846,10 @@ fn meta_module() -> BuiltInModule {
         .register_fn("Engine::new", super::meta::EngineWrapper::new)
         .register_fn("Engine::add-module", super::meta::EngineWrapper::add_module)
         .register_fn("Engine::modules->list", super::meta::EngineWrapper::modules)
+        .register_fn(
+            "Engine::raise_error",
+            super::meta::EngineWrapper::raise_error,
+        )
         .register_value("set-test-mode!", SteelVal::BuiltIn(set_test_mode))
         .register_value("get-test-mode", SteelVal::BuiltIn(get_test_mode))
         .register_fn("run!", super::meta::EngineWrapper::call)

@@ -10,7 +10,7 @@ use crate::{
     parser::ast::ExprKind,
     rvals::Custom,
     values::port::{SteelPort, CAPTURED_OUTPUT_PORT, DEFAULT_OUTPUT_PORT},
-    SteelVal,
+    SteelErr, SteelVal,
 };
 use crate::{parser::expander::LocalMacroManager, rvals::Result};
 use crate::{parser::parser::ParseError, steel_vm::engine::Engine};
@@ -18,22 +18,25 @@ use crate::{parser::parser::ParseError, steel_vm::engine::Engine};
 use crate::stop;
 
 #[derive(Clone)]
-pub(crate) struct EngineWrapper(Rc<RefCell<Engine>>);
+pub(crate) struct EngineWrapper(Engine);
 
 impl EngineWrapper {
     pub(crate) fn new() -> Self {
-        EngineWrapper(Rc::new(RefCell::new(Engine::new())))
+        EngineWrapper(Engine::new())
     }
 
-    pub(crate) fn add_module(self, path: String) -> Result<()> {
-        self.0.borrow_mut().add_module(path)?;
+    pub(crate) fn add_module(&mut self, path: String) -> Result<()> {
+        self.0.add_module(path)?;
         Ok(())
     }
 
+    pub(crate) fn raise_error(&self, error: SteelErr) {
+        self.0.raise_error(error)
+    }
+
     //
-    pub(crate) fn modules(self) -> List<String> {
+    pub(crate) fn modules(&self) -> List<String> {
         self.0
-            .borrow()
             .modules()
             .iter()
             .map(|x| x.0.to_str().unwrap().to_string())
@@ -41,10 +44,10 @@ impl EngineWrapper {
     }
 
     // TODO: Warning, here be dragons
-    pub(crate) fn call_fn(self, function_name: SteelVal, args: SteelVal) -> Result<SteelVal> {
+    pub(crate) fn call_fn(&mut self, function_name: SteelVal, args: SteelVal) -> Result<SteelVal> {
         let function = match function_name {
             SteelVal::SymbolV(expr) | SteelVal::StringV(expr) => {
-                self.0.borrow().extract_value(expr.as_ref())?
+                self.0.extract_value(expr.as_ref())?
             }
             _ => {
                 stop!(TypeMismatch => "get-value expected either a string or a symbol, found: {}", function_name)
@@ -56,19 +59,16 @@ impl EngineWrapper {
 
             println!("Calling with arguments: {:?}", arguments);
 
-            self.0
-                .borrow_mut()
-                .call_function_with_args(function, arguments)
+            self.0.call_function_with_args(function, arguments)
         } else {
             stop!(TypeMismatch => "call-function-in-env expects a list for the arguments")
         }
     }
 
-    pub(crate) fn call(self, expr: SteelVal) -> Result<List<SteelVal>> {
+    pub(crate) fn call(&mut self, expr: SteelVal) -> Result<List<SteelVal>> {
         match expr {
             SteelVal::StringV(expr) => self
                 .0
-                .borrow_mut()
                 .compile_and_run_raw_program(expr.as_ref())
                 .map(|x| x.into()),
             SteelVal::ListV(list) => {
@@ -100,7 +100,6 @@ impl EngineWrapper {
                         // println!("Evaluating: {:?}", x.trim_start_matches('\''));
 
                         self.0
-                            .borrow_mut()
                             .compile_and_run_raw_program(x.trim_start_matches('\''))
                     })
                     .collect::<Result<Vec<Vec<SteelVal>>>>();
@@ -114,10 +113,10 @@ impl EngineWrapper {
     }
 
     // TODO: Warning, here be dragons
-    pub(crate) fn get_value(self, expr: SteelVal) -> Result<SteelVal> {
+    pub(crate) fn get_value(&self, expr: SteelVal) -> Result<SteelVal> {
         match expr {
             SteelVal::SymbolV(expr) | SteelVal::StringV(expr) => {
-                self.0.borrow().extract_value(expr.as_ref())
+                self.0.extract_value(expr.as_ref())
             }
             _ => {
                 stop!(TypeMismatch => "get-value expected either a string or a symbol, found: {}", expr)

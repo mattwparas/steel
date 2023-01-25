@@ -455,8 +455,8 @@ impl UserDefinedStruct {
 
     fn setter_prototype(name: Rc<String>) -> SteelVal {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "struct-ref expected two arguments");
+            if args.len() != 3 {
+                stop!(ArityMismatch => "struct-ref expected 3 arguments");
             }
 
             let steel_struct = &args[0].clone();

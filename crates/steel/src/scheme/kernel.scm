@@ -51,8 +51,8 @@
   (define field-count (+ 1 (length fields)))
   ;; Mark whether this is actually a mutable and transparent struct, and
   ;; then drain the values from the
-  (define mutable? (contains? mutable-keyword? fields))
-  (define transparent? (contains? transparent-keyword? fields))
+  (define mutable? (contains? mutable-keyword? options))
+  (define transparent? (contains? transparent-keyword? options))
   (define options-without-single-keywords
     (transduce options
                (filtering (lambda (x) (not (mutable-keyword? x))))
