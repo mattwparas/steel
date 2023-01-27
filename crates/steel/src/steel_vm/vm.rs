@@ -3195,7 +3195,7 @@ pub fn call_with_exception_handler<'a, 'b>(
     Some(Ok(SteelVal::Void))
 }
 
-pub fn call_cc<'a, 'b>(ctx: &'a mut VmCore<'b>, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     /*
     - Construct the continuation
     - Get the function that has been passed in (off the stack)
@@ -3307,17 +3307,11 @@ pub(crate) const APPLY_DOC: DocTemplate<'static> = DocTemplate {
     ],
 };
 
-pub(crate) fn get_test_mode<'a, 'b>(
-    ctx: &'a mut VmCore<'b>,
-    args: &[SteelVal],
-) -> Option<Result<SteelVal>> {
+pub(crate) fn get_test_mode(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.thread.runtime_options.test.into()))
 }
 
-pub(crate) fn set_test_mode<'a, 'b>(
-    ctx: &'a mut VmCore<'b>,
-    args: &[SteelVal],
-) -> Option<Result<SteelVal>> {
+pub(crate) fn set_test_mode(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     ctx.thread.runtime_options.test = true;
 
     Some(Ok(ctx.thread.runtime_options.test.into()))
@@ -3328,10 +3322,7 @@ pub(crate) fn set_test_mode<'a, 'b>(
 // _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.
 // Similarly, care should be taken to check out transduce, because nested calls to that will
 // result in a stack overflow with sufficient depth on the recursive calls
-pub(crate) fn apply<'a, 'b>(
-    ctx: &'a mut VmCore<'b>,
-    args: &[SteelVal],
-) -> Option<Result<SteelVal>> {
+pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // arity_check!(apply, args, 2);
 
     ctx.ip -= 1;

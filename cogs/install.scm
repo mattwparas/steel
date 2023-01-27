@@ -43,6 +43,11 @@
 ;; Discover the cogs located at the path, return as a list of hash maps
 (define/c (discover-cogs path)
     (->c string? hash?)
+
+    (when (not (path-exists? path))
+        (displayln "cogs directory does not exist, creating now...")
+        (create-directory! path))
+
     (transduce (read-dir path)
                (filtering is-dir?)
                (mapping parse-cog)

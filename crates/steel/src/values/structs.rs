@@ -98,22 +98,22 @@ pub(crate) enum MaybeHeapVec {
 
 impl MaybeHeapVec {
     pub fn from_slice(args: &[SteelVal]) -> Self {
-        match &args {
-            &[] => Self::Unit,
-            &[one] => Self::One(one.clone()),
-            &[one, two] => Self::Two([one.clone(), two.clone()]),
-            &[one, two, three] => Self::Three([one.clone(), two.clone(), three.clone()]),
-            &[one, two, three, four] => {
+        match args {
+            [] => Self::Unit,
+            [one] => Self::One(one.clone()),
+            [one, two] => Self::Two([one.clone(), two.clone()]),
+            [one, two, three] => Self::Three([one.clone(), two.clone(), three.clone()]),
+            [one, two, three, four] => {
                 Self::Four([one.clone(), two.clone(), three.clone(), four.clone()])
             }
-            &[one, two, three, four, five] => Self::Five([
+            [one, two, three, four, five] => Self::Five([
                 one.clone(),
                 two.clone(),
                 three.clone(),
                 four.clone(),
                 five.clone(),
             ]),
-            _ => Self::Spilled(args.iter().cloned().collect()),
+            _ => Self::Spilled(args.to_vec()),
         }
     }
 
