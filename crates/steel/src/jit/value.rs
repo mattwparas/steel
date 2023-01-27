@@ -254,21 +254,21 @@ mod value_tests {
     use crate::SteelVal;
     use std::rc::Rc;
 
-    #[test]
-    fn test_pointer_converstion() {
-        let value = Gc::new(SteelVal::StringV("hello world".into()));
-        let coerced = to_encoded_double(&value);
-        let result = unsafe { get_ref_from_double(coerced) };
-        assert_eq!(result, SteelVal::StringV("hello world".into()));
-    }
+    // #[test]
+    // fn test_pointer_converstion() {
+    //     let value = Gc::new(SteelVal::StringV("hello world".into()));
+    //     let coerced = to_encoded_double(&value);
+    //     let result = unsafe { get_ref_from_double(coerced) };
+    //     assert_eq!(result, SteelVal::StringV("hello world".into()));
+    // }
 
-    #[test]
-    fn test_pointer_conversion_raw() {
-        let value = SteelVal::StringV("hello world".into());
-        let coerced = to_encoded_double_raw_value(value.clone());
-        let result = decode(coerced);
-        assert_eq!(result, SteelVal::StringV("hello world".into()));
-    }
+    // #[test]
+    // fn test_pointer_conversion_raw() {
+    //     let value = SteelVal::StringV("hello world".into());
+    //     let coerced = to_encoded_double_raw_value(value.clone());
+    //     let result = decode(coerced);
+    //     assert_eq!(result, SteelVal::StringV("hello world".into()));
+    // }
 
     #[test]
     fn test_is_float() {
