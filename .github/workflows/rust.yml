@@ -41,7 +41,7 @@ jobs:
       - name: Test Cogs
         run: |
           mkdir .cogs
-          export STEEL_HOME=.cogs
+          export STEEL_HOME=$PWD/.cogs
           cd cogs
           cargo run -- install.scm
           cargo run -- test-runner.scm
