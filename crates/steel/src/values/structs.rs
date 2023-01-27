@@ -50,34 +50,6 @@ impl std::fmt::Display for UserDefinedStruct {
             }
 
             write!(f, ")")
-
-            // match &self.fields {
-            //     MaybeHeapVec::Unit => write!(f, "({})", self.name),
-            //     MaybeHeapVec::One(v) => write!(f, "({} {})", self.name, v),
-            //     MaybeHeapVec::Two(a) => {
-            //         write!(f, "({} {} {})", self.name, a[0], a[1])
-            //     }
-            //     MaybeHeapVec::Three(a) => {
-            //         write!(f, "({} {} {} {})", self.name, a[0], a[1], a[2])
-            //     }
-            //     MaybeHeapVec::Four(a) => {
-            //         write!(f, "({} {} {} {} {})", self.name, a[0], a[1], a[2], a[3])
-            //     }
-            //     MaybeHeapVec::Five(a) => {
-            //         write!(
-            //             f,
-            //             "({} {} {} {} {} {})",
-            //             self.name, a[0], a[1], a[2], a[3], a[4]
-            //         )
-            //     }
-            //     MaybeHeapVec::Spilled(v) => {
-            //         write!(f, "({})", self.name)?;
-            //         for item in v.iter() {
-            //             write!(f, "{}", item)?;
-            //         }
-            //         write!(f, ")")
-            //     }
-            // }
         } else {
             write!(f, "({})", self.name)
         }

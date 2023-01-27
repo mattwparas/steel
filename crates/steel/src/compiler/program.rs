@@ -789,14 +789,6 @@ impl RawProgramWithSymbols {
             interner.collect_first_pass_defines(expression, symbol_map)?
         }
 
-        // let mut first_pass_defines = HashSet::new();
-        // let mut second_pass_defines = HashSet::new();
-
-        // TODO -> the instructions need to be combined into a flat array
-        // representing each expression, otherwise this will error out on a free identifier
-        // since the global defines are not all collected in one pass
-        // just split the debruijn index function into 2 passes
-        // and make into a struct to collect the information
         for expression in &mut self.instructions {
             interner.collect_second_pass_defines(expression, symbol_map)?
         }
@@ -842,11 +834,6 @@ impl RawProgramWithSymbols {
             interner.collect_first_pass_defines(expression, symbol_map)?
         }
 
-        // TODO -> the instructions need to be combined into a flat array
-        // representing each expression, otherwise this will error out on a free identifier
-        // since the global defines are not all collected in one pass
-        // just split the debruijn index function into 2 passes
-        // and make into a struct to collect the information
         for expression in &mut self.instructions {
             interner.collect_second_pass_defines(expression, symbol_map)?
         }

@@ -428,11 +428,19 @@ impl Engine {
         &mut self,
         program: RawProgramWithSymbols,
     ) -> Result<Executable> {
-        program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)
+        let symbol_map_offset = self.compiler.symbol_map.len();
+
+        let result = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map);
+
+        if result.is_err() {
+            self.compiler.symbol_map.roll_back(symbol_map_offset);
+        }
+
+        result
     }
 
     pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
-        let executable = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map)?;
+        let executable = self.raw_program_to_executable(program)?;
         self.virtual_machine.run_executable(&executable)
     }
 

@@ -920,6 +920,7 @@ mod code_gen_tests {
         println!("{:#?}", code_gen.instructions);
 
         let expected = vec![
+            (OpCode::BEGINSCOPE, 0),
             (OpCode::PUSHCONST, 0),   // Should be the only constant in the map
             (OpCode::PUSHCONST, 1),   // Should be the second constant in the map
             (OpCode::READLOCAL, 0),   // Corresponds to index 0
