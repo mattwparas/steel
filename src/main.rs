@@ -71,6 +71,8 @@ fn main() {
     // Register an ephemeral env args to satisfy the semantic analysis
     // vm.register_value("std::env::args", steel::SteelVal::Void);
 
+    vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
+
     match clap_args {
         Args {
             default_file: None,

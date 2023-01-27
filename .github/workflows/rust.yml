@@ -39,9 +39,10 @@ jobs:
           args: --all-features --workspace
 
       - name: Test Cogs
+        env:
+          STEEL_HOME: $GITHUB_WORKSPACE/.cogs
         run: |
           mkdir .cogs
-          export STEEL_HOME=$PWD/.cogs
           cd cogs
           cargo run -- install.scm
           cargo run -- test-runner.scm
